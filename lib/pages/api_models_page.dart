@@ -3,13 +3,6 @@ import 'package:provider/provider.dart';
 import '../models/model_config.dart';
 import '../providers/model_config_provider.dart';
 
-/// API 模型管理页面
-///
-/// 功能：
-/// - 显示模型列表，按优先级从上到下排列
-/// - 点击模型进入编辑页面
-/// - 右下角加号按钮添加新模型
-/// - 长按拖拽调整优先级排序
 class ApiModelsPage extends StatelessWidget {
   const ApiModelsPage({super.key});
 
@@ -29,7 +22,6 @@ class ApiModelsPage extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 8),
               itemCount: models.length,
               onReorder: provider.reorderModel,
-              // 每个列表项显示拖拽手柄，支持重新排序
               buildDefaultDragHandles: false,
               itemBuilder: (context, index) {
                 final model = models[index];
@@ -42,7 +34,6 @@ class ApiModelsPage extends StatelessWidget {
                 );
               },
             ),
-      // 右下角添加模型按钮
       floatingActionButton: FloatingActionButton(
         onPressed: () {
           _navigateToEditModel(context, provider);
@@ -52,7 +43,6 @@ class ApiModelsPage extends StatelessWidget {
     );
   }
 
-  /// 构建空状态
   Widget _buildEmptyState() {
     return Center(
       child: Column(
@@ -74,7 +64,6 @@ class ApiModelsPage extends StatelessWidget {
     );
   }
 
-  /// 构建模型列表项
   Widget _buildModelItem(
     BuildContext context,
     ModelConfig model,
@@ -86,12 +75,10 @@ class ApiModelsPage extends StatelessWidget {
       key: ValueKey(model.id),
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: ListTile(
-        // 拖拽手柄
         leading: ReorderableDragStartListener(
           index: index,
           child: const Icon(Icons.drag_handle, color: Colors.grey),
         ),
-        // 模型信息
         title: Text(
           model.name,
           style: const TextStyle(fontWeight: FontWeight.w600),
@@ -111,7 +98,6 @@ class ApiModelsPage extends StatelessWidget {
             ),
           ],
         ),
-        // 优先级标签
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -143,7 +129,6 @@ class ApiModelsPage extends StatelessWidget {
     );
   }
 
-  /// 根据优先级获取颜色
   Color _getPriorityColor(int index, int total) {
     if (total <= 1) return Colors.grey;
     final ratio = index / (total - 1);
@@ -152,7 +137,6 @@ class ApiModelsPage extends StatelessWidget {
     return Colors.red;
   }
 
-  /// 导航到编辑/添加模型页面
   void _navigateToEditModel(
     BuildContext context,
     ModelConfigProvider provider, {
@@ -170,14 +154,6 @@ class ApiModelsPage extends StatelessWidget {
   }
 }
 
-/// 编辑/添加模型页面
-///
-/// 表单包含：
-/// - 模型名称（自定义显示名称）
-/// - Endpoint（API 端点）
-/// - API Key
-/// - Model（实际模型名称）
-/// - API 类型（OpenAI / Ollama 等）
 class EditModelPage extends StatefulWidget {
   final ModelConfig? model;
   final ModelConfigProvider provider;
@@ -198,7 +174,12 @@ class _EditModelPageState extends State<EditModelPage> {
   late TextEditingController _endpointController;
   late TextEditingController _apiKeyController;
   late TextEditingController _modelNameController;
+  late TextEditingController _maxTokensController;
+  late TextEditingController _temperatureController;
+  late TextEditingController _topPController;
   String _apiType = 'openai';
+  bool _showAdvanced = false;
+  bool _obscureApiKey = true;
 
   final List<Map<String, String>> _apiTypes = [
     {'value': 'openai', 'label': 'OpenAI'},
@@ -220,7 +201,16 @@ class _EditModelPageState extends State<EditModelPage> {
         TextEditingController(text: widget.model?.apiKey ?? '');
     _modelNameController =
         TextEditingController(text: widget.model?.modelName ?? '');
+    _maxTokensController = TextEditingController(
+        text: widget.model?.maxTokens?.toString() ?? '');
+    _temperatureController = TextEditingController(
+        text: widget.model?.temperature?.toString() ?? '');
+    _topPController = TextEditingController(
+        text: widget.model?.topP?.toString() ?? '');
     _apiType = widget.model?.apiType ?? 'openai';
+    _showAdvanced = widget.model?.maxTokens != null ||
+        widget.model?.temperature != null ||
+        widget.model?.topP != null;
   }
 
   @override
@@ -229,10 +219,12 @@ class _EditModelPageState extends State<EditModelPage> {
     _endpointController.dispose();
     _apiKeyController.dispose();
     _modelNameController.dispose();
+    _maxTokensController.dispose();
+    _temperatureController.dispose();
+    _topPController.dispose();
     super.dispose();
   }
 
-  /// 保存模型配置
   void _saveModel() {
     if (!_formKey.currentState!.validate()) return;
 
@@ -244,6 +236,9 @@ class _EditModelPageState extends State<EditModelPage> {
       modelName: _modelNameController.text.trim(),
       apiType: _apiType,
       priority: widget.model?.priority ?? 999,
+      maxTokens: int.tryParse(_maxTokensController.text.trim()),
+      temperature: double.tryParse(_temperatureController.text.trim()),
+      topP: double.tryParse(_topPController.text.trim()),
     );
 
     if (isEditing) {
@@ -257,6 +252,8 @@ class _EditModelPageState extends State<EditModelPage> {
 
   @override
   Widget build(BuildContext context) {
+    final apiKeyOptional = _apiType == 'ollama';
+
     return Scaffold(
       appBar: AppBar(
         title: Text(isEditing ? '编辑模型' : '添加模型'),
@@ -348,7 +345,9 @@ class _EditModelPageState extends State<EditModelPage> {
                   labelText: 'Endpoint',
                   hintText: _apiType == 'openai'
                       ? 'https://api.openai.com/v1'
-                      : 'https://your-api-endpoint',
+                      : _apiType == 'ollama'
+                          ? 'http://localhost:11434'
+                          : 'https://your-api-endpoint',
                   border: const OutlineInputBorder(),
                   prefixIcon: const Icon(Icons.link),
                 ),
@@ -364,14 +363,24 @@ class _EditModelPageState extends State<EditModelPage> {
               // API Key
               TextFormField(
                 controller: _apiKeyController,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'API Key',
-                  hintText: 'sk-...',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.key),
+                  hintText: apiKeyOptional ? '可选（Ollama 无需 Key）' : 'sk-...',
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.key),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscureApiKey
+                          ? Icons.visibility_off
+                          : Icons.visibility,
+                    ),
+                    onPressed: () {
+                      setState(() => _obscureApiKey = !_obscureApiKey);
+                    },
+                  ),
                 ),
-                obscureText: true,
-                validator: (value) {
+                obscureText: _obscureApiKey,
+                validator: apiKeyOptional ? null : (value) {
                   if (value == null || value.trim().isEmpty) {
                     return '请输入 API Key';
                   }
@@ -387,7 +396,9 @@ class _EditModelPageState extends State<EditModelPage> {
                   labelText: 'Model',
                   hintText: _apiType == 'openai'
                       ? 'gpt-4-turbo'
-                      : '模型标识符',
+                      : _apiType == 'ollama'
+                          ? 'llama3'
+                          : '模型标识符',
                   border: const OutlineInputBorder(),
                   prefixIcon: const Icon(Icons.smart_toy),
                 ),
@@ -398,9 +409,95 @@ class _EditModelPageState extends State<EditModelPage> {
                   return null;
                 },
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 16),
 
-              // 保存按钮
+              // 高级选项
+              InkWell(
+                onTap: () {
+                  setState(() => _showAdvanced = !_showAdvanced);
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 12),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                        color: Colors.grey.withValues(alpha: 0.3)),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _showAdvanced
+                            ? Icons.expand_less
+                            : Icons.expand_more,
+                        size: 20,
+                        color: Colors.grey[600],
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '高级选项',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.grey[700],
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        'max_tokens, temperature 等',
+                        style: TextStyle(
+                            fontSize: 12, color: Colors.grey[500]),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              if (_showAdvanced) ...[
+                const SizedBox(height: 12),
+                // max_tokens
+                TextFormField(
+                  controller: _maxTokensController,
+                  decoration: const InputDecoration(
+                    labelText: 'Max Tokens',
+                    hintText: '例如：4096',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.numbers),
+                    helperText: '最大输出 token 数量，留空使用默认值',
+                  ),
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 12),
+                // Temperature
+                TextFormField(
+                  controller: _temperatureController,
+                  decoration: const InputDecoration(
+                    labelText: 'Temperature',
+                    hintText: '例如：0.7',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.thermostat),
+                    helperText: '采样温度，0-2，越高越随机，留空使用默认值',
+                  ),
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                ),
+                const SizedBox(height: 12),
+                // Top P
+                TextFormField(
+                  controller: _topPController,
+                  decoration: const InputDecoration(
+                    labelText: 'Top P',
+                    hintText: '例如：0.9',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.tune),
+                    helperText: '核采样参数，0-1，留空使用默认值',
+                  ),
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                ),
+              ],
+
+              const SizedBox(height: 32),
               ElevatedButton(
                 onPressed: _saveModel,
                 style: ElevatedButton.styleFrom(
@@ -418,4 +515,3 @@ class _EditModelPageState extends State<EditModelPage> {
     );
   }
 }
-

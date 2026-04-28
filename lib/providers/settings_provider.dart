@@ -59,5 +59,26 @@ class SettingsProvider extends ChangeNotifier {
     _saveSettings();
     notifyListeners();
   }
+
+  /// 设置语音转文字模型ID
+  void setSpeechModelId(String? modelId) {
+    _settings = _settings.copyWith(speechModelId: modelId);
+    _saveSettings();
+    notifyListeners();
+  }
+
+  /// 设置图片转述模型ID
+  void setImageModelId(String? modelId) {
+    _settings = _settings.copyWith(imageModelId: modelId);
+    _saveSettings();
+    notifyListeners();
+  }
+
+  /// 设置图片转述提示词
+  void setImagePrompt(String prompt) {
+    _settings = _settings.copyWith(imagePrompt: prompt);
+    _saveSettings();
+    notifyListeners();
+  }
 }
 

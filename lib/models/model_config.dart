@@ -8,14 +8,22 @@
 /// [modelName] 实际的模型名称（如 gpt-4, llama3 等）
 /// [apiType] API 接口类型，如 'openai' 或 'ollama'
 /// [priority] 优先级，数字越小优先级越高，用于排序
+/// [maxTokens] 最大输出 token 数，null 表示使用 API 默认值
+/// [temperature] 采样温度，null 表示使用 API 默认值
+/// [topP] 核采样参数，null 表示使用 API 默认值
+/// [extraParams] 额外的自定义参数，key-value 对
 class ModelConfig {
   final String id;
   final String name;
   final String endpoint;
   final String apiKey;
   final String modelName;
-  final String apiType; // 'openai', 'ollama' 等
+  final String apiType;
   final int priority;
+  final int? maxTokens;
+  final double? temperature;
+  final double? topP;
+  final Map<String, dynamic> extraParams;
 
   ModelConfig({
     required this.id,
@@ -25,9 +33,12 @@ class ModelConfig {
     required this.modelName,
     required this.apiType,
     required this.priority,
-  });
+    this.maxTokens,
+    this.temperature,
+    this.topP,
+    Map<String, dynamic>? extraParams,
+  }) : extraParams = extraParams ?? {};
 
-  /// 创建 ModelConfig 的副本，可选地覆盖某些字段
   ModelConfig copyWith({
     String? id,
     String? name,
@@ -36,6 +47,10 @@ class ModelConfig {
     String? modelName,
     String? apiType,
     int? priority,
+    int? maxTokens,
+    double? temperature,
+    double? topP,
+    Map<String, dynamic>? extraParams,
   }) {
     return ModelConfig(
       id: id ?? this.id,
@@ -45,10 +60,13 @@ class ModelConfig {
       modelName: modelName ?? this.modelName,
       apiType: apiType ?? this.apiType,
       priority: priority ?? this.priority,
+      maxTokens: maxTokens ?? this.maxTokens,
+      temperature: temperature ?? this.temperature,
+      topP: topP ?? this.topP,
+      extraParams: extraParams ?? this.extraParams,
     );
   }
 
-  /// 从 JSON Map 创建 ModelConfig 实例
   factory ModelConfig.fromJson(Map<String, dynamic> json) {
     return ModelConfig(
       id: json['id'] as String,
@@ -58,10 +76,15 @@ class ModelConfig {
       modelName: json['modelName'] as String,
       apiType: json['apiType'] as String,
       priority: json['priority'] as int,
+      maxTokens: json['maxTokens'] as int?,
+      temperature: (json['temperature'] as num?)?.toDouble(),
+      topP: (json['topP'] as num?)?.toDouble(),
+      extraParams: json['extraParams'] != null
+          ? Map<String, dynamic>.from(json['extraParams'] as Map)
+          : {},
     );
   }
 
-  /// 将 ModelConfig 转换为 JSON Map，用于持久化存储
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -71,7 +94,10 @@ class ModelConfig {
       'modelName': modelName,
       'apiType': apiType,
       'priority': priority,
+      if (maxTokens != null) 'maxTokens': maxTokens,
+      if (temperature != null) 'temperature': temperature,
+      if (topP != null) 'topP': topP,
+      if (extraParams.isNotEmpty) 'extraParams': extraParams,
     };
   }
 }
-

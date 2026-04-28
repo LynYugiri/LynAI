@@ -115,6 +115,58 @@ class ConversationProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 更新最后一条消息的内容（用于流式响应）
+  void updateLastMessage(String conversationId, String content) {
+    final index = _conversations.indexWhere((c) => c.id == conversationId);
+    if (index == -1 || _conversations[index].messages.isEmpty) return;
+
+    final messages = List<Message>.from(_conversations[index].messages);
+    final lastMsg = messages.last;
+    messages[messages.length - 1] = Message(
+      id: lastMsg.id,
+      role: lastMsg.role,
+      content: content,
+      timestamp: lastMsg.timestamp,
+    );
+
+    _conversations[index] = Conversation(
+      id: _conversations[index].id,
+      title: _conversations[index].title,
+      messages: messages,
+      modelId: _conversations[index].modelId,
+      createdAt: _conversations[index].createdAt,
+      updatedAt: DateTime.now(),
+    );
+
+    // 将更新的对话移到列表顶部
+    final conv = _conversations.removeAt(index);
+    _conversations.insert(0, conv);
+
+    _saveConversations();
+    notifyListeners();
+  }
+
+  /// 删除指定消息
+  void deleteMessage(String conversationId, String messageId) {
+    final index = _conversations.indexWhere((c) => c.id == conversationId);
+    if (index == -1) return;
+
+    final messages = List<Message>.from(_conversations[index].messages)
+      ..removeWhere((m) => m.id == messageId);
+
+    _conversations[index] = Conversation(
+      id: _conversations[index].id,
+      title: _conversations[index].title,
+      messages: messages,
+      modelId: _conversations[index].modelId,
+      createdAt: _conversations[index].createdAt,
+      updatedAt: DateTime.now(),
+    );
+
+    _saveConversations();
+    notifyListeners();
+  }
+
   /// 删除对话
   void deleteConversation(String conversationId) {
     _conversations.removeWhere((c) => c.id == conversationId);

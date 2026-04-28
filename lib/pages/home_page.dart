@@ -1,25 +1,14 @@
+import 'dart:io';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../models/app_settings.dart';
 import '../providers/settings_provider.dart';
 import 'history_page.dart';
 import 'chat_page.dart';
 import 'settings_page.dart';
 
-/// 应用主页面
-///
-/// 包含底部导航栏，管理三个主要页面：
-/// - 左侧：对话历史列表
-/// - 中间：新对话页面
-/// - 右侧：设置页面
-///
-/// 使用 IndexedStack 保持页面状态，切换时不会丢失状态。
-/// 支持通过参数跳转到指定页面和指定对话。
 class HomePage extends StatefulWidget {
-  /// 初始选中的导航索引
   final int initialIndex;
-
-  /// 跳转到指定对话ID
   final String? conversationId;
 
   const HomePage({super.key, this.initialIndex = 1, this.conversationId});
@@ -39,10 +28,9 @@ class _HomePageState extends State<HomePage> {
     _targetConversationId = widget.conversationId;
   }
 
-  /// 处理从历史列表跳转到聊天页面的导航
   void _navigateToChat(String conversationId) {
     setState(() {
-      _currentIndex = 1; // 切换到中间聊天页
+      _currentIndex = 1;
       _targetConversationId = conversationId;
     });
   }
@@ -50,61 +38,91 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>().settings;
+    final hasImage = settings.backgroundImagePath != null &&
+        File(settings.backgroundImagePath!).existsSync();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Scaffold(
-      body: _buildBody(settings),
-      bottomNavigationBar: _buildBottomNav(settings),
-    );
-  }
-
-  /// 构建页面主体，使用 IndexedStack 保持页面状态
-  Widget _buildBody(AppSettings settings) {
-    return IndexedStack(
-      index: _currentIndex,
-      children: [
-        // 左侧：对话历史列表
-        HistoryPage(onConversationTap: _navigateToChat),
-        // 中间：新对话 / 继续对话
-        ChatPage(
-          conversationId: _targetConversationId,
-          onConversationLoaded: () {
-            // 加载完成后清除目标ID，避免重复加载
+    final scaffold = Scaffold(
+      backgroundColor: Colors.transparent,
+      extendBodyBehindAppBar: true,
+      body: IndexedStack(
+        index: _currentIndex,
+        children: [
+          HistoryPage(onConversationTap: _navigateToChat),
+          ChatPage(
+            conversationId: _targetConversationId,
+            onConversationLoaded: () {
+              _targetConversationId = null;
+            },
+            onNavigateToSettings: () {
+              setState(() {
+                _currentIndex = 2;
+                _targetConversationId = null;
+              });
+            },
+          ),
+          const SettingsPage(),
+        ],
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _currentIndex,
+        onTap: (index) {
+          setState(() {
+            _currentIndex = index;
             _targetConversationId = null;
-          },
-        ),
-        // 右侧：设置
-        const SettingsPage(),
-      ],
+          });
+        },
+        selectedItemColor: settings.themeColor,
+        unselectedItemColor: Colors.grey,
+        items: const [
+          BottomNavigationBarItem(
+              icon: Icon(Icons.history), label: '历史'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.chat_bubble_outline), label: '对话'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.settings), label: '设置'),
+        ],
+      ),
     );
-  }
 
-  /// 构建底部导航栏，使用自定义主题颜色
-  Widget _buildBottomNav(AppSettings settings) {
-    return BottomNavigationBar(
-      currentIndex: _currentIndex,
-      onTap: (index) {
-        setState(() {
-          _currentIndex = index;
-          _targetConversationId = null;
-        });
-      },
-      selectedItemColor: settings.themeColor,
-      unselectedItemColor: Colors.grey,
-      items: const [
-        BottomNavigationBarItem(
-          icon: Icon(Icons.history),
-          label: '历史',
+    final transparentScaffold = Theme(
+      data: Theme.of(context).copyWith(
+        scaffoldBackgroundColor: Colors.transparent,
+      ),
+      child: scaffold,
+    );
+
+    if (!hasImage) return transparentScaffold;
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Image.file(
+          File(settings.backgroundImagePath!),
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => const SizedBox.shrink(),
         ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.chat_bubble_outline),
-          label: '对话',
+        if (settings.blurEnabled)
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: ui.ImageFilter.blur(
+                sigmaX: settings.blurAmount,
+                sigmaY: settings.blurAmount,
+              ),
+              child: Container(
+                color: (isDark ? Colors.black : Colors.white)
+                    .withValues(alpha: 0.3),
+              ),
+            ),
+          ),
+        Positioned.fill(
+          child: Container(
+            color: (isDark ? Colors.black : Colors.white)
+                .withValues(alpha: settings.blurEnabled ? 0.2 : 0.55),
+          ),
         ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.settings),
-          label: '设置',
-        ),
+        transparentScaffold,
       ],
     );
   }
 }
-

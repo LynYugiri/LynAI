@@ -1,3 +1,4 @@
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
@@ -90,7 +91,7 @@ class AboutPage extends StatelessWidget {
                     const SizedBox(height: 8),
                     _buildInfoRow('语言', 'Dart'),
                     const SizedBox(height: 8),
-                    _buildInfoRow('平台', 'Android'),
+                    _buildInfoRow('平台', _currentPlatform()),
                   ],
                 ),
               ),
@@ -109,6 +110,16 @@ class AboutPage extends StatelessWidget {
         Text(value, style: TextStyle(color: Colors.grey[600])),
       ],
     );
+  }
+
+  String _currentPlatform() {
+    if (Platform.isAndroid) return 'Android';
+    if (Platform.isIOS) return 'iOS';
+    if (Platform.isMacOS) return 'macOS';
+    if (Platform.isLinux) return 'Linux';
+    if (Platform.isWindows) return 'Windows';
+    if (Platform.isFuchsia) return 'Fuchsia';
+    return '未知';
   }
 }
 
