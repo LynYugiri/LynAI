@@ -7,7 +7,7 @@ import '../providers/model_config_provider.dart';
 
 const _endpointPresets = [
   {'name': 'OpenAI', 'url': 'https://api.openai.com/v1', 'type': 'openai'},
-  {'name': 'DeepSeek', 'url': 'https://api.deepseek.com/v1', 'type': 'openai'},
+  {'name': 'DeepSeek', 'url': 'https://api.deepseek.com', 'type': 'openai'},
   {'name': 'Anthropic', 'url': 'https://api.anthropic.com', 'type': 'anthropic'},
   {'name': 'Google AI', 'url': 'https://generativelanguage.googleapis.com/v1beta', 'type': 'openai'},
   {'name': 'Ollama (本地)', 'url': 'http://localhost:11434', 'type': 'ollama'},

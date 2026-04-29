@@ -39,29 +39,42 @@ class LynAIApp extends StatefulWidget {
 
 class _LynAIAppState extends State<LynAIApp> {
   bool _isLoading = true;
+  bool _hasError = false;
+  String _errorMessage = '';
 
   @override
   void initState() {
     super.initState();
-    _loadData();
+    // 使用 Future.microtask 确保 context 已经准备好
+    Future.microtask(() => _loadData());
   }
 
   /// 加载所有持久化数据
   ///
   /// 从 SharedPreferences 中读取对话列表、模型配置和应用设置。
   Future<void> _loadData() async {
-    final conversationProvider = context.read<ConversationProvider>();
-    final modelProvider = context.read<ModelConfigProvider>();
-    final settingsProvider = context.read<SettingsProvider>();
+    try {
+      final conversationProvider = context.read<ConversationProvider>();
+      final modelProvider = context.read<ModelConfigProvider>();
+      final settingsProvider = context.read<SettingsProvider>();
 
-    await Future.wait([
-      conversationProvider.loadConversations(),
-      modelProvider.loadModels(),
-      settingsProvider.loadSettings(),
-    ]);
+      await Future.wait([
+        conversationProvider.loadConversations(),
+        modelProvider.loadModels(),
+        settingsProvider.loadSettings(),
+      ]);
 
-    if (mounted) {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _hasError = true;
+          _errorMessage = '加载数据失败: $e';
+        });
+      }
     }
   }
 
@@ -70,6 +83,7 @@ class _LynAIAppState extends State<LynAIApp> {
     // 获取设置中的主题颜色
     final settings = context.watch<SettingsProvider>().settings;
 
+    final settingsProvider = context.read<SettingsProvider>();
     return MaterialApp(
       title: 'LynAI',
       debugShowCheckedModeBanner: false,
@@ -108,11 +122,13 @@ class _LynAIAppState extends State<LynAIApp> {
           ),
         ),
       ),
-      themeMode: ThemeMode.system,
-      // 加载完成后显示主页面，否则显示启动画面
+      themeMode: settingsProvider.themeModeEnum,
+      // 加载完成后显示主页面，否则显示启动画面或错误
       home: _isLoading
           ? const _SplashScreen()
-          : const HomePage(),
+          : _hasError
+              ? _ErrorScreen(message: _errorMessage)
+              : const HomePage(),
     );
   }
 }
@@ -159,6 +175,57 @@ class _SplashScreen extends StatelessWidget {
             // 加载指示器
             const CircularProgressIndicator(),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 错误界面
+///
+/// 在数据加载失败时显示错误信息。
+class _ErrorScreen extends StatelessWidget {
+  final String message;
+
+  const _ErrorScreen({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.error_outline,
+                size: 64,
+                color: Theme.of(context).colorScheme.error,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                '加载失败',
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+              const SizedBox(height: 24),
+              FilledButton(
+                onPressed: () {
+                  final state = context.findAncestorStateOfType<_LynAIAppState>();
+                  state?._loadData();
+                },
+                child: const Text('重试'),
+              ),
+            ],
+          ),
         ),
       ),
     );

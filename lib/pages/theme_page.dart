@@ -53,6 +53,10 @@ class ThemePage extends StatelessWidget {
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('主题模式', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 12),
+          _buildThemeModeSelector(context, provider),
+          const SizedBox(height: 24),
           const Text('当前主题预览', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
           const SizedBox(height: 12),
           _buildThemePreview(context, settings.themeColor),
@@ -73,6 +77,37 @@ class ThemePage extends StatelessWidget {
             onColorChanged: provider.setThemeColor,
           ),
         ]),
+      ),
+    );
+  }
+
+  Widget _buildThemeModeSelector(BuildContext context, SettingsProvider provider) {
+    final mode = provider.themeMode;
+    final modeLabels = {'light': '浅色模式', 'dark': '深色模式', 'system': '跟随系统'};
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        child: Row(
+          children: [
+            Expanded(child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(mode == 'light' ? Icons.light_mode : (mode == 'dark' ? Icons.dark_mode : Icons.settings_suggest),
+                  color: Theme.of(context).colorScheme.primary),
+              title: Text(modeLabels[mode] ?? '浅色模式'),
+              subtitle: const Text('默认使用浅色模式'),
+            )),
+            DropdownButton<String>(
+              value: mode,
+              underline: const SizedBox(),
+              items: [
+                DropdownMenuItem(value: 'light', child: Text('浅色', style: TextStyle(fontSize: 13))),
+                DropdownMenuItem(value: 'dark', child: Text('深色', style: TextStyle(fontSize: 13))),
+                DropdownMenuItem(value: 'system', child: Text('跟随系统', style: TextStyle(fontSize: 13))),
+              ],
+              onChanged: (v) { if (v != null) provider.setThemeMode(v); },
+            ),
+          ],
+        ),
       ),
     );
   }

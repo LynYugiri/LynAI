@@ -11,6 +11,7 @@ class AppSettings {
   final String? speechModelId;
   final String? imageModelId;
   final String imagePrompt;
+  final String themeMode;
 
   AppSettings({
     required this.themeColor,
@@ -20,6 +21,7 @@ class AppSettings {
     this.speechModelId,
     this.imageModelId,
     this.imagePrompt = 'Describe this file in Chinese',
+    this.themeMode = 'light',
   });
 
   factory AppSettings.defaults() {
@@ -28,23 +30,27 @@ class AppSettings {
     );
   }
 
+  static const _sentinel = Object();
+
   AppSettings copyWith({
     Color? themeColor,
-    String? backgroundImagePath,
+    Object? backgroundImagePath = _sentinel,
     bool? blurEnabled,
     double? blurAmount,
-    String? speechModelId,
-    String? imageModelId,
+    Object? speechModelId = _sentinel,
+    Object? imageModelId = _sentinel,
     String? imagePrompt,
+    String? themeMode,
   }) {
     return AppSettings(
       themeColor: themeColor ?? this.themeColor,
-      backgroundImagePath: backgroundImagePath ?? this.backgroundImagePath,
+      backgroundImagePath: identical(backgroundImagePath, _sentinel) ? this.backgroundImagePath : backgroundImagePath as String?,
       blurEnabled: blurEnabled ?? this.blurEnabled,
       blurAmount: blurAmount ?? this.blurAmount,
-      speechModelId: speechModelId ?? this.speechModelId,
-      imageModelId: imageModelId ?? this.imageModelId,
+      speechModelId: identical(speechModelId, _sentinel) ? this.speechModelId : speechModelId as String?,
+      imageModelId: identical(imageModelId, _sentinel) ? this.imageModelId : imageModelId as String?,
       imagePrompt: imagePrompt ?? this.imagePrompt,
+      themeMode: themeMode ?? this.themeMode,
     );
   }
 
@@ -57,6 +63,7 @@ class AppSettings {
       speechModelId: json['speechModelId'] as String?,
       imageModelId: json['imageModelId'] as String?,
       imagePrompt: json['imagePrompt'] as String? ?? 'Describe this file in Chinese',
+      themeMode: json['themeMode'] as String? ?? 'light',
     );
   }
 
@@ -69,6 +76,7 @@ class AppSettings {
       if (speechModelId != null) 'speechModelId': speechModelId,
       if (imageModelId != null) 'imageModelId': imageModelId,
       'imagePrompt': imagePrompt,
+      'themeMode': themeMode,
     };
   }
 }

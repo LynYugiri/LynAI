@@ -12,9 +12,11 @@ class StreamChunk {
 }
 
 class ApiService {
+  static const _timeout = Duration(seconds: 60);
+
   Future<({String content, String? reasoning})> sendChatRequest(
     ModelConfig config,
-    List<Map<String, String>> messages, {
+    List<Map<String, dynamic>> messages, {
     bool thinking = false,
   }) async {
     try {
@@ -23,12 +25,17 @@ class ApiService {
           : messages;
 
       if (config.apiType == 'ollama') {
-        return await _sendOllamaRequest(config, processedMessages, thinking: thinking);
+        return await _sendOllamaRequest(config, processedMessages, thinking: thinking)
+            .timeout(_timeout);
       } else if (config.apiType == 'anthropic') {
-        return await _sendAnthropicRequest(config, processedMessages, thinking: thinking);
+        return await _sendAnthropicRequest(config, processedMessages, thinking: thinking)
+            .timeout(_timeout);
       } else {
-        return await _sendOpenAICompatibleRequest(config, processedMessages, thinking: thinking);
+        return await _sendOpenAICompatibleRequest(config, processedMessages, thinking: thinking)
+            .timeout(_timeout);
       }
+    } on TimeoutException {
+      throw Exception('请求超时，请检查网络连接或稍后重试');
     } catch (e) {
       throw Exception('API 请求异常: $e');
     }
@@ -36,7 +43,7 @@ class ApiService {
 
   Stream<StreamChunk> sendStreamRequest(
     ModelConfig config,
-    List<Map<String, String>> messages, {
+    List<Map<String, dynamic>> messages, {
     bool thinking = false,
   }) async* {
     try {
@@ -46,6 +53,8 @@ class ApiService {
 
       if (config.apiType == 'ollama') {
         yield* _sendOllamaStreamRequest(config, processedMessages, thinking: thinking);
+      } else if (config.apiType == 'anthropic') {
+        yield* _sendAnthropicStreamRequest(config, processedMessages, thinking: thinking);
       } else {
         yield* _sendOpenAICompatibleStreamRequest(config, processedMessages, thinking: thinking);
       }
@@ -54,16 +63,19 @@ class ApiService {
     }
   }
 
-  Map<String, dynamic>
-      _thinkingDisabledParams() {
-    return {
-      'thinking': {'type': 'disabled'},
-      'enable_thinking': false,
-    };
+  Map<String, dynamic> _thinkingDisabledParams(String apiType) {
+    switch (apiType) {
+      case 'anthropic':
+        return {'thinking': {'type': 'disabled'}};
+      case 'ollama':
+        return {'think': false};
+      default:
+        return {'enable_thinking': false};
+    }
   }
 
-  List<Map<String, String>> _addThinkingPrompt(
-      List<Map<String, String>> messages) {
+  List<Map<String, dynamic>> _addThinkingPrompt(
+      List<Map<String, dynamic>> messages) {
     final hasSystem = messages.any((m) => m['role'] == 'system');
     if (hasSystem) return messages;
 
@@ -81,7 +93,7 @@ class ApiService {
   Future<({String content, String? reasoning})>
       _sendOpenAICompatibleRequest(
     ModelConfig config,
-    List<Map<String, String>> messages, {
+    List<Map<String, dynamic>> messages, {
     bool thinking = false,
   }) async {
     final uri = Uri.parse('${config.endpoint}/chat/completions');
@@ -93,7 +105,7 @@ class ApiService {
       if (config.maxTokens != null) 'max_tokens': config.maxTokens,
       if (config.temperature != null) 'temperature': config.temperature,
       if (config.topP != null) 'top_p': config.topP,
-      if (!thinking) ..._thinkingDisabledParams(),
+      if (!thinking) ..._thinkingDisabledParams(config.apiType),
       ...config.extraParams,
     };
 
@@ -108,12 +120,21 @@ class ApiService {
       uri,
       headers: headers,
       body: jsonEncode(body),
-    );
+    ).timeout(_timeout, onTimeout: () {
+      throw TimeoutException('连接超时，请检查 API 地址是否正确');
+    });
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
-      final choice = data['choices'][0];
+      final choices = data['choices'] as List?;
+      if (choices == null || choices.isEmpty) {
+        throw Exception('API 返回空的 choices');
+      }
+      final choice = choices[0];
       final message = choice['message'];
+      if (message == null) {
+        throw Exception('API 返回的 choice 缺少 message');
+      }
       final content = message['content'] as String? ?? '';
       final reasoning = message['reasoning_content'] as String?;
       return (content: content, reasoning: reasoning);
@@ -125,7 +146,7 @@ class ApiService {
 
   Stream<StreamChunk> _sendOpenAICompatibleStreamRequest(
     ModelConfig config,
-    List<Map<String, String>> messages, {
+    List<Map<String, dynamic>> messages, {
     bool thinking = false,
   }) async* {
     final uri = Uri.parse('${config.endpoint}/chat/completions');
@@ -137,7 +158,7 @@ class ApiService {
       if (config.maxTokens != null) 'max_tokens': config.maxTokens,
       if (config.temperature != null) 'temperature': config.temperature,
       if (config.topP != null) 'top_p': config.topP,
-      if (!thinking) ..._thinkingDisabledParams(),
+      if (!thinking) ..._thinkingDisabledParams(config.apiType),
       ...config.extraParams,
     };
 
@@ -189,7 +210,9 @@ class ApiService {
               yield StreamChunk(isDone: true);
               break;
             }
-          } catch (_) {}
+          } catch (e) {
+            // malformed chunk, skip
+          }
         }
       }
     } finally {
@@ -199,26 +222,28 @@ class ApiService {
 
   Future<({String content, String? reasoning})> _sendOllamaRequest(
     ModelConfig config,
-    List<Map<String, String>> messages, {
+    List<Map<String, dynamic>> messages, {
     bool thinking = false,
   }) async {
     final uri = Uri.parse('${config.endpoint}/api/chat');
 
     final ollamaMessages = messages.map((m) {
-      return {'role': m['role'], 'content': m['content']};
+      final c = m['content'];
+      return {'role': m['role'], 'content': c is String ? c : jsonEncode(c)};
     }).toList();
 
     final body = <String, dynamic>{
       'model': config.modelName,
       'messages': ollamaMessages,
       'stream': false,
+      if (!thinking) 'think': false,
     };
 
-    if (config.temperature != null || config.topP != null) {
+    if (config.maxTokens != null || config.temperature != null || config.topP != null) {
       body['options'] = {
+        if (config.maxTokens != null) 'num_predict': config.maxTokens,
         if (config.temperature != null) 'temperature': config.temperature,
         if (config.topP != null) 'top_p': config.topP,
-        if (config.maxTokens != null) 'num_predict': config.maxTokens,
       };
     }
 
@@ -228,7 +253,9 @@ class ApiService {
       uri,
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode(body),
-    );
+    ).timeout(_timeout, onTimeout: () {
+      throw TimeoutException('连接超时，请检查 Ollama 服务是否运行');
+    });
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
@@ -242,26 +269,28 @@ class ApiService {
 
   Stream<StreamChunk> _sendOllamaStreamRequest(
     ModelConfig config,
-    List<Map<String, String>> messages, {
+    List<Map<String, dynamic>> messages, {
     bool thinking = false,
   }) async* {
     final uri = Uri.parse('${config.endpoint}/api/chat');
 
     final ollamaMessages = messages.map((m) {
-      return {'role': m['role'], 'content': m['content']};
+      final c = m['content'];
+      return {'role': m['role'], 'content': c is String ? c : jsonEncode(c)};
     }).toList();
 
     final body = <String, dynamic>{
       'model': config.modelName,
       'messages': ollamaMessages,
       'stream': true,
+      if (!thinking) 'think': false,
     };
 
-    if (config.temperature != null || config.topP != null) {
+    if (config.maxTokens != null || config.temperature != null || config.topP != null) {
       body['options'] = {
+        if (config.maxTokens != null) 'num_predict': config.maxTokens,
         if (config.temperature != null) 'temperature': config.temperature,
         if (config.topP != null) 'top_p': config.topP,
-        if (config.maxTokens != null) 'num_predict': config.maxTokens,
       };
     }
 
@@ -302,9 +331,93 @@ class ApiService {
     }
   }
 
+  Stream<StreamChunk> _sendAnthropicStreamRequest(
+    ModelConfig config,
+    List<Map<String, dynamic>> messages, {
+    bool thinking = false,
+  }) async* {
+    final uri = Uri.parse('${config.endpoint}/messages');
+
+    final anthropicMessages = <Map<String, dynamic>>[];
+    String? systemPrompt;
+
+    for (final m in messages) {
+      if (m['role'] == 'system') {
+        systemPrompt = m['content'] as String;
+      } else {
+        anthropicMessages.add({
+          'role': m['role'],
+          'content': m['content'],
+        });
+      }
+    }
+
+    final body = <String, dynamic>{
+      'model': config.modelName,
+      'messages': anthropicMessages,
+      'max_tokens': config.maxTokens ?? 4096,
+      'stream': true,
+      if (systemPrompt != null) 'system': systemPrompt,
+      if (config.temperature != null) 'temperature': config.temperature,
+      if (config.topP != null) 'top_p': config.topP,
+      if (!thinking) ..._thinkingDisabledParams(config.apiType),
+      ...config.extraParams,
+    };
+
+    final request = http.Request('POST', uri);
+    request.headers.addAll({
+      'Content-Type': 'application/json',
+      'x-api-key': config.apiKey,
+      'anthropic-version': '2023-06-01',
+    });
+    request.body = jsonEncode(body);
+
+    final client = http.Client();
+    try {
+      final streamedResponse = await client.send(request);
+
+      if (streamedResponse.statusCode != 200) {
+        final errorBody = await streamedResponse.stream.bytesToString();
+        throw Exception('Anthropic 流式请求失败: ${streamedResponse.statusCode} $errorBody');
+      }
+
+      await for (final chunk in streamedResponse.stream
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())) {
+        // Anthropic SSE format: "event: <type>\ndata: <json>"
+        if (chunk.startsWith('data: ')) {
+          final data = chunk.substring(6);
+          try {
+            final json = jsonDecode(data);
+            final type = json['type'] as String?;
+
+            if (type == 'content_block_delta') {
+              final delta = json['delta'];
+              if (delta != null) {
+                final deltaType = delta['type'] as String?;
+                if (deltaType == 'text_delta') {
+                  yield StreamChunk(content: delta['text'] as String?);
+                } else if (deltaType == 'thinking_delta') {
+                  yield StreamChunk(reasoningContent: delta['thinking'] as String?);
+                }
+              }
+            } else if (type == 'message_stop') {
+              yield StreamChunk(isDone: true);
+              break;
+            }
+          } catch (_) {
+            // malformed chunk, skip
+          }
+        }
+      }
+    } finally {
+      client.close();
+    }
+  }
+
   Future<({String content, String? reasoning})> _sendAnthropicRequest(
     ModelConfig config,
-    List<Map<String, String>> messages, {
+    List<Map<String, dynamic>> messages, {
     bool thinking = false,
   }) async {
     final uri = Uri.parse('${config.endpoint}/messages');
@@ -314,7 +427,7 @@ class ApiService {
 
     for (final m in messages) {
       if (m['role'] == 'system') {
-        systemPrompt = m['content'];
+        systemPrompt = m['content'] as String;
       } else {
         anthropicMessages.add({
           'role': m['role'],
@@ -330,7 +443,7 @@ class ApiService {
       if (systemPrompt != null) 'system': systemPrompt,
       if (config.temperature != null) 'temperature': config.temperature,
       if (config.topP != null) 'top_p': config.topP,
-      if (!thinking) ..._thinkingDisabledParams(),
+      if (!thinking) ..._thinkingDisabledParams(config.apiType),
       ...config.extraParams,
     };
 
@@ -342,7 +455,9 @@ class ApiService {
         'anthropic-version': '2023-06-01',
       },
       body: jsonEncode(body),
-    );
+    ).timeout(_timeout, onTimeout: () {
+      throw TimeoutException('连接超时，请检查 Anthropic API 配置');
+    });
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);

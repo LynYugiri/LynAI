@@ -29,8 +29,9 @@ class Conversation {
   /// 获取对话开头的一部分内容，用于在历史列表中预览
   String get preview {
     if (messages.isEmpty) return '';
-    final firstMsg = messages.first.content;
-    return firstMsg.length > 80 ? '${firstMsg.substring(0, 80)}...' : firstMsg;
+    final raw = messages.first.content;
+    final clean = raw.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
+    return clean.length > 80 ? '${clean.substring(0, 80)}...' : clean;
   }
 
   /// 从 JSON Map 创建 Conversation 实例

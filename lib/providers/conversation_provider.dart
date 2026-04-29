@@ -20,83 +20,101 @@ class ConversationProvider extends ChangeNotifier {
 
   /// 从 SharedPreferences 加载对话数据
   Future<void> loadConversations() async {
-    final prefs = await SharedPreferences.getInstance();
-    final jsonString = prefs.getString(_storageKey);
-    if (jsonString != null) {
-      final List<dynamic> jsonList = jsonDecode(jsonString);
-      _conversations = jsonList
-          .map((j) => Conversation.fromJson(j as Map<String, dynamic>))
-          .toList();
-      // 按更新时间倒序排列
-      _conversations.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-      notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonString = prefs.getString(_storageKey);
+      if (jsonString != null) {
+        final List<dynamic> jsonList = jsonDecode(jsonString);
+        _conversations = jsonList
+            .map((j) => Conversation.fromJson(j as Map<String, dynamic>))
+            .toList();
+        // 按更新时间倒序排列
+        _conversations.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('加载对话失败: $e');
+      // 初始化空列表，避免应用崩溃
+      _conversations = [];
     }
   }
 
   /// 将对话数据保存到 SharedPreferences
   Future<void> _saveConversations() async {
-    final prefs = await SharedPreferences.getInstance();
-    final jsonString =
-        jsonEncode(_conversations.map((c) => c.toJson()).toList());
-    await prefs.setString(_storageKey, jsonString);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonString =
+          jsonEncode(_conversations.map((c) => c.toJson()).toList());
+      await prefs.setString(_storageKey, jsonString);
+    } catch (e) {
+      debugPrint('保存对话失败: $e');
+    }
   }
 
   /// 创建新对话，返回对话ID
   String createConversation(String modelId) {
-    final now = DateTime.now();
-    final conversation = Conversation(
-      id: _uuid.v4(),
-      title: '新对话 ${_conversations.length + 1}',
-      messages: [],
-      modelId: modelId,
-      createdAt: now,
-      updatedAt: now,
-    );
-    _conversations.insert(0, conversation);
-    _saveConversations();
-    notifyListeners();
-    return conversation.id;
+    try {
+      final now = DateTime.now();
+      final conversation = Conversation(
+        id: _uuid.v4(),
+        title: '新对话 ${_conversations.length + 1}',
+        messages: [],
+        modelId: modelId,
+        createdAt: now,
+        updatedAt: now,
+      );
+      _conversations.insert(0, conversation);
+      _saveConversations();
+      notifyListeners();
+      return conversation.id;
+    } catch (e) {
+      debugPrint('创建对话失败: $e');
+      rethrow;
+    }
   }
 
   /// 向指定对话添加消息
   void addMessage(String conversationId, String role, String content) {
-    final index = _conversations.indexWhere((c) => c.id == conversationId);
-    if (index == -1) return;
+    try {
+      final index = _conversations.indexWhere((c) => c.id == conversationId);
+      if (index == -1) return;
 
-    final message = Message(
-      id: _uuid.v4(),
-      role: role,
-      content: content,
-      timestamp: DateTime.now(),
-    );
+      final message = Message(
+        id: _uuid.v4(),
+        role: role,
+        content: content,
+        timestamp: DateTime.now(),
+      );
 
-    final updatedMessages = List<Message>.from(_conversations[index].messages)
-      ..add(message);
-    final now = DateTime.now();
+      final updatedMessages = List<Message>.from(_conversations[index].messages)
+        ..add(message);
+      final now = DateTime.now();
 
-    // 如果是第一条用户消息，自动用其内容作为对话标题
-    String title = _conversations[index].title;
-    if (_conversations[index].messages.isEmpty && role == 'user') {
-      title = content.length > 20
-          ? '${content.substring(0, 20)}...'
-          : content;
+      // 如果是第一条用户消息，自动用其内容作为对话标题
+      String title = _conversations[index].title;
+      if (_conversations[index].messages.isEmpty && role == 'user') {
+        final clean = content.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
+        title = clean.length > 20 ? '${clean.substring(0, 20)}...' : clean;
+      }
+
+      _conversations[index] = Conversation(
+        id: _conversations[index].id,
+        title: title,
+        messages: updatedMessages,
+        modelId: _conversations[index].modelId,
+        createdAt: _conversations[index].createdAt,
+        updatedAt: now,
+      );
+
+      // 将更新的对话移到列表顶部
+      final conv = _conversations.removeAt(index);
+      _conversations.insert(0, conv);
+
+      _saveConversations();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('添加消息失败: $e');
     }
-
-    _conversations[index] = Conversation(
-      id: _conversations[index].id,
-      title: title,
-      messages: updatedMessages,
-      modelId: _conversations[index].modelId,
-      createdAt: _conversations[index].createdAt,
-      updatedAt: now,
-    );
-
-    // 将更新的对话移到列表顶部
-    final conv = _conversations.removeAt(index);
-    _conversations.insert(0, conv);
-
-    _saveConversations();
-    notifyListeners();
   }
 
   /// 更新对话标题
@@ -116,34 +134,38 @@ class ConversationProvider extends ChangeNotifier {
   }
 
   /// 更新最后一条消息的内容（用于流式响应）
-  void updateLastMessage(String conversationId, String content) {
-    final index = _conversations.indexWhere((c) => c.id == conversationId);
-    if (index == -1 || _conversations[index].messages.isEmpty) return;
+  void updateLastMessage(String conversationId, String content, {bool save = true}) {
+    try {
+      final index = _conversations.indexWhere((c) => c.id == conversationId);
+      if (index == -1 || _conversations[index].messages.isEmpty) return;
 
-    final messages = List<Message>.from(_conversations[index].messages);
-    final lastMsg = messages.last;
-    messages[messages.length - 1] = Message(
-      id: lastMsg.id,
-      role: lastMsg.role,
-      content: content,
-      timestamp: lastMsg.timestamp,
-    );
+      final messages = List<Message>.from(_conversations[index].messages);
+      final lastMsg = messages.last;
+      messages[messages.length - 1] = Message(
+        id: lastMsg.id,
+        role: lastMsg.role,
+        content: content,
+        timestamp: lastMsg.timestamp,
+      );
 
-    _conversations[index] = Conversation(
-      id: _conversations[index].id,
-      title: _conversations[index].title,
-      messages: messages,
-      modelId: _conversations[index].modelId,
-      createdAt: _conversations[index].createdAt,
-      updatedAt: DateTime.now(),
-    );
+      _conversations[index] = Conversation(
+        id: _conversations[index].id,
+        title: _conversations[index].title,
+        messages: messages,
+        modelId: _conversations[index].modelId,
+        createdAt: _conversations[index].createdAt,
+        updatedAt: DateTime.now(),
+      );
 
-    // 将更新的对话移到列表顶部
-    final conv = _conversations.removeAt(index);
-    _conversations.insert(0, conv);
+      // 将更新的对话移到列表顶部
+      final conv = _conversations.removeAt(index);
+      _conversations.insert(0, conv);
 
-    _saveConversations();
-    notifyListeners();
+      if (save) _saveConversations();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('更新最后消息失败: $e');
+    }
   }
 
   /// 删除指定消息
@@ -181,6 +203,35 @@ class ConversationProvider extends ChangeNotifier {
     } catch (_) {
       return null;
     }
+  }
+
+  /// 更新指定消息的内容
+  void updateMessageContent(String conversationId, String messageId, String content) {
+    final index = _conversations.indexWhere((c) => c.id == conversationId);
+    if (index == -1) return;
+    final messages = List<Message>.from(_conversations[index].messages);
+    final msgIdx = messages.indexWhere((m) => m.id == messageId);
+    if (msgIdx == -1) return;
+    final old = messages[msgIdx];
+    messages[msgIdx] = Message(
+      id: old.id,
+      role: old.role,
+      content: content,
+      timestamp: old.timestamp,
+    );
+    _conversations[index] = Conversation(
+      id: _conversations[index].id,
+      title: _conversations[index].title,
+      messages: messages,
+      modelId: _conversations[index].modelId,
+      createdAt: _conversations[index].createdAt,
+      updatedAt: DateTime.now(),
+    );
+    // 将更新的对话移到列表顶部
+    final conv = _conversations.removeAt(index);
+    _conversations.insert(0, conv);
+    _saveConversations();
+    notifyListeners();
   }
 
   /// 搜索对话（匹配标题和消息内容）

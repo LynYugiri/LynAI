@@ -41,6 +41,7 @@ class _BackgroundPageState extends State<BackgroundPage> {
   Widget build(BuildContext context) {
     final provider = context.watch<SettingsProvider>();
     final settings = provider.settings;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
       appBar: AppBar(
@@ -58,14 +59,13 @@ class _BackgroundPageState extends State<BackgroundPage> {
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 12),
-            // 预览卡片 - 使用 BackdropFilter 实现毛玻璃效果
+            // 预览卡片 - 模拟实际对话页面背景效果
             Container(
-              height: 200,
+              height: 240,
               width: double.infinity,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                    color: Colors.grey.withValues(alpha: 0.3)),
+                border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
               ),
               clipBehavior: Clip.antiAlias,
               child: Stack(
@@ -76,39 +76,114 @@ class _BackgroundPageState extends State<BackgroundPage> {
                     Image.file(
                       File(settings.backgroundImagePath!),
                       fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) =>
-                          _buildNoBackgroundPlaceholder(),
+                      errorBuilder: (_, _, _) => _buildNoBackgroundPlaceholder(),
                     )
                   else
                     _buildNoBackgroundPlaceholder(),
                   // 毛玻璃效果覆盖层
                   if (settings.blurEnabled &&
                       settings.backgroundImagePath != null)
-                    // BackdropFilter 会对背景进行模糊处理
                     BackdropFilter(
                       filter: ui.ImageFilter.blur(
                         sigmaX: settings.blurAmount,
                         sigmaY: settings.blurAmount,
                       ),
                       child: Container(
-                        color: Colors.white.withValues(alpha: 0.1),
+                        color: (isDark ? Colors.black : Colors.white)
+                            .withValues(alpha: 0.3),
                       ),
                     ),
-                  // 预览文字
-                  Center(
+                  // 半透明覆盖层（模拟实际页面效果）
+                  if (settings.backgroundImagePath != null)
+                    Positioned.fill(
+                      child: Container(
+                        color: (isDark ? Colors.black : Colors.white)
+                            .withValues(alpha: settings.blurEnabled ? 0.2 : 0.55),
+                      ),
+                    ),
+                  // 模拟对话内容预览
+                  Align(
+                    alignment: Alignment.bottomCenter,
                     child: Container(
+                      margin: const EdgeInsets.all(12),
                       padding: const EdgeInsets.symmetric(
                           horizontal: 16, vertical: 8),
                       decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.5),
-                        borderRadius: BorderRadius.circular(20),
+                        color: settings.backgroundImagePath != null
+                            ? (isDark ? Colors.black : Colors.white)
+                                .withValues(alpha: 0.6)
+                            : (isDark ? Colors.grey[800]! : Colors.white),
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Text(
-                        '预览效果',
-                        style: TextStyle(color: Colors.white, fontSize: 14),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: settings.themeColor.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text('你好', style: TextStyle(fontSize: 13,
+                                color: settings.backgroundImagePath != null
+                                    ? settings.themeColor
+                                    : Colors.grey[600])),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text('这是一条预览消息',
+                                style: TextStyle(fontSize: 13,
+                                    color: settings.backgroundImagePath != null
+                                        ? (isDark ? Colors.white70 : Colors.black54)
+                                        : Colors.grey[500])),
+                          ),
+                          Icon(Icons.send, size: 16,
+                              color: settings.backgroundImagePath != null
+                                  ? settings.themeColor
+                                  : Colors.grey[400]),
+                        ],
                       ),
                     ),
                   ),
+                  // 删除按钮（当有背景图时显示在预览区右上角）
+                  if (settings.backgroundImagePath != null)
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Material(
+                        color: Colors.black.withValues(alpha: 0.4),
+                        borderRadius: BorderRadius.circular(20),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(20),
+                          onTap: _clearBackground,
+                          child: const Padding(
+                            padding: EdgeInsets.all(8),
+                            child: Icon(Icons.delete_outline,
+                                color: Colors.white, size: 20),
+                          ),
+                        ),
+                      ),
+                    ),
+                  // 背景文件名标签
+                  if (settings.backgroundImagePath != null)
+                    Positioned(
+                      top: 8,
+                      left: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.4),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          settings.backgroundImagePath!.split('/').last,
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontFamily: 'monospace'),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -120,30 +195,16 @@ class _BackgroundPageState extends State<BackgroundPage> {
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _pickImage,
-                    icon: const Icon(Icons.photo_library),
-                    label: const Text('从相册选择'),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                  ),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _pickImage,
+                icon: const Icon(Icons.photo_library),
+                label: Text(settings.backgroundImagePath != null ? '更换背景' : '从相册选择'),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
-                if (settings.backgroundImagePath != null) ...[
-                  const SizedBox(width: 12),
-                  IconButton(
-                    onPressed: _clearBackground,
-                    icon: const Icon(Icons.delete_outline),
-                    tooltip: '清除背景',
-                    style: IconButton.styleFrom(
-                      foregroundColor: Colors.red,
-                    ),
-                  ),
-                ],
-              ],
+              ),
             ),
             const SizedBox(height: 24),
 
@@ -213,7 +274,13 @@ class _BackgroundPageState extends State<BackgroundPage> {
   /// 构建无背景时的占位符
   Widget _buildNoBackgroundPlaceholder() {
     return Container(
-      color: Colors.grey[200],
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Colors.grey[300]!, Colors.grey[200]!],
+        ),
+      ),
       child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,

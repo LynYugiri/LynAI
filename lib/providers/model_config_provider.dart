@@ -18,23 +18,32 @@ class ModelConfigProvider extends ChangeNotifier {
 
   /// 从 SharedPreferences 加载模型配置
   Future<void> loadModels() async {
-    final prefs = await SharedPreferences.getInstance();
-    final jsonString = prefs.getString(_storageKey);
-    if (jsonString != null) {
-      final List<dynamic> jsonList = jsonDecode(jsonString);
-      _models = jsonList
-          .map((j) => ModelConfig.fromJson(j as Map<String, dynamic>))
-          .toList();
-      _models.sort((a, b) => a.priority.compareTo(b.priority));
-      notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonString = prefs.getString(_storageKey);
+      if (jsonString != null) {
+        final List<dynamic> jsonList = jsonDecode(jsonString);
+        _models = jsonList
+            .map((j) => ModelConfig.fromJson(j as Map<String, dynamic>))
+            .toList();
+        _models.sort((a, b) => a.priority.compareTo(b.priority));
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('加载模型配置失败: $e');
+      _models = [];
     }
   }
 
   /// 将模型配置保存到 SharedPreferences
   Future<void> _saveModels() async {
-    final prefs = await SharedPreferences.getInstance();
-    final jsonString = jsonEncode(_models.map((m) => m.toJson()).toList());
-    await prefs.setString(_storageKey, jsonString);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonString = jsonEncode(_models.map((m) => m.toJson()).toList());
+      await prefs.setString(_storageKey, jsonString);
+    } catch (e) {
+      debugPrint('保存模型配置失败: $e');
+    }
   }
 
   /// 添加新模型配置

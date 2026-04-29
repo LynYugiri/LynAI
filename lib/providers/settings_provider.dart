@@ -15,21 +15,30 @@ class SettingsProvider extends ChangeNotifier {
 
   /// 从 SharedPreferences 加载设置
   Future<void> loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    final jsonString = prefs.getString(_storageKey);
-    if (jsonString != null) {
-      final Map<String, dynamic> json =
-          jsonDecode(jsonString) as Map<String, dynamic>;
-      _settings = AppSettings.fromJson(json);
-      notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonString = prefs.getString(_storageKey);
+      if (jsonString != null) {
+        final Map<String, dynamic> json =
+            jsonDecode(jsonString) as Map<String, dynamic>;
+        _settings = AppSettings.fromJson(json);
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('加载设置失败: $e');
+      _settings = AppSettings.defaults();
     }
   }
 
   /// 将设置保存到 SharedPreferences
   Future<void> _saveSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    final jsonString = jsonEncode(_settings.toJson());
-    await prefs.setString(_storageKey, jsonString);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonString = jsonEncode(_settings.toJson());
+      await prefs.setString(_storageKey, jsonString);
+    } catch (e) {
+      debugPrint('保存设置失败: $e');
+    }
   }
 
   /// 更新主题颜色
@@ -79,6 +88,28 @@ class SettingsProvider extends ChangeNotifier {
     _settings = _settings.copyWith(imagePrompt: prompt);
     _saveSettings();
     notifyListeners();
+  }
+
+  /// 设置主题模式
+  void setThemeMode(String mode) {
+    _settings = _settings.copyWith(themeMode: mode);
+    _saveSettings();
+    notifyListeners();
+  }
+
+  /// 获取主题模式字符串
+  String get themeMode => _settings.themeMode;
+
+  /// 获取 ThemeMode 枚举值
+  ThemeMode get themeModeEnum {
+    switch (_settings.themeMode) {
+      case 'dark':
+        return ThemeMode.dark;
+      case 'system':
+        return ThemeMode.system;
+      default:
+        return ThemeMode.light;
+    }
   }
 }
 

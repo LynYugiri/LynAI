@@ -43,8 +43,8 @@ class _HomePageState extends State<HomePage> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final scaffold = Scaffold(
-      backgroundColor: Colors.transparent,
-      extendBodyBehindAppBar: true,
+      backgroundColor: hasImage ? Colors.transparent : null,
+      extendBodyBehindAppBar: hasImage,
       body: IndexedStack(
         index: _currentIndex,
         children: [
@@ -79,14 +79,14 @@ class _HomePageState extends State<HomePage> {
       ),
     );
 
+    if (!hasImage) return scaffold;
+
     final transparentScaffold = Theme(
       data: Theme.of(context).copyWith(
         scaffoldBackgroundColor: Colors.transparent,
       ),
       child: scaffold,
     );
-
-    if (!hasImage) return transparentScaffold;
 
     return Stack(
       fit: StackFit.expand,
