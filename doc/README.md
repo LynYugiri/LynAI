@@ -1,6 +1,6 @@
-# LynAI 项目文档索引
+# LynAI 项目文档
 
-> AI对话应用，支持多种AI模型接口，基于Flutter开发。
+> 跨平台 AI 对话应用，支持多种 AI 模型接口，基于 Flutter 开发。
 
 ## 技术栈
 
@@ -23,34 +23,38 @@
 ```
 lib/
 ├── main.dart              # 应用入口、启动页、主题配置
-├── models/                # 数据模型
-│   ├── message.dart
-│   ├── conversation.dart
-│   ├── model_config.dart
-│   └── app_settings.dart
-├── pages/                 # 页面/界面
-│   ├── home_page.dart     # 主页 (底部导航，全局背景)
-│   ├── history_page.dart  # 历史对话页
-│   ├── chat_page.dart     # 聊天页 (流式、Markdown/LaTeX、语音)
-│   ├── settings_page.dart # 设置页 (含语音/图片模型配置)
-│   ├── about_page.dart    # 关于页 (动态平台显示)
-│   ├── background_page.dart # 背景设置页
-│   ├── api_models_page.dart # API模型管理页 (高级选项)
-│   └── theme_page.dart    # 主题设置页
-├── providers/             # 状态管理
-│   ├── conversation_provider.dart
-│   ├── model_config_provider.dart
-│   └── settings_provider.dart
-├── services/              # API服务
-│   └── api_service.dart   # 流式/非流式，OpenAI/Ollama/Anthropic/Custom
-└── widgets/               # 自定义组件
-    └── latex_renderer.dart # LaTeX 公式解析与渲染
+├── models/
+│   ├── message.dart       # 消息模型
+│   ├── conversation.dart  # 对话模型
+│   ├── model_config.dart  # AI模型配置(含ModelEntry多模型)
+│   └── app_settings.dart  # 应用设置(主题/背景/语音/图片模型)
+├── pages/
+│   ├── home_page.dart     # 主页(底部导航,全局背景)
+│   ├── history_page.dart  # 历史对话(搜索/高亮)
+│   ├── chat_page.dart     # 聊天页(流式/LaTeX/语音/图片)
+│   ├── settings_page.dart # 设置页(4入口)
+│   ├── about_page.dart    # 关于页(动态平台)
+│   ├── background_page.dart # 背景设置(图片+模糊)
+│   ├── api_models_page.dart # API模型管理(Endpoint预设/多模型/获取)
+│   └── theme_page.dart    # 主题设置(36预设+HSV调色板)
+├── providers/
+│   ├── conversation_provider.dart  # 对话CRUD+搜索+增量更新
+│   ├── model_config_provider.dart  # 模型配置CRUD+排序
+│   └── settings_provider.dart      # 设置管理
+├── services/
+│   └── api_service.dart   # API服务(流式/非流式,4种接口类型)
+└── widgets/
+    └── latex_renderer.dart # LaTeX解析渲染($...$ / \[...\])
 ```
+
+## 包名
+
+Android/iOS/macOS/Linux 统一使用 `com.github.lynyugiri.lynai`
 
 ## 文档导航
 
-- [页面与路由](pages.md) - 所有页面界面及导航结构
-- [架构概览](architecture.md) - 状态管理、路由、数据流
-- [数据模型](models.md) - Message, Conversation, ModelConfig, AppSettings
-- [状态管理](providers.md) - Provider 及核心方法
-- [API服务](services.md) - ApiService 接口说明
+- [页面与路由](pages.md)
+- [架构概览](architecture.md)
+- [数据模型](models.md)
+- [状态管理](providers.md)
+- [API服务](services.md)

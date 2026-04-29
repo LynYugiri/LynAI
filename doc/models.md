@@ -23,39 +23,45 @@ class Message {
 
 ```dart
 class Conversation {
-  final String id;                 // UUID
-  final String title;              // 对话标题(首条消息截取)
-  final List<Message> messages;    // 消息列表
+  final String id;
+  final String title;              // 对话标题(首个user消息截取前20字符)
+  final List<Message> messages;
   final String modelId;            // 关联的ModelConfig.id
   final DateTime createdAt;
   final DateTime updatedAt;
 }
 ```
 
-**计算属性**: `preview` getter → 返回最后一条消息内容摘要(限长80字符)
+**计算属性**: `preview` → 第一条消息内容摘要(限80字符)
 
 ---
 
-## ModelConfig
+## ModelConfig & ModelEntry
 **文件**: `lib/models/model_config.dart`
 
 ```dart
+class ModelEntry {
+  final String name;     // 模型名称, 如 "deepseek-chat"
+  final bool enabled;    // 是否启用(对话中可选)
+}
+
 class ModelConfig {
-  final String id;              // UUID
-  final String name;            // 显示名称
-  final String endpoint;        // API端点URL
-  final String apiKey;          // API密钥
-  final String modelName;       // 模型标识名
-  final String apiType;         // "openai" | "ollama" | "anthropic" | "custom"
-  final int priority;           // 排序优先级
-  final int? maxTokens;         // 最大输出token数 (高级选项)
-  final double? temperature;    // 采样温度 0-2 (高级选项)
-  final double? topP;           // 核采样参数 0-1 (高级选项)
-  final Map<String, dynamic> extraParams; // 额外自定义参数
+  final String id;
+  final String name;              // 提供商显示名, 如 "DeepSeek"
+  final String endpoint;          // API端点, 如 "https://api.deepseek.com/v1"
+  final String apiKey;
+  final String modelName;         // 当前激活的模型名
+  final String apiType;           // "openai" | "ollama" | "anthropic" | "custom"
+  final int priority;
+  final List<ModelEntry> models;  // 该提供商下所有模型
+  final int? maxTokens;           // 高级选项
+  final double? temperature;
+  final double? topP;
+  final Map<String, dynamic> extraParams;
 }
 ```
 
-**方法**: `copyWith({...})` 创建修改副本
+**计算属性**: `enabledModelNames` → 所有enabled=true的模型名; `hasMultipleModels` → models.length > 1
 
 ---
 
@@ -64,14 +70,12 @@ class ModelConfig {
 
 ```dart
 class AppSettings {
-  final Color themeColor;            // 主题种子颜色
-  final String? backgroundImagePath; // 背景图片路径
-  final bool blurEnabled;            // 背景模糊开关
-  final double blurAmount;           // 模糊程度 (默认5.0)
-  final String? speechModelId;       // 语音转文字模型ID (null=未设置)
-  final String? imageModelId;        // 图片转述模型ID (null=未设置)
-  final String imagePrompt;          // 图片转述提示词 (默认"Describe this file in Chinese")
+  final Color themeColor;            // 主题色
+  final String? backgroundImagePath; // 背景图路径(null=未设置)
+  final bool blurEnabled;            // 模糊开关
+  final double blurAmount;           // 模糊程度(默认5.0)
+  final String? speechModelId;       // 语音转文字模型ID(null=未设置)
+  final String? imageModelId;        // 图片转述模型ID(null=未设置)
+  final String imagePrompt;          // 图片转述提示词(默认"Describe this file in Chinese")
 }
 ```
-
-**方法**: `factory defaults()` 返回默认设置, `copyWith({...})`

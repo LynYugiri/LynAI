@@ -1,4 +1,4 @@
-package com.lynai.lynai
+package com.github.lynyugiri.lynai
 
 import io.flutter.embedding.android.FlutterActivity
 

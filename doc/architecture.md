@@ -1,64 +1,71 @@
 # 架构概览
 
-## 状态管理架构
+## 状态管理
 
 ```
 MaterialApp
   └── MultiProvider
-        ├── SettingsProvider    → themeColor, backgroundImage, blur,
-        │                         speechModelId, imageModelId, imagePrompt
-        ├── ModelConfigProvider → AI模型配置列表 CRUD (含maxTokens等高级参数)
-        └── ConversationProvider → 对话列表 CRUD + 搜索 + 消息增量更新
+        ├── SettingsProvider    → 主题/背景/语音模型/图片模型
+        ├── ModelConfigProvider → AI模型配置 CRUD(含多模型ModelEntry)
+        └── ConversationProvider → 对话CRUD+搜索
               └── HomePage
-                    ├── HistoryPage   (watch ConversationProvider)
-                    ├── ChatPage      (watch ConversationProvider, ModelConfigProvider, SettingsProvider)
-                    │     ├── MarkdownWithLatex → LatexRenderer
-                    │     ├── 语音: speech_to_text → 语音模型 → 当前模型
-                    │     └── 图片: image_picker → 图片模型 → 当前模型
-                    └── SettingsPage  (watch SettingsProvider, ModelConfigProvider)
+                    ├── HistoryPage
+                    ├── ChatPage
+                    │     ├── MarkdownWithLatex → LatexRenderer(Unicode映射)
+                    │     ├── Voice: speech_to_text → 语音模型 → 当前模型
+                    │     └── Image: image_picker → 图片模型 → 当前模型
+                    └── SettingsPage
+                          ├── AboutPage
+                          ├── BackgroundPage
+                          ├── ApiModelsPage
+                          │     └── EditModelPage(Endpoint预设/获取模型/多模型)
+                          └── ThemePage(36预设+HSV调色板)
 ```
-
-- 3个Provider在`main.dart`中通过`MultiProvider`注册为全局可用
-- 所有Provider继承`ChangeNotifier`
-- 数据持久化：每次变更自动写入`SharedPreferences`(JSON序列化)
-- 应用启动时各Provider异步加载数据(`_loadData`等待所有加载完成)
-
-## 路由方式
-
-命令式导航：
-- `main.dart → HomePage`: MaterialPageRoute 替换
-- `ChatPage → SettingsPage`: 通过 `onNavigateToSettings` 回调切换IndexedStack Tab
-- `SettingsPage → 子页面`: Navigator.push(MaterialPageRoute)
-- Tab切换: `BottomNavigationBar` + `IndexedStack`
 
 ## 数据流
 
 ```
-用户操作 → Provider方法 → 更新数据模型 → notifyListeners() → UI重建
+用户操作 → Provider方法 → 更新模型 → notifyListeners() → UI重建
                               ↓
-                        save*() 写入 SharedPreferences
+                        save*() → SharedPreferences(JSON)
 
-流式API: Stream.listen → updateLastMessage() → notifyListeners() → UI逐字更新
+流式: Stream.listen → updateLastMessage() → notifyListeners() → UI逐字更新
 ```
-
-## 新增模块
-
-### widgets/latex_renderer.dart
-- `LatexRenderer` — 工具类，将LaTeX命令映射到Unicode数学字符
-  - 块级公式 `$$...$$`: 居中显示的带边框容器
-  - 内联公式 `$...$`: 等宽斜体彩色文本
-  - 支持：希腊字母、数学符号、上下标、分数(\frac)
-- `MarkdownWithLatex` — Widget，自动检测LaTeX内容，有则用LatexRenderer，无则用MarkdownBody
 
 ## 全局背景
 
-`HomePage` 支持全局自定义背景：
-- 通过 `Stack` 叠加背景图+半透明遮罩
-- 毛玻璃效果: `BackdropFilter` + `ImageFilter.blur`
-- 通过 `Theme(scaffoldBackgroundColor: transparent)` 传递到所有子页面
+`HomePage`: Stack(背景图, BackdropFilter模糊, 半透明遮罩, Scaffold(transparent))
 
-## 主题系统
+---
 
-- Material 3 (`useMaterial3: true`)
-- `ColorScheme.fromSeed(seedColor: SettingsProvider.settings.themeColor)` 为亮/暗主题生成完整配色
-- 主题变更即生效(全局watch SettingsProvider)
+## ChatPage 消息链路
+
+### 普通文本
+1. `_send()` → 添加user消息
+2. 构建历史消息列表
+3. `_doStream()` → `ApiService.sendStreamRequest()`
+4. `stream.listen` → `updateLastMessage()` 逐字更新
+
+### 语音
+1. 设置语音模型 → 按钮显示麦克风图标
+2. 点击 → speech_to_text 录音
+3. `_processSpeech()` → 语音模型转写修正
+4. 用修正文字+当前模型发送
+
+### 图片
+1. 设置图片模型 → +
+2. image_picker 选图
+3. 图片模型用 `imagePrompt` 描述图片
+4. 描述文字+当前模型发送
+
+---
+
+## LatexRenderer
+
+`lib/widgets/latex_renderer.dart` — 纯 Dart LaTeX→Unicode 转换器
+
+- **`_normalize()`**: `\[...\]`→`$$...$$`, `\(...\)`→`$...$`
+- **`_convertLatex()`**: 希腊字母/数学符号/上下标/分数 Unicode 映射
+- **`MarkdownWithLatex`**: 自动检测→有LaTeX走自定义渲染，无LaTeX走`MarkdownBody`
+- 内联渲染: `Text.rich` + `WidgetSpan` 保持文本流
+- 块级渲染: 带"公式"标签+`functions`图标的卡片容器
