@@ -59,7 +59,6 @@ class ApiService {
     return {
       'thinking': {'type': 'disabled'},
       'enable_thinking': false,
-      'reasoning_effort': 'none',
     };
   }
 
