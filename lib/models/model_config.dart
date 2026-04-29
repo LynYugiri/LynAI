@@ -1,25 +1,35 @@
-/// AI 模型配置数据模型
-///
-/// 表示用户配置的一个 AI 模型。
-/// [id] 唯一标识
-/// [name] 用户自定义的模型显示名称
-/// [endpoint] API 端点地址
-/// [apiKey] API 密钥
-/// [modelName] 实际的模型名称（如 gpt-4, llama3 等）
-/// [apiType] API 接口类型，如 'openai' 或 'ollama'
-/// [priority] 优先级，数字越小优先级越高，用于排序
-/// [maxTokens] 最大输出 token 数，null 表示使用 API 默认值
-/// [temperature] 采样温度，null 表示使用 API 默认值
-/// [topP] 核采样参数，null 表示使用 API 默认值
-/// [extraParams] 额外的自定义参数，key-value 对
+class ModelEntry {
+  final String name;
+  final bool enabled;
+
+  ModelEntry({required this.name, this.enabled = false});
+
+  factory ModelEntry.fromJson(Map<String, dynamic> json) {
+    return ModelEntry(
+      name: json['name'] as String,
+      enabled: json['enabled'] as bool? ?? false,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {'name': name, 'enabled': enabled};
+
+  ModelEntry copyWith({String? name, bool? enabled}) {
+    return ModelEntry(
+      name: name ?? this.name,
+      enabled: enabled ?? this.enabled,
+    );
+  }
+}
+
 class ModelConfig {
   final String id;
   final String name;
   final String endpoint;
   final String apiKey;
-  final String modelName;
+  final String modelName; // default/current model
   final String apiType;
   final int priority;
+  final List<ModelEntry> models; // all models under this provider
   final int? maxTokens;
   final double? temperature;
   final double? topP;
@@ -37,7 +47,14 @@ class ModelConfig {
     this.temperature,
     this.topP,
     Map<String, dynamic>? extraParams,
-  }) : extraParams = extraParams ?? {};
+    List<ModelEntry>? models,
+  }) : extraParams = extraParams ?? {},
+       models = models ?? [ModelEntry(name: modelName, enabled: true)];
+
+  List<String> get enabledModelNames =>
+      models.where((m) => m.enabled).map((m) => m.name).toList();
+
+  bool get hasMultipleModels => models.length > 1;
 
   ModelConfig copyWith({
     String? id,
@@ -51,6 +68,7 @@ class ModelConfig {
     double? temperature,
     double? topP,
     Map<String, dynamic>? extraParams,
+    List<ModelEntry>? models,
   }) {
     return ModelConfig(
       id: id ?? this.id,
@@ -64,10 +82,20 @@ class ModelConfig {
       temperature: temperature ?? this.temperature,
       topP: topP ?? this.topP,
       extraParams: extraParams ?? this.extraParams,
+      models: models ?? this.models,
     );
   }
 
   factory ModelConfig.fromJson(Map<String, dynamic> json) {
+    List<ModelEntry> entries = [];
+    if (json['models'] != null) {
+      entries = (json['models'] as List)
+          .map((m) => ModelEntry.fromJson(m as Map<String, dynamic>))
+          .toList();
+    } else if (json['modelName'] != null) {
+      entries = [ModelEntry(name: json['modelName'] as String, enabled: true)];
+    }
+
     return ModelConfig(
       id: json['id'] as String,
       name: json['name'] as String,
@@ -82,6 +110,7 @@ class ModelConfig {
       extraParams: json['extraParams'] != null
           ? Map<String, dynamic>.from(json['extraParams'] as Map)
           : {},
+      models: entries,
     );
   }
 
@@ -94,6 +123,7 @@ class ModelConfig {
       'modelName': modelName,
       'apiType': apiType,
       'priority': priority,
+      'models': models.map((m) => m.toJson()).toList(),
       if (maxTokens != null) 'maxTokens': maxTokens,
       if (temperature != null) 'temperature': temperature,
       if (topP != null) 'topP': topP,

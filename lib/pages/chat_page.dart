@@ -17,59 +17,51 @@ import '../widgets/latex_renderer.dart';
 class ChatPage extends StatefulWidget {
   final String? conversationId;
   final VoidCallback? onConversationLoaded;
-  final VoidCallback? onNavigateToSettings;
-
-  const ChatPage({
-    super.key,
-    this.conversationId,
-    this.onConversationLoaded,
-    this.onNavigateToSettings,
-  });
+  const ChatPage({super.key, this.conversationId, this.onConversationLoaded});
 
   @override
   State<ChatPage> createState() => _ChatPageState();
 }
 
 class _ChatPageState extends State<ChatPage> {
-  final _messageController = TextEditingController();
-  final _scrollController = ScrollController();
+  final _msgCtrl = TextEditingController();
+  final _scrollCtrl = ScrollController();
   final _focusNode = FocusNode();
-  final _screenshotController = ScreenshotController();
-  final _apiService = ApiService();
+  final _screenshotCtrl = ScreenshotController();
+  final _api = ApiService();
 
-  String? _currentConversationId;
-  bool _isThinking = true;
-  bool _isStreaming = false;
-  bool _showAttachmentMenu = false;
+  String? _convId;
+  bool _thinking = true;
+  bool _streaming = false;
+  bool _showAttach = false;
   bool _showModelMenu = false;
-  bool _isRecording = false;
-  String? _thinkingContentForCurrent;
-  bool _thinkingExpanded = false;
-  Map<String, String?> _thinkingContents = {};
+  bool _showSubModels = false;
+  bool _recording = false;
+  String? _thinkingTxt;
+  bool _thinkExpanded = false;
+  final Map<String, String?> _thinkMap = {};
 
   late stt.SpeechToText _speech;
-  StreamSubscription<StreamChunk>? _streamSubscription;
+  StreamSubscription<StreamChunk>? _sub;
 
   @override
   void initState() {
     super.initState();
     _speech = stt.SpeechToText();
     if (widget.conversationId != null) {
-      _currentConversationId = widget.conversationId;
+      _convId = widget.conversationId;
       widget.onConversationLoaded?.call();
     }
   }
 
   @override
-  void didUpdateWidget(ChatPage oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.conversationId != null &&
-        widget.conversationId != _currentConversationId) {
+  void didUpdateWidget(ChatPage old) {
+    super.didUpdateWidget(old);
+    if (widget.conversationId != null && widget.conversationId != _convId) {
       setState(() {
-        _currentConversationId = widget.conversationId;
-        _thinkingContentForCurrent =
-            _thinkingContents[_currentConversationId];
-        _thinkingExpanded = false;
+        _convId = widget.conversationId;
+        _thinkingTxt = _thinkMap[_convId];
+        _thinkExpanded = false;
       });
       widget.onConversationLoaded?.call();
     }
@@ -77,1276 +69,713 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   void dispose() {
-    _messageController.dispose();
-    _scrollController.dispose();
-    _focusNode.dispose();
-    _streamSubscription?.cancel();
+    _msgCtrl.dispose(); _scrollCtrl.dispose(); _focusNode.dispose(); _sub?.cancel();
     super.dispose();
   }
 
-  void _scrollToBottom() {
+  void _scrollEnd() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
+      if (_scrollCtrl.hasClients) {
+        _scrollCtrl.animateTo(_scrollCtrl.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
       }
     });
   }
 
-  ModelConfig? _getCurrentModel(ModelConfigProvider modelProvider) {
-    if (modelProvider.models.isEmpty) return null;
-    if (_currentConversationId != null) {
-      final provider = context.read<ConversationProvider>();
-      final conversation =
-          provider.getConversation(_currentConversationId!);
-      if (conversation != null) {
-        try {
-          return modelProvider.models
-              .firstWhere((m) => m.id == conversation.modelId);
-        } catch (_) {}
+  ModelConfig? _getModel(ModelConfigProvider mp) {
+    if (mp.models.isEmpty) return null;
+    if (_convId != null) {
+      final conv = context.read<ConversationProvider>().getConversation(_convId!);
+      if (conv != null) {
+        try { return mp.models.firstWhere((m) => m.id == conv.modelId); } catch (_) {}
       }
     }
-    return modelProvider.models.first;
+    return mp.models.first;
   }
 
-  Future<void> _sendMessage() async {
-    final text = _messageController.text.trim();
-    if (text.isEmpty || _isStreaming) return;
-
-    final provider = context.read<ConversationProvider>();
-    final modelProvider = context.read<ModelConfigProvider>();
-
-    if (modelProvider.models.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('请先在设置中添加 AI 模型')),
-        );
-      }
+  Future<void> _send() async {
+    final text = _msgCtrl.text.trim();
+    if (text.isEmpty || _streaming) return;
+    final cp = context.read<ConversationProvider>();
+    final mp = context.read<ModelConfigProvider>();
+    if (mp.models.isEmpty) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请先在设置中添加 AI 模型')));
       return;
     }
-
-    final currentModel = _getCurrentModel(modelProvider);
-    if (currentModel == null) return;
-
-    if (_currentConversationId == null) {
-      _currentConversationId = provider.createConversation(currentModel.id);
-    }
-
-    provider.addMessage(_currentConversationId!, 'user', text);
-    _messageController.clear();
-    _scrollToBottom();
-
-    provider.addMessage(_currentConversationId!, 'assistant', '');
-
-    setState(() {
-      _isStreaming = true;
-      _thinkingContentForCurrent = null;
-    });
-
-    final conversation = provider.getConversation(_currentConversationId!);
-    if (conversation == null) return;
-
-    final messages = conversation.messages
+    final model = _getModel(mp);
+    if (model == null) return;
+    if (_convId == null) _convId = cp.createConversation(model.id);
+    cp.addMessage(_convId!, 'user', text);
+    _msgCtrl.clear();
+    _scrollEnd();
+    cp.addMessage(_convId!, 'assistant', '');
+    setState(() { _streaming = true; _thinkingTxt = null; });
+    final conv = cp.getConversation(_convId!);
+    if (conv == null) return;
+    final msgs = conv.messages
         .where((m) => m.role != 'assistant' || m.content.isNotEmpty)
-        .map((m) => {'role': m.role, 'content': m.content})
-        .toList();
-
-    if (messages.isNotEmpty && messages.last['role'] == 'assistant') {
-      messages.removeLast();
-    }
-
-    _doSendToModel(currentModel, messages);
+        .map((m) => {'role': m.role, 'content': m.content}).toList();
+    if (msgs.isNotEmpty && msgs.last['role'] == 'assistant') msgs.removeLast();
+    _doStream(model, msgs);
   }
 
-  void _doSendToModel(ModelConfig model, List<Map<String, String>> messages) {
-    final provider = context.read<ConversationProvider>();
-    final convId = _currentConversationId!;
-
-    final stream = _apiService.sendStreamRequest(
-      model,
-      messages,
-      thinking: _isThinking,
-    );
-
-    String fullContent = '';
-    String fullThinking = '';
-    _streamSubscription?.cancel();
-    _streamSubscription = stream.listen(
-      (chunk) {
-        if (!mounted) return;
-        if (chunk.content != null) {
-          fullContent += chunk.content!;
-        }
-        if (chunk.reasoningContent != null) {
-          fullThinking += chunk.reasoningContent!;
-        }
-        if (chunk.isDone) {
-          setState(() {
-            _isStreaming = false;
-            if (fullThinking.isNotEmpty) {
-              _thinkingContentForCurrent = fullThinking;
-              _thinkingContents[convId] = fullThinking;
-            }
-          });
-          provider.updateLastMessage(convId, fullContent);
-        } else {
-          provider.updateLastMessage(convId, fullContent);
-          if (fullThinking.isNotEmpty) {
-            setState(() {
-              _thinkingContentForCurrent = fullThinking;
-            });
-          }
-        }
-        _scrollToBottom();
-      },
-      onError: (error) {
-        if (!mounted) return;
-        setState(() => _isStreaming = false);
-        provider.updateLastMessage(convId, '请求失败: $error');
-      },
-      onDone: () {
-        if (!mounted) return;
-        setState(() => _isStreaming = false);
-      },
-    );
+  void _doStream(ModelConfig model, List<Map<String, String>> msgs) {
+    final cp = context.read<ConversationProvider>();
+    final cid = _convId!;
+    final stream = _api.sendStreamRequest(model, msgs, thinking: _thinking);
+    String buf = '', thinkBuf = '';
+    _sub?.cancel();
+    _sub = stream.listen((chunk) {
+      if (!mounted) return;
+      if (chunk.content != null) buf += chunk.content!;
+      if (chunk.reasoningContent != null) thinkBuf += chunk.reasoningContent!;
+      if (chunk.isDone) {
+        setState(() { _streaming = false; if (thinkBuf.isNotEmpty) { _thinkingTxt = thinkBuf; _thinkMap[cid] = thinkBuf; } });
+        cp.updateLastMessage(cid, buf);
+      } else {
+        cp.updateLastMessage(cid, buf);
+        if (thinkBuf.isNotEmpty) setState(() => _thinkingTxt = thinkBuf);
+      }
+      _scrollEnd();
+    }, onError: (e) {
+      if (!mounted) return;
+      setState(() => _streaming = false);
+      cp.updateLastMessage(cid, '请求失败: $e');
+    }, onDone: () {
+      if (!mounted) return;
+      setState(() => _streaming = false);
+    });
   }
 
   void _switchModel(ModelConfig model) {
-    final provider = context.read<ConversationProvider>();
-    if (_currentConversationId != null) {
-      provider.updateConversationTitle(_currentConversationId!, model.name);
-    }
+    if (_convId != null) context.read<ConversationProvider>().updateConversationTitle(_convId!, model.name);
     setState(() {});
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('已切换到: ${model.name}'),
-          duration: const Duration(seconds: 1),
-        ),
-      );
-    }
   }
 
-  void _retryLastMessage() {
-    if (_currentConversationId == null || _isStreaming) return;
-    final provider = context.read<ConversationProvider>();
-    final conversation =
-        provider.getConversation(_currentConversationId!);
-    if (conversation == null) return;
-
-    if (conversation.messages.isNotEmpty &&
-        conversation.messages.last.role == 'assistant') {
-      provider.deleteMessage(
-          _currentConversationId!, conversation.messages.last.id);
-    }
-    final userMessages =
-        conversation.messages.where((m) => m.role == 'user').toList();
-    if (userMessages.isNotEmpty) {
-      _messageController.text = userMessages.last.content;
-      _sendMessage();
-    }
+  void _setSubModel(ModelConfig config, String modelName) {
+    final mp = context.read<ModelConfigProvider>();
+    mp.updateModel(config.copyWith(modelName: modelName));
+    _switchModel(config);
+    setState(() => _showSubModels = false);
   }
 
-  void _copyMessage(String content) {
-    Clipboard.setData(ClipboardData(text: content));
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('已复制到剪贴板'),
-          duration: Duration(seconds: 1),
-        ),
-      );
+  void _retry() {
+    if (_convId == null || _streaming) return;
+    final cp = context.read<ConversationProvider>();
+    final conv = cp.getConversation(_convId!);
+    if (conv == null) return;
+    if (conv.messages.isNotEmpty && conv.messages.last.role == 'assistant') {
+      cp.deleteMessage(_convId!, conv.messages.last.id);
     }
+    final um = conv.messages.where((m) => m.role == 'user').toList();
+    if (um.isNotEmpty) { _msgCtrl.text = um.last.content; _send(); }
   }
 
-  Future<void> _shareAsImage() async {
+  void _copy(String c) {
+    Clipboard.setData(ClipboardData(text: c));
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制'), duration: Duration(seconds: 1)));
+  }
+
+  Future<void> _shareImg() async {
     try {
-      final imageBytes = await _screenshotController.capture(
-        pixelRatio: 2.0,
-        delay: const Duration(milliseconds: 100),
-      );
-      if (imageBytes == null) return;
-
-      final dir = Directory.systemTemp;
-      final file = File(
-          '${dir.path}/lynai_share_${DateTime.now().millisecondsSinceEpoch}.png');
-      await file.writeAsBytes(imageBytes);
-
-      if (mounted) {
-        await SharePlus.instance.share(
-          ShareParams(
-            files: [XFile(file.path)],
-            text: 'LynAI 对话分享',
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('分享失败: $e')),
-        );
-      }
-    }
+      final bytes = await _screenshotCtrl.capture(pixelRatio: 2.0);
+      if (bytes == null) return;
+      final f = File('${Directory.systemTemp.path}/lynai_${DateTime.now().millisecondsSinceEpoch}.png');
+      await f.writeAsBytes(bytes);
+      if (mounted) await SharePlus.instance.share(ShareParams(files: [XFile(f.path)], text: 'LynAI 对话'));
+    } catch (_) {}
   }
 
-  Future<void> _pickImageOrFile() async {
-    final picker = ImagePicker();
-    final picked = await picker.pickImage(source: ImageSource.gallery);
+  Future<void> _pickImg() async {
+    final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (picked == null) return;
-
-    final provider = context.read<ConversationProvider>();
-    final modelProvider = context.read<ModelConfigProvider>();
-
-    if (modelProvider.models.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('请先在设置中添加 AI 模型')),
-        );
-      }
-      return;
-    }
-
-    final currentModel = _getCurrentModel(modelProvider);
-    if (currentModel == null) return;
-
-    final settings = context.read<SettingsProvider>().settings;
-    final imageModelId = settings.imageModelId;
-    final imagePrompt = settings.imagePrompt;
-
-    if (_currentConversationId == null) {
-      _currentConversationId = provider.createConversation(currentModel.id);
-    }
-
-    final file = File(picked.path);
-    final sizeBytes = await file.length();
-    provider.addMessage(_currentConversationId!, 'user',
-        '[图片: ${picked.name} (${_formatFileSize(sizeBytes)})]');
-    _scrollToBottom();
-
-    // 如果设置了图片转述模型，先发送到该模型进行转述
-    if (imageModelId != null && imageModelId.isNotEmpty) {
+    final cp = context.read<ConversationProvider>();
+    final mp = context.read<ModelConfigProvider>();
+    if (mp.models.isEmpty) return;
+    final model = _getModel(mp);
+    if (model == null) return;
+    final set = context.read<SettingsProvider>().settings;
+    if (_convId == null) _convId = cp.createConversation(model.id);
+    final f = File(picked.path);
+    final sz = await f.length();
+    cp.addMessage(_convId!, 'user', '[图片: ${picked.name} (${_fmtSz(sz)})]');
+    _scrollEnd();
+    if (set.imageModelId != null && set.imageModelId!.isNotEmpty) {
       try {
-        final imageModel = modelProvider.models
-            .firstWhere((m) => m.id == imageModelId);
-        provider.addMessage(_currentConversationId!, 'assistant', '');
-        setState(() => _isStreaming = true);
-
-        final messages = [
-          {'role': 'user', 'content': imagePrompt},
-        ];
-
-        final response = await _apiService.sendChatRequest(
-          imageModel,
-          messages,
-          thinking: false,
-        );
-
-        provider.updateLastMessage(
-            _currentConversationId!, '[图片转述] ${response.content}');
-        setState(() => _isStreaming = false);
-
-        // 将转述结果发送给当前聊天模型
-        provider.addMessage(_currentConversationId!, 'assistant', '');
-        final convMessages = [
-          ...provider
-              .getConversation(_currentConversationId!)!
-              .messages
-              .where((m) =>
-                  m.role != 'assistant' || m.content.isNotEmpty)
-              .map((m) => {'role': m.role, 'content': m.content}),
-        ];
-        if (convMessages.isNotEmpty &&
-            convMessages.last['role'] == 'assistant') {
-          convMessages.removeLast();
-        }
-
-        _doSendToModel(currentModel, convMessages);
+        final imgModel = mp.models.firstWhere((m) => m.id == set.imageModelId);
+        cp.addMessage(_convId!, 'assistant', '');
+        setState(() => _streaming = true);
+        final resp = await _api.sendChatRequest(imgModel, [{'role': 'user', 'content': set.imagePrompt}], thinking: false);
+        cp.updateLastMessage(_convId!, '[图片转述] ${resp.content}');
+        setState(() => _streaming = false);
+        cp.addMessage(_convId!, 'assistant', '');
+        final cmsgs = cp.getConversation(_convId!)!.messages
+            .where((m) => m.role != 'assistant' || m.content.isNotEmpty)
+            .map((m) => {'role': m.role, 'content': m.content}).toList();
+        if (cmsgs.isNotEmpty && cmsgs.last['role'] == 'assistant') cmsgs.removeLast();
+        _doStream(model, cmsgs);
       } catch (e) {
-        if (mounted) {
-          setState(() => _isStreaming = false);
-          provider.updateLastMessage(
-              _currentConversationId!, '图片转述失败: $e');
-        }
+        setState(() => _streaming = false);
+        cp.updateLastMessage(_convId!, '图片转述失败: $e');
       }
     }
   }
 
-  Future<void> _handleVoiceAction() async {
-    final settings = context.read<SettingsProvider>().settings;
-    final modelProvider = context.read<ModelConfigProvider>();
-
-    // 如果未设置语音模型，直接当作发送按钮
-    if (settings.speechModelId == null ||
-        settings.speechModelId!.isEmpty) {
-      _sendMessage();
-      return;
-    }
-
-    // 已设置语音模型 → 开始录音
-    final available = await _speech.initialize(
-      onStatus: (status) {
-        if (status == 'done' || status == 'notListening') {
-          setState(() => _isRecording = false);
-        }
-      },
-      onError: (error) {
-        setState(() => _isRecording = false);
-      },
+  Future<void> _voice() async {
+    final set = context.read<SettingsProvider>().settings;
+    if (set.speechModelId == null || set.speechModelId!.isEmpty) { _send(); return; }
+    final ok = await _speech.initialize(
+      onStatus: (s) { if (s == 'done' || s == 'notListening') setState(() => _recording = false); },
+      onError: (_) => setState(() => _recording = false),
     );
-
-    if (available) {
-      setState(() => _isRecording = true);
-      _speech.listen(
-        onResult: (result) {
-          _messageController.text = result.recognizedWords;
-          if (result.finalResult) {
-            setState(() => _isRecording = false);
-            _processSpeechResult(result.recognizedWords,
-                settings.speechModelId!, modelProvider);
-          }
-        },
-        localeId: 'zh_CN',
-      );
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('语音识别不可用')),
-        );
-      }
+    if (ok) {
+      setState(() => _recording = true);
+      _speech.listen(onResult: (r) {
+        _msgCtrl.text = r.recognizedWords;
+        if (r.finalResult) { setState(() => _recording = false); _processSpeech(r.recognizedWords); }
+      }, localeId: 'zh_CN');
     }
   }
 
-  Future<void> _processSpeechResult(
-      String speech,
-      String speechModelId,
-      ModelConfigProvider modelProvider) async {
-    if (speech.trim().isEmpty) return;
-
-    final provider = context.read<ConversationProvider>();
-    final currentModel = _getCurrentModel(modelProvider);
-    if (currentModel == null) return;
-
-    if (_currentConversationId == null) {
-      _currentConversationId = provider.createConversation(currentModel.id);
-    }
-
-    provider.addMessage(_currentConversationId!, 'user', speech);
-    _messageController.clear();
-    _scrollToBottom();
-
-    provider.addMessage(_currentConversationId!, 'assistant', '');
-    setState(() => _isStreaming = true);
-
+  Future<void> _processSpeech(String txt) async {
+    if (txt.trim().isEmpty) return;
+    final cp = context.read<ConversationProvider>();
+    final mp = context.read<ModelConfigProvider>();
+    final model = _getModel(mp);
+    if (model == null) return;
+    if (_convId == null) _convId = cp.createConversation(model.id);
+    cp.addMessage(_convId!, 'user', txt);
+    _msgCtrl.clear();
+    _scrollEnd();
+    cp.addMessage(_convId!, 'assistant', '');
+    setState(() => _streaming = true);
     try {
-      final speechModel = modelProvider.models
-          .firstWhere((m) => m.id == speechModelId);
-      final response = await _apiService.sendChatRequest(
-        speechModel,
-        [
-          {
-            'role': 'user',
-            'content': '请将以下语音识别结果进行整理和修正，直接输出修正后的文字，不要添加任何解释:\n$speech'
-          },
-        ],
-        thinking: false,
-      );
-
-      final transcribed = response.content.trim();
-      provider.updateLastMessage(_currentConversationId!, transcribed);
-
-      // 用修正后的文字发送给当前对话模型
-      provider.addMessage(_currentConversationId!, 'assistant', '');
-      final convMessages = provider
-          .getConversation(_currentConversationId!)!
-          .messages
-          .where(
-              (m) => m.role != 'assistant' || m.content.isNotEmpty)
-          .map((m) => {'role': m.role, 'content': m.content})
-          .toList();
-      if (convMessages.isNotEmpty &&
-          convMessages.last['role'] == 'assistant') {
-        convMessages.removeLast();
-      }
-
-      _doSendToModel(currentModel, convMessages);
+      final sm = mp.models.firstWhere((m) => m.id == context.read<SettingsProvider>().settings.speechModelId);
+      final resp = await _api.sendChatRequest(sm, [
+        {'role': 'user', 'content': '请整理修正以下语音识别结果，直接输出修正后的文字:\n$txt'}
+      ], thinking: false);
+      cp.updateLastMessage(_convId!, resp.content.trim());
+      cp.addMessage(_convId!, 'assistant', '');
+      final cmsgs = cp.getConversation(_convId!)!.messages
+          .where((m) => m.role != 'assistant' || m.content.isNotEmpty)
+          .map((m) => {'role': m.role, 'content': m.content}).toList();
+      if (cmsgs.isNotEmpty && cmsgs.last['role'] == 'assistant') cmsgs.removeLast();
+      _doStream(model, cmsgs);
     } catch (e) {
-      if (mounted) {
-        setState(() => _isStreaming = false);
-        provider.updateLastMessage(
-            _currentConversationId!, '语音处理失败: $e');
-      }
+      setState(() => _streaming = false);
+      cp.updateLastMessage(_convId!, '语音处理失败: $e');
     }
   }
 
-  void _stopVoiceInput() {
-    _speech.stop();
-    setState(() => _isRecording = false);
-  }
+  void _stopVoice() { _speech.stop(); setState(() => _recording = false); }
 
-  void _selectHistoryConversation(String conversationId) {
-    setState(() {
-      _currentConversationId = conversationId;
-      _thinkingContentForCurrent =
-          _thinkingContents[conversationId];
-      _thinkingExpanded = false;
-    });
+  void _selectHistory(String cid) {
+    setState(() { _convId = cid; _thinkingTxt = _thinkMap[cid]; _thinkExpanded = false; });
     Navigator.pop(context);
   }
 
-  String _formatFileSize(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  String _fmtSz(int b) {
+    if (b < 1024) return '$b B';
+    if (b < 1048576) return '${(b / 1024).toStringAsFixed(1)} KB';
+    return '${(b / 1048576).toStringAsFixed(1)} MB';
+  }
+
+  void _showDialogSettings() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => _DialogSettingsContent(),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final conversationProvider = context.watch<ConversationProvider>();
-    final modelProvider = context.watch<ModelConfigProvider>();
-    final currentModel = _getCurrentModel(modelProvider);
-    final conversation =
-        conversationProvider.getConversation(_currentConversationId ?? '');
-
+    final cp = context.watch<ConversationProvider>();
+    final mp = context.watch<ModelConfigProvider>();
+    final model = _getModel(mp);
+    final conv = cp.getConversation(_convId ?? '');
     return Scaffold(
       appBar: AppBar(
-        leading: Builder(
-          builder: (ctx) => IconButton(
-            icon: const Icon(Icons.history),
-            tooltip: '历史记录',
-            onPressed: () => Scaffold.of(ctx).openDrawer(),
-          ),
-        ),
-        title: Text(conversation?.title ?? '新对话'),
-        centerTitle: true,
+        leading: Builder(builder: (ctx) => IconButton(icon: const Icon(Icons.history), tooltip: '历史记录', onPressed: () => Scaffold.of(ctx).openDrawer())),
+        title: Text(conv?.title ?? '新对话'), centerTitle: true,
         actions: [
-          if (_currentConversationId != null)
-            IconButton(
-              icon: const Icon(Icons.add_comment_outlined),
-              tooltip: '新建对话',
-              onPressed: () {
-                setState(() {
-                  _currentConversationId = null;
-                  _thinkingContentForCurrent = null;
-                });
-              },
-            ),
+          if (_convId != null)
+            IconButton(icon: const Icon(Icons.add_comment_outlined), tooltip: '新建对话',
+                onPressed: () => setState(() { _convId = null; _thinkingTxt = null; })),
         ],
       ),
-      drawer: _buildHistoryDrawer(context),
-      body: Screenshot(
-        controller: _screenshotController,
-        child: _buildChatBody(
-            conversation, currentModel, modelProvider),
-      ),
+      drawer: _drawer(context),
+      body: Screenshot(controller: _screenshotCtrl, child: _body(conv, model, mp)),
     );
   }
 
-  Widget _buildHistoryDrawer(BuildContext context) {
-    return Drawer(
-      child: _HistoryDrawerContent(
-        onSelectConversation: _selectHistoryConversation,
-        currentConversationId: _currentConversationId,
-      ),
-    );
+  Widget _drawer(BuildContext ctx) => Drawer(
+    child: _HistoryDrawer(onSelect: _selectHistory, currentConvId: _convId),
+  );
+
+  Widget _body(dynamic conv, ModelConfig? model, ModelConfigProvider mp) {
+    final msgs = conv?.messages ?? <dynamic>[];
+    return Column(children: [
+      Expanded(child: msgs.isEmpty ? _empty() : ListView.builder(
+        controller: _scrollCtrl, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        itemCount: msgs.length,
+        itemBuilder: (_, i) => _bubble(msgs[i], i == msgs.length - 1),
+      )),
+      _inputArea(model, mp),
+    ]);
   }
 
-  Widget _buildChatBody(
-    dynamic conversation,
-    ModelConfig? currentModel,
-    ModelConfigProvider modelProvider,
-  ) {
-    final messages = conversation?.messages ?? <dynamic>[];
+  Widget _empty() => Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+    Icon(Icons.chat_bubble_outline, size: 80, color: Colors.grey[300]), const SizedBox(height: 16),
+    Text('开始新对话', style: TextStyle(fontSize: 20, color: Colors.grey[500], fontWeight: FontWeight.w300)),
+    const SizedBox(height: 8), Text('在下方输入你的问题', style: TextStyle(fontSize: 14, color: Colors.grey[400])),
+  ]));
 
-    return Column(
-      children: [
-        Expanded(
-          child: messages.isEmpty
-              ? _buildEmptyState()
-              : ListView.builder(
-                  controller: _scrollController,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 8),
-                  itemCount: messages.length,
-                  itemBuilder: (context, index) {
-                    final message = messages[index];
-                    final isLastAi = message.role == 'assistant' &&
-                        index == messages.length - 1;
-                    return _buildMessageBubble(
-                        message, isLastAi);
-                  },
-                ),
-        ),
-        _buildInputArea(currentModel, modelProvider),
-      ],
-    );
-  }
-
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.chat_bubble_outline,
-              size: 80, color: Colors.grey[300]),
-          const SizedBox(height: 16),
-          Text('开始新对话',
-              style: TextStyle(
-                  fontSize: 20,
-                  color: Colors.grey[500],
-                  fontWeight: FontWeight.w300)),
-          const SizedBox(height: 8),
-          Text('在下方输入你的问题',
-              style:
-                  TextStyle(fontSize: 14, color: Colors.grey[400])),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMessageBubble(dynamic message, bool isLastAi) {
-    final isUser = message.role == 'user';
-
-    if (isUser) {
-      return Align(
-        alignment: Alignment.centerRight,
-        child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 4),
-          padding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.75,
-          ),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primaryContainer,
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(16),
-              topRight: Radius.circular(16),
-              bottomLeft: Radius.circular(16),
-            ),
-          ),
-          child: SelectableText(message.content,
-              style: const TextStyle(fontSize: 15)),
-        ),
-      );
+  Widget _bubble(dynamic msg, bool isLastAi) {
+    final u = msg.role == 'user';
+    if (u) {
+      return Align(alignment: Alignment.centerRight, child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+        decoration: BoxDecoration(color: Theme.of(context).colorScheme.primaryContainer,
+            borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16), bottomLeft: Radius.circular(16))),
+        child: SelectableText(msg.content, style: const TextStyle(fontSize: 15)),
+      ));
     }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (_thinkingContentForCurrent != null &&
-            _thinkingContentForCurrent!.isNotEmpty &&
-            isLastAi)
-          _buildThinkingSection(),
-        Container(
-          margin: const EdgeInsets.symmetric(vertical: 4),
-          padding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.85,
-          ),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(16),
-              topRight: Radius.circular(16),
-              bottomRight: Radius.circular(16),
-            ),
-          ),
-          child: message.content.isEmpty && _isStreaming
-              ? const SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : MarkdownWithLatex(content: message.content),
-        ),
-        if (!_isStreaming && message.content.isNotEmpty)
-          _buildMessageActions(message.content),
-      ],
-    );
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      if (_thinkingTxt != null && _thinkingTxt!.isNotEmpty && isLastAi) _thinkSection(),
+      Container(
+        margin: const EdgeInsets.symmetric(vertical: 4), padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.85),
+        decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16), bottomRight: Radius.circular(16))),
+        child: msg.content.isEmpty && _streaming
+            ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+            : MarkdownWithLatex(content: msg.content),
+      ),
+      if (!_streaming && msg.content.isNotEmpty) _actions(msg.content),
+    ]);
   }
 
-  Widget _buildThinkingSection() {
+  Widget _thinkSection() => Container(
+    margin: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
+    decoration: BoxDecoration(border: Border(left: BorderSide(color: Theme.of(context).colorScheme.secondary.withValues(alpha: 0.3), width: 2))),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      InkWell(
+        onTap: () => setState(() => _thinkExpanded = !_thinkExpanded),
+        child: Padding(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(_thinkExpanded ? Icons.expand_less : Icons.expand_more, size: 14, color: Colors.grey[500]),
+          const SizedBox(width: 4), Text('思考过程', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+        ])),
+      ),
+      if (_thinkExpanded)
+        Padding(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), child: Text(_thinkingTxt!,
+            style: TextStyle(fontSize: 11, color: Colors.grey[400], fontStyle: FontStyle.italic))),
+    ]),
+  );
+
+  Widget _actions(String c) => Padding(padding: const EdgeInsets.only(left: 8, top: 2), child: Row(mainAxisSize: MainAxisSize.min, children: [
+    _actBtn(Icons.copy, () => _copy(c)), const SizedBox(width: 4),
+    _actBtn(Icons.share, _shareImg), const SizedBox(width: 4),
+    _actBtn(Icons.refresh, _retry),
+  ]));
+
+  Widget _actBtn(IconData i, VoidCallback t) => InkWell(onTap: t, borderRadius: BorderRadius.circular(12),
+      child: Padding(padding: const EdgeInsets.all(4), child: Icon(i, size: 16, color: Colors.grey[400])));
+
+  Widget _inputArea(ModelConfig? model, ModelConfigProvider mp) {
+    final set = context.read<SettingsProvider>().settings;
+    final hasSpeech = set.speechModelId != null && set.speechModelId!.isNotEmpty;
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
-      decoration: BoxDecoration(
-        border: Border(
-          left: BorderSide(
-            color: Theme.of(context)
-                .colorScheme
-                .secondary
-                .withValues(alpha: 0.3),
-            width: 2,
-          ),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          InkWell(
-            onTap: () => setState(
-                () => _thinkingExpanded = !_thinkingExpanded),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 8, vertical: 4),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    _thinkingExpanded
-                        ? Icons.expand_less
-                        : Icons.expand_more,
-                    size: 14,
-                    color: Colors.grey[500],
-                  ),
-                  const SizedBox(width: 4),
-                  Text('思考过程',
-                      style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.grey[500])),
-                ],
-              ),
-            ),
-          ),
-          if (_thinkingExpanded)
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 8, vertical: 4),
-              child: Text(
-                _thinkingContentForCurrent!,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.grey[400],
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-            ),
-        ],
-      ),
+      decoration: BoxDecoration(color: Theme.of(context).colorScheme.surface,
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4, offset: const Offset(0, -2))]),
+      padding: EdgeInsets.only(left: 8, right: 8, top: 8, bottom: MediaQuery.of(context).padding.bottom + 4),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        if (_showModelMenu) _modelList(mp),
+        Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          _modelSel(model, mp), const SizedBox(width: 4),
+          Expanded(child: _recording ? _recOverlay() : TextField(
+            controller: _msgCtrl, focusNode: _focusNode,
+            style: const TextStyle(fontSize: 16, fontFamily: 'monospace'),
+            decoration: const InputDecoration(hintText: '输入消息...', border: InputBorder.none, contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 10)),
+            maxLines: 5, minLines: 1, textInputAction: TextInputAction.send,
+            onSubmitted: (_) => _send(), onChanged: (_) => setState(() {}),
+          )),
+        ]),
+        const SizedBox(height: 4),
+        Row(children: [
+          _dialogSetBtn(), const SizedBox(width: 4),
+          _thinkBtn(), const Spacer(),
+          _attachBtn(), const SizedBox(width: 4),
+          _voiceOrSendBtn(hasSpeech),
+        ]),
+        if (_showAttach) _attachMenu(),
+      ]),
     );
   }
 
-  Widget _buildMessageActions(String content) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 8, top: 2),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _buildActionButton(
-            icon: Icons.copy,
-            tooltip: '复制',
-            onTap: () => _copyMessage(content),
-          ),
-          const SizedBox(width: 4),
-          _buildActionButton(
-            icon: Icons.share,
-            tooltip: '分享',
-            onTap: _shareAsImage,
-          ),
-          const SizedBox(width: 4),
-          _buildActionButton(
-            icon: Icons.refresh,
-            tooltip: '重试',
-            onTap: _retryLastMessage,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActionButton({
-    required IconData icon,
-    required String tooltip,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.all(4),
-        child: Icon(icon, size: 16, color: Colors.grey[400]),
-      ),
-    );
-  }
-
-  Widget _buildInputArea(
-      ModelConfig? currentModel, ModelConfigProvider modelProvider) {
-    final settings = context.read<SettingsProvider>().settings;
-    final hasSpeechModel = settings.speechModelId != null &&
-        settings.speechModelId!.isNotEmpty;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 4,
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
-      padding: EdgeInsets.only(
-        left: 8,
-        right: 8,
-        top: 8,
-        bottom: MediaQuery.of(context).padding.bottom + 4,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Model selector + text input
-          if (_showModelMenu) _buildModelList(modelProvider),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              _buildModelSelector(currentModel, modelProvider),
-              const SizedBox(width: 4),
-              Expanded(
-                child: _isRecording
-                    ? _buildRecordingOverlay()
-                    : TextField(
-                        controller: _messageController,
-                        focusNode: _focusNode,
-                        style: const TextStyle(
-                            fontSize: 16, fontFamily: 'monospace'),
-                        decoration: const InputDecoration(
-                          hintText: '输入消息...',
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 10),
-                        ),
-                        maxLines: 5,
-                        minLines: 1,
-                        textInputAction: TextInputAction.send,
-                        onSubmitted: (_) => _sendMessage(),
-                        onChanged: (_) => setState(() {}),
-                      ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              _buildSettingsButton(),
-              const SizedBox(width: 4),
-              _buildThinkToggle(),
-              const Spacer(),
-              _buildAttachmentButton(),
-              const SizedBox(width: 4),
-              _buildVoiceOrSendButton(hasSpeechModel),
-            ],
-          ),
-          if (_showAttachmentMenu) _buildAttachmentMenu(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildModelList(ModelConfigProvider modelProvider) {
-    final currentModel = _getCurrentModel(modelProvider);
+  Widget _modelList(ModelConfigProvider mp) {
+    final cur = _getModel(mp);
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      constraints: const BoxConstraints(maxHeight: 200),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(10),
-      ),
+      constraints: const BoxConstraints(maxHeight: 260),
+      decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(10)),
       child: ListView.builder(
-        shrinkWrap: true,
-        itemCount: modelProvider.models.length,
-        itemBuilder: (context, index) {
-          final model = modelProvider.models[index];
-          final isSelected =
-              currentModel != null && model.id == currentModel.id;
-          return ListTile(
-            dense: true,
-            leading: Icon(
-              isSelected ? Icons.check_circle : Icons.circle_outlined,
-              size: 18,
-              color: isSelected
-                  ? Theme.of(context).colorScheme.primary
-                  : Colors.grey,
+        shrinkWrap: true, itemCount: mp.models.length,
+        itemBuilder: (_, i) {
+          final m = mp.models[i];
+          final sel = cur != null && m.id == cur.id;
+          return Column(mainAxisSize: MainAxisSize.min, children: [
+            ListTile(
+              dense: true, leading: Icon(sel ? Icons.check_circle : Icons.circle_outlined, size: 18,
+                  color: sel ? Theme.of(context).colorScheme.primary : Colors.grey),
+              title: Text(m.name, style: const TextStyle(fontSize: 14)),
+              subtitle: Text(m.hasMultipleModels ? '${m.enabledModelNames.length} 个模型' : m.modelName, style: const TextStyle(fontSize: 11)),
+              trailing: m.hasMultipleModels ? const Icon(Icons.chevron_right, size: 16) : null,
+              onTap: () {
+                if (m.hasMultipleModels) {
+                  _showSubModels = true;
+                  // will expand sub-models
+                  _switchModel(m);
+                } else {
+                  _switchModel(m);
+                  setState(() => _showModelMenu = false);
+                }
+              },
             ),
-            title: Text(model.name,
-                style: const TextStyle(fontSize: 14)),
-            subtitle: Text(model.modelName,
-                style: const TextStyle(fontSize: 11)),
-            onTap: () {
-              _switchModel(model);
-              setState(() => _showModelMenu = false);
-            },
-          );
+            // Show enabled sub-models when this provider is selected and has multiple
+            if (sel && m.hasMultipleModels)
+              ...m.models.where((e) => e.enabled).map((e) => ListTile(
+                dense: true, contentPadding: const EdgeInsets.only(left: 56),
+                leading: Icon(e.name == m.modelName ? Icons.radio_button_checked : Icons.radio_button_off, size: 14,
+                    color: e.name == m.modelName ? Theme.of(context).colorScheme.primary : Colors.grey),
+                title: Text(e.name, style: TextStyle(fontSize: 13, fontFamily: 'monospace')),
+                onTap: () { _setSubModel(m, e.name); setState(() => _showModelMenu = false); },
+              )),
+          ]);
         },
       ),
     );
   }
 
-  Widget _buildModelSelector(
-      ModelConfig? currentModel, ModelConfigProvider modelProvider) {
-    if (currentModel == null) {
-      return Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-              color: Colors.grey.withValues(alpha: 0.3)),
-        ),
-        child: Icon(Icons.smart_toy, size: 18, color: Colors.grey[400]),
-      );
-    }
-
+  Widget _modelSel(ModelConfig? cur, ModelConfigProvider mp) {
+    if (cur == null) return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.withValues(alpha: 0.3))),
+      child: Icon(Icons.smart_toy, size: 18, color: Colors.grey[400]),
+    );
     if (_showModelMenu) {
-      return InkWell(
-        onTap: () => setState(() => _showModelMenu = false),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            color: Theme.of(context)
-                .colorScheme
-                .primary
-                .withValues(alpha: 0.1),
-            border: Border.all(
-              color: Theme.of(context)
-                  .colorScheme
-                  .primary
-                  .withValues(alpha: 0.3),
-            ),
-          ),
-          child: Icon(Icons.arrow_drop_up,
-              size: 22, color: Theme.of(context).colorScheme.primary),
-        ),
+      return InkWell(onTap: () => setState(() => _showModelMenu = false), child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(8),
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+            border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3))),
+        child: Icon(Icons.arrow_drop_up, size: 22, color: Theme.of(context).colorScheme.primary),
+      ));
+    }
+    return InkWell(onTap: () => setState(() => _showModelMenu = true), child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      decoration: BoxDecoration(borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3))),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.smart_toy, size: 18, color: Theme.of(context).colorScheme.primary),
+        const SizedBox(width: 2),
+        Text(cur.name, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Theme.of(context).colorScheme.primary)),
+        const SizedBox(width: 2),
+        const Icon(Icons.arrow_drop_down, size: 18),
+      ]),
+    ));
+  }
+
+  Widget _dialogSetBtn() => InkWell(onTap: _showDialogSettings, borderRadius: BorderRadius.circular(8), child: Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.withValues(alpha: 0.3))),
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(Icons.tune, size: 14, color: Colors.grey[500]),
+      const SizedBox(width: 3),
+      Text('对话设置', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+    ]),
+  ));
+
+  Widget _thinkBtn() => InkWell(onTap: () => setState(() => _thinking = !_thinking), borderRadius: BorderRadius.circular(8), child: Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _thinking ? Theme.of(context).colorScheme.primary : Colors.grey.withValues(alpha: 0.3)),
+        color: _thinking ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.1) : null),
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(Icons.psychology, size: 16, color: _thinking ? Theme.of(context).colorScheme.primary : Colors.grey[400]),
+      const SizedBox(width: 3),
+      Text('思考', style: TextStyle(fontSize: 12, color: _thinking ? Theme.of(context).colorScheme.primary : Colors.grey[500])),
+    ]),
+  ));
+
+  Widget _attachBtn() => InkWell(onTap: () => setState(() => _showAttach = !_showAttach), borderRadius: BorderRadius.circular(12), child: Container(
+    padding: const EdgeInsets.all(4),
+    decoration: BoxDecoration(borderRadius: BorderRadius.circular(12),
+        color: _showAttach ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.1) : null),
+    child: Icon(Icons.add, size: 22, color: _showAttach ? Theme.of(context).colorScheme.primary : Colors.grey[500]),
+  ));
+
+  Widget _attachMenu() => Padding(padding: const EdgeInsets.only(top: 8), child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+    _attachOpt(Icons.photo_library, '图片', () { setState(() => _showAttach = false); _pickImg(); }),
+    const SizedBox(width: 12),
+    _attachOpt(Icons.attach_file, '文件', () { setState(() => _showAttach = false); _pickImg(); }),
+  ]));
+
+  Widget _attachOpt(IconData i, String l, VoidCallback t) => InkWell(onTap: t, borderRadius: BorderRadius.circular(8), child: Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+    decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), color: Theme.of(context).colorScheme.surfaceContainerHighest),
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(i, size: 16, color: Colors.grey[600]), const SizedBox(width: 4),
+      Text(l, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+    ]),
+  ));
+
+  Widget _voiceOrSendBtn(bool hasSpeech) {
+    final hasText = _msgCtrl.text.isNotEmpty;
+    if (_recording) {
+      return GestureDetector(
+        onLongPressEnd: (_) => _stopVoice(),
+        child: Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(20)),
+            child: const Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.stop, size: 16, color: Colors.white), SizedBox(width: 4),
+              Text('松开发送', style: TextStyle(fontSize: 12, color: Colors.white)),
+            ])),
       );
     }
-
-    return InkWell(
-      onTap: () => setState(() => _showModelMenu = true),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: Theme.of(context)
-                .colorScheme
-                .primary
-                .withValues(alpha: 0.3),
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.smart_toy,
-                size: 18,
-                color: Theme.of(context).colorScheme.primary),
-            const SizedBox(width: 2),
-            Text(currentModel.name,
-                style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: Theme.of(context).colorScheme.primary)),
-            const SizedBox(width: 2),
-            const Icon(Icons.arrow_drop_down, size: 18),
-          ],
-        ),
-      ),
+    if (hasText) {
+      return IconButton(onPressed: _send, icon: Icon(Icons.send_rounded, color: Theme.of(context).colorScheme.primary, size: 22),
+          padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 36, minHeight: 36));
+    }
+    return IconButton(
+      onPressed: hasSpeech ? _voice : _send,
+      icon: Icon(hasSpeech ? Icons.mic_none : Icons.send_rounded, size: 22, color: hasSpeech ? Colors.grey[500] : Colors.grey[400]),
+      padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
     );
   }
 
-  Widget _buildSettingsButton() {
-    return InkWell(
-      onTap: () {
-        widget.onNavigateToSettings?.call();
-      },
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-              color: Colors.grey.withValues(alpha: 0.3)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.settings, size: 14, color: Colors.grey[500]),
-            const SizedBox(width: 3),
-            Text('设置',
-                style: TextStyle(
-                    fontSize: 12, color: Colors.grey[600])),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget _recOverlay() => GestureDetector(
+    onLongPressEnd: (_) => _stopVoice(),
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(color: Colors.red.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.red.withValues(alpha: 0.3))),
+      child: Row(children: [
+        Icon(Icons.mic, size: 20, color: Colors.red[400]), const SizedBox(width: 8),
+        Text(_speech.isListening ? '正在聆听...' : '长按录制语音', style: TextStyle(color: Colors.red[400], fontSize: 14)),
+      ]),
+    ),
+  );
+}
 
-  Widget _buildThinkToggle() {
-    return InkWell(
-      onTap: () => setState(() => _isThinking = !_isThinking),
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: _isThinking
-                ? Theme.of(context).colorScheme.primary
-                : Colors.grey.withValues(alpha: 0.3),
-          ),
-          color: _isThinking
-              ? Theme.of(context)
-                  .colorScheme
-                  .primary
-                  .withValues(alpha: 0.1)
-              : null,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.psychology,
-              size: 16,
-              color: _isThinking
-                  ? Theme.of(context).colorScheme.primary
-                  : Colors.grey[400],
+class _DialogSettingsContent extends StatefulWidget {
+  @override
+  State<_DialogSettingsContent> createState() => _DialogSettingsContentState();
+}
+
+class _DialogSettingsContentState extends State<_DialogSettingsContent> {
+  @override
+  Widget build(BuildContext context) {
+    final set = context.watch<SettingsProvider>().settings;
+    final mp = context.watch<ModelConfigProvider>();
+    final speechModel = set.speechModelId != null ? mp.models.cast<ModelConfig?>().firstWhere((m) => m!.id == set.speechModelId, orElse: () => null) : null;
+    final imageModel = set.imageModelId != null ? mp.models.cast<ModelConfig?>().firstWhere((m) => m!.id == set.imageModelId, orElse: () => null) : null;
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.55, minChildSize: 0.35, maxChildSize: 0.85,
+      expand: false,
+      builder: (ctx, scrollCtrl) => SingleChildScrollView(
+        controller: scrollCtrl,
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              const Icon(Icons.tune, size: 22), const SizedBox(width: 8),
+              Text('对话设置', style: Theme.of(context).textTheme.titleLarge),
+            ]),
+            const SizedBox(height: 20),
+            // 语音转文字模型
+            Text('语音转文字模型', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700])),
+            const SizedBox(height: 8),
+            _modelPicker(
+              current: speechModel,
+              mp: mp,
+              hint: '未设置（语音按钮为发送按钮）',
+              onSelect: (id) { context.read<SettingsProvider>().setSpeechModelId(id); setState(() {}); },
+              onClear: () { context.read<SettingsProvider>().setSpeechModelId(null); setState(() {}); },
             ),
-            const SizedBox(width: 3),
-            Text(
-              '思考',
-              style: TextStyle(
-                fontSize: 12,
-                color: _isThinking
-                    ? Theme.of(context).colorScheme.primary
-                    : Colors.grey[500],
+            const SizedBox(height: 20),
+            // 图片文件转述模型
+            Text('图片文件转述模型', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700])),
+            const SizedBox(height: 8),
+            _modelPicker(
+              current: imageModel,
+              mp: mp,
+              hint: '未设置（图片直接发送）',
+              onSelect: (id) { context.read<SettingsProvider>().setImageModelId(id); setState(() {}); },
+              onClear: () { context.read<SettingsProvider>().setImageModelId(null); setState(() {}); },
+            ),
+            const SizedBox(height: 16),
+            // 图片转述提示词
+            Text('图片转述提示词', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700])),
+            const SizedBox(height: 8),
+            InkWell(
+              onTap: () => _showPromptDialog(context, set.imagePrompt),
+              child: Container(
+                width: double.infinity, padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(border: Border.all(color: Colors.grey.withValues(alpha: 0.3)), borderRadius: BorderRadius.circular(8)),
+                child: Text(set.imagePrompt, style: TextStyle(fontSize: 13, color: Colors.grey[600])),
               ),
             ),
-          ],
+            const SizedBox(height: 30),
+            SizedBox(width: double.infinity, child: ElevatedButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('完成'),
+            )),
+          ]),
         ),
       ),
     );
   }
 
-  Widget _buildAttachmentButton() {
-    return InkWell(
-      onTap: () =>
-          setState(() => _showAttachmentMenu = !_showAttachmentMenu),
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          color: _showAttachmentMenu
-              ? Theme.of(context)
-                  .colorScheme
-                  .primary
-                  .withValues(alpha: 0.1)
-              : null,
-        ),
-        child: Icon(
-          Icons.add,
-          size: 22,
-          color: _showAttachmentMenu
-              ? Theme.of(context).colorScheme.primary
-              : Colors.grey[500],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAttachmentMenu() {
-    return Padding(
-      padding: const EdgeInsets.only(top: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          _buildAttachmentOption(
-            icon: Icons.photo_library,
-            label: '图片',
-            onTap: () {
-              setState(() => _showAttachmentMenu = false);
-              _pickImageOrFile();
-            },
-          ),
-          const SizedBox(width: 12),
-          _buildAttachmentOption(
-            icon: Icons.attach_file,
-            label: '文件',
-            onTap: () {
-              setState(() => _showAttachmentMenu = false);
-              _pickImageOrFile();
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAttachmentOption({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 16, color: Colors.grey[600]),
-            const SizedBox(width: 4),
-            Text(label,
-                style: TextStyle(
-                    fontSize: 12, color: Colors.grey[600])),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildVoiceOrSendButton(bool hasSpeechModel) {
-    final hasText = _messageController.text.isNotEmpty;
-
-    if (_isRecording) {
-      return GestureDetector(
-        onLongPressEnd: (_) => _stopVoiceInput(),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.red,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.stop, size: 16, color: Colors.white),
-              SizedBox(width: 4),
-              Text('松开发送',
-                  style:
-                      TextStyle(fontSize: 12, color: Colors.white)),
-            ],
-          ),
-        ),
-      );
-    }
-
-    if (hasText) {
-      return IconButton(
-        onPressed: _sendMessage,
-        icon: Icon(Icons.send_rounded,
-            color: Theme.of(context).colorScheme.primary,
-            size: 22),
-        padding: EdgeInsets.zero,
-        constraints:
-            const BoxConstraints(minWidth: 36, minHeight: 36),
-      );
-    }
-
-    return IconButton(
-      onPressed: hasSpeechModel
-          ? _handleVoiceAction
-          : _sendMessage,
-      icon: Icon(
-        hasSpeechModel ? Icons.mic_none : Icons.send_rounded,
-        size: 22,
-        color: hasSpeechModel
-            ? Colors.grey[500]
-            : Colors.grey[400],
-      ),
-      padding: EdgeInsets.zero,
-      constraints:
-          const BoxConstraints(minWidth: 36, minHeight: 36),
-      tooltip: hasSpeechModel ? '语音输入' : '发送',
-    );
-  }
-
-  Widget _buildRecordingOverlay() {
-    return GestureDetector(
-      onLongPressEnd: (_) => _stopVoiceInput(),
-      child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.red.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(12),
-          border:
-              Border.all(color: Colors.red.withValues(alpha: 0.3)),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.mic, size: 20, color: Colors.red[400]),
-            const SizedBox(width: 8),
-            Text(
-              _speech.isListening ? '正在聆听...' : '长按录制语音',
-              style:
-                  TextStyle(color: Colors.red[400], fontSize: 14),
+  Widget _modelPicker({required dynamic current, required ModelConfigProvider mp, required String hint,
+    required void Function(String) onSelect, required VoidCallback onClear}) {
+    return Container(
+      decoration: BoxDecoration(border: Border.all(color: Colors.grey.withValues(alpha: 0.3)), borderRadius: BorderRadius.circular(8)),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        ListTile(
+          dense: true,
+          title: Text(current != null ? '${current.name} (${current.modelName})' : hint,
+              style: TextStyle(fontSize: 13, color: current != null ? null : Colors.grey[500])),
+          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+            if (current != null)
+              IconButton(icon: const Icon(Icons.close, size: 16), onPressed: onClear, padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 24, minHeight: 24)),
+            PopupMenuButton<String>(
+              onSelected: (v) {
+                if (v == 'custom') {
+                  Navigator.pop(context);
+                  // Navigate to API settings page
+                  Future.delayed(const Duration(milliseconds: 200), () {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const _ApiSettingsBridge()));
+                  });
+                } else {
+                  onSelect(v);
+                }
+              },
+              itemBuilder: (ctx) => [
+                ...mp.models.map((m) => PopupMenuItem(value: m.id, child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min,
+                  children: [Text(m.name), Text(m.modelName, style: TextStyle(fontSize: 11, color: Colors.grey[500]))],
+                ))),
+                const PopupMenuDivider(),
+                const PopupMenuItem(value: 'custom', child: Text('自定义模型提供商')),
+              ],
+              icon: const Icon(Icons.more_vert, size: 18),
             ),
-          ],
+          ]),
         ),
-      ),
+      ]),
+    );
+  }
+
+  void _showPromptDialog(BuildContext context, String current) {
+    final ctrl = TextEditingController(text: current);
+    showDialog(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('自定义提示词'),
+      content: TextField(controller: ctrl, maxLines: 3, decoration: const InputDecoration(border: OutlineInputBorder(), hintText: 'Describe this file in Chinese')),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+        TextButton(onPressed: () { context.read<SettingsProvider>().setImagePrompt(ctrl.text.trim()); Navigator.pop(ctx); }, child: const Text('保存')),
+      ],
+    ));
+  }
+}
+
+class _ApiSettingsBridge extends StatelessWidget {
+  const _ApiSettingsBridge();
+  @override
+  Widget build(BuildContext context) {
+    // Import at usage site to avoid circular dependency
+    return Scaffold(
+      appBar: AppBar(title: const Text('添加模型提供商')),
+      body: Center(child: Text('请在 设置 → API 中添加模型', style: TextStyle(color: Colors.grey[500]))),
     );
   }
 }
 
-class _HistoryDrawerContent extends StatefulWidget {
-  final void Function(String conversationId) onSelectConversation;
-  final String? currentConversationId;
-
-  const _HistoryDrawerContent({
-    required this.onSelectConversation,
-    this.currentConversationId,
-  });
+class _HistoryDrawer extends StatefulWidget {
+  final void Function(String) onSelect;
+  final String? currentConvId;
+  const _HistoryDrawer({required this.onSelect, this.currentConvId});
 
   @override
-  State<_HistoryDrawerContent> createState() =>
-      _HistoryDrawerContentState();
+  State<_HistoryDrawer> createState() => _HistoryDrawerState();
 }
 
-class _HistoryDrawerContentState extends State<_HistoryDrawerContent> {
-  final _searchController = TextEditingController();
-  String _searchQuery = '';
+class _HistoryDrawerState extends State<_HistoryDrawer> {
+  final _searchCtrl = TextEditingController();
+  String _q = '';
 
   @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
+  void dispose() { _searchCtrl.dispose(); super.dispose(); }
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<ConversationProvider>();
-    final results = provider.searchConversations(_searchQuery);
-
-    return Column(
-      children: [
-        Container(
-          width: double.infinity,
-          padding: EdgeInsets.only(
-            top: MediaQuery.of(context).padding.top + 16,
-            left: 16,
-            right: 16,
-            bottom: 12,
+    final p = context.watch<ConversationProvider>();
+    final results = p.searchConversations(_q);
+    return Column(children: [
+      Container(
+        width: double.infinity,
+        padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 16, left: 16, right: 16, bottom: 12),
+        decoration: BoxDecoration(color: Theme.of(context).colorScheme.primaryContainer),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [const Icon(Icons.history), const SizedBox(width: 8), Text('历史对话', style: Theme.of(context).textTheme.titleLarge)]),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _searchCtrl,
+            decoration: InputDecoration(
+              hintText: '搜索历史...', prefixIcon: const Icon(Icons.search, size: 20),
+              suffixIcon: _q.isNotEmpty ? IconButton(icon: const Icon(Icons.clear, size: 20), onPressed: () { _searchCtrl.clear(); setState(() => _q = ''); }) : null,
+              filled: true, fillColor: Theme.of(context).colorScheme.surface.withValues(alpha: 0.5),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+            onChanged: (v) => setState(() => _q = v),
           ),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primaryContainer,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Icon(Icons.history),
-                  const SizedBox(width: 8),
-                  Text('历史对话',
-                      style: Theme.of(context).textTheme.titleLarge),
-                ],
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _searchController,
-                decoration: InputDecoration(
-                  hintText: '搜索历史...',
-                  prefixIcon: const Icon(Icons.search, size: 20),
-                  suffixIcon: _searchQuery.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear, size: 20),
-                          onPressed: () {
-                            _searchController.clear();
-                            setState(() => _searchQuery = '');
-                          },
-                        )
-                      : null,
-                  filled: true,
-                  fillColor: Theme.of(context)
-                      .colorScheme
-                      .surface
-                      .withValues(alpha: 0.5),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide.none,
+        ]),
+      ),
+      Expanded(child: results.isEmpty
+          ? Center(child: Text(_q.isEmpty ? '暂无历史对话' : '无匹配结果', style: TextStyle(color: Colors.grey[500])))
+          : ListView.builder(
+              itemCount: results.length,
+              itemBuilder: (_, i) {
+                final c = results[i]['conversation'];
+                final active = c.id == widget.currentConvId;
+                return ListTile(
+                  selected: active,
+                  selectedTileColor: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
+                  leading: const Icon(Icons.chat, size: 20),
+                  title: Text(c.title, maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontWeight: active ? FontWeight.bold : FontWeight.normal)),
+                  subtitle: Text(c.preview, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                    onPressed: () {
+                      context.read<ConversationProvider>().deleteConversation(c.id);
+                      if (c.id == widget.currentConvId) widget.onSelect('');
+                    },
                   ),
-                  contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 8),
-                ),
-                onChanged: (value) =>
-                    setState(() => _searchQuery = value),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: results.isEmpty
-              ? Center(
-                  child: Text(
-                    _searchQuery.isEmpty ? '暂无历史对话' : '无匹配结果',
-                    style: TextStyle(color: Colors.grey[500]),
-                  ),
-                )
-              : ListView.builder(
-                  itemCount: results.length,
-                  itemBuilder: (context, index) {
-                    final conv = results[index]['conversation'];
-                    final isActive =
-                        conv.id == widget.currentConversationId;
-                    return ListTile(
-                      selected: isActive,
-                      selectedTileColor: Theme.of(context)
-                          .colorScheme
-                          .primaryContainer
-                          .withValues(alpha: 0.3),
-                      leading: const Icon(Icons.chat, size: 20),
-                      title: Text(conv.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              fontWeight: isActive
-                                  ? FontWeight.bold
-                                  : FontWeight.normal)),
-                      subtitle: Text(conv.preview,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 12)),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.delete_outline,
-                            size: 18),
-                        onPressed: () {
-                          context
-                              .read<ConversationProvider>()
-                              .deleteConversation(conv.id);
-                          if (conv.id ==
-                              widget.currentConversationId) {
-                            widget.onSelectConversation('');
-                          }
-                        },
-                      ),
-                      onLongPress: () {
-                        context
-                            .read<ConversationProvider>()
-                            .deleteConversation(conv.id);
-                        if (conv.id ==
-                            widget.currentConversationId) {
-                          widget.onSelectConversation('');
-                        }
-                      },
-                      onTap: () =>
-                          widget.onSelectConversation(conv.id),
-                    );
+                  onLongPress: () {
+                    context.read<ConversationProvider>().deleteConversation(c.id);
+                    if (c.id == widget.currentConvId) widget.onSelect('');
                   },
-                ),
-        ),
-      ],
-    );
+                  onTap: () => widget.onSelect(c.id),
+                );
+              },
+            )),
+    ]);
   }
 }

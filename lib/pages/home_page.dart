@@ -54,12 +54,6 @@ class _HomePageState extends State<HomePage> {
             onConversationLoaded: () {
               _targetConversationId = null;
             },
-            onNavigateToSettings: () {
-              setState(() {
-                _currentIndex = 2;
-                _targetConversationId = null;
-              });
-            },
           ),
           const SettingsPage(),
         ],
