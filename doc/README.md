@@ -16,6 +16,7 @@
 | 语音识别 | speech_to_text ^7.3.0 |
 | 分享 | share_plus ^13.1.0 |
 | 截图 | screenshot ^3.0.0 |
+| CI/CD | GitHub Actions (Linux/Android/Windows) |
 | UI | Material 3, ColorScheme.fromSeed |
 
 ## 目录结构
@@ -58,3 +59,13 @@ Android/iOS/macOS/Linux 统一使用 `com.github.lynyugiri.lynai`
 - [数据模型](models.md)
 - [状态管理](providers.md)
 - [API服务](services.md)
+
+## CI/CD
+
+GitHub Actions 自动构建 (.github/workflows/build.yml):
+
+| 平台 | 架构 | Runner |
+|------|------|--------|
+| Android APK | arm64-v8a, armeabi-v7a, x86_64 | ubuntu-latest |
+| Linux | x86_64 | ubuntu-latest |
+| Windows | x86_64 | windows-latest |

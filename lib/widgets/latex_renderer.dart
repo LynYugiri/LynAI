@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
 class LatexRenderer {
-  static const _blockPatterns = [r'\$\$(.+?)\$\$', r'\\\[(.+?)\\\]'];
-  static const _inlinePatterns = [r'\$(.+?)\$', r'\\\((.+?)\\\)'];
 
   static List<InlineSpan> parseToSpans(String text, BuildContext context) {
     final spans = <InlineSpan>[];

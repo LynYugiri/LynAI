@@ -35,7 +35,6 @@ class _ChatPageState extends State<ChatPage> {
   bool _streaming = false;
   bool _showAttach = false;
   bool _showModelMenu = false;
-  bool _showSubModels = false;
   bool _recording = false;
   String? _thinkingTxt;
   bool _thinkExpanded = false;
@@ -156,7 +155,7 @@ class _ChatPageState extends State<ChatPage> {
     final mp = context.read<ModelConfigProvider>();
     mp.updateModel(config.copyWith(modelName: modelName));
     _switchModel(config);
-    setState(() => _showSubModels = false);
+    setState(() => _showModelMenu = false);
   }
 
   void _retry() {
@@ -395,17 +394,28 @@ class _ChatPageState extends State<ChatPage> {
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         if (_showModelMenu) _modelList(mp),
         Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          _modelSel(model, mp), const SizedBox(width: 4),
-          Expanded(child: _recording ? _recOverlay() : TextField(
-            controller: _msgCtrl, focusNode: _focusNode,
-            style: const TextStyle(fontSize: 16, fontFamily: 'monospace'),
-            decoration: const InputDecoration(hintText: '输入消息...', border: InputBorder.none, contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 10)),
-            maxLines: 5, minLines: 1, textInputAction: TextInputAction.send,
-            onSubmitted: (_) => _send(), onChanged: (_) => setState(() {}),
+          Expanded(child: _recording ? _recOverlay() : Focus(
+            onKeyEvent: (node, event) {
+              if (event is KeyDownEvent &&
+                  event.logicalKey == LogicalKeyboardKey.enter &&
+                  !HardwareKeyboard.instance.isShiftPressed) {
+                _send();
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            },
+            child: TextField(
+              controller: _msgCtrl, focusNode: _focusNode,
+              style: const TextStyle(fontSize: 16, fontFamily: 'monospace'),
+              decoration: const InputDecoration(hintText: '输入消息...', border: InputBorder.none, contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 10)),
+              maxLines: 5, minLines: 1, textInputAction: TextInputAction.newline,
+              onChanged: (_) => setState(() {}),
+            ),
           )),
         ]),
         const SizedBox(height: 4),
         Row(children: [
+          _modelSel(model, mp), const SizedBox(width: 4),
           _dialogSetBtn(), const SizedBox(width: 4),
           _thinkBtn(), const Spacer(),
           _attachBtn(), const SizedBox(width: 4),
@@ -436,8 +446,6 @@ class _ChatPageState extends State<ChatPage> {
               trailing: m.hasMultipleModels ? const Icon(Icons.chevron_right, size: 16) : null,
               onTap: () {
                 if (m.hasMultipleModels) {
-                  _showSubModels = true;
-                  // will expand sub-models
                   _switchModel(m);
                 } else {
                   _switchModel(m);
@@ -462,34 +470,24 @@ class _ChatPageState extends State<ChatPage> {
 
   Widget _modelSel(ModelConfig? cur, ModelConfigProvider mp) {
     if (cur == null) return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.withValues(alpha: 0.3))),
       child: Icon(Icons.smart_toy, size: 18, color: Colors.grey[400]),
     );
     if (_showModelMenu) {
       return InkWell(onTap: () => setState(() => _showModelMenu = false), child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(borderRadius: BorderRadius.circular(8),
             color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
             border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3))),
-        child: Icon(Icons.arrow_drop_up, size: 22, color: Theme.of(context).colorScheme.primary),
+        child: Icon(Icons.smart_toy, size: 18, color: Theme.of(context).colorScheme.primary),
       ));
     }
     return InkWell(onTap: () => setState(() => _showModelMenu = true), child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(borderRadius: BorderRadius.circular(8),
           border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3))),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(Icons.smart_toy, size: 18, color: Theme.of(context).colorScheme.primary),
-        const SizedBox(width: 4),
-        Text(cur.name, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Theme.of(context).colorScheme.primary)),
-        if (cur.hasMultipleModels) ...[
-          const Text(' / ', style: TextStyle(fontSize: 11, color: Colors.grey)),
-          Text(cur.modelName, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-        ],
-        const SizedBox(width: 2),
-        const Icon(Icons.arrow_drop_down, size: 18),
-      ]),
+      child: Icon(Icons.smart_toy, size: 18, color: Theme.of(context).colorScheme.primary),
     ));
   }
 

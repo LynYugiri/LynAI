@@ -40,6 +40,10 @@ MaterialApp
 
 ## ChatPage 消息链路
 
+### 键盘交互
+- **桌面端** (Linux/Windows/macOS): `Enter` 发送消息, `Shift+Enter` 换行。通过 `Focus.onKeyEvent` 拦截键盘事件实现。
+- **移动端** (Android/iOS): 回车键默认换行，`textInputAction: TextInputAction.newline`。
+
 ### 普通文本
 1. `_send()` → 添加user消息
 2. 构建历史消息列表
