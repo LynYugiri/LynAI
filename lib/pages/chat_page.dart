@@ -481,8 +481,12 @@ class _ChatPageState extends State<ChatPage> {
           border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3))),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         Icon(Icons.smart_toy, size: 18, color: Theme.of(context).colorScheme.primary),
-        const SizedBox(width: 2),
+        const SizedBox(width: 4),
         Text(cur.name, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Theme.of(context).colorScheme.primary)),
+        if (cur.hasMultipleModels) ...[
+          const Text(' / ', style: TextStyle(fontSize: 11, color: Colors.grey)),
+          Text(cur.modelName, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+        ],
         const SizedBox(width: 2),
         const Icon(Icons.arrow_drop_down, size: 18),
       ]),

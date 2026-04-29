@@ -133,7 +133,7 @@ class EditModelPage extends StatefulWidget {
 
 class _EditModelPageState extends State<EditModelPage> {
   final _formKey = GlobalKey<FormState>();
-  late TextEditingController _nameController, _endpointController, _apiKeyController, _modelNameController;
+  late TextEditingController _nameController, _endpointController, _apiKeyController;
   late TextEditingController _maxTokensController, _temperatureController, _topPController;
   late TextEditingController _newModelController;
   late List<ModelEntry> _modelEntries;
@@ -152,7 +152,6 @@ class _EditModelPageState extends State<EditModelPage> {
     _nameController = TextEditingController(text: widget.model?.name ?? '');
     _endpointController = TextEditingController(text: widget.model?.endpoint ?? '');
     _apiKeyController = TextEditingController(text: widget.model?.apiKey ?? '');
-    _modelNameController = TextEditingController(text: widget.model?.modelName ?? '');
     _maxTokensController = TextEditingController(text: widget.model?.maxTokens?.toString() ?? '');
     _temperatureController = TextEditingController(text: widget.model?.temperature?.toString() ?? '');
     _topPController = TextEditingController(text: widget.model?.topP?.toString() ?? '');
@@ -169,7 +168,6 @@ class _EditModelPageState extends State<EditModelPage> {
     _nameController.dispose();
     _endpointController.dispose();
     _apiKeyController.dispose();
-    _modelNameController.dispose();
     _maxTokensController.dispose();
     _temperatureController.dispose();
     _topPController.dispose();
@@ -186,16 +184,15 @@ class _EditModelPageState extends State<EditModelPage> {
       );
       return;
     }
-    final defaultModel = _modelNameController.text.trim().isNotEmpty
-        ? _modelNameController.text.trim()
-        : entries.first.name;
+    final enabled = entries.where((m) => m.enabled).toList();
+    final activeModelName = enabled.isNotEmpty ? enabled.first.name : entries.first.name;
 
     final config = ModelConfig(
       id: widget.model?.id ?? widget.provider.generateId(),
       name: _nameController.text.trim(),
       endpoint: _endpointController.text.trim(),
       apiKey: _apiKeyController.text.trim(),
-      modelName: defaultModel,
+      modelName: activeModelName,
       apiType: _apiType,
       priority: widget.model?.priority ?? 999,
       maxTokens: int.tryParse(_maxTokensController.text.trim()),
@@ -266,41 +263,37 @@ class _EditModelPageState extends State<EditModelPage> {
     }
     setState(() => _isFetchingModels = true);
     try {
+      List<ModelEntry> fetched = [];
       if (_apiType == 'ollama') {
-        final uri = Uri.parse('$endpoint/api/tags');
-        final resp = await http.get(uri);
+        final resp = await http.get(Uri.parse('$endpoint/api/tags'));
         if (resp.statusCode == 200) {
-          final data = jsonDecode(resp.body);
-          final models = data['models'] as List;
-          setState(() {
-            _modelEntries = models.map((m) {
-              final name = (m['name'] as String).replaceAll(':latest', '');
-              return ModelEntry(name: name, enabled: false);
-            }).toList();
-          });
+          final models = jsonDecode(resp.body)['models'] as List;
+          fetched = models.map((m) {
+            final name = (m['name'] as String).replaceAll(':latest', '');
+            return ModelEntry(name: name, enabled: false);
+          }).toList();
         } else {
           throw Exception('${resp.statusCode}');
         }
       } else {
-        final uri = Uri.parse('$endpoint/models');
         final headers = <String, String>{};
         if (apiKey.isNotEmpty) headers['Authorization'] = 'Bearer $apiKey';
-        final resp = await http.get(uri, headers: headers);
+        final resp = await http.get(Uri.parse('$endpoint/models'), headers: headers);
         if (resp.statusCode == 200) {
-          final data = jsonDecode(resp.body);
-          final models = data['data'] as List? ?? [];
-          setState(() {
-            _modelEntries = models.map((m) {
-              return ModelEntry(name: m['id'] as String, enabled: false);
-            }).toList();
-          });
+          final models = jsonDecode(resp.body)['data'] as List? ?? [];
+          fetched = models.map((m) => ModelEntry(name: m['id'] as String, enabled: false)).toList();
         } else {
           throw Exception('${resp.statusCode}');
         }
       }
+      // Merge: keep existing entries, add new ones that don't exist yet
+      final existingNames = _modelEntries.map((e) => e.name).toSet();
+      final newEntries = fetched.where((e) => !existingNames.contains(e.name)).toList();
+      final addedCount = newEntries.length;
+      setState(() => _modelEntries.addAll(newEntries));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('获取到 ${_modelEntries.length} 个模型')),
+          SnackBar(content: Text(addedCount > 0 ? '新增 $addedCount 个模型' : '没有新模型，已全部存在')),
         );
       }
     } catch (e) {
@@ -536,15 +529,6 @@ class _EditModelPageState extends State<EditModelPage> {
                       ),
                     ),
                   ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              // 默认模型
-              TextFormField(
-                controller: _modelNameController,
-                decoration: const InputDecoration(
-                  labelText: '默认模型', hintText: '选择对话默认使用的模型',
-                  border: OutlineInputBorder(), prefixIcon: Icon(Icons.smart_toy),
                 ),
               ),
               const SizedBox(height: 16),

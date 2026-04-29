@@ -266,75 +266,62 @@ class MarkdownWithLatex extends StatelessWidget {
     for (var i = 0; i < parts.length; i++) {
       if (i % 2 == 0) {
         if (parts[i].trim().isNotEmpty) {
-          // Process inline math within this text segment
-          final inlineParts = _parseInlineInText(parts[i], theme, context);
-          widgets.addAll(inlineParts);
+          widgets.add(_buildMixedContent(parts[i], theme, context));
         }
       } else {
         final idx = i ~/ 2;
         if (idx < blockMatches.length) {
           final formula = blockMatches[idx].group(1) ?? '';
-          widgets.add(LatexRenderer._buildMathBlock(
-              formula.trim(), theme));
+          widgets.add(LatexRenderer._buildMathBlock(formula.trim(), theme));
         }
       }
     }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: widgets,
-    );
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: widgets);
   }
 
-  List<Widget> _parseInlineInText(String text, ThemeData theme, BuildContext context) {
-    final widgets = <Widget>[];
+  Widget _buildMixedContent(String text, ThemeData theme, BuildContext context) {
     final inlineRegExp = RegExp(r'\$(.+?)\$');
-    final parts2 = text.split(inlineRegExp);
-    final matches = inlineRegExp.allMatches(text).toList();
+    if (!inlineRegExp.hasMatch(text)) {
+      return _buildMarkdown(context, text);
+    }
 
-    for (var i = 0; i < parts2.length; i++) {
+    // Has inline math — split and build RichText with WidgetSpans
+    final parts = text.split(inlineRegExp);
+    final matches = inlineRegExp.allMatches(text).toList();
+    final spans = <InlineSpan>[];
+
+    for (var i = 0; i < parts.length; i++) {
       if (i % 2 == 0) {
-        if (parts2[i].trim().isNotEmpty) {
-          widgets.add(MarkdownBody(
-            data: parts2[i],
-            selectable: true,
-            styleSheet: _markdownStyle(context),
-          ));
+        if (parts[i].isNotEmpty) {
+          spans.add(TextSpan(text: parts[i], style: const TextStyle(fontSize: 15, height: 1.5)));
         }
       } else {
         final idx = i ~/ 2;
         if (idx < matches.length) {
           final formula = matches[idx].group(1) ?? '';
-          widgets.add(Container(
-            margin: const EdgeInsets.symmetric(vertical: 8),
-            padding: const EdgeInsets.all(12),
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHighest
-                  .withValues(alpha: 0.6),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: theme.colorScheme.tertiary
-                    .withValues(alpha: 0.3),
-              ),
-            ),
-            child: SelectableText.rich(
-              TextSpan(
+          spans.add(WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: Text(
+                LatexRenderer._convertLatex(formula.trim()),
                 style: TextStyle(
                   fontFamily: 'monospace',
-                  fontSize: 15,
+                  fontSize: 14,
                   fontStyle: FontStyle.italic,
+                  fontWeight: FontWeight.w600,
                   color: theme.colorScheme.tertiary,
                 ),
-                text: LatexRenderer._convertLatex(formula.trim()),
               ),
-              textAlign: TextAlign.center,
             ),
           ));
         }
       }
     }
-    return widgets;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Text.rich(TextSpan(children: spans)),
+    );
   }
 }
