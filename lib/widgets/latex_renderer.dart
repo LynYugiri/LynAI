@@ -2,15 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
 class LatexRenderer {
-  static const _blockPattern = r'\$\$(.+?)\$\$';
-  static const _inlinePattern = r'\$(.+?)\$';
+  static const _blockPatterns = [r'\$\$(.+?)\$\$', r'\\\[(.+?)\\\]'];
+  static const _inlinePatterns = [r'\$(.+?)\$', r'\\\((.+?)\\\)'];
 
   static List<InlineSpan> parseToSpans(String text, BuildContext context) {
     final spans = <InlineSpan>[];
     final theme = Theme.of(context);
-    final blockRegExp = RegExp(_blockPattern, dotAll: true);
-    final parts = text.split(blockRegExp);
-    final blockMatches = blockRegExp.allMatches(text).toList();
+    final normalized = _normalize(text);
+    final blockRegExp = RegExp(r'\$\$(.+?)\$\$', dotAll: true);
+    final parts = normalized.split(blockRegExp);
+    final blockMatches = blockRegExp.allMatches(normalized).toList();
 
     for (var i = 0; i < parts.length; i++) {
       if (i % 2 == 0) {
@@ -29,10 +30,9 @@ class LatexRenderer {
     return spans;
   }
 
-  static List<InlineSpan> _parseInlineMath(
-      String text, ThemeData theme) {
+  static List<InlineSpan> _parseInlineMath(String text, ThemeData theme) {
     final spans = <InlineSpan>[];
-    final inlineRegExp = RegExp(_inlinePattern);
+    final inlineRegExp = RegExp(r'\$(.+?)\$');
     int lastEnd = 0;
 
     for (final match in inlineRegExp.allMatches(text)) {
@@ -65,34 +65,53 @@ class LatexRenderer {
     return spans.isEmpty ? [TextSpan(text: text)] : spans;
   }
 
+  static String _normalize(String text) {
+    // Convert \[ ... \] → $$ ... $$
+    String result = text.replaceAllMapped(
+      RegExp(r'\\\[(.+?)\\\]', dotAll: true),
+      (m) => '\$\$${m.group(1)}\$\$',
+    );
+    // Convert \( ... \) → $ ... $
+    result = result.replaceAllMapped(
+      RegExp(r'\\\((.+?)\\\)'),
+      (m) => '\$${m.group(1)}\$',
+    );
+    return result;
+  }
+
   static Widget _buildMathBlock(String formula, ThemeData theme) {
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.symmetric(vertical: 8),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest
-            .withValues(alpha: 0.6),
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: theme.colorScheme.tertiary.withValues(alpha: 0.3),
-        ),
+        border: Border.all(color: theme.colorScheme.tertiary.withValues(alpha: 0.3)),
       ),
-      child: SelectableText(
-        _convertLatex(formula),
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          fontFamily: 'monospace',
-          fontSize: 15,
-          fontStyle: FontStyle.italic,
-          color: theme.colorScheme.tertiary,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.functions, size: 12, color: theme.colorScheme.tertiary.withValues(alpha: 0.5)),
+          const SizedBox(width: 4),
+          Text('公式', style: TextStyle(fontSize: 10, color: theme.colorScheme.tertiary.withValues(alpha: 0.5))),
+        ]),
+        const SizedBox(height: 8),
+        SelectableText(
+          _convertLatex(formula),
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontFamily: 'monospace',
+            fontSize: 15,
+            fontStyle: FontStyle.italic,
+            color: theme.colorScheme.tertiary,
+          ),
         ),
-      ),
+      ]),
     );
   }
 
   static String _convertLatex(String formula) {
-    String result = formula;
+    String result = formula.trim();
     const greekLower = {
       r'\alpha': 'α', r'\beta': 'β', r'\gamma': 'γ', r'\delta': 'δ',
       r'\epsilon': 'ε', r'\varepsilon': 'ε', r'\zeta': 'ζ', r'\eta': 'η',
@@ -130,39 +149,47 @@ class LatexRenderer {
       r'\oplus': '⊕', r'\ominus': '⊖', r'\otimes': '⊗',
       r'\odot': '⊙', r'\circ': '∘', r'\star': '★',
       r'\aleph': 'ℵ', r'\hbar': 'ℏ',
+      r'\spadesuit': '♠', r'\heartsuit': '♥', r'\diamondsuit': '♦', r'\clubsuit': '♣',
+      r'\neg': '¬', r'\land': '∧', r'\lor': '∨',
     };
 
-    final fracRegExp = RegExp(
-        r'\\frac\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}');
+    // Handle \frac{num}{den} → num / den (with spaces for readability)
     result = result.replaceAllMapped(
-        fracRegExp, (m) => '(${m.group(1)} / ${m.group(2)})');
-
-    result = result.replaceAllMapped(
-      RegExp(r'\^\{(.+?)\}'),
-      (m) => _toSuperscript(m.group(1)!),
-    );
-    result = result.replaceAllMapped(
-      RegExp(r'\^(\w)'),
-      (m) => _toSuperscript(m.group(1)!),
-    );
-    result = result.replaceAllMapped(
-      RegExp(r'_\{(.+?)\}'),
-      (m) => _toSubscript(m.group(1)!),
-    );
-    result = result.replaceAllMapped(
-      RegExp(r'_(\w)'),
-      (m) => _toSubscript(m.group(1)!),
+      RegExp(
+        r'\\frac\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}',
+      ),
+      (m) => '(${m.group(1)}) / (${m.group(2)})',
     );
 
-    final allSymbols = <String, String>{
-      ...greekUpper, ...greekLower, ...mathSymbols,
-    };
+    // Handle superscripts: ^{...} and ^single_char
+    result = result.replaceAllMapped(
+      RegExp(r'\^\{([^{}]+(?:\{[^{}]*\}[^{}]*)*)\}'),
+      (m) => _toSuperscript(m.group(1)!.replaceAll('{', '').replaceAll('}', '')),
+    );
+    result = result.replaceAllMapped(
+      RegExp(r'\^(\S)'),
+      (m) => _toSuperscript(m.group(1)!),
+    );
+
+    // Handle subscripts: _{...} and _single_char
+    result = result.replaceAllMapped(
+      RegExp(r'_\{([^{}]+(?:\{[^{}]*\}[^{}]*)*)\}'),
+      (m) => _toSubscript(m.group(1)!.replaceAll('{', '').replaceAll('}', '')),
+    );
+    result = result.replaceAllMapped(
+      RegExp(r'_(\S)'),
+      (m) => _toSubscript(m.group(1)!),
+    );
+
+    // Replace symbols (longer ones first to avoid partial matches)
+    final allSymbols = <String, String>{...greekUpper, ...greekLower, ...mathSymbols};
     final sortedKeys = allSymbols.keys.toList()
       ..sort((a, b) => b.length.compareTo(a.length));
     for (final key in sortedKeys) {
       result = result.replaceAll(key, allSymbols[key]!);
     }
 
+    // Clean up remaining LaTeX syntax
     result = result
         .replaceAll('\\left', '')
         .replaceAll('\\right', '')
@@ -170,10 +197,12 @@ class LatexRenderer {
         .replaceAll('\\;', '  ')
         .replaceAll('\\!', '')
         .replaceAll('\\\\', '\n')
-        .replaceAll('{', '')
-        .replaceAll('}', '')
         .replaceAll(r'\ ', ' ');
     result = result.replaceAll(RegExp(r'\\[a-zA-Z]+'), '');
+
+    // Clean extra braces
+    result = result.replaceAll('{', '').replaceAll('}', '');
+
     return result.trim();
   }
 
@@ -185,7 +214,7 @@ class LatexRenderer {
       'i': 'ⁱ', 'j': 'ʲ', 'k': 'ᵏ', 'l': 'ˡ', 'm': 'ᵐ', 'n': 'ⁿ',
       'o': 'ᵒ', 'p': 'ᵖ', 'r': 'ʳ', 's': 'ˢ', 't': 'ᵗ', 'u': 'ᵘ',
       'v': 'ᵛ', 'w': 'ʷ', 'x': 'ˣ', 'y': 'ʸ', 'z': 'ᶻ', '+': '⁺',
-      '-': '⁻', '=': '⁼',
+      '-': '⁻', '=': '⁼', '(': '⁽', ')': '⁾', '/': 'ᐟ',
     };
     return text.split('').map((c) => map[c] ?? c).join();
   }
@@ -197,13 +226,16 @@ class LatexRenderer {
       'i': 'ᵢ', 'j': 'ⱼ', 'k': 'ₖ', 'l': 'ₗ', 'm': 'ₘ', 'n': 'ₙ',
       'o': 'ₒ', 'p': 'ₚ', 'r': 'ᵣ', 's': 'ₛ', 't': 'ₜ', 'u': 'ᵤ',
       'v': 'ᵥ', 'x': 'ₓ', '+': '₊', '-': '₋', '=': '₌',
+      '(': '₍', ')': '₎',
     };
     return text.split('').map((c) => map[c] ?? c).join();
   }
 
   static bool hasLatexContent(String text) {
-    return text.contains(RegExp(_blockPattern)) ||
-        text.contains(RegExp(_inlinePattern));
+    return text.contains(RegExp(r'\$\$.+?\$\$', dotAll: true)) ||
+        text.contains(RegExp(r'\$.+?\$')) ||
+        text.contains(RegExp(r'\\\[.+?\\\]', dotAll: true)) ||
+        text.contains(RegExp(r'\\\(.+?\\\)'));
   }
 }
 
@@ -233,34 +265,24 @@ class MarkdownWithLatex extends StatelessWidget {
       p: const TextStyle(fontSize: 15, height: 1.5),
       code: TextStyle(
         fontSize: 13,
-        backgroundColor: Theme.of(context)
-            .colorScheme
-            .surfaceContainerHighest
-            .withValues(alpha: 0.5),
+        backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
       ),
       codeblockDecoration: BoxDecoration(
-        color: Theme.of(context)
-            .colorScheme
-            .surfaceContainerHighest
-            .withValues(alpha: 0.5),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(8),
       ),
       blockquoteDecoration: BoxDecoration(
-        border: Border(
-          left: BorderSide(
-            color: Theme.of(context).colorScheme.primary,
-            width: 3,
-          ),
-        ),
+        border: Border(left: BorderSide(color: Theme.of(context).colorScheme.primary, width: 3)),
       ),
     );
   }
 
   Widget _buildLatexContent(BuildContext context) {
     final theme = Theme.of(context);
+    final normalized = LatexRenderer._normalize(content);
     final blockRegExp = RegExp(r'\$\$(.+?)\$\$', dotAll: true);
-    final parts = content.split(blockRegExp);
-    final blockMatches = blockRegExp.allMatches(content).toList();
+    final parts = normalized.split(blockRegExp);
+    final blockMatches = blockRegExp.allMatches(normalized).toList();
     final widgets = <Widget>[];
 
     for (var i = 0; i < parts.length; i++) {
@@ -285,7 +307,6 @@ class MarkdownWithLatex extends StatelessWidget {
       return _buildMarkdown(context, text);
     }
 
-    // Has inline math — split and build RichText with WidgetSpans
     final parts = text.split(inlineRegExp);
     final matches = inlineRegExp.allMatches(text).toList();
     final spans = <InlineSpan>[];
