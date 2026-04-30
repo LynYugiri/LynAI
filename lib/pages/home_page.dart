@@ -20,12 +20,21 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   late int _currentIndex;
   String? _targetConversationId;
+  String? _cachedImagePath;
+  bool _cachedImageExists = false;
 
   @override
   void initState() {
     super.initState();
     _currentIndex = widget.initialIndex;
     _targetConversationId = widget.conversationId;
+  }
+
+  bool _checkImageExists(String path) {
+    if (path == _cachedImagePath) return _cachedImageExists;
+    _cachedImagePath = path;
+    _cachedImageExists = File(path).existsSync();
+    return _cachedImageExists;
   }
 
   void _navigateToChat(String conversationId) {
@@ -39,7 +48,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>().settings;
     final hasImage = settings.backgroundImagePath != null &&
-        File(settings.backgroundImagePath!).existsSync();
+        _checkImageExists(settings.backgroundImagePath!);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final scaffold = Scaffold(

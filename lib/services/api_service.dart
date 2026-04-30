@@ -70,7 +70,7 @@ class ApiService {
       case 'ollama':
         return {'think': false};
       default:
-        return {'enable_thinking': false};
+        return {};
     }
   }
 
@@ -106,8 +106,12 @@ class ApiService {
       if (config.temperature != null) 'temperature': config.temperature,
       if (config.topP != null) 'top_p': config.topP,
       if (!thinking) ..._thinkingDisabledParams(config.apiType),
-      ...config.extraParams,
     };
+    for (final entry in config.extraParams.entries) {
+      if (!body.containsKey(entry.key)) {
+        body[entry.key] = entry.value;
+      }
+    }
 
     final headers = <String, String>{
       'Content-Type': 'application/json',
@@ -159,8 +163,12 @@ class ApiService {
       if (config.temperature != null) 'temperature': config.temperature,
       if (config.topP != null) 'top_p': config.topP,
       if (!thinking) ..._thinkingDisabledParams(config.apiType),
-      ...config.extraParams,
     };
+    for (final entry in config.extraParams.entries) {
+      if (!body.containsKey(entry.key)) {
+        body[entry.key] = entry.value;
+      }
+    }
 
     final headers = <String, String>{
       'Content-Type': 'application/json',
@@ -185,8 +193,8 @@ class ApiService {
       await for (final chunk in streamedResponse.stream
           .transform(utf8.decoder)
           .transform(const LineSplitter())) {
-        if (chunk.startsWith('data: ')) {
-          final data = chunk.substring(6);
+        if (chunk.startsWith('data:')) {
+          final data = chunk.substring(5).trim();
           if (data == '[DONE]') {
             yield StreamChunk(isDone: true);
             break;
@@ -247,7 +255,11 @@ class ApiService {
       };
     }
 
-    body.addAll(config.extraParams);
+    for (final entry in config.extraParams.entries) {
+      if (!body.containsKey(entry.key)) {
+        body[entry.key] = entry.value;
+      }
+    }
 
     final response = await http.post(
       uri,
@@ -294,7 +306,11 @@ class ApiService {
       };
     }
 
-    body.addAll(config.extraParams);
+    for (final entry in config.extraParams.entries) {
+      if (!body.containsKey(entry.key)) {
+        body[entry.key] = entry.value;
+      }
+    }
 
     final request = http.Request('POST', uri);
     request.headers.addAll({'Content-Type': 'application/json'});
@@ -361,8 +377,12 @@ class ApiService {
       if (config.temperature != null) 'temperature': config.temperature,
       if (config.topP != null) 'top_p': config.topP,
       if (!thinking) ..._thinkingDisabledParams(config.apiType),
-      ...config.extraParams,
     };
+    for (final entry in config.extraParams.entries) {
+      if (!body.containsKey(entry.key)) {
+        body[entry.key] = entry.value;
+      }
+    }
 
     final request = http.Request('POST', uri);
     request.headers.addAll({
@@ -385,8 +405,8 @@ class ApiService {
           .transform(utf8.decoder)
           .transform(const LineSplitter())) {
         // Anthropic SSE format: "event: <type>\ndata: <json>"
-        if (chunk.startsWith('data: ')) {
-          final data = chunk.substring(6);
+        if (chunk.startsWith('data:')) {
+          final data = chunk.substring(5).trim();
           try {
             final json = jsonDecode(data);
             final type = json['type'] as String?;
@@ -440,12 +460,17 @@ class ApiService {
       'model': config.modelName,
       'messages': anthropicMessages,
       'max_tokens': config.maxTokens ?? 4096,
+      'stream': false,
       if (systemPrompt != null) 'system': systemPrompt,
       if (config.temperature != null) 'temperature': config.temperature,
       if (config.topP != null) 'top_p': config.topP,
       if (!thinking) ..._thinkingDisabledParams(config.apiType),
-      ...config.extraParams,
     };
+    for (final entry in config.extraParams.entries) {
+      if (!body.containsKey(entry.key)) {
+        body[entry.key] = entry.value;
+      }
+    }
 
     final response = await http.post(
       uri,
@@ -462,12 +487,15 @@ class ApiService {
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
       String content = '';
+      String reasoning = '';
       for (final block in data['content'] ?? []) {
         if (block['type'] == 'text') {
           content += block['text'] as String;
+        } else if (block['type'] == 'thinking') {
+          reasoning += block['thinking'] as String? ?? '';
         }
       }
-      return (content: content, reasoning: null);
+      return (content: content, reasoning: reasoning.isNotEmpty ? reasoning : null);
     } else {
       throw Exception(
           'Anthropic 请求失败: ${response.statusCode} ${response.body}');

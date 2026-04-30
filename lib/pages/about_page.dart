@@ -1,4 +1,4 @@
-import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
@@ -113,13 +113,14 @@ class AboutPage extends StatelessWidget {
   }
 
   String _currentPlatform() {
-    if (Platform.isAndroid) return 'Android';
-    if (Platform.isIOS) return 'iOS';
-    if (Platform.isMacOS) return 'macOS';
-    if (Platform.isLinux) return 'Linux';
-    if (Platform.isWindows) return 'Windows';
-    if (Platform.isFuchsia) return 'Fuchsia';
-    return '未知';
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android: return 'Android';
+      case TargetPlatform.iOS: return 'iOS';
+      case TargetPlatform.macOS: return 'macOS';
+      case TargetPlatform.linux: return 'Linux';
+      case TargetPlatform.windows: return 'Windows';
+      case TargetPlatform.fuchsia: return 'Fuchsia';
+    }
   }
 }
 

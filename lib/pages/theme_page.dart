@@ -361,7 +361,10 @@ class _BrightnessStrip extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(6),
             gradient: LinearGradient(
-              colors: [Colors.white, Colors.black],
+              colors: [
+                HSLColor.fromAHSL(1, hue, saturation, 0.95).toColor(),
+                HSLColor.fromAHSL(1, hue, saturation, 0.05).toColor(),
+              ],
               begin: Alignment.centerRight, end: Alignment.centerLeft,
             ),
           ),

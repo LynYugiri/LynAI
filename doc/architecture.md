@@ -13,7 +13,7 @@ MaterialApp
                     ├── ChatPage
                     │     ├── MarkdownWithLatex → LatexRenderer(Unicode映射)
                     │     ├── Voice: speech_to_text → 语音模型 → 当前模型
-                    │     └── Image: image_picker → 图片模型 → 当前模型
+                    │     └── Image: image_picker → (图片模型) → 当前模型
                     └── SettingsPage
                           ├── AboutPage
                           ├── BackgroundPage
@@ -46,21 +46,30 @@ MaterialApp
 
 ### 普通文本
 1. `_send()` → 添加user消息
-2. 构建历史消息列表
-3. `_doStream()` → `ApiService.sendStreamRequest()`
-4. `stream.listen` → `updateLastMessage()` 逐字更新
+2. `_getModel()` 获取当前模型(优先对话绑定的模型, 其次pendingModelId, 否则列表中第一个)
+3. `_convId ??= cp.createConversation()` 确保对话已创建
+4. `_buildApiMessages()` 构建包含系统提示词的历史消息列表
+5. `_doStream()` → `ApiService.sendStreamRequest()` 发起流式请求
+6. `stream.listen` → `updateLastMessage()` 逐字更新
+7. 流完成时保存思考内容到 `_thinkMap`, 支持重试导航
 
 ### 语音
 1. 设置语音模型 → 按钮显示麦克风图标
-2. 点击 → speech_to_text 录音
+2. 点击 → `speech_to_text` 录音(使用系统locale)
 3. `_processSpeech()` → 语音模型转写修正
-4. 用修正文字+当前模型发送
+4. 用修正文字+当前模型流式发送
 
 ### 图片
-1. 设置图片模型 → +
-2. image_picker 选图
-3. 图片模型用 `imagePrompt` 描述图片
-4. 描述文字+当前模型发送
+1. 点击附件(+) → `image_picker` 选图
+2. 添加 `[图片: filename (size)]` 用户消息
+3. **已配置图片转述模型**: 图片模型用 `imagePrompt` 描述图片 → 描述文字发送给当前模型
+4. **未配置图片转述模型**: 直接将图片文件名作为文本消息发送给当前模型继续对话
+
+### 重试与历史导航
+- `_retry()`: 重新生成当前回复, 保留原回复到重试历史
+- `<` `>` 导航: 在多次重试版本间切换, 同时切换对应的思考内容
+- `_sendRetry()`: 编辑用户消息后重发, 在重试链中创建分支
+- `_editStartNewConversation()`: 从历史消息处编辑并开始新的对话分支
 
 ---
 
@@ -73,3 +82,10 @@ MaterialApp
 - **`MarkdownWithLatex`**: 自动检测→有LaTeX走自定义渲染，无LaTeX走`MarkdownBody`
 - 内联渲染: `Text.rich` + `WidgetSpan` 保持文本流
 - 块级渲染: 带"公式"标签+`functions`图标的卡片容器
+
+## 空安全与容错
+
+- `_getModel()` 返回 `ModelConfig?` 类型，所有调用处均做空值检查
+- `_doSend()` 在调用前检查 `_convId` 是否为null
+- 流式请求完成和出错时分别处理，确保 `_streaming` 状态正确重置
+- 图片选择/上传过程中的 `mounted` 检查，防止Widget销毁后操作Context

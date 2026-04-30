@@ -133,6 +133,22 @@ class ConversationProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 更新对话使用的模型ID
+  void updateConversationModelId(String conversationId, String modelId) {
+    final index = _conversations.indexWhere((c) => c.id == conversationId);
+    if (index == -1) return;
+    _conversations[index] = Conversation(
+      id: _conversations[index].id,
+      title: _conversations[index].title,
+      messages: _conversations[index].messages,
+      modelId: modelId,
+      createdAt: _conversations[index].createdAt,
+      updatedAt: DateTime.now(),
+    );
+    _saveConversations();
+    notifyListeners();
+  }
+
   /// 更新最后一条消息的内容（用于流式响应）
   void updateLastMessage(String conversationId, String content, {bool save = true}) {
     try {

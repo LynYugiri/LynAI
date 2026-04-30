@@ -42,6 +42,7 @@ class _ChatPageState extends State<ChatPage> {
   final _api = ApiService();
 
   String? _convId;
+  String? _pendingModelId;
   bool _thinking = true;
   bool _streaming = false;
   bool _showAttach = false;
@@ -53,7 +54,6 @@ class _ChatPageState extends State<ChatPage> {
   final Set<String> _expandedThinkIds = {};
 
   final List<_RetryEntry> _retryHistory = [];
-  String? _retryOrigContent;
   String? _retryMsgId;
   int _retryIdx = 0;
 
@@ -79,6 +79,10 @@ class _ChatPageState extends State<ChatPage> {
         _thinkingTxt = null;
         _thinkExpanded = false;
         _expandedThinkIds.clear();
+        _retryHistory.clear();
+        _retryMsgId = null;
+        _retryIdx = 0;
+        _pendingModelId = null;
       });
       widget.onConversationLoaded?.call();
     }
@@ -107,6 +111,9 @@ class _ChatPageState extends State<ChatPage> {
         try { return mp.models.firstWhere((m) => m.id == conv.modelId); } catch (_) {}
       }
     }
+    if (_pendingModelId != null) {
+      try { return mp.models.firstWhere((m) => m.id == _pendingModelId); } catch (_) {}
+    }
     return mp.models.first;
   }
 
@@ -122,7 +129,8 @@ class _ChatPageState extends State<ChatPage> {
     final model = _getModel(mp);
     if (model == null) return;
     _convId ??= cp.createConversation(model.id);
-    _retryHistory.clear(); _retryOrigContent = null; _retryMsgId = null; _retryIdx = 0;
+    _pendingModelId = null;
+    _retryHistory.clear(); _retryMsgId = null; _retryIdx = 0;
     cp.addMessage(_convId!, 'user', text);
     _msgCtrl.clear();
     _scrollEnd();
@@ -132,7 +140,9 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   void _doSend(ModelConfig model) {
-    final conv = context.read<ConversationProvider>().getConversation(_convId!);
+    final cid = _convId;
+    if (cid == null) return;
+    final conv = context.read<ConversationProvider>().getConversation(cid);
     if (conv == null) return;
     final msgs = _buildApiMessages(conv);
     _doStream(model, msgs);
@@ -148,29 +158,17 @@ class _ChatPageState extends State<ChatPage> {
     if (conv == null) return;
     final lastUser = conv.messages.where((m) => m.role == 'user').last;
     _retryMsgId = lastUser.id;
-    _retryOrigContent ??= lastUser.content;
 
     final lastAssistant = conv.messages.where((m) => m.role == 'assistant').toList();
-    if (_retryHistory.isEmpty) {
-      final oldEntry = _RetryEntry(lastUser.content);
-      if (lastAssistant.isNotEmpty && lastAssistant.last.content.isNotEmpty) {
-        oldEntry.assistantId = lastAssistant.last.id;
-        oldEntry.assistantContent = lastAssistant.last.content;
-        oldEntry.thinkingContent = _thinkingTxt;
-      }
-      _retryHistory.add(oldEntry);
-    } else if (_retryIdx < _retryHistory.length) {
-      if (lastAssistant.isNotEmpty && lastAssistant.last.content.isNotEmpty) {
-        _retryHistory[_retryIdx].assistantId = lastAssistant.last.id;
-        _retryHistory[_retryIdx].assistantContent = lastAssistant.last.content;
-        _retryHistory[_retryIdx].thinkingContent = _thinkingTxt;
-      }
+    if (lastAssistant.isNotEmpty && lastAssistant.last.content.isNotEmpty) {
+      _saveRetryHistoryEntry(lastUser.content, lastAssistant.last.id, lastAssistant.last.content);
     }
 
     _retryHistory.add(_RetryEntry(text));
     _retryIdx = _retryHistory.length - 1;
     cp.updateMessageContent(_convId!, lastUser.id, text);
     if (lastAssistant.isNotEmpty) {
+      _thinkMap.remove(lastAssistant.last.id);
       cp.deleteMessage(_convId!, lastAssistant.last.id);
     }
     _scrollEnd();
@@ -180,7 +178,11 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   List<Map<String, dynamic>> _buildApiMessages(Conversation conv) {
+    final set = context.read<SettingsProvider>().settings;
     final msgs = <Map<String, dynamic>>[];
+    if (set.systemPrompt.isNotEmpty) {
+      msgs.add({'role': 'system', 'content': set.systemPrompt});
+    }
     for (final m in conv.messages) {
       if (m.role == 'assistant' && m.content.isEmpty) continue;
       msgs.add({'role': m.role, 'content': m.content});
@@ -225,15 +227,28 @@ class _ChatPageState extends State<ChatPage> {
     }, onError: (e) {
       if (!mounted) return;
       setState(() => _streaming = false);
-      cp.updateLastMessage(cid, '请求失败: $e', save: true);
+      String msg = e.toString();
+      if (msg.startsWith('Exception: ')) msg = msg.substring(11);
+      final display = buf.isNotEmpty ? '$buf\n\n---\n请求失败: $msg' : '请求失败: $msg';
+      cp.updateLastMessage(cid, display, save: true);
     }, onDone: () {
       if (!mounted) return;
-      setState(() => _streaming = false);
+      if (_streaming) {
+        final think = thinkBuf.isNotEmpty ? thinkBuf : null;
+        setState(() { _streaming = false; _thinkingTxt = think; });
+        cp.updateLastMessage(cid, buf, save: true);
+      } else {
+        setState(() => _streaming = false);
+      }
     });
   }
 
   void _switchModel(ModelConfig model) {
-    if (_convId != null) context.read<ConversationProvider>().updateConversationTitle(_convId!, model.name);
+    if (_convId != null) {
+      context.read<ConversationProvider>().updateConversationModelId(_convId!, model.id);
+    } else {
+      _pendingModelId = model.id;
+    }
     setState(() {});
   }
 
@@ -255,33 +270,50 @@ class _ChatPageState extends State<ChatPage> {
     if (assistantMessages.isEmpty) return;
     final lastUser = um.last;
     _retryMsgId = lastUser.id;
-    _retryOrigContent ??= lastUser.content;
 
     final lastAssistant = assistantMessages.last;
-    if (_retryHistory.isEmpty) {
-      final oldEntry = _RetryEntry(lastUser.content);
-      if (lastAssistant.content.isNotEmpty) {
-        oldEntry.assistantId = lastAssistant.id;
-        oldEntry.assistantContent = lastAssistant.content;
-        oldEntry.thinkingContent = _thinkingTxt;
-      }
-      _retryHistory.add(oldEntry);
-    } else if (_retryIdx < _retryHistory.length) {
-      if (lastAssistant.content.isNotEmpty) {
-        _retryHistory[_retryIdx].assistantId = lastAssistant.id;
-        _retryHistory[_retryIdx].assistantContent = lastAssistant.content;
-        _retryHistory[_retryIdx].thinkingContent = _thinkingTxt;
-      }
+    if (lastAssistant.content.isNotEmpty) {
+      _saveRetryHistoryEntry(lastUser.content, lastAssistant.id, lastAssistant.content);
     }
 
     _retryHistory.add(_RetryEntry(lastUser.content));
     _retryIdx = _retryHistory.length - 1;
+    _thinkMap.remove(lastAssistant.id);
     cp.deleteMessage(_convId!, lastAssistant.id);
-    _streaming = true;
-    _thinkingTxt = null;
     cp.addMessage(_convId!, 'assistant', '');
-    setState(() {});
-    _doSend(_getModel(context.read<ModelConfigProvider>())!);
+    setState(() { _streaming = true; _thinkingTxt = null; });
+    final retryModel = _getModel(context.read<ModelConfigProvider>());
+    if (retryModel != null) _doSend(retryModel);
+  }
+
+  void _retryWithoutHistory() {
+    if (_convId == null || _streaming) return;
+    final cp = context.read<ConversationProvider>();
+    final conv = cp.getConversation(_convId!);
+    if (conv == null) return;
+    final assistantMessages = conv.messages.where((m) => m.role == 'assistant').toList();
+    if (assistantMessages.isEmpty) return;
+    final lastAssistant = assistantMessages.last;
+    _thinkMap.remove(lastAssistant.id);
+    cp.deleteMessage(_convId!, lastAssistant.id);
+    cp.addMessage(_convId!, 'assistant', '');
+    setState(() { _streaming = true; _thinkingTxt = null; });
+    final retryModel = _getModel(context.read<ModelConfigProvider>());
+    if (retryModel != null) _doSend(retryModel);
+  }
+
+  void _saveRetryHistoryEntry(String userContent, String assistantId, String assistantContent) {
+    if (_retryHistory.isEmpty) {
+      final oldEntry = _RetryEntry(userContent);
+      oldEntry.assistantId = assistantId;
+      oldEntry.assistantContent = assistantContent;
+      oldEntry.thinkingContent = _thinkingTxt ?? _thinkMap[assistantId];
+      _retryHistory.add(oldEntry);
+    } else if (_retryIdx < _retryHistory.length) {
+      _retryHistory[_retryIdx].assistantId = assistantId;
+      _retryHistory[_retryIdx].assistantContent = assistantContent;
+      _retryHistory[_retryIdx].thinkingContent = _thinkingTxt ?? _thinkMap[assistantId];
+    }
   }
 
   void _copy(String c) {
@@ -317,6 +349,7 @@ class _ChatPageState extends State<ChatPage> {
     if (model == null) return;
     final set = context.read<SettingsProvider>().settings;
     _convId ??= cp.createConversation(model.id);
+    _pendingModelId = null;
     final f = File(picked.path);
     final sz = await f.length();
     final bytes = await f.readAsBytes();
@@ -325,7 +358,13 @@ class _ChatPageState extends State<ChatPage> {
     _scrollEnd();
     if (set.imageModelId != null && set.imageModelId!.isNotEmpty) {
       try {
-        final imgModel = mp.models.firstWhere((m) => m.id == set.imageModelId);
+        final imgModel = mp.models.cast<ModelConfig?>().firstWhere((m) => m!.id == set.imageModelId, orElse: () => null);
+        if (imgModel == null) {
+          if (!mounted) return;
+          setState(() => _streaming = false);
+          cp.updateLastMessage(_convId!, '图片转述模型已不存在，请在设置中重新选择');
+          return;
+        }
         final ext = picked.name.split('.').last.toLowerCase();
         final mime = ext == 'png' ? 'image/png' : ext == 'gif' ? 'image/gif' : ext == 'webp' ? 'image/webp' : 'image/jpeg';
         final base64Img = base64Encode(bytes);
@@ -339,7 +378,6 @@ class _ChatPageState extends State<ChatPage> {
         ], thinking: false);
         if (!mounted) return;
         cp.updateLastMessage(_convId!, '[图片转述] ${resp.content}');
-        setState(() => _streaming = false);
         cp.addMessage(_convId!, 'assistant', '');
         _doSend(model);
       } catch (e) {
@@ -347,6 +385,10 @@ class _ChatPageState extends State<ChatPage> {
         setState(() => _streaming = false);
         cp.updateLastMessage(_convId!, '图片转述失败: $e');
       }
+    } else {
+      cp.addMessage(_convId!, 'assistant', '');
+      setState(() => _streaming = true);
+      _doSend(model);
     }
   }
 
@@ -361,13 +403,15 @@ class _ChatPageState extends State<ChatPage> {
       onError: (_) => setState(() => _recording = false),
     );
     if (!mounted) return;
+    final locale = Localizations.localeOf(context);
+    final localeId = '${locale.languageCode}_${locale.countryCode ?? locale.languageCode.toUpperCase()}';
     if (ok) {
       setState(() => _recording = true);
       try {
         _speech.listen(onResult: (r) {
           _msgCtrl.text = r.recognizedWords;
           if (r.finalResult) { setState(() => _recording = false); _processSpeech(r.recognizedWords); }
-        }, localeId: 'zh_CN');
+        }, localeId: localeId);
       } catch (_) {
         setState(() => _recording = false);
         if (mounted) {
@@ -390,6 +434,7 @@ class _ChatPageState extends State<ChatPage> {
     final model = _getModel(mp);
     if (model == null) return;
     _convId ??= cp.createConversation(model.id);
+    _pendingModelId = null;
     cp.addMessage(_convId!, 'user', txt);
     _msgCtrl.clear();
     _scrollEnd();
@@ -418,7 +463,8 @@ class _ChatPageState extends State<ChatPage> {
   void _stopVoice() { _speech.stop(); setState(() => _recording = false); }
 
   void _selectHistory(String cid) {
-    _retryHistory.clear(); _retryOrigContent = null; _retryMsgId = null; _retryIdx = 0;
+    _retryHistory.clear(); _retryMsgId = null; _retryIdx = 0;
+    _pendingModelId = null;
     _expandedThinkIds.clear();
     setState(() { _convId = cid.isEmpty ? null : cid; _thinkingTxt = null; _thinkExpanded = false; });
     Navigator.pop(context);
@@ -452,7 +498,7 @@ class _ChatPageState extends State<ChatPage> {
         actions: [
           if (_convId != null)
             IconButton(icon: const Icon(Icons.add_comment_outlined), tooltip: '新建对话',
-                onPressed: () { _retryHistory.clear(); _retryOrigContent = null; _retryMsgId = null; _retryIdx = 0; setState(() { _convId = null; _thinkingTxt = null; }); }),
+                onPressed: () { _retryHistory.clear(); _retryMsgId = null; _retryIdx = 0; _pendingModelId = null; setState(() { _convId = null; _thinkingTxt = null; }); }),
         ],
       ),
       drawer: _drawer(context),
@@ -536,7 +582,6 @@ class _ChatPageState extends State<ChatPage> {
       if (thinkForMsg != null && thinkForMsg.isNotEmpty) _thinkSection(thinkForMsg),
       if (!isLastAi)
         ..._buildPerMsgThinkSection(msg),
-        ..._buildPerMsgThinkSection(msg),
       Container(
         margin: const EdgeInsets.symmetric(vertical: 4), padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.85),
@@ -546,7 +591,7 @@ class _ChatPageState extends State<ChatPage> {
             ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
             : MarkdownWithLatex(content: msg.content),
       ),
-      if (!_streaming && msg.content.isNotEmpty) _actions(msg.content),
+      if (!_streaming) _bubbleActions(msg),
     ]);
   }
 
@@ -607,6 +652,17 @@ class _ChatPageState extends State<ChatPage> {
     _actBtn(Icons.refresh, _retry),
   ]));
 
+  Widget _retryOnlyAction() => Padding(padding: const EdgeInsets.only(left: 8, top: 2), child: Row(mainAxisSize: MainAxisSize.min, children: [
+    _actBtn(Icons.refresh, _retryWithoutHistory),
+  ]));
+
+  Widget _bubbleActions(Message msg) {
+    if (msg.content.isEmpty || msg.content.startsWith('请求失败') || msg.content.startsWith('流式请求失败')) {
+      return _retryOnlyAction();
+    }
+    return _actions(msg.content);
+  }
+
   Widget _actBtn(IconData i, VoidCallback t) => InkWell(onTap: t, borderRadius: BorderRadius.circular(12),
       child: Padding(padding: const EdgeInsets.all(4), child: Icon(i, size: 16, color: Colors.grey[400])));
 
@@ -664,6 +720,11 @@ class _ChatPageState extends State<ChatPage> {
     if (entry.assistantContent != null && entry.assistantContent!.isNotEmpty) {
       if (lastAssistant.isNotEmpty) {
         cp.updateMessageContent(_convId!, lastAssistant.last.id, entry.assistantContent!);
+        if (entry.thinkingContent != null) {
+          _thinkMap[lastAssistant.last.id] = entry.thinkingContent;
+        } else {
+          _thinkMap.remove(lastAssistant.last.id);
+        }
       } else {
         cp.addMessage(_convId!, 'assistant', entry.assistantContent!);
       }
@@ -671,6 +732,7 @@ class _ChatPageState extends State<ChatPage> {
     } else {
       if (lastAssistant.isNotEmpty) {
         cp.updateMessageContent(_convId!, lastAssistant.last.id, '');
+        _thinkMap.remove(lastAssistant.last.id);
       }
       _thinkingTxt = null;
     }
@@ -724,15 +786,16 @@ class _ChatPageState extends State<ChatPage> {
   void _editStartNewConversation(Message origMsg, String newText) {
     final cp = context.read<ConversationProvider>();
     final mp = context.read<ModelConfigProvider>();
-    final model = _getModel(mp);
-    if (model == null || _convId == null) return;
+    final editModel = _getModel(mp);
+    if (editModel == null || _convId == null) return;
     final origConv = cp.getConversation(_convId!);
     if (origConv == null) return;
     final allMsgs = origConv.messages;
     final origMsgIdx = allMsgs.indexWhere((m) => m.id == origMsg.id);
     if (origMsgIdx == -1) return;
-    _retryHistory.clear(); _retryOrigContent = null; _retryMsgId = null; _retryIdx = 0;
-    final newConvId = cp.createConversation(model.id);
+    _retryHistory.clear(); _retryMsgId = null; _retryIdx = 0;
+    _pendingModelId = null;
+    final newConvId = cp.createConversation(editModel.id);
     for (int i = 0; i < origMsgIdx; i++) {
       cp.addMessage(newConvId, allMsgs[i].role, allMsgs[i].content);
     }
@@ -745,7 +808,7 @@ class _ChatPageState extends State<ChatPage> {
     });
     _scrollEnd();
     cp.addMessage(newConvId, 'assistant', '');
-    _doSend(model);
+    _doSend(editModel);
   }
 
   Widget _inputArea(ModelConfig? model, ModelConfigProvider mp) {
@@ -837,7 +900,7 @@ class _ChatPageState extends State<ChatPage> {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.withValues(alpha: 0.3))),
-        child: Icon(Icons.smart_toy, size: 18, color: Colors.grey[400]),
+        child: const Icon(Icons.smart_toy, size: 18, color: Colors.grey),
       );
     }
     if (_showModelMenu) {
@@ -858,7 +921,11 @@ class _ChatPageState extends State<ChatPage> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(borderRadius: BorderRadius.circular(8),
           border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3))),
-      child: Icon(Icons.smart_toy, size: 18, color: Theme.of(context).colorScheme.primary),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.smart_toy, size: 16, color: Theme.of(context).colorScheme.primary),
+        const SizedBox(width: 4),
+        Text(cur.modelName, style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.primary)),
+      ]),
     ));
   }
 
@@ -973,6 +1040,29 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
               Text('对话设置', style: Theme.of(context).textTheme.titleLarge),
             ]),
             const SizedBox(height: 20),
+            // 系统提示词
+            Text('系统提示词', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700])),
+            const SizedBox(height: 8),
+            InkWell(
+              onTap: () async {
+                final sp = context.read<SettingsProvider>();
+                final result = await _showSystemPromptDialog(context, set.systemPrompt);
+                if (result != null && mounted) {
+                  sp.setSystemPrompt(result);
+                }
+              },
+              child: Container(
+                width: double.infinity, padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(border: Border.all(color: Colors.grey.withValues(alpha: 0.3)), borderRadius: BorderRadius.circular(8)),
+                child: Text(
+                  set.systemPrompt,
+                  style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
             // 语音转文字模型
             Text('语音转文字模型', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700])),
             const SizedBox(height: 8),
@@ -1037,7 +1127,13 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
             Text('图片转述提示词', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700])),
             const SizedBox(height: 8),
             InkWell(
-              onTap: () => _showPromptDialog(context, set.imagePrompt),
+              onTap: () async {
+                final sp = context.read<SettingsProvider>();
+                final result = await _showPromptDialog(context, set.imagePrompt);
+                if (result != null && mounted) {
+                  sp.setImagePrompt(result);
+                }
+              },
               child: Container(
                 width: double.infinity, padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(border: Border.all(color: Colors.grey.withValues(alpha: 0.3)), borderRadius: BorderRadius.circular(8)),
@@ -1207,16 +1303,58 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
     );
   }
 
-  void _showPromptDialog(BuildContext context, String current) {
+  Future<String?> _showPromptDialog(BuildContext context, String current) {
     final ctrl = TextEditingController(text: current);
-    showDialog(context: context, builder: (ctx) => AlertDialog(
-      title: const Text('自定义提示词'),
-      content: TextField(controller: ctrl, maxLines: 3, decoration: const InputDecoration(border: OutlineInputBorder(), hintText: 'Describe this file in Chinese')),
-      actions: [
-        TextButton(onPressed: () { ctrl.dispose(); Navigator.pop(ctx); }, child: const Text('取消')),
-        TextButton(onPressed: () { context.read<SettingsProvider>().setImagePrompt(ctrl.text.trim()); ctrl.dispose(); Navigator.pop(ctx); }, child: const Text('保存')),
-      ],
-    ));
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('自定义提示词'),
+        content: TextField(controller: ctrl, maxLines: 3, decoration: const InputDecoration(border: OutlineInputBorder(), hintText: 'Describe this file in Chinese')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          TextButton(
+            onPressed: () {
+              final text = ctrl.text.trim();
+              Navigator.pop(ctx, text);
+            },
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<String?> _showSystemPromptDialog(BuildContext context, String current) {
+    final ctrl = TextEditingController(text: current);
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('系统提示词'),
+        content: TextField(
+          controller: ctrl,
+          maxLines: 8,
+          minLines: 3,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            hintText: 'You are a helpful assistant.',
+            alignLabelWithHint: true,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () {
+              final text = ctrl.text.trim().isEmpty ? 'You are a helpful assistant.' : ctrl.text.trim();
+              Navigator.pop(ctx, text);
+            },
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
   }
 }
 

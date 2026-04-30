@@ -269,7 +269,8 @@ class _EditModelPageState extends State<EditModelPage> {
         if (resp.statusCode == 200) {
           final models = jsonDecode(resp.body)['models'] as List;
           fetched = models.map((m) {
-            final name = (m['name'] as String).replaceAll(':latest', '');
+            final rawName = m['name'] as String;
+            final name = rawName.endsWith(':latest') ? rawName.substring(0, rawName.length - ':latest'.length) : rawName;
             return ModelEntry(name: name, enabled: false);
           }).toList();
         } else {

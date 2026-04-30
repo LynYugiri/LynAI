@@ -11,6 +11,7 @@ class AppSettings {
   final String? speechModelId;
   final String? imageModelId;
   final String imagePrompt;
+  final String systemPrompt;
   final String themeMode;
 
   AppSettings({
@@ -21,7 +22,8 @@ class AppSettings {
     this.speechModelId,
     this.imageModelId,
     this.imagePrompt = 'Describe this file in Chinese',
-    this.themeMode = 'light',
+    this.systemPrompt = 'You are a helpful assistant.',
+    this.themeMode = 'system',
   });
 
   factory AppSettings.defaults() {
@@ -40,6 +42,7 @@ class AppSettings {
     Object? speechModelId = _sentinel,
     Object? imageModelId = _sentinel,
     String? imagePrompt,
+    String? systemPrompt,
     String? themeMode,
   }) {
     return AppSettings(
@@ -50,6 +53,7 @@ class AppSettings {
       speechModelId: identical(speechModelId, _sentinel) ? this.speechModelId : speechModelId as String?,
       imageModelId: identical(imageModelId, _sentinel) ? this.imageModelId : imageModelId as String?,
       imagePrompt: imagePrompt ?? this.imagePrompt,
+      systemPrompt: systemPrompt ?? this.systemPrompt,
       themeMode: themeMode ?? this.themeMode,
     );
   }
@@ -63,7 +67,8 @@ class AppSettings {
       speechModelId: json['speechModelId'] as String?,
       imageModelId: json['imageModelId'] as String?,
       imagePrompt: json['imagePrompt'] as String? ?? 'Describe this file in Chinese',
-      themeMode: json['themeMode'] as String? ?? 'light',
+      systemPrompt: json['systemPrompt'] as String? ?? 'You are a helpful assistant.',
+      themeMode: json['themeMode'] as String? ?? 'system',
     );
   }
 
@@ -76,6 +81,7 @@ class AppSettings {
       if (speechModelId != null) 'speechModelId': speechModelId,
       if (imageModelId != null) 'imageModelId': imageModelId,
       'imagePrompt': imagePrompt,
+      'systemPrompt': systemPrompt,
       'themeMode': themeMode,
     };
   }

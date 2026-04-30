@@ -90,6 +90,13 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 设置系统提示词
+  void setSystemPrompt(String prompt) {
+    _settings = _settings.copyWith(systemPrompt: prompt);
+    _saveSettings();
+    notifyListeners();
+  }
+
   /// 设置主题模式
   void setThemeMode(String mode) {
     _settings = _settings.copyWith(themeMode: mode);
