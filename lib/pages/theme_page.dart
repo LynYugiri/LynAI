@@ -83,7 +83,7 @@ class ThemePage extends StatelessWidget {
 
   Widget _buildThemeModeSelector(BuildContext context, SettingsProvider provider) {
     final mode = provider.themeMode;
-    final modeLabels = {'light': '浅色模式', 'dark': '深色模式', 'system': '跟随系统'};
+    final modeLabels = {'light': '浅色', 'dark': '深色', 'system': '跟随系统'};
     return Card(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -93,8 +93,8 @@ class ThemePage extends StatelessWidget {
               contentPadding: EdgeInsets.zero,
               leading: Icon(mode == 'light' ? Icons.light_mode : (mode == 'dark' ? Icons.dark_mode : Icons.settings_suggest),
                   color: Theme.of(context).colorScheme.primary),
-              title: Text(modeLabels[mode] ?? '浅色模式'),
-              subtitle: const Text('默认使用浅色模式'),
+              title: Text(modeLabels[mode] ?? '跟随系统'),
+              subtitle: const Text(''),
             )),
             DropdownButton<String>(
               value: mode,
