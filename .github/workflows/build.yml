@@ -10,6 +10,7 @@ on:
 
 env:
   APP_NAME: LynAI
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   meta:
@@ -49,6 +50,102 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APP_NAME }}_android
+          path: release/
+
+  build-linux:
+    name: Linux
+    needs: meta
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang ninja-build pkg-config libgtk-3-dev liblzma-dev zstd
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+      - run: flutter build linux
+      - name: Create .deb package
+        run: |
+          V="${{ needs.meta.outputs.version }}"
+          S="${{ needs.meta.outputs.short_sha }}"
+          PKG="deb-pkg"
+          B="build/linux/x64/release/bundle"
+
+          mkdir -p "${PKG}/DEBIAN" "${PKG}/usr/lib/lynai" "${PKG}/usr/bin" "${PKG}/usr/share/applications"
+          cp -r "${B}"/* "${PKG}/usr/lib/lynai/"
+
+          cat > "${PKG}/usr/bin/lynai" << 'SCRIPT'
+          #!/bin/bash
+          exec /usr/lib/lynai/lynai "$@"
+          SCRIPT
+          chmod +x "${PKG}/usr/bin/lynai"
+
+          cat > "${PKG}/usr/share/applications/lynai.desktop" << DESKTOP
+          [Desktop Entry]
+          Name=LynAI
+          Exec=/usr/bin/lynai
+          Type=Application
+          Categories=Utility;
+          DESKTOP
+
+          SIZE_KB=$(du -sk "${PKG}" | cut -f1)
+          cat > "${PKG}/DEBIAN/control" << CONTROL
+          Package: lynai
+          Version: ${V}
+          Architecture: amd64
+          Maintainer: lynai
+          Installed-Size: ${SIZE_KB}
+          Depends: libgtk-3-0, liblzma5
+          Description: LynAI - Flutter desktop application
+          CONTROL
+
+          mkdir -p release
+          dpkg-deb --build "${PKG}" "release/${APP_NAME}_linux_${V}_${S}_amd64.deb"
+
+      - name: Create Arch Linux package
+        run: |
+          V="${{ needs.meta.outputs.version }}"
+          S="${{ needs.meta.outputs.short_sha }}"
+          PKG="arch-pkg"
+          B="build/linux/x64/release/bundle"
+
+          mkdir -p "${PKG}/usr/lib/lynai" "${PKG}/usr/bin" "${PKG}/usr/share/applications"
+          cp -r "${B}"/* "${PKG}/usr/lib/lynai/"
+
+          cat > "${PKG}/usr/bin/lynai" << 'SCRIPT'
+          #!/bin/bash
+          exec /usr/lib/lynai/lynai "$@"
+          SCRIPT
+          chmod +x "${PKG}/usr/bin/lynai"
+
+          cat > "${PKG}/usr/share/applications/lynai.desktop" << DESKTOP
+          [Desktop Entry]
+          Name=LynAI
+          Exec=/usr/bin/lynai
+          Type=Application
+          Categories=Utility;
+          DESKTOP
+
+          cat > "${PKG}/.PKGINFO" << PKGINFO
+          pkgname = lynai
+          pkgver = ${V}-1
+          pkgdesc = LynAI - Flutter desktop application
+          url = https://github.com/lynyugiri/lynai
+          arch = x86_64
+          license = MIT
+          depend = gtk3
+          depend = xz
+          PKGINFO
+
+          mkdir -p release
+          tar cf - -C "${PKG}" . | zstd -19 -o "release/${APP_NAME}_linux_${V}_${S}_x86_64.pkg.tar.zst"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}_linux
           path: release/
 
   build-windows:
@@ -117,7 +214,7 @@ jobs:
 
   pre-release:
     name: Pre-release
-    needs: [meta, build-android, build-windows, build-macos, build-web]
+    needs: [meta, build-android, build-linux, build-windows, build-macos, build-web]
     if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
@@ -142,7 +239,7 @@ jobs:
 
   stable-release:
     name: Stable Release
-    needs: [meta, build-android, build-windows, build-macos, build-web]
+    needs: [meta, build-android, build-linux, build-windows, build-macos, build-web]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
