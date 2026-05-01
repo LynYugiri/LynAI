@@ -41,6 +41,7 @@ class ThemePage extends StatelessWidget {
     Color(0xFF6C5B7B), // 梅紫
     Color(0xFF355C7D), // 海军蓝
     Color(0xFFC06C84), // 豆沙
+    Color(0xFFDFE6E9), // 珍珠灰
   ];
 
   @override
@@ -143,6 +144,7 @@ class ThemePage extends StatelessWidget {
   }
 
   Widget _buildColorOption(BuildContext context, Color color, bool isSelected, VoidCallback onTap) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
@@ -151,7 +153,7 @@ class ThemePage extends StatelessWidget {
         decoration: BoxDecoration(
           color: color,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: isSelected ? Colors.black : Colors.transparent, width: isSelected ? 3 : 0),
+          border: Border.all(color: isSelected ? (isDark ? Colors.white : Colors.black) : Colors.transparent, width: isSelected ? 3 : 0),
           boxShadow: isSelected ? [BoxShadow(color: color.withValues(alpha: 0.4), blurRadius: 8, offset: const Offset(0, 2))] : null,
         ),
         child: isSelected ? const Icon(Icons.check, color: Colors.white, size: 20) : null,

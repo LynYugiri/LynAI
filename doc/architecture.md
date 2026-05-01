@@ -86,6 +86,27 @@ MaterialApp
 ## 空安全与容错
 
 - `_getModel()` 返回 `ModelConfig?` 类型，所有调用处均做空值检查
+- `_findModelById()` 辅助方法用 try-catch 安全查找模型，替代 `cast<ModelConfig?>()` 模式
 - `_doSend()` 在调用前检查 `_convId` 是否为null
 - 流式请求完成和出错时分别处理，确保 `_streaming` 状态正确重置
 - 图片选择/上传过程中的 `mounted` 检查，防止Widget销毁后操作Context
+
+## 流式请求生命周期
+
+```
+_send() → addMessage(user) → addMessage(assistant, '') → _doSend()
+  → _doStream() → ApiService.sendStreamRequest()
+    → stream.listen(
+        onData: updateLastMessage(convId, buf, save: false) → notifyListeners()
+        isDone: updateLastMessage(convId, buf, save: true) → save to _thinkMap
+        onError: updateLastMessage(convId, error, save: true) → setState(_streaming = false)
+        onDone: setState(_streaming = false) [兜底]
+      )
+```
+
+## 模型查找逻辑
+
+`_getModel(mp)` 按优先级查找当前对话使用的模型:
+1. 对话绑定的 `modelId` (优先)
+2. `pendingModelId` (对话创建前暂存)
+3. 列表中第一个模型 (兜底)

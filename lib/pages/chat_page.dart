@@ -103,6 +103,14 @@ class _ChatPageState extends State<ChatPage> {
     });
   }
 
+  ModelConfig? _findModelById(ModelConfigProvider mp, String id) {
+    try {
+      return mp.models.firstWhere((m) => m.id == id);
+    } catch (_) {
+      return null;
+    }
+  }
+
   ModelConfig? _getModel(ModelConfigProvider mp) {
     if (mp.models.isEmpty) return null;
     if (_convId != null) {
@@ -188,10 +196,6 @@ class _ChatPageState extends State<ChatPage> {
       msgs.add({'role': m.role, 'content': m.content});
     }
     return msgs;
-  }
-
-  List<Message> _getVisibleMessages(Conversation conv) {
-    return conv.messages.toList();
   }
 
   void _doStream(ModelConfig model, List<Map<String, dynamic>> msgs) {
@@ -358,7 +362,7 @@ class _ChatPageState extends State<ChatPage> {
     _scrollEnd();
     if (set.imageModelId != null && set.imageModelId!.isNotEmpty) {
       try {
-        final imgModel = mp.models.cast<ModelConfig?>().firstWhere((m) => m!.id == set.imageModelId, orElse: () => null);
+        final imgModel = _findModelById(mp, set.imageModelId!);
         if (imgModel == null) {
           if (!mounted) return;
           setState(() => _streaming = false);
@@ -441,7 +445,7 @@ class _ChatPageState extends State<ChatPage> {
     cp.addMessage(_convId!, 'assistant', '');
     setState(() => _streaming = true);
     try {
-      final sm = mp.models.cast<ModelConfig?>().firstWhere((m) => m!.id == context.read<SettingsProvider>().settings.speechModelId, orElse: () => null);
+      final sm = _findModelById(mp, context.read<SettingsProvider>().settings.speechModelId!);
       if (sm == null) {
         setState(() => _streaming = false);
         cp.updateLastMessage(_convId!, '语音转文字模型不存在，请在设置中重新选择');
@@ -511,7 +515,7 @@ class _ChatPageState extends State<ChatPage> {
   );
 
   Widget _body(Conversation? conv, ModelConfig? model, ModelConfigProvider mp) {
-    final msgs = conv != null ? _getVisibleMessages(conv) : <Message>[];
+    final msgs = conv != null ? conv.messages.toList() : <Message>[];
     int lastUserIdx = -1;
     for (int i = msgs.length - 1; i >= 0; i--) {
       if (msgs[i].role == 'user') { lastUserIdx = i; break; }
@@ -758,17 +762,13 @@ class _ChatPageState extends State<ChatPage> {
         ),
         actions: [
           TextButton(
-            onPressed: () {
-              ctrl.dispose();
-              Navigator.pop(ctx);
-            },
+            onPressed: () => Navigator.pop(ctx),
             child: const Text('取消'),
           ),
           TextButton(
             onPressed: () {
-              Navigator.pop(ctx);
               final text = ctrl.text.trim();
-              ctrl.dispose();
+              Navigator.pop(ctx);
               if (text.isEmpty) return;
               if (isLastUserMsg) {
                 _sendRetry(text);
@@ -780,7 +780,7 @@ class _ChatPageState extends State<ChatPage> {
           ),
         ],
       ),
-    );
+    ).then((_) => ctrl.dispose());
   }
 
   void _editStartNewConversation(Message origMsg, String newText) {
@@ -1009,6 +1009,14 @@ class _ChatPageState extends State<ChatPage> {
   );
 }
 
+ModelConfig? _findModelConfigById(List<ModelConfig> models, String id) {
+  try {
+    return models.firstWhere((m) => m.id == id);
+  } catch (_) {
+    return null;
+  }
+}
+
 class _DialogSettingsContent extends StatefulWidget {
   @override
   State<_DialogSettingsContent> createState() => _DialogSettingsContentState();
@@ -1024,8 +1032,8 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
   Widget build(BuildContext context) {
     final set = context.watch<SettingsProvider>().settings;
     final mp = context.watch<ModelConfigProvider>();
-    final speechModel = set.speechModelId != null ? mp.models.cast<ModelConfig?>().firstWhere((m) => m!.id == set.speechModelId, orElse: () => null) : null;
-    final imageModel = set.imageModelId != null ? mp.models.cast<ModelConfig?>().firstWhere((m) => m!.id == set.imageModelId, orElse: () => null) : null;
+    final speechModel = set.speechModelId != null ? _findModelConfigById(mp.models, set.speechModelId!) : null;
+    final imageModel = set.imageModelId != null ? _findModelConfigById(mp.models, set.imageModelId!) : null;
 
     return DraggableScrollableSheet(
       initialChildSize: 0.55, minChildSize: 0.35, maxChildSize: 0.85,

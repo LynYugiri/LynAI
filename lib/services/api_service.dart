@@ -373,6 +373,7 @@ class ApiService {
       'messages': anthropicMessages,
       'max_tokens': config.maxTokens ?? 4096,
       'stream': true,
+      // ignore: use_null_aware_elements
       if (systemPrompt != null) 'system': systemPrompt,
       if (config.temperature != null) 'temperature': config.temperature,
       if (config.topP != null) 'top_p': config.topP,
@@ -461,6 +462,7 @@ class ApiService {
       'messages': anthropicMessages,
       'max_tokens': config.maxTokens ?? 4096,
       'stream': false,
+      // ignore: use_null_aware_elements
       if (systemPrompt != null) 'system': systemPrompt,
       if (config.temperature != null) 'temperature': config.temperature,
       if (config.topP != null) 'top_p': config.topP,

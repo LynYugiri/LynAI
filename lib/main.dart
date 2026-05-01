@@ -65,7 +65,10 @@ class _LynAIAppState extends State<LynAIApp> {
       ]);
 
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+          _hasError = false;
+        });
       }
     } catch (e) {
       if (mounted) {

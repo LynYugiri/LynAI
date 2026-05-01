@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/conversation.dart';
 import '../providers/conversation_provider.dart';
 
 /// 对话历史列表页面
@@ -125,7 +126,7 @@ class _HistoryPageState extends State<HistoryPage> {
 
   /// 构建单个对话列表项
   Widget _buildConversationItem(
-    dynamic conversation,
+    Conversation conversation,
     bool matchInTitle,
     String matchContent,
     ConversationProvider provider,
@@ -245,7 +246,7 @@ class _HistoryPageState extends State<HistoryPage> {
   void _showDeleteDialog(
     BuildContext context,
     ConversationProvider provider,
-    dynamic conversation,
+    Conversation conversation,
   ) {
     showDialog(
       context: context,

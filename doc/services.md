@@ -38,7 +38,7 @@ Stream<StreamChunk> sendStreamRequest(
 ```
 
 - OpenAI兼容: SSE解析 `data:` 前缀行 + `[DONE]` 或 `finish_reason` 结束，提取 `delta.content` 和 `delta.reasoning_content`
-- Ollama: 逐行JSON, `message.content` 为文本, `done: true` 结束
+- Ollama: 逐行JSON, `message.content` 为文本, `done: true` 结束。注意: 当前版本不提取 Ollama 的 reasoning/thinking 内容
 - Anthropic: SSE `data:` 行中提取 `type` 字段, 区分 `content_block_delta` 事件中的 `text_delta` (内容) 和 `thinking_delta` (推理), `message_stop` 事件结束
 - 自动注入 `max_tokens`, `temperature`, `top_p`, `extraParams`（extraParams不会覆盖已设置的关键字段）
 
