@@ -25,7 +25,7 @@ class SettingsPage extends StatelessWidget {
               () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BackgroundPage()))),
           _buildItem(context, Icons.api, 'API', '管理 AI 模型', Colors.orange,
               () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ApiModelsPage()))),
-          _buildItem(context, Icons.palette, 'Theme', settings.themeMode == 'dark' ? '自定义主题颜色 · 深色' : (settings.themeMode == 'system' ? '自定义主题颜色 · 跟随系统' : '自定义主题颜色 · 浅色'), Colors.green,
+          _buildItem(context, Icons.palette, 'Theme', settings.themeMode == 'dark' ? '自定义主题颜色' : (settings.themeMode == 'system' ? '自定义主题颜色' : '自定义主题颜色'), Colors.green,
               () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ThemePage()))),
         ],
       ),

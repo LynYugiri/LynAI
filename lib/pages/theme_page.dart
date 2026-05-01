@@ -94,7 +94,7 @@ class ThemePage extends StatelessWidget {
               leading: Icon(mode == 'light' ? Icons.light_mode : (mode == 'dark' ? Icons.dark_mode : Icons.settings_suggest),
                   color: Theme.of(context).colorScheme.primary),
               title: Text(modeLabels[mode] ?? '跟随系统'),
-              subtitle: const Text(''),
+              subtitle: const Text('在此设置你的主题模式'),
             )),
             DropdownButton<String>(
               value: mode,
