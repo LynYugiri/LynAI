@@ -103,7 +103,7 @@ jobs:
           CONTROL
 
           mkdir -p release
-          dpkg-deb --build "${PKG}" "release/${APP_NAME}_linux_${V}_${S}_amd64.deb"
+          dpkg-deb --build "${PKG}" "release/${APP_NAME}_debian_${V}_${S}_amd64.deb"
 
       - name: Create Arch Linux package
         run: |
@@ -141,7 +141,7 @@ jobs:
           PKGINFO
 
           mkdir -p release
-          tar cf - -C "${PKG}" . | zstd -19 -o "release/${APP_NAME}_linux_${V}_${S}_x86_64.pkg.tar.zst"
+          tar cf - -C "${PKG}" . | zstd -19 -o "release/${APP_NAME}_archlinux_${V}_${S}_amd64.pkg.tar.zst"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -149,7 +149,7 @@ jobs:
           path: release/
 
   build-windows:
-    name: Windows (x86_64)
+    name: Windows (x64)
     needs: meta
     runs-on: windows-latest
     steps:
@@ -163,11 +163,11 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release | Out-Null
-          $name = "$env:APP_NAME" + "_windows_" + "${{ needs.meta.outputs.version }}" + "_" + "${{ needs.meta.outputs.short_sha }}" + "_x86_64.zip"
+          $name = "$env:APP_NAME" + "_windows_" + "${{ needs.meta.outputs.version }}" + "_" + "${{ needs.meta.outputs.short_sha }}" + "_x64.zip"
           Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath "release/$name"
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.APP_NAME }}_windows_x86_64
+          name: ${{ env.APP_NAME }}_windows_x64
           path: release/
 
   build-web:
