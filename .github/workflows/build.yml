@@ -10,7 +10,6 @@ on:
 
 env:
   APP_NAME: LynAI
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   meta:
