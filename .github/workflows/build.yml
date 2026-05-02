@@ -198,6 +198,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: release
@@ -206,7 +207,8 @@ jobs:
         run: |
           gh release list --json tagName,isPrerelease --jq '.[] | select(.isPrerelease) | .tagName' | while read -r tag; do
             echo "Deleting pre-release: $tag"
-            gh release delete "$tag" --yes --cleanup-tag 2>/dev/null || true
+            gh release delete "$tag" --yes 2>/dev/null || true
+            git push --delete origin "$tag" 2>/dev/null || true
           done
         env:
           GH_TOKEN: ${{ github.token }}
