@@ -11,6 +11,8 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../models/conversation.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
+import '../models/app_settings.dart';
+import '../models/system_prompt.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/settings_provider.dart';
@@ -76,13 +78,8 @@ class _ChatPageState extends State<ChatPage> {
     if (widget.conversationId != null && widget.conversationId != _convId) {
       setState(() {
         _convId = widget.conversationId;
-        _thinkingTxt = null;
-        _thinkExpanded = false;
-        _expandedThinkIds.clear();
-        _retryHistory.clear();
-        _retryMsgId = null;
-        _retryIdx = 0;
-        _pendingModelId = null;
+        _clearPendingState();
+        _clearRetryState();
       });
       widget.onConversationLoaded?.call();
     }
@@ -90,8 +87,25 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   void dispose() {
-    _msgCtrl.dispose(); _scrollCtrl.dispose(); _focusNode.dispose(); _sub?.cancel();
+    _sub?.cancel();
+    _msgCtrl.dispose();
+    _scrollCtrl.dispose();
+    _focusNode.dispose();
     super.dispose();
+  }
+
+  void _clearRetryState() {
+    _retryHistory.clear();
+    _retryMsgId = null;
+    _retryIdx = 0;
+  }
+
+  void _clearPendingState() {
+    _pendingModelId = null;
+    _thinkingTxt = null;
+    _thinkExpanded = false;
+    _expandedThinkIds.clear();
+    _thinkMap.clear();
   }
 
   void _scrollEnd() {
@@ -101,14 +115,6 @@ class _ChatPageState extends State<ChatPage> {
             duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
       }
     });
-  }
-
-  ModelConfig? _findModelById(ModelConfigProvider mp, String id) {
-    try {
-      return mp.models.firstWhere((m) => m.id == id);
-    } catch (_) {
-      return null;
-    }
   }
 
   ModelConfig? _getModel(ModelConfigProvider mp) {
@@ -138,7 +144,7 @@ class _ChatPageState extends State<ChatPage> {
     if (model == null) return;
     _convId ??= cp.createConversation(model.id);
     _pendingModelId = null;
-    _retryHistory.clear(); _retryMsgId = null; _retryIdx = 0;
+    _clearRetryState();
     cp.addMessage(_convId!, 'user', text);
     _msgCtrl.clear();
     _scrollEnd();
@@ -186,10 +192,10 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   List<Map<String, dynamic>> _buildApiMessages(Conversation conv) {
-    final set = context.read<SettingsProvider>().settings;
     final msgs = <Map<String, dynamic>>[];
-    if (set.systemPrompt.isNotEmpty) {
-      msgs.add({'role': 'system', 'content': set.systemPrompt});
+    final promptContent = context.read<SettingsProvider>().effectiveSystemPrompt;
+    if (promptContent.isNotEmpty) {
+      msgs.add({'role': 'system', 'content': promptContent});
     }
     for (final m in conv.messages) {
       if (m.role == 'assistant' && m.content.isEmpty) continue;
@@ -213,14 +219,17 @@ class _ChatPageState extends State<ChatPage> {
         final think = thinkBuf.isNotEmpty ? thinkBuf : null;
         setState(() { _streaming = false; _thinkingTxt = think; });
         cp.updateLastMessage(cid, buf, save: true);
+        final conv = cp.getConversation(cid);
+        if (conv != null && conv.messages.isNotEmpty) {
+          final lastMsg = conv.messages.last;
+          if (think != null) _thinkMap[lastMsg.id] = think;
+        }
         if (_retryHistory.isNotEmpty && _retryIdx < _retryHistory.length) {
-          final conv = cp.getConversation(cid);
           if (conv != null && conv.messages.isNotEmpty) {
             final lastMsg = conv.messages.last;
             _retryHistory[_retryIdx].assistantId = lastMsg.id;
             _retryHistory[_retryIdx].assistantContent = buf;
             _retryHistory[_retryIdx].thinkingContent = think;
-            if (think != null) _thinkMap[lastMsg.id] = think;
           }
         }
       } else {
@@ -241,6 +250,19 @@ class _ChatPageState extends State<ChatPage> {
         final think = thinkBuf.isNotEmpty ? thinkBuf : null;
         setState(() { _streaming = false; _thinkingTxt = think; });
         cp.updateLastMessage(cid, buf, save: true);
+        final conv = cp.getConversation(cid);
+        if (conv != null && conv.messages.isNotEmpty) {
+          final lastMsg = conv.messages.last;
+          if (think != null) _thinkMap[lastMsg.id] = think;
+        }
+        if (_retryHistory.isNotEmpty && _retryIdx < _retryHistory.length) {
+          if (conv != null && conv.messages.isNotEmpty) {
+            final lastMsg = conv.messages.last;
+            _retryHistory[_retryIdx].assistantId = lastMsg.id;
+            _retryHistory[_retryIdx].assistantContent = buf;
+            _retryHistory[_retryIdx].thinkingContent = think;
+          }
+        }
       } else {
         setState(() => _streaming = false);
       }
@@ -362,7 +384,7 @@ class _ChatPageState extends State<ChatPage> {
     _scrollEnd();
     if (set.imageModelId != null && set.imageModelId!.isNotEmpty) {
       try {
-        final imgModel = _findModelById(mp, set.imageModelId!);
+        final imgModel = _findModelConfigById(mp.models, set.imageModelId!);
         if (imgModel == null) {
           if (!mounted) return;
           setState(() => _streaming = false);
@@ -445,7 +467,7 @@ class _ChatPageState extends State<ChatPage> {
     cp.addMessage(_convId!, 'assistant', '');
     setState(() => _streaming = true);
     try {
-      final sm = _findModelById(mp, context.read<SettingsProvider>().settings.speechModelId!);
+      final sm = _findModelConfigById(mp.models, context.read<SettingsProvider>().settings.speechModelId!);
       if (sm == null) {
         setState(() => _streaming = false);
         cp.updateLastMessage(_convId!, '语音转文字模型不存在，请在设置中重新选择');
@@ -467,9 +489,10 @@ class _ChatPageState extends State<ChatPage> {
   void _stopVoice() { _speech.stop(); setState(() => _recording = false); }
 
   void _selectHistory(String cid) {
-    _retryHistory.clear(); _retryMsgId = null; _retryIdx = 0;
+    _clearRetryState();
     _pendingModelId = null;
     _expandedThinkIds.clear();
+    _thinkMap.clear();
     setState(() { _convId = cid.isEmpty ? null : cid; _thinkingTxt = null; _thinkExpanded = false; });
     Navigator.pop(context);
   }
@@ -502,7 +525,7 @@ class _ChatPageState extends State<ChatPage> {
         actions: [
           if (_convId != null)
             IconButton(icon: const Icon(Icons.add_comment_outlined), tooltip: '新建对话',
-                onPressed: () { _retryHistory.clear(); _retryMsgId = null; _retryIdx = 0; _pendingModelId = null; setState(() { _convId = null; _thinkingTxt = null; }); }),
+                onPressed: () { _clearRetryState(); _clearPendingState(); setState(() { _convId = null; }); }),
         ],
       ),
       drawer: _drawer(context),
@@ -793,7 +816,7 @@ class _ChatPageState extends State<ChatPage> {
     final allMsgs = origConv.messages;
     final origMsgIdx = allMsgs.indexWhere((m) => m.id == origMsg.id);
     if (origMsgIdx == -1) return;
-    _retryHistory.clear(); _retryMsgId = null; _retryIdx = 0;
+    _clearRetryState();
     _pendingModelId = null;
     final newConvId = cp.createConversation(editModel.id);
     for (int i = 0; i < origMsgIdx; i++) {
@@ -802,9 +825,8 @@ class _ChatPageState extends State<ChatPage> {
     cp.addMessage(newConvId, 'user', newText);
     setState(() {
       _convId = newConvId;
-      _thinkingTxt = null;
-      _thinkExpanded = false;
       _streaming = true;
+      _clearPendingState();
     });
     _scrollEnd();
     cp.addMessage(newConvId, 'assistant', '');
@@ -1025,6 +1047,7 @@ class _DialogSettingsContent extends StatefulWidget {
 class _DialogSettingsContentState extends State<_DialogSettingsContent> {
   bool _showSpeechList = false;
   bool _showImageList = false;
+  bool _showSystemPromptList = false;
   String? _expandedSpeechId;
   String? _expandedImageId;
 
@@ -1052,24 +1075,36 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
             Text('系统提示词', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700])),
             const SizedBox(height: 8),
             InkWell(
-              onTap: () async {
-                final sp = context.read<SettingsProvider>();
-                final result = await _showSystemPromptDialog(context, set.systemPrompt);
-                if (result != null && mounted) {
-                  sp.setSystemPrompt(result);
-                }
-              },
+              onTap: () => setState(() => _showSystemPromptList = !_showSystemPromptList),
+              borderRadius: BorderRadius.circular(8),
               child: Container(
-                width: double.infinity, padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(border: Border.all(color: Colors.grey.withValues(alpha: 0.3)), borderRadius: BorderRadius.circular(8)),
-                child: Text(
-                  set.systemPrompt,
-                  style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  border: Border.all(color: _showSystemPromptList
+                      ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)
+                      : Colors.grey.withValues(alpha: 0.3)),
+                  borderRadius: BorderRadius.circular(8),
+                  color: _showSystemPromptList
+                      ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.05)
+                      : null,
                 ),
+                child: Row(children: [
+                  Expanded(child: Text(
+                    _currentSystemPromptLabel(set),
+                    style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  )),
+                  Icon(_showSystemPromptList ? Icons.expand_less : Icons.expand_more,
+                      size: 18, color: Colors.grey[400]),
+                ]),
               ),
             ),
+            if (_showSystemPromptList) ...[
+              const SizedBox(height: 4),
+              _systemPromptList(set),
+            ],
             const SizedBox(height: 20),
             // 语音转文字模型
             Text('语音转文字模型', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700])),
@@ -1332,36 +1367,187 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
     );
   }
 
-  Future<String?> _showSystemPromptDialog(BuildContext context, String current) {
-    final ctrl = TextEditingController(text: current);
-    return showDialog<String>(
+  String _currentSystemPromptLabel(AppSettings set) {
+    if (set.selectedSystemPromptId != null) {
+      try {
+        final p = set.systemPrompts.firstWhere((p) => p.id == set.selectedSystemPromptId);
+        return p.title;
+      } catch (_) {}
+    }
+    return '默认';
+  }
+
+  void _closeSystemPromptList() {
+    setState(() => _showSystemPromptList = false);
+  }
+
+  Widget _systemPromptList(AppSettings set) {
+    final prompts = set.systemPrompts;
+    final selectedId = set.selectedSystemPromptId;
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 220),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: ListView.builder(
+        key: ValueKey('sysprompt_${selectedId ?? 'none'}_${prompts.length}'),
+        shrinkWrap: true,
+        itemCount: 1 + prompts.length + 1,
+        itemBuilder: (_, i) {
+          if (i == 0) {
+            final sel = selectedId == null;
+            return ListTile(
+              dense: true,
+              leading: Icon(sel ? Icons.check_circle : Icons.circle_outlined,
+                  size: 18, color: sel ? Theme.of(context).colorScheme.primary : Colors.grey),
+              title: const Text('默认', style: TextStyle(fontSize: 14)),
+              subtitle: const Text('You are a helpful assistant.',
+                  style: TextStyle(fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
+              onTap: () {
+                context.read<SettingsProvider>().selectSystemPrompt(null);
+                _closeSystemPromptList();
+              },
+            );
+          }
+          if (i == 1 + prompts.length) {
+            return Column(mainAxisSize: MainAxisSize.min, children: [
+              const Divider(height: 1),
+              ListTile(
+                dense: true,
+                leading: Icon(Icons.add, size: 18, color: Theme.of(context).colorScheme.primary),
+                title: Text('添加系统提示词', style: TextStyle(fontSize: 14, color: Theme.of(context).colorScheme.primary)),
+                onTap: () => _addSystemPrompt(),
+              ),
+            ]);
+          }
+          final p = prompts[i - 1];
+          final sel = p.id == selectedId;
+          return ListTile(
+            dense: true,
+            leading: Icon(sel ? Icons.check_circle : Icons.circle_outlined,
+                size: 18, color: sel ? Theme.of(context).colorScheme.primary : Colors.grey),
+            title: Text(p.title, style: const TextStyle(fontSize: 14)),
+            subtitle: Text(
+              p.content.length > 40 ? '${p.content.substring(0, 40)}...' : p.content,
+              style: const TextStyle(fontSize: 11),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: IconButton(
+              icon: const Icon(Icons.edit, size: 18),
+              onPressed: () => _editSystemPrompt(p),
+            ),
+            onTap: () {
+              context.read<SettingsProvider>().selectSystemPrompt(p.id);
+              _closeSystemPromptList();
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  void _addSystemPrompt() {
+    showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('系统提示词'),
-        content: TextField(
-          controller: ctrl,
+      builder: (ctx) => _SystemPromptEditDialog(
+        onSave: (title, content) {
+          context.read<SettingsProvider>().addSystemPrompt(title, content);
+        },
+      ),
+    );
+  }
+
+  void _editSystemPrompt(SystemPrompt p) {
+    final sp = context.read<SettingsProvider>();
+    showDialog(
+      context: context,
+      builder: (ctx) => _SystemPromptEditDialog(
+        initialTitle: p.title,
+        initialContent: p.content,
+        onSave: (title, content) {
+          sp.updateSystemPrompt(p.id, title, content);
+        },
+        onDelete: () {
+          sp.deleteSystemPrompt(p.id);
+        },
+      ),
+    );
+  }
+}
+
+class _SystemPromptEditDialog extends StatefulWidget {
+  final String initialTitle;
+  final String initialContent;
+  final void Function(String title, String content) onSave;
+  final VoidCallback? onDelete;
+
+  const _SystemPromptEditDialog({
+    this.initialTitle = '',
+    this.initialContent = '',
+    required this.onSave,
+    this.onDelete,
+  });
+
+  @override
+  State<_SystemPromptEditDialog> createState() => _SystemPromptEditDialogState();
+}
+
+class _SystemPromptEditDialogState extends State<_SystemPromptEditDialog> {
+  late final _titleCtrl = TextEditingController(text: widget.initialTitle);
+  late final _contentCtrl = TextEditingController(text: widget.initialContent);
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    _contentCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.onDelete != null ? '编辑系统提示词' : '添加系统提示词'),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(
+          controller: _titleCtrl,
+          decoration: const InputDecoration(labelText: '标题', border: OutlineInputBorder()),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _contentCtrl,
           maxLines: 8,
           minLines: 3,
           decoration: const InputDecoration(
+            labelText: '系统提示词',
             border: OutlineInputBorder(),
             hintText: 'You are a helpful assistant.',
             alignLabelWithHint: true,
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
+      ]),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+        TextButton(
+          onPressed: () {
+            final title = _titleCtrl.text.trim();
+            final content = _contentCtrl.text.trim();
+            if (title.isEmpty || content.isEmpty) return;
+            Navigator.pop(context);
+            widget.onSave(title, content);
+          },
+          child: const Text('保存'),
+        ),
+        if (widget.onDelete != null)
           TextButton(
             onPressed: () {
-              final text = ctrl.text.trim().isEmpty ? 'You are a helpful assistant.' : ctrl.text.trim();
-              Navigator.pop(ctx, text);
+              Navigator.pop(context);
+              widget.onDelete!();
             },
-            child: const Text('保存'),
+            child: Text('删除', style: TextStyle(color: Colors.red[400])),
           ),
-        ],
-      ),
+      ],
     );
   }
 }

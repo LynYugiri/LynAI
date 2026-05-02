@@ -90,6 +90,8 @@ class AppSettings {
   final String? imageModelId;        // 图片转述模型ID(null=未设置)
   final String imagePrompt;          // 图片转述提示词(默认"Describe this file in Chinese")
   final String systemPrompt;         // 系统提示词(默认"You are a helpful assistant.")
+  final List<SystemPrompt> systemPrompts;       // 自定义系统提示词模板列表(默认[])
+  final String? selectedSystemPromptId;         // 当前选中的提示词模板ID(null=使用默认systemPrompt)
   final String themeMode;            // 主题模式 "light" | "dark" | "system" (默认"system")
 }
 ```
@@ -104,3 +106,18 @@ class AppSettings {
 - `themeColor` 序列化为 int (ARGB32), 反序列化 `Color(json['themeColor'] as int)`
 - nullable 字段仅在非 null 时才写入 JSON (节省存储空间)
 - `blurAmount` 反序列化兼容 int/double 两种类型
+
+---
+
+## SystemPrompt
+**文件**: `lib/models/system_prompt.dart`
+
+```dart
+class SystemPrompt {
+  final String id;       // UUID v4
+  final String title;    // 提示词标题
+  final String content;  // 提示词内容
+}
+```
+
+`copyWith()` 支持 title 和 content 的可选覆盖。用于管理多套可切换的系统提示词模板。

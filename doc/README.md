@@ -28,7 +28,8 @@ lib/
 │   ├── message.dart       # 消息模型
 │   ├── conversation.dart  # 对话模型
 │   ├── model_config.dart  # AI模型配置(含ModelEntry多模型)
-│   └── app_settings.dart  # 应用设置(主题/背景/语音/图片模型)
+│   ├── app_settings.dart  # 应用设置(主题/背景/语音/图片模型)
+│   └── system_prompt.dart # 系统提示词模板
 ├── pages/
 │   ├── home_page.dart     # 主页(底部导航,全局背景)
 │   ├── history_page.dart  # 历史对话(搜索/高亮)

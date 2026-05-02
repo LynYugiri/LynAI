@@ -16,6 +16,7 @@ const _endpointPresets = [
   {'name': 'Together AI', 'url': 'https://api.together.xyz/v1', 'type': 'openai'},
   {'name': 'xAI (Grok)', 'url': 'https://api.x.ai/v1', 'type': 'openai'},
   {'name': 'Moonshot', 'url': 'https://api.moonshot.cn/v1', 'type': 'openai'},
+  {'name': 'vivo', 'url': 'https://api-ai.vivo.com.cn/v1', 'type': 'openai'},
   {'name': 'Zhipu (智谱)', 'url': 'https://open.bigmodel.cn/api/paas/v4', 'type': 'openai'},
   {'name': 'Qwen (通义千问)', 'url': 'https://dashscope.aliyuncs.com/compatible-mode/v1', 'type': 'openai'},
   {'name': 'SiliconFlow', 'url': 'https://api.siliconflow.cn/v1', 'type': 'openai'},
@@ -361,6 +362,7 @@ class _EditModelPageState extends State<EditModelPage> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
+                key: ValueKey('apiType_$_apiType'),
                 initialValue: _apiType,
                 decoration: const InputDecoration(
                   labelText: 'API 类型', border: OutlineInputBorder(), prefixIcon: Icon(Icons.category),

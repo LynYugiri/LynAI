@@ -203,8 +203,12 @@ jobs:
         with:
           path: release
           merge-multiple: true
-      - name: Delete old nightly release
-        run: gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
+      - name: Delete all old pre-releases
+        run: |
+          gh release list --json tagName,isPrerelease --jq '.[] | select(.isPrerelease) | .tagName' | while read -r tag; do
+            echo "Deleting pre-release: $tag"
+            gh release delete "$tag" --yes --cleanup-tag 2>/dev/null || true
+          done
         env:
           GH_TOKEN: ${{ github.token }}
       - name: Create Pre-release

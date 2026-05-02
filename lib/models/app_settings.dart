@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'system_prompt.dart';
 
 /// 应用设置数据模型
 ///
@@ -12,6 +13,8 @@ class AppSettings {
   final String? imageModelId;
   final String imagePrompt;
   final String systemPrompt;
+  final List<SystemPrompt> systemPrompts;
+  final String? selectedSystemPromptId;
   final String themeMode;
 
   AppSettings({
@@ -23,6 +26,8 @@ class AppSettings {
     this.imageModelId,
     this.imagePrompt = 'Describe this file in Chinese',
     this.systemPrompt = 'You are a helpful assistant.',
+    this.systemPrompts = const [],
+    this.selectedSystemPromptId,
     this.themeMode = 'system',
   });
 
@@ -43,6 +48,8 @@ class AppSettings {
     Object? imageModelId = _sentinel,
     String? imagePrompt,
     String? systemPrompt,
+    List<SystemPrompt>? systemPrompts,
+    Object? selectedSystemPromptId = _sentinel,
     String? themeMode,
   }) {
     return AppSettings(
@@ -54,11 +61,18 @@ class AppSettings {
       imageModelId: identical(imageModelId, _sentinel) ? this.imageModelId : imageModelId as String?,
       imagePrompt: imagePrompt ?? this.imagePrompt,
       systemPrompt: systemPrompt ?? this.systemPrompt,
+      systemPrompts: systemPrompts ?? this.systemPrompts,
+      selectedSystemPromptId: identical(selectedSystemPromptId, _sentinel) ? this.selectedSystemPromptId : selectedSystemPromptId as String?,
       themeMode: themeMode ?? this.themeMode,
     );
   }
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
+    final promptsJson = json['systemPrompts'] as List<dynamic>?;
+    final prompts = promptsJson != null
+        ? promptsJson.map((e) => SystemPrompt.fromJson(e as Map<String, dynamic>)).toList()
+        : <SystemPrompt>[];
+    final selectedId = json['selectedSystemPromptId'] as String?;
     return AppSettings(
       themeColor: Color(json['themeColor'] as int),
       backgroundImagePath: json['backgroundImagePath'] as String?,
@@ -68,6 +82,8 @@ class AppSettings {
       imageModelId: json['imageModelId'] as String?,
       imagePrompt: json['imagePrompt'] as String? ?? 'Describe this file in Chinese',
       systemPrompt: json['systemPrompt'] as String? ?? 'You are a helpful assistant.',
+      systemPrompts: prompts,
+      selectedSystemPromptId: selectedId,
       themeMode: json['themeMode'] as String? ?? 'system',
     );
   }
@@ -82,6 +98,8 @@ class AppSettings {
       if (imageModelId != null) 'imageModelId': imageModelId,
       'imagePrompt': imagePrompt,
       'systemPrompt': systemPrompt,
+      'systemPrompts': systemPrompts.map((e) => e.toJson()).toList(),
+      if (selectedSystemPromptId != null) 'selectedSystemPromptId': selectedSystemPromptId,
       'themeMode': themeMode,
     };
   }

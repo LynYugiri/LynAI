@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 import '../models/app_settings.dart';
+import '../models/system_prompt.dart';
 
 /// 设置状态管理
 ///
@@ -97,6 +99,58 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 添加系统提示词模板
+  void addSystemPrompt(String title, String content) {
+    final id = const Uuid().v4();
+    final prompt = SystemPrompt(id: id, title: title, content: content);
+    final list = List<SystemPrompt>.from(_settings.systemPrompts)..add(prompt);
+    _settings = _settings.copyWith(systemPrompts: list, selectedSystemPromptId: id);
+    _saveSettings();
+    notifyListeners();
+  }
+
+  /// 更新系统提示词模板
+  void updateSystemPrompt(String id, String title, String content) {
+    final list = _settings.systemPrompts.map((p) {
+      return p.id == id ? p.copyWith(title: title, content: content) : p;
+    }).toList();
+    _settings = _settings.copyWith(systemPrompts: list);
+    _saveSettings();
+    notifyListeners();
+  }
+
+  /// 删除系统提示词模板
+  void deleteSystemPrompt(String id) {
+    final list = _settings.systemPrompts.where((p) => p.id != id).toList();
+    String? newSelected = _settings.selectedSystemPromptId;
+    if (newSelected == id) {
+      newSelected = null;
+    }
+    _settings = _settings.copyWith(systemPrompts: list, selectedSystemPromptId: newSelected);
+    _saveSettings();
+    notifyListeners();
+  }
+
+  /// 选择当前使用的系统提示词
+  void selectSystemPrompt(String? id) {
+    _settings = _settings.copyWith(selectedSystemPromptId: id);
+    _saveSettings();
+    notifyListeners();
+  }
+
+  /// 获取当前生效的系统提示词内容
+  String get effectiveSystemPrompt {
+    if (_settings.selectedSystemPromptId != null) {
+      try {
+        final prompt = _settings.systemPrompts.firstWhere(
+          (p) => p.id == _settings.selectedSystemPromptId,
+        );
+        return prompt.content;
+      } catch (_) {}
+    }
+    return _settings.systemPrompt;
+  }
+
   /// 设置主题模式
   void setThemeMode(String mode) {
     _settings = _settings.copyWith(themeMode: mode);
@@ -119,4 +173,3 @@ class SettingsProvider extends ChangeNotifier {
     }
   }
 }
-

@@ -60,8 +60,12 @@
 | `setImageModelId(id)` | 图片转述模型ID(null=未设置, 图片直接作为文本发送) |
 | `setImagePrompt(prompt)` | 图片转述提示词(默认"Describe this file in Chinese") |
 | `setSystemPrompt(prompt)` | 全局系统提示词(默认"You are a helpful assistant.") |
+| `addSystemPrompt(title, content)` | 添加自定义系统提示词模板 |
+| `updateSystemPrompt(id, title, content)` | 更新指定提示词模板 |
+| `deleteSystemPrompt(id)` | 删除提示词模板(若当前选中则自动切换) |
+| `selectSystemPrompt(id)` | 选择当前使用的提示词模板(null=使用默认systemPrompt) |
 
-**计算属性**: `themeMode` → String; `themeModeEnum` → ThemeMode枚举
+**计算属性**: `themeMode` → String; `themeModeEnum` → ThemeMode枚举; `effectiveSystemPrompt` → 当前生效的提示词内容(优先选中模板, 否则用默认)
 
 ### AppSettings sentinel模式
 

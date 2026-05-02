@@ -20,9 +20,7 @@ class ApiService {
     bool thinking = false,
   }) async {
     try {
-      final processedMessages = thinking
-          ? _addThinkingPrompt(messages)
-          : messages;
+      final processedMessages =  messages;
 
       if (config.apiType == 'ollama') {
         return await _sendOllamaRequest(config, processedMessages, thinking: thinking)
@@ -47,9 +45,7 @@ class ApiService {
     bool thinking = false,
   }) async* {
     try {
-      final processedMessages = thinking
-          ? _addThinkingPrompt(messages)
-          : messages;
+      final processedMessages =  messages;
 
       if (config.apiType == 'ollama') {
         yield* _sendOllamaStreamRequest(config, processedMessages, thinking: thinking);
@@ -70,24 +66,8 @@ class ApiService {
       case 'ollama':
         return {'think': false};
       default:
-        return {};
+        return {'thinking': {'type': 'disabled'}};
     }
-  }
-
-  List<Map<String, dynamic>> _addThinkingPrompt(
-      List<Map<String, dynamic>> messages) {
-    final hasSystem = messages.any((m) => m['role'] == 'system');
-    if (hasSystem) return messages;
-
-    return [
-      {
-        'role': 'system',
-        'content': 'Please think step by step before providing your final answer. '
-            'First, analyze the question deeply and provide your reasoning, '
-            'then give a clear and concise answer.'
-      },
-      ...messages,
-    ];
   }
 
   Future<({String content, String? reasoning})>
