@@ -59,14 +59,14 @@ class ApiService {
     }
   }
 
-  Map<String, dynamic> _thinkingDisabledParams(String apiType) {
+  Map<String, dynamic> _thinkingParams(String apiType, bool thinking) {
     switch (apiType) {
       case 'anthropic':
-        return {'thinking': {'type': 'disabled'}};
+        return {'thinking': {'type': thinking ? 'enabled' : 'disabled'}};
       case 'ollama':
-        return {'think': false};
+        return {'think': thinking};
       default:
-        return {'thinking': {'type': 'disabled'}};
+        return {'thinking': {'type': thinking ? 'enabled' : 'disabled'}};
     }
   }
 
@@ -85,7 +85,7 @@ class ApiService {
       if (config.maxTokens != null) 'max_tokens': config.maxTokens,
       if (config.temperature != null) 'temperature': config.temperature,
       if (config.topP != null) 'top_p': config.topP,
-      if (!thinking) ..._thinkingDisabledParams(config.apiType),
+      ..._thinkingParams(config.apiType,thinking),
     };
     for (final entry in config.extraParams.entries) {
       if (!body.containsKey(entry.key)) {
@@ -142,7 +142,7 @@ class ApiService {
       if (config.maxTokens != null) 'max_tokens': config.maxTokens,
       if (config.temperature != null) 'temperature': config.temperature,
       if (config.topP != null) 'top_p': config.topP,
-      if (!thinking) ..._thinkingDisabledParams(config.apiType),
+      ..._thinkingParams(config.apiType,thinking),
     };
     for (final entry in config.extraParams.entries) {
       if (!body.containsKey(entry.key)) {
@@ -357,7 +357,7 @@ class ApiService {
       if (systemPrompt != null) 'system': systemPrompt,
       if (config.temperature != null) 'temperature': config.temperature,
       if (config.topP != null) 'top_p': config.topP,
-      if (!thinking) ..._thinkingDisabledParams(config.apiType),
+      ..._thinkingParams(config.apiType,thinking),
     };
     for (final entry in config.extraParams.entries) {
       if (!body.containsKey(entry.key)) {
@@ -446,7 +446,7 @@ class ApiService {
       if (systemPrompt != null) 'system': systemPrompt,
       if (config.temperature != null) 'temperature': config.temperature,
       if (config.topP != null) 'top_p': config.topP,
-      if (!thinking) ..._thinkingDisabledParams(config.apiType),
+      ..._thinkingParams(config.apiType,thinking),
     };
     for (final entry in config.extraParams.entries) {
       if (!body.containsKey(entry.key)) {
