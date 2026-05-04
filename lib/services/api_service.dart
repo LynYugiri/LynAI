@@ -59,17 +59,6 @@ class ApiService {
     }
   }
 
-  Map<String, dynamic> _thinkingParams(String apiType, bool thinking) {
-    switch (apiType) {
-      case 'anthropic':
-        return {'thinking': {'type': thinking ? 'enabled' : 'disabled'}};
-      case 'ollama':
-        return {'think': thinking};
-      default:
-        return {'thinking': {'type': thinking ? 'enabled' : 'disabled'}};
-    }
-  }
-
   Future<({String content, String? reasoning})>
       _sendOpenAICompatibleRequest(
     ModelConfig config,
@@ -85,7 +74,7 @@ class ApiService {
       if (config.maxTokens != null) 'max_tokens': config.maxTokens,
       if (config.temperature != null) 'temperature': config.temperature,
       if (config.topP != null) 'top_p': config.topP,
-      ..._thinkingParams(config.apiType,thinking),
+      'thinking': {'type': thinking ? 'enabled' : 'disabled'},
     };
     for (final entry in config.extraParams.entries) {
       if (!body.containsKey(entry.key)) {
@@ -142,7 +131,7 @@ class ApiService {
       if (config.maxTokens != null) 'max_tokens': config.maxTokens,
       if (config.temperature != null) 'temperature': config.temperature,
       if (config.topP != null) 'top_p': config.topP,
-      ..._thinkingParams(config.apiType,thinking),
+      'thinking': {'type': thinking ? 'enabled' : 'disabled'},
     };
     for (final entry in config.extraParams.entries) {
       if (!body.containsKey(entry.key)) {
@@ -224,7 +213,7 @@ class ApiService {
       'model': config.modelName,
       'messages': ollamaMessages,
       'stream': false,
-      if (!thinking) 'think': false,
+      'think': thinking,
     };
 
     if (config.maxTokens != null || config.temperature != null || config.topP != null) {
@@ -275,7 +264,7 @@ class ApiService {
       'model': config.modelName,
       'messages': ollamaMessages,
       'stream': true,
-      if (!thinking) 'think': false,
+      'think': thinking,
     };
 
     if (config.maxTokens != null || config.temperature != null || config.topP != null) {
@@ -357,7 +346,7 @@ class ApiService {
       if (systemPrompt != null) 'system': systemPrompt,
       if (config.temperature != null) 'temperature': config.temperature,
       if (config.topP != null) 'top_p': config.topP,
-      ..._thinkingParams(config.apiType,thinking),
+      'thinking': {'type': thinking ? 'enabled' : 'disabled'},
     };
     for (final entry in config.extraParams.entries) {
       if (!body.containsKey(entry.key)) {
@@ -446,7 +435,7 @@ class ApiService {
       if (systemPrompt != null) 'system': systemPrompt,
       if (config.temperature != null) 'temperature': config.temperature,
       if (config.topP != null) 'top_p': config.topP,
-      ..._thinkingParams(config.apiType,thinking),
+      'thinking': {'type': thinking ? 'enabled' : 'disabled'},
     };
     for (final entry in config.extraParams.entries) {
       if (!body.containsKey(entry.key)) {
