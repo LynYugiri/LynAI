@@ -233,9 +233,34 @@ jobs:
         with:
           path: release
           merge-multiple: true
+      - name: Get tag message
+        id: tag_message
+        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          
+          # 获取附注标签的描述内容
+          # %(contents) 会获取标签正文（不含标题行）
+          TAG_MSG=$(git tag -l --format='%(contents)' $TAG_NAME 2>/dev/null || echo "")
+          
+          # 如果获取不到（可能是轻量标签），尝试另一种方式
+          if [ -z "$TAG_MSG" ]; then
+            TAG_MSG=$(git show -s --format=%B $TAG_NAME 2>/dev/null || echo "")
+          fi
+          
+          # 如果仍然没有内容，使用默认消息
+          if [ -z "$TAG_MSG" ]; then
+            TAG_MSG="Release $TAG_NAME"
+          fi
+          
+          # 处理多行输出
+          echo "message<<EOF" >> $GITHUB_OUTPUT
+          echo "$TAG_MSG" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          body: ${{ steps.tag_message.outputs.message }}
           files: release/*
           fail_on_unmatched_files: true
