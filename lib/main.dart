@@ -53,6 +53,11 @@ class _LynAIAppState extends State<LynAIApp> {
   ///
   /// 从 SharedPreferences 中读取对话列表、模型配置和应用设置。
   Future<void> _loadData() async {
+    if (!mounted) return;
+    setState(() {
+      _isLoading = true;
+      _hasError = false;
+    });
     try {
       final conversationProvider = context.read<ConversationProvider>();
       final modelProvider = context.read<ModelConfigProvider>();

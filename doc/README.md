@@ -12,7 +12,7 @@
 | HTTP | http ^1.2.2 |
 | 持久化 | SharedPreferences (JSON) |
 | 图片选择 | image_picker ^1.1.2 |
-| Markdown | flutter_markdown ^0.7.7 |
+| Markdown | flutter_markdown_plus ^1.0.7 |
 | 语音识别 | speech_to_text ^7.3.0 |
 | 分享 | share_plus ^13.1.0 |
 | 截图 | screenshot ^3.0.0 |

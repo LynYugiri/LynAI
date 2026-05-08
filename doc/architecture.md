@@ -75,13 +75,15 @@ MaterialApp
 
 ## LatexRenderer
 
-`lib/widgets/latex_renderer.dart` — 纯 Dart LaTeX→Unicode 转换器
+`lib/widgets/latex_renderer.dart` — 使用 `flutter_math_fork` (KaTeX 级 TeX 引擎) 渲染数学公式
 
-- **`_normalize()`**: `\[...\]`→`$$...$$`, `\(...\)`→`$...$`
-- **`_convertLatex()`**: 希腊字母/数学符号/上下标/分数 Unicode 映射
-- **`MarkdownWithLatex`**: 自动检测→有LaTeX走自定义渲染，无LaTeX走`MarkdownBody`
-- 内联渲染: `Text.rich` + `WidgetSpan` 保持文本流
-- 块级渲染: 带"公式"标签+`functions`图标的卡片容器
+- **引擎**: `flutter_math_fork` — 原生 Flutter Canvas 渲染，支持完整 TeX 数学语法
+- **块级公式**: `Math.tex(formula, mathStyle: MathStyle.display)`，居中卡片容器
+- **内联公式**: `Math.tex(formula, mathStyle: MathStyle.text)`，通过 `WidgetSpan` 嵌入文本流
+- **渲染能力**: 分数（上下堆叠+水平分数线）、根号（包围表达式）、积分/求和（上下限）、矩阵、括号自动缩放等
+- **解析失败**: 回退到 monospace 原文显示，不阻塞 UI
+- **智能检测**: `hasLatexContent()` 自动区分 `$...$` 数学公式与普通文本中的 `$` 符号
+- **`MarkdownWithLatex`**: 自动检测→走 TeX 渲染，否则走 `MarkdownBody`
 
 ## 空安全与容错
 

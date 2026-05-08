@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+import 'package:markdown/markdown.dart' as md;
 
 class LatexRenderer {
-
   static List<InlineSpan> parseToSpans(String text, BuildContext context) {
     final spans = <InlineSpan>[];
-    final theme = Theme.of(context);
     final normalized = _normalize(text);
     final blockRegExp = RegExp(r'\$\$(.+?)\$\$', dotAll: true);
     final parts = normalized.split(blockRegExp);
@@ -13,14 +13,14 @@ class LatexRenderer {
 
     for (var i = 0; i < parts.length; i++) {
       if (i % 2 == 0) {
-        spans.addAll(_parseInlineMath(parts[i], theme));
+        spans.addAll(_parseInlineMath(parts[i]));
       } else {
         final idx = i ~/ 2;
         if (idx < blockMatches.length) {
           final formula = blockMatches[idx].group(1) ?? '';
           spans.add(WidgetSpan(
             alignment: PlaceholderAlignment.middle,
-            child: _buildMathBlock(formula, theme),
+            child: _MathBlock(formula: formula.trim()),
           ));
         }
       }
@@ -28,7 +28,7 @@ class LatexRenderer {
     return spans;
   }
 
-  static List<InlineSpan> _parseInlineMath(String text, ThemeData theme) {
+  static List<InlineSpan> _parseInlineMath(String text) {
     final spans = <InlineSpan>[];
     final inlineRegExp = RegExp(r'\$(.+?)\$');
     int lastEnd = 0;
@@ -40,18 +40,7 @@ class LatexRenderer {
       final formula = match.group(1) ?? '';
       spans.add(WidgetSpan(
         alignment: PlaceholderAlignment.middle,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 2),
-          child: Text(
-            _convertLatex(formula),
-            style: TextStyle(
-              fontFamily: 'monospace',
-              fontSize: 14,
-              fontStyle: FontStyle.italic,
-              color: theme.colorScheme.tertiary,
-            ),
-          ),
-        ),
+        child: _InlineMath(formula: formula.trim()),
       ));
       lastEnd = match.end;
     }
@@ -64,12 +53,10 @@ class LatexRenderer {
   }
 
   static String _normalize(String text) {
-    // Convert \[ ... \] → $$ ... $$
     String result = text.replaceAllMapped(
       RegExp(r'\\\[(.+?)\\\]', dotAll: true),
       (m) => '\$\$${m.group(1)}\$\$',
     );
-    // Convert \( ... \) → $ ... $
     result = result.replaceAllMapped(
       RegExp(r'\\\((.+?)\\\)'),
       (m) => '\$${m.group(1)}\$',
@@ -77,169 +64,159 @@ class LatexRenderer {
     return result;
   }
 
-  static Widget _buildMathBlock(String formula, ThemeData theme) {
+  static bool hasLatexContent(String text) {
+    if (text.contains(RegExp(r'\$\$.+?\$\$', dotAll: true))) return true;
+    if (text.contains(RegExp(r'\\\[.+?\\\]', dotAll: true))) return true;
+    if (text.contains(RegExp(r'\\\(.+?\\\)'))) return true;
+    final inlineMatch = RegExp(r'\$(.+?)\$');
+    final matches = inlineMatch.allMatches(text);
+    for (final m in matches) {
+      final inner = m.group(1) ?? '';
+      if (inner.trim().isNotEmpty && _looksLikeMath(inner)) return true;
+    }
+    return false;
+  }
+
+  static bool _looksLikeMath(String text) {
+    final trimmed = text.trim();
+    // Pure numbers/currency like $100 or $5.99 are not math
+    if (RegExp(r'^-?\s*\d+\.?\d*\s*$').hasMatch(trimmed)) return false;
+    if (RegExp(r'^\d+\.?\d*\s*\$?$').hasMatch(trimmed)) return false;
+    return true;
+  }
+}
+
+class _MathBlock extends StatelessWidget {
+  final String formula;
+  const _MathBlock({required this.formula});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    try {
+      return Container(
+        width: double.infinity,
+        margin: const EdgeInsets.symmetric(vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+        decoration: BoxDecoration(
+          color:
+              theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+              color: theme.colorScheme.tertiary.withValues(alpha: 0.25)),
+        ),
+        child: Center(
+          child: Math.tex(
+            formula,
+            mathStyle: MathStyle.display,
+            textStyle: TextStyle(
+              fontSize: 18,
+              color: theme.colorScheme.onSurface,
+            ),
+            onErrorFallback: (_) => _fallback(formula, theme),
+          ),
+        ),
+      );
+    } catch (_) {
+      return _fallback(formula, theme);
+    }
+  }
+
+  Widget _fallback(String formula, ThemeData theme) {
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.symmetric(vertical: 8),
+      margin: const EdgeInsets.symmetric(vertical: 10),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: theme.colorScheme.tertiary.withValues(alpha: 0.3)),
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+            color: theme.colorScheme.error.withValues(alpha: 0.2)),
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-        Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(Icons.functions, size: 12, color: theme.colorScheme.tertiary.withValues(alpha: 0.5)),
-          const SizedBox(width: 4),
-          Text('公式', style: TextStyle(fontSize: 10, color: theme.colorScheme.tertiary.withValues(alpha: 0.5))),
-        ]),
-        const SizedBox(height: 8),
-        SelectableText(
-          _convertLatex(formula),
-          textAlign: TextAlign.center,
+      child: SelectableText(
+        formula,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontFamily: 'monospace',
+          fontSize: 13,
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
+class _InlineMath extends StatelessWidget {
+  final String formula;
+  const _InlineMath({required this.formula});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    try {
+      return Math.tex(
+        formula,
+        mathStyle: MathStyle.text,
+        textStyle: TextStyle(
+          fontSize: 16,
+          color: theme.colorScheme.onSurface,
+        ),
+        onErrorFallback: (_) => Text(
+          formula,
           style: TextStyle(
             fontFamily: 'monospace',
-            fontSize: 15,
+            fontSize: 13,
             fontStyle: FontStyle.italic,
             color: theme.colorScheme.tertiary,
           ),
         ),
-      ]),
-    );
-  }
-
-  static String _convertLatex(String formula) {
-    String result = formula.trim();
-    const greekLower = {
-      r'\alpha': 'α', r'\beta': 'β', r'\gamma': 'γ', r'\delta': 'δ',
-      r'\epsilon': 'ε', r'\varepsilon': 'ε', r'\zeta': 'ζ', r'\eta': 'η',
-      r'\theta': 'θ', r'\vartheta': 'ϑ', r'\iota': 'ι', r'\kappa': 'κ',
-      r'\lambda': 'λ', r'\mu': 'μ', r'\nu': 'ν', r'\xi': 'ξ',
-      r'\pi': 'π', r'\varpi': 'ϖ', r'\rho': 'ρ', r'\varrho': 'ϱ',
-      r'\sigma': 'σ', r'\varsigma': 'ς', r'\tau': 'τ', r'\upsilon': 'υ',
-      r'\phi': 'φ', r'\varphi': 'ϕ', r'\chi': 'χ', r'\psi': 'ψ',
-      r'\omega': 'ω',
-    };
-    const greekUpper = {
-      r'\Gamma': 'Γ', r'\Delta': 'Δ', r'\Theta': 'Θ', r'\Lambda': 'Λ',
-      r'\Xi': 'Ξ', r'\Pi': 'Π', r'\Sigma': 'Σ', r'\Upsilon': 'Υ',
-      r'\Phi': 'Φ', r'\Psi': 'Ψ', r'\Omega': 'Ω',
-    };
-    const mathSymbols = {
-      r'\times': '×', r'\cdot': '·', r'\div': '÷', r'\pm': '±',
-      r'\mp': '∓', r'\leq': '≤', r'\geq': '≥', r'\neq': '≠',
-      r'\approx': '≈', r'\equiv': '≡', r'\propto': '∝', r'\sim': '∼',
-      r'\infty': '∞', r'\partial': '∂', r'\nabla': '∇', r'\forall': '∀',
-      r'\exists': '∃', r'\in': '∈', r'\notin': '∉', r'\subset': '⊂',
-      r'\supset': '⊃', r'\subseteq': '⊆', r'\supseteq': '⊇',
-      r'\cup': '∪', r'\cap': '∩', r'\emptyset': '∅', r'\varnothing': '∅',
-      r'\to': '→', r'\rightarrow': '→', r'\leftarrow': '←',
-      r'\Rightarrow': '⇒', r'\Leftarrow': '⇐', r'\leftrightarrow': '↔',
-      r'\mapsto': '↦', r'\implies': '⇒', r'\iff': '⇔',
-      r'\int': '∫', r'\iint': '∬', r'\iiint': '∭', r'\oint': '∮',
-      r'\sum': '∑', r'\prod': '∏', r'\coprod': '∐',
-      r'\sqrt': '√', r'\angle': '∠', r'\parallel': '∥',
-      r'\perp': '⊥', r'\triangle': '△',
-      r'\cdots': '⋯', r'\vdots': '⋮', r'\ddots': '⋱', r'\ldots': '…',
-      r'\therefore': '∴', r'\because': '∵',
-      r'\langle': '⟨', r'\rangle': '⟩', r'\lceil': '⌈', r'\rceil': '⌉',
-      r'\lfloor': '⌊', r'\rfloor': '⌋',
-      r'\oplus': '⊕', r'\ominus': '⊖', r'\otimes': '⊗',
-      r'\odot': '⊙', r'\circ': '∘', r'\star': '★',
-      r'\aleph': 'ℵ', r'\hbar': 'ℏ',
-      r'\spadesuit': '♠', r'\heartsuit': '♥', r'\diamondsuit': '♦', r'\clubsuit': '♣',
-      r'\neg': '¬', r'\land': '∧', r'\lor': '∨',
-    };
-
-    // Handle \frac{num}{den} → num / den (with spaces for readability)
-    result = result.replaceAllMapped(
-      RegExp(
-        r'\\frac\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}',
-      ),
-      (m) => '(${m.group(1)}) / (${m.group(2)})',
-    );
-
-    // Handle superscripts: ^{...} and ^single_char
-    result = result.replaceAllMapped(
-      RegExp(r'\^\{([^{}]+(?:\{[^{}]*\}[^{}]*)*)\}'),
-      (m) => _toSuperscript(m.group(1)!.replaceAll('{', '').replaceAll('}', '')),
-    );
-    result = result.replaceAllMapped(
-      RegExp(r'\^(\S)'),
-      (m) => _toSuperscript(m.group(1)!),
-    );
-
-    // Handle subscripts: _{...} and _single_char
-    result = result.replaceAllMapped(
-      RegExp(r'_\{([^{}]+(?:\{[^{}]*\}[^{}]*)*)\}'),
-      (m) => _toSubscript(m.group(1)!.replaceAll('{', '').replaceAll('}', '')),
-    );
-    result = result.replaceAllMapped(
-      RegExp(r'_(\S)'),
-      (m) => _toSubscript(m.group(1)!),
-    );
-
-    // Replace symbols (longer ones first to avoid partial matches)
-    final allSymbols = <String, String>{...greekUpper, ...greekLower, ...mathSymbols};
-    final sortedKeys = allSymbols.keys.toList()
-      ..sort((a, b) => b.length.compareTo(a.length));
-    for (final key in sortedKeys) {
-      result = result.replaceAll(key, allSymbols[key]!);
+      );
+    } catch (_) {
+      return Text(
+        formula,
+        style: TextStyle(
+          fontFamily: 'monospace',
+          fontSize: 13,
+          fontStyle: FontStyle.italic,
+          color: theme.colorScheme.tertiary,
+        ),
+      );
     }
-
-    // Clean up remaining LaTeX syntax
-    result = result
-        .replaceAll('\\left', '')
-        .replaceAll('\\right', '')
-        .replaceAll('\\,', ' ')
-        .replaceAll('\\;', '  ')
-        .replaceAll('\\!', '')
-        .replaceAll('\\\\', '\n')
-        .replaceAll(r'\ ', ' ');
-    result = result.replaceAll(RegExp(r'\\[a-zA-Z]+'), '');
-
-    // Clean extra braces
-    result = result.replaceAll('{', '').replaceAll('}', '');
-
-    return result.trim();
   }
+}
 
-  static String _toSuperscript(String text) {
-    const map = {
-      '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵',
-      '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', 'a': 'ᵃ', 'b': 'ᵇ',
-      'c': 'ᶜ', 'd': 'ᵈ', 'e': 'ᵉ', 'f': 'ᶠ', 'g': 'ᵍ', 'h': 'ʰ',
-      'i': 'ⁱ', 'j': 'ʲ', 'k': 'ᵏ', 'l': 'ˡ', 'm': 'ᵐ', 'n': 'ⁿ',
-      'o': 'ᵒ', 'p': 'ᵖ', 'r': 'ʳ', 's': 'ˢ', 't': 'ᵗ', 'u': 'ᵘ',
-      'v': 'ᵛ', 'w': 'ʷ', 'x': 'ˣ', 'y': 'ʸ', 'z': 'ᶻ', '+': '⁺',
-      '-': '⁻', '=': '⁼', '(': '⁽', ')': '⁾', '/': 'ᐟ',
-    };
-    return text.split('').map((c) => map[c] ?? c).join();
+class _LatexInlineSyntax extends md.InlineSyntax {
+  _LatexInlineSyntax() : super(r'\$(.+?)\$');
+
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    final formula = match[1]!;
+    if (LatexRenderer._looksLikeMath(formula)) {
+      final element = md.Element.text('inlineLatex', formula.trim());
+      parser.addNode(element);
+    } else {
+      parser.addNode(md.Text('\$$formula\$'));
+    }
+    return true;
   }
+}
 
-  static String _toSubscript(String text) {
-    const map = {
-      '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄', '5': '₅',
-      '6': '₆', '7': '₇', '8': '₈', '9': '₉', 'a': 'ₐ', 'e': 'ₑ',
-      'i': 'ᵢ', 'j': 'ⱼ', 'k': 'ₖ', 'l': 'ₗ', 'm': 'ₘ', 'n': 'ₙ',
-      'o': 'ₒ', 'p': 'ₚ', 'r': 'ᵣ', 's': 'ₛ', 't': 'ₜ', 'u': 'ᵤ',
-      'v': 'ᵥ', 'x': 'ₓ', '+': '₊', '-': '₋', '=': '₌',
-      '(': '₍', ')': '₎',
-    };
-    return text.split('').map((c) => map[c] ?? c).join();
-  }
-
-  static bool hasLatexContent(String text) {
-    return text.contains(RegExp(r'\$\$.+?\$\$', dotAll: true)) ||
-        text.contains(RegExp(r'\$.+?\$')) ||
-        text.contains(RegExp(r'\\\[.+?\\\]', dotAll: true)) ||
-        text.contains(RegExp(r'\\\(.+?\\\)'));
+class _LatexBuilder extends MarkdownElementBuilder {
+  @override
+  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
+    return _InlineMath(formula: element.textContent);
   }
 }
 
 class MarkdownWithLatex extends StatelessWidget {
   final String content;
   const MarkdownWithLatex({super.key, required this.content});
+
+  static final _inlineRegExp = RegExp(r'\$(.+?)\$');
+  static bool _hasInlineMath(String text) {
+    return _inlineRegExp.allMatches(text).any((m) =>
+        LatexRenderer._looksLikeMath(m.group(1) ?? ''));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -250,11 +227,18 @@ class MarkdownWithLatex extends StatelessWidget {
     return _buildMarkdown(context, content);
   }
 
-  Widget _buildMarkdown(BuildContext context, String text) {
+  Widget _buildMarkdown(BuildContext context, String text, {bool withInlineLatex = false}) {
     return MarkdownBody(
       data: text,
       selectable: true,
       styleSheet: _markdownStyle(context),
+      builders: withInlineLatex ? {'inlineLatex': _LatexBuilder()} : const {},
+      extensionSet: withInlineLatex
+          ? md.ExtensionSet(
+              md.ExtensionSet.gitHubFlavored.blockSyntaxes,
+              [...md.ExtensionSet.gitHubFlavored.inlineSyntaxes, _LatexInlineSyntax()],
+            )
+          : null,
     );
   }
 
@@ -263,20 +247,27 @@ class MarkdownWithLatex extends StatelessWidget {
       p: const TextStyle(fontSize: 15, height: 1.5),
       code: TextStyle(
         fontSize: 13,
-        backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        backgroundColor: Theme.of(context)
+            .colorScheme
+            .surfaceContainerHighest
+            .withValues(alpha: 0.5),
       ),
       codeblockDecoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        color: Theme.of(context)
+            .colorScheme
+            .surfaceContainerHighest
+            .withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(8),
       ),
       blockquoteDecoration: BoxDecoration(
-        border: Border(left: BorderSide(color: Theme.of(context).colorScheme.primary, width: 3)),
+        border: Border(
+            left: BorderSide(
+                color: Theme.of(context).colorScheme.primary, width: 3)),
       ),
     );
   }
 
   Widget _buildLatexContent(BuildContext context) {
-    final theme = Theme.of(context);
     final normalized = LatexRenderer._normalize(content);
     final blockRegExp = RegExp(r'\$\$(.+?)\$\$', dotAll: true);
     final parts = normalized.split(blockRegExp);
@@ -285,62 +276,24 @@ class MarkdownWithLatex extends StatelessWidget {
 
     for (var i = 0; i < parts.length; i++) {
       if (i % 2 == 0) {
-        if (parts[i].trim().isNotEmpty) {
-          widgets.add(_buildMixedContent(parts[i], theme, context));
+        if (parts[i].isNotEmpty) {
+          if (_hasInlineMath(parts[i])) {
+            widgets.add(_buildMarkdown(context, parts[i], withInlineLatex: true));
+          } else {
+            widgets.add(_buildMarkdown(context, parts[i]));
+          }
         }
       } else {
         final idx = i ~/ 2;
         if (idx < blockMatches.length) {
           final formula = blockMatches[idx].group(1) ?? '';
-          widgets.add(LatexRenderer._buildMathBlock(formula.trim(), theme));
+          widgets.add(_MathBlock(formula: formula.trim()));
         }
       }
     }
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: widgets);
-  }
-
-  Widget _buildMixedContent(String text, ThemeData theme, BuildContext context) {
-    final inlineRegExp = RegExp(r'\$(.+?)\$');
-    if (!inlineRegExp.hasMatch(text)) {
-      return _buildMarkdown(context, text);
-    }
-
-    final parts = text.split(inlineRegExp);
-    final matches = inlineRegExp.allMatches(text).toList();
-    final spans = <InlineSpan>[];
-
-    for (var i = 0; i < parts.length; i++) {
-      if (i % 2 == 0) {
-        if (parts[i].isNotEmpty) {
-          spans.add(TextSpan(text: parts[i], style: const TextStyle(fontSize: 15, height: 1.5)));
-        }
-      } else {
-        final idx = i ~/ 2;
-        if (idx < matches.length) {
-          final formula = matches[idx].group(1) ?? '';
-          spans.add(WidgetSpan(
-            alignment: PlaceholderAlignment.middle,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: Text(
-                LatexRenderer._convertLatex(formula.trim()),
-                style: TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 14,
-                  fontStyle: FontStyle.italic,
-                  fontWeight: FontWeight.w600,
-                  color: theme.colorScheme.tertiary,
-                ),
-              ),
-            ),
-          ));
-        }
-      }
-    }
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Text.rich(TextSpan(children: spans)),
-    );
+    return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: widgets);
   }
 }

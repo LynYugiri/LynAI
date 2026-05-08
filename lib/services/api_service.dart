@@ -20,16 +20,14 @@ class ApiService {
     bool thinking = false,
   }) async {
     try {
-      final processedMessages =  messages;
-
       if (config.apiType == 'ollama') {
-        return await _sendOllamaRequest(config, processedMessages, thinking: thinking)
+        return await _sendOllamaRequest(config, messages, thinking: thinking)
             .timeout(_timeout);
       } else if (config.apiType == 'anthropic') {
-        return await _sendAnthropicRequest(config, processedMessages, thinking: thinking)
+        return await _sendAnthropicRequest(config, messages, thinking: thinking)
             .timeout(_timeout);
       } else {
-        return await _sendOpenAICompatibleRequest(config, processedMessages, thinking: thinking)
+        return await _sendOpenAICompatibleRequest(config, messages, thinking: thinking)
             .timeout(_timeout);
       }
     } on TimeoutException {
@@ -45,14 +43,12 @@ class ApiService {
     bool thinking = false,
   }) async* {
     try {
-      final processedMessages =  messages;
-
       if (config.apiType == 'ollama') {
-        yield* _sendOllamaStreamRequest(config, processedMessages, thinking: thinking);
+        yield* _sendOllamaStreamRequest(config, messages, thinking: thinking);
       } else if (config.apiType == 'anthropic') {
-        yield* _sendAnthropicStreamRequest(config, processedMessages, thinking: thinking);
+        yield* _sendAnthropicStreamRequest(config, messages, thinking: thinking);
       } else {
-        yield* _sendOpenAICompatibleStreamRequest(config, processedMessages, thinking: thinking);
+        yield* _sendOpenAICompatibleStreamRequest(config, messages, thinking: thinking);
       }
     } catch (e) {
       throw Exception('流式请求异常: $e');
@@ -240,8 +236,11 @@ class ApiService {
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
-      final content = data['message']['content'] as String? ?? '';
-      return (content: content, reasoning: null);
+      final rawContent = data['message']['content'] as String? ?? '';
+      final thinkMatch = RegExp(r'<think[^>]*>(.*?)</think>', dotAll: true).firstMatch(rawContent);
+      final reasoning = thinkMatch?.group(1)?.trim();
+      final content = rawContent.replaceAll(RegExp(r'<think[^>]*>.*?</think>', dotAll: true), '').trim();
+      return (content: content, reasoning: reasoning);
     } else {
       throw Exception(
           'Ollama 请求失败: ${response.statusCode} ${response.body}');
@@ -294,18 +293,66 @@ class ApiService {
         throw Exception('Ollama 流式请求失败: ${streamedResponse.statusCode} $errorBody');
       }
 
+      final thinkRegExp = RegExp(r'<think[^>]*>(.*?)</think>', dotAll: true);
+      String ollamaBuf = '';
+
+      List<StreamChunk> processBuffer() {
+        final result = <StreamChunk>[];
+        if (ollamaBuf.isEmpty) return result;
+        final openStart = ollamaBuf.lastIndexOf(RegExp(r'<th(?:i(?:n(?:k(?:[^>]*)?)?)?)?$'));
+        final closeStart = ollamaBuf.lastIndexOf(RegExp(r'</(?:t(?:h(?:i(?:n(?:k)?)?)?)?)?$'));
+        final lastCompleteThink = ollamaBuf.lastIndexOf('</think>');
+        int cutoff = ollamaBuf.length;
+        if (openStart != -1 && openStart >= ollamaBuf.length - 7 && openStart > lastCompleteThink) {
+          final lastFullThinkOpen = ollamaBuf.lastIndexOf(RegExp(r'<think[^>]*>'), openStart);
+          if (lastFullThinkOpen == -1 || ollamaBuf.indexOf('</think>', lastFullThinkOpen) == -1) {
+            cutoff = openStart;
+          }
+        }
+        if (cutoff == ollamaBuf.length && closeStart != -1 && closeStart > lastCompleteThink) {
+          cutoff = closeStart;
+        }
+        final process = ollamaBuf.substring(0, cutoff);
+        ollamaBuf = ollamaBuf.substring(cutoff);
+
+        int lastEnd = 0;
+        for (final match in thinkRegExp.allMatches(process)) {
+          if (match.start > lastEnd) {
+            final plain = process.substring(lastEnd, match.start).trim();
+            if (plain.isNotEmpty) result.add(StreamChunk(content: plain));
+          }
+          final thinkContent = match.group(1)?.trim();
+          if (thinkContent != null && thinkContent.isNotEmpty) {
+            result.add(StreamChunk(reasoningContent: thinkContent));
+          }
+          lastEnd = match.end;
+        }
+        if (lastEnd < process.length) {
+          final plain = process.substring(lastEnd).trim();
+          if (plain.isNotEmpty) result.add(StreamChunk(content: plain));
+        }
+        return result;
+      }
+
       await for (final chunk in streamedResponse.stream
           .transform(utf8.decoder)
           .transform(const LineSplitter())) {
         if (chunk.trim().isEmpty) continue;
         try {
           final json = jsonDecode(chunk);
-          final content = json['message']?['content'] as String?;
+          final rawContent = json['message']?['content'] as String?;
           final done = json['done'] as bool? ?? false;
-          if (content != null) {
-            yield StreamChunk(content: content);
+          if (rawContent != null) {
+            ollamaBuf += rawContent;
+            for (final c in processBuffer()) {
+              yield c;
+            }
           }
           if (done) {
+            if (ollamaBuf.isNotEmpty) {
+              final plain = ollamaBuf.trim();
+              if (plain.isNotEmpty) yield StreamChunk(content: plain);
+            }
             yield StreamChunk(isDone: true);
             break;
           }

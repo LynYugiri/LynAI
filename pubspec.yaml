@@ -1,5 +1,5 @@
 name: lynai
-description: "A new Flutter project."
+description: "跨平台 AI 对话客户端 — 支持 OpenAI / Ollama / Anthropic API，实时流式对话，Markdown/LaTeX 渲染"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -41,6 +41,8 @@ dependencies:
   speech_to_text: ^7.3.0
   share_plus: ^13.1.0
   screenshot: ^3.0.0
+  flutter_math_fork: ^0.7.4
+  markdown: ^7.3.1
 
 dev_dependencies:
   flutter_test:

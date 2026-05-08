@@ -55,6 +55,8 @@ class _ChatPageState extends State<ChatPage> {
   final Map<String, String?> _thinkMap = {};
   final Set<String> _expandedThinkIds = {};
 
+  int _streamGen = 0;
+
   final List<_RetryEntry> _retryHistory = [];
   String? _retryMsgId;
   int _retryIdx = 0;
@@ -208,11 +210,12 @@ class _ChatPageState extends State<ChatPage> {
     if (!mounted) return;
     final cp = context.read<ConversationProvider>();
     final cid = _convId!;
+    final gen = ++_streamGen;
     final stream = _api.sendStreamRequest(model, msgs, thinking: _thinking);
     String buf = '', thinkBuf = '';
     _sub?.cancel();
     _sub = stream.listen((chunk) {
-      if (!mounted) return;
+      if (!mounted || gen != _streamGen) return;
       if (chunk.content != null) buf += chunk.content!;
       if (chunk.reasoningContent != null) thinkBuf += chunk.reasoningContent!;
       if (chunk.isDone) {
@@ -238,14 +241,14 @@ class _ChatPageState extends State<ChatPage> {
       }
       _scrollEnd();
     }, onError: (e) {
-      if (!mounted) return;
+      if (!mounted || gen != _streamGen) return;
       setState(() => _streaming = false);
       String msg = e.toString();
       if (msg.startsWith('Exception: ')) msg = msg.substring(11);
       final display = buf.isNotEmpty ? '$buf\n\n---\n请求失败: $msg' : '请求失败: $msg';
       cp.updateLastMessage(cid, display, save: true);
     }, onDone: () {
-      if (!mounted) return;
+      if (!mounted || gen != _streamGen) return;
       if (_streaming) {
         final think = thinkBuf.isNotEmpty ? thinkBuf : null;
         setState(() { _streaming = false; _thinkingTxt = think; });
@@ -365,6 +368,7 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Future<void> _pickImg() async {
+    if (_streaming) return;
     final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (picked == null) return;
     if (!mounted) return;
@@ -386,9 +390,9 @@ class _ChatPageState extends State<ChatPage> {
       try {
         final imgModel = _findModelConfigById(mp.models, set.imageModelId!);
         if (imgModel == null) {
-          if (!mounted) return;
-          setState(() => _streaming = false);
-          cp.updateLastMessage(_convId!, '图片转述模型已不存在，请在设置中重新选择');
+          if (mounted) {
+            cp.addMessage(_convId!, 'assistant', '图片转述模型已不存在，请在设置中重新选择');
+          }
           return;
         }
         final ext = picked.name.split('.').last.toLowerCase();
@@ -419,6 +423,7 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Future<void> _voice() async {
+    if (_streaming || _recording) return;
     final set = context.read<SettingsProvider>().settings;
     if (set.speechModelId == null || set.speechModelId!.isEmpty) {
       _send();
@@ -469,6 +474,7 @@ class _ChatPageState extends State<ChatPage> {
     try {
       final sm = _findModelConfigById(mp.models, context.read<SettingsProvider>().settings.speechModelId!);
       if (sm == null) {
+        if (!mounted) return;
         setState(() => _streaming = false);
         cp.updateLastMessage(_convId!, '语音转文字模型不存在，请在设置中重新选择');
         return;
@@ -582,6 +588,9 @@ class _ChatPageState extends State<ChatPage> {
                         topRight: Radius.circular(16),
                         bottomLeft: Radius.circular(16),
                       ),
+                      boxShadow: [
+                        BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 4, offset: const Offset(0, 2)),
+                      ],
                     ),
                     child: SelectableText(msg.content, style: const TextStyle(fontSize: 15)),
                   ),
@@ -612,8 +621,13 @@ class _ChatPageState extends State<ChatPage> {
       Container(
         margin: const EdgeInsets.symmetric(vertical: 4), padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.85),
-        decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16), bottomRight: Radius.circular(16))),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16), bottomRight: Radius.circular(16)),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 3, offset: const Offset(0, 1)),
+          ],
+        ),
         child: msg.content.isEmpty && _streaming
             ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
             : MarkdownWithLatex(content: msg.content),
@@ -638,7 +652,7 @@ class _ChatPageState extends State<ChatPage> {
       ),
       if (_thinkExpanded)
         Padding(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), child: Text(content,
-            style: TextStyle(fontSize: 11, color: Colors.grey[400], fontStyle: FontStyle.italic))),
+            style: TextStyle(fontSize: 13, color: Colors.grey[500], fontStyle: FontStyle.italic, height: 1.4))),
     ]),
   );
   }
@@ -667,7 +681,7 @@ class _ChatPageState extends State<ChatPage> {
           ),
           if (expanded)
             Padding(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), child: Text(think,
-                style: TextStyle(fontSize: 11, color: Colors.grey[400], fontStyle: FontStyle.italic))),
+                style: TextStyle(fontSize: 13, color: Colors.grey[500], fontStyle: FontStyle.italic, height: 1.4))),
         ]),
       ),
     ];
@@ -855,7 +869,7 @@ class _ChatPageState extends State<ChatPage> {
             },
             child: TextField(
               controller: _msgCtrl, focusNode: _focusNode,
-              style: const TextStyle(fontSize: 16, fontFamily: 'monospace'),
+              style: const TextStyle(fontSize: 16),
               decoration: const InputDecoration(hintText: '输入消息...', border: InputBorder.none, contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 10)),
               maxLines: 5, minLines: 1, textInputAction: TextInputAction.newline,
               onChanged: (_) => setState(() {}),
