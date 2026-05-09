@@ -134,7 +134,7 @@ jobs:
           pkgdesc = LynAI - Flutter desktop application
           url = https://github.com/lynyugiri/lynai
           arch = x86_64
-          license = MIT
+          license = GPL-3.0-or-later
           depend = gtk3
           depend = xz
           PKGINFO

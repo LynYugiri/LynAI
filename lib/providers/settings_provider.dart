@@ -71,21 +71,21 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 设置语音转文字模型ID
+  /// 设置语音转文字接口配置ID
   void setSpeechModelId(String? modelId) {
     _settings = _settings.copyWith(speechModelId: modelId);
     _saveSettings();
     notifyListeners();
   }
 
-  /// 设置图片转述模型ID
+  /// 设置 OCR 接口配置ID
   void setImageModelId(String? modelId) {
     _settings = _settings.copyWith(imageModelId: modelId);
     _saveSettings();
     notifyListeners();
   }
 
-  /// 设置图片转述提示词
+  /// 设置 OCR 识别结果发送给 Chat 时使用的提示词
   void setImagePrompt(String prompt) {
     _settings = _settings.copyWith(imagePrompt: prompt);
     _saveSettings();
@@ -104,7 +104,10 @@ class SettingsProvider extends ChangeNotifier {
     final id = const Uuid().v4();
     final prompt = SystemPrompt(id: id, title: title, content: content);
     final list = List<SystemPrompt>.from(_settings.systemPrompts)..add(prompt);
-    _settings = _settings.copyWith(systemPrompts: list, selectedSystemPromptId: id);
+    _settings = _settings.copyWith(
+      systemPrompts: list,
+      selectedSystemPromptId: id,
+    );
     _saveSettings();
     notifyListeners();
   }
@@ -126,7 +129,10 @@ class SettingsProvider extends ChangeNotifier {
     if (newSelected == id) {
       newSelected = null;
     }
-    _settings = _settings.copyWith(systemPrompts: list, selectedSystemPromptId: newSelected);
+    _settings = _settings.copyWith(
+      systemPrompts: list,
+      selectedSystemPromptId: newSelected,
+    );
     _saveSettings();
     notifyListeners();
   }
@@ -141,12 +147,11 @@ class SettingsProvider extends ChangeNotifier {
   /// 获取当前生效的系统提示词内容
   String get effectiveSystemPrompt {
     if (_settings.selectedSystemPromptId != null) {
-      try {
-        final prompt = _settings.systemPrompts.firstWhere(
-          (p) => p.id == _settings.selectedSystemPromptId,
-        );
-        return prompt.content;
-      } catch (_) {}
+      for (final prompt in _settings.systemPrompts) {
+        if (prompt.id == _settings.selectedSystemPromptId) {
+          return prompt.content;
+        }
+      }
     }
     return _settings.systemPrompt;
   }

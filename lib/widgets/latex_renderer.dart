@@ -18,10 +18,12 @@ class LatexRenderer {
         final idx = i ~/ 2;
         if (idx < blockMatches.length) {
           final formula = blockMatches[idx].group(1) ?? '';
-          spans.add(WidgetSpan(
-            alignment: PlaceholderAlignment.middle,
-            child: _MathBlock(formula: formula.trim()),
-          ));
+          spans.add(
+            WidgetSpan(
+              alignment: PlaceholderAlignment.middle,
+              child: _MathBlock(formula: formula.trim()),
+            ),
+          );
         }
       }
     }
@@ -38,10 +40,12 @@ class LatexRenderer {
         spans.add(TextSpan(text: text.substring(lastEnd, match.start)));
       }
       final formula = match.group(1) ?? '';
-      spans.add(WidgetSpan(
-        alignment: PlaceholderAlignment.middle,
-        child: _InlineMath(formula: formula.trim()),
-      ));
+      spans.add(
+        WidgetSpan(
+          alignment: PlaceholderAlignment.middle,
+          child: _InlineMath(formula: formula.trim()),
+        ),
+      );
       lastEnd = match.end;
     }
 
@@ -99,22 +103,34 @@ class _MathBlock extends StatelessWidget {
         margin: const EdgeInsets.symmetric(vertical: 10),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
         decoration: BoxDecoration(
-          color:
-              theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+          color: theme.colorScheme.surfaceContainerHighest.withValues(
+            alpha: 0.5,
+          ),
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-              color: theme.colorScheme.tertiary.withValues(alpha: 0.25)),
-        ),
-        child: Center(
-          child: Math.tex(
-            formula,
-            mathStyle: MathStyle.display,
-            textStyle: TextStyle(
-              fontSize: 18,
-              color: theme.colorScheme.onSurface,
-            ),
-            onErrorFallback: (_) => _fallback(formula, theme),
+            color: theme.colorScheme.tertiary.withValues(alpha: 0.25),
           ),
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                child: Center(
+                  child: Math.tex(
+                    formula,
+                    mathStyle: MathStyle.display,
+                    textStyle: TextStyle(
+                      fontSize: 18,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                    onErrorFallback: (_) => _fallback(formula, theme),
+                  ),
+                ),
+              ),
+            );
+          },
         ),
       );
     } catch (_) {
@@ -131,15 +147,18 @@ class _MathBlock extends StatelessWidget {
         color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
-            color: theme.colorScheme.error.withValues(alpha: 0.2)),
+          color: theme.colorScheme.error.withValues(alpha: 0.2),
+        ),
       ),
-      child: SelectableText(
-        formula,
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          fontFamily: 'monospace',
-          fontSize: 13,
-          color: theme.colorScheme.onSurfaceVariant,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SelectableText(
+          formula,
+          style: TextStyle(
+            fontFamily: 'monospace',
+            fontSize: 13,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
         ),
       ),
     );
@@ -157,10 +176,7 @@ class _InlineMath extends StatelessWidget {
       return Math.tex(
         formula,
         mathStyle: MathStyle.text,
-        textStyle: TextStyle(
-          fontSize: 16,
-          color: theme.colorScheme.onSurface,
-        ),
+        textStyle: TextStyle(fontSize: 16, color: theme.colorScheme.onSurface),
         onErrorFallback: (_) => Text(
           formula,
           style: TextStyle(
@@ -214,8 +230,9 @@ class MarkdownWithLatex extends StatelessWidget {
 
   static final _inlineRegExp = RegExp(r'\$(.+?)\$');
   static bool _hasInlineMath(String text) {
-    return _inlineRegExp.allMatches(text).any((m) =>
-        LatexRenderer._looksLikeMath(m.group(1) ?? ''));
+    return _inlineRegExp
+        .allMatches(text)
+        .any((m) => LatexRenderer._looksLikeMath(m.group(1) ?? ''));
   }
 
   @override
@@ -227,17 +244,21 @@ class MarkdownWithLatex extends StatelessWidget {
     return _buildMarkdown(context, content);
   }
 
-  Widget _buildMarkdown(BuildContext context, String text, {bool withInlineLatex = false}) {
+  Widget _buildMarkdown(
+    BuildContext context,
+    String text, {
+    bool withInlineLatex = false,
+  }) {
     return MarkdownBody(
       data: text,
       selectable: true,
       styleSheet: _markdownStyle(context),
       builders: withInlineLatex ? {'inlineLatex': _LatexBuilder()} : const {},
       extensionSet: withInlineLatex
-          ? md.ExtensionSet(
-              md.ExtensionSet.gitHubFlavored.blockSyntaxes,
-              [...md.ExtensionSet.gitHubFlavored.inlineSyntaxes, _LatexInlineSyntax()],
-            )
+          ? md.ExtensionSet(md.ExtensionSet.gitHubFlavored.blockSyntaxes, [
+              ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
+              _LatexInlineSyntax(),
+            ])
           : null,
     );
   }
@@ -247,22 +268,23 @@ class MarkdownWithLatex extends StatelessWidget {
       p: const TextStyle(fontSize: 15, height: 1.5),
       code: TextStyle(
         fontSize: 13,
-        backgroundColor: Theme.of(context)
-            .colorScheme
-            .surfaceContainerHighest
-            .withValues(alpha: 0.5),
+        backgroundColor: Theme.of(
+          context,
+        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
       ),
       codeblockDecoration: BoxDecoration(
-        color: Theme.of(context)
-            .colorScheme
-            .surfaceContainerHighest
-            .withValues(alpha: 0.5),
+        color: Theme.of(
+          context,
+        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(8),
       ),
       blockquoteDecoration: BoxDecoration(
         border: Border(
-            left: BorderSide(
-                color: Theme.of(context).colorScheme.primary, width: 3)),
+          left: BorderSide(
+            color: Theme.of(context).colorScheme.primary,
+            width: 3,
+          ),
+        ),
       ),
     );
   }
@@ -278,7 +300,9 @@ class MarkdownWithLatex extends StatelessWidget {
       if (i % 2 == 0) {
         if (parts[i].isNotEmpty) {
           if (_hasInlineMath(parts[i])) {
-            widgets.add(_buildMarkdown(context, parts[i], withInlineLatex: true));
+            widgets.add(
+              _buildMarkdown(context, parts[i], withInlineLatex: true),
+            );
           } else {
             widgets.add(_buildMarkdown(context, parts[i]));
           }
@@ -292,8 +316,9 @@ class MarkdownWithLatex extends StatelessWidget {
       }
     }
     return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: widgets);
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: widgets,
+    );
   }
 }

@@ -22,8 +22,14 @@ class ModelEntry {
 }
 
 class ModelConfig {
+  static const categoryChat = 'chat';
+  static const categoryOcr = 'ocr';
+  static const categorySpeech = 'speech';
+  static const categoryImageGeneration = 'image_generation';
+
   final String id;
   final String name;
+  final String category;
   final String endpoint;
   final String apiKey;
   final String modelName; // default/current model
@@ -38,6 +44,7 @@ class ModelConfig {
   ModelConfig({
     required this.id,
     required this.name,
+    this.category = categoryChat,
     required this.endpoint,
     required this.apiKey,
     required this.modelName,
@@ -59,6 +66,7 @@ class ModelConfig {
   ModelConfig copyWith({
     String? id,
     String? name,
+    String? category,
     String? endpoint,
     String? apiKey,
     String? modelName,
@@ -73,6 +81,7 @@ class ModelConfig {
     return ModelConfig(
       id: id ?? this.id,
       name: name ?? this.name,
+      category: category ?? this.category,
       endpoint: endpoint ?? this.endpoint,
       apiKey: apiKey ?? this.apiKey,
       modelName: modelName ?? this.modelName,
@@ -99,6 +108,7 @@ class ModelConfig {
     return ModelConfig(
       id: json['id'] as String,
       name: json['name'] as String,
+      category: json['category'] as String? ?? categoryChat,
       endpoint: json['endpoint'] as String,
       apiKey: json['apiKey'] as String,
       modelName: json['modelName'] as String,
@@ -118,6 +128,7 @@ class ModelConfig {
     return {
       'id': id,
       'name': name,
+      'category': category,
       'endpoint': endpoint,
       'apiKey': apiKey,
       'modelName': modelName,

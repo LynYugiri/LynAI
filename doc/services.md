@@ -46,8 +46,8 @@ Stream<StreamChunk> sendStreamRequest(
 
 | thinking | 行为 |
 |----------|------|
-| `true` | 若无自定义系统提示词, 则在消息列表前插入默认逐步推理提示词 |
-| `false` | 显式发送禁用参数: Anthropic→`thinking: {type: disabled}`, Ollama→`think: false`, OpenAI兼容→无额外参数 |
+| `true` | OpenAI兼容发送 `thinking: {type: enabled}`, Ollama发送 `think: true`, Anthropic发送 `thinking: {type: enabled}` |
+| `false` | OpenAI兼容不发送额外思考参数, Ollama发送 `think: false`, Anthropic发送 `thinking: {type: disabled}` |
 
 ### 支持接口
 
@@ -60,7 +60,7 @@ Stream<StreamChunk> sendStreamRequest(
 
 ### 请求体处理
 
-- **OpenAI兼容**: 发送 `model`, `messages`, `stream`, 可选的 `max_tokens`, `temperature`, `top_p`, 以及 `extraParams`
+- **OpenAI兼容**: 发送 `model`, `messages`, `stream`, 可选的 `max_tokens`, `temperature`, `top_p`, 启用思考时发送 `thinking`, 以及 `extraParams`
 - **Ollama**: 将 content 为复杂类型(如多模态数组)的消息序列化为JSON字符串, 禁用思考时传入 `think: false`。参数通过 `options` 子对象发送
 - **Anthropic**: 从消息列表中提取系统提示词作为顶层 `system` 字段, 其余作为 `messages` 数组。默认 `max_tokens` 为 4096
 

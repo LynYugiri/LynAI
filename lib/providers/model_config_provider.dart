@@ -16,6 +16,25 @@ class ModelConfigProvider extends ChangeNotifier {
   /// 获取所有模型配置（按优先级升序）
   List<ModelConfig> get models => List.unmodifiable(_models);
 
+  List<ModelConfig> modelsByCategory(String category) {
+    return _models.where((m) => m.category == category).toList(growable: false);
+  }
+
+  int nextPriorityForCategory(String category) {
+    final categoryModels = modelsByCategory(category);
+    if (categoryModels.isEmpty) return 0;
+    return categoryModels
+            .map((m) => m.priority)
+            .reduce((a, b) => a > b ? a : b) +
+        1;
+  }
+
+  int _compareModels(ModelConfig a, ModelConfig b) {
+    final categoryCompare = a.category.compareTo(b.category);
+    if (categoryCompare != 0) return categoryCompare;
+    return a.priority.compareTo(b.priority);
+  }
+
   /// 从 SharedPreferences 加载模型配置
   Future<void> loadModels() async {
     try {
@@ -23,10 +42,16 @@ class ModelConfigProvider extends ChangeNotifier {
       final jsonString = prefs.getString(_storageKey);
       if (jsonString != null) {
         final List<dynamic> jsonList = jsonDecode(jsonString);
-        _models = jsonList
-            .map((j) => ModelConfig.fromJson(j as Map<String, dynamic>))
-            .toList();
-        _models.sort((a, b) => a.priority.compareTo(b.priority));
+        final models = <ModelConfig>[];
+        for (final item in jsonList) {
+          try {
+            models.add(ModelConfig.fromJson(item as Map<String, dynamic>));
+          } catch (e) {
+            debugPrint('跳过损坏的模型配置: $e');
+          }
+        }
+        _models = models;
+        _models.sort(_compareModels);
         notifyListeners();
       }
     } catch (e) {
@@ -49,7 +74,7 @@ class ModelConfigProvider extends ChangeNotifier {
   /// 添加新模型配置
   void addModel(ModelConfig config) {
     _models.add(config);
-    _models.sort((a, b) => a.priority.compareTo(b.priority));
+    _models.sort(_compareModels);
     _saveModels();
     notifyListeners();
   }
@@ -59,20 +84,25 @@ class ModelConfigProvider extends ChangeNotifier {
     final index = _models.indexWhere((m) => m.id == config.id);
     if (index == -1) return;
     _models[index] = config;
-    _models.sort((a, b) => a.priority.compareTo(b.priority));
+    _models.sort(_compareModels);
     _saveModels();
     notifyListeners();
   }
 
   /// 删除模型配置
   void deleteModel(String modelId) {
+    final before = _models.length;
     _models.removeWhere((m) => m.id == modelId);
+    if (_models.length == before) return;
     _saveModels();
     notifyListeners();
   }
 
   /// 调整模型优先级（上移或下移）
   void reorderModel(int oldIndex, int newIndex) {
+    if (oldIndex < 0 || oldIndex >= _models.length) return;
+    if (newIndex < 0 || newIndex > _models.length) return;
+    if (oldIndex == newIndex) return;
     if (oldIndex < newIndex) newIndex--;
     final item = _models.removeAt(oldIndex);
     _models.insert(newIndex, item);
@@ -84,7 +114,30 @@ class ModelConfigProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void reorderModelsInCategory(String category, int oldIndex, int newIndex) {
+    final categoryModels = _models
+        .where((m) => m.category == category)
+        .toList();
+    if (oldIndex < 0 || oldIndex >= categoryModels.length) return;
+    if (newIndex < 0 || newIndex > categoryModels.length) return;
+    if (oldIndex == newIndex) return;
+    if (oldIndex < newIndex) newIndex--;
+    final item = categoryModels.removeAt(oldIndex);
+    categoryModels.insert(newIndex, item);
+
+    var categoryIndex = 0;
+    for (var i = 0; i < _models.length; i++) {
+      if (_models[i].category != category) continue;
+      _models[i] = categoryModels[categoryIndex].copyWith(
+        priority: categoryIndex,
+      );
+      categoryIndex++;
+    }
+    _models.sort(_compareModels);
+    _saveModels();
+    notifyListeners();
+  }
+
   /// 生成新的唯一ID
   String generateId() => _uuid.v4();
 }
-

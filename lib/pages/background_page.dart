@@ -2,8 +2,14 @@ import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
+
+String _safeBackgroundFileName(String name) {
+  final safe = name.replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_');
+  return safe.isEmpty ? 'background' : safe;
+}
 
 /// 背景图片设置页面
 ///
@@ -24,11 +30,23 @@ class _BackgroundPageState extends State<BackgroundPage> {
 
   /// 从相册选择图片
   Future<void> _pickImage() async {
-    final pickedFile =
-        await _imagePicker.pickImage(source: ImageSource.gallery);
-    if (pickedFile != null) {
+    try {
+      final pickedFile = await _imagePicker.pickImage(source: ImageSource.gallery);
+      if (pickedFile == null) return;
+      final dir = await getApplicationDocumentsDirectory();
+      final bgDir = Directory('${dir.path}/backgrounds');
+      if (!await bgDir.exists()) await bgDir.create(recursive: true);
+      // image_picker 可能返回缓存路径；复制到应用私有目录后再保存，避免背景图被系统清理。
+      final stored = await File(pickedFile.path).copy(
+        '${bgDir.path}/${DateTime.now().millisecondsSinceEpoch}_${_safeBackgroundFileName(pickedFile.name)}',
+      );
       if (!mounted) return;
-      context.read<SettingsProvider>().setBackgroundImage(pickedFile.path);
+      context.read<SettingsProvider>().setBackgroundImage(stored.path);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('背景图片设置失败: $e')),
+      );
     }
   }
 
@@ -297,4 +315,3 @@ class _BackgroundPageState extends State<BackgroundPage> {
     );
   }
 }
-

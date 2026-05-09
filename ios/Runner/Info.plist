@@ -26,6 +26,17 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>LynAI 需要访问麦克风，用于录制语音并转换为文字。</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>LynAI 需要访问照片图库，用于选择背景图片或给对话附加图片。</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>LynAI 需要使用语音识别，将你的语音输入转换为文本。</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

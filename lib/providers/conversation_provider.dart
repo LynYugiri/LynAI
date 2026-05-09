@@ -25,9 +25,17 @@ class ConversationProvider extends ChangeNotifier {
       final jsonString = prefs.getString(_storageKey);
       if (jsonString != null) {
         final List<dynamic> jsonList = jsonDecode(jsonString);
-        _conversations = jsonList
-            .map((j) => Conversation.fromJson(j as Map<String, dynamic>))
-            .toList();
+        final conversations = <Conversation>[];
+        for (final item in jsonList) {
+          try {
+            conversations.add(
+              Conversation.fromJson(item as Map<String, dynamic>),
+            );
+          } catch (e) {
+            debugPrint('跳过损坏的对话记录: $e');
+          }
+        }
+        _conversations = conversations;
         // 按更新时间倒序排列
         _conversations.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
         notifyListeners();
@@ -43,8 +51,9 @@ class ConversationProvider extends ChangeNotifier {
   Future<void> _saveConversations() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final jsonString =
-          jsonEncode(_conversations.map((c) => c.toJson()).toList());
+      final jsonString = jsonEncode(
+        _conversations.map((c) => c.toJson()).toList(),
+      );
       await prefs.setString(_storageKey, jsonString);
     } catch (e) {
       debugPrint('保存对话失败: $e');
@@ -74,7 +83,12 @@ class ConversationProvider extends ChangeNotifier {
   }
 
   /// 向指定对话添加消息
-  void addMessage(String conversationId, String role, String content) {
+  void addMessage(
+    String conversationId,
+    String role,
+    String content, {
+    List<MessageImage> images = const [],
+  }) {
     try {
       final index = _conversations.indexWhere((c) => c.id == conversationId);
       if (index == -1) return;
@@ -83,6 +97,7 @@ class ConversationProvider extends ChangeNotifier {
         id: _uuid.v4(),
         role: role,
         content: content,
+        images: images,
         timestamp: DateTime.now(),
       );
 
@@ -90,11 +105,16 @@ class ConversationProvider extends ChangeNotifier {
         ..add(message);
       final now = DateTime.now();
 
-      // 如果是第一条用户消息，自动用其内容作为对话标题
       String title = _conversations[index].title;
       if (_conversations[index].messages.isEmpty && role == 'user') {
+        // 附带图片但没有文字时，用“[图片]”兜底，避免历史列表出现空标题。
         final clean = content.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
-        title = clean.length > 20 ? '${clean.substring(0, 20)}...' : clean;
+        final titleSource = clean.isNotEmpty
+            ? clean
+            : (images.isNotEmpty ? '[图片]' : '新对话');
+        title = titleSource.length > 20
+            ? '${titleSource.substring(0, 20)}...'
+            : titleSource;
       }
 
       _conversations[index] = Conversation(
@@ -150,7 +170,11 @@ class ConversationProvider extends ChangeNotifier {
   }
 
   /// 更新最后一条消息的内容（用于流式响应）
-  void updateLastMessage(String conversationId, String content, {bool save = true}) {
+  void updateLastMessage(
+    String conversationId,
+    String content, {
+    bool save = true,
+  }) {
     try {
       final index = _conversations.indexWhere((c) => c.id == conversationId);
       if (index == -1 || _conversations[index].messages.isEmpty) return;
@@ -161,6 +185,7 @@ class ConversationProvider extends ChangeNotifier {
         id: lastMsg.id,
         role: lastMsg.role,
         content: content,
+        images: lastMsg.images,
         timestamp: lastMsg.timestamp,
       );
 
@@ -207,7 +232,9 @@ class ConversationProvider extends ChangeNotifier {
 
   /// 删除对话
   void deleteConversation(String conversationId) {
+    final before = _conversations.length;
     _conversations.removeWhere((c) => c.id == conversationId);
+    if (_conversations.length == before) return;
     _saveConversations();
     notifyListeners();
   }
@@ -222,7 +249,11 @@ class ConversationProvider extends ChangeNotifier {
   }
 
   /// 更新指定消息的内容
-  void updateMessageContent(String conversationId, String messageId, String content) {
+  void updateMessageContent(
+    String conversationId,
+    String messageId,
+    String content,
+  ) {
     final index = _conversations.indexWhere((c) => c.id == conversationId);
     if (index == -1) return;
     final messages = List<Message>.from(_conversations[index].messages);
@@ -233,6 +264,7 @@ class ConversationProvider extends ChangeNotifier {
       id: old.id,
       role: old.role,
       content: content,
+      images: old.images,
       timestamp: old.timestamp,
     );
     _conversations[index] = Conversation(
@@ -287,4 +319,3 @@ class ConversationProvider extends ChangeNotifier {
     return results;
   }
 }
-

@@ -8,20 +8,120 @@ import '../providers/model_config_provider.dart';
 const _endpointPresets = [
   {'name': 'OpenAI', 'url': 'https://api.openai.com/v1', 'type': 'openai'},
   {'name': 'DeepSeek', 'url': 'https://api.deepseek.com', 'type': 'openai'},
-  {'name': 'Anthropic', 'url': 'https://api.anthropic.com', 'type': 'anthropic'},
-  {'name': 'Google AI', 'url': 'https://generativelanguage.googleapis.com/v1beta', 'type': 'openai'},
+  {
+    'name': 'Anthropic',
+    'url': 'https://api.anthropic.com',
+    'type': 'anthropic',
+  },
+  {
+    'name': 'Google AI',
+    'url': 'https://generativelanguage.googleapis.com/v1beta',
+    'type': 'openai',
+  },
   {'name': 'Ollama (本地)', 'url': 'http://localhost:11434', 'type': 'ollama'},
-  {'name': 'OpenRouter', 'url': 'https://openrouter.ai/api/v1', 'type': 'openai'},
+  {
+    'name': 'OpenRouter',
+    'url': 'https://openrouter.ai/api/v1',
+    'type': 'openai',
+  },
   {'name': 'Groq', 'url': 'https://api.groq.com/openai/v1', 'type': 'openai'},
-  {'name': 'Together AI', 'url': 'https://api.together.xyz/v1', 'type': 'openai'},
+  {
+    'name': 'Together AI',
+    'url': 'https://api.together.xyz/v1',
+    'type': 'openai',
+  },
   {'name': 'xAI (Grok)', 'url': 'https://api.x.ai/v1', 'type': 'openai'},
   {'name': 'Moonshot', 'url': 'https://api.moonshot.cn/v1', 'type': 'openai'},
   {'name': 'vivo', 'url': 'https://api-ai.vivo.com.cn/v1', 'type': 'openai'},
-  {'name': 'Zhipu (智谱)', 'url': 'https://open.bigmodel.cn/api/paas/v4', 'type': 'openai'},
-  {'name': 'Qwen (通义千问)', 'url': 'https://dashscope.aliyuncs.com/compatible-mode/v1', 'type': 'openai'},
-  {'name': 'SiliconFlow', 'url': 'https://api.siliconflow.cn/v1', 'type': 'openai'},
+  {
+    'name': 'Zhipu (智谱)',
+    'url': 'https://open.bigmodel.cn/api/paas/v4',
+    'type': 'openai',
+  },
+  {
+    'name': 'Qwen (通义千问)',
+    'url': 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    'type': 'openai',
+  },
+  {
+    'name': 'SiliconFlow',
+    'url': 'https://api.siliconflow.cn/v1',
+    'type': 'openai',
+  },
   {'name': '自定义', 'url': '', 'type': 'custom'},
 ];
+
+const _ocrEndpointPresets = [
+  {
+    'name': 'vivo OCR',
+    'url': 'https://api-ai.vivo.com.cn/ocr/general_recognition',
+    'type': ModelConfig.categoryOcr,
+  },
+  {'name': '自定义', 'url': '', 'type': ModelConfig.categoryOcr},
+];
+
+const _speechEndpointPresets = [
+  {
+    'name': 'vivo 长语音转写',
+    'url': 'https://api-ai.vivo.com.cn',
+    'type': ModelConfig.categorySpeech,
+  },
+  {'name': '自定义', 'url': '', 'type': ModelConfig.categorySpeech},
+];
+
+const _imageEndpointPresets = [
+  {
+    'name': 'vivo 图片生成',
+    'url': 'https://api-ai.vivo.com.cn/api/v1/image_generation',
+    'type': 'openai_image',
+  },
+  {
+    'name': 'OpenAI Images',
+    'url': 'https://api.openai.com/v1',
+    'type': 'openai_image',
+  },
+  {'name': '自定义', 'url': '', 'type': 'openai_image'},
+];
+
+const _categories = [
+  ApiCategory(
+    ModelConfig.categoryChat,
+    'Chat',
+    '对话模型',
+    Icons.chat_bubble_outline,
+    Colors.blue,
+  ),
+  ApiCategory(
+    ModelConfig.categoryOcr,
+    'OCR',
+    '图片文字识别',
+    Icons.document_scanner_outlined,
+    Colors.deepPurple,
+  ),
+  ApiCategory(
+    ModelConfig.categorySpeech,
+    '语音转文字',
+    'vivo 长语音转写',
+    Icons.mic_none,
+    Colors.green,
+  ),
+  ApiCategory(
+    ModelConfig.categoryImageGeneration,
+    '图片生成',
+    '文本或图片生成图片',
+    Icons.auto_awesome,
+    Colors.orange,
+  ),
+];
+
+class ApiCategory {
+  final String id;
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color color;
+  const ApiCategory(this.id, this.title, this.subtitle, this.icon, this.color);
+}
 
 class ApiModelsPage extends StatelessWidget {
   const ApiModelsPage({super.key});
@@ -29,21 +129,66 @@ class ApiModelsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<ModelConfigProvider>();
-    final models = provider.models;
-
     return Scaffold(
-      appBar: AppBar(title: const Text('API 模型管理'), centerTitle: true),
+      appBar: AppBar(title: const Text('模型类别'), centerTitle: true),
+      body: ListView.builder(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        itemCount: _categories.length,
+        itemBuilder: (context, index) {
+          final category = _categories[index];
+          final count = provider.modelsByCategory(category.id).length;
+          return Card(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundColor: category.color.withValues(alpha: 0.1),
+                child: Icon(category.icon, color: category.color),
+              ),
+              title: Text(
+                category.title,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              subtitle: Text('${category.subtitle} · $count 个配置'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ApiCategoryPage(category: category),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class ApiCategoryPage extends StatelessWidget {
+  final ApiCategory category;
+  const ApiCategoryPage({super.key, required this.category});
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<ModelConfigProvider>();
+    final models = provider.modelsByCategory(category.id);
+    return Scaffold(
+      appBar: AppBar(title: Text(category.title), centerTitle: true),
       body: models.isEmpty
           ? _buildEmptyState()
           : ReorderableListView.builder(
               padding: const EdgeInsets.symmetric(vertical: 8),
               itemCount: models.length,
-              onReorder: provider.reorderModel,
+              onReorder: (oldIndex, newIndex) => provider
+                  .reorderModelsInCategory(category.id, oldIndex, newIndex),
               buildDefaultDragHandles: false,
-              itemBuilder: (context, index) {
-                final model = models[index];
-                return _buildModelItem(context, model, index, models.length, provider);
-              },
+              itemBuilder: (context, index) => _buildModelItem(
+                context,
+                models[index],
+                index,
+                models.length,
+                provider,
+              ),
             ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _navigateToEditModel(context, provider),
@@ -57,18 +202,33 @@ class ApiModelsPage extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.api, size: 64, color: Colors.grey[400]),
+          Icon(category.icon, size: 64, color: Colors.grey[400]),
           const SizedBox(height: 16),
-          Text('暂无模型配置', style: TextStyle(fontSize: 16, color: Colors.grey[600])),
+          Text(
+            '暂无${category.title}配置',
+            style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+          ),
           const SizedBox(height: 8),
-          Text('点击右下角 + 添加模型', style: TextStyle(fontSize: 14, color: Colors.grey[500])),
+          Text(
+            '点击右下角 + 添加模型',
+            style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildModelItem(BuildContext context, ModelConfig model, int index, int total, ModelConfigProvider provider) {
+  Widget _buildModelItem(
+    BuildContext context,
+    ModelConfig model,
+    int index,
+    int total,
+    ModelConfigProvider provider,
+  ) {
     final enabledCount = model.enabledModelNames.length;
+    final isInterfaceOnly =
+        model.category == ModelConfig.categoryOcr ||
+        model.category == ModelConfig.categorySpeech;
     return Card(
       key: ValueKey(model.id),
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -77,16 +237,24 @@ class ApiModelsPage extends StatelessWidget {
           index: index,
           child: const Icon(Icons.drag_handle, color: Colors.grey),
         ),
-        title: Text(model.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+        title: Text(
+          model.name,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('${model.apiType.toUpperCase()} - ${model.endpoint}',
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                maxLines: 1, overflow: TextOverflow.ellipsis),
-            if (model.hasMultipleModels)
-              Text('已启用 $enabledCount / ${model.models.length} 个模型',
-                  style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+            Text(
+              '${model.apiType.toUpperCase()} - ${model.endpoint}',
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            if (!isInterfaceOnly && model.hasMultipleModels)
+              Text(
+                '已启用 $enabledCount / ${model.models.length} 个模型',
+                style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+              ),
           ],
         ),
         trailing: Row(
@@ -98,8 +266,14 @@ class ApiModelsPage extends StatelessWidget {
                 color: _getPriorityColor(index, total).withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Text('优先级 ${index + 1}',
-                  style: TextStyle(fontSize: 11, color: _getPriorityColor(index, total), fontWeight: FontWeight.w600)),
+              child: Text(
+                '优先级 ${index + 1}',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: _getPriorityColor(index, total),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
             const SizedBox(width: 4),
             const Icon(Icons.chevron_right, color: Colors.grey),
@@ -118,15 +292,31 @@ class ApiModelsPage extends StatelessWidget {
     return Colors.red;
   }
 
-  void _navigateToEditModel(BuildContext context, ModelConfigProvider provider, {ModelConfig? model}) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => EditModelPage(model: model, provider: provider)));
+  void _navigateToEditModel(
+    BuildContext context,
+    ModelConfigProvider provider, {
+    ModelConfig? model,
+  }) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            EditModelPage(category: category, model: model, provider: provider),
+      ),
+    );
   }
 }
 
 class EditModelPage extends StatefulWidget {
+  final ApiCategory category;
   final ModelConfig? model;
   final ModelConfigProvider provider;
-  const EditModelPage({super.key, this.model, required this.provider});
+  const EditModelPage({
+    super.key,
+    required this.category,
+    this.model,
+    required this.provider,
+  });
 
   @override
   State<EditModelPage> createState() => _EditModelPageState();
@@ -134,8 +324,13 @@ class EditModelPage extends StatefulWidget {
 
 class _EditModelPageState extends State<EditModelPage> {
   final _formKey = GlobalKey<FormState>();
-  late TextEditingController _nameController, _endpointController, _apiKeyController;
-  late TextEditingController _maxTokensController, _temperatureController, _topPController;
+  late TextEditingController _nameController,
+      _endpointController,
+      _apiKeyController,
+      _appIdController;
+  late TextEditingController _maxTokensController,
+      _temperatureController,
+      _topPController;
   late TextEditingController _newModelController;
   late List<ModelEntry> _modelEntries;
   String _apiType = 'openai';
@@ -146,22 +341,86 @@ class _EditModelPageState extends State<EditModelPage> {
   List<Map<String, dynamic>> _filteredPresets = [];
 
   bool get isEditing => widget.model != null;
+  bool get isChat => widget.category.id == ModelConfig.categoryChat;
+  bool get isImageGeneration =>
+      widget.category.id == ModelConfig.categoryImageGeneration;
+  bool get needsAppId =>
+      widget.category.id == ModelConfig.categoryOcr ||
+      widget.category.id == ModelConfig.categorySpeech;
+  bool get isInterfaceOnly =>
+      widget.category.id == ModelConfig.categoryOcr ||
+      widget.category.id == ModelConfig.categorySpeech;
+  bool get hasChatStyleOptions => isChat || isImageGeneration;
 
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController(text: widget.model?.name ?? '');
-    _endpointController = TextEditingController(text: widget.model?.endpoint ?? '');
-    _apiKeyController = TextEditingController(text: widget.model?.apiKey ?? '');
-    _maxTokensController = TextEditingController(text: widget.model?.maxTokens?.toString() ?? '');
-    _temperatureController = TextEditingController(text: widget.model?.temperature?.toString() ?? '');
-    _topPController = TextEditingController(text: widget.model?.topP?.toString() ?? '');
+    final model = widget.model;
+    _nameController = TextEditingController(
+      text: model?.name ?? _defaultName(),
+    );
+    _endpointController = TextEditingController(text: model?.endpoint ?? '');
+    _apiKeyController = TextEditingController(text: model?.apiKey ?? '');
+    _appIdController = TextEditingController(
+      text: model?.extraParams['appId'] as String? ?? '',
+    );
+    _maxTokensController = TextEditingController(
+      text: model?.maxTokens?.toString() ?? '',
+    );
+    _temperatureController = TextEditingController(
+      text: model?.temperature?.toString() ?? '',
+    );
+    _topPController = TextEditingController(
+      text: model?.topP?.toString() ?? '',
+    );
     _newModelController = TextEditingController();
-    _apiType = widget.model?.apiType ?? 'openai';
-    _showAdvanced = widget.model?.maxTokens != null || widget.model?.temperature != null || widget.model?.topP != null;
-    _modelEntries = widget.model?.models.map((m) => ModelEntry(name: m.name, enabled: m.enabled)).toList()
-        ?? [ModelEntry(name: '', enabled: false)];
-    _filteredPresets = List.from(_endpointPresets);
+    _apiType =
+        model?.apiType ??
+        (isChat
+            ? 'openai'
+            : isImageGeneration
+            ? 'openai_image'
+            : widget.category.id);
+    _showAdvanced =
+        model?.maxTokens != null ||
+        model?.temperature != null ||
+        model?.topP != null;
+    _modelEntries =
+        model?.models
+            .map((m) => ModelEntry(name: m.name, enabled: m.enabled))
+            .toList() ??
+        [ModelEntry(name: '', enabled: false)];
+    _filteredPresets = List.from(_currentEndpointPresets);
+  }
+
+  String _defaultName() => '';
+
+  String _endpointHint() {
+    return switch (widget.category.id) {
+      ModelConfig.categoryOcr =>
+        'https://api-ai.vivo.com.cn/ocr/general_recognition',
+      ModelConfig.categorySpeech => 'https://api-ai.vivo.com.cn',
+      ModelConfig.categoryImageGeneration =>
+        'https://api-ai.vivo.com.cn/api/v1/image_generation 或 https://api.openai.com/v1',
+      _ => 'https://api.openai.com/v1',
+    };
+  }
+
+  List<Map<String, dynamic>> get _currentEndpointPresets {
+    return switch (widget.category.id) {
+      ModelConfig.categoryOcr => _ocrEndpointPresets,
+      ModelConfig.categorySpeech => _speechEndpointPresets,
+      ModelConfig.categoryImageGeneration => _imageEndpointPresets,
+      _ => _endpointPresets,
+    };
+  }
+
+  String get _fixedInterfaceModelName {
+    return switch (widget.category.id) {
+      ModelConfig.categoryOcr => 'general_recognition',
+      ModelConfig.categorySpeech => 'fileasrrecorder',
+      _ => '',
+    };
   }
 
   @override
@@ -169,6 +428,7 @@ class _EditModelPageState extends State<EditModelPage> {
     _nameController.dispose();
     _endpointController.dispose();
     _apiKeyController.dispose();
+    _appIdController.dispose();
     _maxTokensController.dispose();
     _temperatureController.dispose();
     _topPController.dispose();
@@ -178,30 +438,36 @@ class _EditModelPageState extends State<EditModelPage> {
 
   void _saveModel() {
     if (!_formKey.currentState!.validate()) return;
-    final entries = _modelEntries.where((m) => m.name.trim().isNotEmpty).toList();
-    if (entries.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请至少添加一个模型')),
-      );
+    final entries = isInterfaceOnly
+        ? [ModelEntry(name: _fixedInterfaceModelName, enabled: true)]
+        : _modelEntries.where((m) => m.name.trim().isNotEmpty).toList();
+    if (!isInterfaceOnly && entries.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请至少添加一个模型')));
       return;
     }
     final enabled = entries.where((m) => m.enabled).toList();
-    final activeModelName = enabled.isNotEmpty ? enabled.first.name : entries.first.name;
-
+    final activeModelName = enabled.isNotEmpty
+        ? enabled.first.name
+        : entries.first.name;
     final config = ModelConfig(
       id: widget.model?.id ?? widget.provider.generateId(),
       name: _nameController.text.trim(),
+      category: widget.category.id,
       endpoint: _endpointController.text.trim(),
       apiKey: _apiKeyController.text.trim(),
       modelName: activeModelName,
       apiType: _apiType,
-      priority: widget.model?.priority ?? 999,
+      priority: widget.model?.priority ?? widget.provider.nextPriorityForCategory(widget.category.id),
       maxTokens: int.tryParse(_maxTokensController.text.trim()),
       temperature: double.tryParse(_temperatureController.text.trim()),
       topP: double.tryParse(_topPController.text.trim()),
+      extraParams: needsAppId
+          ? {'appId': _appIdController.text.trim()}
+          : widget.model?.extraParams,
       models: entries,
     );
-
     if (isEditing) {
       widget.provider.updateModel(config);
     } else {
@@ -212,29 +478,27 @@ class _EditModelPageState extends State<EditModelPage> {
 
   void _addModelEntry() {
     final name = _newModelController.text.trim();
-    if (name.isEmpty) return;
-    if (_modelEntries.any((m) => m.name == name)) return;
+    if (name.isEmpty || _modelEntries.any((m) => m.name == name)) return;
     setState(() {
       _modelEntries.add(ModelEntry(name: name, enabled: false));
       _newModelController.clear();
     });
   }
 
-  void _removeModelEntry(int index) {
-    setState(() => _modelEntries.removeAt(index));
-  }
+  void _removeModelEntry(int index) =>
+      setState(() => _modelEntries.removeAt(index));
 
   void _toggleModelEntry(int index) {
-    setState(() {
-      _modelEntries[index] = _modelEntries[index].copyWith(
+    setState(
+      () => _modelEntries[index] = _modelEntries[index].copyWith(
         enabled: !_modelEntries[index].enabled,
-      );
-    });
+      ),
+    );
   }
 
   void _selectEndpointPreset(Map<String, dynamic> preset) {
     _endpointController.text = preset['url'] as String;
-    if (preset['type'] != 'custom') {
+    if (preset['type'] != 'custom' && hasChatStyleOptions) {
       setState(() => _apiType = preset['type'] as String);
     }
     setState(() => _showEndpointSuggestions = false);
@@ -242,14 +506,19 @@ class _EditModelPageState extends State<EditModelPage> {
 
   void _filterEndpointPresets(String query) {
     setState(() {
-      if (query.isEmpty) {
-        _filteredPresets = List.from(_endpointPresets);
-      } else {
-        _filteredPresets = _endpointPresets
-            .where((p) => (p['name'] as String).toLowerCase().contains(query.toLowerCase())
-                || (p['url'] as String).toLowerCase().contains(query.toLowerCase()))
-            .toList();
-      }
+      _filteredPresets = query.isEmpty
+          ? List.from(_currentEndpointPresets)
+          : _currentEndpointPresets
+                .where(
+                  (p) =>
+                      (p['name'] as String).toLowerCase().contains(
+                        query.toLowerCase(),
+                      ) ||
+                      (p['url'] as String).toLowerCase().contains(
+                        query.toLowerCase(),
+                      ),
+                )
+                .toList();
     });
   }
 
@@ -257,9 +526,9 @@ class _EditModelPageState extends State<EditModelPage> {
     final endpoint = _endpointController.text.trim();
     final apiKey = _apiKeyController.text.trim();
     if (endpoint.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请先填写 Endpoint')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请先填写 Endpoint')));
       return;
     }
     setState(() => _isFetchingModels = true);
@@ -267,81 +536,73 @@ class _EditModelPageState extends State<EditModelPage> {
       List<ModelEntry> fetched = [];
       if (_apiType == 'ollama') {
         final resp = await http.get(Uri.parse('$endpoint/api/tags'));
-        if (resp.statusCode == 200) {
-          final models = jsonDecode(resp.body)['models'] as List;
-          fetched = models.map((m) {
-            final rawName = m['name'] as String;
-            final name = rawName.endsWith(':latest') ? rawName.substring(0, rawName.length - ':latest'.length) : rawName;
-            return ModelEntry(name: name, enabled: false);
-          }).toList();
-        } else {
-          throw Exception('${resp.statusCode}');
-        }
+        if (resp.statusCode != 200) throw Exception('${resp.statusCode}');
+        final models = jsonDecode(resp.body)['models'] as List;
+        fetched = models.map((m) {
+          final rawName = m['name'] as String;
+          final name = rawName.endsWith(':latest')
+              ? rawName.substring(0, rawName.length - ':latest'.length)
+              : rawName;
+          return ModelEntry(name: name, enabled: false);
+        }).toList();
       } else {
         final headers = <String, String>{};
         if (apiKey.isNotEmpty) headers['Authorization'] = 'Bearer $apiKey';
-        final resp = await http.get(Uri.parse('$endpoint/models'), headers: headers);
-        if (resp.statusCode == 200) {
-          final models = jsonDecode(resp.body)['data'] as List? ?? [];
-          fetched = models.map((m) => ModelEntry(name: m['id'] as String, enabled: false)).toList();
-        } else {
-          throw Exception('${resp.statusCode}');
-        }
+        final resp = await http.get(
+          Uri.parse('$endpoint/models'),
+          headers: headers,
+        );
+        if (resp.statusCode != 200) throw Exception('${resp.statusCode}');
+        final models = jsonDecode(resp.body)['data'] as List? ?? [];
+        fetched = models
+            .map((m) => ModelEntry(name: m['id'] as String, enabled: false))
+            .toList();
       }
-      // Merge: keep existing entries, add new ones that don't exist yet
       final existingNames = _modelEntries.map((e) => e.name).toSet();
-      final newEntries = fetched.where((e) => !existingNames.contains(e.name)).toList();
-      final addedCount = newEntries.length;
+      final newEntries = fetched
+          .where((e) => !existingNames.contains(e.name))
+          .toList();
       setState(() => _modelEntries.addAll(newEntries));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(addedCount > 0 ? '新增 $addedCount 个模型' : '没有新模型，已全部存在')),
+          SnackBar(
+            content: Text(
+              newEntries.isNotEmpty
+                  ? '新增 ${newEntries.length} 个模型'
+                  : '没有新模型，已全部存在',
+            ),
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('获取模型列表失败: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('获取模型列表失败: $e')));
       }
     } finally {
-      setState(() => _isFetchingModels = false);
+      if (mounted) setState(() => _isFetchingModels = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final apiKeyOptional = _apiType == 'ollama';
+    final apiKeyOptional = isChat && _apiType == 'ollama';
+    final apiKeyLabel = needsAppId ? 'AppKey' : 'API Key';
     return Scaffold(
       appBar: AppBar(
-        title: Text(isEditing ? '编辑模型' : '添加模型'),
+        title: Text(
+          isEditing
+              ? '编辑${widget.category.title}'
+              : '添加${widget.category.title}',
+        ),
         centerTitle: true,
         actions: [
           if (isEditing)
             IconButton(
               icon: const Icon(Icons.delete, color: Colors.red),
               tooltip: '删除模型',
-              onPressed: () {
-                showDialog(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text('删除模型'),
-                    content: Text('确定要删除"${widget.model!.name}"吗？'),
-                    actions: [
-                      TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-                      TextButton(
-                        onPressed: () {
-                          widget.provider.deleteModel(widget.model!.id);
-                          Navigator.pop(ctx);
-                          Navigator.pop(context);
-                        },
-                        style: TextButton.styleFrom(foregroundColor: Colors.red),
-                        child: const Text('删除'),
-                      ),
-                    ],
-                  ),
-                );
-              },
+              onPressed: () => _confirmDelete(),
             ),
         ],
       ),
@@ -355,244 +616,408 @@ class _EditModelPageState extends State<EditModelPage> {
               TextFormField(
                 controller: _nameController,
                 decoration: const InputDecoration(
-                  labelText: '模型提供商名称', hintText: '例如：DeepSeek',
-                  border: OutlineInputBorder(), prefixIcon: Icon(Icons.label),
+                  labelText: '模型提供商名称',
+                  hintText: '例如：DeepSeek',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.label),
                 ),
-                validator: (v) => (v == null || v.trim().isEmpty) ? '请输入名称' : null,
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? '请输入名称' : null,
               ),
               const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                key: ValueKey('apiType_$_apiType'),
-                initialValue: _apiType,
-                decoration: const InputDecoration(
-                  labelText: 'API 类型', border: OutlineInputBorder(), prefixIcon: Icon(Icons.category),
-                ),
-                items: [
-                  {'value': 'openai', 'label': 'OpenAI 兼容'},
-                  {'value': 'ollama', 'label': 'Ollama'},
-                  {'value': 'anthropic', 'label': 'Anthropic'},
-                  {'value': 'custom', 'label': 'Custom'},
-                ].map((t) => DropdownMenuItem(value: t['value'], child: Text(t['label']!))).toList(),
-                onChanged: (v) { if (v != null) setState(() => _apiType = v); },
-              ),
+              if (hasChatStyleOptions) ...[
+                _apiTypeField(),
+                const SizedBox(height: 16),
+              ],
+              _endpointField(),
               const SizedBox(height: 16),
-              // Endpoint with suggestions
-              TextFormField(
-                controller: _endpointController,
-                decoration: InputDecoration(
-                  labelText: 'Endpoint',
-                  hintText: 'https://api.openai.com/v1',
-                  border: const OutlineInputBorder(),
-                  prefixIcon: const Icon(Icons.link),
-                  suffixIcon: IconButton(
-                    icon: Icon(_showEndpointSuggestions ? Icons.expand_less : Icons.expand_more),
-                    onPressed: () {
-                      setState(() {
-                        _showEndpointSuggestions = !_showEndpointSuggestions;
-                        if (_showEndpointSuggestions) {
-                          _filterEndpointPresets(_endpointController.text);
-                        }
-                      });
-                    },
+              if (needsAppId) ...[
+                TextFormField(
+                  controller: _appIdController,
+                  decoration: const InputDecoration(
+                    labelText: 'AppID',
+                    hintText: '例如：123456',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.badge_outlined),
                   ),
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? '请输入 AppID' : null,
                 ),
-                validator: (v) => (v == null || v.trim().isEmpty) ? '请输入 Endpoint' : null,
-                onChanged: (v) {
-                  if (_showEndpointSuggestions) _filterEndpointPresets(v);
-                },
-                onTap: () {
-                  setState(() {
-                    _showEndpointSuggestions = true;
-                    _filterEndpointPresets(_endpointController.text);
-                  });
-                },
-              ),
-              if (_showEndpointSuggestions)
-                Container(
-                  constraints: const BoxConstraints(maxHeight: 200),
-                  margin: const EdgeInsets.only(top: 4),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: _filteredPresets.length,
-                    itemBuilder: (ctx, i) {
-                      final p = _filteredPresets[i];
-                      return ListTile(
-                        dense: true,
-                        leading: Icon(
-                          p['type'] == 'ollama' ? Icons.computer : Icons.cloud,
-                          size: 18, color: Colors.grey[600],
-                        ),
-                        title: Text(p['name'] as String, style: const TextStyle(fontSize: 14)),
-                        subtitle: Text(p['url'] as String, style: const TextStyle(fontSize: 11)),
-                        onTap: () => _selectEndpointPreset(p),
-                      );
-                    },
-                  ),
-                ),
-              const SizedBox(height: 16),
+                const SizedBox(height: 16),
+              ],
               TextFormField(
                 controller: _apiKeyController,
                 decoration: InputDecoration(
-                  labelText: 'API Key',
+                  labelText: apiKeyLabel,
                   hintText: apiKeyOptional ? '可选（Ollama 无需 Key）' : 'sk-...',
-                  border: const OutlineInputBorder(), prefixIcon: const Icon(Icons.key),
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.key),
                   suffixIcon: IconButton(
-                    icon: Icon(_obscureApiKey ? Icons.visibility_off : Icons.visibility),
-                    onPressed: () => setState(() => _obscureApiKey = !_obscureApiKey),
+                    icon: Icon(
+                      _obscureApiKey ? Icons.visibility_off : Icons.visibility,
+                    ),
+                    onPressed: () =>
+                        setState(() => _obscureApiKey = !_obscureApiKey),
                   ),
                 ),
                 obscureText: _obscureApiKey,
-                validator: apiKeyOptional ? null : (v) => (v == null || v.trim().isEmpty) ? '请输入 API Key' : null,
+                validator: apiKeyOptional
+                    ? null
+                    : (v) => (v == null || v.trim().isEmpty)
+                          ? '请输入 $apiKeyLabel'
+                          : null,
               ),
               const SizedBox(height: 16),
-              // 获取模型按钮
-              OutlinedButton.icon(
-                onPressed: _isFetchingModels ? null : _fetchModels,
-                icon: _isFetchingModels
-                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.download),
-                label: Text(_isFetchingModels ? '获取中...' : '从 Endpoint 获取模型列表'),
-              ),
-              const SizedBox(height: 12),
-              // 模型列表
-              Container(
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.list_alt, size: 18, color: Colors.grey),
-                          const SizedBox(width: 8),
-                          const Text('模型列表', style: TextStyle(fontWeight: FontWeight.w500)),
-                          const Spacer(),
-                          Text('已启用 ${_modelEntries.where((m) => m.enabled).length} / ${_modelEntries.where((m) => m.name.isNotEmpty).length}',
-                              style: TextStyle(fontSize: 12, color: Colors.grey[500])),
-                        ],
-                      ),
-                    ),
-                    const Divider(height: 1),
-                    if (_modelEntries.where((m) => m.name.isNotEmpty).isNotEmpty)
-                      ..._modelEntries.asMap().entries.where((e) => e.value.name.isNotEmpty).map((e) {
-                        final idx = e.key;
-                        final entry = e.value;
-                        return ListTile(
-                          dense: true,
-                          title: Text(entry.name, style: const TextStyle(fontSize: 14, fontFamily: 'monospace')),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Switch(
-                                value: entry.enabled,
-                                onChanged: (_) => _toggleModelEntry(idx),
-                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.close, size: 16),
-                                onPressed: () => _removeModelEntry(idx),
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-                              ),
-                            ],
-                          ),
-                        );
-                      }),
-                    // 添加模型输入
-                    Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _newModelController,
-                              decoration: const InputDecoration(
-                                hintText: '输入模型名称，回车添加',
-                                border: OutlineInputBorder(),
-                                isDense: true,
-                                contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                              ),
-                              onSubmitted: (_) => _addModelEntry(),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          IconButton(
-                            onPressed: _addModelEntry,
-                            icon: const Icon(Icons.add_circle, color: Colors.blue),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              // 高级选项
-              InkWell(
-                onTap: () => setState(() => _showAdvanced = !_showAdvanced),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(_showAdvanced ? Icons.expand_less : Icons.expand_more, size: 20, color: Colors.grey[600]),
-                      const SizedBox(width: 8),
-                      Text('高级选项', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.grey[700])),
-                      const Spacer(),
-                      Text('max_tokens, temperature 等', style: TextStyle(fontSize: 12, color: Colors.grey[500])),
-                    ],
+              if (isChat)
+                OutlinedButton.icon(
+                  onPressed: _isFetchingModels ? null : _fetchModels,
+                  icon: _isFetchingModels
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.download),
+                  label: Text(
+                    _isFetchingModels ? '获取中...' : '从 Endpoint 获取模型列表',
                   ),
                 ),
-              ),
-              if (_showAdvanced) ...[
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _maxTokensController,
-                  decoration: const InputDecoration(
-                    labelText: 'Max Tokens', hintText: '例如：4096',
-                    border: OutlineInputBorder(), prefixIcon: Icon(Icons.numbers),
-                  ),
-                  keyboardType: TextInputType.number,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _temperatureController,
-                  decoration: const InputDecoration(
-                    labelText: 'Temperature', hintText: '例如：0.7',
-                    border: OutlineInputBorder(), prefixIcon: Icon(Icons.thermostat),
-                  ),
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _topPController,
-                  decoration: const InputDecoration(
-                    labelText: 'Top P', hintText: '例如：0.9',
-                    border: OutlineInputBorder(), prefixIcon: Icon(Icons.tune),
-                  ),
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                ),
+              if (isChat) const SizedBox(height: 12),
+              if (!isInterfaceOnly) _modelList(),
+              if (hasChatStyleOptions) ...[
+                const SizedBox(height: 16),
+                _advancedOptions(),
               ],
               const SizedBox(height: 32),
               ElevatedButton(
                 onPressed: _saveModel,
-                style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
-                child: Text(isEditing ? '保存修改' : '添加模型', style: const TextStyle(fontSize: 16)),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+                child: Text(
+                  isEditing ? '保存修改' : '添加模型',
+                  style: const TextStyle(fontSize: 16),
+                ),
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _apiTypeField() {
+    return DropdownButtonFormField<String>(
+      key: ValueKey('apiType_$_apiType'),
+      initialValue: _apiType,
+      decoration: const InputDecoration(
+        labelText: 'API 类型',
+        border: OutlineInputBorder(),
+        prefixIcon: Icon(Icons.category),
+      ),
+      items:
+          (isImageGeneration
+                  ? [
+                      {'value': 'openai_image', 'label': 'OpenAI 格式'},
+                      {'value': 'vivo_image', 'label': 'vivo 原生'},
+                      {'value': 'custom', 'label': 'Custom'},
+                    ]
+                  : [
+                      {'value': 'openai', 'label': 'OpenAI 兼容'},
+                      {'value': 'ollama', 'label': 'Ollama'},
+                      {'value': 'anthropic', 'label': 'Anthropic'},
+                      {'value': 'custom', 'label': 'Custom'},
+                    ])
+              .map(
+                (t) => DropdownMenuItem(
+                  value: t['value'],
+                  child: Text(t['label']!),
+                ),
+              )
+              .toList(),
+      onChanged: (v) {
+        if (v != null) setState(() => _apiType = v);
+      },
+    );
+  }
+
+  Widget _endpointField() {
+    return Column(
+      children: [
+        TextFormField(
+          controller: _endpointController,
+          decoration: InputDecoration(
+            labelText: 'Endpoint',
+            hintText: _endpointHint(),
+            border: const OutlineInputBorder(),
+            prefixIcon: const Icon(Icons.link),
+            suffixIcon: IconButton(
+              icon: Icon(
+                _showEndpointSuggestions
+                    ? Icons.expand_less
+                    : Icons.expand_more,
+              ),
+              onPressed: _toggleEndpointSuggestions,
+            ),
+          ),
+          validator: (v) =>
+              (v == null || v.trim().isEmpty) ? '请输入 Endpoint' : null,
+          onChanged: (v) {
+            if (_showEndpointSuggestions) _filterEndpointPresets(v);
+          },
+          onTap: _toggleEndpointSuggestionsOnTap,
+        ),
+        if (_showEndpointSuggestions) _endpointSuggestions(),
+      ],
+    );
+  }
+
+  void _toggleEndpointSuggestions() {
+    setState(() {
+      _showEndpointSuggestions = !_showEndpointSuggestions;
+      if (_showEndpointSuggestions) {
+        _filterEndpointPresets(_endpointController.text);
+      }
+    });
+  }
+
+  void _toggleEndpointSuggestionsOnTap() {
+    setState(() {
+      _showEndpointSuggestions = true;
+      _filterEndpointPresets(_endpointController.text);
+    });
+  }
+
+  Widget _endpointSuggestions() {
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 200),
+      margin: const EdgeInsets.only(top: 4),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: ListView.builder(
+        shrinkWrap: true,
+        itemCount: _filteredPresets.length,
+        itemBuilder: (ctx, i) {
+          final p = _filteredPresets[i];
+          return ListTile(
+            dense: true,
+            leading: Icon(
+              p['type'] == 'ollama' ? Icons.computer : Icons.cloud,
+              size: 18,
+              color: Colors.grey[600],
+            ),
+            title: Text(
+              p['name'] as String,
+              style: const TextStyle(fontSize: 14),
+            ),
+            subtitle: Text(
+              p['url'] as String,
+              style: const TextStyle(fontSize: 11),
+            ),
+            onTap: () => _selectEndpointPreset(p),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _modelList() {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: [
+                const Icon(Icons.list_alt, size: 18, color: Colors.grey),
+                const SizedBox(width: 8),
+                const Text(
+                  '模型列表',
+                  style: TextStyle(fontWeight: FontWeight.w500),
+                ),
+                const Spacer(),
+                Text(
+                  '已启用 ${_modelEntries.where((m) => m.enabled).length} / ${_modelEntries.where((m) => m.name.isNotEmpty).length}',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          if (_modelEntries.where((m) => m.name.isNotEmpty).isNotEmpty)
+            ..._modelEntries
+                .asMap()
+                .entries
+                .where((e) => e.value.name.isNotEmpty)
+                .map((e) {
+                  final idx = e.key;
+                  final entry = e.value;
+                  return ListTile(
+                    dense: true,
+                    title: Text(
+                      entry.name,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Switch(
+                          value: entry.enabled,
+                          onChanged: (_) => _toggleModelEntry(idx),
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 16),
+                          onPressed: () => _removeModelEntry(idx),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 24,
+                            minHeight: 24,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _newModelController,
+                    decoration: const InputDecoration(
+                      hintText: '输入模型名称，回车添加',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 8,
+                      ),
+                    ),
+                    onSubmitted: (_) => _addModelEntry(),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: _addModelEntry,
+                  icon: const Icon(Icons.add_circle, color: Colors.blue),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _advancedOptions() {
+    return Column(
+      children: [
+        InkWell(
+          onTap: () => setState(() => _showAdvanced = !_showAdvanced),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  _showAdvanced ? Icons.expand_less : Icons.expand_more,
+                  size: 20,
+                  color: Colors.grey[600],
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '高级选项',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.grey[700],
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  'max_tokens, temperature 等',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_showAdvanced) ...[
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _maxTokensController,
+            decoration: const InputDecoration(
+              labelText: 'Max Tokens',
+              hintText: '例如：4096',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.numbers),
+            ),
+            keyboardType: TextInputType.number,
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _temperatureController,
+            decoration: const InputDecoration(
+              labelText: 'Temperature',
+              hintText: '例如：0.7',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.thermostat),
+            ),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _topPController,
+            decoration: const InputDecoration(
+              labelText: 'Top P',
+              hintText: '例如：0.9',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.tune),
+            ),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          ),
+        ],
+      ],
+    );
+  }
+
+  void _confirmDelete() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除模型'),
+        content: Text('确定要删除"${widget.model!.name}"吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () {
+              widget.provider.deleteModel(widget.model!.id);
+              Navigator.pop(ctx);
+              Navigator.pop(context);
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('删除'),
+          ),
+        ],
       ),
     );
   }

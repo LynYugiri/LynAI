@@ -24,7 +24,7 @@ class AppSettings {
     this.blurAmount = 5.0,
     this.speechModelId,
     this.imageModelId,
-    this.imagePrompt = 'Describe this file in Chinese',
+    this.imagePrompt = '请根据下面的 OCR 识别结果回答。',
     this.systemPrompt = 'You are a helpful assistant.',
     this.systemPrompts = const [],
     this.selectedSystemPromptId,
@@ -32,9 +32,7 @@ class AppSettings {
   });
 
   factory AppSettings.defaults() {
-    return AppSettings(
-      themeColor: Colors.blue,
-    );
+    return AppSettings(themeColor: Colors.blue);
   }
 
   static const _sentinel = Object();
@@ -54,15 +52,23 @@ class AppSettings {
   }) {
     return AppSettings(
       themeColor: themeColor ?? this.themeColor,
-      backgroundImagePath: identical(backgroundImagePath, _sentinel) ? this.backgroundImagePath : backgroundImagePath as String?,
+      backgroundImagePath: identical(backgroundImagePath, _sentinel)
+          ? this.backgroundImagePath
+          : backgroundImagePath as String?,
       blurEnabled: blurEnabled ?? this.blurEnabled,
       blurAmount: blurAmount ?? this.blurAmount,
-      speechModelId: identical(speechModelId, _sentinel) ? this.speechModelId : speechModelId as String?,
-      imageModelId: identical(imageModelId, _sentinel) ? this.imageModelId : imageModelId as String?,
+      speechModelId: identical(speechModelId, _sentinel)
+          ? this.speechModelId
+          : speechModelId as String?,
+      imageModelId: identical(imageModelId, _sentinel)
+          ? this.imageModelId
+          : imageModelId as String?,
       imagePrompt: imagePrompt ?? this.imagePrompt,
       systemPrompt: systemPrompt ?? this.systemPrompt,
       systemPrompts: systemPrompts ?? this.systemPrompts,
-      selectedSystemPromptId: identical(selectedSystemPromptId, _sentinel) ? this.selectedSystemPromptId : selectedSystemPromptId as String?,
+      selectedSystemPromptId: identical(selectedSystemPromptId, _sentinel)
+          ? this.selectedSystemPromptId
+          : selectedSystemPromptId as String?,
       themeMode: themeMode ?? this.themeMode,
     );
   }
@@ -70,7 +76,9 @@ class AppSettings {
   factory AppSettings.fromJson(Map<String, dynamic> json) {
     final promptsJson = json['systemPrompts'] as List<dynamic>?;
     final prompts = promptsJson != null
-        ? promptsJson.map((e) => SystemPrompt.fromJson(e as Map<String, dynamic>)).toList()
+        ? promptsJson
+              .map((e) => SystemPrompt.fromJson(e as Map<String, dynamic>))
+              .toList()
         : <SystemPrompt>[];
     final selectedId = json['selectedSystemPromptId'] as String?;
     return AppSettings(
@@ -80,8 +88,9 @@ class AppSettings {
       blurAmount: (json['blurAmount'] as num?)?.toDouble() ?? 5.0,
       speechModelId: json['speechModelId'] as String?,
       imageModelId: json['imageModelId'] as String?,
-      imagePrompt: json['imagePrompt'] as String? ?? 'Describe this file in Chinese',
-      systemPrompt: json['systemPrompt'] as String? ?? 'You are a helpful assistant.',
+      imagePrompt: json['imagePrompt'] as String? ?? '请根据下面的 OCR 识别结果回答。',
+      systemPrompt:
+          json['systemPrompt'] as String? ?? 'You are a helpful assistant.',
       systemPrompts: prompts,
       selectedSystemPromptId: selectedId,
       themeMode: json['themeMode'] as String? ?? 'system',
@@ -99,7 +108,8 @@ class AppSettings {
       'imagePrompt': imagePrompt,
       'systemPrompt': systemPrompt,
       'systemPrompts': systemPrompts.map((e) => e.toJson()).toList(),
-      if (selectedSystemPromptId != null) 'selectedSystemPromptId': selectedSystemPromptId,
+      if (selectedSystemPromptId != null)
+        'selectedSystemPromptId': selectedSystemPromptId,
       'themeMode': themeMode,
     };
   }

@@ -61,6 +61,15 @@ flutter build ios                    # iOS (需 macOS)
 
 需要 Flutter SDK ^3.11.5。
 
+## 开发验证
+
+```bash
+flutter analyze
+flutter test
+```
+
+`flutter analyze` 用于静态检查 Dart/Flutter 代码，`flutter test` 运行项目测试。提交前建议至少执行这两项。
+
 ## 技术栈
 
 | 类别 | 技术 |
