@@ -571,7 +571,7 @@ class _SchedulePage extends StatefulWidget {
 class _SchedulePageState extends State<_SchedulePage> {
   _CalendarMode _mode = _CalendarMode.month;
   DateTime _focus = DateTime.now();
-  DateTime _selectedDate = _dateOnly(DateTime.now());
+  DateTime? _selectedDate;
   bool _showMonthDetail = false;
 
   @override
@@ -689,10 +689,14 @@ class _SchedulePageState extends State<_SchedulePage> {
       };
       if (_mode == _CalendarMode.month) {
         final daysInMonth = DateTime(_focus.year, _focus.month + 1, 0).day;
-        final clampedDay = _selectedDate.day.clamp(1, daysInMonth);
-        _selectedDate = DateTime(_focus.year, _focus.month, clampedDay);
+        final selectedDay = _selectedDate?.day ?? _focus.day;
+        final clampedDay = selectedDay.clamp(1, daysInMonth);
+        _selectedDate = _showMonthDetail
+            ? DateTime(_focus.year, _focus.month, clampedDay)
+            : null;
       } else if (_mode == _CalendarMode.year) {
-        _selectedDate = DateTime(_focus.year, 1, 1);
+        _selectedDate = null;
+        _showMonthDetail = false;
       }
     });
   }
@@ -718,7 +722,10 @@ class _SchedulePageState extends State<_SchedulePage> {
     final days = DateTime(_focus.year, _focus.month + 1, 0).day;
     final offset = first.weekday - 1;
     final total = ((offset + days + 6) ~/ 7) * 7;
-    final selectedItems = _itemsOnDate(items, _selectedDate);
+    final selectedDate = _selectedDate;
+    final selectedItems = selectedDate == null
+        ? <ScheduleItem>[]
+        : _itemsOnDate(items, selectedDate);
     return Column(
       children: [
         Padding(
@@ -785,7 +792,8 @@ class _SchedulePageState extends State<_SchedulePage> {
               final date = DateTime(_focus.year, _focus.month, day);
               final dayItems = _itemsOnDate(items, date);
               final today = _sameDate(date, DateTime.now());
-              final selected = _sameDate(date, _selectedDate);
+              final selected =
+                  selectedDate != null && _sameDate(date, selectedDate);
               return _monthDayCell(context, date, dayItems, today, selected);
             },
           ),
@@ -809,12 +817,13 @@ class _SchedulePageState extends State<_SchedulePage> {
                 final date = DateTime(_focus.year, _focus.month, day);
                 final dayItems = _itemsOnDate(items, date);
                 final today = _sameDate(date, DateTime.now());
-                final selected = _sameDate(date, _selectedDate);
+                final selected =
+                    selectedDate != null && _sameDate(date, selectedDate);
                 return _monthDayCell(context, date, dayItems, today, selected);
               },
             ),
           ),
-        if (_showMonthDetail) ...[
+        if (_showMonthDetail && selectedDate != null) ...[
           const SizedBox(height: 4),
           Expanded(
             child: Container(
@@ -844,7 +853,7 @@ class _SchedulePageState extends State<_SchedulePage> {
                           shape: BoxShape.circle,
                         ),
                         child: Text(
-                          '${_selectedDate.day}',
+                          '${selectedDate.day}',
                           style: TextStyle(
                             color: Theme.of(context).colorScheme.onPrimary,
                             fontWeight: FontWeight.w800,
@@ -858,13 +867,13 @@ class _SchedulePageState extends State<_SchedulePage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              '${_selectedDate.year}-${_selectedDate.month}-${_selectedDate.day}',
+                              '${selectedDate.year}-${selectedDate.month}-${selectedDate.day}',
                               style: Theme.of(context).textTheme.titleMedium
                                   ?.copyWith(fontWeight: FontWeight.w700),
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              '${_weekdayName(_selectedDate.weekday)} | ${selectedItems.length} 条日程',
+                              '${_weekdayName(selectedDate.weekday)} | ${selectedItems.length} 条日程',
                               style: TextStyle(
                                 color: Theme.of(
                                   context,
@@ -877,8 +886,10 @@ class _SchedulePageState extends State<_SchedulePage> {
                       IconButton(
                         tooltip: '关闭日程摘要',
                         icon: const Icon(Icons.close),
-                        onPressed: () =>
-                            setState(() => _showMonthDetail = false),
+                        onPressed: () => setState(() {
+                          _selectedDate = null;
+                          _showMonthDetail = false;
+                        }),
                       ),
                     ],
                   ),
@@ -940,7 +951,7 @@ class _SchedulePageState extends State<_SchedulePage> {
                                       ),
                                     ),
                                     Text(
-                                      _timeRangeForDate(item, _selectedDate),
+                                      _timeRangeForDate(item, selectedDate),
                                       style: TextStyle(
                                         fontSize: 11,
                                         color: Theme.of(
@@ -974,15 +985,6 @@ class _SchedulePageState extends State<_SchedulePage> {
             ),
           ),
         ],
-        if (items.isEmpty && !_showMonthDetail)
-          const Padding(
-            padding: EdgeInsets.fromLTRB(20, 0, 20, 18),
-            child: _FeatureEmptyState(
-              icon: Icons.event_available,
-              title: '暂无日程',
-              subtitle: '点击上方“新建”安排事项，月历会显示每天的日程数量。',
-            ),
-          ),
       ],
     );
   }
@@ -1308,7 +1310,7 @@ class _SchedulePageState extends State<_SchedulePage> {
             borderRadius: BorderRadius.circular(14),
             onTap: () => setState(() {
               _focus = DateTime(_focus.year, month, 1);
-              _selectedDate = DateTime(_focus.year, month, 1);
+              _selectedDate = null;
               _mode = _CalendarMode.month;
             }),
             child: Padding(
@@ -1457,7 +1459,9 @@ class _SchedulePageState extends State<_SchedulePage> {
   Future<void> _newSchedule() async {
     final titleCtrl = TextEditingController();
     final noteCtrl = TextEditingController();
-    final baseDate = _mode == _CalendarMode.month ? _selectedDate : _focus;
+    final baseDate = _mode == _CalendarMode.month
+        ? _selectedDate ?? _dateOnly(_focus)
+        : _focus;
     var start = DateTime(
       baseDate.year,
       baseDate.month,
