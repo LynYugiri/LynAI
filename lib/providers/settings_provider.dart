@@ -67,6 +67,7 @@ class SettingsProvider extends ChangeNotifier {
 
   String addRole({
     required String name,
+    String description = '',
     required String systemPrompt,
     String? modelId,
     Color? themeColor,
@@ -75,6 +76,7 @@ class SettingsProvider extends ChangeNotifier {
     final role = ChatRole(
       id: id,
       name: name,
+      description: description,
       systemPrompt: systemPrompt,
       modelId: modelId,
       themeColor: themeColor,
@@ -87,6 +89,65 @@ class SettingsProvider extends ChangeNotifier {
     _saveSettings();
     notifyListeners();
     return id;
+  }
+
+  void updateRole({
+    required String id,
+    required String name,
+    String description = '',
+    required String systemPrompt,
+    String? modelId,
+    Color? themeColor,
+  }) {
+    final roles = _settings.roles.map((role) {
+      return role.id == id
+          ? role.copyWith(
+              name: name,
+              description: description,
+              systemPrompt: systemPrompt,
+              modelId: modelId,
+              themeColor: themeColor,
+            )
+          : role;
+    }).toList();
+    final prompts = _settings.systemPrompts.map((prompt) {
+      return prompt.id == id
+          ? prompt.copyWith(title: name, content: systemPrompt)
+          : prompt;
+    }).toList();
+    final isCurrent = _settings.currentRoleId == id;
+    var nextSettings = _settings.copyWith(roles: roles, systemPrompts: prompts);
+    if (isCurrent) {
+      nextSettings = nextSettings.copyWith(
+        systemPrompt: systemPrompt,
+        lastChatModelId: modelId ?? nextSettings.lastChatModelId,
+        themeColor: themeColor ?? nextSettings.themeColor,
+      );
+    }
+    _settings = nextSettings;
+    _saveSettings();
+    notifyListeners();
+  }
+
+  void deleteRole(String id) {
+    if (id == ChatRole.defaultId) return;
+    final roles = _settings.roles.where((role) => role.id != id).toList();
+    final prompts = _settings.systemPrompts
+        .where((prompt) => prompt.id != id)
+        .toList();
+    final deletingCurrent = _settings.currentRoleId == id;
+    _settings = _settings.copyWith(
+      roles: roles.isEmpty ? [ChatRole.defaultRole()] : roles,
+      systemPrompts: prompts,
+      currentRoleId: deletingCurrent
+          ? ChatRole.defaultId
+          : _settings.currentRoleId,
+      selectedSystemPromptId: _settings.selectedSystemPromptId == id
+          ? null
+          : _settings.selectedSystemPromptId,
+    );
+    _saveSettings();
+    notifyListeners();
   }
 
   void selectRole(String roleId) {

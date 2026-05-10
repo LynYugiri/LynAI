@@ -2589,7 +2589,8 @@ class _ChatPageState extends State<ChatPage> {
         constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
       );
     }
-    final canSend = _msgCtrl.text.trim().isNotEmpty || _pendingImages.isNotEmpty;
+    final canSend =
+        _msgCtrl.text.trim().isNotEmpty || _pendingImages.isNotEmpty;
     if (_transcribingSpeech) {
       return const Padding(
         padding: EdgeInsets.all(8),
@@ -3776,10 +3777,18 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
             ),
             title: Text(role.name),
             subtitle: Text(
-              role.systemPrompt,
+              role.description.isNotEmpty
+                  ? role.description
+                  : role.systemPrompt,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
+            trailing: role.id == ChatRole.defaultId
+                ? null
+                : IconButton(
+                    icon: const Icon(Icons.edit, size: 18),
+                    onPressed: () => _editRole(role),
+                  ),
             onTap: () {
               context.read<SettingsProvider>().selectRole(role.id);
               _updateSettings(_roleConversationSettings(role));
@@ -3800,7 +3809,44 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
   }
 
   void _addRole() {
-    showDialog(context: context, builder: (ctx) => const _RoleEditDialog());
+    showDialog(
+      context: context,
+      builder: (ctx) => _RoleEditDialog(
+        onSave: (name, description, prompt, modelId, themeColor) {
+          context.read<SettingsProvider>().addRole(
+            name: name,
+            description: description,
+            systemPrompt: prompt,
+            modelId: modelId,
+            themeColor: themeColor,
+          );
+        },
+      ),
+    );
+  }
+
+  void _editRole(ChatRole role) {
+    final sp = context.read<SettingsProvider>();
+    showDialog(
+      context: context,
+      builder: (ctx) => _RoleEditDialog(
+        initialRole: role,
+        onSave: (name, description, prompt, modelId, themeColor) {
+          sp.updateRole(
+            id: role.id,
+            name: name,
+            description: description,
+            systemPrompt: prompt,
+            modelId: modelId,
+            themeColor: themeColor,
+          );
+          if (role.id == sp.settings.currentRoleId) {
+            _updateSettings(_roleConversationSettings(sp.currentRole));
+          }
+        },
+        onDelete: () => sp.deleteRole(role.id),
+      ),
+    );
   }
 
   void _addSystemPrompt() {
@@ -3855,17 +3901,39 @@ class _SystemPromptEditDialog extends StatefulWidget {
 }
 
 class _RoleEditDialog extends StatefulWidget {
-  const _RoleEditDialog();
+  final ChatRole? initialRole;
+  final void Function(
+    String name,
+    String description,
+    String systemPrompt,
+    String? modelId,
+    Color? themeColor,
+  )
+  onSave;
+  final VoidCallback? onDelete;
+
+  const _RoleEditDialog({
+    this.initialRole,
+    required this.onSave,
+    this.onDelete,
+  });
 
   @override
   State<_RoleEditDialog> createState() => _RoleEditDialogState();
 }
 
 class _RoleEditDialogState extends State<_RoleEditDialog> {
-  final _nameCtrl = TextEditingController();
-  final _promptCtrl = TextEditingController();
-  String? _modelId;
-  Color? _themeColor;
+  late final _nameCtrl = TextEditingController(
+    text: widget.initialRole?.name ?? '',
+  );
+  late final _descCtrl = TextEditingController(
+    text: widget.initialRole?.description ?? '',
+  );
+  late final _promptCtrl = TextEditingController(
+    text: widget.initialRole?.systemPrompt ?? '',
+  );
+  late String? _modelId = widget.initialRole?.modelId;
+  late Color? _themeColor = widget.initialRole?.themeColor;
 
   static const _colors = [
     Colors.blue,
@@ -3885,6 +3953,7 @@ class _RoleEditDialogState extends State<_RoleEditDialog> {
   @override
   void dispose() {
     _nameCtrl.dispose();
+    _descCtrl.dispose();
     _promptCtrl.dispose();
     super.dispose();
   }
@@ -3895,7 +3964,7 @@ class _RoleEditDialogState extends State<_RoleEditDialog> {
       ModelConfig.categoryChat,
     );
     return AlertDialog(
-      title: const Text('添加角色'),
+      title: Text(widget.initialRole == null ? '添加角色' : '编辑角色'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -3906,6 +3975,18 @@ class _RoleEditDialogState extends State<_RoleEditDialog> {
                 labelText: '角色名称',
                 border: OutlineInputBorder(),
                 hintText: '默认',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _descCtrl,
+              minLines: 2,
+              maxLines: 4,
+              decoration: const InputDecoration(
+                labelText: '描述',
+                border: OutlineInputBorder(),
+                hintText: '这个角色的用途或风格',
+                alignLabelWithHint: true,
               ),
             ),
             const SizedBox(height: 12),
@@ -4011,18 +4092,22 @@ class _RoleEditDialogState extends State<_RoleEditDialog> {
         TextButton(
           onPressed: () {
             final name = _nameCtrl.text.trim();
+            final description = _descCtrl.text.trim();
             final prompt = _promptCtrl.text.trim();
             if (name.isEmpty || prompt.isEmpty) return;
-            context.read<SettingsProvider>().addRole(
-              name: name,
-              systemPrompt: prompt,
-              modelId: _modelId,
-              themeColor: _themeColor,
-            );
             Navigator.pop(context);
+            widget.onSave(name, description, prompt, _modelId, _themeColor);
           },
           child: const Text('保存'),
         ),
+        if (widget.onDelete != null)
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              widget.onDelete!();
+            },
+            child: Text('删除', style: TextStyle(color: Colors.red[400])),
+          ),
       ],
     );
   }
@@ -4117,7 +4202,28 @@ class _HistoryDrawerState extends State<_HistoryDrawer> {
   @override
   Widget build(BuildContext context) {
     final p = context.watch<ConversationProvider>();
+    final sp = context.watch<SettingsProvider>();
     final results = p.searchConversations(_q);
+    final roles = sp.settings.roles;
+    final currentRoleId = sp.settings.currentRoleId;
+    final currentRole = roles.firstWhere(
+      (role) => role.id == currentRoleId,
+      orElse: ChatRole.defaultRole,
+    );
+    final currentResults = results
+        .where(
+          (r) => (r['conversation'] as Conversation).roleId == currentRoleId,
+        )
+        .toList();
+    final otherResults = results
+        .where(
+          (r) => (r['conversation'] as Conversation).roleId != currentRoleId,
+        )
+        .toList();
+    final otherRoleIds = otherResults
+        .map((r) => (r['conversation'] as Conversation).roleId)
+        .toSet()
+        .toList();
     return Column(
       children: [
         Container(
@@ -4182,54 +4288,141 @@ class _HistoryDrawerState extends State<_HistoryDrawer> {
                     style: TextStyle(color: Colors.grey[500]),
                   ),
                 )
-              : ListView.builder(
-                  itemCount: results.length,
-                  itemBuilder: (_, i) {
-                    final c = results[i]['conversation'];
-                    final active = c.id == widget.currentConvId;
-                    return ListTile(
-                      selected: active,
-                      selectedTileColor: Theme.of(
+              : ListView(
+                  children: [
+                    _roleHeader(
+                      context,
+                      currentRole.name,
+                      currentRole.themeColor,
+                    ),
+                    if (currentResults.isEmpty)
+                      ListTile(
+                        leading: const Icon(Icons.chat_bubble_outline),
+                        title: Text(_q.isEmpty ? '当前角色暂无对话' : '未找到匹配的对话'),
+                      ),
+                    for (final result in currentResults)
+                      _conversationTile(
                         context,
-                      ).colorScheme.primaryContainer.withValues(alpha: 0.3),
-                      leading: const Icon(Icons.chat, size: 20),
-                      title: Text(
-                        c.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontWeight: active
-                              ? FontWeight.bold
-                              : FontWeight.normal,
-                        ),
+                        result['conversation'] as Conversation,
+                        currentRole.themeColor,
                       ),
-                      subtitle: Text(
-                        c.preview,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.delete_outline, size: 18),
-                        onPressed: () {
-                          context
-                              .read<ConversationProvider>()
-                              .deleteConversation(c.id);
-                          if (c.id == widget.currentConvId) widget.onSelect('');
+                    for (final roleId in otherRoleIds) ...[
+                      Builder(
+                        builder: (context) {
+                          final role = roles.firstWhere(
+                            (role) => role.id == roleId,
+                            orElse: () =>
+                                ChatRole.defaultRole().copyWith(name: roleId),
+                          );
+                          final list = otherResults
+                              .where(
+                                (r) =>
+                                    (r['conversation'] as Conversation)
+                                        .roleId ==
+                                    roleId,
+                              )
+                              .toList();
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              InkWell(
+                                onTap: () => sp.selectRole(role.id),
+                                child: _roleHeader(
+                                  context,
+                                  role.name,
+                                  role.themeColor,
+                                ),
+                              ),
+                              for (final result in list)
+                                _conversationTile(
+                                  context,
+                                  result['conversation'] as Conversation,
+                                  role.themeColor,
+                                ),
+                            ],
+                          );
                         },
                       ),
-                      onLongPress: () {
-                        context.read<ConversationProvider>().deleteConversation(
-                          c.id,
-                        );
-                        if (c.id == widget.currentConvId) widget.onSelect('');
-                      },
-                      onTap: () => widget.onSelect(c.id),
-                    );
-                  },
+                    ],
+                  ],
                 ),
         ),
       ],
+    );
+  }
+
+  Widget _roleHeader(BuildContext context, String name, Color? color) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+      child: Text(
+        name,
+        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+          color: color ?? Theme.of(context).colorScheme.primary,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  Widget _conversationTile(
+    BuildContext context,
+    Conversation c,
+    Color? roleColor,
+  ) {
+    final active = c.id == widget.currentConvId;
+    return ListTile(
+      selected: active,
+      selectedTileColor: Theme.of(
+        context,
+      ).colorScheme.primaryContainer.withValues(alpha: 0.3),
+      leading: Icon(Icons.chat, size: 20, color: roleColor),
+      title: Text(
+        c.title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontWeight: active ? FontWeight.bold : FontWeight.normal,
+        ),
+      ),
+      subtitle: Text(
+        c.preview,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontSize: 12),
+      ),
+      trailing: IconButton(
+        icon: const Icon(Icons.delete_outline, size: 18),
+        onPressed: () => _deleteDialog(context, c),
+      ),
+      onLongPress: () => _deleteDialog(context, c),
+      onTap: () {
+        context.read<SettingsProvider>().selectRole(c.roleId);
+        widget.onSelect(c.id);
+      },
+    );
+  }
+
+  void _deleteDialog(BuildContext context, Conversation c) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除对话'),
+        content: Text('确定要删除"${c.title}"吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () {
+              context.read<ConversationProvider>().deleteConversation(c.id);
+              Navigator.pop(ctx);
+              if (c.id == widget.currentConvId) widget.onSelect('');
+            },
+            child: Text('删除', style: TextStyle(color: Colors.red[400])),
+          ),
+        ],
+      ),
     );
   }
 }

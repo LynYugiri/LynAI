@@ -476,7 +476,17 @@ class _HistoryList extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
-        trailing: Text(_formatDate(conversation.updatedAt)),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(_formatDate(conversation.updatedAt)),
+            IconButton(
+              tooltip: '删除',
+              icon: const Icon(Icons.delete_outline, size: 18),
+              onPressed: () => _deleteDialog(context, provider, conversation),
+            ),
+          ],
+        ),
         onTap: () {
           context.read<SettingsProvider>().selectRole(conversation.roleId);
           onConversationTap(conversation.id);
