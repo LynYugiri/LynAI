@@ -92,7 +92,9 @@ class LatexRenderer {
 
 class _MathBlock extends StatelessWidget {
   final String formula;
-  const _MathBlock({required this.formula});
+  final TextStyle? textStyle;
+
+  const _MathBlock({required this.formula, this.textStyle});
 
   @override
   Widget build(BuildContext context) {
@@ -124,7 +126,7 @@ class _MathBlock extends StatelessWidget {
                     textStyle: TextStyle(
                       fontSize: 18,
                       color: theme.colorScheme.onSurface,
-                    ),
+                    ).merge(textStyle),
                     onErrorFallback: (_) => _fallback(formula, theme),
                   ),
                 ),
@@ -167,7 +169,9 @@ class _MathBlock extends StatelessWidget {
 
 class _InlineMath extends StatelessWidget {
   final String formula;
-  const _InlineMath({required this.formula});
+  final TextStyle? textStyle;
+
+  const _InlineMath({required this.formula, this.textStyle});
 
   @override
   Widget build(BuildContext context) {
@@ -176,7 +180,10 @@ class _InlineMath extends StatelessWidget {
       return Math.tex(
         formula,
         mathStyle: MathStyle.text,
-        textStyle: TextStyle(fontSize: 16, color: theme.colorScheme.onSurface),
+        textStyle: TextStyle(
+          fontSize: 16,
+          color: theme.colorScheme.onSurface,
+        ).merge(textStyle),
         onErrorFallback: (_) => Text(
           formula,
           style: TextStyle(
@@ -218,15 +225,24 @@ class _LatexInlineSyntax extends md.InlineSyntax {
 }
 
 class _LatexBuilder extends MarkdownElementBuilder {
+  final TextStyle? textStyle;
+
+  _LatexBuilder({this.textStyle});
+
   @override
   Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
-    return _InlineMath(formula: element.textContent);
+    return _InlineMath(
+      formula: element.textContent,
+      textStyle: preferredStyle?.merge(textStyle) ?? textStyle,
+    );
   }
 }
 
 class MarkdownWithLatex extends StatelessWidget {
   final String content;
-  const MarkdownWithLatex({super.key, required this.content});
+  final TextStyle? textStyle;
+
+  const MarkdownWithLatex({super.key, required this.content, this.textStyle});
 
   static final _inlineRegExp = RegExp(r'\$(.+?)\$');
   static bool _hasInlineMath(String text) {
@@ -253,7 +269,9 @@ class MarkdownWithLatex extends StatelessWidget {
       data: text,
       selectable: true,
       styleSheet: _markdownStyle(context),
-      builders: withInlineLatex ? {'inlineLatex': _LatexBuilder()} : const {},
+      builders: withInlineLatex
+          ? {'inlineLatex': _LatexBuilder(textStyle: textStyle)}
+          : const {},
       extensionSet: withInlineLatex
           ? md.ExtensionSet(md.ExtensionSet.gitHubFlavored.blockSyntaxes, [
               ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
@@ -264,10 +282,20 @@ class MarkdownWithLatex extends StatelessWidget {
   }
 
   MarkdownStyleSheet _markdownStyle(BuildContext context) {
+    final baseStyle = textStyle ?? const TextStyle(fontSize: 15, height: 1.5);
     return MarkdownStyleSheet(
-      p: const TextStyle(fontSize: 15, height: 1.5),
+      p: baseStyle,
+      h1: baseStyle.copyWith(fontSize: (baseStyle.fontSize ?? 15) + 9),
+      h2: baseStyle.copyWith(fontSize: (baseStyle.fontSize ?? 15) + 7),
+      h3: baseStyle.copyWith(fontSize: (baseStyle.fontSize ?? 15) + 5),
+      h4: baseStyle.copyWith(fontSize: (baseStyle.fontSize ?? 15) + 3),
+      h5: baseStyle.copyWith(fontSize: (baseStyle.fontSize ?? 15) + 1),
+      h6: baseStyle,
+      listBullet: baseStyle,
+      blockquote: baseStyle,
       code: TextStyle(
-        fontSize: 13,
+        fontSize: (baseStyle.fontSize ?? 15) - 2,
+        color: baseStyle.color,
         backgroundColor: Theme.of(
           context,
         ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
@@ -311,7 +339,9 @@ class MarkdownWithLatex extends StatelessWidget {
         final idx = i ~/ 2;
         if (idx < blockMatches.length) {
           final formula = blockMatches[idx].group(1) ?? '';
-          widgets.add(_MathBlock(formula: formula.trim()));
+          widgets.add(
+            _MathBlock(formula: formula.trim(), textStyle: textStyle),
+          );
         }
       }
     }

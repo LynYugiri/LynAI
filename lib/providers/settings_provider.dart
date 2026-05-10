@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/app_settings.dart';
+import '../models/conversation.dart';
 import '../models/system_prompt.dart';
 
 /// 设置状态管理
@@ -85,9 +86,30 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 设置 OCR 识别结果发送给 Chat 时使用的提示词
-  void setImagePrompt(String prompt) {
-    _settings = _settings.copyWith(imagePrompt: prompt);
+  /// 设置图片识别模型配置ID
+  void setImageRecognitionModelId(String? modelId) {
+    _settings = _settings.copyWith(imageRecognitionModelId: modelId);
+    _saveSettings();
+    notifyListeners();
+  }
+
+  /// 设置图片识别是否启用
+  void setImageRecognitionEnabled(bool enabled) {
+    _settings = _settings.copyWith(imageRecognitionEnabled: enabled);
+    _saveSettings();
+    notifyListeners();
+  }
+
+  /// 记录新对话默认使用的 Chat 模型配置ID
+  void setLastChatModelId(String? modelId) {
+    _settings = _settings.copyWith(lastChatModelId: modelId);
+    _saveSettings();
+    notifyListeners();
+  }
+
+  /// 设置图片识别结果发送给 Chat 时使用的提示词
+  void setImageRecognitionPrompt(String prompt) {
+    _settings = _settings.copyWith(imageRecognitionPrompt: prompt);
     _saveSettings();
     notifyListeners();
   }
@@ -100,7 +122,7 @@ class SettingsProvider extends ChangeNotifier {
   }
 
   /// 添加系统提示词模板
-  void addSystemPrompt(String title, String content) {
+  String addSystemPrompt(String title, String content) {
     final id = const Uuid().v4();
     final prompt = SystemPrompt(id: id, title: title, content: content);
     final list = List<SystemPrompt>.from(_settings.systemPrompts)..add(prompt);
@@ -110,6 +132,7 @@ class SettingsProvider extends ChangeNotifier {
     );
     _saveSettings();
     notifyListeners();
+    return id;
   }
 
   /// 更新系统提示词模板
@@ -146,14 +169,34 @@ class SettingsProvider extends ChangeNotifier {
 
   /// 获取当前生效的系统提示词内容
   String get effectiveSystemPrompt {
-    if (_settings.selectedSystemPromptId != null) {
+    return effectiveSystemPromptFor(
+      _settings.selectedSystemPromptId,
+      _settings.systemPrompt,
+    );
+  }
+
+  String effectiveSystemPromptFor(String? selectedId, String fallback) {
+    if (selectedId != null) {
       for (final prompt in _settings.systemPrompts) {
-        if (prompt.id == _settings.selectedSystemPromptId) {
-          return prompt.content;
-        }
+        if (prompt.id == selectedId) return prompt.content;
       }
     }
-    return _settings.systemPrompt;
+    return fallback;
+  }
+
+  void applyConversationSettings(ConversationSettings settings) {
+    _settings = _settings.copyWith(
+      speechModelId: settings.speechModelId,
+      imageModelId: settings.imageModelId,
+      imageRecognitionModelId: settings.imageRecognitionModelId,
+      imageRecognitionEnabled: settings.imageRecognitionEnabled,
+      imageRecognitionPrompt: settings.imageRecognitionPrompt,
+      systemPrompt: settings.systemPrompt,
+      selectedSystemPromptId: settings.selectedSystemPromptId,
+      lastChatModelId: settings.modelId,
+    );
+    _saveSettings();
+    notifyListeners();
   }
 
   /// 设置主题模式

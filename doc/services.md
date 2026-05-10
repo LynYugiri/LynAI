@@ -13,7 +13,21 @@ class StreamChunk {
   final String? reasoningContent; // 推理/思考内容(DeepSeek reasoning_content / Anthropic thinking_delta)
   final bool isDone;             // 流结束标记
 }
+
+class ChatImageInput {
+  final Uint8List bytes;
+  final String mimeType;
+}
 ```
+
+### 图片与语音辅助接口
+
+| 方法 | 说明 |
+|------|------|
+| `recognizeImageText(config, imageBytes)` | 调用 vivo OCR，返回识别出的文字 |
+| `recognizeImageTextWithChatModel(config, prompt, images)` | 使用多模态 Chat 模型识别图片，OpenAI 兼容接口使用 `image_url`，Ollama 使用 `images` 数组 |
+| `transcribeAudio(config, audioBytes, {audioType})` | 调用 vivo 长语音转写流程，自动分片上传并轮询结果 |
+| `generateImages(config, prompt, {image, parameters})` | 调用 OpenAI Images 格式或 vivo 原生图片生成接口 |
 
 ### sendChatRequest (非流式)
 
@@ -46,8 +60,10 @@ Stream<StreamChunk> sendStreamRequest(
 
 | thinking | 行为 |
 |----------|------|
-| `true` | OpenAI兼容发送 `thinking: {type: enabled}`, Ollama发送 `think: true`, Anthropic发送 `thinking: {type: enabled}` |
-| `false` | OpenAI兼容不发送额外思考参数, Ollama发送 `think: false`, Anthropic发送 `thinking: {type: disabled}` |
+| `true` | OpenAI兼容发送 `thinking: {type: enabled}`, Ollama 发送 `think: true`; Anthropic 不自动注入非标准字段，需通过 `extraParams` 显式配置厂商私有参数 |
+| `false` | OpenAI兼容发送 `thinking: {type: disabled}`, Ollama 发送 `think: false`; Anthropic 不发送额外思考参数 |
+
+OpenAI 兼容接口仍会解析返回中的 `reasoning_content`，Anthropic 仍会解析 `thinking_delta` / `thinking` 块。
 
 ### 支持接口
 
@@ -57,10 +73,12 @@ Stream<StreamChunk> sendStreamRequest(
 | ollama | `/api/chat` | 无认证 |
 | anthropic | `/messages` | x-api-key + anthropic-version: 2023-06-01 |
 | custom | `/chat/completions` | Bearer Token |
+| openai_image | `/images/generations` | Bearer Token |
+| vivo_image | 配置的完整 endpoint | Bearer Token |
 
 ### 请求体处理
 
-- **OpenAI兼容**: 发送 `model`, `messages`, `stream`, 可选的 `max_tokens`, `temperature`, `top_p`, 启用思考时发送 `thinking`, 以及 `extraParams`
+- **OpenAI兼容**: 发送 `model`, `messages`, `stream`, `thinking`, 可选的 `max_tokens`, `temperature`, `top_p`, 以及 `extraParams`
 - **Ollama**: 将 content 为复杂类型(如多模态数组)的消息序列化为JSON字符串, 禁用思考时传入 `think: false`。参数通过 `options` 子对象发送
 - **Anthropic**: 从消息列表中提取系统提示词作为顶层 `system` 字段, 其余作为 `messages` 数组。默认 `max_tokens` 为 4096
 

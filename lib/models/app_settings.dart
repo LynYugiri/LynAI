@@ -11,7 +11,10 @@ class AppSettings {
   final double blurAmount;
   final String? speechModelId;
   final String? imageModelId;
-  final String imagePrompt;
+  final String? imageRecognitionModelId;
+  final bool imageRecognitionEnabled;
+  final String? lastChatModelId;
+  final String imageRecognitionPrompt;
   final String systemPrompt;
   final List<SystemPrompt> systemPrompts;
   final String? selectedSystemPromptId;
@@ -24,7 +27,10 @@ class AppSettings {
     this.blurAmount = 5.0,
     this.speechModelId,
     this.imageModelId,
-    this.imagePrompt = '请根据下面的 OCR 识别结果回答。',
+    this.imageRecognitionModelId,
+    this.imageRecognitionEnabled = false,
+    this.lastChatModelId,
+    this.imageRecognitionPrompt = '请根据下面的图片识别结果回答。',
     this.systemPrompt = 'You are a helpful assistant.',
     this.systemPrompts = const [],
     this.selectedSystemPromptId,
@@ -44,7 +50,10 @@ class AppSettings {
     double? blurAmount,
     Object? speechModelId = _sentinel,
     Object? imageModelId = _sentinel,
-    String? imagePrompt,
+    Object? imageRecognitionModelId = _sentinel,
+    bool? imageRecognitionEnabled,
+    Object? lastChatModelId = _sentinel,
+    String? imageRecognitionPrompt,
     String? systemPrompt,
     List<SystemPrompt>? systemPrompts,
     Object? selectedSystemPromptId = _sentinel,
@@ -63,7 +72,16 @@ class AppSettings {
       imageModelId: identical(imageModelId, _sentinel)
           ? this.imageModelId
           : imageModelId as String?,
-      imagePrompt: imagePrompt ?? this.imagePrompt,
+      imageRecognitionModelId: identical(imageRecognitionModelId, _sentinel)
+          ? this.imageRecognitionModelId
+          : imageRecognitionModelId as String?,
+      imageRecognitionEnabled:
+          imageRecognitionEnabled ?? this.imageRecognitionEnabled,
+      lastChatModelId: identical(lastChatModelId, _sentinel)
+          ? this.lastChatModelId
+          : lastChatModelId as String?,
+      imageRecognitionPrompt:
+          imageRecognitionPrompt ?? this.imageRecognitionPrompt,
       systemPrompt: systemPrompt ?? this.systemPrompt,
       systemPrompts: systemPrompts ?? this.systemPrompts,
       selectedSystemPromptId: identical(selectedSystemPromptId, _sentinel)
@@ -88,7 +106,14 @@ class AppSettings {
       blurAmount: (json['blurAmount'] as num?)?.toDouble() ?? 5.0,
       speechModelId: json['speechModelId'] as String?,
       imageModelId: json['imageModelId'] as String?,
-      imagePrompt: json['imagePrompt'] as String? ?? '请根据下面的 OCR 识别结果回答。',
+      imageRecognitionModelId: json['imageRecognitionModelId'] as String?,
+      imageRecognitionEnabled:
+          json['imageRecognitionEnabled'] as bool? ?? false,
+      lastChatModelId: json['lastChatModelId'] as String?,
+      imageRecognitionPrompt:
+          json['imageRecognitionPrompt'] as String? ??
+          json['imagePrompt'] as String? ??
+          '请根据下面的图片识别结果回答。',
       systemPrompt:
           json['systemPrompt'] as String? ?? 'You are a helpful assistant.',
       systemPrompts: prompts,
@@ -105,7 +130,11 @@ class AppSettings {
       'blurAmount': blurAmount,
       if (speechModelId != null) 'speechModelId': speechModelId,
       if (imageModelId != null) 'imageModelId': imageModelId,
-      'imagePrompt': imagePrompt,
+      if (imageRecognitionModelId != null)
+        'imageRecognitionModelId': imageRecognitionModelId,
+      'imageRecognitionEnabled': imageRecognitionEnabled,
+      if (lastChatModelId != null) 'lastChatModelId': lastChatModelId,
+      'imageRecognitionPrompt': imageRecognitionPrompt,
       'systemPrompt': systemPrompt,
       'systemPrompts': systemPrompts.map((e) => e.toJson()).toList(),
       if (selectedSystemPromptId != null)

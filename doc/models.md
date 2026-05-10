@@ -12,11 +12,24 @@ class Message {
   final String id;       // UUID v4
   final String role;     // "user" | "assistant"
   final String content;  // 消息文本
+  final List<MessageImage> images; // 图片附件，保存应用私有目录路径
   final DateTime timestamp;
 }
 ```
 
 不可变类, 通过构造函数创建新实例进行更新。
+
+### MessageImage
+
+```dart
+class MessageImage {
+  final String path; // 应用私有目录中的图片路径
+  final String name; // 原始或安全化后的文件名
+  final int size;    // 文件大小，单位 byte
+}
+```
+
+图片附件不嵌入 JSON，只保存路径和元数据。选图或粘贴图片时会先复制到应用私有目录，降低历史消息图片丢失概率。
 
 ---
 
@@ -29,6 +42,7 @@ class Conversation {
   final String title;              // 对话标题(首个user消息截取前20字符, 未发送消息时为"新对话 N")
   final List<Message> messages;
   final String modelId;            // 关联的ModelConfig.id
+  final ConversationSettings settings; // 对话级设置快照
   final DateTime createdAt;
   final DateTime updatedAt;
 }
@@ -37,6 +51,24 @@ class Conversation {
 **计算属性**: `preview` → 第一条消息内容摘要(限80字符, 去除换行)
 
 不可变类, Provider 中通过创建新 Conversation 实例来更新消息列表。
+
+### ConversationSettings
+
+```dart
+class ConversationSettings {
+  final String modelId;
+  final bool thinking;
+  final String? selectedSystemPromptId;
+  final String systemPrompt;
+  final String? speechModelId;
+  final String? imageModelId;
+  final String? imageRecognitionModelId;
+  final bool imageRecognitionEnabled;
+  final String imageRecognitionPrompt;
+}
+```
+
+每个对话保存自己的模型和辅助能力设置。切换历史对话时，应用会恢复该对话的设置快照。
 
 ---
 
@@ -52,10 +84,11 @@ class ModelEntry {
 class ModelConfig {
   final String id;
   final String name;              // 提供商显示名, 如 "DeepSeek"
+  final String category;          // "chat" | "ocr" | "speech" | "image_generation"
   final String endpoint;          // API端点, 如 "https://api.deepseek.com"
   final String apiKey;
   final String modelName;         // 当前激活的模型名(默认取第一个enabled模型)
-  final String apiType;           // "openai" | "ollama" | "anthropic" | "custom"
+  final String apiType;           // openai/ollama/anthropic/custom/openai_image/vivo_image 等
   final int priority;             // 优先级别(数字越小优先级越高)
   final List<ModelEntry> models;  // 该提供商下所有模型(默认为含modelName的单元素列表)
   final int? maxTokens;           // 高级选项: 最大token数
@@ -68,6 +101,12 @@ class ModelConfig {
 **计算属性**:
 - `enabledModelNames` → 所有 enabled=true 的模型名称列表
 - `hasMultipleModels` → models.length > 1
+
+**分类常量**:
+- `ModelConfig.categoryChat` → 对话模型
+- `ModelConfig.categoryOcr` → OCR 接口
+- `ModelConfig.categorySpeech` → 语音转文字接口
+- `ModelConfig.categoryImageGeneration` → 图片生成接口
 
 **构造器**: 若未传入 `models`, 自动创建含 `modelName` 的单元素列表(默认enabled)。`extraParams` 默认为空Map。
 
@@ -87,8 +126,11 @@ class AppSettings {
   final bool blurEnabled;            // 模糊开关(默认false)
   final double blurAmount;           // 模糊程度(默认5.0, 范围0-20)
   final String? speechModelId;       // 语音转文字模型ID(null=未设置)
-  final String? imageModelId;        // 图片转述模型ID(null=未设置)
-  final String imagePrompt;          // 图片转述提示词(默认"Describe this file in Chinese")
+  final String? imageModelId;        // OCR模型ID(null=未设置)
+  final String? imageRecognitionModelId; // 多模态图片识别模型ID(null=未设置)
+  final bool imageRecognitionEnabled;    // 是否启用图片识别模型
+  final String? lastChatModelId;         // 新对话默认使用的 Chat 模型ID
+  final String imageRecognitionPrompt;   // 图片识别提示词
   final String systemPrompt;         // 系统提示词(默认"You are a helpful assistant.")
   final List<SystemPrompt> systemPrompts;       // 自定义系统提示词模板列表(默认[])
   final String? selectedSystemPromptId;         // 当前选中的提示词模板ID(null=使用默认systemPrompt)

@@ -61,14 +61,15 @@ class ConversationProvider extends ChangeNotifier {
   }
 
   /// 创建新对话，返回对话ID
-  String createConversation(String modelId) {
+  String createConversation(ConversationSettings settings) {
     try {
       final now = DateTime.now();
       final conversation = Conversation(
         id: _uuid.v4(),
         title: '新对话 ${_conversations.length + 1}',
         messages: [],
-        modelId: modelId,
+        modelId: settings.modelId,
+        settings: settings,
         createdAt: now,
         updatedAt: now,
       );
@@ -122,6 +123,7 @@ class ConversationProvider extends ChangeNotifier {
         title: title,
         messages: updatedMessages,
         modelId: _conversations[index].modelId,
+        settings: _conversations[index].settings,
         createdAt: _conversations[index].createdAt,
         updatedAt: now,
       );
@@ -146,6 +148,7 @@ class ConversationProvider extends ChangeNotifier {
       title: title,
       messages: _conversations[index].messages,
       modelId: _conversations[index].modelId,
+      settings: _conversations[index].settings,
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );
@@ -162,6 +165,7 @@ class ConversationProvider extends ChangeNotifier {
       title: _conversations[index].title,
       messages: _conversations[index].messages,
       modelId: modelId,
+      settings: _conversations[index].settings.copyWith(modelId: modelId),
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );
@@ -194,6 +198,7 @@ class ConversationProvider extends ChangeNotifier {
         title: _conversations[index].title,
         messages: messages,
         modelId: _conversations[index].modelId,
+        settings: _conversations[index].settings,
         createdAt: _conversations[index].createdAt,
         updatedAt: DateTime.now(),
       );
@@ -222,6 +227,7 @@ class ConversationProvider extends ChangeNotifier {
       title: _conversations[index].title,
       messages: messages,
       modelId: _conversations[index].modelId,
+      settings: _conversations[index].settings,
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );
@@ -248,6 +254,26 @@ class ConversationProvider extends ChangeNotifier {
     }
   }
 
+  /// 更新对话设置快照
+  void updateConversationSettings(
+    String conversationId,
+    ConversationSettings settings,
+  ) {
+    final index = _conversations.indexWhere((c) => c.id == conversationId);
+    if (index == -1) return;
+    _conversations[index] = Conversation(
+      id: _conversations[index].id,
+      title: _conversations[index].title,
+      messages: _conversations[index].messages,
+      modelId: settings.modelId,
+      settings: settings,
+      createdAt: _conversations[index].createdAt,
+      updatedAt: DateTime.now(),
+    );
+    _saveConversations();
+    notifyListeners();
+  }
+
   /// 更新指定消息的内容
   void updateMessageContent(
     String conversationId,
@@ -272,6 +298,7 @@ class ConversationProvider extends ChangeNotifier {
       title: _conversations[index].title,
       messages: messages,
       modelId: _conversations[index].modelId,
+      settings: _conversations[index].settings,
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );

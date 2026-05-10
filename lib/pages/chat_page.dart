@@ -9,6 +9,7 @@ import 'package:record/record.dart';
 import 'package:screenshot/screenshot.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:super_clipboard/super_clipboard.dart';
 import '../models/conversation.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
@@ -68,6 +69,7 @@ class _ChatPageState extends State<ChatPage> {
   String? _convId;
   String? _pendingModelId;
   bool _thinking = true;
+  ConversationSettings? _draftSettings;
   bool _streaming = false;
   bool _showAttach = false;
   bool _showModelMenu = false;
@@ -82,6 +84,10 @@ class _ChatPageState extends State<ChatPage> {
   final Map<String, String?> _thinkMap = {};
   final Set<String> _expandedThinkIds = {};
   final List<_PendingImage> _pendingImages = [];
+  bool _showImageRecognitionList = false;
+  bool _shareSelecting = false;
+  bool _sharingImage = false;
+  final Set<String> _selectedShareMessageIds = {};
 
   int _streamGen = 0;
 
@@ -99,6 +105,7 @@ class _ChatPageState extends State<ChatPage> {
     _speech = stt.SpeechToText();
     if (widget.conversationId != null) {
       _convId = widget.conversationId;
+      _applyConversationSettings(widget.conversationId!, notifyNow: false);
       widget.onConversationLoaded?.call();
     }
   }
@@ -112,7 +119,31 @@ class _ChatPageState extends State<ChatPage> {
         _clearPendingState();
         _clearRetryState();
       });
+      _applyConversationSettings(widget.conversationId!, notifyNow: false);
       widget.onConversationLoaded?.call();
+    }
+  }
+
+  void _applyConversationSettings(
+    String conversationId, {
+    bool notifyNow = true,
+  }) {
+    final conv = context.read<ConversationProvider>().getConversation(
+      conversationId,
+    );
+    if (conv == null) return;
+    _draftSettings = null;
+    _thinking = conv.settings.thinking;
+    final settings = conv.settings;
+    void apply() {
+      if (!mounted) return;
+      context.read<SettingsProvider>().applyConversationSettings(settings);
+    }
+
+    if (notifyNow) {
+      apply();
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) => apply());
     }
   }
 
@@ -134,6 +165,7 @@ class _ChatPageState extends State<ChatPage> {
 
   void _clearPendingState() {
     _pendingModelId = null;
+    _draftSettings = null;
     _thinkingTxt = null;
     _thinkExpanded = false;
     _expandedThinkIds.clear();
@@ -217,7 +249,74 @@ class _ChatPageState extends State<ChatPage> {
         return chatModels.firstWhere((m) => m.id == _pendingModelId);
       } catch (_) {}
     }
+    final settings = _draftSettings;
+    if (settings != null) {
+      try {
+        return chatModels.firstWhere((m) => m.id == settings.modelId);
+      } catch (_) {}
+    }
+    final lastChatModelId = context
+        .read<SettingsProvider>()
+        .settings
+        .lastChatModelId;
+    if (lastChatModelId != null && lastChatModelId.isNotEmpty) {
+      try {
+        return chatModels.firstWhere((m) => m.id == lastChatModelId);
+      } catch (_) {}
+    }
     return chatModels.first;
+  }
+
+  ConversationSettings _currentConversationSettings(ModelConfig model) {
+    if (_convId != null) {
+      final conv = context.read<ConversationProvider>().getConversation(
+        _convId!,
+      );
+      if (conv != null) return conv.settings.copyWith(thinking: _thinking);
+    }
+    if (_draftSettings != null) {
+      return _draftSettings!.copyWith(modelId: model.id, thinking: _thinking);
+    }
+    final set = context.read<SettingsProvider>().settings;
+    return ConversationSettings(
+      modelId: model.id,
+      thinking: _thinking,
+      selectedSystemPromptId: set.selectedSystemPromptId,
+      systemPrompt: set.systemPrompt,
+      speechModelId: set.speechModelId,
+      imageModelId: set.imageModelId,
+      imageRecognitionModelId: set.imageRecognitionModelId,
+      imageRecognitionEnabled: set.imageRecognitionEnabled,
+      imageRecognitionPrompt: set.imageRecognitionPrompt,
+    );
+  }
+
+  void _saveDraftSettings(ConversationSettings settings) {
+    _draftSettings = settings;
+    context.read<SettingsProvider>().applyConversationSettings(settings);
+  }
+
+  void _saveConversationSettings(ConversationSettings settings) {
+    if (_convId != null) {
+      context.read<ConversationProvider>().updateConversationSettings(
+        _convId!,
+        settings,
+      );
+    } else {
+      _saveDraftSettings(settings);
+      return;
+    }
+    context.read<SettingsProvider>().applyConversationSettings(settings);
+  }
+
+  ConversationSettings? _activeSettings() {
+    if (_convId != null) {
+      final conv = context.read<ConversationProvider>().getConversation(
+        _convId!,
+      );
+      if (conv != null) return conv.settings.copyWith(thinking: _thinking);
+    }
+    return _draftSettings;
   }
 
   Future<void> _send() async {
@@ -235,40 +334,39 @@ class _ChatPageState extends State<ChatPage> {
     }
     final model = _getModel(mp);
     if (model == null) return;
-    _convId ??= cp.createConversation(model.id);
+    _convId ??= cp.createConversation(_currentConversationSettings(model));
     _pendingModelId = null;
     _clearRetryState();
     final images = _pendingImages.map((e) => e.toMessageImage()).toList();
-    setState(() => _streaming = true);
-    late final String userContent;
+    cp.addMessage(_convId!, 'user', text, images: images);
+    _msgCtrl.clear();
+    setState(() {
+      _pendingImages.clear();
+      _streaming = true;
+      _thinkingTxt = null;
+    });
+    _scrollEnd(force: true);
+    cp.addMessage(_convId!, 'assistant', '');
     try {
-      userContent = await _buildUserContentWithImages(text, images);
+      final apiUserContent = await _buildUserContentWithImages(text, images);
+      if (!mounted) return;
+      _doSend(model, lastUserContentOverride: apiUserContent);
     } catch (e) {
       if (!mounted) return;
       setState(() => _streaming = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('图片处理失败: $e')));
-      return;
+      cp.updateLastMessage(_convId!, '图片处理失败: $e', save: true);
     }
-    if (!mounted) return;
-    cp.addMessage(_convId!, 'user', userContent, images: images);
-    _msgCtrl.clear();
-    setState(() => _pendingImages.clear());
-    _scrollEnd(force: true);
-    cp.addMessage(_convId!, 'assistant', '');
-    setState(() {
-      _thinkingTxt = null;
-    });
-    _doSend(model);
   }
 
-  void _doSend(ModelConfig model) {
+  void _doSend(ModelConfig model, {String? lastUserContentOverride}) {
     final cid = _convId;
     if (cid == null) return;
     final conv = context.read<ConversationProvider>().getConversation(cid);
     if (conv == null) return;
-    final msgs = _buildApiMessages(conv);
+    final msgs = _buildApiMessages(
+      conv,
+      lastUserContentOverride: lastUserContentOverride,
+    );
     _doStream(model, msgs);
   }
 
@@ -310,17 +408,30 @@ class _ChatPageState extends State<ChatPage> {
     _doSend(model);
   }
 
-  List<Map<String, dynamic>> _buildApiMessages(Conversation conv) {
+  List<Map<String, dynamic>> _buildApiMessages(
+    Conversation conv, {
+    String? lastUserContentOverride,
+  }) {
     final msgs = <Map<String, dynamic>>[];
-    final promptContent = context
-        .read<SettingsProvider>()
-        .effectiveSystemPrompt;
+    final promptContent = conv.settings.selectedSystemPromptId != null
+        ? context.read<SettingsProvider>().effectiveSystemPromptFor(
+            conv.settings.selectedSystemPromptId,
+            conv.settings.systemPrompt,
+          )
+        : conv.settings.systemPrompt;
     if (promptContent.isNotEmpty) {
       msgs.add({'role': 'system', 'content': promptContent});
     }
-    for (final m in conv.messages) {
+    final lastUserIndex = lastUserContentOverride == null
+        ? -1
+        : conv.messages.lastIndexWhere((m) => m.role == 'user');
+    for (var i = 0; i < conv.messages.length; i++) {
+      final m = conv.messages[i];
       if (m.role == 'assistant' && m.content.isEmpty) continue;
-      msgs.add({'role': m.role, 'content': m.content});
+      msgs.add({
+        'role': m.role,
+        'content': i == lastUserIndex ? lastUserContentOverride : m.content,
+      });
     }
     return msgs;
   }
@@ -411,14 +522,19 @@ class _ChatPageState extends State<ChatPage> {
       );
     } else {
       _pendingModelId = model.id;
+      _draftSettings = _currentConversationSettings(
+        model,
+      ).copyWith(modelId: model.id);
     }
+    context.read<SettingsProvider>().setLastChatModelId(model.id);
     setState(() {});
   }
 
   void _setSubModel(ModelConfig config, String modelName) {
     final mp = context.read<ModelConfigProvider>();
-    mp.updateModel(config.copyWith(modelName: modelName));
-    _switchModel(config);
+    final updated = config.copyWith(modelName: modelName);
+    mp.updateModel(updated);
+    _switchModel(updated);
     setState(() => _showModelMenu = false);
   }
 
@@ -507,18 +623,66 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  Future<void> _shareImg() async {
+  void _startShareSelection() {
+    final conv = _convId == null
+        ? null
+        : context.read<ConversationProvider>().getConversation(_convId!);
+    if (conv == null || conv.messages.isEmpty) return;
+    setState(() {
+      _shareSelecting = true;
+      _selectedShareMessageIds.clear();
+    });
+  }
+
+  void _cancelShareSelection() {
+    setState(() {
+      _shareSelecting = false;
+      _selectedShareMessageIds.clear();
+    });
+  }
+
+  void _toggleShareMessage(Message msg) {
+    setState(() {
+      if (_selectedShareMessageIds.contains(msg.id)) {
+        _selectedShareMessageIds.remove(msg.id);
+      } else {
+        _selectedShareMessageIds.add(msg.id);
+      }
+    });
+  }
+
+  Future<void> _shareSelectedMessages() async {
+    if (_sharingImage || _convId == null || _selectedShareMessageIds.isEmpty) {
+      return;
+    }
     try {
-      final bytes = await _screenshotCtrl.capture(pixelRatio: 2.0);
+      setState(() => _sharingImage = true);
+      final bytes = await _captureShareImage();
       if (bytes == null) return;
       final f = File(
         '${Directory.systemTemp.path}/lynai_${DateTime.now().millisecondsSinceEpoch}.png',
       );
       await f.writeAsBytes(bytes);
       if (mounted) {
-        await SharePlus.instance.share(
-          ShareParams(files: [XFile(f.path)], text: 'LynAI 对话'),
-        );
+        if (_isDesktopPlatform) {
+          final clipboard = SystemClipboard.instance;
+          if (clipboard == null) {
+            throw Exception('当前平台不支持写入剪贴板');
+          }
+          final item = DataWriterItem(suggestedName: 'LynAI 对话.png');
+          item.add(Formats.png(bytes));
+          await clipboard.write([item]);
+          if (mounted) {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(const SnackBar(content: Text('长图已复制到剪贴板')));
+          }
+        } else {
+          await SharePlus.instance.share(
+            ShareParams(files: [XFile(f.path)], text: 'LynAI 对话'),
+          );
+        }
+        _cancelShareSelection();
       }
     } catch (e) {
       if (mounted) {
@@ -526,7 +690,76 @@ class _ChatPageState extends State<ChatPage> {
           context,
         ).showSnackBar(SnackBar(content: Text('分享失败: $e')));
       }
+    } finally {
+      if (mounted) setState(() => _sharingImage = false);
     }
+  }
+
+  Future<void> _saveSelectedMessagesImage() async {
+    if (_sharingImage || _convId == null || _selectedShareMessageIds.isEmpty) {
+      return;
+    }
+    try {
+      setState(() => _sharingImage = true);
+      final bytes = await _captureShareImage();
+      if (bytes == null) return;
+      final dir = _isDesktopPlatform
+          ? await getDownloadsDirectory()
+          : await getApplicationDocumentsDirectory();
+      if (dir == null) throw Exception('无法获取保存目录');
+      final file = File(
+        '${dir.path}/lynai_share_${DateTime.now().millisecondsSinceEpoch}.png',
+      );
+      await file.writeAsBytes(bytes, flush: true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('长图已保存到 ${file.path}')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('保存失败: $e')));
+    } finally {
+      if (mounted) setState(() => _sharingImage = false);
+    }
+  }
+
+  Future<Uint8List?> _captureShareImage() async {
+    if (_convId == null) return null;
+    final conv = context.read<ConversationProvider>().getConversation(_convId!);
+    if (conv == null) return null;
+    final selected = conv.messages
+        .where((m) => _selectedShareMessageIds.contains(m.id))
+        .toList(growable: false);
+    if (selected.isEmpty) return null;
+    final settings = context.read<SettingsProvider>().settings;
+    final brightness = Theme.of(context).brightness;
+    final shareWidget = _ShareConversationImage(
+      title: conv.title,
+      messages: selected,
+      seedColor: settings.themeColor,
+      brightness: brightness,
+    );
+    final pixelRatio = selected.length > 20 ? 1.25 : 1.75;
+    try {
+      return await _screenshotCtrl.captureFromLongWidget(
+        shareWidget,
+        pixelRatio: pixelRatio,
+        context: context,
+        constraints: const BoxConstraints(maxWidth: 720),
+      );
+    } catch (_) {
+      return _screenshotCtrl.captureFromWidget(
+        shareWidget,
+        pixelRatio: 1.0,
+        context: context,
+      );
+    }
+  }
+
+  bool get _isDesktopPlatform {
+    return Platform.isLinux || Platform.isMacOS || Platform.isWindows;
   }
 
   Future<void> _pickImg() async {
@@ -568,11 +801,116 @@ class _ChatPageState extends State<ChatPage> {
     });
   }
 
+  Future<void> _handlePasteShortcut() async {
+    if (_streaming) return;
+    final pastedImage = await _pasteClipboardImage();
+    if (pastedImage) return;
+
+    final clipboard = SystemClipboard.instance;
+    if (clipboard == null) return;
+    try {
+      final reader = await clipboard.read();
+      if (!reader.canProvide(Formats.plainText)) return;
+      final text = await reader.readValue(Formats.plainText);
+      if (!mounted || text == null || text.isEmpty) return;
+
+      final value = _msgCtrl.value;
+      final selection = value.selection;
+      final start = selection.start >= 0 ? selection.start : value.text.length;
+      final end = selection.end >= 0 ? selection.end : value.text.length;
+      final newText = value.text.replaceRange(start, end, text);
+      _msgCtrl.value = value.copyWith(
+        text: newText,
+        selection: TextSelection.collapsed(offset: start + text.length),
+        composing: TextRange.empty,
+      );
+      setState(() {});
+    } catch (_) {}
+  }
+
+  Future<bool> _pasteClipboardImage() async {
+    final clipboard = SystemClipboard.instance;
+    if (clipboard == null) return false;
+    try {
+      final reader = await clipboard.read();
+      final fileFormat = reader.canProvide(Formats.png)
+          ? Formats.png
+          : reader.canProvide(Formats.jpeg)
+          ? Formats.jpeg
+          : reader.canProvide(Formats.webp)
+          ? Formats.webp
+          : reader.canProvide(Formats.gif)
+          ? Formats.gif
+          : null;
+      if (fileFormat == null) return false;
+
+      bool pasted = false;
+      final completer = Completer<void>();
+      final progress = reader.getFile(fileFormat, (file) async {
+        final bytes = await file.readAll();
+        final ext = _clipboardImageExtension(file.fileName, fileFormat);
+        final name = _clipboardImageName(file.fileName, ext);
+        await _addClipboardImage(bytes, name);
+        pasted = true;
+        if (!completer.isCompleted) completer.complete();
+      });
+      if (progress != null) {
+        await completer.future.timeout(const Duration(seconds: 2));
+      }
+      return pasted;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  String _clipboardImageExtension(String? fileName, FileFormat format) {
+    final lower = (fileName ?? '').toLowerCase();
+    if (lower.endsWith('.png')) return '.png';
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return '.jpg';
+    if (lower.endsWith('.webp')) return '.webp';
+    if (lower.endsWith('.gif')) return '.gif';
+    if (format == Formats.jpeg) return '.jpg';
+    if (format == Formats.webp) return '.webp';
+    if (format == Formats.gif) return '.gif';
+    return '.png';
+  }
+
+  String _clipboardImageName(String? fileName, String ext) {
+    final base = (fileName == null || fileName.trim().isEmpty)
+        ? 'clipboard_${DateTime.now().millisecondsSinceEpoch}'
+        : fileName;
+    if (base.toLowerCase().endsWith(ext)) return base;
+    return '$base$ext';
+  }
+
+  Future<void> _addClipboardImage(Uint8List bytes, String fileName) async {
+    if (!mounted) return;
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final imageDir = Directory('${dir.path}/message_images');
+      if (!await imageDir.exists()) await imageDir.create(recursive: true);
+      final storedFile = File(
+        '${imageDir.path}/${DateTime.now().millisecondsSinceEpoch}_${_safeFileName(fileName)}',
+      );
+      await storedFile.writeAsBytes(bytes, flush: true);
+      final size = bytes.length;
+      setState(() {
+        _pendingImages.add(
+          _PendingImage(path: storedFile.path, name: fileName, size: size),
+        );
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('粘贴图片失败: $e')));
+    }
+  }
+
   /// 将图片附件转换成安全的文本上下文。
   ///
-  /// 这里刻意不向 Chat API 发送 OpenAI 多模态的 `image_url` 分片，因为大量
-  /// OpenAI-compatible 服务只接受纯文本，直接发送图片会导致 400。需要模型理解
-  /// 图片时，先调用用户配置的 OCR，把识别结果追加到文本里。
+  /// 这里先按用户设置走 OCR 或图片识别模型，把识别结果拼回将要发送给 Chat 的
+  /// 文本内容，但不会回填到输入框。
   Future<String> _buildUserContentWithImages(
     String text,
     List<MessageImage> images,
@@ -583,37 +921,100 @@ class _ChatPageState extends State<ChatPage> {
     for (final image in images) {
       buffer.writeln('[图片: ${image.name} (${_fmtSz(image.size)})]');
     }
-    final set = context.read<SettingsProvider>().settings;
-    if (set.imageModelId == null || set.imageModelId!.isEmpty) {
-      buffer.writeln('\n[未配置 OCR，图片仅作为附件展示，模型无法读取图片内容]');
-      return buffer.toString().trim();
-    }
-    final ocrModel = _findModelConfigById(
-      context.read<ModelConfigProvider>().models,
-      set.imageModelId!,
-    );
-    if (ocrModel == null) {
-      buffer.writeln('\n[OCR 模型已不存在，请在设置中重新选择]');
-      return buffer.toString().trim();
-    }
-    buffer.writeln('\n${set.imagePrompt}');
-    for (final image in images) {
-      try {
-        final bytes = await File(image.path).readAsBytes();
-        final text = await _api.recognizeImageText(ocrModel, bytes);
-        buffer.writeln('\n[${image.name} OCR 识别结果]');
-        buffer.writeln(text.trim().isEmpty ? '未识别到文字' : text.trim());
-      } catch (e) {
-        buffer.writeln('\n[${image.name} OCR 识别失败: $e]');
-      }
+    final set = _activeSettings() ?? _settingsToConversationSettings();
+    final modelProvider = context.read<ModelConfigProvider>();
+    final imageText = await _recognizeImagesForSend(images, set, modelProvider);
+    if (imageText.isNotEmpty) {
+      buffer.writeln(imageText);
     }
     return buffer.toString().trim();
   }
 
+  ConversationSettings _settingsToConversationSettings() {
+    final settings = context.read<SettingsProvider>().settings;
+    final model = _getModel(context.read<ModelConfigProvider>());
+    return ConversationSettings(
+      modelId: model?.id ?? settings.lastChatModelId ?? '',
+      thinking: _thinking,
+      selectedSystemPromptId: settings.selectedSystemPromptId,
+      systemPrompt: settings.systemPrompt,
+      speechModelId: settings.speechModelId,
+      imageModelId: settings.imageModelId,
+      imageRecognitionModelId: settings.imageRecognitionModelId,
+      imageRecognitionEnabled: settings.imageRecognitionEnabled,
+      imageRecognitionPrompt: settings.imageRecognitionPrompt,
+    );
+  }
+
+  Future<String> _recognizeImagesForSend(
+    List<MessageImage> images,
+    ConversationSettings set,
+    ModelConfigProvider mp,
+  ) async {
+    if (images.isEmpty) return '';
+
+    if (set.imageRecognitionEnabled) {
+      final modelId = set.imageRecognitionModelId;
+      if (modelId == null || modelId.isEmpty) {
+        throw Exception('请先选择图片识别模型');
+      }
+      final model = _findModelConfigById(
+        mp.modelsByCategory(ModelConfig.categoryChat),
+        modelId,
+      );
+      if (model == null) {
+        throw Exception('图片识别模型已不存在，请在设置中重新选择');
+      }
+      final inputs = <ChatImageInput>[];
+      for (final image in images) {
+        final bytes = await File(image.path).readAsBytes();
+        inputs.add(
+          ChatImageInput(bytes: bytes, mimeType: _mimeTypeForPath(image.path)),
+        );
+      }
+      return _api.recognizeImageTextWithChatModel(
+        model,
+        set.imageRecognitionPrompt,
+        inputs,
+      );
+    }
+
+    final modelId = set.imageModelId;
+    if (modelId == null || modelId.isEmpty) {
+      return '';
+    }
+    final ocrModel = _findModelConfigById(mp.models, modelId);
+    if (ocrModel == null) {
+      return '';
+    }
+    final results = <String>[];
+    for (final image in images) {
+      try {
+        final bytes = await File(image.path).readAsBytes();
+        final text = await _api.recognizeImageText(ocrModel, bytes);
+        final clean = text.trim();
+        if (clean.isNotEmpty) results.add(clean);
+      } catch (e) {
+        results.add('[${image.name} OCR 识别失败: $e]');
+      }
+    }
+    return results.join('\n');
+  }
+
+  String _mimeTypeForPath(String path) {
+    final lower = path.toLowerCase();
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    if (lower.endsWith('.gif')) return 'image/gif';
+    return 'image/jpeg';
+  }
+
   Future<void> _voice() async {
     if (_streaming || _recording || _transcribingSpeech) return;
-    final set = context.read<SettingsProvider>().settings;
-    if (set.speechModelId == null || set.speechModelId!.isEmpty) {
+    final speechModelId =
+        _activeSettings()?.speechModelId ??
+        context.read<SettingsProvider>().settings.speechModelId;
+    if (speechModelId == null || speechModelId.isEmpty) {
       await _startSystemSpeechRecognition();
       return;
     }
@@ -709,10 +1110,9 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _processRecordedSpeech(String path) async {
     final mp = context.read<ModelConfigProvider>();
-    final speechConfigId = context
-        .read<SettingsProvider>()
-        .settings
-        .speechModelId;
+    final speechConfigId =
+        _activeSettings()?.speechModelId ??
+        context.read<SettingsProvider>().settings.speechModelId;
     if (speechConfigId == null || speechConfigId.isEmpty) return;
     final speechConfig = _findModelConfigById(mp.models, speechConfigId);
     if (speechConfig == null) {
@@ -789,13 +1189,23 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   void _showDialogSettings() {
+    final model = _getModel(context.read<ModelConfigProvider>());
+    if (model == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请先在设置中添加 AI 模型')));
+      return;
+    }
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (ctx) => _DialogSettingsContent(),
+      builder: (ctx) => _DialogSettingsContent(
+        onChanged: (settings) => _saveConversationSettings(settings),
+        settings: _currentConversationSettings(model),
+      ),
     );
   }
 
@@ -807,17 +1217,49 @@ class _ChatPageState extends State<ChatPage> {
     final conv = cp.getConversation(_convId ?? '');
     return Scaffold(
       appBar: AppBar(
-        leading: Builder(
-          builder: (ctx) => IconButton(
-            icon: const Icon(Icons.history),
-            tooltip: '历史记录',
-            onPressed: () => Scaffold.of(ctx).openDrawer(),
-          ),
+        leading: _shareSelecting
+            ? IconButton(
+                icon: const Icon(Icons.close),
+                tooltip: '取消选择',
+                onPressed: _cancelShareSelection,
+              )
+            : Builder(
+                builder: (ctx) => IconButton(
+                  icon: const Icon(Icons.history),
+                  tooltip: '历史记录',
+                  onPressed: () => Scaffold.of(ctx).openDrawer(),
+                ),
+              ),
+        title: Text(
+          _shareSelecting
+              ? '已选择 ${_selectedShareMessageIds.length} 条'
+              : (conv?.title ?? '新对话'),
         ),
-        title: Text(conv?.title ?? '新对话'),
         centerTitle: true,
         actions: [
-          if (_convId != null)
+          if (_shareSelecting)
+            IconButton(
+              icon: const Icon(Icons.save_alt),
+              tooltip: '保存到本地',
+              onPressed: _selectedShareMessageIds.isEmpty || _sharingImage
+                  ? null
+                  : _saveSelectedMessagesImage,
+            ),
+          if (_shareSelecting)
+            IconButton(
+              icon: _sharingImage
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.ios_share),
+              tooltip: '生成长图分享',
+              onPressed: _selectedShareMessageIds.isEmpty || _sharingImage
+                  ? null
+                  : _shareSelectedMessages,
+            )
+          else if (_convId != null)
             IconButton(
               icon: const Icon(Icons.add_comment_outlined),
               tooltip: '新建对话',
@@ -831,7 +1273,7 @@ class _ChatPageState extends State<ChatPage> {
             ),
         ],
       ),
-      drawer: _drawer(context),
+      drawer: _shareSelecting ? null : _drawer(context),
       body: Screenshot(
         controller: _screenshotCtrl,
         child: _body(conv, model, mp),
@@ -868,11 +1310,14 @@ class _ChatPageState extends State<ChatPage> {
                           vertical: 8,
                         ),
                         itemCount: msgs.length,
-                        itemBuilder: (_, i) => _bubble(
-                          msgs[i],
-                          i == msgs.length - 1,
-                          i == lastUserIdx,
-                        ),
+                        itemBuilder: (_, i) {
+                          final msg = msgs[i];
+                          return _selectableBubble(
+                            msg,
+                            i == msgs.length - 1,
+                            i == lastUserIdx,
+                          );
+                        },
                       ),
                     ),
               if (_showScrollToBottom) _scrollToBottomButton(),
@@ -931,6 +1376,45 @@ class _ChatPageState extends State<ChatPage> {
     ),
   );
 
+  Widget _selectableBubble(Message msg, bool isLastAi, bool isLastUserMsg) {
+    final selected = _selectedShareMessageIds.contains(msg.id);
+    final bubble = _bubble(msg, isLastAi, isLastUserMsg);
+    if (!_shareSelecting) return bubble;
+    return InkWell(
+      onTap: () => _toggleShareMessage(msg),
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 2),
+        decoration: BoxDecoration(
+          color: selected
+              ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.08)
+              : null,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected
+                ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.35)
+                : Colors.transparent,
+          ),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(left: 6),
+              child: Icon(
+                selected ? Icons.check_circle : Icons.circle_outlined,
+                size: 20,
+                color: selected
+                    ? Theme.of(context).colorScheme.primary
+                    : Colors.grey[400],
+              ),
+            ),
+            Expanded(child: bubble),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _bubble(Message msg, bool isLastAi, bool isLastUserMsg) {
     final u = msg.role == 'user';
     if (u) {
@@ -971,34 +1455,36 @@ class _ChatPageState extends State<ChatPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (msg.images.isNotEmpty) _messageImages(msg.images),
-                        if (msg.images.isNotEmpty && msg.content.isNotEmpty)
-                          const SizedBox(height: 8),
                         if (msg.content.isNotEmpty)
                           SelectableText(
                             msg.content,
                             style: const TextStyle(fontSize: 15),
                           ),
+                        if (msg.images.isNotEmpty && msg.content.isNotEmpty)
+                          const SizedBox(height: 8),
+                        if (msg.images.isNotEmpty) _messageImages(msg.images),
                       ],
                     ),
                   ),
                 ),
                 const SizedBox(width: 4),
-                InkWell(
-                  onTap: () => _showEditDialog(msg, isLastUserMsg),
-                  borderRadius: BorderRadius.circular(12),
-                  child: Padding(
-                    padding: const EdgeInsets.all(4),
-                    child: Icon(
-                      Icons.edit_outlined,
-                      size: 16,
-                      color: Colors.grey[400],
+                if (!_shareSelecting)
+                  InkWell(
+                    onTap: () => _showEditDialog(msg, isLastUserMsg),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: Icon(
+                        Icons.edit_outlined,
+                        size: 16,
+                        color: Colors.grey[400],
+                      ),
                     ),
                   ),
-                ),
               ],
             ),
-            if (isLastUserMsg &&
+            if (!_shareSelecting &&
+                isLastUserMsg &&
                 _retryMsgId != null &&
                 _retryHistory.length > 1)
               _retryNav(),
@@ -1046,7 +1532,7 @@ class _ChatPageState extends State<ChatPage> {
                 )
               : MarkdownWithLatex(content: msg.content),
         ),
-        if (!_streaming) _bubbleActions(msg),
+        if (!_streaming && !_shareSelecting) _bubbleActions(msg),
       ],
     );
   }
@@ -1242,7 +1728,7 @@ class _ChatPageState extends State<ChatPage> {
       children: [
         _actBtn(Icons.copy, () => _copy(c)),
         const SizedBox(width: 4),
-        _actBtn(Icons.share, _shareImg),
+        _actBtn(Icons.share, _startShareSelection),
         const SizedBox(width: 4),
         _actBtn(Icons.refresh, _retry),
       ],
@@ -1424,9 +1910,16 @@ class _ChatPageState extends State<ChatPage> {
     if (origMsgIdx == -1) return;
     _clearRetryState();
     _pendingModelId = null;
-    final newConvId = cp.createConversation(editModel.id);
+    final newConvId = cp.createConversation(
+      origConv.settings.copyWith(modelId: editModel.id, thinking: _thinking),
+    );
     for (int i = 0; i < origMsgIdx; i++) {
-      cp.addMessage(newConvId, allMsgs[i].role, allMsgs[i].content);
+      cp.addMessage(
+        newConvId,
+        allMsgs[i].role,
+        allMsgs[i].content,
+        images: allMsgs[i].images,
+      );
     }
     cp.addMessage(newConvId, 'user', newText);
     setState(() {
@@ -1440,9 +1933,10 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Widget _inputArea(ModelConfig? model, ModelConfigProvider mp) {
-    final set = context.read<SettingsProvider>().settings;
-    final hasSpeech =
-        set.speechModelId != null && set.speechModelId!.isNotEmpty;
+    final set = _activeSettings();
+    final appSettings = context.watch<SettingsProvider>().settings;
+    final speechModelId = set?.speechModelId ?? appSettings.speechModelId;
+    final hasSpeech = speechModelId != null && speechModelId.isNotEmpty;
     return Container(
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
@@ -1481,6 +1975,15 @@ class _ChatPageState extends State<ChatPage> {
                             _send();
                             return KeyEventResult.handled;
                           }
+                          final isPaste =
+                              event is KeyDownEvent &&
+                              event.logicalKey == LogicalKeyboardKey.keyV &&
+                              (HardwareKeyboard.instance.isControlPressed ||
+                                  HardwareKeyboard.instance.isMetaPressed);
+                          if (isPaste) {
+                            unawaited(_handlePasteShortcut());
+                            return KeyEventResult.handled;
+                          }
                           return KeyEventResult.ignored;
                         },
                         child: TextField(
@@ -1512,6 +2015,8 @@ class _ChatPageState extends State<ChatPage> {
               _dialogSetBtn(),
               const SizedBox(width: 4),
               _thinkBtn(),
+              const SizedBox(width: 4),
+              _imageRecognitionBtn(),
               const Spacer(),
               _attachBtn(),
               const SizedBox(width: 4),
@@ -1527,6 +2032,7 @@ class _ChatPageState extends State<ChatPage> {
   Widget _modelList(ModelConfigProvider mp) {
     final cur = _getModel(mp);
     final models = mp.modelsByCategory(ModelConfig.categoryChat);
+    final settings = _activeSettings();
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       constraints: const BoxConstraints(maxHeight: 260),
@@ -1534,76 +2040,131 @@ class _ChatPageState extends State<ChatPage> {
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(10),
       ),
-      child: ListView.builder(
+      child: ListView(
         shrinkWrap: true,
-        itemCount: models.length,
-        itemBuilder: (_, i) {
-          final m = models[i];
-          final sel = cur != null && m.id == cur.id;
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
+        children: [
+          for (final m in models) ...[
+            Builder(
+              builder: (_) {
+                final sel = cur != null && m.id == cur.id;
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ListTile(
+                      dense: true,
+                      leading: Icon(
+                        sel ? Icons.check_circle : Icons.circle_outlined,
+                        size: 18,
+                        color: sel
+                            ? Theme.of(context).colorScheme.primary
+                            : Colors.grey,
+                      ),
+                      title: Text(m.name, style: const TextStyle(fontSize: 14)),
+                      subtitle: Text(
+                        m.hasMultipleModels
+                            ? '${m.enabledModelNames.length} 个模型'
+                            : m.modelName,
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                      trailing: m.hasMultipleModels
+                          ? const Icon(Icons.chevron_right, size: 16)
+                          : null,
+                      onTap: () {
+                        if (m.hasMultipleModels) {
+                          _switchModel(m);
+                        } else {
+                          _switchModel(m);
+                          setState(() => _showModelMenu = false);
+                        }
+                      },
+                    ),
+                    if (sel && m.hasMultipleModels)
+                      ...m.models
+                          .where((e) => e.enabled)
+                          .map(
+                            (e) => ListTile(
+                              dense: true,
+                              contentPadding: const EdgeInsets.only(left: 56),
+                              leading: Icon(
+                                e.name == m.modelName
+                                    ? Icons.radio_button_checked
+                                    : Icons.radio_button_off,
+                                size: 14,
+                                color: e.name == m.modelName
+                                    ? Theme.of(context).colorScheme.primary
+                                    : Colors.grey,
+                              ),
+                              title: Text(
+                                e.name,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontFamily: 'monospace',
+                                ),
+                              ),
+                              onTap: () {
+                                _setSubModel(m, e.name);
+                                setState(() => _showModelMenu = false);
+                              },
+                            ),
+                          ),
+                  ],
+                );
+              },
+            ),
+          ],
+          const Divider(height: 1),
+          ListTile(
+            dense: true,
+            leading: Icon(
+              Icons.image_search,
+              size: 18,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            title: const Text('图片识别', style: TextStyle(fontSize: 14)),
+            subtitle: const Text(
+              '选择聊天模型作为图片识别模型',
+              style: TextStyle(fontSize: 11),
+            ),
+            trailing: Icon(
+              _showImageRecognitionList ? Icons.expand_less : Icons.expand_more,
+              size: 16,
+            ),
+            onTap: () {
+              setState(() {
+                _showImageRecognitionList = !_showImageRecognitionList;
+              });
+            },
+          ),
+          if (_showImageRecognitionList)
+            for (final m in models)
               ListTile(
                 dense: true,
+                contentPadding: const EdgeInsets.only(left: 56),
                 leading: Icon(
-                  sel ? Icons.check_circle : Icons.circle_outlined,
-                  size: 18,
-                  color: sel
+                  settings?.imageRecognitionModelId == m.id
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_off,
+                  size: 14,
+                  color: settings?.imageRecognitionModelId == m.id
                       ? Theme.of(context).colorScheme.primary
                       : Colors.grey,
                 ),
-                title: Text(m.name, style: const TextStyle(fontSize: 14)),
+                title: Text(m.name, style: const TextStyle(fontSize: 13)),
                 subtitle: Text(
                   m.hasMultipleModels
                       ? '${m.enabledModelNames.length} 个模型'
                       : m.modelName,
                   style: const TextStyle(fontSize: 11),
                 ),
-                trailing: m.hasMultipleModels
-                    ? const Icon(Icons.chevron_right, size: 16)
-                    : null,
                 onTap: () {
-                  if (m.hasMultipleModels) {
-                    _switchModel(m);
-                  } else {
-                    _switchModel(m);
-                    setState(() => _showModelMenu = false);
-                  }
+                  final base = _currentConversationSettings(cur ?? m);
+                  _saveConversationSettings(
+                    base.copyWith(imageRecognitionModelId: m.id),
+                  );
+                  setState(() => _showImageRecognitionList = false);
                 },
               ),
-              // Show enabled sub-models when this provider is selected and has multiple
-              if (sel && m.hasMultipleModels)
-                ...m.models
-                    .where((e) => e.enabled)
-                    .map(
-                      (e) => ListTile(
-                        dense: true,
-                        contentPadding: const EdgeInsets.only(left: 56),
-                        leading: Icon(
-                          e.name == m.modelName
-                              ? Icons.radio_button_checked
-                              : Icons.radio_button_off,
-                          size: 14,
-                          color: e.name == m.modelName
-                              ? Theme.of(context).colorScheme.primary
-                              : Colors.grey,
-                        ),
-                        title: Text(
-                          e.name,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                        onTap: () {
-                          _setSubModel(m, e.name);
-                          setState(() => _showModelMenu = false);
-                        },
-                      ),
-                    ),
-            ],
-          );
-        },
+        ],
       ),
     );
   }
@@ -1694,7 +2255,20 @@ class _ChatPageState extends State<ChatPage> {
   );
 
   Widget _thinkBtn() => InkWell(
-    onTap: () => setState(() => _thinking = !_thinking),
+    onTap: () {
+      final value = !_thinking;
+      setState(() => _thinking = value);
+      if (_convId != null) {
+        final conv = context.read<ConversationProvider>().getConversation(
+          _convId!,
+        );
+        if (conv != null) {
+          _saveConversationSettings(conv.settings.copyWith(thinking: value));
+        }
+      } else if (_draftSettings != null) {
+        _saveDraftSettings(_draftSettings!.copyWith(thinking: value));
+      }
+    },
     borderRadius: BorderRadius.circular(8),
     child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -1733,6 +2307,61 @@ class _ChatPageState extends State<ChatPage> {
       ),
     ),
   );
+
+  Widget _imageRecognitionBtn() {
+    final enabled =
+        _activeSettings()?.imageRecognitionEnabled ??
+        context.watch<SettingsProvider>().settings.imageRecognitionEnabled;
+    return InkWell(
+      onTap: () {
+        final value = !enabled;
+        final model = _getModel(context.read<ModelConfigProvider>());
+        if (model == null) return;
+        final settings = _currentConversationSettings(
+          model,
+        ).copyWith(imageRecognitionEnabled: value);
+        setState(() {});
+        _saveConversationSettings(settings);
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: enabled
+                ? Theme.of(context).colorScheme.primary
+                : Colors.grey.withValues(alpha: 0.3),
+          ),
+          color: enabled
+              ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.1)
+              : null,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.image_search,
+              size: 16,
+              color: enabled
+                  ? Theme.of(context).colorScheme.primary
+                  : Colors.grey[400],
+            ),
+            const SizedBox(width: 3),
+            Text(
+              '图片识别',
+              style: TextStyle(
+                fontSize: 12,
+                color: enabled
+                    ? Theme.of(context).colorScheme.primary
+                    : Colors.grey[500],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _attachBtn() => InkWell(
     onTap: () => setState(() => _showAttach = !_showAttach),
@@ -1965,7 +2594,257 @@ ModelConfig? _findModelConfigById(List<ModelConfig> models, String id) {
   }
 }
 
+class _ShareConversationImage extends StatelessWidget {
+  final String title;
+  final List<Message> messages;
+  final Color seedColor;
+  final Brightness brightness;
+
+  const _ShareConversationImage({
+    required this.title,
+    required this.messages,
+    required this.seedColor,
+    required this.brightness,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = brightness == Brightness.dark;
+    final scheme = ColorScheme.fromSeed(
+      seedColor: seedColor,
+      brightness: brightness,
+    );
+    final bgColor = Color.lerp(
+      scheme.surface,
+      scheme.primary,
+      isDark ? 0.08 : 0.035,
+    )!;
+    final cardColor = Color.lerp(
+      scheme.surface,
+      scheme.surfaceContainerHighest,
+      isDark ? 0.35 : 0.22,
+    )!;
+    final shadowColor = isDark ? Colors.black : Colors.black;
+    final mutedColor = isDark
+        ? const Color(0xFF94A3B8)
+        : const Color(0xFF64748B);
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        width: 720,
+        padding: const EdgeInsets.all(28),
+        decoration: BoxDecoration(color: bgColor),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _ShareHeader(
+              title: title,
+              count: messages.length,
+              scheme: scheme,
+              mutedColor: mutedColor,
+            ),
+            const SizedBox(height: 22),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+              decoration: BoxDecoration(
+                color: cardColor,
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(
+                  color: scheme.outlineVariant.withValues(alpha: 0.55),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: shadowColor.withValues(alpha: isDark ? 0.22 : 0.08),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (var i = 0; i < messages.length; i++) ...[
+                    _ShareMessageBubble(message: messages[i], scheme: scheme),
+                    if (i != messages.length - 1) const SizedBox(height: 14),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              'Shared from LynAI',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: mutedColor,
+                fontSize: 18,
+                letterSpacing: 0.4,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ShareHeader extends StatelessWidget {
+  final String title;
+  final int count;
+  final ColorScheme scheme;
+  final Color mutedColor;
+
+  const _ShareHeader({
+    required this.title,
+    required this.count,
+    required this.scheme,
+    required this.mutedColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 54,
+          height: 54,
+          decoration: BoxDecoration(
+            color: scheme.primary,
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Icon(Icons.auto_awesome, color: scheme.onPrimary, size: 30),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title.isEmpty ? 'LynAI 对话' : title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: scheme.onSurface,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w800,
+                  height: 1.15,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                '$count 条精选消息 · ${DateTime.now().year}/${DateTime.now().month}/${DateTime.now().day}',
+                style: TextStyle(color: mutedColor, fontSize: 16),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ShareMessageBubble extends StatelessWidget {
+  final Message message;
+  final ColorScheme scheme;
+
+  const _ShareMessageBubble({required this.message, required this.scheme});
+
+  @override
+  Widget build(BuildContext context) {
+    final isUser = message.role == 'user';
+    final bubbleColor = isUser
+        ? scheme.primaryContainer
+        : scheme.surfaceContainerHighest;
+    final textColor = isUser ? scheme.onPrimaryContainer : scheme.onSurface;
+    final labelColor = scheme.onSurfaceVariant;
+    return Align(
+      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+      child: Column(
+        crossAxisAlignment: isUser
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            isUser ? 'You' : 'LynAI',
+            style: TextStyle(
+              color: labelColor,
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Container(
+            constraints: const BoxConstraints(maxWidth: 560),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            decoration: BoxDecoration(
+              color: bubbleColor,
+              borderRadius: BorderRadius.only(
+                topLeft: const Radius.circular(22),
+                topRight: const Radius.circular(22),
+                bottomLeft: Radius.circular(isUser ? 22 : 6),
+                bottomRight: Radius.circular(isUser ? 6 : 22),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (message.content.trim().isNotEmpty)
+                  MarkdownWithLatex(
+                    content: message.content.trim(),
+                    textStyle: TextStyle(
+                      fontSize: 20,
+                      height: 1.45,
+                      color: textColor,
+                    ),
+                  ),
+                if (message.images.isNotEmpty &&
+                    message.content.trim().isNotEmpty)
+                  const SizedBox(height: 12),
+                if (message.images.isNotEmpty)
+                  _ShareImageStrip(images: message.images),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ShareImageStrip extends StatelessWidget {
+  final List<MessageImage> images;
+
+  const _ShareImageStrip({required this.images});
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: images.map((image) {
+        final file = File(image.path);
+        if (!file.existsSync()) return const SizedBox.shrink();
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Image.file(file, width: 150, height: 150, fit: BoxFit.cover),
+        );
+      }).toList(),
+    );
+  }
+}
+
 class _DialogSettingsContent extends StatefulWidget {
+  final ConversationSettings settings;
+  final ValueChanged<ConversationSettings> onChanged;
+
+  const _DialogSettingsContent({
+    required this.settings,
+    required this.onChanged,
+  });
+
   @override
   State<_DialogSettingsContent> createState() => _DialogSettingsContentState();
 }
@@ -1973,19 +2852,36 @@ class _DialogSettingsContent extends StatefulWidget {
 class _DialogSettingsContentState extends State<_DialogSettingsContent> {
   bool _showSpeechList = false;
   bool _showImageList = false;
+  bool _showImageRecognitionList = false;
   bool _showSystemPromptList = false;
   String? _expandedSpeechId;
   String? _expandedImageId;
+  String? _expandedImageRecognitionId;
+  late ConversationSettings _settings;
+
+  @override
+  void initState() {
+    super.initState();
+    _settings = widget.settings;
+  }
+
+  void _updateSettings(ConversationSettings settings) {
+    _settings = settings;
+    widget.onChanged(settings);
+  }
 
   @override
   Widget build(BuildContext context) {
     final set = context.watch<SettingsProvider>().settings;
     final mp = context.watch<ModelConfigProvider>();
-    final speechModel = set.speechModelId != null
-        ? _findModelConfigById(mp.models, set.speechModelId!)
+    final speechModel = _settings.speechModelId != null
+        ? _findModelConfigById(mp.models, _settings.speechModelId!)
         : null;
-    final ocrModel = set.imageModelId != null
-        ? _findModelConfigById(mp.models, set.imageModelId!)
+    final ocrModel = _settings.imageModelId != null
+        ? _findModelConfigById(mp.models, _settings.imageModelId!)
+        : null;
+    final imageRecognitionModel = _settings.imageRecognitionModelId != null
+        ? _findModelConfigById(mp.models, _settings.imageRecognitionModelId!)
         : null;
 
     return DraggableScrollableSheet(
@@ -2094,14 +2990,14 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                   _expandedSpeechId = null;
                 }),
                 onSelect: (id) {
-                  context.read<SettingsProvider>().setSpeechModelId(id);
+                  _updateSettings(_settings.copyWith(speechModelId: id));
                   setState(() {
                     _showSpeechList = false;
                     _expandedSpeechId = null;
                   });
                 },
                 onExpandProvider: (id) {
-                  context.read<SettingsProvider>().setSpeechModelId(id);
+                  _updateSettings(_settings.copyWith(speechModelId: id));
                   setState(() {
                     _expandedSpeechId = id;
                   });
@@ -2115,7 +3011,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                   });
                 },
                 onClear: () {
-                  context.read<SettingsProvider>().setSpeechModelId(null);
+                  _updateSettings(_settings.copyWith(speechModelId: null));
                   setState(() {
                     _expandedSpeechId = null;
                   });
@@ -2146,14 +3042,14 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                   _expandedImageId = null;
                 }),
                 onSelect: (id) {
-                  context.read<SettingsProvider>().setImageModelId(id);
+                  _updateSettings(_settings.copyWith(imageModelId: id));
                   setState(() {
                     _showImageList = false;
                     _expandedImageId = null;
                   });
                 },
                 onExpandProvider: (id) {
-                  context.read<SettingsProvider>().setImageModelId(id);
+                  _updateSettings(_settings.copyWith(imageModelId: id));
                   setState(() {
                     _expandedImageId = id;
                   });
@@ -2167,16 +3063,67 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                   });
                 },
                 onClear: () {
-                  context.read<SettingsProvider>().setImageModelId(null);
+                  _updateSettings(_settings.copyWith(imageModelId: null));
                   setState(() {
                     _expandedImageId = null;
                   });
                 },
               ),
               const SizedBox(height: 16),
-              // OCR 提示词
+              // 图片识别模型
               Text(
-                'OCR 后发送给 Chat 的提示词',
+                '图片识别模型',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700],
+                ),
+              ),
+              const SizedBox(height: 8),
+              _inlineModelPicker(
+                mp: mp,
+                category: ModelConfig.categoryChat,
+                currentModel: imageRecognitionModel,
+                showList: _showImageRecognitionList,
+                expandedId: _expandedImageRecognitionId,
+                hint: '未设置（启用图片识别按钮后将用该模型识图）',
+                icon: Icons.image_search,
+                onToggle: () => setState(() {
+                  _showSpeechList = false;
+                  _showImageList = false;
+                  _showSystemPromptList = false;
+                  _showImageRecognitionList = !_showImageRecognitionList;
+                  _expandedImageRecognitionId = null;
+                }),
+                onSelect: (id) {
+                  _updateSettings(
+                    _settings.copyWith(imageRecognitionModelId: id),
+                  );
+                  setState(() {
+                    _showImageRecognitionList = false;
+                    _expandedImageRecognitionId = null;
+                  });
+                },
+                onExpandProvider: (id) {
+                  _updateSettings(
+                    _settings.copyWith(imageRecognitionModelId: id),
+                  );
+                  setState(() => _expandedImageRecognitionId = id);
+                },
+                onSelectSub: (config, modelName) {
+                  final c = config.copyWith(modelName: modelName);
+                  context.read<ModelConfigProvider>().updateModel(c);
+                },
+                onClear: () {
+                  _updateSettings(
+                    _settings.copyWith(imageRecognitionModelId: null),
+                  );
+                },
+              ),
+              const SizedBox(height: 16),
+              // 图片识别提示词
+              Text(
+                '图片识别提示词',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
@@ -2186,13 +3133,14 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
               const SizedBox(height: 8),
               InkWell(
                 onTap: () async {
-                  final sp = context.read<SettingsProvider>();
                   final result = await _showPromptDialog(
                     context,
-                    set.imagePrompt,
+                    _settings.imageRecognitionPrompt,
                   );
                   if (result != null && mounted) {
-                    sp.setImagePrompt(result);
+                    _updateSettings(
+                      _settings.copyWith(imageRecognitionPrompt: result),
+                    );
                   }
                 },
                 child: Container(
@@ -2205,7 +3153,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    set.imagePrompt,
+                    _settings.imageRecognitionPrompt,
                     style: TextStyle(fontSize: 13, color: Colors.grey[600]),
                   ),
                 ),
@@ -2483,10 +3431,10 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
   }
 
   String _currentSystemPromptLabel(AppSettings set) {
-    if (set.selectedSystemPromptId != null) {
+    if (_settings.selectedSystemPromptId != null) {
       try {
         final p = set.systemPrompts.firstWhere(
-          (p) => p.id == set.selectedSystemPromptId,
+          (p) => p.id == _settings.selectedSystemPromptId,
         );
         return p.title;
       } catch (_) {}
@@ -2500,7 +3448,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
 
   Widget _systemPromptList(AppSettings set) {
     final prompts = set.systemPrompts;
-    final selectedId = set.selectedSystemPromptId;
+    final selectedId = _settings.selectedSystemPromptId;
     return Container(
       constraints: const BoxConstraints(maxHeight: 220),
       decoration: BoxDecoration(
@@ -2531,7 +3479,9 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                 overflow: TextOverflow.ellipsis,
               ),
               onTap: () {
-                context.read<SettingsProvider>().selectSystemPrompt(null);
+                _updateSettings(
+                  _settings.copyWith(selectedSystemPromptId: null),
+                );
                 _closeSystemPromptList();
               },
             );
@@ -2583,7 +3533,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
               onPressed: () => _editSystemPrompt(p),
             ),
             onTap: () {
-              context.read<SettingsProvider>().selectSystemPrompt(p.id);
+              _updateSettings(_settings.copyWith(selectedSystemPromptId: p.id));
               _closeSystemPromptList();
             },
           );
@@ -2597,7 +3547,11 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
       context: context,
       builder: (ctx) => _SystemPromptEditDialog(
         onSave: (title, content) {
-          context.read<SettingsProvider>().addSystemPrompt(title, content);
+          final id = context.read<SettingsProvider>().addSystemPrompt(
+            title,
+            content,
+          );
+          _updateSettings(_settings.copyWith(selectedSystemPromptId: id));
         },
       ),
     );

@@ -12,12 +12,13 @@
 | 方法 | 说明 |
 |------|------|
 | `loadConversations()` | 从SharedPreferences加载, 加载失败初始化为空列表 |
-| `createConversation(modelId)` | 新建对话, 返回ID, 失败抛出异常 |
-| `addMessage(convId, role, content)` | 添加消息, 首条user消息自动设为标题(截取前20字符), 更新后对话移至列表顶部 |
+| `createConversation(settings)` | 使用对话设置快照新建对话, 返回ID, 失败抛出异常 |
+| `addMessage(convId, role, content, {images})` | 添加消息和可选图片附件, 首条user消息自动设为标题(截取前20字符), 更新后对话移至列表顶部 |
 | `updateLastMessage(convId, content, {save: true})` | 增量更新最后一条消息(用于流式渲染), save参数控制是否立即持久化 |
 | `updateMessageContent(convId, msgId, content)` | 更新指定消息内容(用于重试/编辑), 更新后对话移至列表顶部 |
 | `updateConversationTitle(convId, title)` | 更新对话标题 |
 | `updateConversationModelId(convId, modelId)` | 更新对话绑定的模型ID |
+| `updateConversationSettings(convId, settings)` | 更新对话级设置快照 |
 | `deleteMessage(convId, msgId)` | 删除指定消息 |
 | `deleteConversation(convId)` | 删除对话 |
 | `getConversation(convId)` | 按ID获取, 不存在返回null |
@@ -30,15 +31,18 @@
 ## ModelConfigProvider
 **文件**: `lib/providers/model_config_provider.dart`
 
-**核心数据**: `List<ModelConfig> models` (按priority升序, 数字越小优先级越高)
+**核心数据**: `List<ModelConfig> models` (先按 category，再按 priority 升序)
 
 | 方法 | 说明 |
 |------|------|
 | `loadModels()` | 从SharedPreferences加载, 加载失败初始化为空列表 |
+| `modelsByCategory(category)` | 返回指定分类下的模型配置 |
+| `nextPriorityForCategory(category)` | 返回指定分类下的新配置优先级 |
 | `addModel(config)` | 添加配置(自动按priority排序后持久化) |
 | `updateModel(config)` | 按ID查找并更新配置(重新排序) |
 | `deleteModel(id)` | 按ID删除配置 |
 | `reorderModel(old, new)` | 拖拽重排后更新所有model的priority值(0-based) |
+| `reorderModelsInCategory(category, old, new)` | 仅重排指定分类内的模型优先级 |
 | `generateId()` | 生成UUID v4 |
 
 ---
@@ -57,13 +61,18 @@
 | `setBlurEnabled(bool)` | 毛玻璃模糊开关 |
 | `setBlurAmount(double)` | 模糊程度(0-20, 默认5.0) |
 | `setSpeechModelId(id)` | 语音转文字模型ID(null=未设置, 语音功能不可用) |
-| `setImageModelId(id)` | 图片转述模型ID(null=未设置, 图片直接作为文本发送) |
-| `setImagePrompt(prompt)` | 图片转述提示词(默认"Describe this file in Chinese") |
+| `setImageModelId(id)` | OCR 模型ID(null=未设置) |
+| `setImageRecognitionModelId(id)` | 多模态图片识别 Chat 模型ID(null=未设置) |
+| `setImageRecognitionEnabled(bool)` | 图片识别开关 |
+| `setLastChatModelId(id)` | 新对话默认 Chat 模型ID |
+| `setImageRecognitionPrompt(prompt)` | 图片识别提示词 |
 | `setSystemPrompt(prompt)` | 全局系统提示词(默认"You are a helpful assistant.") |
 | `addSystemPrompt(title, content)` | 添加自定义系统提示词模板 |
 | `updateSystemPrompt(id, title, content)` | 更新指定提示词模板 |
 | `deleteSystemPrompt(id)` | 删除提示词模板(若当前选中则自动切换) |
 | `selectSystemPrompt(id)` | 选择当前使用的提示词模板(null=使用默认systemPrompt) |
+
+| `applyConversationSettings(settings)` | 将当前对话的设置快照同步到全局设置，便于 UI 控件显示当前状态 |
 
 **计算属性**: `themeMode` → String; `themeModeEnum` → ThemeMode枚举; `effectiveSystemPrompt` → 当前生效的提示词内容(优先选中模板, 否则用默认)
 

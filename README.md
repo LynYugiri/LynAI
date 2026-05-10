@@ -10,16 +10,20 @@
 
 ## 功能
 
-- **多模型支持** — OpenAI 兼容接口、Ollama、Anthropic，可自定义 Endpoint
-- **多模型管理** — 每提供商下可管理多个子模型，自由切换
+- **分类模型管理** — Chat、OCR、语音转文字、图片生成四类配置独立管理，可拖拽排序
+- **多提供商支持** — OpenAI 兼容接口、Ollama、Anthropic、vivo 相关能力，可自定义 Endpoint
+- **多子模型切换** — 每个提供商下可维护多个子模型，聊天中快速切换
 - **流式对话** — SSE 实时逐字渲染，聊天体验流畅
 - **Markdown + LaTeX** — 支持代码块、公式渲染 (内联 `$...$` / 块级 `$$...$$`)
 - **思考过程** — 支持 DeepSeek 等推理模型的思考链展示
-- **语音输入** — 语音→转写模型→当前模型回复，全链路自动化
-- **图片分享** — 截图对话内容，一键分享
+- **语音输入** — 可使用系统语音识别，或配置 vivo 长语音转写接口
+- **图片理解** — 支持 OCR 文字识别，也可用多模态 Chat 模型进行图片识别
+- **图片生成接口** — 可配置 OpenAI Images 或 vivo 原生图片生成接口
+- **长图分享** — 选择多条聊天记录生成长图，支持 Markdown/LaTeX 渲染，桌面端可复制到剪贴板
 - **历史搜索** — 按标题 / 内容搜索历史对话，关键词高亮
 - **主题定制** — 36 种预设色 + HSV 调色板自由组合
 - **背景自定义** — 支持图片背景 + 毛玻璃效果
+- **跨会话设置** — 每个对话保存模型、思考开关、系统提示词、语音/OCR/图片识别设置快照
 
 ## 支持平台
 
@@ -61,6 +65,27 @@ flutter build ios                    # iOS (需 macOS)
 
 需要 Flutter SDK ^3.11.5。
 
+## 模型配置说明
+
+进入 `设置 -> API` 后按类别添加配置：
+
+| 类别 | 用途 | 说明 |
+|------|------|------|
+| Chat | 普通对话、流式回复、多模态图片识别 | 支持 OpenAI 兼容、Ollama、Anthropic、自定义接口 |
+| OCR | 图片中文字提取 | 当前内置 vivo OCR 请求格式，需填写 AppID 与 AppKey |
+| 语音转文字 | 录音文件转写 | 当前内置 vivo 长语音转写流程，需填写 AppID 与 AppKey |
+| 图片生成 | 文生图/图生图接口配置 | 支持 OpenAI Images 格式和 vivo 原生接口 |
+
+对话页底部的 `对话设置` 会把当前对话的模型、系统提示词、语音/OCR/图片识别设置保存为快照。切换历史对话时，会恢复该对话自己的设置。
+
+## 聊天与分享
+
+- 桌面端输入框支持 `Enter` 发送、`Shift + Enter` 换行，并支持 `Ctrl/Cmd + V` 粘贴图片。
+- 图片附件会复制到应用私有目录，避免系统清理临时文件后历史消息丢图。
+- 开启“图片识别”后，发送图片前会先用选中的多模态 Chat 模型识别图片，并把识别文本追加给当前对话模型。
+- 未开启图片识别但配置了 OCR 时，会先提取图片文字；未配置 OCR 时，仅把图片文件名和大小作为上下文发送。
+- 长图分享使用长内容截图，选中较多消息时会自动降低像素比以减少内存压力。
+
 ## 开发验证
 
 ```bash
@@ -78,9 +103,12 @@ flutter test
 | 状态管理 | Provider + ChangeNotifier |
 | HTTP | http |
 | 持久化 | SharedPreferences (JSON) |
-| Markdown | flutter_markdown |
+| Markdown | flutter_markdown_plus |
+| LaTeX | flutter_math_fork |
 | 语音识别 | speech_to_text |
+| 录音 | record |
 | 图片选择 | image_picker |
+| 剪贴板 | super_clipboard |
 | 分享 | share_plus |
 | 截图 | screenshot |
 | UI | Material 3, ColorScheme.fromSeed |

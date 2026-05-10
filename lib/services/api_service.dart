@@ -5,6 +5,13 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import '../models/model_config.dart';
 
+class ChatImageInput {
+  final Uint8List bytes;
+  final String mimeType;
+
+  ChatImageInput({required this.bytes, required this.mimeType});
+}
+
 class StreamChunk {
   final String? content;
   final String? reasoningContent;
@@ -57,6 +64,103 @@ class ApiService {
       throw Exception('OCR 识别失败: ${response.statusCode} ${response.body}');
     }
     return _extractOcrText(data);
+  }
+
+  Future<String> recognizeImageTextWithChatModel(
+    ModelConfig config,
+    String prompt,
+    List<ChatImageInput> images,
+  ) async {
+    if (images.isEmpty) return '';
+    if (config.apiType == 'ollama') {
+      return _recognizeImageTextWithOllama(config, prompt, images);
+    }
+
+    final messages = [
+      {
+        'role': 'user',
+        'content': [
+          {'type': 'text', 'text': prompt},
+          ...images.map(
+            (image) => {
+              'type': 'image_url',
+              'image_url': {
+                'url':
+                    'data:${image.mimeType};base64,${base64Encode(image.bytes)}',
+              },
+            },
+          ),
+        ],
+      },
+    ];
+
+    if (config.apiType == 'anthropic') {
+      final result = await _sendAnthropicRequest(config, messages);
+      return result.content.trim();
+    }
+
+    final result = await _sendOpenAICompatibleRequest(config, messages);
+    return result.content.trim();
+  }
+
+  Future<String> _recognizeImageTextWithOllama(
+    ModelConfig config,
+    String prompt,
+    List<ChatImageInput> images,
+  ) async {
+    final uri = _endpointUri(config, '/api/chat');
+    final body = <String, dynamic>{
+      'model': config.modelName,
+      'messages': [
+        {
+          'role': 'user',
+          'content': prompt,
+          'images': images.map((e) => base64Encode(e.bytes)).toList(),
+        },
+      ],
+      'stream': false,
+    };
+    if (config.maxTokens != null ||
+        config.temperature != null ||
+        config.topP != null) {
+      body['options'] = {
+        if (config.maxTokens != null) 'num_predict': config.maxTokens,
+        if (config.temperature != null) 'temperature': config.temperature,
+        if (config.topP != null) 'top_p': config.topP,
+      };
+    }
+    for (final entry in config.extraParams.entries) {
+      if (!body.containsKey(entry.key)) {
+        body[entry.key] = entry.value;
+      }
+    }
+
+    final response = await http
+        .post(
+          uri,
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(body),
+        )
+        .timeout(
+          _timeout,
+          onTimeout: () {
+            throw TimeoutException('连接超时，请检查 Ollama 服务是否运行');
+          },
+        );
+
+    if (response.statusCode != 200) {
+      throw Exception('Ollama 图片识别失败: ${response.statusCode} ${response.body}');
+    }
+
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final rawContent = data['message']?['content'] as String? ?? '';
+    final thinkMatch = RegExp(
+      r'<think[^>]*>(.*?)</think>',
+      dotAll: true,
+    ).firstMatch(rawContent);
+    return (thinkMatch?.group(1) ?? rawContent)
+        .replaceAll(RegExp(r'<think[^>]*>.*?</think>', dotAll: true), '')
+        .trim();
   }
 
   Future<String> transcribeAudio(
@@ -381,7 +485,7 @@ class ApiService {
       if (config.maxTokens != null) 'max_tokens': config.maxTokens,
       if (config.temperature != null) 'temperature': config.temperature,
       if (config.topP != null) 'top_p': config.topP,
-      if (thinking) 'thinking': {'type': 'enabled'},
+      'thinking': {'type': thinking ? 'enabled' : 'disabled'},
     };
     for (final entry in config.extraParams.entries) {
       if (!body.containsKey(entry.key)) {
@@ -436,7 +540,7 @@ class ApiService {
       if (config.maxTokens != null) 'max_tokens': config.maxTokens,
       if (config.temperature != null) 'temperature': config.temperature,
       if (config.topP != null) 'top_p': config.topP,
-      if (thinking) 'thinking': {'type': 'enabled'},
+      'thinking': {'type': thinking ? 'enabled' : 'disabled'},
     };
     for (final entry in config.extraParams.entries) {
       if (!body.containsKey(entry.key)) {
@@ -728,7 +832,6 @@ class ApiService {
       if (systemPrompt != null) 'system': systemPrompt,
       if (config.temperature != null) 'temperature': config.temperature,
       if (config.topP != null) 'top_p': config.topP,
-      'thinking': {'type': thinking ? 'enabled' : 'disabled'},
     };
     for (final entry in config.extraParams.entries) {
       if (!body.containsKey(entry.key)) {
@@ -820,7 +923,6 @@ class ApiService {
       if (systemPrompt != null) 'system': systemPrompt,
       if (config.temperature != null) 'temperature': config.temperature,
       if (config.topP != null) 'top_p': config.topP,
-      'thinking': {'type': thinking ? 'enabled' : 'disabled'},
     };
     for (final entry in config.extraParams.entries) {
       if (!body.containsKey(entry.key)) {
