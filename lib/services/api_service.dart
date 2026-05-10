@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import '../models/model_config.dart';
+import 'tool_call_service.dart';
 
 class ChatImageInput {
   final Uint8List bytes;
@@ -18,6 +19,18 @@ class StreamChunk {
   final bool isDone;
 
   StreamChunk({this.content, this.reasoningContent, this.isDone = false});
+}
+
+class ChatResponse {
+  final String content;
+  final String? reasoning;
+  final List<ChatToolCall> toolCalls;
+
+  const ChatResponse({
+    required this.content,
+    this.reasoning,
+    this.toolCalls = const [],
+  });
 }
 
 class ApiService {
@@ -413,10 +426,12 @@ class ApiService {
     return '';
   }
 
-  Future<({String content, String? reasoning})> sendChatRequest(
+  Future<ChatResponse> sendChatRequest(
     ModelConfig config,
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
+    List<Map<String, dynamic>> tools = const [],
+    String? toolChoice,
   }) async {
     try {
       if (config.apiType == 'ollama') {
@@ -436,6 +451,8 @@ class ApiService {
           config,
           messages,
           thinking: thinking,
+          tools: tools,
+          toolChoice: toolChoice,
         ).timeout(_timeout);
       }
     } on TimeoutException {
@@ -471,21 +488,25 @@ class ApiService {
     }
   }
 
-  Future<({String content, String? reasoning})> _sendOpenAICompatibleRequest(
+  Future<ChatResponse> _sendOpenAICompatibleRequest(
     ModelConfig config,
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
+    List<Map<String, dynamic>> tools = const [],
+    String? toolChoice,
   }) async {
     final uri = _endpointUri(config, '/chat/completions');
 
     final body = <String, dynamic>{
       'model': config.modelName,
-      'messages': messages,
+      'messages': _withReasoningPlaceholders(messages, thinking: thinking),
       'stream': false,
       if (config.maxTokens != null) 'max_tokens': config.maxTokens,
       if (config.temperature != null) 'temperature': config.temperature,
       if (config.topP != null) 'top_p': config.topP,
       'thinking': {'type': thinking ? 'enabled' : 'disabled'},
+      if (tools.isNotEmpty) 'tools': tools,
+      if (tools.isNotEmpty) 'tool_choice': toolChoice ?? 'auto',
     };
     for (final entry in config.extraParams.entries) {
       if (!body.containsKey(entry.key)) {
@@ -520,7 +541,11 @@ class ApiService {
       }
       final content = message['content'] as String? ?? '';
       final reasoning = message['reasoning_content'] as String?;
-      return (content: content, reasoning: reasoning);
+      return ChatResponse(
+        content: content,
+        reasoning: reasoning,
+        toolCalls: _parseOpenAIToolCalls(message),
+      );
     } else {
       throw Exception('API 请求失败: ${response.statusCode} ${response.body}');
     }
@@ -535,7 +560,7 @@ class ApiService {
 
     final body = <String, dynamic>{
       'model': config.modelName,
-      'messages': messages,
+      'messages': _withReasoningPlaceholders(messages, thinking: thinking),
       'stream': true,
       if (config.maxTokens != null) 'max_tokens': config.maxTokens,
       if (config.temperature != null) 'temperature': config.temperature,
@@ -606,7 +631,7 @@ class ApiService {
     }
   }
 
-  Future<({String content, String? reasoning})> _sendOllamaRequest(
+  Future<ChatResponse> _sendOllamaRequest(
     ModelConfig config,
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
@@ -665,7 +690,7 @@ class ApiService {
       final content = rawContent
           .replaceAll(RegExp(r'<think[^>]*>.*?</think>', dotAll: true), '')
           .trim();
-      return (content: content, reasoning: reasoning);
+      return ChatResponse(content: content, reasoning: reasoning);
     } else {
       throw Exception('Ollama 请求失败: ${response.statusCode} ${response.body}');
     }
@@ -896,7 +921,7 @@ class ApiService {
     }
   }
 
-  Future<({String content, String? reasoning})> _sendAnthropicRequest(
+  Future<ChatResponse> _sendAnthropicRequest(
     ModelConfig config,
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
@@ -958,7 +983,7 @@ class ApiService {
           reasoning += block['thinking'] as String? ?? '';
         }
       }
-      return (
+      return ChatResponse(
         content: content,
         reasoning: reasoning.isNotEmpty ? reasoning : null,
       );
@@ -967,5 +992,50 @@ class ApiService {
         'Anthropic 请求失败: ${response.statusCode} ${response.body}',
       );
     }
+  }
+
+  List<ChatToolCall> _parseOpenAIToolCalls(dynamic message) {
+    final rawCalls = message is Map ? message['tool_calls'] : null;
+    if (rawCalls is! List) return const [];
+    final calls = <ChatToolCall>[];
+    for (final raw in rawCalls) {
+      if (raw is! Map) continue;
+      final function = raw['function'];
+      if (function is! Map) continue;
+      final name = function['name'] as String? ?? '';
+      if (name.isEmpty) continue;
+      final rawArgs = function['arguments'];
+      Map<String, dynamic> args = {};
+      if (rawArgs is String && rawArgs.trim().isNotEmpty) {
+        try {
+          final decoded = jsonDecode(rawArgs);
+          if (decoded is Map<String, dynamic>) args = decoded;
+        } catch (_) {}
+      } else if (rawArgs is Map<String, dynamic>) {
+        args = rawArgs;
+      }
+      calls.add(
+        ChatToolCall(
+          id: raw['id'] as String? ?? 'call_${calls.length}',
+          name: name,
+          arguments: args,
+        ),
+      );
+    }
+    return calls;
+  }
+
+  List<Map<String, dynamic>> _withReasoningPlaceholders(
+    List<Map<String, dynamic>> messages, {
+    required bool thinking,
+  }) {
+    if (!thinking) return messages;
+    return messages.map((message) {
+      if (message['role'] != 'assistant' ||
+          message.containsKey('reasoning_content')) {
+        return message;
+      }
+      return {...message, 'reasoning_content': null};
+    }).toList();
   }
 }

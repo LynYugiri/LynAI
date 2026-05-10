@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../app_version.dart';
 import '../providers/settings_provider.dart';
 
 /// 关于页面
@@ -49,7 +50,7 @@ class AboutPage extends StatelessWidget {
               const SizedBox(height: 8),
               // 版本号
               Text(
-                'Version 2.1.0',
+                'Version $appVersion',
                 style: TextStyle(
                   fontSize: 14,
                   color: Colors.grey[600],

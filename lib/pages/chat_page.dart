@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -17,9 +18,11 @@ import '../models/model_config.dart';
 import '../models/app_settings.dart';
 import '../models/system_prompt.dart';
 import '../providers/conversation_provider.dart';
+import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/api_service.dart';
+import '../services/tool_call_service.dart';
 import '../widgets/latex_renderer.dart';
 
 class _RetryEntry {
@@ -406,6 +409,9 @@ class _ChatPageState extends State<ChatPage> {
     _pendingModelId = null;
     _clearRetryState();
     final images = _pendingImages.map((e) => e.toMessageImage()).toList();
+    final isFirstUserMessage =
+        _convId != null &&
+        (cp.getConversation(_convId!)?.messages.isEmpty ?? false);
     cp.addMessage(_convId!, 'user', text, images: images);
     _msgCtrl.clear();
     setState(() {
@@ -418,7 +424,12 @@ class _ChatPageState extends State<ChatPage> {
     try {
       final apiUserContent = await _buildUserContentWithImages(text, images);
       if (!mounted) return;
-      _doSend(model, lastUserContentOverride: apiUserContent);
+      _doSend(
+        model,
+        lastUserContentOverride: apiUserContent,
+        allowTools: _isToolIntent(text),
+        createTitle: isFirstUserMessage,
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() => _streaming = false);
@@ -426,7 +437,12 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  void _doSend(ModelConfig model, {String? lastUserContentOverride}) {
+  void _doSend(
+    ModelConfig model, {
+    String? lastUserContentOverride,
+    bool allowTools = false,
+    bool createTitle = false,
+  }) {
     final cid = _convId;
     if (cid == null) return;
     final conv = context.read<ConversationProvider>().getConversation(cid);
@@ -434,8 +450,13 @@ class _ChatPageState extends State<ChatPage> {
     final msgs = _buildApiMessages(
       conv,
       lastUserContentOverride: lastUserContentOverride,
+      enableTools: allowTools,
     );
-    _doStream(model, msgs);
+    if (allowTools) {
+      unawaited(_doToolSend(model, msgs, createTitle: createTitle));
+      return;
+    }
+    _doStream(model, msgs, createTitle: createTitle);
   }
 
   void _sendRetry(String text) {
@@ -473,12 +494,13 @@ class _ChatPageState extends State<ChatPage> {
       _streaming = true;
       _thinkingTxt = null;
     });
-    _doSend(model);
+    _doSend(model, allowTools: _isToolIntent(text));
   }
 
   List<Map<String, dynamic>> _buildApiMessages(
     Conversation conv, {
     String? lastUserContentOverride,
+    bool enableTools = false,
   }) {
     final msgs = <Map<String, dynamic>>[];
     final promptContent = conv.settings.selectedSystemPromptId != null
@@ -488,7 +510,14 @@ class _ChatPageState extends State<ChatPage> {
           )
         : conv.settings.systemPrompt;
     if (promptContent.isNotEmpty) {
-      msgs.add({'role': 'system', 'content': promptContent});
+      msgs.add({
+        'role': 'system',
+        'content': enableTools
+            ? '$promptContent\n\n${ToolCallService.systemPrompt}'
+            : promptContent,
+      });
+    } else if (enableTools) {
+      msgs.add({'role': 'system', 'content': ToolCallService.systemPrompt});
     }
     final lastUserIndex = lastUserContentOverride == null
         ? -1
@@ -504,7 +533,188 @@ class _ChatPageState extends State<ChatPage> {
     return msgs;
   }
 
-  void _doStream(ModelConfig model, List<Map<String, dynamic>> msgs) {
+  bool _isToolIntent(String text) {
+    final value = text.toLowerCase();
+    return value.contains('日程') ||
+        value.contains('安排') ||
+        value.contains('计划') ||
+        value.contains('时间') ||
+        value.contains('几点') ||
+        value.contains('位置') ||
+        value.contains('在哪里') ||
+        value.contains('打开') ||
+        value.contains('应用') ||
+        value.contains('app') ||
+        value.contains('笔记') ||
+        value.contains('便签') ||
+        value.contains('备忘') ||
+        value.contains('查看') ||
+        value.contains('读取') ||
+        value.contains('读一下') ||
+        value.contains('总结') ||
+        value.contains('记录') ||
+        value.contains('保存') ||
+        value.contains('package');
+  }
+
+  bool _supportsNativeTools(ModelConfig model) {
+    return model.apiType != 'ollama' && model.apiType != 'anthropic';
+  }
+
+  Future<void> _doToolSend(
+    ModelConfig model,
+    List<Map<String, dynamic>> msgs, {
+    bool createTitle = false,
+  }) async {
+    if (!mounted) return;
+    final cp = context.read<ConversationProvider>();
+    final cid = _convId!;
+    final gen = ++_streamGen;
+    String content = '';
+    String? reasoning;
+    try {
+      final toolService = ToolCallService(context.read<FeatureProvider>());
+      final working = List<Map<String, dynamic>>.from(msgs);
+      for (var i = 0; i < 4; i++) {
+        final supportsNativeTools = _supportsNativeTools(model);
+        final response = await _api.sendChatRequest(
+          model,
+          working,
+          thinking: _thinking,
+          tools: supportsNativeTools ? ToolCallService.openAITools() : const [],
+          toolChoice: i == 3 && supportsNativeTools ? 'none' : 'auto',
+        );
+        if (!mounted || gen != _streamGen) return;
+        final fallbackCalls = response.toolCalls.isEmpty
+            ? ToolCallService.parseFallbackToolCalls(response.content)
+            : const <ChatToolCall>[];
+        final calls = response.toolCalls.isNotEmpty
+            ? response.toolCalls
+            : fallbackCalls;
+        if (calls.isEmpty) {
+          content = response.content;
+          reasoning = response.reasoning;
+          break;
+        }
+        final conv = cp.getConversation(cid);
+        final results = await toolService.executeAll(
+          calls,
+          conv?.messages ?? const [],
+        );
+        if (!mounted || gen != _streamGen) return;
+        working.add(_assistantToolCallMessage(response.content, calls));
+        for (final result in results) {
+          working.add(
+            _toolResultMessage(
+              result,
+              nativeTool: response.toolCalls.isNotEmpty,
+            ),
+          );
+        }
+      }
+      if (content.trim().isEmpty) {
+        content = '工具调用已执行，但模型没有返回最终回复。';
+      }
+      setState(() {
+        _streaming = false;
+        _thinkingTxt = reasoning;
+      });
+      cp.updateLastMessage(cid, content, save: true);
+      final conv = cp.getConversation(cid);
+      if (conv != null && conv.messages.isNotEmpty && reasoning != null) {
+        _thinkMap[conv.messages.last.id] = reasoning;
+      }
+      if (createTitle) unawaited(_maybeCreateConversationTitle(model, cid));
+      _scrollEnd();
+    } catch (e) {
+      if (!mounted || gen != _streamGen) return;
+      setState(() => _streaming = false);
+      String msg = e.toString();
+      if (msg.startsWith('Exception: ')) msg = msg.substring(11);
+      cp.updateLastMessage(cid, '请求失败: $msg', save: true);
+    }
+  }
+
+  Map<String, dynamic> _assistantToolCallMessage(
+    String content,
+    List<ChatToolCall> calls,
+  ) {
+    return {
+      'role': 'assistant',
+      'content': content,
+      'tool_calls': calls
+          .map(
+            (call) => {
+              'id': call.id,
+              'type': 'function',
+              'function': {
+                'name': call.name,
+                'arguments': _jsonEncode(call.arguments),
+              },
+            },
+          )
+          .toList(),
+    };
+  }
+
+  Map<String, dynamic> _toolResultMessage(
+    ToolExecutionResult result, {
+    required bool nativeTool,
+  }) {
+    final content = _jsonEncode(result.result);
+    if (nativeTool) {
+      return {
+        'role': 'tool',
+        'tool_call_id': result.toolCallId,
+        'name': result.name,
+        'content': content,
+      };
+    }
+    return {
+      'role': 'user',
+      'content': '工具 ${result.name} 返回：$content\n请根据工具结果给用户最终回复。',
+    };
+  }
+
+  String _jsonEncode(Object? value) => const JsonEncoder().convert(value);
+
+  Future<void> _maybeCreateConversationTitle(
+    ModelConfig model,
+    String cid,
+  ) async {
+    final cp = context.read<ConversationProvider>();
+    final conv = cp.getConversation(cid);
+    if (conv == null ||
+        conv.messages.where((m) => m.role == 'user').length != 1) {
+      return;
+    }
+    final firstUser = conv.messages.firstWhere((m) => m.role == 'user');
+    try {
+      final response = await _api.sendChatRequest(model, [
+        {
+          'role': 'system',
+          'content': '根据用户第一条消息创建一个简短中文对话标题，只返回标题本身，最多 16 个字。',
+        },
+        {'role': 'user', 'content': firstUser.content},
+      ], thinking: false);
+      if (!mounted) return;
+      final title = response.content
+          .replaceAll(RegExp(r'[\r\n"“”]'), '')
+          .trim();
+      if (title.isNotEmpty) {
+        cp.updateConversationTitle(
+          cid,
+          title.length > 24 ? title.substring(0, 24) : title,
+        );
+      }
+    } catch (_) {}
+  }
+
+  void _doStream(
+    ModelConfig model,
+    List<Map<String, dynamic>> msgs, {
+    bool createTitle = false,
+  }) {
     if (!mounted) return;
     final cp = context.read<ConversationProvider>();
     final cid = _convId!;
@@ -537,6 +747,7 @@ class _ChatPageState extends State<ChatPage> {
               _retryHistory[_retryIdx].thinkingContent = think;
             }
           }
+          if (createTitle) unawaited(_maybeCreateConversationTitle(model, cid));
         } else {
           cp.updateLastMessage(cid, buf, save: false);
           if (thinkBuf.isNotEmpty) setState(() => _thinkingTxt = thinkBuf);
@@ -575,6 +786,7 @@ class _ChatPageState extends State<ChatPage> {
               _retryHistory[_retryIdx].thinkingContent = think;
             }
           }
+          if (createTitle) unawaited(_maybeCreateConversationTitle(model, cid));
         } else {
           setState(() => _streaming = false);
         }
@@ -640,7 +852,7 @@ class _ChatPageState extends State<ChatPage> {
     });
     final retryModel = _getModel(context.read<ModelConfigProvider>());
     if (retryModel != null) {
-      _doSend(retryModel);
+      _doSend(retryModel, allowTools: _isToolIntent(lastUser.content));
     } else {
       setState(() => _streaming = false);
       _showMissingChatModelTip();
@@ -666,7 +878,17 @@ class _ChatPageState extends State<ChatPage> {
     });
     final retryModel = _getModel(context.read<ModelConfigProvider>());
     if (retryModel != null) {
-      _doSend(retryModel);
+      final conv = cp.getConversation(_convId!);
+      final userMessages = conv?.messages
+          .where((m) => m.role == 'user')
+          .toList();
+      final lastUser = userMessages == null || userMessages.isEmpty
+          ? null
+          : userMessages.last;
+      _doSend(
+        retryModel,
+        allowTools: lastUser == null ? false : _isToolIntent(lastUser.content),
+      );
     } else {
       setState(() => _streaming = false);
       _showMissingChatModelTip();

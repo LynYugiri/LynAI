@@ -15,6 +15,12 @@ class ConversationProvider extends ChangeNotifier {
   final _uuid = const Uuid();
   static const _storageKey = 'conversations';
 
+  void _touchConversation(int index, Conversation conversation) {
+    _conversations[index] = conversation;
+    final updated = _conversations.removeAt(index);
+    _conversations.insert(0, updated);
+  }
+
   /// 获取所有对话列表（按更新时间倒序排列）
   List<Conversation> get conversations => List.unmodifiable(_conversations);
 
@@ -44,6 +50,7 @@ class ConversationProvider extends ChangeNotifier {
       debugPrint('加载对话失败: $e');
       // 初始化空列表，避免应用崩溃
       _conversations = [];
+      notifyListeners();
     }
   }
 
@@ -158,6 +165,7 @@ class ConversationProvider extends ChangeNotifier {
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );
+    _touchConversation(index, _conversations[index]);
     _saveConversations();
     notifyListeners();
   }
@@ -176,6 +184,7 @@ class ConversationProvider extends ChangeNotifier {
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );
+    _touchConversation(index, _conversations[index]);
     _saveConversations();
     notifyListeners();
   }
@@ -240,7 +249,7 @@ class ConversationProvider extends ChangeNotifier {
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );
-
+    _touchConversation(index, _conversations[index]);
     _saveConversations();
     notifyListeners();
   }
@@ -280,6 +289,7 @@ class ConversationProvider extends ChangeNotifier {
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );
+    _touchConversation(index, _conversations[index]);
     _saveConversations();
     notifyListeners();
   }

@@ -38,6 +38,7 @@ class SettingsProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('加载设置失败: $e');
       _settings = AppSettings.defaults();
+      notifyListeners();
     }
   }
 

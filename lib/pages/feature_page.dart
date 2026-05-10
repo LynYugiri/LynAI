@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:screenshot/screenshot.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:super_clipboard/super_clipboard.dart';
 import '../models/chat_role.dart';
 import '../models/conversation.dart';
 import '../models/note.dart';
@@ -163,6 +167,11 @@ class _FeaturePageState extends State<FeaturePage> {
           icon: const Icon(Icons.add),
           onPressed: _newNote,
         ),
+        IconButton(
+          tooltip: '导入 Markdown',
+          icon: const Icon(Icons.upload_file),
+          onPressed: _importMarkdown,
+        ),
       ];
     }
     return const [];
@@ -198,6 +207,42 @@ class _FeaturePageState extends State<FeaturePage> {
       _selectedNoteId = id;
       _noteEditing = true;
     });
+  }
+
+  Future<void> _importMarkdown() async {
+    final features = context.read<FeatureProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['md', 'markdown', 'txt'],
+        withData: true,
+      );
+      if (!mounted || result == null || result.files.isEmpty) return;
+      final file = result.files.single;
+      final bytes =
+          file.bytes ??
+          (file.path == null ? null : await File(file.path!).readAsBytes());
+      if (bytes == null) throw Exception('无法读取文件内容');
+      final content = utf8.decode(bytes, allowMalformed: true);
+      final title = _noteTitleFromFileName(file.name);
+      final id = features.addNoteWithContent(title, content);
+      setState(() {
+        _selectedNoteId = id;
+        _noteEditing = false;
+      });
+      messenger.showSnackBar(SnackBar(content: Text('已导入 $title')));
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('导入失败: $e')));
+    }
+  }
+
+  String _noteTitleFromFileName(String name) {
+    final cleaned = name
+        .replaceAll(RegExp(r'\.(md|markdown|txt)$', caseSensitive: false), '')
+        .trim();
+    return cleaned.isEmpty ? '导入笔记' : cleaned;
   }
 }
 
@@ -1970,14 +2015,18 @@ class _NoteDetail extends StatefulWidget {
 }
 
 class _NoteDetailState extends State<_NoteDetail> {
+  static const _nativeTools = MethodChannel('lynai/native_tools');
+
   final _shot = ScreenshotController();
   late final TextEditingController _ctrl;
+  late FeatureProvider _features;
   Timer? _timer;
 
   @override
   void initState() {
     super.initState();
-    final note = context.read<FeatureProvider>().getNote(widget.noteId);
+    _features = context.read<FeatureProvider>();
+    final note = _features.getNote(widget.noteId);
     _ctrl = TextEditingController(text: note?.content ?? '');
     _ctrl.addListener(_scheduleSave);
   }
@@ -1986,7 +2035,8 @@ class _NoteDetailState extends State<_NoteDetail> {
   void didUpdateWidget(covariant _NoteDetail oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.noteId != widget.noteId) {
-      final note = context.read<FeatureProvider>().getNote(widget.noteId);
+      _saveNote(oldWidget.noteId);
+      final note = _features.getNote(widget.noteId);
       _ctrl.text = note?.content ?? '';
     }
   }
@@ -2085,10 +2135,13 @@ class _NoteDetailState extends State<_NoteDetail> {
   }
 
   void _save() {
-    final fp = context.read<FeatureProvider>();
-    final note = fp.getNote(widget.noteId);
+    _saveNote(widget.noteId);
+  }
+
+  void _saveNote(String noteId) {
+    final note = _features.getNote(noteId);
     if (note == null || note.content == _ctrl.text) return;
-    fp.updateNote(note.copyWith(content: _ctrl.text));
+    _features.updateNote(note.copyWith(content: _ctrl.text));
   }
 
   Future<void> _menu(String value, Note note) async {
@@ -2103,9 +2156,7 @@ class _NoteDetailState extends State<_NoteDetail> {
       case 'image':
         await _exportImage();
       case 'wrap':
-        context.read<FeatureProvider>().updateNote(
-          note.copyWith(wrap: !note.wrap),
-        );
+        _features.updateNote(note.copyWith(wrap: !note.wrap));
       case 'delete':
         await _delete(note);
     }
@@ -2136,7 +2187,7 @@ class _NoteDetailState extends State<_NoteDetail> {
     ctrl.dispose();
     if (!mounted) return;
     if (title != null && title.isNotEmpty) {
-      context.read<FeatureProvider>().updateNote(note.copyWith(title: title));
+      _features.updateNote(note.copyWith(title: title));
     }
   }
 
@@ -2150,14 +2201,68 @@ class _NoteDetailState extends State<_NoteDetail> {
 
   Future<void> _exportImage() async {
     _save();
-    final bytes = await _shot.capture();
+    final note = _features.getNote(widget.noteId);
+    if (note == null) return;
+    final bytes = await _captureNoteImage(note.title, _ctrl.text);
     if (bytes == null) return;
-    final dir = await getTemporaryDirectory();
-    final file = File(
-      '${dir.path}/note_${DateTime.now().millisecondsSinceEpoch}.png',
+    final fileName = 'note_${DateTime.now().millisecondsSinceEpoch}.png';
+    try {
+      if (_isDesktopPlatform) {
+        final clipboard = SystemClipboard.instance;
+        if (clipboard == null) throw Exception('当前平台不支持写入剪贴板');
+        final item = DataWriterItem(suggestedName: fileName);
+        item.add(Formats.png(bytes));
+        await clipboard.write([item]);
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('笔记图片已复制到剪贴板')));
+        return;
+      }
+      if (Platform.isAndroid || Platform.isIOS) {
+        final result = await _nativeTools.invokeMapMethod<String, dynamic>(
+          'saveImageToGallery',
+          {'bytes': bytes, 'fileName': fileName},
+        );
+        if (result?['ok'] != true) {
+          throw Exception(result?['error'] ?? '保存到图库失败');
+        }
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('笔记图片已保存到图库')));
+        return;
+      }
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/$fileName');
+      await file.writeAsBytes(bytes, flush: true);
+      await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('导出图片失败: $e')));
+    }
+  }
+
+  Future<Uint8List?> _captureNoteImage(String title, String content) {
+    final theme = Theme.of(context);
+    final shareWidget = _NoteShareImage(
+      title: title,
+      content: content,
+      seedColor: theme.colorScheme.primary,
+      brightness: theme.brightness,
     );
-    await file.writeAsBytes(bytes);
-    await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
+    return _shot.captureFromLongWidget(
+      shareWidget,
+      pixelRatio: content.length > 6000 ? 1.15 : 1.5,
+      context: context,
+      constraints: const BoxConstraints(maxWidth: 720),
+    );
+  }
+
+  bool get _isDesktopPlatform {
+    return Platform.isLinux || Platform.isMacOS || Platform.isWindows;
   }
 
   Future<void> _delete(Note note) async {
@@ -2179,7 +2284,127 @@ class _NoteDetailState extends State<_NoteDetail> {
       ),
     );
     if (ok != true || !mounted) return;
-    context.read<FeatureProvider>().deleteNote(note.id);
+    _features.deleteNote(note.id);
     widget.onDeleted();
+  }
+}
+
+class _NoteShareImage extends StatelessWidget {
+  final String title;
+  final String content;
+  final Color seedColor;
+  final Brightness brightness;
+
+  const _NoteShareImage({
+    required this.title,
+    required this.content,
+    required this.seedColor,
+    required this.brightness,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = brightness == Brightness.dark;
+    final scheme = ColorScheme.fromSeed(
+      seedColor: seedColor,
+      brightness: brightness,
+    );
+    final bgColor = Color.lerp(
+      scheme.surface,
+      scheme.primary,
+      isDark ? 0.08 : 0.035,
+    )!;
+    final cardColor = Color.lerp(
+      scheme.surface,
+      scheme.surfaceContainerHighest,
+      isDark ? 0.35 : 0.18,
+    )!;
+    final mutedColor = isDark
+        ? const Color(0xFF94A3B8)
+        : const Color(0xFF64748B);
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        width: 720,
+        padding: const EdgeInsets.all(28),
+        decoration: BoxDecoration(color: bgColor),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 54,
+                  height: 54,
+                  decoration: BoxDecoration(
+                    color: scheme.primary,
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Icon(
+                    Icons.sticky_note_2_outlined,
+                    color: scheme.onPrimary,
+                    size: 30,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title.isEmpty ? 'LynAI 笔记' : title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: scheme.onSurface,
+                          fontSize: 28,
+                          fontWeight: FontWeight.w800,
+                          height: 1.15,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        'Markdown 笔记 · ${DateTime.now().year}/${DateTime.now().month}/${DateTime.now().day}',
+                        style: TextStyle(color: mutedColor, fontSize: 16),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 22),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
+              decoration: BoxDecoration(
+                color: cardColor,
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(
+                  color: scheme.outlineVariant.withValues(alpha: 0.55),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: isDark ? 0.22 : 0.08),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: MarkdownWithLatex(content: content),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              'Exported from LynAI',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: mutedColor,
+                fontSize: 18,
+                letterSpacing: 0.4,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

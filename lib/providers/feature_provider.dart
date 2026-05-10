@@ -17,21 +17,41 @@ class FeatureProvider extends ChangeNotifier {
   List<Note> get notes => List.unmodifiable(_notes);
 
   Future<void> load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final scheduleJson = prefs.getString(_scheduleKey);
-    if (scheduleJson != null) {
-      _schedules = (jsonDecode(scheduleJson) as List<dynamic>)
-          .map((e) => ScheduleItem.fromJson(e as Map<String, dynamic>))
-          .toList();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final scheduleJson = prefs.getString(_scheduleKey);
+      if (scheduleJson != null) {
+        final items = jsonDecode(scheduleJson) as List<dynamic>;
+        final schedules = <ScheduleItem>[];
+        for (final item in items) {
+          try {
+            schedules.add(ScheduleItem.fromJson(item as Map<String, dynamic>));
+          } catch (e) {
+            debugPrint('跳过损坏的日程记录: $e');
+          }
+        }
+        _schedules = schedules..sort((a, b) => a.start.compareTo(b.start));
+      }
+      final notesJson = prefs.getString(_notesKey);
+      if (notesJson != null) {
+        final items = jsonDecode(notesJson) as List<dynamic>;
+        final notes = <Note>[];
+        for (final item in items) {
+          try {
+            notes.add(Note.fromJson(item as Map<String, dynamic>));
+          } catch (e) {
+            debugPrint('跳过损坏的笔记记录: $e');
+          }
+        }
+        _notes = notes..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      }
+      notifyListeners();
+    } catch (e) {
+      debugPrint('加载功能数据失败: $e');
+      _schedules = [];
+      _notes = [];
+      notifyListeners();
     }
-    final notesJson = prefs.getString(_notesKey);
-    if (notesJson != null) {
-      _notes = (jsonDecode(notesJson) as List<dynamic>)
-          .map((e) => Note.fromJson(e as Map<String, dynamic>))
-          .toList();
-      _notes.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-    }
-    notifyListeners();
   }
 
   Future<void> _saveSchedules() async {
@@ -50,19 +70,24 @@ class FeatureProvider extends ChangeNotifier {
     );
   }
 
-  void addSchedule(String title, DateTime start, DateTime end, {String? note}) {
-    _schedules.add(
-      ScheduleItem(
-        id: _uuid.v4(),
-        title: title,
-        start: start,
-        end: end,
-        note: note,
-      ),
+  String addSchedule(
+    String title,
+    DateTime start,
+    DateTime end, {
+    String? note,
+  }) {
+    final schedule = ScheduleItem(
+      id: _uuid.v4(),
+      title: title,
+      start: start,
+      end: end,
+      note: note,
     );
+    _schedules.add(schedule);
     _schedules.sort((a, b) => a.start.compareTo(b.start));
     _saveSchedules();
     notifyListeners();
+    return schedule.id;
   }
 
   void updateSchedule(ScheduleItem schedule) {
@@ -82,12 +107,24 @@ class FeatureProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  ScheduleItem? getSchedule(String id) {
+    try {
+      return _schedules.firstWhere((s) => s.id == id);
+    } catch (_) {
+      return null;
+    }
+  }
+
   String addNote(String title) {
+    return addNoteWithContent(title, '');
+  }
+
+  String addNoteWithContent(String title, String content) {
     final now = DateTime.now();
     final note = Note(
       id: _uuid.v4(),
       title: title,
-      content: '',
+      content: content,
       createdAt: now,
       updatedAt: now,
     );

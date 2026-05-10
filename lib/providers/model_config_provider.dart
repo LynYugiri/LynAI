@@ -57,6 +57,7 @@ class ModelConfigProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('加载模型配置失败: $e');
       _models = [];
+      notifyListeners();
     }
   }
 

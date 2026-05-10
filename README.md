@@ -1,6 +1,6 @@
 # LynAI
 
-跨平台 AI 对话客户端，基于 Flutter 开发，支持 OpenAI / Ollama / Anthropic 等多种 API，覆盖 Android、iOS、Linux、macOS、Windows 平台。当前版本：`2.1.0`。
+跨平台 AI 对话客户端，基于 Flutter 开发，支持 OpenAI / Ollama / Anthropic 等多种 API，覆盖 Android、iOS、Linux、macOS、Windows 平台。当前版本：`2.2.0`。
 
 ## 截图
 
