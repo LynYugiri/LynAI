@@ -61,7 +61,10 @@ class ConversationProvider extends ChangeNotifier {
   }
 
   /// 创建新对话，返回对话ID
-  String createConversation(ConversationSettings settings) {
+  String createConversation(
+    ConversationSettings settings, {
+    String roleId = 'default',
+  }) {
     try {
       final now = DateTime.now();
       final conversation = Conversation(
@@ -70,6 +73,7 @@ class ConversationProvider extends ChangeNotifier {
         messages: [],
         modelId: settings.modelId,
         settings: settings,
+        roleId: roleId,
         createdAt: now,
         updatedAt: now,
       );
@@ -124,6 +128,7 @@ class ConversationProvider extends ChangeNotifier {
         messages: updatedMessages,
         modelId: _conversations[index].modelId,
         settings: _conversations[index].settings,
+        roleId: _conversations[index].roleId,
         createdAt: _conversations[index].createdAt,
         updatedAt: now,
       );
@@ -149,6 +154,7 @@ class ConversationProvider extends ChangeNotifier {
       messages: _conversations[index].messages,
       modelId: _conversations[index].modelId,
       settings: _conversations[index].settings,
+      roleId: _conversations[index].roleId,
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );
@@ -166,6 +172,7 @@ class ConversationProvider extends ChangeNotifier {
       messages: _conversations[index].messages,
       modelId: modelId,
       settings: _conversations[index].settings.copyWith(modelId: modelId),
+      roleId: _conversations[index].roleId,
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );
@@ -199,6 +206,7 @@ class ConversationProvider extends ChangeNotifier {
         messages: messages,
         modelId: _conversations[index].modelId,
         settings: _conversations[index].settings,
+        roleId: _conversations[index].roleId,
         createdAt: _conversations[index].createdAt,
         updatedAt: DateTime.now(),
       );
@@ -228,6 +236,7 @@ class ConversationProvider extends ChangeNotifier {
       messages: messages,
       modelId: _conversations[index].modelId,
       settings: _conversations[index].settings,
+      roleId: _conversations[index].roleId,
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );
@@ -267,6 +276,7 @@ class ConversationProvider extends ChangeNotifier {
       messages: _conversations[index].messages,
       modelId: settings.modelId,
       settings: settings,
+      roleId: _conversations[index].roleId,
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );
@@ -299,6 +309,7 @@ class ConversationProvider extends ChangeNotifier {
       messages: messages,
       modelId: _conversations[index].modelId,
       settings: _conversations[index].settings,
+      roleId: _conversations[index].roleId,
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );
@@ -344,5 +355,16 @@ class ConversationProvider extends ChangeNotifier {
     }
 
     return results;
+  }
+
+  List<Map<String, dynamic>> searchConversationsByRole(
+    String query,
+    String roleId,
+  ) {
+    return searchConversations(query)
+        .where(
+          (result) => (result['conversation'] as Conversation).roleId == roleId,
+        )
+        .toList();
   }
 }

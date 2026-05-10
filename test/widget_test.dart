@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'package:lynai/main.dart';
 import 'package:lynai/providers/conversation_provider.dart';
+import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
 
@@ -12,6 +13,7 @@ void main() {
       MultiProvider(
         providers: [
           ChangeNotifierProvider(create: (_) => ConversationProvider()),
+          ChangeNotifierProvider(create: (_) => FeatureProvider()),
           ChangeNotifierProvider(create: (_) => ModelConfigProvider()),
           ChangeNotifierProvider(create: (_) => SettingsProvider()),
         ],

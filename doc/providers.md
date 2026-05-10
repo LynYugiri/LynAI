@@ -12,7 +12,7 @@
 | 方法 | 说明 |
 |------|------|
 | `loadConversations()` | 从SharedPreferences加载, 加载失败初始化为空列表 |
-| `createConversation(settings)` | 使用对话设置快照新建对话, 返回ID, 失败抛出异常 |
+| `createConversation(settings, {roleId})` | 新建对话并绑定角色ID, 默认角色为 `default` |
 | `addMessage(convId, role, content, {images})` | 添加消息和可选图片附件, 首条user消息自动设为标题(截取前20字符), 更新后对话移至列表顶部 |
 | `updateLastMessage(convId, content, {save: true})` | 增量更新最后一条消息(用于流式渲染), save参数控制是否立即持久化 |
 | `updateMessageContent(convId, msgId, content)` | 更新指定消息内容(用于重试/编辑), 更新后对话移至列表顶部 |
@@ -56,6 +56,9 @@
 |------|------|
 | `loadSettings()` | 从SharedPreferences加载设置 |
 | `setThemeColor(color)` | 主题色(通过ColorScheme.fromSeed生成Material 3配色) |
+| `setLastFeature(feature)` | 保存功能页最近打开的子功能(history/schedule/notes) |
+| `addRole({name, systemPrompt, modelId, themeColor})` | 添加聊天角色，并同步创建同ID的系统提示词模板 |
+| `selectRole(roleId)` | 切换当前角色，同步系统提示词、默认模型和可选主题色 |
 | `setThemeMode(mode)` | 主题模式 "light"/"dark"/"system" |
 | `setBackgroundImage(path)` | 背景图路径(null=清除) |
 | `setBlurEnabled(bool)` | 毛玻璃模糊开关 |
@@ -75,6 +78,28 @@
 | `applyConversationSettings(settings)` | 将当前对话的设置快照同步到全局设置，便于 UI 控件显示当前状态 |
 
 **计算属性**: `themeMode` → String; `themeModeEnum` → ThemeMode枚举; `effectiveSystemPrompt` → 当前生效的提示词内容(优先选中模板, 否则用默认)
+
+---
+
+## FeatureProvider
+**文件**: `lib/providers/feature_provider.dart`
+
+**核心数据**: `List<ScheduleItem> schedules`, `List<Note> notes`
+
+| 方法 | 说明 |
+|------|------|
+| `load()` | 从 SharedPreferences 加载日程和笔记，笔记按 updatedAt 倒序 |
+| `addSchedule(title, start, end, {note})` | 新增日程并按开始时间排序 |
+| `updateSchedule(schedule)` | 按ID更新日程并重新排序 |
+| `deleteSchedule(id)` | 删除指定日程 |
+| `addNote(title)` | 新建空笔记，返回笔记ID |
+| `getNote(id)` | 按ID获取笔记，不存在返回 null |
+| `updateNote(note)` | 更新笔记并按更新时间倒序 |
+| `deleteNote(id)` | 删除指定笔记 |
+
+持久化: 日程存储键为 `schedule_items`，笔记存储键为 `notes`，均以 JSON 写入 SharedPreferences。
+
+---
 
 ### AppSettings sentinel模式
 

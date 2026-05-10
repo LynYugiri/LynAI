@@ -110,6 +110,7 @@ class Conversation {
   final List<Message> messages;
   final String modelId;
   final ConversationSettings settings;
+  final String roleId;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -119,6 +120,7 @@ class Conversation {
     required this.messages,
     required this.modelId,
     ConversationSettings? settings,
+    this.roleId = 'default',
     required this.createdAt,
     required this.updatedAt,
   }) : settings = settings ?? ConversationSettings(modelId: modelId);
@@ -146,6 +148,7 @@ class Conversation {
               json['settings'] as Map<String, dynamic>,
             )
           : ConversationSettings(modelId: modelId),
+      roleId: json['roleId'] as String? ?? 'default',
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: DateTime.parse(json['updatedAt'] as String),
     );
@@ -159,6 +162,7 @@ class Conversation {
       'messages': messages.map((m) => m.toJson()).toList(),
       'modelId': modelId,
       'settings': settings.toJson(),
+      'roleId': roleId,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
     };

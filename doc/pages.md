@@ -5,7 +5,7 @@
 ```
 main.dart
   └── HomePage (IndexedStack + BottomNavigationBar, 3个Tab)
-        ├── Tab 0: HistoryPage
+        ├── Tab 0: FeaturePage
         ├── Tab 1: ChatPage (含侧边Drawer历史列表, 对话设置面板)
         └── Tab 2: SettingsPage
               ├── push→ AboutPage (跨平台兼容)
@@ -24,10 +24,15 @@ main.dart
 ### 1. HomePage
 - **文件**: `lib/pages/home_page.dart`
 - **功能**: 底部三Tab导航, IndexedStack保持状态。Stack叠加全局背景图+半透明遮罩+可选的BackdropFilter模糊。背景图存在性检查结果缓存于状态中，避免重复同步I/O调用。
+- **Tab**: 功能 / 对话 / 设置。功能页切换角色时会跳转到对话页并触发新对话上下文刷新。
 
-### 2. HistoryPage
-- **文件**: `lib/pages/history_page.dart`
-- **功能**: 历史对话列表, 支持搜索, 搜索结果高亮, 点击继续对话, 长按删除。
+### 2. FeaturePage
+- **文件**: `lib/pages/feature_page.dart`
+- **功能**: 功能集合页，包含对话历史、日程表、笔记。对话历史支持搜索/高亮/角色切换/删除；日程表支持月/周/年视图；笔记支持 Markdown/LaTeX 编辑与导出。
+- **功能切换**: AppBar 左侧入口可在对话历史、日程表、笔记之间切换，最近使用功能保存在 `AppSettings.lastFeature`。
+- **对话历史**: 按当前角色和其他角色分组展示；点击其他角色分组会切换角色并进入对话页。
+- **日程表**: 月视图支持选中日期查看摘要，周视图以时间轴展示，年视图按月份聚合；新增日程默认使用当前选中日期。
+- **笔记**: 支持列表、详情、编辑/预览模式、自动保存、重命名、删除、导出 Markdown、导出图片。
 
 ### 3. ChatPage
 - **文件**: `lib/pages/chat_page.dart`
@@ -38,6 +43,7 @@ main.dart
   - **思考过程**: 默认折叠, 小字号斜体灰色, 各对话独立保存
   - **操作按钮**: 复制/长图分享/重试(灰色小图标); 无内容或失败时仅显示重试按钮
   - **流式**: SSE逐chunk更新`updateLastMessage()`
+  - **停止生成**: 流式回复中发送按钮切换为停止按钮，可取消当前请求并保留已生成内容
   - **语音链路**: 未配置接口时用系统语音识别；配置语音转写接口后录音→转写→回填输入框
   - **图片链路**: 图片选择或剪贴板粘贴→应用私有目录保存→OCR 或多模态图片识别→当前模型回复
   - **长图分享**: 选择多条消息后生成分享长图，分享图支持 Markdown/LaTeX，桌面端可复制到剪贴板

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/app_settings.dart';
+import '../models/chat_role.dart';
 import '../models/conversation.dart';
 import '../models/system_prompt.dart';
 
@@ -15,6 +16,13 @@ class SettingsProvider extends ChangeNotifier {
   static const _storageKey = 'app_settings';
 
   AppSettings get settings => _settings;
+
+  ChatRole get currentRole {
+    return _settings.roles.firstWhere(
+      (r) => r.id == _settings.currentRoleId,
+      orElse: ChatRole.defaultRole,
+    );
+  }
 
   /// 从 SharedPreferences 加载设置
   Future<void> loadSettings() async {
@@ -47,6 +55,53 @@ class SettingsProvider extends ChangeNotifier {
   /// 更新主题颜色
   void setThemeColor(Color color) {
     _settings = _settings.copyWith(themeColor: color);
+    _saveSettings();
+    notifyListeners();
+  }
+
+  void setLastFeature(String feature) {
+    _settings = _settings.copyWith(lastFeature: feature);
+    _saveSettings();
+    notifyListeners();
+  }
+
+  String addRole({
+    required String name,
+    required String systemPrompt,
+    String? modelId,
+    Color? themeColor,
+  }) {
+    final id = const Uuid().v4();
+    final role = ChatRole(
+      id: id,
+      name: name,
+      systemPrompt: systemPrompt,
+      modelId: modelId,
+      themeColor: themeColor,
+    );
+    final prompt = SystemPrompt(id: id, title: name, content: systemPrompt);
+    _settings = _settings.copyWith(
+      roles: [..._settings.roles, role],
+      systemPrompts: [..._settings.systemPrompts, prompt],
+    );
+    _saveSettings();
+    notifyListeners();
+    return id;
+  }
+
+  void selectRole(String roleId) {
+    final role = _settings.roles.firstWhere(
+      (r) => r.id == roleId,
+      orElse: ChatRole.defaultRole,
+    );
+    final selectedPromptId = role.id == ChatRole.defaultId ? null : role.id;
+    _settings = _settings.copyWith(
+      currentRoleId: role.id,
+      systemPrompt: role.systemPrompt,
+      selectedSystemPromptId: selectedPromptId,
+      lastChatModelId: role.modelId ?? _settings.lastChatModelId,
+      themeColor: role.themeColor ?? _settings.themeColor,
+    );
     _saveSettings();
     notifyListeners();
   }

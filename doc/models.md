@@ -43,6 +43,7 @@ class Conversation {
   final List<Message> messages;
   final String modelId;            // 关联的ModelConfig.id
   final ConversationSettings settings; // 对话级设置快照
+  final String roleId;             // 关联的ChatRole.id
   final DateTime createdAt;
   final DateTime updatedAt;
 }
@@ -69,6 +70,21 @@ class ConversationSettings {
 ```
 
 每个对话保存自己的模型和辅助能力设置。切换历史对话时，应用会恢复该对话的设置快照。
+
+### ChatRole
+**文件**: `lib/models/chat_role.dart`
+
+```dart
+class ChatRole {
+  final String id;
+  final String name;
+  final String systemPrompt;
+  final String? modelId;
+  final Color? themeColor;
+}
+```
+
+角色用于隔离不同使用场景。新建对话会绑定当前角色ID，并继承该角色的系统提示词、可选默认模型和可选主题色。默认角色ID为 `default`。
 
 ---
 
@@ -135,6 +151,9 @@ class AppSettings {
   final List<SystemPrompt> systemPrompts;       // 自定义系统提示词模板列表(默认[])
   final String? selectedSystemPromptId;         // 当前选中的提示词模板ID(null=使用默认systemPrompt)
   final String themeMode;            // 主题模式 "light" | "dark" | "system" (默认"system")
+  final List<ChatRole> roles;        // 聊天角色列表，至少包含默认角色
+  final String currentRoleId;        // 当前选中的角色ID
+  final String lastFeature;          // 功能页最近使用入口: history/schedule/notes
 }
 ```
 
@@ -148,6 +167,41 @@ class AppSettings {
 - `themeColor` 序列化为 int (ARGB32), 反序列化 `Color(json['themeColor'] as int)`
 - nullable 字段仅在非 null 时才写入 JSON (节省存储空间)
 - `blurAmount` 反序列化兼容 int/double 两种类型
+
+---
+
+## ScheduleItem
+**文件**: `lib/models/schedule_item.dart`
+
+```dart
+class ScheduleItem {
+  final String id;
+  final String title;
+  final DateTime start;
+  final DateTime end;
+  final String? note;
+}
+```
+
+用于功能页日程表。Provider 按 `start` 升序排序；跨天日程在月视图中会出现在覆盖到的日期内。
+
+---
+
+## Note
+**文件**: `lib/models/note.dart`
+
+```dart
+class Note {
+  final String id;
+  final String title;
+  final String content;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  final bool wrap;
+}
+```
+
+用于功能页笔记。内容支持 Markdown/LaTeX 渲染，编辑时自动保存；`wrap` 控制自动换行开关。
 
 ---
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'providers/conversation_provider.dart';
+import 'providers/feature_provider.dart';
 import 'providers/model_config_provider.dart';
 import 'providers/settings_provider.dart';
 import 'pages/home_page.dart';
@@ -18,6 +19,7 @@ void main() {
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => ConversationProvider()),
+        ChangeNotifierProvider(create: (_) => FeatureProvider()),
         ChangeNotifierProvider(create: (_) => ModelConfigProvider()),
         ChangeNotifierProvider(create: (_) => SettingsProvider()),
       ],
@@ -62,9 +64,11 @@ class _LynAIAppState extends State<LynAIApp> {
       final conversationProvider = context.read<ConversationProvider>();
       final modelProvider = context.read<ModelConfigProvider>();
       final settingsProvider = context.read<SettingsProvider>();
+      final featureProvider = context.read<FeatureProvider>();
 
       await Future.wait([
         conversationProvider.loadConversations(),
+        featureProvider.load(),
         modelProvider.loadModels(),
         settingsProvider.loadSettings(),
       ]);
@@ -102,10 +106,7 @@ class _LynAIAppState extends State<LynAIApp> {
           brightness: Brightness.light,
         ),
         useMaterial3: true,
-        appBarTheme: const AppBarTheme(
-          centerTitle: true,
-          elevation: 0,
-        ),
+        appBarTheme: const AppBarTheme(centerTitle: true, elevation: 0),
         cardTheme: CardThemeData(
           elevation: 0,
           shape: RoundedRectangleBorder(
@@ -119,10 +120,7 @@ class _LynAIAppState extends State<LynAIApp> {
           brightness: Brightness.dark,
         ),
         useMaterial3: true,
-        appBarTheme: const AppBarTheme(
-          centerTitle: true,
-          elevation: 0,
-        ),
+        appBarTheme: const AppBarTheme(centerTitle: true, elevation: 0),
         cardTheme: CardThemeData(
           elevation: 0,
           shape: RoundedRectangleBorder(
@@ -135,8 +133,8 @@ class _LynAIAppState extends State<LynAIApp> {
       home: _isLoading
           ? const _SplashScreen()
           : _hasError
-              ? _ErrorScreen(message: _errorMessage)
-              : const HomePage(),
+          ? _ErrorScreen(message: _errorMessage)
+          : const HomePage(),
     );
   }
 }
@@ -159,10 +157,9 @@ class _SplashScreen extends StatelessWidget {
               width: 80,
               height: 80,
               decoration: BoxDecoration(
-                color: Theme.of(context)
-                    .colorScheme
-                    .primary
-                    .withValues(alpha: 0.1),
+                color: Theme.of(
+                  context,
+                ).colorScheme.primary.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Icon(
@@ -175,9 +172,9 @@ class _SplashScreen extends StatelessWidget {
             // 应用名称
             Text(
               'LynAI',
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 24),
             // 加载指示器
@@ -212,22 +209,20 @@ class _ErrorScreen extends StatelessWidget {
                 color: Theme.of(context).colorScheme.error,
               ),
               const SizedBox(height: 16),
-              Text(
-                '加载失败',
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
+              Text('加载失败', style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(height: 8),
               Text(
                 message,
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
               const SizedBox(height: 24),
               FilledButton(
                 onPressed: () {
-                  final state = context.findAncestorStateOfType<_LynAIAppState>();
+                  final state = context
+                      .findAncestorStateOfType<_LynAIAppState>();
                   state?._loadData();
                 },
                 child: const Text('重试'),

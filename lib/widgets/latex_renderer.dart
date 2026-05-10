@@ -241,8 +241,14 @@ class _LatexBuilder extends MarkdownElementBuilder {
 class MarkdownWithLatex extends StatelessWidget {
   final String content;
   final TextStyle? textStyle;
+  final bool selectable;
 
-  const MarkdownWithLatex({super.key, required this.content, this.textStyle});
+  const MarkdownWithLatex({
+    super.key,
+    required this.content,
+    this.textStyle,
+    this.selectable = true,
+  });
 
   static final _inlineRegExp = RegExp(r'\$(.+?)\$');
   static bool _hasInlineMath(String text) {
@@ -267,7 +273,7 @@ class MarkdownWithLatex extends StatelessWidget {
   }) {
     return MarkdownBody(
       data: text,
-      selectable: true,
+      selectable: selectable,
       styleSheet: _markdownStyle(context),
       builders: withInlineLatex
           ? {'inlineLatex': _LatexBuilder(textStyle: textStyle)}

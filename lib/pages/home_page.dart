@@ -3,7 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
-import 'history_page.dart';
+import 'feature_page.dart';
 import 'chat_page.dart';
 import 'settings_page.dart';
 
@@ -20,6 +20,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   late int _currentIndex;
   String? _targetConversationId;
+  int _roleChangeSerial = 0;
   String? _cachedImagePath;
   bool _cachedImageExists = false;
 
@@ -44,10 +45,19 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  void _roleChanged() {
+    setState(() {
+      _currentIndex = 1;
+      _targetConversationId = null;
+      _roleChangeSerial++;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>().settings;
-    final hasImage = settings.backgroundImagePath != null &&
+    final hasImage =
+        settings.backgroundImagePath != null &&
         _checkImageExists(settings.backgroundImagePath!);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -57,9 +67,13 @@ class _HomePageState extends State<HomePage> {
       body: IndexedStack(
         index: _currentIndex,
         children: [
-          HistoryPage(onConversationTap: _navigateToChat),
+          FeaturePage(
+            onConversationTap: _navigateToChat,
+            onRoleChanged: _roleChanged,
+          ),
           ChatPage(
             conversationId: _targetConversationId,
+            roleChangeSerial: _roleChangeSerial,
             onConversationLoaded: () {
               _targetConversationId = null;
             },
@@ -79,11 +93,14 @@ class _HomePageState extends State<HomePage> {
         unselectedItemColor: Colors.grey,
         items: const [
           BottomNavigationBarItem(
-              icon: Icon(Icons.history), label: '历史'),
+            icon: Icon(Icons.widgets_outlined),
+            label: '功能',
+          ),
           BottomNavigationBarItem(
-              icon: Icon(Icons.chat_bubble_outline), label: '对话'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.settings), label: '设置'),
+            icon: Icon(Icons.chat_bubble_outline),
+            label: '对话',
+          ),
+          BottomNavigationBarItem(icon: Icon(Icons.settings), label: '设置'),
         ],
       ),
     );
@@ -91,9 +108,9 @@ class _HomePageState extends State<HomePage> {
     if (!hasImage) return scaffold;
 
     final transparentScaffold = Theme(
-      data: Theme.of(context).copyWith(
-        scaffoldBackgroundColor: Colors.transparent,
-      ),
+      data: Theme.of(
+        context,
+      ).copyWith(scaffoldBackgroundColor: Colors.transparent),
       child: scaffold,
     );
 
@@ -113,15 +130,17 @@ class _HomePageState extends State<HomePage> {
                 sigmaY: settings.blurAmount,
               ),
               child: Container(
-                color: (isDark ? Colors.black : Colors.white)
-                    .withValues(alpha: 0.3),
+                color: (isDark ? Colors.black : Colors.white).withValues(
+                  alpha: 0.3,
+                ),
               ),
             ),
           ),
         Positioned.fill(
           child: Container(
-            color: (isDark ? Colors.black : Colors.white)
-                .withValues(alpha: settings.blurEnabled ? 0.2 : 0.55),
+            color: (isDark ? Colors.black : Colors.white).withValues(
+              alpha: settings.blurEnabled ? 0.2 : 0.55,
+            ),
           ),
         ),
         transparentScaffold,

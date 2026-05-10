@@ -5,11 +5,12 @@
 ```
 MaterialApp
   └── MultiProvider
-        ├── SettingsProvider    → 主题/背景/默认模型/系统提示词/语音/OCR/图片识别
+        ├── SettingsProvider    → 主题/背景/角色/功能页状态/默认模型/系统提示词/语音/OCR/图片识别
         ├── ModelConfigProvider → 分类模型配置 CRUD(Chat/OCR/Speech/Image Generation)
+        ├── FeatureProvider     → 日程/笔记 CRUD
         └── ConversationProvider → 对话CRUD+搜索
               └── HomePage
-                    ├── HistoryPage
+                    ├── FeaturePage
                     ├── ChatPage
                     │     ├── MarkdownWithLatex → flutter_markdown_plus + flutter_math_fork
                     │     ├── Voice: speech_to_text 或 record → 语音转写接口
@@ -32,6 +33,23 @@ MaterialApp
 
 流式: Stream.listen → updateLastMessage() → notifyListeners() → UI逐字更新
 ```
+
+## 功能页
+
+`FeaturePage` 是底部导航第一个 Tab，承载轻量生产力功能：
+
+- 对话历史：读取 `ConversationProvider.conversations`，按 `Conversation.roleId` 分组，搜索由 `ConversationProvider.searchConversations()` 提供。
+- 日程表：读取 `FeatureProvider.schedules`，按日期范围过滤后渲染月/周/年视图。
+- 笔记：读取 `FeatureProvider.notes`，编辑时使用防抖自动保存，预览使用 `MarkdownWithLatex`。
+- 最近功能：`SettingsProvider.setLastFeature()` 持久化到 `AppSettings.lastFeature`。
+
+## 角色上下文
+
+`ChatRole` 保存角色名称、系统提示词、可选默认模型和可选主题色。选择角色时：
+
+- `SettingsProvider.selectRole()` 更新当前角色、系统提示词、默认 Chat 模型和主题色。
+- 新建对话时 `ChatPage` 使用当前角色生成 `ConversationSettings` 快照。
+- 历史对话仍使用创建时保存的 `roleId` 和设置快照，切回历史对话时恢复对应配置。
 
 ## 全局背景
 

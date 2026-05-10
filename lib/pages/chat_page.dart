@@ -11,6 +11,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:super_clipboard/super_clipboard.dart';
 import '../models/conversation.dart';
+import '../models/chat_role.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
 import '../models/app_settings.dart';
@@ -51,8 +52,14 @@ String _safeFileName(String name) {
 
 class ChatPage extends StatefulWidget {
   final String? conversationId;
+  final int roleChangeSerial;
   final VoidCallback? onConversationLoaded;
-  const ChatPage({super.key, this.conversationId, this.onConversationLoaded});
+  const ChatPage({
+    super.key,
+    this.conversationId,
+    this.roleChangeSerial = 0,
+    this.onConversationLoaded,
+  });
 
   @override
   State<ChatPage> createState() => _ChatPageState();
@@ -121,7 +128,30 @@ class _ChatPageState extends State<ChatPage> {
       });
       _applyConversationSettings(widget.conversationId!, notifyNow: false);
       widget.onConversationLoaded?.call();
+    } else if (widget.roleChangeSerial != old.roleChangeSerial) {
+      setState(() {
+        _convId = null;
+        _clearPendingState();
+        _clearRetryState();
+      });
     }
+  }
+
+  ConversationSettings _roleSettings(ModelConfig model) {
+    final sp = context.read<SettingsProvider>();
+    final settings = sp.settings;
+    final role = sp.currentRole;
+    return ConversationSettings(
+      modelId: role.modelId ?? model.id,
+      thinking: _thinking,
+      selectedSystemPromptId: role.id == ChatRole.defaultId ? null : role.id,
+      systemPrompt: role.systemPrompt,
+      speechModelId: settings.speechModelId,
+      imageModelId: settings.imageModelId,
+      imageRecognitionModelId: settings.imageRecognitionModelId,
+      imageRecognitionEnabled: settings.imageRecognitionEnabled,
+      imageRecognitionPrompt: settings.imageRecognitionPrompt,
+    );
   }
 
   void _applyConversationSettings(
@@ -231,6 +261,32 @@ class _ChatPageState extends State<ChatPage> {
     _scrollEnd(force: true);
   }
 
+  void _showMissingChatModelTip() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('请先在设置中添加 AI 模型')));
+  }
+
+  void _stopStreaming() {
+    if (!_streaming) return;
+    _streamGen++;
+    unawaited(_sub?.cancel());
+    _sub = null;
+    setState(() => _streaming = false);
+    final cid = _convId;
+    if (cid == null) return;
+    final cp = context.read<ConversationProvider>();
+    final conv = cp.getConversation(cid);
+    if (conv == null || conv.messages.isEmpty) return;
+    final last = conv.messages.last;
+    if (last.role == 'assistant' && last.content.trim().isEmpty) {
+      cp.deleteMessage(cid, last.id);
+    } else if (last.role == 'assistant') {
+      cp.updateLastMessage(cid, '${last.content}\n\n---\n已停止生成', save: true);
+    }
+  }
+
   ModelConfig? _getModel(ModelConfigProvider mp) {
     final chatModels = mp.modelsByCategory(ModelConfig.categoryChat);
     if (chatModels.isEmpty) return null;
@@ -247,6 +303,12 @@ class _ChatPageState extends State<ChatPage> {
     if (_pendingModelId != null) {
       try {
         return chatModels.firstWhere((m) => m.id == _pendingModelId);
+      } catch (_) {}
+    }
+    final roleModelId = context.read<SettingsProvider>().currentRole.modelId;
+    if (_convId == null && roleModelId != null && roleModelId.isNotEmpty) {
+      try {
+        return chatModels.firstWhere((m) => m.id == roleModelId);
       } catch (_) {}
     }
     final settings = _draftSettings;
@@ -276,6 +338,10 @@ class _ChatPageState extends State<ChatPage> {
     }
     if (_draftSettings != null) {
       return _draftSettings!.copyWith(modelId: model.id, thinking: _thinking);
+    }
+    final role = context.read<SettingsProvider>().currentRole;
+    if (role.id != ChatRole.defaultId || role.modelId != null) {
+      return _roleSettings(model).copyWith(modelId: role.modelId ?? model.id);
     }
     final set = context.read<SettingsProvider>().settings;
     return ConversationSettings(
@@ -325,16 +391,18 @@ class _ChatPageState extends State<ChatPage> {
     final cp = context.read<ConversationProvider>();
     final mp = context.read<ModelConfigProvider>();
     if (mp.modelsByCategory(ModelConfig.categoryChat).isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('请先在设置中添加 AI 模型')));
-      }
+      _showMissingChatModelTip();
       return;
     }
     final model = _getModel(mp);
-    if (model == null) return;
-    _convId ??= cp.createConversation(_currentConversationSettings(model));
+    if (model == null) {
+      _showMissingChatModelTip();
+      return;
+    }
+    _convId ??= cp.createConversation(
+      _currentConversationSettings(model),
+      roleId: context.read<SettingsProvider>().settings.currentRoleId,
+    );
     _pendingModelId = null;
     _clearRetryState();
     final images = _pendingImages.map((e) => e.toMessageImage()).toList();
@@ -571,7 +639,12 @@ class _ChatPageState extends State<ChatPage> {
       _thinkingTxt = null;
     });
     final retryModel = _getModel(context.read<ModelConfigProvider>());
-    if (retryModel != null) _doSend(retryModel);
+    if (retryModel != null) {
+      _doSend(retryModel);
+    } else {
+      setState(() => _streaming = false);
+      _showMissingChatModelTip();
+    }
   }
 
   void _retryWithoutHistory() {
@@ -592,7 +665,12 @@ class _ChatPageState extends State<ChatPage> {
       _thinkingTxt = null;
     });
     final retryModel = _getModel(context.read<ModelConfigProvider>());
-    if (retryModel != null) _doSend(retryModel);
+    if (retryModel != null) {
+      _doSend(retryModel);
+    } else {
+      setState(() => _streaming = false);
+      _showMissingChatModelTip();
+    }
   }
 
   void _saveRetryHistoryEntry(
@@ -1902,7 +1980,10 @@ class _ChatPageState extends State<ChatPage> {
     final cp = context.read<ConversationProvider>();
     final mp = context.read<ModelConfigProvider>();
     final editModel = _getModel(mp);
-    if (editModel == null || _convId == null) return;
+    if (editModel == null || _convId == null) {
+      if (editModel == null) _showMissingChatModelTip();
+      return;
+    }
     final origConv = cp.getConversation(_convId!);
     if (origConv == null) return;
     final allMsgs = origConv.messages;
@@ -1912,6 +1993,7 @@ class _ChatPageState extends State<ChatPage> {
     _pendingModelId = null;
     final newConvId = cp.createConversation(
       origConv.settings.copyWith(modelId: editModel.id, thinking: _thinking),
+      roleId: origConv.roleId,
     );
     for (int i = 0; i < origMsgIdx; i++) {
       cp.addMessage(
@@ -2059,11 +2141,18 @@ class _ChatPageState extends State<ChatPage> {
                             ? Theme.of(context).colorScheme.primary
                             : Colors.grey,
                       ),
-                      title: Text(m.name, style: const TextStyle(fontSize: 14)),
+                      title: Text(
+                        m.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 14),
+                      ),
                       subtitle: Text(
                         m.hasMultipleModels
                             ? '${m.enabledModelNames.length} 个模型'
                             : m.modelName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 11),
                       ),
                       trailing: m.hasMultipleModels
@@ -2096,6 +2185,8 @@ class _ChatPageState extends State<ChatPage> {
                               ),
                               title: Text(
                                 e.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
                                   fontSize: 13,
                                   fontFamily: 'monospace',
@@ -2149,11 +2240,18 @@ class _ChatPageState extends State<ChatPage> {
                       ? Theme.of(context).colorScheme.primary
                       : Colors.grey,
                 ),
-                title: Text(m.name, style: const TextStyle(fontSize: 13)),
+                title: Text(
+                  m.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13),
+                ),
                 subtitle: Text(
                   m.hasMultipleModels
                       ? '${m.enabledModelNames.length} 个模型'
                       : m.modelName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 11),
                 ),
                 onTap: () {
@@ -2170,6 +2268,9 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Widget _modelSel(ModelConfig? cur, ModelConfigProvider mp) {
+    final width = MediaQuery.sizeOf(context).width;
+    final hideName = width < 430;
+    final maxWidth = width < 520 ? 136.0 : 220.0;
     if (cur == null) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -2204,31 +2305,42 @@ class _ChatPageState extends State<ChatPage> {
     }
     return InkWell(
       onTap: () => setState(() => _showModelMenu = true),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.smart_toy,
-              size: 16,
-              color: Theme.of(context).colorScheme.primary,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: hideName ? 38 : maxWidth),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: Theme.of(
+                context,
+              ).colorScheme.primary.withValues(alpha: 0.3),
             ),
-            const SizedBox(width: 4),
-            Text(
-              cur.modelName,
-              style: TextStyle(
-                fontSize: 12,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.smart_toy,
+                size: 16,
                 color: Theme.of(context).colorScheme.primary,
               ),
-            ),
-          ],
+              if (!hideName) ...[
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    cur.modelName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );
@@ -2468,7 +2580,16 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Widget _voiceOrSendBtn(bool hasSpeech) {
-    final hasText = _msgCtrl.text.isNotEmpty;
+    if (_streaming) {
+      return IconButton(
+        onPressed: _stopStreaming,
+        tooltip: '停止生成',
+        icon: Icon(Icons.stop_circle, color: Colors.red[400], size: 24),
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+      );
+    }
+    final canSend = _msgCtrl.text.trim().isNotEmpty || _pendingImages.isNotEmpty;
     if (_transcribingSpeech) {
       return const Padding(
         padding: EdgeInsets.all(8),
@@ -2502,7 +2623,7 @@ class _ChatPageState extends State<ChatPage> {
         ),
       );
     }
-    if (hasText) {
+    if (canSend) {
       return IconButton(
         onPressed: _send,
         icon: Icon(
@@ -2794,6 +2915,7 @@ class _ShareMessageBubble extends StatelessWidget {
                 if (message.content.trim().isNotEmpty)
                   MarkdownWithLatex(
                     content: message.content.trim(),
+                    selectable: false,
                     textStyle: TextStyle(
                       fontSize: 20,
                       height: 1.45,
@@ -2853,6 +2975,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
   bool _showSpeechList = false;
   bool _showImageList = false;
   bool _showImageRecognitionList = false;
+  bool _showRoleList = false;
   bool _showSystemPromptList = false;
   String? _expandedSpeechId;
   String? _expandedImageId;
@@ -2903,6 +3026,53 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                   Text('对话设置', style: Theme.of(context).textTheme.titleLarge),
                 ],
               ),
+              const SizedBox(height: 20),
+              Text(
+                '角色管理',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700],
+                ),
+              ),
+              const SizedBox(height: 8),
+              InkWell(
+                onTap: () => setState(() => _showRoleList = !_showRoleList),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: _showRoleList
+                          ? Theme.of(
+                              context,
+                            ).colorScheme.primary.withValues(alpha: 0.3)
+                          : Colors.grey.withValues(alpha: 0.3),
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                    color: _showRoleList
+                        ? Theme.of(
+                            context,
+                          ).colorScheme.primary.withValues(alpha: 0.05)
+                        : null,
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          context.watch<SettingsProvider>().currentRole.name,
+                        ),
+                      ),
+                      Icon(
+                        _showRoleList ? Icons.expand_less : Icons.expand_more,
+                        size: 18,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (_showRoleList) ...[const SizedBox(height: 4), _roleList(set)],
               const SizedBox(height: 20),
               // 系统提示词
               Text(
@@ -3187,6 +3357,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
     required void Function(ModelConfig, String) onSelectSub,
     required VoidCallback onClear,
   }) {
+    final compact = MediaQuery.sizeOf(context).width < 380;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -3217,7 +3388,11 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    '${currentModel.name} / ${currentModel.modelName}',
+                    compact
+                        ? currentModel.name
+                        : '${currentModel.name} / ${currentModel.modelName}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
@@ -3276,6 +3451,8 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                 Expanded(
                   child: Text(
                     currentModel != null ? '已选择：${currentModel.name}' : hint,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 13,
                       color: currentModel != null ? null : Colors.grey[500],
@@ -3341,11 +3518,18 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
             children: [
               ListTile(
                 dense: true,
-                title: Text(m.name, style: const TextStyle(fontSize: 14)),
+                title: Text(
+                  m.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 14),
+                ),
                 subtitle: Text(
                   m.hasMultipleModels
                       ? '${m.enabledModelNames.length} 个模型'
                       : m.modelName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(fontSize: 11, color: Colors.grey[500]),
                 ),
                 leading: Icon(
@@ -3384,6 +3568,8 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                         ),
                         title: Text(
                           e.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 13,
                             fontFamily: 'monospace',
@@ -3542,6 +3728,81 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
     );
   }
 
+  Widget _roleList(AppSettings set) {
+    final roles = set.roles;
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 240),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: ListView.builder(
+        shrinkWrap: true,
+        itemCount: roles.length + 1,
+        itemBuilder: (_, i) {
+          if (i == roles.length) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Divider(height: 1),
+                ListTile(
+                  dense: true,
+                  leading: Icon(
+                    Icons.add,
+                    size: 18,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  title: Text(
+                    '添加角色',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                  onTap: _addRole,
+                ),
+              ],
+            );
+          }
+          final role = roles[i];
+          final selected = role.id == set.currentRoleId;
+          return ListTile(
+            dense: true,
+            leading: Icon(
+              selected ? Icons.check_circle : Icons.circle_outlined,
+              size: 18,
+              color: selected
+                  ? Theme.of(context).colorScheme.primary
+                  : Colors.grey,
+            ),
+            title: Text(role.name),
+            subtitle: Text(
+              role.systemPrompt,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            onTap: () {
+              context.read<SettingsProvider>().selectRole(role.id);
+              _updateSettings(_roleConversationSettings(role));
+              setState(() => _showRoleList = false);
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  ConversationSettings _roleConversationSettings(ChatRole role) {
+    return _settings.copyWith(
+      modelId: role.modelId ?? _settings.modelId,
+      selectedSystemPromptId: role.id == ChatRole.defaultId ? null : role.id,
+      systemPrompt: role.systemPrompt,
+    );
+  }
+
+  void _addRole() {
+    showDialog(context: context, builder: (ctx) => const _RoleEditDialog());
+  }
+
   void _addSystemPrompt() {
     showDialog(
       context: context,
@@ -3591,6 +3852,180 @@ class _SystemPromptEditDialog extends StatefulWidget {
   @override
   State<_SystemPromptEditDialog> createState() =>
       _SystemPromptEditDialogState();
+}
+
+class _RoleEditDialog extends StatefulWidget {
+  const _RoleEditDialog();
+
+  @override
+  State<_RoleEditDialog> createState() => _RoleEditDialogState();
+}
+
+class _RoleEditDialogState extends State<_RoleEditDialog> {
+  final _nameCtrl = TextEditingController();
+  final _promptCtrl = TextEditingController();
+  String? _modelId;
+  Color? _themeColor;
+
+  static const _colors = [
+    Colors.blue,
+    Colors.green,
+    Colors.orange,
+    Colors.purple,
+    Colors.red,
+    Colors.teal,
+    Colors.indigo,
+    Colors.pink,
+    Color(0xFF6C5CE7),
+    Color(0xFF00B894),
+    Color(0xFFE17055),
+    Color(0xFF355C7D),
+  ];
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _promptCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final models = context.watch<ModelConfigProvider>().modelsByCategory(
+      ModelConfig.categoryChat,
+    );
+    return AlertDialog(
+      title: const Text('添加角色'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _nameCtrl,
+              decoration: const InputDecoration(
+                labelText: '角色名称',
+                border: OutlineInputBorder(),
+                hintText: '默认',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _promptCtrl,
+              minLines: 3,
+              maxLines: 8,
+              decoration: const InputDecoration(
+                labelText: '系统提示词',
+                border: OutlineInputBorder(),
+                hintText: 'You are a helpful assistant.',
+                alignLabelWithHint: true,
+              ),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String?>(
+              initialValue: _modelId,
+              decoration: const InputDecoration(
+                labelText: '模型（可选）',
+                border: OutlineInputBorder(),
+              ),
+              isExpanded: true,
+              items: [
+                const DropdownMenuItem<String?>(
+                  value: null,
+                  child: Text('不指定'),
+                ),
+                ...models.map(
+                  (m) => DropdownMenuItem<String?>(
+                    value: m.id,
+                    child: Text('${m.name} / ${m.modelName}'),
+                  ),
+                ),
+              ],
+              onChanged: (v) => setState(() => _modelId = v),
+            ),
+            const SizedBox(height: 14),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '主题配色（可选）',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.withValues(alpha: 0.35)),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  ChoiceChip(
+                    label: const Text('无'),
+                    selected: _themeColor == null,
+                    onSelected: (_) => setState(() => _themeColor = null),
+                  ),
+                  for (final color in _colors)
+                    Tooltip(
+                      message:
+                          '#${color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}',
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(16),
+                        onTap: () => setState(() => _themeColor = color),
+                        child: Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            color: color,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: _themeColor?.toARGB32() == color.toARGB32()
+                                  ? Theme.of(context).colorScheme.onSurface
+                                  : Colors.transparent,
+                              width: 2,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: color.withValues(alpha: 0.25),
+                                blurRadius: 6,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        TextButton(
+          onPressed: () {
+            final name = _nameCtrl.text.trim();
+            final prompt = _promptCtrl.text.trim();
+            if (name.isEmpty || prompt.isEmpty) return;
+            context.read<SettingsProvider>().addRole(
+              name: name,
+              systemPrompt: prompt,
+              modelId: _modelId,
+              themeColor: _themeColor,
+            );
+            Navigator.pop(context);
+          },
+          child: const Text('保存'),
+        ),
+      ],
+    );
+  }
 }
 
 class _SystemPromptEditDialogState extends State<_SystemPromptEditDialog> {

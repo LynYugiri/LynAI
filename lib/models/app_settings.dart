@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'chat_role.dart';
 import 'system_prompt.dart';
 
 /// 应用设置数据模型
@@ -19,6 +20,9 @@ class AppSettings {
   final List<SystemPrompt> systemPrompts;
   final String? selectedSystemPromptId;
   final String themeMode;
+  final List<ChatRole> roles;
+  final String currentRoleId;
+  final String lastFeature;
 
   AppSettings({
     required this.themeColor,
@@ -35,7 +39,10 @@ class AppSettings {
     this.systemPrompts = const [],
     this.selectedSystemPromptId,
     this.themeMode = 'system',
-  });
+    List<ChatRole>? roles,
+    this.currentRoleId = ChatRole.defaultId,
+    this.lastFeature = 'history',
+  }) : roles = roles ?? [ChatRole.defaultRole()];
 
   factory AppSettings.defaults() {
     return AppSettings(themeColor: Colors.blue);
@@ -58,6 +65,9 @@ class AppSettings {
     List<SystemPrompt>? systemPrompts,
     Object? selectedSystemPromptId = _sentinel,
     String? themeMode,
+    List<ChatRole>? roles,
+    String? currentRoleId,
+    String? lastFeature,
   }) {
     return AppSettings(
       themeColor: themeColor ?? this.themeColor,
@@ -88,6 +98,9 @@ class AppSettings {
           ? this.selectedSystemPromptId
           : selectedSystemPromptId as String?,
       themeMode: themeMode ?? this.themeMode,
+      roles: roles ?? this.roles,
+      currentRoleId: currentRoleId ?? this.currentRoleId,
+      lastFeature: lastFeature ?? this.lastFeature,
     );
   }
 
@@ -99,6 +112,18 @@ class AppSettings {
               .toList()
         : <SystemPrompt>[];
     final selectedId = json['selectedSystemPromptId'] as String?;
+    final rolesJson = json['roles'] as List<dynamic>?;
+    var roles =
+        rolesJson
+            ?.map((e) => ChatRole.fromJson(e as Map<String, dynamic>))
+            .toList() ??
+        <ChatRole>[];
+    if (roles.every((r) => r.id != ChatRole.defaultId)) {
+      roles = [ChatRole.defaultRole(), ...roles];
+    }
+    if (roles.isEmpty) roles = [ChatRole.defaultRole()];
+    final currentRoleId =
+        json['currentRoleId'] as String? ?? ChatRole.defaultId;
     return AppSettings(
       themeColor: Color(json['themeColor'] as int),
       backgroundImagePath: json['backgroundImagePath'] as String?,
@@ -119,6 +144,11 @@ class AppSettings {
       systemPrompts: prompts,
       selectedSystemPromptId: selectedId,
       themeMode: json['themeMode'] as String? ?? 'system',
+      roles: roles,
+      currentRoleId: roles.any((r) => r.id == currentRoleId)
+          ? currentRoleId
+          : ChatRole.defaultId,
+      lastFeature: json['lastFeature'] as String? ?? 'history',
     );
   }
 
@@ -140,6 +170,9 @@ class AppSettings {
       if (selectedSystemPromptId != null)
         'selectedSystemPromptId': selectedSystemPromptId,
       'themeMode': themeMode,
+      'roles': roles.map((e) => e.toJson()).toList(),
+      'currentRoleId': currentRoleId,
+      'lastFeature': lastFeature,
     };
   }
 }
