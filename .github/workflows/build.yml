@@ -229,6 +229,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
           path: release
@@ -236,26 +239,37 @@ jobs:
       - name: Get tag message
         id: tag_message
         run: |
-          TAG_NAME=${GITHUB_REF#refs/tags/}
-          
-          # 获取附注标签的描述内容
-          # %(contents) 会获取标签正文（不含标题行）
-          TAG_MSG=$(git tag -l --format='%(contents)' $TAG_NAME 2>/dev/null || echo "")
-          
-          # 如果获取不到（可能是轻量标签），尝试另一种方式
-          if [ -z "$TAG_MSG" ]; then
-            TAG_MSG=$(git show -s --format=%B $TAG_NAME 2>/dev/null || echo "")
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          TAG_TYPE=$(git cat-file -t "$TAG_NAME" 2>/dev/null || echo "commit")
+          TAG_TARGET=$(git rev-list -n 1 "$TAG_NAME")
+
+          if [ "$TAG_TYPE" = "tag" ]; then
+            TAG_SUBJECT=$(git tag -l --format='%(subject)' "$TAG_NAME")
+            TAG_BODY=$(git tag -l --format='%(body)' "$TAG_NAME")
+          else
+            TAG_SUBJECT=$(git show -s --format=%s "$TAG_TARGET")
+            TAG_BODY=$(git show -s --format=%b "$TAG_TARGET")
           fi
-          
-          # 如果仍然没有内容，使用默认消息
-          if [ -z "$TAG_MSG" ]; then
-            TAG_MSG="Release $TAG_NAME"
-          fi
-          
-          # 处理多行输出
+
           echo "message<<EOF" >> $GITHUB_OUTPUT
-          echo "$TAG_MSG" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
+          echo "## Git Tag" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "- Tag: \`$TAG_NAME\`" >> $GITHUB_OUTPUT
+          echo "- Target: \`$TAG_TARGET\`" >> $GITHUB_OUTPUT
+          echo "- Type: \`$TAG_TYPE\`" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "## Tag Message" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          if [ -n "$TAG_SUBJECT" ]; then
+            echo "$TAG_SUBJECT" >> $GITHUB_OUTPUT
+          else
+            echo "Release $TAG_NAME" >> $GITHUB_OUTPUT
+          fi
+          if [ -n "$TAG_BODY" ]; then
+            echo "" >> $GITHUB_OUTPUT
+            echo "$TAG_BODY" >> $GITHUB_OUTPUT
+          fi
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
