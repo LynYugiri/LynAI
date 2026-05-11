@@ -187,6 +187,25 @@ jobs:
         with:
           channel: stable
       - run: flutter pub get
+      - name: Patch speech_to_text Swift concurrency issue
+        run: |
+          ruby <<'RUBY'
+          path = Dir[File.join(Dir.home, '.pub-cache/hosted/pub.dev/speech_to_text-*/darwin/speech_to_text/Sources/speech_to_text/SpeechToTextPlugin.swift')].first
+          abort('speech_to_text Swift source not found') unless path
+
+          source = File.read(path)
+          patched = source.sub(<<~'ORIGINAL', <<~'PATCHED')
+            var localeStr: String? = nil
+            if let localeParam = argsArr["localeId"] as? String {
+              localeStr = localeParam
+            }
+          ORIGINAL
+            let localeStr = argsArr["localeId"] as? String
+          PATCHED
+
+          abort('speech_to_text Swift source patch did not match') if patched == source
+          File.write(path, patched)
+          RUBY
       - name: Build macOS app
         run: flutter build macos --release
       - name: Package artifact
