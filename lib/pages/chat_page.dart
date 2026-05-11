@@ -27,10 +27,11 @@ import '../widgets/latex_renderer.dart';
 
 class _RetryEntry {
   String userContent;
+  List<MessageImage> userImages;
   String? assistantId;
   String? assistantContent;
   String? thinkingContent;
-  _RetryEntry(this.userContent);
+  _RetryEntry(this.userContent, [this.userImages = const []]);
 }
 
 class _PendingImage {
@@ -459,7 +460,7 @@ class _ChatPageState extends State<ChatPage> {
     _doStream(model, msgs, createTitle: createTitle);
   }
 
-  void _sendRetry(String text) {
+  Future<void> _sendRetry(String text) async {
     if (_streaming || _convId == null) return;
     final cp = context.read<ConversationProvider>();
     final mp = context.read<ModelConfigProvider>();
@@ -476,12 +477,13 @@ class _ChatPageState extends State<ChatPage> {
     if (lastAssistant.isNotEmpty && lastAssistant.last.content.isNotEmpty) {
       _saveRetryHistoryEntry(
         lastUser.content,
+        lastUser.images,
         lastAssistant.last.id,
         lastAssistant.last.content,
       );
     }
 
-    _retryHistory.add(_RetryEntry(text));
+    _retryHistory.add(_RetryEntry(text, lastUser.images));
     _retryIdx = _retryHistory.length - 1;
     cp.updateMessageContent(_convId!, lastUser.id, text);
     if (lastAssistant.isNotEmpty) {
@@ -494,7 +496,22 @@ class _ChatPageState extends State<ChatPage> {
       _streaming = true;
       _thinkingTxt = null;
     });
-    _doSend(model, allowTools: _isToolIntent(text));
+    try {
+      final apiUserContent = await _buildUserContentWithImages(
+        text,
+        lastUser.images,
+      );
+      if (!mounted) return;
+      _doSend(
+        model,
+        lastUserContentOverride: apiUserContent,
+        allowTools: _isToolIntent(text),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _streaming = false);
+      cp.updateLastMessage(_convId!, '图片处理失败: $e', save: true);
+    }
   }
 
   List<Map<String, dynamic>> _buildApiMessages(
@@ -513,11 +530,15 @@ class _ChatPageState extends State<ChatPage> {
       msgs.add({
         'role': 'system',
         'content': enableTools
-            ? '$promptContent\n\n${ToolCallService.systemPrompt}'
+            ? '$promptContent\n\n${ToolCallService.systemPrompt}\n\n${ToolCallService.currentTimeContext()}'
             : promptContent,
       });
     } else if (enableTools) {
-      msgs.add({'role': 'system', 'content': ToolCallService.systemPrompt});
+      msgs.add({
+        'role': 'system',
+        'content':
+            '${ToolCallService.systemPrompt}\n\n${ToolCallService.currentTimeContext()}',
+      });
     }
     final lastUserIndex = lastUserContentOverride == null
         ? -1
@@ -528,6 +549,10 @@ class _ChatPageState extends State<ChatPage> {
       msgs.add({
         'role': m.role,
         'content': i == lastUserIndex ? lastUserContentOverride : m.content,
+        if (m.role == 'assistant' &&
+            m.thinkingContent != null &&
+            m.thinkingContent!.isNotEmpty)
+          'reasoning_content': m.thinkingContent,
       });
     }
     return msgs;
@@ -571,7 +596,7 @@ class _ChatPageState extends State<ChatPage> {
     final cid = _convId!;
     final gen = ++_streamGen;
     String content = '';
-    String? reasoning;
+    final reasoningParts = <String>[];
     try {
       final toolService = ToolCallService(context.read<FeatureProvider>());
       final working = List<Map<String, dynamic>>.from(msgs);
@@ -585,6 +610,10 @@ class _ChatPageState extends State<ChatPage> {
           toolChoice: i == 3 && supportsNativeTools ? 'none' : 'auto',
         );
         if (!mounted || gen != _streamGen) return;
+        final responseReasoning = response.reasoning?.trim();
+        if (responseReasoning != null && responseReasoning.isNotEmpty) {
+          reasoningParts.add(responseReasoning);
+        }
         final fallbackCalls = response.toolCalls.isEmpty
             ? ToolCallService.parseFallbackToolCalls(response.content)
             : const <ChatToolCall>[];
@@ -593,7 +622,6 @@ class _ChatPageState extends State<ChatPage> {
             : fallbackCalls;
         if (calls.isEmpty) {
           content = response.content;
-          reasoning = response.reasoning;
           break;
         }
         final conv = cp.getConversation(cid);
@@ -615,14 +643,28 @@ class _ChatPageState extends State<ChatPage> {
       if (content.trim().isEmpty) {
         content = '工具调用已执行，但模型没有返回最终回复。';
       }
+      final reasoning = reasoningParts.isEmpty
+          ? null
+          : reasoningParts.join('\n\n');
       setState(() {
         _streaming = false;
         _thinkingTxt = reasoning;
       });
-      cp.updateLastMessage(cid, content, save: true);
+      cp.updateLastMessage(
+        cid,
+        content,
+        thinkingContent: reasoning,
+        save: true,
+      );
       final conv = cp.getConversation(cid);
-      if (conv != null && conv.messages.isNotEmpty && reasoning != null) {
-        _thinkMap[conv.messages.last.id] = reasoning;
+      if (conv != null && conv.messages.isNotEmpty) {
+        final lastMsg = conv.messages.last;
+        if (reasoning != null) _thinkMap[lastMsg.id] = reasoning;
+        if (_retryHistory.isNotEmpty && _retryIdx < _retryHistory.length) {
+          _retryHistory[_retryIdx].assistantId = lastMsg.id;
+          _retryHistory[_retryIdx].assistantContent = content;
+          _retryHistory[_retryIdx].thinkingContent = reasoning;
+        }
       }
       if (createTitle) unawaited(_maybeCreateConversationTitle(model, cid));
       _scrollEnd();
@@ -733,7 +775,7 @@ class _ChatPageState extends State<ChatPage> {
             _streaming = false;
             _thinkingTxt = think;
           });
-          cp.updateLastMessage(cid, buf, save: true);
+          cp.updateLastMessage(cid, buf, thinkingContent: think, save: true);
           final conv = cp.getConversation(cid);
           if (conv != null && conv.messages.isNotEmpty) {
             final lastMsg = conv.messages.last;
@@ -772,7 +814,7 @@ class _ChatPageState extends State<ChatPage> {
             _streaming = false;
             _thinkingTxt = think;
           });
-          cp.updateLastMessage(cid, buf, save: true);
+          cp.updateLastMessage(cid, buf, thinkingContent: think, save: true);
           final conv = cp.getConversation(cid);
           if (conv != null && conv.messages.isNotEmpty) {
             final lastMsg = conv.messages.last;
@@ -818,7 +860,7 @@ class _ChatPageState extends State<ChatPage> {
     setState(() => _showModelMenu = false);
   }
 
-  void _retry() {
+  Future<void> _retry() async {
     if (_convId == null || _streaming) return;
     final cp = context.read<ConversationProvider>();
     final conv = cp.getConversation(_convId!);
@@ -836,12 +878,13 @@ class _ChatPageState extends State<ChatPage> {
     if (lastAssistant.content.isNotEmpty) {
       _saveRetryHistoryEntry(
         lastUser.content,
+        lastUser.images,
         lastAssistant.id,
         lastAssistant.content,
       );
     }
 
-    _retryHistory.add(_RetryEntry(lastUser.content));
+    _retryHistory.add(_RetryEntry(lastUser.content, lastUser.images));
     _retryIdx = _retryHistory.length - 1;
     _thinkMap.remove(lastAssistant.id);
     cp.deleteMessage(_convId!, lastAssistant.id);
@@ -852,14 +895,29 @@ class _ChatPageState extends State<ChatPage> {
     });
     final retryModel = _getModel(context.read<ModelConfigProvider>());
     if (retryModel != null) {
-      _doSend(retryModel, allowTools: _isToolIntent(lastUser.content));
+      try {
+        final apiUserContent = await _buildUserContentWithImages(
+          lastUser.content,
+          lastUser.images,
+        );
+        if (!mounted) return;
+        _doSend(
+          retryModel,
+          lastUserContentOverride: apiUserContent,
+          allowTools: _isToolIntent(lastUser.content),
+        );
+      } catch (e) {
+        if (!mounted) return;
+        setState(() => _streaming = false);
+        cp.updateLastMessage(_convId!, '图片处理失败: $e', save: true);
+      }
     } else {
       setState(() => _streaming = false);
       _showMissingChatModelTip();
     }
   }
 
-  void _retryWithoutHistory() {
+  Future<void> _retryWithoutHistory() async {
     if (_convId == null || _streaming) return;
     final cp = context.read<ConversationProvider>();
     final conv = cp.getConversation(_convId!);
@@ -885,8 +943,23 @@ class _ChatPageState extends State<ChatPage> {
       final lastUser = userMessages == null || userMessages.isEmpty
           ? null
           : userMessages.last;
+      String? apiUserContent;
+      if (lastUser != null) {
+        try {
+          apiUserContent = await _buildUserContentWithImages(
+            lastUser.content,
+            lastUser.images,
+          );
+        } catch (e) {
+          if (!mounted) return;
+          setState(() => _streaming = false);
+          cp.updateLastMessage(_convId!, '图片处理失败: $e', save: true);
+          return;
+        }
+      }
       _doSend(
         retryModel,
+        lastUserContentOverride: apiUserContent,
         allowTools: lastUser == null ? false : _isToolIntent(lastUser.content),
       );
     } else {
@@ -897,16 +970,18 @@ class _ChatPageState extends State<ChatPage> {
 
   void _saveRetryHistoryEntry(
     String userContent,
+    List<MessageImage> userImages,
     String assistantId,
     String assistantContent,
   ) {
     if (_retryHistory.isEmpty) {
-      final oldEntry = _RetryEntry(userContent);
+      final oldEntry = _RetryEntry(userContent, userImages);
       oldEntry.assistantId = assistantId;
       oldEntry.assistantContent = assistantContent;
       oldEntry.thinkingContent = _thinkingTxt ?? _thinkMap[assistantId];
       _retryHistory.add(oldEntry);
     } else if (_retryIdx < _retryHistory.length) {
+      _retryHistory[_retryIdx].userImages = userImages;
       _retryHistory[_retryIdx].assistantId = assistantId;
       _retryHistory[_retryIdx].assistantContent = assistantContent;
       _retryHistory[_retryIdx].thinkingContent =
@@ -1067,10 +1142,10 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _pickImg() async {
     if (_streaming) return;
-    XFile? picked;
+    List<XFile> picked;
     try {
-      picked = await ImagePicker().pickImage(source: ImageSource.gallery);
-      if (picked == null) return;
+      picked = await ImagePicker().pickMultiImage();
+      if (picked.isEmpty) return;
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -1079,17 +1154,25 @@ class _ChatPageState extends State<ChatPage> {
       return;
     }
     if (!mounted) return;
-    late final File storedFile;
-    late final int sz;
+    final images = <_PendingImage>[];
     try {
-      final source = File(picked.path);
       final dir = await getApplicationDocumentsDirectory();
       final imageDir = Directory('${dir.path}/message_images');
       if (!await imageDir.exists()) await imageDir.create(recursive: true);
-      storedFile = await source.copy(
-        '${imageDir.path}/${DateTime.now().millisecondsSinceEpoch}_${_safeFileName(picked.name)}',
-      );
-      sz = await storedFile.length();
+      for (var i = 0; i < picked.length; i++) {
+        final item = picked[i];
+        final source = File(item.path);
+        final storedFile = await source.copy(
+          '${imageDir.path}/${DateTime.now().microsecondsSinceEpoch}_${i}_${_safeFileName(item.name)}',
+        );
+        images.add(
+          _PendingImage(
+            path: storedFile.path,
+            name: item.name,
+            size: await storedFile.length(),
+          ),
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -1098,9 +1181,7 @@ class _ChatPageState extends State<ChatPage> {
       return;
     }
     setState(() {
-      _pendingImages.add(
-        _PendingImage(path: storedFile.path, name: picked!.name, size: sz),
-      );
+      _pendingImages.addAll(images);
     });
   }
 
@@ -1798,13 +1879,16 @@ class _ChatPageState extends State<ChatPage> {
     final thinkForMsg = isLastAi
         ? (_thinkingTxt != null && _thinkingTxt!.isNotEmpty
               ? _thinkingTxt
-              : _thinkMap[msg.id])
-        : null;
+              : _thinkForMessage(msg))
+        : _thinkForMessage(msg);
+    final missingThinkNotice = _missingThinkNotice(msg, isLastAi);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (thinkForMsg != null && thinkForMsg.isNotEmpty)
           _thinkSection(thinkForMsg),
+        if (thinkForMsg == null && missingThinkNotice != null)
+          _thinkSection(missingThinkNotice),
         if (!isLastAi) ..._buildPerMsgThinkSection(msg),
         Container(
           margin: const EdgeInsets.symmetric(vertical: 4),
@@ -1958,8 +2042,30 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
+  String? _thinkForMessage(Message msg) {
+    final fromMap = _thinkMap[msg.id];
+    if (fromMap != null && fromMap.isNotEmpty) return fromMap;
+    final fromMessage = msg.thinkingContent;
+    if (fromMessage != null && fromMessage.isNotEmpty) return fromMessage;
+    return null;
+  }
+
+  String? _missingThinkNotice(Message msg, bool isLastAi) {
+    if (!_thinking ||
+        !isLastAi ||
+        msg.role != 'assistant' ||
+        msg.content.trim().isEmpty) {
+      return null;
+    }
+    if (_streaming && isLastAi) return '正在等待模型返回可见思考过程...';
+    if (msg.content.startsWith('请求失败') || msg.content.startsWith('图片处理失败')) {
+      return null;
+    }
+    return '当前模型或 API 没有返回可见思考过程。部分模型会进行内部推理，但不会向客户端暴露 reasoning/thinking 字段，因此无法显示真实思考过程。';
+  }
+
   List<Widget> _buildPerMsgThinkSection(Message msg) {
-    final think = _thinkMap[msg.id];
+    final think = _thinkForMessage(msg);
     if (think == null || think.isEmpty) return [];
     final expanded = _expandedThinkIds.contains(msg.id);
     return [
@@ -2034,7 +2140,7 @@ class _ChatPageState extends State<ChatPage> {
         _actBtn(Icons.share, () => _startShareSelection(msg)),
         if (canRetry) ...[
           const SizedBox(width: 4),
-          _actBtn(Icons.refresh, _retry),
+          _actBtn(Icons.refresh, () => unawaited(_retry())),
         ],
       ],
     ),
@@ -2044,7 +2150,9 @@ class _ChatPageState extends State<ChatPage> {
     padding: const EdgeInsets.only(left: 8, top: 2),
     child: Row(
       mainAxisSize: MainAxisSize.min,
-      children: [_actBtn(Icons.refresh, _retryWithoutHistory)],
+      children: [
+        _actBtn(Icons.refresh, () => unawaited(_retryWithoutHistory())),
+      ],
     ),
   );
 
@@ -2130,6 +2238,7 @@ class _ChatPageState extends State<ChatPage> {
     _retryIdx = newIdx;
     final entry = _retryHistory[newIdx];
     cp.updateMessageContent(_convId!, _retryMsgId!, entry.userContent);
+    cp.updateMessageImages(_convId!, _retryMsgId!, entry.userImages);
     final conv = cp.getConversation(_convId!);
     if (conv == null) return;
     final lastAssistant = conv.messages
@@ -2148,7 +2257,12 @@ class _ChatPageState extends State<ChatPage> {
           _thinkMap.remove(lastAssistant.last.id);
         }
       } else {
-        cp.addMessage(_convId!, 'assistant', entry.assistantContent!);
+        cp.addMessage(
+          _convId!,
+          'assistant',
+          entry.assistantContent!,
+          thinkingContent: entry.thinkingContent,
+        );
       }
       _thinkingTxt = entry.thinkingContent;
     } else {
@@ -2191,9 +2305,9 @@ class _ChatPageState extends State<ChatPage> {
               Navigator.pop(ctx);
               if (text.isEmpty) return;
               if (isLastUserMsg) {
-                _sendRetry(text);
+                unawaited(_sendRetry(text));
               } else {
-                _editStartNewConversation(msg, text);
+                unawaited(_editStartNewConversation(msg, text));
               }
             },
             child: Text(isLastUserMsg ? '发送' : '开始新对话'),
@@ -2203,7 +2317,10 @@ class _ChatPageState extends State<ChatPage> {
     ).then((_) => ctrl.dispose());
   }
 
-  void _editStartNewConversation(Message origMsg, String newText) {
+  Future<void> _editStartNewConversation(
+    Message origMsg,
+    String newText,
+  ) async {
     final cp = context.read<ConversationProvider>();
     final mp = context.read<ModelConfigProvider>();
     final editModel = _getModel(mp);
@@ -2230,7 +2347,7 @@ class _ChatPageState extends State<ChatPage> {
         images: allMsgs[i].images,
       );
     }
-    cp.addMessage(newConvId, 'user', newText);
+    cp.addMessage(newConvId, 'user', newText, images: origMsg.images);
     setState(() {
       _convId = newConvId;
       _streaming = true;
@@ -2238,7 +2355,22 @@ class _ChatPageState extends State<ChatPage> {
     });
     _scrollEnd();
     cp.addMessage(newConvId, 'assistant', '');
-    _doSend(editModel);
+    try {
+      final apiUserContent = await _buildUserContentWithImages(
+        newText,
+        origMsg.images,
+      );
+      if (!mounted) return;
+      _doSend(
+        editModel,
+        lastUserContentOverride: apiUserContent,
+        allowTools: _isToolIntent(newText),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _streaming = false);
+      cp.updateLastMessage(newConvId, '图片处理失败: $e', save: true);
+    }
   }
 
   Widget _inputArea(ModelConfig? model, ModelConfigProvider mp) {

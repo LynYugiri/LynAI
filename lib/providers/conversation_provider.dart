@@ -100,6 +100,7 @@ class ConversationProvider extends ChangeNotifier {
     String role,
     String content, {
     List<MessageImage> images = const [],
+    String? thinkingContent,
   }) {
     try {
       final index = _conversations.indexWhere((c) => c.id == conversationId);
@@ -110,6 +111,7 @@ class ConversationProvider extends ChangeNotifier {
         role: role,
         content: content,
         images: images,
+        thinkingContent: thinkingContent,
         timestamp: DateTime.now(),
       );
 
@@ -193,6 +195,7 @@ class ConversationProvider extends ChangeNotifier {
   void updateLastMessage(
     String conversationId,
     String content, {
+    String? thinkingContent,
     bool save = true,
   }) {
     try {
@@ -206,6 +209,7 @@ class ConversationProvider extends ChangeNotifier {
         role: lastMsg.role,
         content: content,
         images: lastMsg.images,
+        thinkingContent: thinkingContent ?? lastMsg.thinkingContent,
         timestamp: lastMsg.timestamp,
       );
 
@@ -311,6 +315,7 @@ class ConversationProvider extends ChangeNotifier {
       role: old.role,
       content: content,
       images: old.images,
+      thinkingContent: old.thinkingContent,
       timestamp: old.timestamp,
     );
     _conversations[index] = Conversation(
@@ -326,6 +331,40 @@ class ConversationProvider extends ChangeNotifier {
     // 将更新的对话移到列表顶部
     final conv = _conversations.removeAt(index);
     _conversations.insert(0, conv);
+    _saveConversations();
+    notifyListeners();
+  }
+
+  void updateMessageImages(
+    String conversationId,
+    String messageId,
+    List<MessageImage> images,
+  ) {
+    final index = _conversations.indexWhere((c) => c.id == conversationId);
+    if (index == -1) return;
+    final messages = List<Message>.from(_conversations[index].messages);
+    final msgIdx = messages.indexWhere((m) => m.id == messageId);
+    if (msgIdx == -1) return;
+    final old = messages[msgIdx];
+    messages[msgIdx] = Message(
+      id: old.id,
+      role: old.role,
+      content: old.content,
+      images: List<MessageImage>.from(images),
+      thinkingContent: old.thinkingContent,
+      timestamp: old.timestamp,
+    );
+    _conversations[index] = Conversation(
+      id: _conversations[index].id,
+      title: _conversations[index].title,
+      messages: messages,
+      modelId: _conversations[index].modelId,
+      settings: _conversations[index].settings,
+      roleId: _conversations[index].roleId,
+      createdAt: _conversations[index].createdAt,
+      updatedAt: DateTime.now(),
+    );
+    _touchConversation(index, _conversations[index]);
     _saveConversations();
     notifyListeners();
   }

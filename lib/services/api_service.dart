@@ -540,7 +540,7 @@ class ApiService {
         throw Exception('API 返回的 choice 缺少 message');
       }
       final content = message['content'] as String? ?? '';
-      final reasoning = message['reasoning_content'] as String?;
+      final reasoning = _extractReasoning(message);
       return ChatResponse(
         content: content,
         reasoning: reasoning,
@@ -608,7 +608,7 @@ class ApiService {
             if (choice != null) {
               final delta = choice['delta'];
               final content = delta?['content'] as String?;
-              final reasoning = delta?['reasoning_content'] as String?;
+              final reasoning = _extractReasoning(delta);
               if (content != null || reasoning != null) {
                 yield StreamChunk(
                   content: content,
@@ -1023,6 +1023,62 @@ class ApiService {
       );
     }
     return calls;
+  }
+
+  String? _extractReasoning(dynamic message) {
+    final parts = <String>[];
+
+    void add(Object? value) {
+      if (value is String && value.trim().isNotEmpty) {
+        parts.add(value.trim());
+      }
+    }
+
+    void visit(Object? value, {bool inReasoning = false}) {
+      if (value is String) {
+        if (inReasoning) add(value);
+        return;
+      }
+      if (value is List) {
+        for (final item in value) {
+          visit(item, inReasoning: inReasoning);
+        }
+        return;
+      }
+      if (value is! Map) return;
+
+      for (final key in const [
+        'reasoning_content',
+        'reasoning',
+        'thinking',
+        'thinking_content',
+        'reasoning_text',
+        'reasoning_summary',
+        'reasoning_details',
+      ]) {
+        final raw = value[key];
+        if (raw is String) {
+          add(raw);
+        } else if (raw != null) {
+          visit(raw, inReasoning: true);
+        }
+      }
+
+      final type = value['type'] as String?;
+      final looksLikeReasoning =
+          inReasoning ||
+          (type != null &&
+              (type.contains('reasoning') || type.contains('thinking')));
+      if (looksLikeReasoning) {
+        for (final key in const ['text', 'content', 'summary', 'value']) {
+          visit(value[key], inReasoning: true);
+        }
+      }
+    }
+
+    visit(message);
+    if (parts.isEmpty) return null;
+    return parts.toSet().join('\n\n');
   }
 
   List<Map<String, dynamic>> _withReasoningPlaceholders(

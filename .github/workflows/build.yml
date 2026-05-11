@@ -48,7 +48,7 @@ jobs:
           done
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.APP_NAME }}_android
+          name: ${{ env.APP_NAME }}_android_${{ needs.meta.outputs.version }}_${{ needs.meta.outputs.short_sha }}
           path: release/
 
   build-linux:
@@ -144,7 +144,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.APP_NAME }}_linux
+          name: ${{ env.APP_NAME }}_linux_${{ needs.meta.outputs.version }}_${{ needs.meta.outputs.short_sha }}_x64
           path: release/
 
   build-windows:
@@ -166,7 +166,7 @@ jobs:
           Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath "release/$name"
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.APP_NAME }}_windows_x64
+          name: ${{ env.APP_NAME }}_windows_${{ needs.meta.outputs.version }}_${{ needs.meta.outputs.short_sha }}_x64
           path: release/
 
   build-macos:
@@ -211,7 +211,7 @@ jobs:
           ditto -c -k --sequesterRsrc --keepParent "$app_path" "release/${APP_NAME}_macos_${{ needs.meta.outputs.version }}_${{ needs.meta.outputs.short_sha }}_${{ matrix.arch }}.zip"
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.APP_NAME }}_macos_${{ matrix.arch }}
+          name: ${{ env.APP_NAME }}_macos_${{ needs.meta.outputs.version }}_${{ needs.meta.outputs.short_sha }}_${{ matrix.arch }}
           path: release/
 
   build-web:
@@ -229,10 +229,10 @@ jobs:
         run: |
           mkdir -p release
           cd build/web
-          zip -r "$GITHUB_WORKSPACE/release/${APP_NAME}_web_${{ needs.meta.outputs.version }}_${{ needs.meta.outputs.short_sha }}.zip" .
+          zip -r "$GITHUB_WORKSPACE/release/${APP_NAME}_web_${{ needs.meta.outputs.version }}_${{ needs.meta.outputs.short_sha }}_universal.zip" .
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.APP_NAME }}_web
+          name: ${{ env.APP_NAME }}_web_${{ needs.meta.outputs.version }}_${{ needs.meta.outputs.short_sha }}_universal
           path: release/
 
   pre-release:

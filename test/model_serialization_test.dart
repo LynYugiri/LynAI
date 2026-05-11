@@ -29,12 +29,13 @@ void main() {
     expect(settings.copyWith(lastChatModelId: null).lastChatModelId, isNull);
   });
 
-  test('Message serializes image attachments', () {
+  test('Message serializes image attachments and thinking content', () {
     final message = Message(
       id: 'm1',
       role: 'user',
       content: 'hello',
       images: const [MessageImage(path: '/tmp/a.png', name: 'a.png', size: 12)],
+      thinkingContent: 'reasoning trace',
       timestamp: DateTime.utc(2026),
     );
 
@@ -44,6 +45,7 @@ void main() {
     expect(restored.images.single.path, '/tmp/a.png');
     expect(restored.images.single.name, 'a.png');
     expect(restored.images.single.size, 12);
+    expect(restored.thinkingContent, 'reasoning trace');
   });
 
   test('ConversationSettings reads legacy imagePrompt key', () {
@@ -72,10 +74,14 @@ void main() {
 
   test('Loaders skip malformed persisted items', () async {
     SharedPreferences.setMockInitialValues({
-      'conversations': '[{"id":"c1","title":"ok","messages":[],"modelId":"m1","settings":{"modelId":"m1"},"roleId":"default","createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"},{"id":"broken"}]',
-      'model_configs': '[{"id":"m1","name":"Model","endpoint":"https://example.com","apiKey":"key","modelName":"model-a","apiType":"openai","priority":0},{"id":"broken"}]',
-      'schedule_items': '[{"id":"s1","title":"demo","start":"2026-01-01T09:00:00.000Z","end":"2026-01-01T10:00:00.000Z"},{"id":"broken"}]',
-      'notes': '[{"id":"n1","title":"note","content":"text","createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"},{"id":"broken"}]',
+      'conversations':
+          '[{"id":"c1","title":"ok","messages":[],"modelId":"m1","settings":{"modelId":"m1"},"roleId":"default","createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"},{"id":"broken"}]',
+      'model_configs':
+          '[{"id":"m1","name":"Model","endpoint":"https://example.com","apiKey":"key","modelName":"model-a","apiType":"openai","priority":0},{"id":"broken"}]',
+      'schedule_items':
+          '[{"id":"s1","title":"demo","start":"2026-01-01T09:00:00.000Z","end":"2026-01-01T10:00:00.000Z"},{"id":"broken"}]',
+      'notes':
+          '[{"id":"n1","title":"note","content":"text","createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"},{"id":"broken"}]',
     });
 
     final conversationProvider = ConversationProvider();

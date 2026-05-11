@@ -17,8 +17,8 @@ class ScheduleItem {
     return ScheduleItem(
       id: json['id'] as String,
       title: json['title'] as String? ?? '',
-      start: DateTime.parse(json['start'] as String),
-      end: DateTime.parse(json['end'] as String),
+      start: DateTime.parse(json['start'] as String).toLocal(),
+      end: DateTime.parse(json['end'] as String).toLocal(),
       note: json['note'] as String?,
     );
   }
@@ -27,8 +27,8 @@ class ScheduleItem {
     return {
       'id': id,
       'title': title,
-      'start': start.toIso8601String(),
-      'end': end.toIso8601String(),
+      'start': start.toLocal().toIso8601String(),
+      'end': end.toLocal().toIso8601String(),
       if (note != null) 'note': note,
     };
   }

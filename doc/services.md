@@ -83,7 +83,7 @@ Stream<StreamChunk> sendStreamRequest(
 
 | 接口 | 解析来源 |
 |------|----------|
-| OpenAI 兼容 | `reasoning_content` 与流式 `delta.reasoning_content` |
+| OpenAI 兼容 | `reasoning_content`、`reasoning`、`thinking`、`thinking_content` 及对应流式 delta 字段 |
 | Ollama | 非流式和流式文本中的 `<think>...</think>` |
 | Anthropic | 非流式 `thinking` 内容块与流式 `thinking_delta` |
 
@@ -155,6 +155,10 @@ class ToolExecutionResult {
 - 不支持原生 tool calls 的接口可按系统提示返回 JSON：`{"tool_calls":[{"name":"工具名","arguments":{...}}]}`。
 - `parseFallbackToolCalls()` 会自动剥离 JSON 代码围栏并解析 `tool_calls`。
 - 工具结果统一返回 `{ok: true, ...}` 或 `{ok: false, error: ...}`。
+- 工具调用循环会累积每轮 `ChatResponse.reasoning`，并把工具调用阶段与最终回复阶段的思考过程一起显示在最终 assistant 消息上。
+- 启用工具时，系统消息会追加当前设备本地时间、时区名和 `timezoneOffsetMinutes`，降低相对时间理解偏差。
+- 日程工具参数使用 ISO-8601 字符串；解析后统一转本地时间保存，返回 `start`/`end` 时输出本地 ISO，并附带时区名与偏移量。
+- `list_schedules` 使用时间区间相交过滤，适配跨天日程和按日期范围查询。
 
 ## 平台通道
 

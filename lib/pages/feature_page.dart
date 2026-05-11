@@ -624,10 +624,23 @@ class _SchedulePage extends StatefulWidget {
 }
 
 class _SchedulePageState extends State<_SchedulePage> {
+  static const _hourRowHeight = 56.0;
+  static const _dayInitialHour = 8;
+
+  final _dayScrollController = ScrollController(
+    initialScrollOffset: _dayInitialHour * _hourRowHeight,
+  );
+
   _CalendarMode _mode = _CalendarMode.month;
   DateTime _focus = DateTime.now();
   DateTime? _selectedDate;
   bool _showMonthDetail = false;
+
+  @override
+  void dispose() {
+    _dayScrollController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1146,6 +1159,7 @@ class _SchedulePageState extends State<_SchedulePage> {
     final weekDays = List.generate(7, (i) => weekStart.add(Duration(days: i)));
     final scheme = Theme.of(context).colorScheme;
     return SingleChildScrollView(
+      controller: _dayScrollController,
       padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
       child: Container(
         decoration: BoxDecoration(
@@ -1185,9 +1199,7 @@ class _SchedulePageState extends State<_SchedulePage> {
             Expanded(
               child: Row(
                 children: weekDays.map((date) {
-                  final dayItems = items
-                      .where((e) => _sameDate(e.start, date))
-                      .toList();
+                  final dayItems = _itemsOnDate(items, date);
                   return Expanded(
                     child: Column(
                       children: [
@@ -1228,12 +1240,12 @@ class _SchedulePageState extends State<_SchedulePage> {
                           ),
                         ),
                         SizedBox(
-                          height: 24 * 56,
+                          height: 24 * _hourRowHeight,
                           child: Stack(
                             children: [
                               for (var h = 0; h < 24; h++)
                                 Positioned(
-                                  top: h * 56.0,
+                                  top: h * _hourRowHeight,
                                   left: 0,
                                   right: 0,
                                   child: Divider(
@@ -1259,17 +1271,25 @@ class _SchedulePageState extends State<_SchedulePage> {
                               for (final item in dayItems)
                                 Positioned(
                                   top:
-                                      item.start.hour * 56.0 +
-                                      item.start.minute / 60 * 56,
+                                      _visibleStartForDate(item, date).hour *
+                                          _hourRowHeight +
+                                      _visibleStartForDate(item, date).minute /
+                                          60 *
+                                          _hourRowHeight,
                                   left: 2,
                                   right: 2,
                                   height:
-                                      (item.end
-                                                  .difference(item.start)
+                                      (_visibleEndForDate(item, date)
+                                                  .difference(
+                                                    _visibleStartForDate(
+                                                      item,
+                                                      date,
+                                                    ),
+                                                  )
                                                   .inMinutes /
                                               60 *
-                                              56)
-                                          .clamp(26, 24 * 56)
+                                              _hourRowHeight)
+                                          .clamp(26, 24 * _hourRowHeight)
                                           .toDouble(),
                                   child: InkWell(
                                     onTap: () => _openScheduleEditor(item),
@@ -1289,7 +1309,7 @@ class _SchedulePageState extends State<_SchedulePage> {
                                         ),
                                       ),
                                       child: Text(
-                                        '${_time(item.start)}  ${item.title}',
+                                        '${_timeRangeForDate(item, date)}  ${item.title}',
                                         maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
                                         style: const TextStyle(fontSize: 10.5),
@@ -1300,8 +1320,10 @@ class _SchedulePageState extends State<_SchedulePage> {
                               if (_sameDate(date, DateTime.now()))
                                 Positioned(
                                   top:
-                                      DateTime.now().hour * 56.0 +
-                                      DateTime.now().minute / 60 * 56,
+                                      DateTime.now().hour * _hourRowHeight +
+                                      DateTime.now().minute /
+                                          60 *
+                                          _hourRowHeight,
                                   left: 0,
                                   right: 0,
                                   child: Row(
@@ -1352,8 +1374,12 @@ class _SchedulePageState extends State<_SchedulePage> {
       separatorBuilder: (context, index) => const SizedBox(height: 8),
       itemBuilder: (context, i) {
         final month = i + 1;
+        final monthStart = DateTime(_focus.year, month, 1);
+        final monthEnd = DateTime(_focus.year, month + 1, 1);
         final monthItems = items
-            .where((e) => e.start.year == _focus.year && e.start.month == month)
+            .where(
+              (e) => e.start.isBefore(monthEnd) && e.end.isAfter(monthStart),
+            )
             .toList();
         final count = monthItems.length;
         return Material(
@@ -1426,51 +1452,62 @@ class _SchedulePageState extends State<_SchedulePage> {
                   ),
                   if (monthItems.isNotEmpty) ...[
                     const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: monthItems.take(6).map((item) {
-                        return InkWell(
-                          onTap: () {
-                            setState(() {
-                              _focus = DateTime(
-                                _focus.year,
-                                month,
-                                item.start.day,
-                              );
-                              _selectedDate = DateTime(
-                                _focus.year,
-                                month,
-                                item.start.day,
-                              );
-                              _mode = _CalendarMode.month;
-                            });
-                          },
-                          borderRadius: BorderRadius.circular(999),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.surface,
-                              borderRadius: BorderRadius.circular(999),
-                              border: Border.all(
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .outlineVariant
-                                    .withValues(alpha: 0.5),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final chipWidth = (constraints.maxWidth - 6) / 2;
+                        return Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: monthItems.take(6).map((item) {
+                            return InkWell(
+                              onTap: () {
+                                setState(() {
+                                  _focus = DateTime(
+                                    _focus.year,
+                                    month,
+                                    _visibleStartForDate(item, monthStart).day,
+                                  );
+                                  _selectedDate = DateTime(
+                                    _focus.year,
+                                    month,
+                                    _visibleStartForDate(item, monthStart).day,
+                                  );
+                                  _mode = _CalendarMode.month;
+                                });
+                              },
+                              borderRadius: BorderRadius.circular(16),
+                              child: SizedBox(
+                                width: chipWidth.clamp(128.0, 260.0),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 7,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.surface,
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .outlineVariant
+                                          .withValues(alpha: 0.5),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    '${_visibleStartForDate(item, monthStart).month}/${_visibleStartForDate(item, monthStart).day} ${item.title}',
+                                    style: const TextStyle(fontSize: 11),
+                                    maxLines: 2,
+                                    softWrap: true,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
                               ),
-                            ),
-                            child: Text(
-                              '${item.start.month}/${item.start.day} ${item.title}',
-                              style: const TextStyle(fontSize: 11),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
+                            );
+                          }).toList(),
                         );
-                      }).toList(),
+                      },
                     ),
                   ],
                 ],
@@ -1504,11 +1541,19 @@ class _SchedulePageState extends State<_SchedulePage> {
       '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
 
   String _timeRangeForDate(ScheduleItem item, DateTime date) {
-    final dayStart = _dateOnly(date);
-    final dayEnd = dayStart.add(const Duration(days: 1));
-    final visibleStart = item.start.isAfter(dayStart) ? item.start : dayStart;
-    final visibleEnd = item.end.isBefore(dayEnd) ? item.end : dayEnd;
+    final visibleStart = _visibleStartForDate(item, date);
+    final visibleEnd = _visibleEndForDate(item, date);
     return '${_time(visibleStart)} - ${_time(visibleEnd)}';
+  }
+
+  DateTime _visibleStartForDate(ScheduleItem item, DateTime date) {
+    final dayStart = _dateOnly(date);
+    return item.start.isAfter(dayStart) ? item.start : dayStart;
+  }
+
+  DateTime _visibleEndForDate(ScheduleItem item, DateTime date) {
+    final dayEnd = _dateOnly(date).add(const Duration(days: 1));
+    return item.end.isBefore(dayEnd) ? item.end : dayEnd;
   }
 
   Future<void> _newSchedule() async {

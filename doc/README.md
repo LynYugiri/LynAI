@@ -85,6 +85,10 @@ lib/
 6. `ConversationProvider.updateLastMessage(save: false)` 实时更新 UI，流结束后再持久化。
 7. 如果模型返回工具调用，`ToolCallService` 执行本地工具，再把工具结果送回模型生成最终回复。
 
+图片消息重试或编辑后重发时，`ChatPage` 会复用原消息的 `Message.images` 并重新构建图片识别上下文；重试历史导航会同步切换文本、图片和思考内容。
+
+日程工具调用会注入当前设备本地时间、时区和偏移量。`ScheduleItem` 反序列化、工具参数解析和工具返回值都统一转换为本地时间，避免带 `Z` 或显式偏移的 ISO 时间在日历 UI 中错位。
+
 ## 模型配置
 
 `ModelConfig.category` 将配置分为四类。
@@ -139,6 +143,8 @@ flutter build web
 | push 到 `main`/`master` | 构建 Android、Linux、Windows、Web，并更新 `nightly` 预发布 |
 | pull request 到 `main`/`master` | 构建验证 |
 | tag `v*` | 构建产物并创建正式 GitHub Release |
+
+Release 文件与上传 artifact 统一使用 `LynAI_<platform>_<version>_<short_sha>_<arch-or-target>` 命名；Web 使用 `universal` 作为 target。
 
 ## 维护约定
 

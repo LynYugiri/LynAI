@@ -13,11 +13,12 @@ class Message {
   final String role;     // "user" | "assistant"
   final String content;  // 消息文本
   final List<MessageImage> images; // 图片附件，保存应用私有目录路径
+  final String? thinkingContent;   // assistant 思考过程，可持久化恢复
   final DateTime timestamp;
 }
 ```
 
-不可变类, 通过构造函数创建新实例进行更新。
+不可变类, 通过构造函数创建新实例进行更新。`thinkingContent` 用于保存流式和工具调用返回的 reasoning，切换历史对话或重试版本后仍可显示。
 
 ### MessageImage
 
@@ -29,7 +30,7 @@ class MessageImage {
 }
 ```
 
-图片附件不嵌入 JSON，只保存路径和元数据。选图或粘贴图片时会先复制到应用私有目录，降低历史消息图片丢失概率。
+图片附件不嵌入 JSON，只保存路径和元数据。选图或粘贴图片时会先复制到应用私有目录，降低历史消息图片丢失概率。重试历史会记录对应用户消息的图片列表，切换重试版本时同步恢复。
 
 ---
 
@@ -183,7 +184,7 @@ class ScheduleItem {
 }
 ```
 
-用于功能页日程表。Provider 按 `start` 升序排序；跨天日程在月视图中会出现在覆盖到的日期内。
+用于功能页日程表。Provider 按 `start` 升序排序；跨天日程在月视图、周视图和年视图中会出现在覆盖到的日期内。JSON 读写统一转本地时间，避免工具调用或旧数据中的 `Z`/时区偏移导致显示错位。
 
 ---
 

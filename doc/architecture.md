@@ -71,13 +71,14 @@ MaterialApp
 4. `_buildApiMessages()` 构建包含系统提示词的历史消息列表
 5. `_doStream()` → `ApiService.sendStreamRequest()` 发起流式请求
 6. `stream.listen` → `updateLastMessage()` 逐字更新
-7. 流完成时保存思考内容到 `_thinkMap`, 支持重试导航
+7. 流完成时保存思考内容到 `Message.thinkingContent` 并同步 `_thinkMap`, 支持历史恢复和重试导航；再次请求时会把 assistant 的 `thinkingContent` 回填为 `reasoning_content`
 
 ### 本地工具调用
 - `ToolCallService.openAITools()` 定义工具 schema, OpenAI 兼容接口可通过原生 `tools` 调用。
 - 不支持原生 tool calls 的接口会通过系统提示词要求模型返回 JSON fallback。
 - 工具覆盖时间、位置、打开 Android 应用、查询/创建/修改日程、查询/读取/保存笔记。
 - 工具结果会重新送回模型生成最终自然语言回复。
+- 工具调用阶段和最终回复阶段返回的 reasoning 会累积保存到最终 assistant 消息，重试历史切换时也会同步恢复。
 
 ### 语音
 1. 未配置语音转写接口时，使用系统 `speech_to_text` 把识别结果写入输入框
@@ -86,11 +87,12 @@ MaterialApp
 4. 转写文本只回填输入框，不自动发送，用户可先修正
 
 ### 图片
-1. 点击附件(+) 选择图片，或桌面端通过 `Ctrl/Cmd + V` 粘贴图片
+1. 点击附件(+) 可一次选择多张图片，或桌面端通过 `Ctrl/Cmd + V` 粘贴图片
 2. 图片会复制到应用私有目录，并作为 `Message.images` 附件持久化
 3. **已开启图片识别**: 选中的多模态 Chat 模型先识图，再把识别结果拼入本轮用户上下文
 4. **未开启图片识别但配置 OCR**: OCR 提取文字并拼入用户上下文
 5. **未配置识别能力**: 仅把图片文件名和大小作为文本上下文发送
+6. 重试、失败后重试和编辑用户消息后重发都会复用原消息图片，并重新执行图片识别或 OCR 上下文构建
 
 ### 长图分享
 1. 点击消息操作中的分享按钮进入选择模式
@@ -100,9 +102,15 @@ MaterialApp
 
 ### 重试与历史导航
 - `_retry()`: 重新生成当前回复, 保留原回复到重试历史
-- `<` `>` 导航: 在多次重试版本间切换, 同时切换对应的思考内容
+- `<` `>` 导航: 在多次重试版本间切换, 同时切换对应的用户文本、图片附件和思考内容
 - `_sendRetry()`: 编辑用户消息后重发, 在重试链中创建分支
-- `_editStartNewConversation()`: 从历史消息处编辑并开始新的对话分支
+- `_editStartNewConversation()`: 从历史消息处编辑并开始新的对话分支；如果原用户消息带图片，新分支会保留图片并重建图片识别上下文
+
+### 日程与时区
+- `ToolCallService.currentTimeContext()` 会把当前设备本地时间、时区名和 `timezoneOffsetMinutes` 注入启用工具的系统消息。
+- `get_current_time` 返回 `iso`、`localIso`、`timezone` 和 `timezoneOffsetMinutes`，供模型解析“今天/明天/几点”等相对时间。
+- `create_schedule`、`update_schedule` 和 `list_schedules` 解析 ISO-8601 参数后统一转本地时间，返回日程时也输出本地 ISO，保证工具结果和日历 UI 一致。
+- 日历周视图和年视图按日期区间相交判断日程，跨天日程会显示在覆盖到的日期内。
 
 ---
 
@@ -139,7 +147,7 @@ _send() → addMessage(user) → addMessage(assistant, '') → _doSend()
   → _doStream() → ApiService.sendStreamRequest()
     → stream.listen(
         onData: updateLastMessage(convId, buf, save: false) → notifyListeners()
-        isDone: updateLastMessage(convId, buf, save: true) → save to _thinkMap
+        isDone: updateLastMessage(convId, buf, thinkingContent: think, save: true) → 持久化思考过程并同步 _thinkMap
         onError: updateLastMessage(convId, error, save: true) → setState(_streaming = false)
         onDone: setState(_streaming = false) [兜底]
       )

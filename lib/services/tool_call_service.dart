@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../models/message.dart';
 import '../models/note.dart';
+import '../models/schedule_item.dart';
 import '../providers/feature_provider.dart';
 
 class ChatToolCall {
@@ -45,8 +46,13 @@ class ToolCallService {
 收到工具结果后，再用自然语言给用户最终回复。
 创建或修改数据前，应从用户输入中提取明确字段；缺少关键字段时先追问。
 需要查看笔记内容时，先用 list_notes 查找笔记 id，再用 read_note 读取完整内容；如果用户给出明确标题，也可以直接用 read_note 按标题搜索。
-日程时间使用 ISO-8601 字符串；用户说“今天/明天”时结合 get_current_time 的结果换算。
+日程时间使用带时区偏移的 ISO-8601 字符串；用户说“今天/明天”时必须先结合 get_current_time 的 iso 与 timezoneOffsetMinutes 换算成本地日期时间。
 ''';
+
+  static String currentTimeContext() {
+    final now = DateTime.now();
+    return '当前设备本地时间: ${now.toIso8601String()}，时区: ${now.timeZoneName}，timezoneOffsetMinutes: ${now.timeZoneOffset.inMinutes}。';
+  }
 
   static List<Map<String, dynamic>> openAITools() => [
     {
@@ -250,6 +256,7 @@ class ToolCallService {
           return {
             'ok': true,
             'iso': now.toIso8601String(),
+            'localIso': now.toLocal().toIso8601String(),
             'timezone': now.timeZoneName,
             'timezoneOffsetMinutes': now.timeZoneOffset.inMinutes,
           };
@@ -300,13 +307,18 @@ class ToolCallService {
     final to = _dateArg(args, 'to');
     final items = _features.schedules
         .where((item) {
-          if (from != null && item.end.isBefore(from)) return false;
-          if (to != null && item.start.isAfter(to)) return false;
+          if (from != null && !item.end.isAfter(from)) return false;
+          if (to != null && !item.start.isBefore(to)) return false;
           return true;
         })
-        .map((item) => item.toJson())
+        .map(_scheduleJson)
         .toList();
-    return {'ok': true, 'schedules': items};
+    return {
+      'ok': true,
+      'timezone': DateTime.now().timeZoneName,
+      'timezoneOffsetMinutes': DateTime.now().timeZoneOffset.inMinutes,
+      'schedules': items,
+    };
   }
 
   Map<String, dynamic> _createSchedule(Map<String, dynamic> args) {
@@ -323,7 +335,11 @@ class ToolCallService {
       end,
       note: args['note'] as String?,
     );
-    return {'ok': true, 'schedule': _features.getSchedule(id)?.toJson()};
+    final schedule = _features.getSchedule(id);
+    return {
+      'ok': true,
+      'schedule': schedule == null ? null : _scheduleJson(schedule),
+    };
   }
 
   Map<String, dynamic> _updateSchedule(Map<String, dynamic> args) {
@@ -344,7 +360,7 @@ class ToolCallService {
           );
     if (!updated.end.isAfter(updated.start)) return _error('结束时间必须晚于开始时间');
     _features.updateSchedule(updated);
-    return {'ok': true, 'schedule': updated.toJson()};
+    return {'ok': true, 'schedule': _scheduleJson(updated)};
   }
 
   Map<String, dynamic> _listNotes(Map<String, dynamic> args) {
@@ -428,7 +444,19 @@ class ToolCallService {
   static DateTime? _dateArg(Map<String, dynamic> args, String key) {
     final raw = args[key] as String?;
     if (raw == null || raw.trim().isEmpty) return null;
-    return DateTime.tryParse(raw.trim());
+    return DateTime.tryParse(raw.trim())?.toLocal();
+  }
+
+  static Map<String, dynamic> _scheduleJson(ScheduleItem item) {
+    return {
+      'id': item.id,
+      'title': item.title,
+      'start': item.start.toLocal().toIso8601String(),
+      'end': item.end.toLocal().toIso8601String(),
+      'timezone': item.start.toLocal().timeZoneName,
+      'timezoneOffsetMinutes': item.start.toLocal().timeZoneOffset.inMinutes,
+      if (item.note != null) 'note': item.note,
+    };
   }
 
   static String _stringArg(ChatToolCall call, String key) {

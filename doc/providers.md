@@ -13,9 +13,10 @@
 |------|------|
 | `loadConversations()` | 从SharedPreferences加载, 加载失败初始化为空列表 |
 | `createConversation(settings, {roleId})` | 新建对话并绑定角色ID, 默认角色为 `default` |
-| `addMessage(convId, role, content, {images})` | 添加消息和可选图片附件, 首条user消息自动设为标题(截取前20字符), 更新后对话移至列表顶部 |
-| `updateLastMessage(convId, content, {save: true})` | 增量更新最后一条消息(用于流式渲染), save参数控制是否立即持久化 |
+| `addMessage(convId, role, content, {images, thinkingContent})` | 添加消息、可选图片附件和可选思考过程, 首条user消息自动设为标题(截取前20字符), 更新后对话移至列表顶部 |
+| `updateLastMessage(convId, content, {thinkingContent, save: true})` | 增量更新最后一条消息(用于流式渲染), 可同步写入思考过程, save参数控制是否立即持久化 |
 | `updateMessageContent(convId, msgId, content)` | 更新指定消息内容(用于重试/编辑), 更新后对话移至列表顶部 |
+| `updateMessageImages(convId, msgId, images)` | 更新指定消息图片附件(用于重试历史切换), 更新后对话移至列表顶部 |
 | `updateConversationTitle(convId, title)` | 更新对话标题 |
 | `updateConversationModelId(convId, modelId)` | 更新对话绑定的模型ID |
 | `updateConversationSettings(convId, settings)` | 更新对话级设置快照 |

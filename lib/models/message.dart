@@ -8,6 +8,7 @@ class Message {
   final String role; // 'user' 或 'assistant'
   final String content;
   final List<MessageImage> images;
+  final String? thinkingContent;
   final DateTime timestamp;
 
   Message({
@@ -15,6 +16,7 @@ class Message {
     required this.role,
     required this.content,
     this.images = const [],
+    this.thinkingContent,
     required this.timestamp,
   });
 
@@ -27,6 +29,7 @@ class Message {
       images: (json['images'] as List<dynamic>? ?? [])
           .map((e) => MessageImage.fromJson(e as Map<String, dynamic>))
           .toList(),
+      thinkingContent: json['thinkingContent'] as String?,
       timestamp: DateTime.parse(json['timestamp'] as String),
     );
   }
@@ -38,6 +41,8 @@ class Message {
       'role': role,
       'content': content,
       if (images.isNotEmpty) 'images': images.map((e) => e.toJson()).toList(),
+      if (thinkingContent != null && thinkingContent!.isNotEmpty)
+        'thinkingContent': thinkingContent,
       'timestamp': timestamp.toIso8601String(),
     };
   }
