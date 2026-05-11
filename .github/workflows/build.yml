@@ -169,6 +169,38 @@ jobs:
           name: ${{ env.APP_NAME }}_windows_x64
           path: release/
 
+  build-macos:
+    name: macOS (${{ matrix.arch }})
+    needs: meta
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: macos-13
+            target-platform: darwin-x64
+          - arch: arm64
+            runner: macos-14
+            target-platform: darwin-arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+      - name: Build macOS app
+        run: flutter build macos --release --target-platform=${{ matrix.target-platform }} --no-codesign
+      - name: Package artifact
+        run: |
+          mkdir -p release
+          app_path="build/macos/Build/Products/Release/lynai.app"
+          ditto -c -k --sequesterRsrc --keepParent "$app_path" "release/${APP_NAME}_macos_${{ needs.meta.outputs.version }}_${{ needs.meta.outputs.short_sha }}_${{ matrix.arch }}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}_macos_${{ matrix.arch }}
+          path: release/
+
   build-web:
     name: Web
     needs: meta
@@ -192,7 +224,7 @@ jobs:
 
   pre-release:
     name: Pre-release
-    needs: [meta, build-android, build-linux, build-windows, build-web]
+    needs: [meta, build-android, build-linux, build-windows, build-macos, build-web]
     if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
@@ -223,7 +255,7 @@ jobs:
 
   stable-release:
     name: Stable Release
-    needs: [meta, build-android, build-linux, build-windows, build-web]
+    needs: [meta, build-android, build-linux, build-windows, build-macos, build-web]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
