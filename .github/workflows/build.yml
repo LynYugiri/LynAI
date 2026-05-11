@@ -194,14 +194,10 @@ jobs:
           abort('speech_to_text Swift source not found') unless path
 
           source = File.read(path)
-          patched = source.sub(<<~'ORIGINAL', <<~'PATCHED')
-            var localeStr: String? = nil
-            if let localeParam = argsArr["localeId"] as? String {
-              localeStr = localeParam
-            }
-          ORIGINAL
-            let localeStr = argsArr["localeId"] as? String
-          PATCHED
+          patched = source.sub(
+            /var\s+localeStr:\s*String\?\s*=\s*nil\s*\n\s*if\s+let\s+localeParam\s*=\s*argsArr\["localeId"\]\s+as\?\s+String\s*\{\s*\n\s*localeStr\s*=\s*localeParam\s*\n\s*\}/,
+            'let localeStr = argsArr["localeId"] as? String'
+          )
 
           abort('speech_to_text Swift source patch did not match') if patched == source
           File.write(path, patched)
