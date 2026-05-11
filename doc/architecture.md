@@ -12,7 +12,7 @@ MaterialApp
               └── HomePage
                     ├── FeaturePage
                     ├── ChatPage
-                    │     ├── MarkdownWithLatex → flutter_markdown_plus + flutter_math_fork
+                    │     ├── MarkdownWithLatex → flutter_markdown_plus + flutter_math_fork + highlight
                     │     ├── Voice: speech_to_text 或 record → 语音转写接口
                     │     ├── Image: image_picker / clipboard → OCR 或多模态识图 → 当前模型
                     │     ├── Tools: ToolCallService → 时间/位置/应用/日程/笔记
@@ -108,7 +108,7 @@ MaterialApp
 
 ## LatexRenderer
 
-`lib/widgets/latex_renderer.dart` — 使用 `flutter_markdown_plus` 和 `flutter_math_fork` 渲染 Markdown 与数学公式
+`lib/widgets/latex_renderer.dart` — 使用 `flutter_markdown_plus`、`flutter_math_fork` 和 `highlight` 渲染 Markdown、代码块与数学公式
 
 - **引擎**: `flutter_math_fork` — 原生 Flutter Canvas 渲染，支持完整 TeX 数学语法
 - **块级公式**: `Math.tex(formula, mathStyle: MathStyle.display)`，居中卡片容器
@@ -117,8 +117,11 @@ MaterialApp
 - **解析失败**: 回退到 monospace 原文显示，不阻塞 UI
 - **智能检测**: `hasLatexContent()` 自动区分 `$...$` 数学公式与普通文本中的 `$` 符号
 - **代码围栏保护**: LaTeX 检测和归一化跳过 fenced code block，避免代码块中的 `$`、`\(...\)`、`\[...\]` 被误解析
+- **语法高亮**: 代码块读取 fenced code block 的语言标记，使用 `highlight` 按语言解析，未标注时自动识别，并映射到 One Dark Pro 风格颜色
+- **块操作**: 代码块和块级公式统一通过 `_ExportableBlock` 提供标题栏、源码复制和单块 PNG 导出
+- **导出路径**: 桌面端写入系统剪贴板，Android/iOS 调用 `saveImageToGallery` 保存到图库，其他平台回退到临时文件分享
 - **长图代码块**: `wrapCodeBlocks` 可在分享/导出场景让代码块自动换行，避免横向滚动内容被截图裁剪
-- **`MarkdownWithLatex`**: 自动检测→走 TeX 渲染，否则走 `MarkdownBody`；支持传入 `textStyle` 和 `wrapCodeBlocks` 供分享长图使用
+- **`MarkdownWithLatex`**: 自动检测→走 TeX 渲染，否则走 `MarkdownBody`；支持传入 `textStyle`、`selectable` 和 `wrapCodeBlocks` 供消息、预览与分享长图使用
 
 ## 空安全与容错
 

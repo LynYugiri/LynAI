@@ -60,7 +60,7 @@ lib/
 | API 管理 | `lib/pages/api_models_page.dart` | 四类模型配置、Endpoint 预设、模型拉取、多子模型管理 |
 | API 服务 | `lib/services/api_service.dart` | Chat、OCR、语音转写、图片生成、流式解析、思考内容提取 |
 | 工具调用 | `lib/services/tool_call_service.dart` | 本地工具定义、fallback JSON 解析、日程/笔记工具执行、平台通道调用 |
-| Markdown/LaTeX | `lib/widgets/latex_renderer.dart` | Markdown 渲染、公式检测、代码围栏隔离、长图代码块换行 |
+| Markdown/LaTeX | `lib/widgets/latex_renderer.dart` | Markdown 渲染、公式检测、代码围栏隔离、One Dark Pro 风格代码高亮、代码/公式块复制与单图导出、长图代码块换行 |
 
 ## 状态与持久化
 
@@ -108,7 +108,7 @@ Android 原生通道位于 `android/app/src/main/kotlin/com/github/lynyugiri/lyn
 | `getLocation` | Android | 请求定位权限后读取最近位置 |
 | `saveImageToGallery` | Android | 将 PNG 写入 `Pictures/LynAI` |
 
-桌面端长图使用 `super_clipboard` 写入系统剪贴板；移动端通常使用图库保存或系统分享。
+桌面端长图和代码/公式块图片使用 `super_clipboard` 写入系统剪贴板；移动端通过 `saveImageToGallery` 保存到图库，其他平台回退到系统分享。
 
 ## 开发命令
 
