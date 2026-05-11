@@ -188,7 +188,7 @@ jobs:
           channel: stable
       - run: flutter pub get
       - name: Build macOS app
-        run: flutter build macos --release --no-codesign
+        run: flutter build macos --release
       - name: Package artifact
         run: |
           mkdir -p release
