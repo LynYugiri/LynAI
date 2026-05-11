@@ -178,10 +178,8 @@ jobs:
         include:
           - arch: x64
             runner: macos-13
-            target-platform: darwin-x64
           - arch: arm64
             runner: macos-14
-            target-platform: darwin-arm64
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -190,7 +188,7 @@ jobs:
           channel: stable
       - run: flutter pub get
       - name: Build macOS app
-        run: flutter build macos --release --target-platform=${{ matrix.target-platform }} --no-codesign
+        run: flutter build macos --release --no-codesign
       - name: Package artifact
         run: |
           mkdir -p release
