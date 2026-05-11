@@ -11,6 +11,8 @@ import 'package:screenshot/screenshot.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:super_clipboard/super_clipboard.dart';
 
+const _codeFontFamily = 'Hurmit Nerd Font';
+
 class LatexRenderer {
   static List<InlineSpan> parseToSpans(String text, BuildContext context) {
     final spans = <InlineSpan>[];
@@ -360,7 +362,7 @@ class MarkdownWithLatex extends StatelessWidget {
   }) {
     final styleSheet = _markdownStyle(context);
     final highlighter = _OneDarkSyntaxHighlighter(
-      styleSheet.code ?? const TextStyle(fontFamily: 'monospace'),
+      styleSheet.code ?? const TextStyle(fontFamily: _codeFontFamily),
     );
     final builders = <String, MarkdownElementBuilder>{
       'pre': _CodeBlockBuilder(
@@ -398,6 +400,7 @@ class MarkdownWithLatex extends StatelessWidget {
       listBullet: baseStyle,
       blockquote: baseStyle,
       code: TextStyle(
+        fontFamily: _codeFontFamily,
         fontSize: (baseStyle.fontSize ?? 15) - 2,
         color: baseStyle.color,
         backgroundColor: Theme.of(
@@ -612,7 +615,7 @@ class _CodeBlock extends StatelessWidget {
                   Text(
                     '${i + 1}',
                     style: const TextStyle(
-                      fontFamily: 'monospace',
+                      fontFamily: _codeFontFamily,
                       fontSize: 13,
                       height: 1.5,
                       color: Color(0xFF5C6370),

@@ -71,6 +71,15 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  fonts:
+    - family: Hurmit Nerd Font
+      fonts:
+        - asset: assets/fonts/HurmitNerdFont-Regular.otf
+        - asset: assets/fonts/HurmitNerdFont-Bold.otf
+          weight: 700
+        - asset: assets/fonts/HurmitNerdFont-Italic.otf
+          style: italic
+
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg

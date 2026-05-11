@@ -14,7 +14,7 @@ LynAI 是一个跨平台 AI 对话客户端，基于 Flutter 开发，支持 Ope
 - **多模型配置**：Chat、OCR、语音转文字、图片生成四类配置独立管理，支持拖拽排序和多子模型启用。
 - **多接口协议**：支持 OpenAI 兼容 `/chat/completions`、Ollama `/api/chat`、Anthropic `/messages`，并可通过自定义 Endpoint 接入兼容服务。
 - **流式对话**：SSE 或逐行 JSON 实时渲染回复，支持停止生成、重试、编辑后重发和重试版本切换。
-- **Markdown 与 LaTeX**：消息和笔记支持 Markdown、One Dark Pro 风格多语言代码高亮、内联公式 `$...$`、块级公式 `$$...$$`、`\(...\)`、`\[...\]`，代码块和公式块可复制或单独导出图片。
+- **Markdown 与 LaTeX**：消息和笔记支持 Markdown、Hurmit Nerd Font 代码字体、One Dark Pro 风格多语言代码高亮、内联公式 `$...$`、块级公式 `$$...$$`、`\(...\)`、`\[...\]`，代码块和公式块可复制或单独导出图片。
 - **思考过程展示**：支持解析 DeepSeek `reasoning_content`、Ollama `<think>`、Anthropic thinking delta，并在 UI 中独立展示。
 - **图片输入**：支持图片选择和桌面端剪贴板粘贴；图片会复制到应用私有目录，避免历史消息引用临时文件失效。
 - **图片理解**：可使用多模态 Chat 模型识图，也可配置 OCR 提取图片文字作为上下文。

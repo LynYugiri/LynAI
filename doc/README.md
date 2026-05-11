@@ -60,7 +60,7 @@ lib/
 | API 管理 | `lib/pages/api_models_page.dart` | 四类模型配置、Endpoint 预设、模型拉取、多子模型管理 |
 | API 服务 | `lib/services/api_service.dart` | Chat、OCR、语音转写、图片生成、流式解析、思考内容提取 |
 | 工具调用 | `lib/services/tool_call_service.dart` | 本地工具定义、fallback JSON 解析、日程/笔记工具执行、平台通道调用 |
-| Markdown/LaTeX | `lib/widgets/latex_renderer.dart` | Markdown 渲染、公式检测、代码围栏隔离、One Dark Pro 风格代码高亮、代码/公式块复制与单图导出、长图代码块换行 |
+| Markdown/LaTeX | `lib/widgets/latex_renderer.dart` | Markdown 渲染、公式检测、代码围栏隔离、Hurmit Nerd Font 代码字体、One Dark Pro 风格代码高亮、代码/公式块复制与单图导出、长图代码块换行 |
 
 ## 状态与持久化
 

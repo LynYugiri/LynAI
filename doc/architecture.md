@@ -117,6 +117,7 @@ MaterialApp
 - **解析失败**: 回退到 monospace 原文显示，不阻塞 UI
 - **智能检测**: `hasLatexContent()` 自动区分 `$...$` 数学公式与普通文本中的 `$` 符号
 - **代码围栏保护**: LaTeX 检测和归一化跳过 fenced code block，避免代码块中的 `$`、`\(...\)`、`\[...\]` 被误解析
+- **代码字体**: 代码块和导出图行号使用内置 `Hurmit Nerd Font` 字体资源，保证跨平台等宽和 Nerd Font 符号显示一致
 - **语法高亮**: 代码块读取 fenced code block 的语言标记，使用 `highlight` 按语言解析，未标注时自动识别，并映射到 One Dark Pro 风格颜色
 - **块操作**: 代码块和块级公式统一通过 `_ExportableBlock` 提供标题栏、源码复制和单块 PNG 导出
 - **导出路径**: 桌面端写入系统剪贴板，Android/iOS 调用 `saveImageToGallery` 保存到图库，其他平台回退到临时文件分享
