@@ -923,7 +923,7 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  void _startShareSelection() {
+  void _startShareSelection([Message? initialMessage]) {
     final conv = _convId == null
         ? null
         : context.read<ConversationProvider>().getConversation(_convId!);
@@ -931,6 +931,9 @@ class _ChatPageState extends State<ChatPage> {
     setState(() {
       _shareSelecting = true;
       _selectedShareMessageIds.clear();
+      if (initialMessage != null) {
+        _selectedShareMessageIds.add(initialMessage.id);
+      }
     });
   }
 
@@ -1832,7 +1835,7 @@ class _ChatPageState extends State<ChatPage> {
                 )
               : MarkdownWithLatex(content: msg.content),
         ),
-        if (!_streaming && !_shareSelecting) _bubbleActions(msg),
+        if (!_streaming && !_shareSelecting) _bubbleActions(msg, isLastAi),
       ],
     );
   }
@@ -2021,16 +2024,18 @@ class _ChatPageState extends State<ChatPage> {
     ];
   }
 
-  Widget _actions(String c) => Padding(
+  Widget _actions(Message msg, {required bool canRetry}) => Padding(
     padding: const EdgeInsets.only(left: 8, top: 2),
     child: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _actBtn(Icons.copy, () => _copy(c)),
+        _actBtn(Icons.copy, () => _copy(msg.content)),
         const SizedBox(width: 4),
-        _actBtn(Icons.share, _startShareSelection),
-        const SizedBox(width: 4),
-        _actBtn(Icons.refresh, _retry),
+        _actBtn(Icons.share, () => _startShareSelection(msg)),
+        if (canRetry) ...[
+          const SizedBox(width: 4),
+          _actBtn(Icons.refresh, _retry),
+        ],
       ],
     ),
   );
@@ -2043,13 +2048,13 @@ class _ChatPageState extends State<ChatPage> {
     ),
   );
 
-  Widget _bubbleActions(Message msg) {
+  Widget _bubbleActions(Message msg, bool canRetry) {
     if (msg.content.isEmpty ||
         msg.content.startsWith('请求失败') ||
         msg.content.startsWith('流式请求失败')) {
-      return _retryOnlyAction();
+      return canRetry ? _retryOnlyAction() : const SizedBox.shrink();
     }
-    return _actions(msg.content);
+    return _actions(msg, canRetry: canRetry);
   }
 
   Widget _actBtn(IconData i, VoidCallback t) => InkWell(
