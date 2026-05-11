@@ -1,6 +1,6 @@
 # LynAI
 
-LynAI 是一个跨平台 AI 对话客户端，基于 Flutter 开发，支持 OpenAI 兼容接口、Ollama、Anthropic 以及 vivo OCR/长语音转写/图片生成等能力。当前版本：`2.2.1`。
+LynAI 是一个跨平台 AI 对话客户端，基于 Flutter 开发，支持 OpenAI 兼容接口、Ollama、Anthropic 以及 vivo OCR/长语音转写/图片生成等能力。当前版本：`2.2.2`。
 
 ## 截图
 
@@ -186,7 +186,7 @@ GitHub Actions 工作流位于 `.github/workflows/build.yml`。
 | macOS | x64 与 arm64 zip |
 | Web | 静态站点 zip |
 
-Release 文件统一命名为 `LynAI_<platform>_<version>_<short_sha>_<arch-or-target>.<ext>`，例如 `LynAI_android_2.2.1_abcdef0_arm64-v8a.apk`、`LynAI_web_2.2.1_abcdef0_universal.zip`。
+Release 文件统一命名为 `LynAI_<platform>_<version>_<short_sha>_<arch-or-target>.<ext>`，例如 `LynAI_android_2.2.2_abcdef0_arm64-v8a.apk`、`LynAI_web_2.2.2_abcdef0_universal.zip`。
 
 当前 release 产物命名：
 
