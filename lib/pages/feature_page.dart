@@ -2390,7 +2390,7 @@ class _NoteShareImage extends StatelessWidget {
                   ),
                 ],
               ),
-              child: MarkdownWithLatex(content: content),
+              child: MarkdownWithLatex(content: content, wrapCodeBlocks: true),
             ),
             const SizedBox(height: 18),
             Text(

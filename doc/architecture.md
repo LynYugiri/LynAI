@@ -15,6 +15,7 @@ MaterialApp
                     │     ├── MarkdownWithLatex → flutter_markdown_plus + flutter_math_fork
                     │     ├── Voice: speech_to_text 或 record → 语音转写接口
                     │     ├── Image: image_picker / clipboard → OCR 或多模态识图 → 当前模型
+                    │     ├── Tools: ToolCallService → 时间/位置/应用/日程/笔记
                     │     └── Share: screenshot 长图 → 剪贴板/系统分享
                     └── SettingsPage
                           ├── AboutPage
@@ -72,6 +73,12 @@ MaterialApp
 6. `stream.listen` → `updateLastMessage()` 逐字更新
 7. 流完成时保存思考内容到 `_thinkMap`, 支持重试导航
 
+### 本地工具调用
+- `ToolCallService.openAITools()` 定义工具 schema, OpenAI 兼容接口可通过原生 `tools` 调用。
+- 不支持原生 tool calls 的接口会通过系统提示词要求模型返回 JSON fallback。
+- 工具覆盖时间、位置、打开 Android 应用、查询/创建/修改日程、查询/读取/保存笔记。
+- 工具结果会重新送回模型生成最终自然语言回复。
+
 ### 语音
 1. 未配置语音转写接口时，使用系统 `speech_to_text` 把识别结果写入输入框
 2. 已配置语音转写接口时，使用 `record` 录制 m4a 临时文件
@@ -109,7 +116,9 @@ MaterialApp
 - **渲染能力**: 分数（上下堆叠+水平分数线）、根号（包围表达式）、积分/求和（上下限）、矩阵、括号自动缩放等
 - **解析失败**: 回退到 monospace 原文显示，不阻塞 UI
 - **智能检测**: `hasLatexContent()` 自动区分 `$...$` 数学公式与普通文本中的 `$` 符号
-- **`MarkdownWithLatex`**: 自动检测→走 TeX 渲染，否则走 `MarkdownBody`；支持传入 `textStyle` 供分享长图使用
+- **代码围栏保护**: LaTeX 检测和归一化跳过 fenced code block，避免代码块中的 `$`、`\(...\)`、`\[...\]` 被误解析
+- **长图代码块**: `wrapCodeBlocks` 可在分享/导出场景让代码块自动换行，避免横向滚动内容被截图裁剪
+- **`MarkdownWithLatex`**: 自动检测→走 TeX 渲染，否则走 `MarkdownBody`；支持传入 `textStyle` 和 `wrapCodeBlocks` 供分享长图使用
 
 ## 空安全与容错
 

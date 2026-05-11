@@ -3139,6 +3139,7 @@ class _ShareMessageBubble extends StatelessWidget {
                   MarkdownWithLatex(
                     content: message.content.trim(),
                     selectable: false,
+                    wrapCodeBlocks: true,
                     textStyle: TextStyle(
                       fontSize: 20,
                       height: 1.45,

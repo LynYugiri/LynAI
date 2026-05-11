@@ -242,12 +242,14 @@ class MarkdownWithLatex extends StatelessWidget {
   final String content;
   final TextStyle? textStyle;
   final bool selectable;
+  final bool wrapCodeBlocks;
 
   const MarkdownWithLatex({
     super.key,
     required this.content,
     this.textStyle,
     this.selectable = true,
+    this.wrapCodeBlocks = false,
   });
 
   static final _inlineRegExp = RegExp(r'\$(.+?)\$');
@@ -260,7 +262,9 @@ class MarkdownWithLatex extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (content.isEmpty) return const SizedBox.shrink();
-    if (LatexRenderer.hasLatexContent(content)) {
+    if (LatexRenderer.hasLatexContent(
+      _contentOutsideFencedCodeBlocks(content),
+    )) {
       return _buildLatexContent(context);
     }
     return _buildMarkdown(context, content);
@@ -271,13 +275,17 @@ class MarkdownWithLatex extends StatelessWidget {
     String text, {
     bool withInlineLatex = false,
   }) {
+    final builders = <String, MarkdownElementBuilder>{
+      if (wrapCodeBlocks)
+        'pre': _CodeBlockBuilder(selectable: selectable, textStyle: textStyle),
+      if (withInlineLatex) 'inlineLatex': _LatexBuilder(textStyle: textStyle),
+    };
+
     return MarkdownBody(
       data: text,
       selectable: selectable,
       styleSheet: _markdownStyle(context),
-      builders: withInlineLatex
-          ? {'inlineLatex': _LatexBuilder(textStyle: textStyle)}
-          : const {},
+      builders: builders,
       extensionSet: withInlineLatex
           ? md.ExtensionSet(md.ExtensionSet.gitHubFlavored.blockSyntaxes, [
               ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
@@ -324,30 +332,38 @@ class MarkdownWithLatex extends StatelessWidget {
   }
 
   Widget _buildLatexContent(BuildContext context) {
-    final normalized = LatexRenderer._normalize(content);
+    final segments = _splitFencedCodeBlocks(content);
     final blockRegExp = RegExp(r'\$\$(.+?)\$\$', dotAll: true);
-    final parts = normalized.split(blockRegExp);
-    final blockMatches = blockRegExp.allMatches(normalized).toList();
     final widgets = <Widget>[];
 
-    for (var i = 0; i < parts.length; i++) {
-      if (i % 2 == 0) {
-        if (parts[i].isNotEmpty) {
-          if (_hasInlineMath(parts[i])) {
-            widgets.add(
-              _buildMarkdown(context, parts[i], withInlineLatex: true),
-            );
-          } else {
-            widgets.add(_buildMarkdown(context, parts[i]));
+    for (final segment in segments) {
+      if (segment.isFencedCodeBlock) {
+        widgets.add(_buildMarkdown(context, segment.text));
+        continue;
+      }
+
+      final normalized = LatexRenderer._normalize(segment.text);
+      final parts = normalized.split(blockRegExp);
+      final blockMatches = blockRegExp.allMatches(normalized).toList();
+      for (var i = 0; i < parts.length; i++) {
+        if (i % 2 == 0) {
+          if (parts[i].isNotEmpty) {
+            if (_hasInlineMath(parts[i])) {
+              widgets.add(
+                _buildMarkdown(context, parts[i], withInlineLatex: true),
+              );
+            } else {
+              widgets.add(_buildMarkdown(context, parts[i]));
+            }
           }
-        }
-      } else {
-        final idx = i ~/ 2;
-        if (idx < blockMatches.length) {
-          final formula = blockMatches[idx].group(1) ?? '';
-          widgets.add(
-            _MathBlock(formula: formula.trim(), textStyle: textStyle),
-          );
+        } else {
+          final idx = i ~/ 2;
+          if (idx < blockMatches.length) {
+            final formula = blockMatches[idx].group(1) ?? '';
+            widgets.add(
+              _MathBlock(formula: formula.trim(), textStyle: textStyle),
+            );
+          }
         }
       }
     }
@@ -356,5 +372,79 @@ class MarkdownWithLatex extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: widgets,
     );
+  }
+
+  static String _contentOutsideFencedCodeBlocks(String text) {
+    return _splitFencedCodeBlocks(text)
+        .where((segment) => !segment.isFencedCodeBlock)
+        .map((segment) => segment.text)
+        .join('\n');
+  }
+
+  static List<_MarkdownSegment> _splitFencedCodeBlocks(String text) {
+    final segments = <_MarkdownSegment>[];
+    final lines = text.split('\n');
+    final buffer = StringBuffer();
+    var inFence = false;
+    var fenceMarker = '';
+    var fenceLength = 0;
+
+    void flush({required bool isFence}) {
+      if (buffer.isEmpty) return;
+      segments.add(_MarkdownSegment(buffer.toString(), isFence));
+      buffer.clear();
+    }
+
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      final openMatch = RegExp(r'^ {0,3}(`{3,}|~{3,})').firstMatch(line);
+      final closeMatch = RegExp(
+        r'^ {0,3}(`{3,}|~{3,})[ \t]*$',
+      ).firstMatch(line);
+      final wasInFence = inFence;
+      if (!wasInFence && openMatch != null) {
+        flush(isFence: false);
+        inFence = true;
+        fenceMarker = openMatch.group(1)![0];
+        fenceLength = openMatch.group(1)!.length;
+      }
+
+      buffer.write(line);
+      if (i != lines.length - 1) buffer.write('\n');
+
+      if (wasInFence && closeMatch != null) {
+        final marker = closeMatch.group(1)!;
+        if (marker[0] == fenceMarker && marker.length >= fenceLength) {
+          inFence = false;
+          flush(isFence: true);
+        }
+      }
+    }
+
+    flush(isFence: inFence);
+    return segments;
+  }
+}
+
+class _MarkdownSegment {
+  final String text;
+  final bool isFencedCodeBlock;
+
+  const _MarkdownSegment(this.text, this.isFencedCodeBlock);
+}
+
+class _CodeBlockBuilder extends MarkdownElementBuilder {
+  final bool selectable;
+  final TextStyle? textStyle;
+
+  _CodeBlockBuilder({required this.selectable, this.textStyle});
+
+  @override
+  Widget? visitText(md.Text text, TextStyle? preferredStyle) {
+    final style = (textStyle ?? const TextStyle()).merge(preferredStyle);
+    final child = selectable
+        ? SelectableText(text.text, style: style)
+        : Text(text.text, style: style);
+    return Padding(padding: const EdgeInsets.all(8), child: child);
   }
 }
