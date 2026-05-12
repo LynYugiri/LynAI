@@ -13,6 +13,7 @@ void main() {
   test('AppSettings preserves nullable fields through copyWith sentinel', () {
     final settings = AppSettings(
       themeColor: Colors.purple,
+      baseThemeColor: Colors.purple,
       speechModelId: 'speech-1',
       imageModelId: 'ocr-1',
       imageRecognitionModelId: 'vision-1',

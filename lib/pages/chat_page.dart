@@ -193,6 +193,7 @@ class _ChatPageState extends State<ChatPage> {
   void dispose() {
     _sub?.cancel();
     _inputActionCollapseTimer?.cancel();
+    unawaited(_speech.stop());
     _audioRecorder.dispose();
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
@@ -400,15 +401,7 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   ConversationSettings _imageRecognitionSettings() {
-    final current = _activeSettings() ?? _settingsToConversationSettings();
-    final settings = context.read<SettingsProvider>().settings;
-    return current.copyWith(
-      imageModelId: settings.imageModelId,
-      imageOcrEnabled: settings.imageOcrEnabled,
-      imageRecognitionModelId: settings.imageRecognitionModelId,
-      imageRecognitionEnabled: settings.imageRecognitionEnabled,
-      imageRecognitionPrompt: settings.imageRecognitionPrompt,
-    );
+    return _activeSettings() ?? _settingsToConversationSettings();
   }
 
   Future<void> _send() async {
@@ -485,6 +478,13 @@ class _ChatPageState extends State<ChatPage> {
     final conv = cp.getConversation(_convId!);
     if (conv == null) return;
     final lastUser = conv.messages.where((m) => m.role == 'user').last;
+    Object? apiUserContent;
+    try {
+      apiUserContent = await _prepareUserContent(text, lastUser.images);
+      if (!mounted || apiUserContent == null) return;
+    } catch (_) {
+      return;
+    }
     _retryMsgId = lastUser.id;
 
     final lastAssistant = conv.messages
@@ -512,20 +512,7 @@ class _ChatPageState extends State<ChatPage> {
       _streaming = true;
       _thinkingTxt = null;
     });
-    try {
-      final apiUserContent = await _prepareUserContent(text, lastUser.images);
-      if (!mounted) return;
-      if (apiUserContent == null) {
-        setState(() => _streaming = false);
-        cp.updateLastMessage(_convId!, '文件处理失败，请检查附件或识别模型设置。', save: true);
-        return;
-      }
-      _doSend(model, lastUserContentOverride: apiUserContent, allowTools: true);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _streaming = false);
-      cp.updateLastMessage(_convId!, '文件处理失败: $e', save: true);
-    }
+    _doSend(model, lastUserContentOverride: apiUserContent, allowTools: true);
   }
 
   List<Map<String, dynamic>> _buildApiMessages(
@@ -870,6 +857,16 @@ class _ChatPageState extends State<ChatPage> {
         .toList();
     if (assistantMessages.isEmpty) return;
     final lastUser = um.last;
+    Object? apiUserContent;
+    try {
+      apiUserContent = await _prepareUserContent(
+        lastUser.content,
+        lastUser.images,
+      );
+      if (!mounted || apiUserContent == null) return;
+    } catch (_) {
+      return;
+    }
     _retryMsgId = lastUser.id;
 
     final lastAssistant = assistantMessages.last;
@@ -893,27 +890,11 @@ class _ChatPageState extends State<ChatPage> {
     });
     final retryModel = _getModel(context.read<ModelConfigProvider>());
     if (retryModel != null) {
-      try {
-        final apiUserContent = await _prepareUserContent(
-          lastUser.content,
-          lastUser.images,
-        );
-        if (!mounted) return;
-        if (apiUserContent == null) {
-          setState(() => _streaming = false);
-          cp.updateLastMessage(_convId!, '文件处理失败，请检查附件或识别模型设置。', save: true);
-          return;
-        }
-        _doSend(
-          retryModel,
-          lastUserContentOverride: apiUserContent,
-          allowTools: true,
-        );
-      } catch (e) {
-        if (!mounted) return;
-        setState(() => _streaming = false);
-        cp.updateLastMessage(_convId!, '文件处理失败: $e', save: true);
-      }
+      _doSend(
+        retryModel,
+        lastUserContentOverride: apiUserContent,
+        allowTools: true,
+      );
     } else {
       setState(() => _streaming = false);
       _showMissingChatModelTip();
@@ -930,13 +911,6 @@ class _ChatPageState extends State<ChatPage> {
         .toList();
     if (assistantMessages.isEmpty) return;
     final lastAssistant = assistantMessages.last;
-    _thinkMap.remove(lastAssistant.id);
-    cp.deleteMessage(_convId!, lastAssistant.id);
-    cp.addMessage(_convId!, 'assistant', '');
-    setState(() {
-      _streaming = true;
-      _thinkingTxt = null;
-    });
     final retryModel = _getModel(context.read<ModelConfigProvider>());
     if (retryModel != null) {
       final conv = cp.getConversation(_convId!);
@@ -954,18 +928,19 @@ class _ChatPageState extends State<ChatPage> {
             lastUser.images,
           );
           if (!mounted) return;
-          if (apiUserContent == null) {
-            setState(() => _streaming = false);
-            cp.updateLastMessage(_convId!, '文件处理失败，请检查附件或识别模型设置。', save: true);
-            return;
-          }
+          if (apiUserContent == null) return;
         } catch (e) {
           if (!mounted) return;
-          setState(() => _streaming = false);
-          cp.updateLastMessage(_convId!, '文件处理失败: $e', save: true);
           return;
         }
       }
+      _thinkMap.remove(lastAssistant.id);
+      cp.deleteMessage(_convId!, lastAssistant.id);
+      cp.addMessage(_convId!, 'assistant', '');
+      setState(() {
+        _streaming = true;
+        _thinkingTxt = null;
+      });
       _doSend(
         retryModel,
         lastUserContentOverride: apiUserContent,
@@ -1090,10 +1065,13 @@ class _ChatPageState extends State<ChatPage> {
       setState(() => _sharingImage = true);
       final bytes = await _captureShareImage();
       if (bytes == null) return;
-      final dir = _isDesktopPlatform
-          ? await getDownloadsDirectory()
-          : await getApplicationDocumentsDirectory();
-      if (dir == null) throw Exception('无法获取保存目录');
+      Directory? dir;
+      if (_isDesktopPlatform || Platform.isAndroid) {
+        dir = await getDownloadsDirectory();
+      } else {
+        dir = null;
+      }
+      dir ??= await getApplicationDocumentsDirectory();
       final file = File(
         '${dir.path}/lynai_share_${DateTime.now().millisecondsSinceEpoch}.png',
       );
@@ -1595,11 +1573,15 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _startSystemSpeechRecognition() async {
     final ok = await _speech.initialize(
       onStatus: (s) {
+        if (!mounted) return;
         if (s == 'done' || s == 'notListening') {
           setState(() => _recording = false);
         }
       },
-      onError: (_) => setState(() => _recording = false),
+      onError: (_) {
+        if (!mounted) return;
+        setState(() => _recording = false);
+      },
     );
     if (!mounted) return;
     final locale = Localizations.localeOf(context);
@@ -1610,6 +1592,7 @@ class _ChatPageState extends State<ChatPage> {
       try {
         _speech.listen(
           onResult: (r) {
+            if (!mounted) return;
             _msgCtrl.text = r.recognizedWords;
             if (r.finalResult) {
               setState(() => _recording = false);
@@ -1716,6 +1699,9 @@ class _ChatPageState extends State<ChatPage> {
       _thinkingTxt = null;
       _thinkExpanded = false;
     });
+    if (cid.isNotEmpty) {
+      _applyConversationSettings(cid);
+    }
     Navigator.pop(context);
   }
 
@@ -2536,6 +2522,8 @@ class _ChatPageState extends State<ChatPage> {
     final allMsgs = origConv.messages;
     final origMsgIdx = allMsgs.indexWhere((m) => m.id == origMsg.id);
     if (origMsgIdx == -1) return;
+    final apiUserContent = await _prepareUserContent(newText, origMsg.images);
+    if (!mounted || apiUserContent == null) return;
     _clearRetryState();
     _pendingModelId = null;
     final newConvId = cp.createConversation(
@@ -2548,6 +2536,7 @@ class _ChatPageState extends State<ChatPage> {
         allMsgs[i].role,
         allMsgs[i].content,
         images: allMsgs[i].images,
+        thinkingContent: allMsgs[i].thinkingContent,
       );
     }
     cp.addMessage(newConvId, 'user', newText, images: origMsg.images);
@@ -2558,24 +2547,11 @@ class _ChatPageState extends State<ChatPage> {
     });
     _scrollEnd();
     cp.addMessage(newConvId, 'assistant', '');
-    try {
-      final apiUserContent = await _prepareUserContent(newText, origMsg.images);
-      if (!mounted) return;
-      if (apiUserContent == null) {
-        setState(() => _streaming = false);
-        cp.updateLastMessage(newConvId, '文件处理失败，请检查附件或识别模型设置。', save: true);
-        return;
-      }
-      _doSend(
-        editModel,
-        lastUserContentOverride: apiUserContent,
-        allowTools: true,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _streaming = false);
-      cp.updateLastMessage(newConvId, '文件处理失败: $e', save: true);
-    }
+    _doSend(
+      editModel,
+      lastUserContentOverride: apiUserContent,
+      allowTools: true,
+    );
   }
 
   Widget _inputArea(ModelConfig? model, ModelConfigProvider mp) {
@@ -3291,21 +3267,17 @@ class _ChatPageState extends State<ChatPage> {
         constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
       );
     }
-    if (hasSpeech) {
-      return GestureDetector(
-        onLongPressStart: (_) => _voice(),
-        onLongPressEnd: (_) => _stopVoice(),
-        child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Icon(Icons.mic_none, size: 22, color: Colors.grey[500]),
+    return GestureDetector(
+      onLongPressStart: (_) => _voice(),
+      onLongPressEnd: (_) => _stopVoice(),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Icon(
+          hasSpeech ? Icons.mic_none : Icons.mic_none_outlined,
+          size: 22,
+          color: Colors.grey[500],
         ),
-      );
-    }
-    return IconButton(
-      onPressed: hasSpeech ? _voice : _send,
-      icon: Icon(Icons.send_rounded, size: 22, color: Colors.grey[400]),
-      padding: EdgeInsets.zero,
-      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+      ),
     );
   }
 

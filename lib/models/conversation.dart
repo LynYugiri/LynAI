@@ -152,12 +152,22 @@ class Conversation {
 
   /// 从 JSON Map 创建 Conversation 实例
   factory Conversation.fromJson(Map<String, dynamic> json) {
-    final modelId = json['modelId'] as String? ?? '';
-    final createdAt =
-        DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now();
+    final id = json['id'] as String?;
+    final title = json['title'] as String?;
+    final modelId = json['modelId'] as String?;
+    final createdAt = DateTime.tryParse(json['createdAt'] as String? ?? '');
+    final updatedAt = DateTime.tryParse(json['updatedAt'] as String? ?? '');
+    if (id == null ||
+        id.isEmpty ||
+        title == null ||
+        modelId == null ||
+        createdAt == null ||
+        updatedAt == null) {
+      throw const FormatException('Malformed conversation');
+    }
     return Conversation(
-      id: json['id'] as String? ?? '',
-      title: json['title'] as String? ?? '新对话',
+      id: id,
+      title: title,
       messages: (json['messages'] as List<dynamic>? ?? [])
           .whereType<Map>()
           .map((m) => Message.fromJson(Map<String, dynamic>.from(m)))
@@ -171,8 +181,7 @@ class Conversation {
           : ConversationSettings(modelId: modelId),
       roleId: json['roleId'] as String? ?? 'default',
       createdAt: createdAt,
-      updatedAt:
-          DateTime.tryParse(json['updatedAt'] as String? ?? '') ?? createdAt,
+      updatedAt: updatedAt,
     );
   }
 

@@ -7,6 +7,7 @@ import 'system_prompt.dart';
 /// 存储用户的应用偏好设置。
 class AppSettings {
   final Color themeColor;
+  final Color baseThemeColor;
   final String? backgroundImagePath;
   final bool blurEnabled;
   final double blurAmount;
@@ -27,6 +28,7 @@ class AppSettings {
 
   AppSettings({
     required this.themeColor,
+    required this.baseThemeColor,
     this.backgroundImagePath,
     this.blurEnabled = false,
     this.blurAmount = 5.0,
@@ -47,13 +49,14 @@ class AppSettings {
   }) : roles = roles ?? [ChatRole.defaultRole()];
 
   factory AppSettings.defaults() {
-    return AppSettings(themeColor: Colors.blue);
+    return AppSettings(themeColor: Colors.blue, baseThemeColor: Colors.blue);
   }
 
   static const _sentinel = Object();
 
   AppSettings copyWith({
     Color? themeColor,
+    Color? baseThemeColor,
     Object? backgroundImagePath = _sentinel,
     bool? blurEnabled,
     double? blurAmount,
@@ -74,6 +77,7 @@ class AppSettings {
   }) {
     return AppSettings(
       themeColor: themeColor ?? this.themeColor,
+      baseThemeColor: baseThemeColor ?? this.baseThemeColor,
       backgroundImagePath: identical(backgroundImagePath, _sentinel)
           ? this.backgroundImagePath
           : backgroundImagePath as String?,
@@ -128,8 +132,12 @@ class AppSettings {
     if (roles.isEmpty) roles = [ChatRole.defaultRole()];
     final currentRoleId =
         json['currentRoleId'] as String? ?? ChatRole.defaultId;
+    Color defaultColor = Color(Colors.blue.toARGB32());
+    Color themeColor = Color(json['themeColor'] as int? ?? defaultColor.toARGB32());
+    Color baseThemeColor = Color(json['baseThemeColor'] as int? ?? themeColor.toARGB32());
     return AppSettings(
-      themeColor: Color(json['themeColor'] as int? ?? Colors.blue.toARGB32()),
+      themeColor: themeColor,
+      baseThemeColor: baseThemeColor,
       backgroundImagePath: json['backgroundImagePath'] as String?,
       blurEnabled: json['blurEnabled'] as bool? ?? false,
       blurAmount: (json['blurAmount'] as num?)?.toDouble() ?? 5.0,
@@ -160,6 +168,7 @@ class AppSettings {
   Map<String, dynamic> toJson() {
     return {
       'themeColor': themeColor.toARGB32(),
+      'baseThemeColor': baseThemeColor.toARGB32(),
       'backgroundImagePath': backgroundImagePath,
       'blurEnabled': blurEnabled,
       'blurAmount': blurAmount,

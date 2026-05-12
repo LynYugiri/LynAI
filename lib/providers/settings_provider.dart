@@ -61,7 +61,7 @@ class SettingsProvider extends ChangeNotifier {
 
   /// 更新主题颜色
   void setThemeColor(Color color) {
-    _settings = _settings.copyWith(themeColor: color);
+    _settings = _settings.copyWith(themeColor: color, baseThemeColor: color);
     _queueSaveSettings();
     notifyListeners();
   }
@@ -128,7 +128,7 @@ class SettingsProvider extends ChangeNotifier {
       nextSettings = nextSettings.copyWith(
         systemPrompt: systemPrompt,
         lastChatModelId: modelId ?? nextSettings.lastChatModelId,
-        themeColor: themeColor ?? nextSettings.themeColor,
+        themeColor: themeColor ?? nextSettings.baseThemeColor,
       );
     }
     _settings = nextSettings;
@@ -175,7 +175,7 @@ class SettingsProvider extends ChangeNotifier {
       systemPrompt: role.systemPrompt,
       selectedSystemPromptId: selectedPromptId,
       lastChatModelId: role.modelId ?? _settings.lastChatModelId,
-      themeColor: role.themeColor ?? _settings.themeColor,
+      themeColor: role.themeColor ?? _settings.baseThemeColor,
     );
     _queueSaveSettings();
     notifyListeners();
