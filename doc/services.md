@@ -4,14 +4,17 @@
 
 **文件**：`lib/services/api_service.dart`
 
-`ApiService` 是所有远程能力的入口，负责 Chat、流式 Chat、OCR、语音转写、图片生成和多模态图片识别。
+`ApiService` 是所有远程能力的入口，负责 Chat、流式 Chat、OCR、语音转写、图片生成、多模态文件识别和附件内容转换。
 
 ## 数据类型
 
 ```dart
-class ChatImageInput {
+class ChatFileInput {
   final Uint8List bytes;
   final String mimeType;
+  final String name;
+
+  bool get isImage => mimeType.startsWith('image/');
 }
 
 class StreamChunk {
@@ -89,14 +92,17 @@ Stream<StreamChunk> sendStreamRequest(
 
 当 `thinking=true` 时，OpenAI 兼容接口发送 `thinking: {type: enabled}`，Ollama 发送 `think: true`。Anthropic 不自动注入厂商私有 thinking 参数，需要时通过 `extraParams` 显式配置。
 
-## 图片与语音接口
+## 附件、图片与语音接口
 
 | 方法 | 说明 |
 |------|------|
+| `chatContentWithFiles(text, files)` | 把文本和附件转换成统一的 `text`/`input_file` 内容列表 |
 | `recognizeImageText(config, imageBytes)` | 调用 vivo OCR，返回识别文本 |
-| `recognizeImageTextWithChatModel(config, prompt, images)` | 使用多模态 Chat 模型识别图片，OpenAI 兼容使用 `image_url`，Ollama 使用 `images` 数组，Anthropic 使用 `/messages` |
+| `recognizeImageTextWithChatModel(config, prompt, files)` | 使用多模态 Chat 模型识别文件；图片按各接口多模态格式发送，非图片文件按接口能力转换为 `input_file`、文本或 base64 上下文 |
 | `transcribeAudio(config, audioBytes, {audioType})` | 调用 vivo 长语音转写，自动分片上传并轮询结果 |
 | `generateImages(config, prompt, {image, parameters})` | 调用 OpenAI Images 或 vivo 图片生成接口 |
+
+OpenAI 兼容接口会把图片附件转换为 `image_url`，其他文件转换为文本上下文；Ollama 图片走 `images` 数组，其他文件写入文本内容；Anthropic 图片使用 `image` content block，其他文件写入文本内容。聊天主链路在发送前会按接口类型执行同样的内容转换。
 
 ## vivo 长语音转写流程
 

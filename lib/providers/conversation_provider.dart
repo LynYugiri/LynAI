@@ -121,11 +121,11 @@ class ConversationProvider extends ChangeNotifier {
 
       String title = _conversations[index].title;
       if (_conversations[index].messages.isEmpty && role == 'user') {
-        // 附带图片但没有文字时，用“[图片]”兜底，避免历史列表出现空标题。
+        // 附带附件但没有文字时，用附件名兜底，避免历史列表出现空标题。
         final clean = content.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
         final titleSource = clean.isNotEmpty
             ? clean
-            : (images.isNotEmpty ? '[图片]' : '新对话');
+            : (images.isNotEmpty ? '[附件] ${images.first.name}' : '新对话');
         title = titleSource.length > 20
             ? '${titleSource.substring(0, 20)}...'
             : titleSource;
@@ -390,13 +390,18 @@ class ConversationProvider extends ChangeNotifier {
         continue;
       }
 
-      // 检查消息内容是否匹配
+      // 检查消息内容和附件名是否匹配
       for (final msg in conv.messages) {
-        if (msg.content.toLowerCase().contains(lowerQuery)) {
+        final attachmentMatch = msg.images.any(
+          (image) => image.name.toLowerCase().contains(lowerQuery),
+        );
+        if (msg.content.toLowerCase().contains(lowerQuery) || attachmentMatch) {
           results.add({
             'conversation': conv,
             'matchInTitle': false,
-            'matchContent': msg.content,
+            'matchContent': msg.content.isNotEmpty
+                ? msg.content
+                : msg.images.map((image) => image.name).join(', '),
           });
           break;
         }

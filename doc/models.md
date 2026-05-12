@@ -12,7 +12,7 @@ class Message {
   final String id;       // UUID v4
   final String role;     // "user" | "assistant"
   final String content;  // 消息文本
-  final List<MessageImage> images; // 图片附件，保存应用私有目录路径
+  final List<MessageImage> images; // 消息附件，保存应用私有目录路径
   final String? thinkingContent;   // assistant 思考过程，可持久化恢复
   final DateTime timestamp;
 }
@@ -24,13 +24,16 @@ class Message {
 
 ```dart
 class MessageImage {
-  final String path; // 应用私有目录中的图片路径
+  final String path; // 应用私有目录中的附件路径
   final String name; // 原始或安全化后的文件名
   final int size;    // 文件大小，单位 byte
+  final String mimeType;
+
+  bool get isImage => mimeType.startsWith('image/');
 }
 ```
 
-图片附件不嵌入 JSON，只保存路径和元数据。选图或粘贴图片时会先复制到应用私有目录，降低历史消息图片丢失概率。重试历史会记录对应用户消息的图片列表，切换重试版本时同步恢复。
+附件不嵌入 JSON，只保存路径、文件名、大小和 MIME 类型。选择文件、选图、拍照或粘贴图片时会先复制到应用私有目录，降低历史消息附件丢失概率。重试历史会记录对应用户消息的附件列表，切换重试版本时同步恢复。
 
 ---
 
@@ -64,13 +67,14 @@ class ConversationSettings {
   final String systemPrompt;
   final String? speechModelId;
   final String? imageModelId;
+  final bool imageOcrEnabled;
   final String? imageRecognitionModelId;
   final bool imageRecognitionEnabled;
   final String imageRecognitionPrompt;
 }
 ```
 
-每个对话保存自己的模型和辅助能力设置。切换历史对话时，应用会恢复该对话的设置快照。
+每个对话保存自己的模型和辅助能力设置。`imageOcrEnabled` 控制图片 OCR，`imageRecognitionEnabled` 控制非图片文件识别。切换历史对话时，应用会恢复该对话的设置快照。
 
 ### ChatRole
 **文件**: `lib/models/chat_role.dart`
@@ -144,10 +148,11 @@ class AppSettings {
   final double blurAmount;           // 模糊程度(默认5.0, 范围0-20)
   final String? speechModelId;       // 语音转文字模型ID(null=未设置)
   final String? imageModelId;        // OCR模型ID(null=未设置)
-  final String? imageRecognitionModelId; // 多模态图片识别模型ID(null=未设置)
-  final bool imageRecognitionEnabled;    // 是否启用图片识别模型
+  final bool imageOcrEnabled;            // 是否启用图片 OCR
+  final String? imageRecognitionModelId; // 文件识别 Chat 模型ID(null=未设置)
+  final bool imageRecognitionEnabled;    // 是否启用文件识别模型
   final String? lastChatModelId;         // 新对话默认使用的 Chat 模型ID
-  final String imageRecognitionPrompt;   // 图片识别提示词
+  final String imageRecognitionPrompt;   // 文件识别提示词
   final String systemPrompt;         // 系统提示词(默认"You are a helpful assistant.")
   final List<SystemPrompt> systemPrompts;       // 自定义系统提示词模板列表(默认[])
   final String? selectedSystemPromptId;         // 当前选中的提示词模板ID(null=使用默认systemPrompt)

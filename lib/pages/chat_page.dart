@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -38,14 +39,18 @@ class _PendingImage {
   final String path;
   final String name;
   final int size;
+  final String mimeType;
   const _PendingImage({
     required this.path,
     required this.name,
     required this.size,
+    required this.mimeType,
   });
 
+  bool get isImage => mimeType.startsWith('image/');
+
   MessageImage toMessageImage() =>
-      MessageImage(path: path, name: name, size: size);
+      MessageImage(path: path, name: name, size: size, mimeType: mimeType);
 }
 
 /// 文件名安全化，避免用户相册文件名中包含路径分隔符或特殊字符。
@@ -99,6 +104,8 @@ class _ChatPageState extends State<ChatPage> {
   bool _shareSelecting = false;
   bool _sharingImage = false;
   final Set<String> _selectedShareMessageIds = {};
+  String? _expandedInputAction;
+  Timer? _inputActionCollapseTimer;
 
   int _streamGen = 0;
 
@@ -152,6 +159,7 @@ class _ChatPageState extends State<ChatPage> {
       systemPrompt: role.systemPrompt,
       speechModelId: settings.speechModelId,
       imageModelId: settings.imageModelId,
+      imageOcrEnabled: settings.imageOcrEnabled,
       imageRecognitionModelId: settings.imageRecognitionModelId,
       imageRecognitionEnabled: settings.imageRecognitionEnabled,
       imageRecognitionPrompt: settings.imageRecognitionPrompt,
@@ -184,6 +192,7 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void dispose() {
     _sub?.cancel();
+    _inputActionCollapseTimer?.cancel();
     _audioRecorder.dispose();
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
@@ -355,6 +364,7 @@ class _ChatPageState extends State<ChatPage> {
       systemPrompt: set.systemPrompt,
       speechModelId: set.speechModelId,
       imageModelId: set.imageModelId,
+      imageOcrEnabled: set.imageOcrEnabled,
       imageRecognitionModelId: set.imageRecognitionModelId,
       imageRecognitionEnabled: set.imageRecognitionEnabled,
       imageRecognitionPrompt: set.imageRecognitionPrompt,
@@ -394,6 +404,7 @@ class _ChatPageState extends State<ChatPage> {
     final settings = context.read<SettingsProvider>().settings;
     return current.copyWith(
       imageModelId: settings.imageModelId,
+      imageOcrEnabled: settings.imageOcrEnabled,
       imageRecognitionModelId: settings.imageRecognitionModelId,
       imageRecognitionEnabled: settings.imageRecognitionEnabled,
       imageRecognitionPrompt: settings.imageRecognitionPrompt,
@@ -417,16 +428,8 @@ class _ChatPageState extends State<ChatPage> {
     final images = _pendingImages.map((e) => e.toMessageImage()).toList();
     final conversationSettings = _currentConversationSettings(model);
     final roleId = context.read<SettingsProvider>().settings.currentRoleId;
-    String apiUserContent;
-    try {
-      apiUserContent = await _buildUserContentWithImages(text, images);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('图片处理失败: $e')));
-      return;
-    }
+    final apiUserContent = await _prepareUserContent(text, images);
+    if (!mounted || apiUserContent == null) return;
 
     _convId ??= cp.createConversation(conversationSettings, roleId: roleId);
     _pendingModelId = null;
@@ -453,7 +456,7 @@ class _ChatPageState extends State<ChatPage> {
 
   void _doSend(
     ModelConfig model, {
-    String? lastUserContentOverride,
+    Object? lastUserContentOverride,
     bool allowTools = false,
     bool createTitle = false,
   }) {
@@ -510,22 +513,24 @@ class _ChatPageState extends State<ChatPage> {
       _thinkingTxt = null;
     });
     try {
-      final apiUserContent = await _buildUserContentWithImages(
-        text,
-        lastUser.images,
-      );
+      final apiUserContent = await _prepareUserContent(text, lastUser.images);
       if (!mounted) return;
+      if (apiUserContent == null) {
+        setState(() => _streaming = false);
+        cp.updateLastMessage(_convId!, '文件处理失败，请检查附件或识别模型设置。', save: true);
+        return;
+      }
       _doSend(model, lastUserContentOverride: apiUserContent, allowTools: true);
     } catch (e) {
       if (!mounted) return;
       setState(() => _streaming = false);
-      cp.updateLastMessage(_convId!, '图片处理失败: $e', save: true);
+      cp.updateLastMessage(_convId!, '文件处理失败: $e', save: true);
     }
   }
 
   List<Map<String, dynamic>> _buildApiMessages(
     Conversation conv, {
-    String? lastUserContentOverride,
+    Object? lastUserContentOverride,
     bool enableTools = false,
   }) {
     final msgs = <Map<String, dynamic>>[];
@@ -889,11 +894,16 @@ class _ChatPageState extends State<ChatPage> {
     final retryModel = _getModel(context.read<ModelConfigProvider>());
     if (retryModel != null) {
       try {
-        final apiUserContent = await _buildUserContentWithImages(
+        final apiUserContent = await _prepareUserContent(
           lastUser.content,
           lastUser.images,
         );
         if (!mounted) return;
+        if (apiUserContent == null) {
+          setState(() => _streaming = false);
+          cp.updateLastMessage(_convId!, '文件处理失败，请检查附件或识别模型设置。', save: true);
+          return;
+        }
         _doSend(
           retryModel,
           lastUserContentOverride: apiUserContent,
@@ -902,7 +912,7 @@ class _ChatPageState extends State<ChatPage> {
       } catch (e) {
         if (!mounted) return;
         setState(() => _streaming = false);
-        cp.updateLastMessage(_convId!, '图片处理失败: $e', save: true);
+        cp.updateLastMessage(_convId!, '文件处理失败: $e', save: true);
       }
     } else {
       setState(() => _streaming = false);
@@ -936,17 +946,23 @@ class _ChatPageState extends State<ChatPage> {
       final lastUser = userMessages == null || userMessages.isEmpty
           ? null
           : userMessages.last;
-      String? apiUserContent;
+      Object? apiUserContent;
       if (lastUser != null) {
         try {
-          apiUserContent = await _buildUserContentWithImages(
+          apiUserContent = await _prepareUserContent(
             lastUser.content,
             lastUser.images,
           );
+          if (!mounted) return;
+          if (apiUserContent == null) {
+            setState(() => _streaming = false);
+            cp.updateLastMessage(_convId!, '文件处理失败，请检查附件或识别模型设置。', save: true);
+            return;
+          }
         } catch (e) {
           if (!mounted) return;
           setState(() => _streaming = false);
-          cp.updateLastMessage(_convId!, '图片处理失败: $e', save: true);
+          cp.updateLastMessage(_convId!, '文件处理失败: $e', save: true);
           return;
         }
       }
@@ -1163,6 +1179,7 @@ class _ChatPageState extends State<ChatPage> {
             path: storedFile.path,
             name: item.name,
             size: await storedFile.length(),
+            mimeType: item.mimeType ?? _mimeTypeForPath(item.path),
           ),
         );
       }
@@ -1176,6 +1193,69 @@ class _ChatPageState extends State<ChatPage> {
     setState(() {
       _pendingImages.addAll(images);
     });
+  }
+
+  Future<void> _pickFiles() async {
+    if (_streaming) return;
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        allowMultiple: true,
+        withData: false,
+      );
+      if (!mounted || result == null || result.files.isEmpty) return;
+      final files = <_PendingImage>[];
+      for (final item in result.files) {
+        if (item.path == null) continue;
+        files.add(await _storeAttachmentFile(File(item.path!), item.name));
+      }
+      if (files.isEmpty) return;
+      setState(() => _pendingImages.addAll(files));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('文件读取失败: $e')));
+    }
+  }
+
+  Future<void> _takePhoto() async {
+    if (_streaming || _isDesktopPlatform) return;
+    try {
+      final picked = await ImagePicker().pickImage(source: ImageSource.camera);
+      if (!mounted || picked == null) return;
+      final file = await _storeAttachmentFile(
+        File(picked.path),
+        picked.name,
+        mimeType: picked.mimeType ?? _mimeTypeForPath(picked.path),
+      );
+      setState(() => _pendingImages.add(file));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('拍照失败，请检查相机权限: $e')));
+    }
+  }
+
+  Future<_PendingImage> _storeAttachmentFile(
+    File source,
+    String name, {
+    String? mimeType,
+  }) async {
+    final dir = await getApplicationDocumentsDirectory();
+    final attachmentDir = Directory('${dir.path}/message_attachments');
+    if (!await attachmentDir.exists()) {
+      await attachmentDir.create(recursive: true);
+    }
+    final storedFile = await source.copy(
+      '${attachmentDir.path}/${DateTime.now().microsecondsSinceEpoch}_${_safeFileName(name)}',
+    );
+    return _PendingImage(
+      path: storedFile.path,
+      name: name,
+      size: await storedFile.length(),
+      mimeType: mimeType ?? _mimeTypeForPath(name, fallbackPath: source.path),
+    );
   }
 
   Future<void> _handlePasteShortcut() async {
@@ -1273,7 +1353,12 @@ class _ChatPageState extends State<ChatPage> {
       final size = bytes.length;
       setState(() {
         _pendingImages.add(
-          _PendingImage(path: storedFile.path, name: fileName, size: size),
+          _PendingImage(
+            path: storedFile.path,
+            name: fileName,
+            size: size,
+            mimeType: _mimeTypeForPath(fileName),
+          ),
         );
       });
     } catch (e) {
@@ -1284,27 +1369,58 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  /// 将图片附件转换成安全的文本上下文。
-  ///
-  /// 这里先按用户设置走 OCR 或图片识别模型，把识别结果拼回将要发送给 Chat 的
-  /// 文本内容，但不会回填到输入框。
-  Future<String> _buildUserContentWithImages(
+  Future<Object?> _prepareUserContent(
     String text,
-    List<MessageImage> images,
+    List<MessageImage> files,
   ) async {
-    final buffer = StringBuffer(text.trim());
-    if (images.isEmpty) return buffer.toString();
-    if (buffer.isNotEmpty) buffer.writeln('\n');
-    for (final image in images) {
-      buffer.writeln('[图片: ${image.name} (${_fmtSz(image.size)})]');
+    try {
+      return await _buildUserContentWithFiles(text, files);
+    } catch (e) {
+      if (!mounted) return null;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('文件处理失败: $e')));
+      return null;
     }
+  }
+
+  Future<Object> _buildUserContentWithFiles(
+    String text,
+    List<MessageImage> files,
+  ) async {
     final set = _imageRecognitionSettings();
-    final modelProvider = context.read<ModelConfigProvider>();
-    final imageText = await _recognizeImagesForSend(images, set, modelProvider);
-    if (imageText.isNotEmpty) {
-      buffer.writeln(imageText);
+    final imageFiles = files.where((file) => file.isImage).toList();
+    final otherFiles = files.where((file) => !file.isImage).toList();
+    final recognized = <String>[];
+    final directFiles = <MessageImage>[
+      if (!set.imageOcrEnabled) ...imageFiles,
+      if (!set.imageRecognitionEnabled) ...otherFiles,
+    ];
+
+    if (set.imageOcrEnabled && imageFiles.isNotEmpty) {
+      recognized.add(await _recognizeImagesWithOcr(imageFiles, set));
     }
-    return buffer.toString().trim();
+    if (set.imageRecognitionEnabled && otherFiles.isNotEmpty) {
+      recognized.add(await _recognizeFilesWithModel(otherFiles, set));
+    }
+
+    final buffer = StringBuffer(text.trim());
+    if (files.isEmpty) return buffer.toString();
+    if (buffer.isNotEmpty) buffer.writeln('\n');
+    for (final file in files) {
+      buffer.writeln(
+        '[文件: ${file.name} (${_fmtSz(file.size)}, ${file.mimeType})]',
+      );
+    }
+    final recognizedText = recognized
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .join('\n');
+    if (recognizedText.isNotEmpty) {
+      buffer.writeln(recognizedText);
+    }
+
+    return _directModelContent(buffer.toString().trim(), directFiles);
   }
 
   ConversationSettings _settingsToConversationSettings() {
@@ -1317,55 +1433,59 @@ class _ChatPageState extends State<ChatPage> {
       systemPrompt: settings.systemPrompt,
       speechModelId: settings.speechModelId,
       imageModelId: settings.imageModelId,
+      imageOcrEnabled: settings.imageOcrEnabled,
       imageRecognitionModelId: settings.imageRecognitionModelId,
       imageRecognitionEnabled: settings.imageRecognitionEnabled,
       imageRecognitionPrompt: settings.imageRecognitionPrompt,
     );
   }
 
-  Future<String> _recognizeImagesForSend(
-    List<MessageImage> images,
+  Future<String> _recognizeFilesWithModel(
+    List<MessageImage> files,
     ConversationSettings set,
-    ModelConfigProvider mp,
   ) async {
-    if (images.isEmpty) return '';
-
-    if (set.imageRecognitionEnabled) {
-      final modelId = set.imageRecognitionModelId;
-      if (modelId == null || modelId.isEmpty) {
-        throw Exception('请先选择图片识别模型');
-      }
-      final model = _findModelConfigById(
-        mp.modelsByCategory(ModelConfig.categoryChat),
-        modelId,
-      );
-      if (model == null) {
-        throw Exception('图片识别模型已不存在，请在设置中重新选择');
-      }
-      final inputs = <ChatImageInput>[];
-      for (final image in images) {
-        final bytes = await File(image.path).readAsBytes();
-        inputs.add(
-          ChatImageInput(bytes: bytes, mimeType: _mimeTypeForPath(image.path)),
-        );
-      }
-      return _api.recognizeImageTextWithChatModel(
-        model,
-        set.imageRecognitionPrompt,
-        inputs,
+    if (files.isEmpty) return '';
+    final modelId = set.imageRecognitionModelId;
+    if (modelId == null || modelId.isEmpty) {
+      throw Exception('请先选择文件识别模型');
+    }
+    final mp = context.read<ModelConfigProvider>();
+    final model = _findModelConfigById(
+      mp.modelsByCategory(ModelConfig.categoryChat),
+      modelId,
+    );
+    if (model == null) {
+      throw Exception('文件识别模型已不存在，请在设置中重新选择');
+    }
+    final inputs = <ChatFileInput>[];
+    for (final file in files) {
+      final bytes = await File(file.path).readAsBytes();
+      inputs.add(
+        ChatFileInput(bytes: bytes, mimeType: file.mimeType, name: file.name),
       );
     }
+    return _api.recognizeImageTextWithChatModel(
+      model,
+      set.imageRecognitionPrompt,
+      inputs,
+    );
+  }
 
+  Future<String> _recognizeImagesWithOcr(
+    List<MessageImage> files,
+    ConversationSettings set,
+  ) async {
     final modelId = set.imageModelId;
     if (modelId == null || modelId.isEmpty) {
-      return '';
+      throw Exception('请先选择 OCR 模型');
     }
+    final mp = context.read<ModelConfigProvider>();
     final ocrModel = _findModelConfigById(mp.models, modelId);
     if (ocrModel == null) {
-      return '';
+      throw Exception('OCR 模型已不存在，请在设置中重新选择');
     }
     final results = <String>[];
-    for (final image in images) {
+    for (final image in files.where((file) => file.isImage)) {
       try {
         final bytes = await File(image.path).readAsBytes();
         final text = await _api.recognizeImageText(ocrModel, bytes);
@@ -1378,12 +1498,52 @@ class _ChatPageState extends State<ChatPage> {
     return results.join('\n');
   }
 
-  String _mimeTypeForPath(String path) {
+  Future<Object> _directModelContent(
+    String text,
+    List<MessageImage> files,
+  ) async {
+    if (files.isEmpty) return text;
+    final inputs = <ChatFileInput>[];
+    for (final file in files) {
+      inputs.add(
+        ChatFileInput(
+          bytes: await File(file.path).readAsBytes(),
+          mimeType: file.mimeType,
+          name: file.name,
+        ),
+      );
+    }
+    return ApiService.chatContentWithFiles(text, inputs);
+  }
+
+  String _mimeTypeForPath(String path, {String? fallbackPath}) {
     final lower = path.toLowerCase();
-    if (lower.endsWith('.png')) return 'image/png';
-    if (lower.endsWith('.webp')) return 'image/webp';
-    if (lower.endsWith('.gif')) return 'image/gif';
-    return 'image/jpeg';
+    final fallback = fallbackPath?.toLowerCase();
+    bool endsWith(String extension) {
+      return lower.endsWith(extension) ||
+          (fallback?.endsWith(extension) ?? false);
+    }
+
+    if (endsWith('.png')) return 'image/png';
+    if (endsWith('.jpg') || endsWith('.jpeg')) return 'image/jpeg';
+    if (endsWith('.webp')) return 'image/webp';
+    if (endsWith('.gif')) return 'image/gif';
+    if (endsWith('.pdf')) return 'application/pdf';
+    if (endsWith('.txt') || endsWith('.md')) return 'text/plain';
+    if (endsWith('.json')) return 'application/json';
+    if (endsWith('.csv')) return 'text/csv';
+    if (endsWith('.html') || endsWith('.htm')) return 'text/html';
+    if (endsWith('.xml')) return 'application/xml';
+    if (endsWith('.zip')) return 'application/zip';
+    if (endsWith('.doc')) return 'application/msword';
+    if (endsWith('.docx')) {
+      return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    }
+    if (endsWith('.xls')) return 'application/vnd.ms-excel';
+    if (endsWith('.xlsx')) {
+      return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    }
+    return 'application/octet-stream';
   }
 
   Future<void> _voice() async {
@@ -1698,6 +1858,7 @@ class _ChatPageState extends State<ChatPage> {
                       ),
                     ),
               if (_showScrollToBottom) _scrollToBottomButton(),
+              if (_showModelMenu) _floatingModelList(mp),
             ],
           ),
         ),
@@ -1923,6 +2084,9 @@ class _ChatPageState extends State<ChatPage> {
       runSpacing: 6,
       children: images.map((image) {
         final exists = File(image.path).existsSync();
+        if (!image.isImage) {
+          return _fileChip(image, exists: exists);
+        }
         return InkWell(
           onTap: exists
               ? () => _showImagePreview(image.path, image.name)
@@ -1941,14 +2105,56 @@ class _ChatPageState extends State<ChatPage> {
                     height: 60,
                     alignment: Alignment.center,
                     color: Colors.black.withValues(alpha: 0.08),
-                    child: const Text(
-                      '图片文件已不存在',
-                      style: TextStyle(fontSize: 12),
-                    ),
+                    child: const Text('文件已不存在', style: TextStyle(fontSize: 12)),
                   ),
           ),
         );
       }).toList(),
+    );
+  }
+
+  Widget _fileChip(MessageImage file, {required bool exists}) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: 160,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Icon(_fileIcon(file.mimeType), color: scheme.primary, size: 22),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  file.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  exists ? _fmtSz(file.size) : '文件已不存在',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -2051,7 +2257,9 @@ class _ChatPageState extends State<ChatPage> {
       return null;
     }
     if (_streaming && isLastAi) return '正在等待模型返回可见思考过程...';
-    if (msg.content.startsWith('请求失败') || msg.content.startsWith('图片处理失败')) {
+    if (msg.content.startsWith('请求失败') ||
+        msg.content.startsWith('图片处理失败') ||
+        msg.content.startsWith('文件处理失败')) {
       return null;
     }
     return '当前模型或 API 没有返回可见思考过程。部分模型会进行内部推理，但不会向客户端暴露 reasoning/thinking 字段，因此无法显示真实思考过程。';
@@ -2307,7 +2515,9 @@ class _ChatPageState extends State<ChatPage> {
           ),
         ],
       ),
-    ).then((_) => ctrl.dispose());
+    ).then((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => ctrl.dispose());
+    });
   }
 
   Future<void> _editStartNewConversation(
@@ -2349,11 +2559,13 @@ class _ChatPageState extends State<ChatPage> {
     _scrollEnd();
     cp.addMessage(newConvId, 'assistant', '');
     try {
-      final apiUserContent = await _buildUserContentWithImages(
-        newText,
-        origMsg.images,
-      );
+      final apiUserContent = await _prepareUserContent(newText, origMsg.images);
       if (!mounted) return;
+      if (apiUserContent == null) {
+        setState(() => _streaming = false);
+        cp.updateLastMessage(newConvId, '文件处理失败，请检查附件或识别模型设置。', save: true);
+        return;
+      }
       _doSend(
         editModel,
         lastUserContentOverride: apiUserContent,
@@ -2362,7 +2574,7 @@ class _ChatPageState extends State<ChatPage> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _streaming = false);
-      cp.updateLastMessage(newConvId, '图片处理失败: $e', save: true);
+      cp.updateLastMessage(newConvId, '文件处理失败: $e', save: true);
     }
   }
 
@@ -2391,7 +2603,6 @@ class _ChatPageState extends State<ChatPage> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (_showModelMenu) _modelList(mp),
           if (_pendingImages.isNotEmpty) _pendingImagePreview(),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -2450,6 +2661,8 @@ class _ChatPageState extends State<ChatPage> {
               const SizedBox(width: 4),
               _thinkBtn(),
               const SizedBox(width: 4),
+              _ocrBtn(),
+              const SizedBox(width: 4),
               _imageRecognitionBtn(),
               const Spacer(),
               _attachBtn(),
@@ -2468,11 +2681,16 @@ class _ChatPageState extends State<ChatPage> {
     final models = mp.modelsByCategory(ModelConfig.categoryChat);
     final settings = _activeSettings();
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: EdgeInsets.zero,
       constraints: const BoxConstraints(maxHeight: 260),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: Theme.of(
+            context,
+          ).colorScheme.outlineVariant.withValues(alpha: 0.8),
+        ),
       ),
       child: ListView(
         shrinkWrap: true,
@@ -2559,13 +2777,13 @@ class _ChatPageState extends State<ChatPage> {
           ListTile(
             dense: true,
             leading: Icon(
-              Icons.image_search,
+              Icons.file_present_outlined,
               size: 18,
               color: Theme.of(context).colorScheme.primary,
             ),
-            title: const Text('图片识别', style: TextStyle(fontSize: 14)),
+            title: const Text('文件识别', style: TextStyle(fontSize: 14)),
             subtitle: const Text(
-              '选择聊天模型作为图片识别模型',
+              '选择聊天模型作为文件识别模型',
               style: TextStyle(fontSize: 11),
             ),
             trailing: Icon(
@@ -2615,6 +2833,20 @@ class _ChatPageState extends State<ChatPage> {
                 },
               ),
         ],
+      ),
+    );
+  }
+
+  Widget _floatingModelList(ModelConfigProvider mp) {
+    return Positioned(
+      left: 12,
+      right: 12,
+      bottom: 8,
+      child: Material(
+        elevation: 8,
+        borderRadius: BorderRadius.circular(12),
+        color: Colors.transparent,
+        child: _modelList(mp),
       ),
     );
   }
@@ -2698,28 +2930,87 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
-  Widget _dialogSetBtn() => InkWell(
-    onTap: _showDialogSettings,
-    borderRadius: BorderRadius.circular(8),
-    child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+  void _expandInputAction(String id) {
+    _inputActionCollapseTimer?.cancel();
+    setState(() => _expandedInputAction = id);
+    _inputActionCollapseTimer = Timer(const Duration(seconds: 5), () {
+      if (mounted && _expandedInputAction == id) {
+        setState(() => _expandedInputAction = null);
+      }
+    });
+  }
+
+  void _collapseInputAction(String id) {
+    if (!_isDesktopPlatform) return;
+    _inputActionCollapseTimer?.cancel();
+    if (_expandedInputAction == id) {
+      setState(() => _expandedInputAction = null);
+    }
+  }
+
+  Widget _inputActionButton({
+    required String id,
+    required IconData icon,
+    required String label,
+    required bool selected,
+    required VoidCallback onPressed,
+  }) {
+    final expanded = _expandedInputAction == id;
+    final scheme = Theme.of(context).colorScheme;
+    final foreground = selected ? scheme.primary : Colors.grey[500];
+    final child = AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      constraints: const BoxConstraints(minWidth: 34, minHeight: 32),
+      padding: EdgeInsets.symmetric(horizontal: expanded ? 9 : 8, vertical: 6),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
+        border: Border.all(
+          color: selected ? scheme.primary : Colors.grey.withValues(alpha: 0.3),
+        ),
+        color: selected ? scheme.primary.withValues(alpha: 0.1) : null,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.tune, size: 14, color: Colors.grey[500]),
-          const SizedBox(width: 3),
-          Text('对话设置', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+          Icon(icon, size: 18, color: foreground),
+          if (expanded) ...[
+            const SizedBox(width: 4),
+            Text(label, style: TextStyle(fontSize: 12, color: foreground)),
+          ],
         ],
       ),
-    ),
+    );
+    return MouseRegion(
+      onEnter: (_) {
+        if (_isDesktopPlatform) _expandInputAction(id);
+      },
+      onExit: (_) => _collapseInputAction(id),
+      child: InkWell(
+        onTap: () {
+          _expandInputAction(id);
+          onPressed();
+        },
+        borderRadius: BorderRadius.circular(8),
+        child: child,
+      ),
+    );
+  }
+
+  Widget _dialogSetBtn() => _inputActionButton(
+    id: 'settings',
+    icon: Icons.tune,
+    label: '设置',
+    selected: false,
+    onPressed: _showDialogSettings,
   );
 
-  Widget _thinkBtn() => InkWell(
-    onTap: () {
+  Widget _thinkBtn() => _inputActionButton(
+    id: 'thinking',
+    icon: Icons.psychology,
+    label: '思考',
+    selected: _thinking,
+    onPressed: () {
       final value = !_thinking;
       setState(() => _thinking = value);
       if (_convId != null) {
@@ -2733,51 +3024,40 @@ class _ChatPageState extends State<ChatPage> {
         _saveDraftSettings(_draftSettings!.copyWith(thinking: value));
       }
     },
-    borderRadius: BorderRadius.circular(8),
-    child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: _thinking
-              ? Theme.of(context).colorScheme.primary
-              : Colors.grey.withValues(alpha: 0.3),
-        ),
-        color: _thinking
-            ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.1)
-            : null,
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.psychology,
-            size: 16,
-            color: _thinking
-                ? Theme.of(context).colorScheme.primary
-                : Colors.grey[400],
-          ),
-          const SizedBox(width: 3),
-          Text(
-            '思考',
-            style: TextStyle(
-              fontSize: 12,
-              color: _thinking
-                  ? Theme.of(context).colorScheme.primary
-                  : Colors.grey[500],
-            ),
-          ),
-        ],
-      ),
-    ),
   );
+
+  Widget _ocrBtn() {
+    final enabled =
+        _activeSettings()?.imageOcrEnabled ??
+        context.watch<SettingsProvider>().settings.imageOcrEnabled;
+    return _inputActionButton(
+      id: 'ocr',
+      icon: Icons.document_scanner_outlined,
+      label: 'OCR',
+      selected: enabled,
+      onPressed: () {
+        final value = !enabled;
+        final model = _getModel(context.read<ModelConfigProvider>());
+        if (model == null) return;
+        final settings = _currentConversationSettings(
+          model,
+        ).copyWith(imageOcrEnabled: value);
+        setState(() {});
+        _saveConversationSettings(settings);
+      },
+    );
+  }
 
   Widget _imageRecognitionBtn() {
     final enabled =
         _activeSettings()?.imageRecognitionEnabled ??
         context.watch<SettingsProvider>().settings.imageRecognitionEnabled;
-    return InkWell(
-      onTap: () {
+    return _inputActionButton(
+      id: 'fileRecognition',
+      icon: Icons.file_present_outlined,
+      label: '文件识别',
+      selected: enabled,
+      onPressed: () {
         final value = !enabled;
         final model = _getModel(context.read<ModelConfigProvider>());
         if (model == null) return;
@@ -2787,43 +3067,6 @@ class _ChatPageState extends State<ChatPage> {
         setState(() {});
         _saveConversationSettings(settings);
       },
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: enabled
-                ? Theme.of(context).colorScheme.primary
-                : Colors.grey.withValues(alpha: 0.3),
-          ),
-          color: enabled
-              ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.1)
-              : null,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.image_search,
-              size: 16,
-              color: enabled
-                  ? Theme.of(context).colorScheme.primary
-                  : Colors.grey[400],
-            ),
-            const SizedBox(width: 3),
-            Text(
-              '图片识别',
-              style: TextStyle(
-                fontSize: 12,
-                color: enabled
-                    ? Theme.of(context).colorScheme.primary
-                    : Colors.grey[500],
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -2853,10 +3096,22 @@ class _ChatPageState extends State<ChatPage> {
     child: Row(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
+        _attachOpt(Icons.attach_file, '文件', () {
+          setState(() => _showAttach = false);
+          _pickFiles();
+        }),
+        const SizedBox(width: 8),
         _attachOpt(Icons.photo_library, '图片', () {
           setState(() => _showAttach = false);
           _pickImg();
         }),
+        if (!_isDesktopPlatform) ...[
+          const SizedBox(width: 8),
+          _attachOpt(Icons.photo_camera, '拍照', () {
+            setState(() => _showAttach = false);
+            _takePhoto();
+          }),
+        ],
       ],
     ),
   );
@@ -2894,16 +3149,10 @@ class _ChatPageState extends State<ChatPage> {
           return Stack(
             children: [
               InkWell(
-                onTap: () => _showImagePreview(image.path, image.name),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: Image.file(
-                    File(image.path),
-                    width: 76,
-                    height: 76,
-                    fit: BoxFit.cover,
-                  ),
-                ),
+                onTap: image.isImage
+                    ? () => _showImagePreview(image.path, image.name)
+                    : null,
+                child: _pendingAttachmentPreview(image),
               ),
               Positioned(
                 right: 2,
@@ -2929,6 +3178,60 @@ class _ChatPageState extends State<ChatPage> {
         },
       ),
     );
+  }
+
+  Widget _pendingAttachmentPreview(_PendingImage file) {
+    if (file.mimeType.startsWith('image/')) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Image.file(
+          File(file.path),
+          width: 76,
+          height: 76,
+          fit: BoxFit.cover,
+        ),
+      );
+    }
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: 120,
+      height: 76,
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(_fileIcon(file.mimeType), size: 22, color: scheme.primary),
+          const Spacer(),
+          Text(
+            file.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+          ),
+          Text(
+            _fmtSz(file.size),
+            style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
+  }
+
+  IconData _fileIcon(String mimeType) {
+    if (mimeType.startsWith('image/')) return Icons.image_outlined;
+    if (mimeType == 'application/pdf') return Icons.picture_as_pdf_outlined;
+    if (mimeType.startsWith('text/') || mimeType == 'application/json') {
+      return Icons.description_outlined;
+    }
+    if (mimeType.contains('zip') || mimeType.contains('compressed')) {
+      return Icons.folder_zip_outlined;
+    }
+    return Icons.insert_drive_file_outlined;
   }
 
   Widget _voiceOrSendBtn(bool hasSpeech) {
@@ -3303,6 +3606,30 @@ class _ShareImageStrip extends StatelessWidget {
       children: images.map((image) {
         final file = File(image.path);
         if (!file.existsSync()) return const SizedBox.shrink();
+        if (!image.isImage) {
+          return Container(
+            width: 220,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.insert_drive_file_outlined, size: 28),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    image.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
         return ClipRRect(
           borderRadius: BorderRadius.circular(14),
           child: Image.file(file, width: 150, height: 150, fit: BoxFit.cover),
@@ -3558,7 +3885,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                 currentModel: ocrModel,
                 showList: _showImageList,
                 expandedId: _expandedImageId,
-                hint: '未设置（图片将直接发送，如果非多模态模型可能会发送失败）',
+                hint: '未设置（非图片文件将跳过 OCR，仅保留附件信息）',
                 icon: Icons.image,
                 onToggle: () => setState(() {
                   _showImageList = !_showImageList;
@@ -3594,9 +3921,9 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                 },
               ),
               const SizedBox(height: 16),
-              // 图片识别模型
+              // 文件识别模型
               Text(
-                '图片识别模型',
+                '文件识别模型',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
@@ -3610,8 +3937,8 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                 currentModel: imageRecognitionModel,
                 showList: _showImageRecognitionList,
                 expandedId: _expandedImageRecognitionId,
-                hint: '未设置（启用图片识别按钮后将用该模型识图）',
-                icon: Icons.image_search,
+                hint: '未设置（启用文件识别后将用该模型读取附件）',
+                icon: Icons.file_present_outlined,
                 onToggle: () => setState(() {
                   _showSpeechList = false;
                   _showImageList = false;
@@ -3645,9 +3972,9 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                 },
               ),
               const SizedBox(height: 16),
-              // 图片识别提示词
+              // 文件识别提示词
               Text(
-                '图片识别提示词',
+                '文件识别提示词',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
@@ -3950,7 +4277,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
           maxLines: 3,
           decoration: const InputDecoration(
             border: OutlineInputBorder(),
-            hintText: '请根据下面的 OCR 识别结果回答。',
+            hintText: '请根据下面的文件内容或识别结果回答。',
           ),
         ),
         actions: [

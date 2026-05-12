@@ -13,10 +13,10 @@
 |------|------|
 | `loadConversations()` | 从SharedPreferences加载, 加载失败初始化为空列表 |
 | `createConversation(settings, {roleId})` | 新建对话并绑定角色ID, 默认角色为 `default` |
-| `addMessage(convId, role, content, {images, thinkingContent})` | 添加消息、可选图片附件和可选思考过程, 首条user消息自动设为标题(截取前20字符), 更新后对话移至列表顶部 |
+| `addMessage(convId, role, content, {images, thinkingContent})` | 添加消息、可选附件和可选思考过程, 首条user消息自动设为标题(截取前20字符), 更新后对话移至列表顶部 |
 | `updateLastMessage(convId, content, {thinkingContent, save: true})` | 增量更新最后一条消息(用于流式渲染), 可同步写入思考过程, save参数控制是否立即持久化 |
 | `updateMessageContent(convId, msgId, content)` | 更新指定消息内容(用于重试/编辑), 更新后对话移至列表顶部 |
-| `updateMessageImages(convId, msgId, images)` | 更新指定消息图片附件(用于重试历史切换), 更新后对话移至列表顶部 |
+| `updateMessageImages(convId, msgId, images)` | 更新指定消息附件(用于重试历史切换), 更新后对话移至列表顶部 |
 | `updateConversationTitle(convId, title)` | 更新对话标题 |
 | `updateConversationModelId(convId, modelId)` | 更新对话绑定的模型ID |
 | `updateConversationSettings(convId, settings)` | 更新对话级设置快照 |
@@ -66,10 +66,11 @@
 | `setBlurAmount(double)` | 模糊程度(0-20, 默认5.0) |
 | `setSpeechModelId(id)` | 语音转文字模型ID(null=未设置, 语音功能不可用) |
 | `setImageModelId(id)` | OCR 模型ID(null=未设置) |
-| `setImageRecognitionModelId(id)` | 多模态图片识别 Chat 模型ID(null=未设置) |
-| `setImageRecognitionEnabled(bool)` | 图片识别开关 |
+| `setImageOcrEnabled(bool)` | OCR 识别开关 |
+| `setImageRecognitionModelId(id)` | 文件识别 Chat 模型ID(null=未设置) |
+| `setImageRecognitionEnabled(bool)` | 文件识别开关 |
 | `setLastChatModelId(id)` | 新对话默认 Chat 模型ID |
-| `setImageRecognitionPrompt(prompt)` | 图片识别提示词 |
+| `setImageRecognitionPrompt(prompt)` | 文件识别提示词 |
 | `setSystemPrompt(prompt)` | 全局系统提示词(默认"You are a helpful assistant.") |
 | `addSystemPrompt(title, content)` | 添加自定义系统提示词模板 |
 | `updateSystemPrompt(id, title, content)` | 更新指定提示词模板 |

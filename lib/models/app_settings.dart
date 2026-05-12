@@ -12,6 +12,7 @@ class AppSettings {
   final double blurAmount;
   final String? speechModelId;
   final String? imageModelId;
+  final bool imageOcrEnabled;
   final String? imageRecognitionModelId;
   final bool imageRecognitionEnabled;
   final String? lastChatModelId;
@@ -31,10 +32,11 @@ class AppSettings {
     this.blurAmount = 5.0,
     this.speechModelId,
     this.imageModelId,
+    this.imageOcrEnabled = false,
     this.imageRecognitionModelId,
     this.imageRecognitionEnabled = false,
     this.lastChatModelId,
-    this.imageRecognitionPrompt = '请根据下面的图片识别结果回答。',
+    this.imageRecognitionPrompt = '请根据下面的文件内容或识别结果回答。',
     this.systemPrompt = 'You are a helpful assistant.',
     this.systemPrompts = const [],
     this.selectedSystemPromptId,
@@ -57,6 +59,7 @@ class AppSettings {
     double? blurAmount,
     Object? speechModelId = _sentinel,
     Object? imageModelId = _sentinel,
+    bool? imageOcrEnabled,
     Object? imageRecognitionModelId = _sentinel,
     bool? imageRecognitionEnabled,
     Object? lastChatModelId = _sentinel,
@@ -82,6 +85,7 @@ class AppSettings {
       imageModelId: identical(imageModelId, _sentinel)
           ? this.imageModelId
           : imageModelId as String?,
+      imageOcrEnabled: imageOcrEnabled ?? this.imageOcrEnabled,
       imageRecognitionModelId: identical(imageRecognitionModelId, _sentinel)
           ? this.imageRecognitionModelId
           : imageRecognitionModelId as String?,
@@ -125,12 +129,13 @@ class AppSettings {
     final currentRoleId =
         json['currentRoleId'] as String? ?? ChatRole.defaultId;
     return AppSettings(
-      themeColor: Color(json['themeColor'] as int),
+      themeColor: Color(json['themeColor'] as int? ?? Colors.blue.toARGB32()),
       backgroundImagePath: json['backgroundImagePath'] as String?,
       blurEnabled: json['blurEnabled'] as bool? ?? false,
       blurAmount: (json['blurAmount'] as num?)?.toDouble() ?? 5.0,
       speechModelId: json['speechModelId'] as String?,
       imageModelId: json['imageModelId'] as String?,
+      imageOcrEnabled: json['imageOcrEnabled'] as bool? ?? false,
       imageRecognitionModelId: json['imageRecognitionModelId'] as String?,
       imageRecognitionEnabled:
           json['imageRecognitionEnabled'] as bool? ?? false,
@@ -138,7 +143,7 @@ class AppSettings {
       imageRecognitionPrompt:
           json['imageRecognitionPrompt'] as String? ??
           json['imagePrompt'] as String? ??
-          '请根据下面的图片识别结果回答。',
+          '请根据下面的文件内容或识别结果回答。',
       systemPrompt:
           json['systemPrompt'] as String? ?? 'You are a helpful assistant.',
       systemPrompts: prompts,
@@ -160,6 +165,7 @@ class AppSettings {
       'blurAmount': blurAmount,
       if (speechModelId != null) 'speechModelId': speechModelId,
       if (imageModelId != null) 'imageModelId': imageModelId,
+      'imageOcrEnabled': imageOcrEnabled,
       if (imageRecognitionModelId != null)
         'imageRecognitionModelId': imageRecognitionModelId,
       'imageRecognitionEnabled': imageRecognitionEnabled,

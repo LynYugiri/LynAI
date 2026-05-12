@@ -1269,54 +1269,7 @@ class _SchedulePageState extends State<_SchedulePage> {
                                 ),
                               ),
                               for (final item in dayItems)
-                                Positioned(
-                                  top:
-                                      _visibleStartForDate(item, date).hour *
-                                          _hourRowHeight +
-                                      _visibleStartForDate(item, date).minute /
-                                          60 *
-                                          _hourRowHeight,
-                                  left: 2,
-                                  right: 2,
-                                  height:
-                                      (_visibleEndForDate(item, date)
-                                                  .difference(
-                                                    _visibleStartForDate(
-                                                      item,
-                                                      date,
-                                                    ),
-                                                  )
-                                                  .inMinutes /
-                                              60 *
-                                              _hourRowHeight)
-                                          .clamp(26, 24 * _hourRowHeight)
-                                          .toDouble(),
-                                  child: InkWell(
-                                    onTap: () => _openScheduleEditor(item),
-                                    borderRadius: BorderRadius.circular(9),
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 5,
-                                        vertical: 4,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: scheme.primaryContainer,
-                                        borderRadius: BorderRadius.circular(9),
-                                        border: Border.all(
-                                          color: scheme.primary.withValues(
-                                            alpha: 0.18,
-                                          ),
-                                        ),
-                                      ),
-                                      child: Text(
-                                        '${_timeRangeForDate(item, date)}  ${item.title}',
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(fontSize: 10.5),
-                                      ),
-                                    ),
-                                  ),
-                                ),
+                                _dayScheduleBlock(item, date, scheme),
                               if (_sameDate(date, DateTime.now()))
                                 Positioned(
                                   top:
@@ -1362,6 +1315,48 @@ class _SchedulePageState extends State<_SchedulePage> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _dayScheduleBlock(
+    ScheduleItem item,
+    DateTime date,
+    ColorScheme scheme,
+  ) {
+    final visibleStart = _visibleStartForDate(item, date);
+    final visibleEnd = _visibleEndForDate(item, date);
+    final top =
+        visibleStart.hour * _hourRowHeight +
+        visibleStart.minute / 60 * _hourRowHeight;
+    final height =
+        (visibleEnd.difference(visibleStart).inMinutes / 60 * _hourRowHeight)
+            .clamp(26, 24 * _hourRowHeight)
+            .toDouble();
+    final maxLines = ((height - 8) / 13.5).floor().clamp(1, 20);
+
+    return Positioned(
+      top: top,
+      left: 2,
+      right: 2,
+      height: height,
+      child: InkWell(
+        onTap: () => _openScheduleEditor(item),
+        borderRadius: BorderRadius.circular(9),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+          decoration: BoxDecoration(
+            color: scheme.primaryContainer,
+            borderRadius: BorderRadius.circular(9),
+            border: Border.all(color: scheme.primary.withValues(alpha: 0.18)),
+          ),
+          child: Text(
+            '${_timeRangeForDate(item, date)}  ${item.title}',
+            maxLines: maxLines,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 10.5, height: 1.25),
+          ),
         ),
       ),
     );

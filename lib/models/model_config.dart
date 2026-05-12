@@ -104,6 +104,15 @@ class ModelConfig {
     } else if (json['modelName'] != null) {
       entries = [ModelEntry(name: json['modelName'] as String, enabled: true)];
     }
+    String? firstEnabledModelName() {
+      for (final entry in entries) {
+        if (entry.enabled) return entry.name;
+      }
+      return entries.isEmpty ? null : entries.first.name;
+    }
+
+    final modelName =
+        json['modelName'] as String? ?? firstEnabledModelName() ?? '';
 
     return ModelConfig(
       id: json['id'] as String,
@@ -111,10 +120,10 @@ class ModelConfig {
       category: json['category'] as String? ?? categoryChat,
       endpoint: json['endpoint'] as String,
       apiKey: json['apiKey'] as String,
-      modelName: json['modelName'] as String,
+      modelName: modelName,
       apiType: json['apiType'] as String,
-      priority: json['priority'] as int,
-      maxTokens: json['maxTokens'] as int?,
+      priority: (json['priority'] as num?)?.toInt() ?? 0,
+      maxTokens: (json['maxTokens'] as num?)?.toInt(),
       temperature: (json['temperature'] as num?)?.toDouble(),
       topP: (json['topP'] as num?)?.toDouble(),
       extraParams: json['extraParams'] != null

@@ -7,6 +7,7 @@ class ConversationSettings {
   final String systemPrompt;
   final String? speechModelId;
   final String? imageModelId;
+  final bool imageOcrEnabled;
   final String? imageRecognitionModelId;
   final bool imageRecognitionEnabled;
   final String imageRecognitionPrompt;
@@ -18,9 +19,10 @@ class ConversationSettings {
     this.systemPrompt = 'You are a helpful assistant.',
     this.speechModelId,
     this.imageModelId,
+    this.imageOcrEnabled = false,
     this.imageRecognitionModelId,
     this.imageRecognitionEnabled = false,
-    this.imageRecognitionPrompt = '请根据下面的图片识别结果回答。',
+    this.imageRecognitionPrompt = '请根据下面的文件内容或识别结果回答。',
   });
 
   static const _sentinel = Object();
@@ -32,6 +34,7 @@ class ConversationSettings {
     String? systemPrompt,
     Object? speechModelId = _sentinel,
     Object? imageModelId = _sentinel,
+    bool? imageOcrEnabled,
     Object? imageRecognitionModelId = _sentinel,
     bool? imageRecognitionEnabled,
     String? imageRecognitionPrompt,
@@ -49,6 +52,7 @@ class ConversationSettings {
       imageModelId: identical(imageModelId, _sentinel)
           ? this.imageModelId
           : imageModelId as String?,
+      imageOcrEnabled: imageOcrEnabled ?? this.imageOcrEnabled,
       imageRecognitionModelId: identical(imageRecognitionModelId, _sentinel)
           ? this.imageRecognitionModelId
           : imageRecognitionModelId as String?,
@@ -59,22 +63,26 @@ class ConversationSettings {
     );
   }
 
-  factory ConversationSettings.fromJson(Map<String, dynamic> json) {
+  factory ConversationSettings.fromJson(
+    Map<String, dynamic> json, {
+    String fallbackModelId = '',
+  }) {
     return ConversationSettings(
-      modelId: json['modelId'] as String,
+      modelId: json['modelId'] as String? ?? fallbackModelId,
       thinking: json['thinking'] as bool? ?? true,
       selectedSystemPromptId: json['selectedSystemPromptId'] as String?,
       systemPrompt:
           json['systemPrompt'] as String? ?? 'You are a helpful assistant.',
       speechModelId: json['speechModelId'] as String?,
       imageModelId: json['imageModelId'] as String?,
+      imageOcrEnabled: json['imageOcrEnabled'] as bool? ?? false,
       imageRecognitionModelId: json['imageRecognitionModelId'] as String?,
       imageRecognitionEnabled:
           json['imageRecognitionEnabled'] as bool? ?? false,
       imageRecognitionPrompt:
           json['imageRecognitionPrompt'] as String? ??
           json['imagePrompt'] as String? ??
-          '请根据下面的图片识别结果回答。',
+          '请根据下面的文件内容或识别结果回答。',
     );
   }
 
@@ -87,6 +95,7 @@ class ConversationSettings {
       'systemPrompt': systemPrompt,
       if (speechModelId != null) 'speechModelId': speechModelId,
       if (imageModelId != null) 'imageModelId': imageModelId,
+      'imageOcrEnabled': imageOcrEnabled,
       if (imageRecognitionModelId != null)
         'imageRecognitionModelId': imageRecognitionModelId,
       'imageRecognitionEnabled': imageRecognitionEnabled,
@@ -128,29 +137,42 @@ class Conversation {
   /// 获取对话开头的一部分内容，用于在历史列表中预览
   String get preview {
     if (messages.isEmpty) return '';
-    final raw = messages.first.content;
+    final first = messages.first;
+    final raw = first.content;
     final clean = raw.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
+    if (clean.isEmpty && first.images.isNotEmpty) {
+      final firstName = first.images.first.name;
+      final suffix = first.images.length > 1
+          ? ' 等 ${first.images.length} 个附件'
+          : '';
+      return '[附件] $firstName$suffix';
+    }
     return clean.length > 80 ? '${clean.substring(0, 80)}...' : clean;
   }
 
   /// 从 JSON Map 创建 Conversation 实例
   factory Conversation.fromJson(Map<String, dynamic> json) {
-    final modelId = json['modelId'] as String;
+    final modelId = json['modelId'] as String? ?? '';
+    final createdAt =
+        DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now();
     return Conversation(
-      id: json['id'] as String,
-      title: json['title'] as String,
-      messages: (json['messages'] as List<dynamic>)
-          .map((m) => Message.fromJson(m as Map<String, dynamic>))
+      id: json['id'] as String? ?? '',
+      title: json['title'] as String? ?? '新对话',
+      messages: (json['messages'] as List<dynamic>? ?? [])
+          .whereType<Map>()
+          .map((m) => Message.fromJson(Map<String, dynamic>.from(m)))
           .toList(),
       modelId: modelId,
       settings: json['settings'] != null
           ? ConversationSettings.fromJson(
               json['settings'] as Map<String, dynamic>,
+              fallbackModelId: modelId,
             )
           : ConversationSettings(modelId: modelId),
       roleId: json['roleId'] as String? ?? 'default',
-      createdAt: DateTime.parse(json['createdAt'] as String),
-      updatedAt: DateTime.parse(json['updatedAt'] as String),
+      createdAt: createdAt,
+      updatedAt:
+          DateTime.tryParse(json['updatedAt'] as String? ?? '') ?? createdAt,
     );
   }
 

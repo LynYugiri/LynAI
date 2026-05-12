@@ -1,6 +1,6 @@
 # LynAI 项目文档
 
-LynAI 是一个 Flutter 跨平台 AI 对话客户端。项目围绕本地状态、模型配置、对话运行时、功能页数据和平台能力做了清晰拆分。当前版本：`2.2.2`。
+LynAI 是一个 Flutter 跨平台 AI 对话客户端。项目围绕本地状态、模型配置、对话运行时、功能页数据和平台能力做了清晰拆分。当前版本：`2.2.3`。
 
 ## 文档导航
 
@@ -54,11 +54,11 @@ lib/
 |------|------|------|
 | 应用入口 | `lib/main.dart` | 注册 Provider、加载持久化数据、构建浅色/深色主题、显示启动/错误页 |
 | 主导航 | `lib/pages/home_page.dart` | `IndexedStack` 保持三大 Tab 状态，处理背景图和毛玻璃遮罩 |
-| 对话页 | `lib/pages/chat_page.dart` | 消息输入、流式请求、语音、图片、工具调用、分享、重试、对话设置 |
+| 对话页 | `lib/pages/chat_page.dart` | 消息输入、流式请求、语音、文件/图片附件、工具调用、分享、重试、对话设置 |
 | 功能页 | `lib/pages/feature_page.dart` | 对话历史、日程表、笔记、Markdown 导入导出、长图导出 |
 | 设置页 | `lib/pages/settings_page.dart` | About、Background、API、Theme 四个入口 |
 | API 管理 | `lib/pages/api_models_page.dart` | 四类模型配置、Endpoint 预设、模型拉取、多子模型管理 |
-| API 服务 | `lib/services/api_service.dart` | Chat、OCR、语音转写、图片生成、流式解析、思考内容提取 |
+| API 服务 | `lib/services/api_service.dart` | Chat、OCR、语音转写、图片生成、附件内容转换、流式解析、思考内容提取 |
 | 工具调用 | `lib/services/tool_call_service.dart` | 本地工具定义、fallback JSON 解析、日程/笔记工具执行、平台通道调用 |
 | Markdown/LaTeX | `lib/widgets/latex_renderer.dart` | Markdown 渲染、公式检测、代码围栏隔离、Hurmit Nerd Font 代码字体、One Dark Pro 风格代码高亮、代码/公式块复制与单图导出、长图代码块换行 |
 
@@ -73,19 +73,19 @@ lib/
 | `SettingsProvider` | 主题、背景、角色、提示词、默认模型、辅助能力选择 | `app_settings` |
 | `FeatureProvider` | 日程、笔记 | `schedule_items`, `notes` |
 
-图片附件和背景图只保存本地路径；对话图片会复制到应用私有目录，减少临时文件失效风险。
+消息附件和背景图只保存本地路径；对话附件会复制到应用私有目录，减少临时文件失效风险。
 
 ## 对话链路
 
-1. 用户输入文本、选择图片或粘贴图片。
-2. `ChatPage` 根据当前角色和对话设置确定 Chat 模型、系统提示词、OCR/图片识别/语音配置。
-3. 如果有图片，优先执行多模态图片识别；否则在配置 OCR 时执行 OCR；最终把识别文本拼入用户上下文。
-4. `ConversationProvider.addMessage()` 保存用户消息和可选图片附件。
+1. 用户输入文本、选择文件/图片、拍照或粘贴图片。
+2. `ChatPage` 根据当前角色和对话设置确定 Chat 模型、系统提示词、OCR/文件识别/语音配置。
+3. 图片在开启 OCR 时先提取文字；非图片文件在开启文件识别时由所选 Chat 模型读取；未开启对应识别能力的附件会作为多模态内容直传或退化为文本元数据。
+4. `ConversationProvider.addMessage()` 保存用户消息和可选附件。
 5. `ApiService.sendStreamRequest()` 发起流式请求，并把内容 chunk 与 reasoning chunk 分开返回。
 6. `ConversationProvider.updateLastMessage(save: false)` 实时更新 UI，流结束后再持久化。
 7. 如果模型返回工具调用，`ToolCallService` 执行本地工具，再把工具结果送回模型生成最终回复。
 
-图片消息重试或编辑后重发时，`ChatPage` 会复用原消息的 `Message.images` 并重新构建图片识别上下文；重试历史导航会同步切换文本、图片和思考内容。
+带附件消息重试或编辑后重发时，`ChatPage` 会复用原消息的 `Message.images` 并重新构建 OCR/文件识别上下文；重试历史导航会同步切换文本、附件和思考内容。
 
 日程工具调用会注入当前设备本地时间、时区和偏移量。`ScheduleItem` 反序列化、工具参数解析和工具返回值都统一转换为本地时间，避免带 `Z` 或显式偏移的 ISO 时间在日历 UI 中错位。
 
@@ -95,7 +95,7 @@ lib/
 
 | 分类 | 常量 | 说明 |
 |------|------|------|
-| Chat | `ModelConfig.categoryChat` | 对话、流式、多模态识图、工具调用 |
+| Chat | `ModelConfig.categoryChat` | 对话、流式、多模态文件识别、工具调用 |
 | OCR | `ModelConfig.categoryOcr` | vivo OCR 请求格式，需 AppID/AppKey |
 | Speech | `ModelConfig.categorySpeech` | vivo 长语音转写，含 create/upload/run/progress/result 流程 |
 | Image Generation | `ModelConfig.categoryImageGeneration` | OpenAI Images 或 vivo 图片生成 |

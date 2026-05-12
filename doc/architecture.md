@@ -5,7 +5,7 @@
 ```
 MaterialApp
   └── MultiProvider
-        ├── SettingsProvider    → 主题/背景/角色/功能页状态/默认模型/系统提示词/语音/OCR/图片识别
+        ├── SettingsProvider    → 主题/背景/角色/功能页状态/默认模型/系统提示词/语音/OCR/文件识别
         ├── ModelConfigProvider → 分类模型配置 CRUD(Chat/OCR/Speech/Image Generation)
         ├── FeatureProvider     → 日程/笔记 CRUD
         └── ConversationProvider → 对话CRUD+搜索
@@ -14,7 +14,7 @@ MaterialApp
                     ├── ChatPage
                     │     ├── MarkdownWithLatex → flutter_markdown_plus + flutter_math_fork + highlight
                     │     ├── Voice: speech_to_text 或 record → 语音转写接口
-                    │     ├── Image: image_picker / clipboard → OCR 或多模态识图 → 当前模型
+                    │     ├── Attachments: file_picker / image_picker / clipboard → OCR、文件识别或直传 → 当前模型
                     │     ├── Tools: ToolCallService → 时间/位置/应用/日程/笔记
                     │     └── Share: screenshot 长图 → 剪贴板/系统分享
                     └── SettingsPage
@@ -86,13 +86,13 @@ MaterialApp
 3. `_processRecordedSpeech()` → `ApiService.transcribeAudio()` 调用 vivo 长语音转写流程
 4. 转写文本只回填输入框，不自动发送，用户可先修正
 
-### 图片
-1. 点击附件(+) 可一次选择多张图片，或桌面端通过 `Ctrl/Cmd + V` 粘贴图片
-2. 图片会复制到应用私有目录，并作为 `Message.images` 附件持久化
-3. **已开启图片识别**: 选中的多模态 Chat 模型先识图，再把识别结果拼入本轮用户上下文
-4. **未开启图片识别但配置 OCR**: OCR 提取文字并拼入用户上下文
-5. **未配置识别能力**: 仅把图片文件名和大小作为文本上下文发送
-6. 重试、失败后重试和编辑用户消息后重发都会复用原消息图片，并重新执行图片识别或 OCR 上下文构建
+### 附件
+1. 点击附件(+) 可选择文件、选择图片；移动端可拍照，桌面端可通过 `Ctrl/Cmd + V` 粘贴图片
+2. 附件会复制到应用私有目录，并作为 `Message.images` 附件持久化，字段包含路径、文件名、大小和 MIME 类型
+3. **已开启 OCR**: 图片先调用 OCR 模型提取文字，再把识别结果拼入本轮用户上下文
+4. **已开启文件识别**: 非图片文件先调用选中的 Chat 模型读取附件，再把识别结果拼入本轮用户上下文
+5. **未开启对应识别能力**: 附件会随请求直传给支持多模态内容的模型；在不支持文件输入的接口上退化为文件名、MIME 类型、大小或 base64 文本上下文
+6. 重试、失败后重试和编辑用户消息后重发都会复用原消息附件，并重新执行 OCR 或文件识别上下文构建
 
 ### 长图分享
 1. 点击消息操作中的分享按钮进入选择模式
@@ -102,9 +102,9 @@ MaterialApp
 
 ### 重试与历史导航
 - `_retry()`: 重新生成当前回复, 保留原回复到重试历史
-- `<` `>` 导航: 在多次重试版本间切换, 同时切换对应的用户文本、图片附件和思考内容
+- `<` `>` 导航: 在多次重试版本间切换, 同时切换对应的用户文本、附件和思考内容
 - `_sendRetry()`: 编辑用户消息后重发, 在重试链中创建分支
-- `_editStartNewConversation()`: 从历史消息处编辑并开始新的对话分支；如果原用户消息带图片，新分支会保留图片并重建图片识别上下文
+- `_editStartNewConversation()`: 从历史消息处编辑并开始新的对话分支；如果原用户消息带附件，新分支会保留附件并重建 OCR/文件识别上下文
 
 ### 日程与时区
 - `ToolCallService.currentTimeContext()` 会把当前设备本地时间、时区名和 `timezoneOffsetMinutes` 注入启用工具的系统消息。

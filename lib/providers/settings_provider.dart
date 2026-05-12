@@ -203,14 +203,20 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 设置图片识别模型配置ID
+  void setImageOcrEnabled(bool enabled) {
+    _settings = _settings.copyWith(imageOcrEnabled: enabled);
+    _saveSettings();
+    notifyListeners();
+  }
+
+  /// 设置文件识别模型配置ID
   void setImageRecognitionModelId(String? modelId) {
     _settings = _settings.copyWith(imageRecognitionModelId: modelId);
     _saveSettings();
     notifyListeners();
   }
 
-  /// 设置图片识别是否启用
+  /// 设置文件识别是否启用
   void setImageRecognitionEnabled(bool enabled) {
     _settings = _settings.copyWith(imageRecognitionEnabled: enabled);
     _saveSettings();
@@ -224,7 +230,7 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 设置图片识别结果发送给 Chat 时使用的提示词
+  /// 设置文件识别结果发送给 Chat 时使用的提示词
   void setImageRecognitionPrompt(String prompt) {
     _settings = _settings.copyWith(imageRecognitionPrompt: prompt);
     _saveSettings();
@@ -305,6 +311,7 @@ class SettingsProvider extends ChangeNotifier {
     _settings = _settings.copyWith(
       speechModelId: settings.speechModelId,
       imageModelId: settings.imageModelId,
+      imageOcrEnabled: settings.imageOcrEnabled,
       imageRecognitionModelId: settings.imageRecognitionModelId,
       imageRecognitionEnabled: settings.imageRecognitionEnabled,
       imageRecognitionPrompt: settings.imageRecognitionPrompt,

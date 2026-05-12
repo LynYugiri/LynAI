@@ -67,7 +67,7 @@ class ToolCallService {
       'type': 'function',
       'function': {
         'name': 'get_location',
-        'description': '获取设备当前位置。仅在平台允许并授权时可用。',
+        'description': '获取设备当前位置。',
         'parameters': {'type': 'object', 'properties': <String, dynamic>{}},
       },
     },
@@ -170,7 +170,7 @@ class ToolCallService {
       'type': 'function',
       'function': {
         'name': 'save_note',
-        'description': '创建或修改并保存笔记，可整理用户与 AI 的对话内容。',
+        'description': '创建或修改并保存笔记',
         'parameters': {
           'type': 'object',
           'properties': {

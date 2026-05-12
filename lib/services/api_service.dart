@@ -6,11 +6,18 @@ import 'package:http/http.dart' as http;
 import '../models/model_config.dart';
 import 'tool_call_service.dart';
 
-class ChatImageInput {
+class ChatFileInput {
   final Uint8List bytes;
   final String mimeType;
+  final String name;
 
-  ChatImageInput({required this.bytes, required this.mimeType});
+  ChatFileInput({
+    required this.bytes,
+    required this.mimeType,
+    required this.name,
+  });
+
+  bool get isImage => mimeType.startsWith('image/');
 }
 
 class StreamChunk {
@@ -44,6 +51,24 @@ class ApiService {
       throw Exception('API Endpoint 不能为空');
     }
     return Uri.parse('$endpoint$path');
+  }
+
+  static List<Map<String, dynamic>> chatContentWithFiles(
+    String text,
+    List<ChatFileInput> files,
+  ) {
+    return [
+      if (text.trim().isNotEmpty) {'type': 'text', 'text': text.trim()},
+      ...files.map((file) {
+        final data = base64Encode(file.bytes);
+        return {
+          'type': 'input_file',
+          'name': file.name,
+          'mime_type': file.mimeType,
+          'data': data,
+        };
+      }),
+    ];
   }
 
   Future<String> recognizeImageText(
@@ -82,11 +107,24 @@ class ApiService {
   Future<String> recognizeImageTextWithChatModel(
     ModelConfig config,
     String prompt,
-    List<ChatImageInput> images,
+    List<ChatFileInput> files,
   ) async {
-    if (images.isEmpty) return '';
+    if (files.isEmpty) return '';
     if (config.apiType == 'ollama') {
-      return _recognizeImageTextWithOllama(config, prompt, images);
+      return _recognizeImageTextWithOllama(config, prompt, files);
+    }
+
+    if (config.apiType == 'anthropic') {
+      final result = await _sendAnthropicRequest(config, [
+        {
+          'role': 'user',
+          'content': [
+            {'type': 'text', 'text': prompt},
+            ...files.map(_anthropicFileContentPart),
+          ],
+        },
+      ]);
+      return result.content.trim();
     }
 
     final messages = [
@@ -94,23 +132,14 @@ class ApiService {
         'role': 'user',
         'content': [
           {'type': 'text', 'text': prompt},
-          ...images.map(
-            (image) => {
-              'type': 'image_url',
-              'image_url': {
-                'url':
-                    'data:${image.mimeType};base64,${base64Encode(image.bytes)}',
-              },
-            },
+          ..._openAIContentToChatContent(
+            chatContentWithFiles('', files).where((part) {
+              return part['type'] == 'input_file';
+            }).toList(),
           ),
         ],
       },
     ];
-
-    if (config.apiType == 'anthropic') {
-      final result = await _sendAnthropicRequest(config, messages);
-      return result.content.trim();
-    }
 
     final result = await _sendOpenAICompatibleRequest(config, messages);
     return result.content.trim();
@@ -119,15 +148,20 @@ class ApiService {
   Future<String> _recognizeImageTextWithOllama(
     ModelConfig config,
     String prompt,
-    List<ChatImageInput> images,
+    List<ChatFileInput> files,
   ) async {
+    final images = files.where((e) => e.isImage).toList();
+    final nonImages = files.where((e) => !e.isImage).toList();
+    final filePrompt = nonImages.isEmpty
+        ? prompt
+        : '$prompt\n\n附件文件：\n${nonImages.map((file) => '${file.name} (${file.mimeType}) base64: ${base64Encode(file.bytes)}').join('\n')}';
     final uri = _endpointUri(config, '/api/chat');
     final body = <String, dynamic>{
       'model': config.modelName,
       'messages': [
         {
           'role': 'user',
-          'content': prompt,
+          'content': filePrompt,
           'images': images.map((e) => base64Encode(e.bytes)).toList(),
         },
       ],
@@ -162,18 +196,134 @@ class ApiService {
         );
 
     if (response.statusCode != 200) {
-      throw Exception('Ollama 图片识别失败: ${response.statusCode} ${response.body}');
+      throw Exception('Ollama 文件识别失败: ${response.statusCode} ${response.body}');
     }
 
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final data =
+        jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
     final rawContent = data['message']?['content'] as String? ?? '';
-    final thinkMatch = RegExp(
-      r'<think[^>]*>(.*?)</think>',
-      dotAll: true,
-    ).firstMatch(rawContent);
-    return (thinkMatch?.group(1) ?? rawContent)
+    return rawContent
         .replaceAll(RegExp(r'<think[^>]*>.*?</think>', dotAll: true), '')
         .trim();
+  }
+
+  Map<String, dynamic> _anthropicFileContentPart(ChatFileInput file) {
+    final base64 = base64Encode(file.bytes);
+    if (file.isImage) {
+      return {
+        'type': 'image',
+        'source': {
+          'type': 'base64',
+          'media_type': file.mimeType,
+          'data': base64,
+        },
+      };
+    }
+    return {
+      'type': 'text',
+      'text':
+          '[文件: ${file.name} (${file.mimeType})]\ndata:${file.mimeType};base64,$base64',
+    };
+  }
+
+  List<Map<String, dynamic>> _openAICompatibleMessages(
+    List<Map<String, dynamic>> messages,
+  ) {
+    return messages.map((message) {
+      final content = message['content'];
+      if (content is! List) return message;
+      return {...message, 'content': _openAIContentToChatContent(content)};
+    }).toList();
+  }
+
+  List<Map<String, dynamic>> _ollamaMessages(
+    List<Map<String, dynamic>> messages,
+  ) {
+    return messages.map((m) {
+      final c = m['content'];
+      if (c is! List) {
+        return {'role': m['role'], 'content': c is String ? c : jsonEncode(c)};
+      }
+      final textParts = <String>[];
+      final images = <String>[];
+      for (final part in c) {
+        if (part is! Map) continue;
+        if (part['type'] == 'text') {
+          final text = part['text'] as String? ?? '';
+          if (text.isNotEmpty) textParts.add(text);
+        } else if (part['type'] == 'input_file') {
+          final mimeType =
+              part['mime_type'] as String? ?? 'application/octet-stream';
+          final data = part['data'] as String? ?? '';
+          final name = part['name'] as String? ?? 'file';
+          if (mimeType.startsWith('image/')) {
+            images.add(data);
+          } else {
+            textParts.add(
+              '[文件: $name ($mimeType)]\ndata:$mimeType;base64,$data',
+            );
+          }
+        }
+      }
+      return {
+        'role': m['role'],
+        'content': textParts.join('\n\n'),
+        if (images.isNotEmpty) 'images': images,
+      };
+    }).toList();
+  }
+
+  List<Map<String, dynamic>> _anthropicMessages(
+    List<Map<String, dynamic>> messages,
+  ) {
+    return messages.map((message) {
+      final content = message['content'];
+      if (content is! List) return message;
+      return {
+        ...message,
+        'content': content.map((part) {
+          if (part is! Map || part['type'] != 'input_file') return part;
+          final mimeType =
+              part['mime_type'] as String? ?? 'application/octet-stream';
+          final data = part['data'] as String? ?? '';
+          final name = part['name'] as String? ?? 'file';
+          if (mimeType.startsWith('image/')) {
+            return {
+              'type': 'image',
+              'source': {
+                'type': 'base64',
+                'media_type': mimeType,
+                'data': data,
+              },
+            };
+          }
+          return {
+            'type': 'text',
+            'text': '[文件: $name ($mimeType)]\ndata:$mimeType;base64,$data',
+          };
+        }).toList(),
+      };
+    }).toList();
+  }
+
+  List<Map<String, dynamic>> _openAIContentToChatContent(List content) {
+    return content.map<Map<String, dynamic>>((part) {
+      if (part is! Map || part['type'] != 'input_file') return part;
+      final mimeType =
+          part['mime_type'] as String? ?? 'application/octet-stream';
+      final data = part['data'] as String? ?? '';
+      final name = part['name'] as String? ?? 'file';
+      if (mimeType.startsWith('image/')) {
+        return {
+          'type': 'image_url',
+          'image_url': {'url': 'data:$mimeType;base64,$data'},
+        };
+      }
+      return {
+        'type': 'text',
+        'text': '[文件: $name ($mimeType)]\ndata:$mimeType;base64,$data',
+      };
+    }).toList();
   }
 
   Future<String> transcribeAudio(
@@ -437,13 +587,13 @@ class ApiService {
       if (config.apiType == 'ollama') {
         return await _sendOllamaRequest(
           config,
-          messages,
+          _ollamaMessages(messages),
           thinking: thinking,
         ).timeout(_timeout);
       } else if (config.apiType == 'anthropic') {
         return await _sendAnthropicRequest(
           config,
-          messages,
+          _anthropicMessages(messages),
           thinking: thinking,
         ).timeout(_timeout);
       } else {
@@ -469,11 +619,15 @@ class ApiService {
   }) async* {
     try {
       if (config.apiType == 'ollama') {
-        yield* _sendOllamaStreamRequest(config, messages, thinking: thinking);
+        yield* _sendOllamaStreamRequest(
+          config,
+          _ollamaMessages(messages),
+          thinking: thinking,
+        );
       } else if (config.apiType == 'anthropic') {
         yield* _sendAnthropicStreamRequest(
           config,
-          messages,
+          _anthropicMessages(messages),
           thinking: thinking,
         );
       } else {
@@ -499,7 +653,10 @@ class ApiService {
 
     final body = <String, dynamic>{
       'model': config.modelName,
-      'messages': _withReasoningPlaceholders(messages, thinking: thinking),
+      'messages': _withReasoningPlaceholders(
+        _openAICompatibleMessages(messages),
+        thinking: thinking,
+      ),
       'stream': false,
       if (config.maxTokens != null) 'max_tokens': config.maxTokens,
       if (config.temperature != null) 'temperature': config.temperature,
@@ -529,7 +686,7 @@ class ApiService {
         );
 
     if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
+      final data = jsonDecode(utf8.decode(response.bodyBytes));
       final choices = data['choices'] as List?;
       if (choices == null || choices.isEmpty) {
         throw Exception('API 返回空的 choices');
@@ -560,7 +717,10 @@ class ApiService {
 
     final body = <String, dynamic>{
       'model': config.modelName,
-      'messages': _withReasoningPlaceholders(messages, thinking: thinking),
+      'messages': _withReasoningPlaceholders(
+        _openAICompatibleMessages(messages),
+        thinking: thinking,
+      ),
       'stream': true,
       if (config.maxTokens != null) 'max_tokens': config.maxTokens,
       if (config.temperature != null) 'temperature': config.temperature,
@@ -638,14 +798,9 @@ class ApiService {
   }) async {
     final uri = _endpointUri(config, '/api/chat');
 
-    final ollamaMessages = messages.map((m) {
-      final c = m['content'];
-      return {'role': m['role'], 'content': c is String ? c : jsonEncode(c)};
-    }).toList();
-
     final body = <String, dynamic>{
       'model': config.modelName,
-      'messages': ollamaMessages,
+      'messages': messages,
       'stream': false,
       'think': thinking,
     };
@@ -680,7 +835,7 @@ class ApiService {
         );
 
     if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
+      final data = jsonDecode(utf8.decode(response.bodyBytes));
       final rawContent = data['message']['content'] as String? ?? '';
       final thinkMatch = RegExp(
         r'<think[^>]*>(.*?)</think>',
@@ -703,14 +858,9 @@ class ApiService {
   }) async* {
     final uri = _endpointUri(config, '/api/chat');
 
-    final ollamaMessages = messages.map((m) {
-      final c = m['content'];
-      return {'role': m['role'], 'content': c is String ? c : jsonEncode(c)};
-    }).toList();
-
     final body = <String, dynamic>{
       'model': config.modelName,
-      'messages': ollamaMessages,
+      'messages': messages,
       'stream': true,
       'think': thinking,
     };
@@ -746,55 +896,71 @@ class ApiService {
         );
       }
 
-      final thinkRegExp = RegExp(r'<think[^>]*>(.*?)</think>', dotAll: true);
       String ollamaBuf = '';
+      bool inThink = false;
 
-      List<StreamChunk> processBuffer() {
+      int safeLengthForPartialTag(String text, List<String> prefixes) {
+        for (var i = text.length - 1; i >= 0; i--) {
+          final suffix = text.substring(i).toLowerCase();
+          if (prefixes.any((prefix) => prefix.startsWith(suffix))) return i;
+        }
+        return text.length;
+      }
+
+      List<StreamChunk> processBuffer({bool flush = false}) {
         final result = <StreamChunk>[];
-        if (ollamaBuf.isEmpty) return result;
-        final openStart = ollamaBuf.lastIndexOf(
-          RegExp(r'<th(?:i(?:n(?:k(?:[^>]*)?)?)?)?$'),
-        );
-        final closeStart = ollamaBuf.lastIndexOf(
-          RegExp(r'</(?:t(?:h(?:i(?:n(?:k)?)?)?)?)?$'),
-        );
-        final lastCompleteThink = ollamaBuf.lastIndexOf('</think>');
-        int cutoff = ollamaBuf.length;
-        if (openStart != -1 &&
-            openStart >= ollamaBuf.length - 7 &&
-            openStart > lastCompleteThink) {
-          final lastFullThinkOpen = ollamaBuf.lastIndexOf(
-            RegExp(r'<think[^>]*>'),
-            openStart,
-          );
-          if (lastFullThinkOpen == -1 ||
-              ollamaBuf.indexOf('</think>', lastFullThinkOpen) == -1) {
-            cutoff = openStart;
+        while (ollamaBuf.isNotEmpty) {
+          if (!inThink) {
+            final lower = ollamaBuf.toLowerCase();
+            final start = lower.indexOf('<think');
+            if (start == -1) {
+              final safeLength = flush
+                  ? ollamaBuf.length
+                  : safeLengthForPartialTag(ollamaBuf, const [
+                      '<think',
+                      '<think>',
+                    ]);
+              if (safeLength == 0) break;
+              final content = ollamaBuf.substring(0, safeLength);
+              if (content.isNotEmpty) result.add(StreamChunk(content: content));
+              ollamaBuf = ollamaBuf.substring(safeLength);
+              continue;
+            }
+            if (start > 0) {
+              result.add(StreamChunk(content: ollamaBuf.substring(0, start)));
+              ollamaBuf = ollamaBuf.substring(start);
+              continue;
+            }
+            final tagEnd = ollamaBuf.indexOf('>');
+            if (tagEnd == -1) {
+              if (flush) ollamaBuf = '';
+              break;
+            }
+            ollamaBuf = ollamaBuf.substring(tagEnd + 1);
+            inThink = true;
+          } else {
+            final lower = ollamaBuf.toLowerCase();
+            final end = lower.indexOf('</think>');
+            if (end == -1) {
+              final safeLength = flush
+                  ? ollamaBuf.length
+                  : safeLengthForPartialTag(ollamaBuf, const ['</think>']);
+              if (safeLength == 0) break;
+              final reasoning = ollamaBuf.substring(0, safeLength);
+              if (reasoning.isNotEmpty) {
+                result.add(StreamChunk(reasoningContent: reasoning));
+              }
+              ollamaBuf = ollamaBuf.substring(safeLength);
+              continue;
+            }
+            if (end > 0) {
+              result.add(
+                StreamChunk(reasoningContent: ollamaBuf.substring(0, end)),
+              );
+            }
+            ollamaBuf = ollamaBuf.substring(end + '</think>'.length);
+            inThink = false;
           }
-        }
-        if (cutoff == ollamaBuf.length &&
-            closeStart != -1 &&
-            closeStart > lastCompleteThink) {
-          cutoff = closeStart;
-        }
-        final process = ollamaBuf.substring(0, cutoff);
-        ollamaBuf = ollamaBuf.substring(cutoff);
-
-        int lastEnd = 0;
-        for (final match in thinkRegExp.allMatches(process)) {
-          if (match.start > lastEnd) {
-            final plain = process.substring(lastEnd, match.start).trim();
-            if (plain.isNotEmpty) result.add(StreamChunk(content: plain));
-          }
-          final thinkContent = match.group(1)?.trim();
-          if (thinkContent != null && thinkContent.isNotEmpty) {
-            result.add(StreamChunk(reasoningContent: thinkContent));
-          }
-          lastEnd = match.end;
-        }
-        if (lastEnd < process.length) {
-          final plain = process.substring(lastEnd).trim();
-          if (plain.isNotEmpty) result.add(StreamChunk(content: plain));
         }
         return result;
       }
@@ -807,6 +973,8 @@ class ApiService {
         if (chunk.trim().isEmpty) continue;
         try {
           final json = jsonDecode(chunk);
+          final error = json['error'];
+          if (error != null) throw Exception('Ollama 流式返回错误: $error');
           final rawContent = json['message']?['content'] as String?;
           final done = json['done'] as bool? ?? false;
           if (rawContent != null) {
@@ -816,14 +984,15 @@ class ApiService {
             }
           }
           if (done) {
-            if (ollamaBuf.isNotEmpty) {
-              final plain = ollamaBuf.trim();
-              if (plain.isNotEmpty) yield StreamChunk(content: plain);
+            for (final c in processBuffer(flush: true)) {
+              yield c;
             }
             yield StreamChunk(isDone: true);
             break;
           }
-        } catch (_) {}
+        } catch (e) {
+          throw Exception('Ollama 流式解析失败: $e');
+        }
       }
     } finally {
       client.close();
@@ -973,7 +1142,7 @@ class ApiService {
         );
 
     if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
+      final data = jsonDecode(utf8.decode(response.bodyBytes));
       String content = '';
       String reasoning = '';
       for (final block in data['content'] ?? []) {
@@ -1009,10 +1178,16 @@ class ApiService {
       if (rawArgs is String && rawArgs.trim().isNotEmpty) {
         try {
           final decoded = jsonDecode(rawArgs);
-          if (decoded is Map<String, dynamic>) args = decoded;
-        } catch (_) {}
-      } else if (rawArgs is Map<String, dynamic>) {
-        args = rawArgs;
+          if (decoded is Map) {
+            args = decoded.map((key, value) => MapEntry(key.toString(), value));
+          } else {
+            throw FormatException('工具参数不是 JSON 对象: $rawArgs');
+          }
+        } catch (e) {
+          throw FormatException('工具参数不是合法 JSON: $rawArgs ($e)');
+        }
+      } else if (rawArgs is Map) {
+        args = rawArgs.map((key, value) => MapEntry(key.toString(), value));
       }
       calls.add(
         ChatToolCall(
