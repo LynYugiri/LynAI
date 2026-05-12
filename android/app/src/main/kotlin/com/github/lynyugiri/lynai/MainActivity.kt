@@ -22,6 +22,34 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
+            "lynai/background_service"
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "startGeneration" -> {
+                    startGenerationService()
+                    result.success(null)
+                }
+                "stopGeneration" -> {
+                    stopService(Intent(this, GenerationForegroundService::class.java))
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "lynai/schedule_widget"
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "refresh" -> {
+                    ScheduleWidgetProvider.refresh(this)
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
             "lynai/native_tools"
         ).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -37,6 +65,15 @@ class MainActivity : FlutterActivity() {
                 }
                 else -> result.notImplemented()
             }
+        }
+    }
+
+    private fun startGenerationService() {
+        val intent = Intent(this, GenerationForegroundService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            ContextCompat.startForegroundService(this, intent)
+        } else {
+            startService(intent)
         }
     }
 

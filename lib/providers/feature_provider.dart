@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/note.dart';
@@ -8,6 +9,9 @@ import '../models/schedule_item.dart';
 class FeatureProvider extends ChangeNotifier {
   static const _scheduleKey = 'schedule_items';
   static const _notesKey = 'notes';
+  static const _scheduleWidgetChannel = MethodChannel(
+    'lynai/schedule_widget',
+  );
   final _uuid = const Uuid();
   Future<void> _scheduleSaveQueue = Future.value();
   Future<void> _noteSaveQueue = Future.value();
@@ -71,8 +75,17 @@ class FeatureProvider extends ChangeNotifier {
         _scheduleKey,
         jsonEncode(snapshot.map((e) => e.toJson()).toList()),
       );
+      await _refreshScheduleWidget();
     } catch (e) {
       debugPrint('保存日程失败: $e');
+    }
+  }
+
+  Future<void> _refreshScheduleWidget() async {
+    try {
+      await _scheduleWidgetChannel.invokeMethod<void>('refresh');
+    } catch (e) {
+      debugPrint('刷新日程小组件失败: $e');
     }
   }
 

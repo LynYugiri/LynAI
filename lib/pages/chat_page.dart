@@ -75,6 +75,10 @@ class ChatPage extends StatefulWidget {
 }
 
 class _ChatPageState extends State<ChatPage> {
+  static const _backgroundServiceChannel = MethodChannel(
+    'lynai/background_service',
+  );
+
   final _msgCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
   final _focusNode = FocusNode();
@@ -192,6 +196,7 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void dispose() {
     _sub?.cancel();
+    _setBackgroundGenerationActive(false);
     _inputActionCollapseTimer?.cancel();
     unawaited(_speech.stop());
     _audioRecorder.dispose();
@@ -199,6 +204,20 @@ class _ChatPageState extends State<ChatPage> {
     _scrollCtrl.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  void _setStreaming(bool value) {
+    if (_streaming == value) return;
+    _streaming = value;
+    _setBackgroundGenerationActive(value);
+  }
+
+  void _setBackgroundGenerationActive(bool active) {
+    unawaited(
+      _backgroundServiceChannel.invokeMethod<void>(
+        active ? 'startGeneration' : 'stopGeneration',
+      ).catchError((_) {}),
+    );
   }
 
   void _clearRetryState() {
@@ -287,7 +306,7 @@ class _ChatPageState extends State<ChatPage> {
     _streamGen++;
     unawaited(_sub?.cancel());
     _sub = null;
-    setState(() => _streaming = false);
+    setState(() => _setStreaming(false));
     final cid = _convId;
     if (cid == null) return;
     final cp = context.read<ConversationProvider>();
@@ -434,7 +453,7 @@ class _ChatPageState extends State<ChatPage> {
     _msgCtrl.clear();
     setState(() {
       _pendingImages.clear();
-      _streaming = true;
+      _setStreaming(true);
       _thinkingTxt = null;
     });
     _scrollEnd(force: true);
@@ -509,7 +528,7 @@ class _ChatPageState extends State<ChatPage> {
     _scrollEnd(force: true);
     cp.addMessage(_convId!, 'assistant', '');
     setState(() {
-      _streaming = true;
+      _setStreaming(true);
       _thinkingTxt = null;
     });
     _doSend(model, lastUserContentOverride: apiUserContent, allowTools: true);
@@ -628,7 +647,7 @@ class _ChatPageState extends State<ChatPage> {
           ? null
           : reasoningParts.join('\n\n');
       setState(() {
-        _streaming = false;
+        _setStreaming(false);
         _thinkingTxt = reasoning;
       });
       cp.updateLastMessage(
@@ -651,7 +670,7 @@ class _ChatPageState extends State<ChatPage> {
       _scrollEnd();
     } catch (e) {
       if (!mounted || gen != _streamGen) return;
-      setState(() => _streaming = false);
+      setState(() => _setStreaming(false));
       String msg = e.toString();
       if (msg.startsWith('Exception: ')) msg = msg.substring(11);
       cp.updateLastMessage(cid, '请求失败: $msg', save: true);
@@ -757,7 +776,7 @@ class _ChatPageState extends State<ChatPage> {
         if (chunk.isDone) {
           final think = thinkBuf.isNotEmpty ? thinkBuf : null;
           setState(() {
-            _streaming = false;
+            _setStreaming(false);
             _thinkingTxt = think;
           });
           cp.updateLastMessage(cid, buf, thinkingContent: think, save: true);
@@ -783,7 +802,7 @@ class _ChatPageState extends State<ChatPage> {
       },
       onError: (e) {
         if (!mounted || gen != _streamGen) return;
-        setState(() => _streaming = false);
+        setState(() => _setStreaming(false));
         String msg = e.toString();
         if (msg.startsWith('Exception: ')) msg = msg.substring(11);
         final display = buf.isNotEmpty
@@ -796,7 +815,7 @@ class _ChatPageState extends State<ChatPage> {
         if (_streaming) {
           final think = thinkBuf.isNotEmpty ? thinkBuf : null;
           setState(() {
-            _streaming = false;
+            _setStreaming(false);
             _thinkingTxt = think;
           });
           cp.updateLastMessage(cid, buf, thinkingContent: think, save: true);
@@ -815,7 +834,7 @@ class _ChatPageState extends State<ChatPage> {
           }
           if (createTitle) unawaited(_maybeCreateConversationTitle(model, cid));
         } else {
-          setState(() => _streaming = false);
+          setState(() => _setStreaming(false));
         }
       },
     );
@@ -885,7 +904,7 @@ class _ChatPageState extends State<ChatPage> {
     cp.deleteMessage(_convId!, lastAssistant.id);
     cp.addMessage(_convId!, 'assistant', '');
     setState(() {
-      _streaming = true;
+      _setStreaming(true);
       _thinkingTxt = null;
     });
     final retryModel = _getModel(context.read<ModelConfigProvider>());
@@ -896,7 +915,7 @@ class _ChatPageState extends State<ChatPage> {
         allowTools: true,
       );
     } else {
-      setState(() => _streaming = false);
+      setState(() => _setStreaming(false));
       _showMissingChatModelTip();
     }
   }
@@ -938,7 +957,7 @@ class _ChatPageState extends State<ChatPage> {
       cp.deleteMessage(_convId!, lastAssistant.id);
       cp.addMessage(_convId!, 'assistant', '');
       setState(() {
-        _streaming = true;
+        _setStreaming(true);
         _thinkingTxt = null;
       });
       _doSend(
@@ -947,7 +966,7 @@ class _ChatPageState extends State<ChatPage> {
         allowTools: lastUser != null,
       );
     } else {
-      setState(() => _streaming = false);
+      setState(() => _setStreaming(false));
       _showMissingChatModelTip();
     }
   }
@@ -2460,7 +2479,7 @@ class _ChatPageState extends State<ChatPage> {
       _thinkingTxt = null;
     }
     setState(() {
-      _streaming = false;
+      _setStreaming(false);
     });
     _scrollEnd();
   }
@@ -2542,7 +2561,7 @@ class _ChatPageState extends State<ChatPage> {
     cp.addMessage(newConvId, 'user', newText, images: origMsg.images);
     setState(() {
       _convId = newConvId;
-      _streaming = true;
+      _setStreaming(true);
       _clearPendingState();
     });
     _scrollEnd();
