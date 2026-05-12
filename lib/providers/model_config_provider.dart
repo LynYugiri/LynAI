@@ -12,6 +12,7 @@ class ModelConfigProvider extends ChangeNotifier {
   List<ModelConfig> _models = [];
   final _uuid = const Uuid();
   static const _storageKey = 'model_configs';
+  Future<void> _saveQueue = Future.value();
 
   /// 获取所有模型配置（按优先级升序）
   List<ModelConfig> get models => List.unmodifiable(_models);
@@ -62,10 +63,15 @@ class ModelConfigProvider extends ChangeNotifier {
   }
 
   /// 将模型配置保存到 SharedPreferences
-  Future<void> _saveModels() async {
+  void _queueSaveModels() {
+    final snapshot = List<ModelConfig>.from(_models);
+    _saveQueue = _saveQueue.then((_) => _saveModelsSnapshot(snapshot));
+  }
+
+  Future<void> _saveModelsSnapshot(List<ModelConfig> snapshot) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final jsonString = jsonEncode(_models.map((m) => m.toJson()).toList());
+      final jsonString = jsonEncode(snapshot.map((m) => m.toJson()).toList());
       await prefs.setString(_storageKey, jsonString);
     } catch (e) {
       debugPrint('保存模型配置失败: $e');
@@ -76,7 +82,7 @@ class ModelConfigProvider extends ChangeNotifier {
   void addModel(ModelConfig config) {
     _models.add(config);
     _models.sort(_compareModels);
-    _saveModels();
+    _queueSaveModels();
     notifyListeners();
   }
 
@@ -86,7 +92,7 @@ class ModelConfigProvider extends ChangeNotifier {
     if (index == -1) return;
     _models[index] = config;
     _models.sort(_compareModels);
-    _saveModels();
+    _queueSaveModels();
     notifyListeners();
   }
 
@@ -95,7 +101,7 @@ class ModelConfigProvider extends ChangeNotifier {
     final before = _models.length;
     _models.removeWhere((m) => m.id == modelId);
     if (_models.length == before) return;
-    _saveModels();
+    _queueSaveModels();
     notifyListeners();
   }
 
@@ -111,7 +117,7 @@ class ModelConfigProvider extends ChangeNotifier {
     for (int i = 0; i < _models.length; i++) {
       _models[i] = _models[i].copyWith(priority: i);
     }
-    _saveModels();
+    _queueSaveModels();
     notifyListeners();
   }
 
@@ -135,7 +141,7 @@ class ModelConfigProvider extends ChangeNotifier {
       categoryIndex++;
     }
     _models.sort(_compareModels);
-    _saveModels();
+    _queueSaveModels();
     notifyListeners();
   }
 

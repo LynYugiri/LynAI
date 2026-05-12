@@ -14,6 +14,7 @@ import '../models/system_prompt.dart';
 class SettingsProvider extends ChangeNotifier {
   AppSettings _settings = AppSettings.defaults();
   static const _storageKey = 'app_settings';
+  Future<void> _saveQueue = Future.value();
 
   AppSettings get settings => _settings;
 
@@ -43,10 +44,15 @@ class SettingsProvider extends ChangeNotifier {
   }
 
   /// 将设置保存到 SharedPreferences
-  Future<void> _saveSettings() async {
+  void _queueSaveSettings() {
+    final snapshot = _settings;
+    _saveQueue = _saveQueue.then((_) => _saveSettingsSnapshot(snapshot));
+  }
+
+  Future<void> _saveSettingsSnapshot(AppSettings snapshot) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final jsonString = jsonEncode(_settings.toJson());
+      final jsonString = jsonEncode(snapshot.toJson());
       await prefs.setString(_storageKey, jsonString);
     } catch (e) {
       debugPrint('保存设置失败: $e');
@@ -56,13 +62,13 @@ class SettingsProvider extends ChangeNotifier {
   /// 更新主题颜色
   void setThemeColor(Color color) {
     _settings = _settings.copyWith(themeColor: color);
-    _saveSettings();
+    _queueSaveSettings();
     notifyListeners();
   }
 
   void setLastFeature(String feature) {
     _settings = _settings.copyWith(lastFeature: feature);
-    _saveSettings();
+    _queueSaveSettings();
     notifyListeners();
   }
 
@@ -87,7 +93,7 @@ class SettingsProvider extends ChangeNotifier {
       roles: [..._settings.roles, role],
       systemPrompts: [..._settings.systemPrompts, prompt],
     );
-    _saveSettings();
+    _queueSaveSettings();
     notifyListeners();
     return id;
   }
@@ -126,7 +132,7 @@ class SettingsProvider extends ChangeNotifier {
       );
     }
     _settings = nextSettings;
-    _saveSettings();
+    _queueSaveSettings();
     notifyListeners();
   }
 
@@ -137,7 +143,8 @@ class SettingsProvider extends ChangeNotifier {
         .where((prompt) => prompt.id != id)
         .toList();
     final deletingCurrent = _settings.currentRoleId == id;
-    _settings = _settings.copyWith(
+    final defaultRole = ChatRole.defaultRole();
+    var nextSettings = _settings.copyWith(
       roles: roles.isEmpty ? [ChatRole.defaultRole()] : roles,
       systemPrompts: prompts,
       currentRoleId: deletingCurrent
@@ -147,7 +154,13 @@ class SettingsProvider extends ChangeNotifier {
           ? null
           : _settings.selectedSystemPromptId,
     );
-    _saveSettings();
+    if (deletingCurrent) {
+      nextSettings = nextSettings.copyWith(
+        systemPrompt: defaultRole.systemPrompt,
+      );
+    }
+    _settings = nextSettings;
+    _queueSaveSettings();
     notifyListeners();
   }
 
@@ -164,83 +177,83 @@ class SettingsProvider extends ChangeNotifier {
       lastChatModelId: role.modelId ?? _settings.lastChatModelId,
       themeColor: role.themeColor ?? _settings.themeColor,
     );
-    _saveSettings();
+    _queueSaveSettings();
     notifyListeners();
   }
 
   /// 设置背景图片路径
   void setBackgroundImage(String? path) {
     _settings = _settings.copyWith(backgroundImagePath: path);
-    _saveSettings();
+    _queueSaveSettings();
     notifyListeners();
   }
 
   /// 设置毛玻璃效果开关
   void setBlurEnabled(bool enabled) {
     _settings = _settings.copyWith(blurEnabled: enabled);
-    _saveSettings();
+    _queueSaveSettings();
     notifyListeners();
   }
 
   /// 设置模糊程度
   void setBlurAmount(double amount) {
     _settings = _settings.copyWith(blurAmount: amount);
-    _saveSettings();
+    _queueSaveSettings();
     notifyListeners();
   }
 
   /// 设置语音转文字接口配置ID
   void setSpeechModelId(String? modelId) {
     _settings = _settings.copyWith(speechModelId: modelId);
-    _saveSettings();
+    _queueSaveSettings();
     notifyListeners();
   }
 
   /// 设置 OCR 接口配置ID
   void setImageModelId(String? modelId) {
     _settings = _settings.copyWith(imageModelId: modelId);
-    _saveSettings();
+    _queueSaveSettings();
     notifyListeners();
   }
 
   void setImageOcrEnabled(bool enabled) {
     _settings = _settings.copyWith(imageOcrEnabled: enabled);
-    _saveSettings();
+    _queueSaveSettings();
     notifyListeners();
   }
 
   /// 设置文件识别模型配置ID
   void setImageRecognitionModelId(String? modelId) {
     _settings = _settings.copyWith(imageRecognitionModelId: modelId);
-    _saveSettings();
+    _queueSaveSettings();
     notifyListeners();
   }
 
   /// 设置文件识别是否启用
   void setImageRecognitionEnabled(bool enabled) {
     _settings = _settings.copyWith(imageRecognitionEnabled: enabled);
-    _saveSettings();
+    _queueSaveSettings();
     notifyListeners();
   }
 
   /// 记录新对话默认使用的 Chat 模型配置ID
   void setLastChatModelId(String? modelId) {
     _settings = _settings.copyWith(lastChatModelId: modelId);
-    _saveSettings();
+    _queueSaveSettings();
     notifyListeners();
   }
 
   /// 设置文件识别结果发送给 Chat 时使用的提示词
   void setImageRecognitionPrompt(String prompt) {
     _settings = _settings.copyWith(imageRecognitionPrompt: prompt);
-    _saveSettings();
+    _queueSaveSettings();
     notifyListeners();
   }
 
   /// 设置系统提示词
   void setSystemPrompt(String prompt) {
     _settings = _settings.copyWith(systemPrompt: prompt);
-    _saveSettings();
+    _queueSaveSettings();
     notifyListeners();
   }
 
@@ -253,7 +266,7 @@ class SettingsProvider extends ChangeNotifier {
       systemPrompts: list,
       selectedSystemPromptId: id,
     );
-    _saveSettings();
+    _queueSaveSettings();
     notifyListeners();
     return id;
   }
@@ -263,13 +276,27 @@ class SettingsProvider extends ChangeNotifier {
     final list = _settings.systemPrompts.map((p) {
       return p.id == id ? p.copyWith(title: title, content: content) : p;
     }).toList();
-    _settings = _settings.copyWith(systemPrompts: list);
-    _saveSettings();
+    final roles = _settings.roles.map((role) {
+      return role.id == id
+          ? role.copyWith(name: title, systemPrompt: content)
+          : role;
+    }).toList();
+    final isCurrentRolePrompt = _settings.currentRoleId == id;
+    _settings = _settings.copyWith(
+      systemPrompts: list,
+      roles: roles,
+      systemPrompt: isCurrentRolePrompt ? content : _settings.systemPrompt,
+    );
+    _queueSaveSettings();
     notifyListeners();
   }
 
   /// 删除系统提示词模板
   void deleteSystemPrompt(String id) {
+    if (_settings.roles.any((role) => role.id == id)) {
+      deleteRole(id);
+      return;
+    }
     final list = _settings.systemPrompts.where((p) => p.id != id).toList();
     String? newSelected = _settings.selectedSystemPromptId;
     if (newSelected == id) {
@@ -279,14 +306,14 @@ class SettingsProvider extends ChangeNotifier {
       systemPrompts: list,
       selectedSystemPromptId: newSelected,
     );
-    _saveSettings();
+    _queueSaveSettings();
     notifyListeners();
   }
 
   /// 选择当前使用的系统提示词
   void selectSystemPrompt(String? id) {
     _settings = _settings.copyWith(selectedSystemPromptId: id);
-    _saveSettings();
+    _queueSaveSettings();
     notifyListeners();
   }
 
@@ -319,14 +346,14 @@ class SettingsProvider extends ChangeNotifier {
       selectedSystemPromptId: settings.selectedSystemPromptId,
       lastChatModelId: settings.modelId,
     );
-    _saveSettings();
+    _queueSaveSettings();
     notifyListeners();
   }
 
   /// 设置主题模式
   void setThemeMode(String mode) {
     _settings = _settings.copyWith(themeMode: mode);
-    _saveSettings();
+    _queueSaveSettings();
     notifyListeners();
   }
 

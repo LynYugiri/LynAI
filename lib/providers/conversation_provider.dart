@@ -14,6 +14,7 @@ class ConversationProvider extends ChangeNotifier {
   List<Conversation> _conversations = [];
   final _uuid = const Uuid();
   static const _storageKey = 'conversations';
+  Future<void> _saveQueue = Future.value();
 
   void _touchConversation(int index, Conversation conversation) {
     _conversations[index] = conversation;
@@ -55,12 +56,15 @@ class ConversationProvider extends ChangeNotifier {
   }
 
   /// 将对话数据保存到 SharedPreferences
-  Future<void> _saveConversations() async {
+  void _queueSaveConversations() {
+    final snapshot = List<Conversation>.from(_conversations);
+    _saveQueue = _saveQueue.then((_) => _saveConversationsSnapshot(snapshot));
+  }
+
+  Future<void> _saveConversationsSnapshot(List<Conversation> snapshot) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final jsonString = jsonEncode(
-        _conversations.map((c) => c.toJson()).toList(),
-      );
+      final jsonString = jsonEncode(snapshot.map((c) => c.toJson()).toList());
       await prefs.setString(_storageKey, jsonString);
     } catch (e) {
       debugPrint('保存对话失败: $e');
@@ -85,7 +89,7 @@ class ConversationProvider extends ChangeNotifier {
         updatedAt: now,
       );
       _conversations.insert(0, conversation);
-      _saveConversations();
+      _queueSaveConversations();
       notifyListeners();
       return conversation.id;
     } catch (e) {
@@ -146,7 +150,7 @@ class ConversationProvider extends ChangeNotifier {
       final conv = _conversations.removeAt(index);
       _conversations.insert(0, conv);
 
-      _saveConversations();
+      _queueSaveConversations();
       notifyListeners();
     } catch (e) {
       debugPrint('添加消息失败: $e');
@@ -168,7 +172,7 @@ class ConversationProvider extends ChangeNotifier {
       updatedAt: DateTime.now(),
     );
     _touchConversation(index, _conversations[index]);
-    _saveConversations();
+    _queueSaveConversations();
     notifyListeners();
   }
 
@@ -187,7 +191,7 @@ class ConversationProvider extends ChangeNotifier {
       updatedAt: DateTime.now(),
     );
     _touchConversation(index, _conversations[index]);
-    _saveConversations();
+    _queueSaveConversations();
     notifyListeners();
   }
 
@@ -228,7 +232,7 @@ class ConversationProvider extends ChangeNotifier {
       final conv = _conversations.removeAt(index);
       _conversations.insert(0, conv);
 
-      if (save) _saveConversations();
+      if (save) _queueSaveConversations();
       notifyListeners();
     } catch (e) {
       debugPrint('更新最后消息失败: $e');
@@ -254,7 +258,7 @@ class ConversationProvider extends ChangeNotifier {
       updatedAt: DateTime.now(),
     );
     _touchConversation(index, _conversations[index]);
-    _saveConversations();
+    _queueSaveConversations();
     notifyListeners();
   }
 
@@ -263,7 +267,7 @@ class ConversationProvider extends ChangeNotifier {
     final before = _conversations.length;
     _conversations.removeWhere((c) => c.id == conversationId);
     if (_conversations.length == before) return;
-    _saveConversations();
+    _queueSaveConversations();
     notifyListeners();
   }
 
@@ -294,7 +298,7 @@ class ConversationProvider extends ChangeNotifier {
       updatedAt: DateTime.now(),
     );
     _touchConversation(index, _conversations[index]);
-    _saveConversations();
+    _queueSaveConversations();
     notifyListeners();
   }
 
@@ -331,7 +335,7 @@ class ConversationProvider extends ChangeNotifier {
     // 将更新的对话移到列表顶部
     final conv = _conversations.removeAt(index);
     _conversations.insert(0, conv);
-    _saveConversations();
+    _queueSaveConversations();
     notifyListeners();
   }
 
@@ -365,7 +369,7 @@ class ConversationProvider extends ChangeNotifier {
       updatedAt: DateTime.now(),
     );
     _touchConversation(index, _conversations[index]);
-    _saveConversations();
+    _queueSaveConversations();
     notifyListeners();
   }
 

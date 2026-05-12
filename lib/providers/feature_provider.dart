@@ -9,6 +9,8 @@ class FeatureProvider extends ChangeNotifier {
   static const _scheduleKey = 'schedule_items';
   static const _notesKey = 'notes';
   final _uuid = const Uuid();
+  Future<void> _scheduleSaveQueue = Future.value();
+  Future<void> _noteSaveQueue = Future.value();
 
   List<ScheduleItem> _schedules = [];
   List<Note> _notes = [];
@@ -54,20 +56,42 @@ class FeatureProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> _saveSchedules() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _scheduleKey,
-      jsonEncode(_schedules.map((e) => e.toJson()).toList()),
+  Future<void> _queueSaveSchedules() {
+    final snapshot = List<ScheduleItem>.from(_schedules);
+    _scheduleSaveQueue = _scheduleSaveQueue.then(
+      (_) => _saveSchedulesSnapshot(snapshot),
     );
+    return _scheduleSaveQueue;
   }
 
-  Future<void> _saveNotes() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _notesKey,
-      jsonEncode(_notes.map((e) => e.toJson()).toList()),
-    );
+  Future<void> _saveSchedulesSnapshot(List<ScheduleItem> snapshot) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _scheduleKey,
+        jsonEncode(snapshot.map((e) => e.toJson()).toList()),
+      );
+    } catch (e) {
+      debugPrint('保存日程失败: $e');
+    }
+  }
+
+  Future<void> _queueSaveNotes() {
+    final snapshot = List<Note>.from(_notes);
+    _noteSaveQueue = _noteSaveQueue.then((_) => _saveNotesSnapshot(snapshot));
+    return _noteSaveQueue;
+  }
+
+  Future<void> _saveNotesSnapshot(List<Note> snapshot) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _notesKey,
+        jsonEncode(snapshot.map((e) => e.toJson()).toList()),
+      );
+    } catch (e) {
+      debugPrint('保存笔记失败: $e');
+    }
   }
 
   Future<String> addSchedule(
@@ -85,7 +109,7 @@ class FeatureProvider extends ChangeNotifier {
     );
     _schedules.add(schedule);
     _schedules.sort((a, b) => a.start.compareTo(b.start));
-    await _saveSchedules();
+    await _queueSaveSchedules();
     notifyListeners();
     return schedule.id;
   }
@@ -95,7 +119,7 @@ class FeatureProvider extends ChangeNotifier {
     if (index == -1) return;
     _schedules[index] = schedule;
     _schedules.sort((a, b) => a.start.compareTo(b.start));
-    await _saveSchedules();
+    await _queueSaveSchedules();
     notifyListeners();
   }
 
@@ -103,7 +127,7 @@ class FeatureProvider extends ChangeNotifier {
     final before = _schedules.length;
     _schedules.removeWhere((s) => s.id == id);
     if (_schedules.length == before) return;
-    await _saveSchedules();
+    await _queueSaveSchedules();
     notifyListeners();
   }
 
@@ -129,7 +153,7 @@ class FeatureProvider extends ChangeNotifier {
       updatedAt: now,
     );
     _notes.insert(0, note);
-    await _saveNotes();
+    await _queueSaveNotes();
     notifyListeners();
     return note.id;
   }
@@ -147,7 +171,7 @@ class FeatureProvider extends ChangeNotifier {
     if (index == -1) return;
     _notes[index] = note;
     _notes.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-    await _saveNotes();
+    await _queueSaveNotes();
     notifyListeners();
   }
 
@@ -155,7 +179,7 @@ class FeatureProvider extends ChangeNotifier {
     final before = _notes.length;
     _notes.removeWhere((n) => n.id == id);
     if (_notes.length == before) return;
-    await _saveNotes();
+    await _queueSaveNotes();
     notifyListeners();
   }
 }

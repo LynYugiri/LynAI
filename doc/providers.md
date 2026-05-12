@@ -25,7 +25,7 @@
 | `getConversation(convId)` | 按ID获取, 不存在返回null |
 | `searchConversations(query)` | 按标题+内容搜索, 返回匹配列表, 每个结果包含conversation对象及匹配位置(matchInTitle/matchContent) |
 
-持久化: 除 `updateLastMessage(save: false)` 外的每次变更自动调用 `_saveConversations()` JSON→SharedPreferences
+持久化: 除 `updateLastMessage(save: false)` 外的每次变更会把当次快照加入串行保存队列，按调用顺序写入 SharedPreferences，避免快速连续修改时旧写入覆盖新状态。
 
 ---
 
@@ -73,13 +73,15 @@
 | `setImageRecognitionPrompt(prompt)` | 文件识别提示词 |
 | `setSystemPrompt(prompt)` | 全局系统提示词(默认"You are a helpful assistant.") |
 | `addSystemPrompt(title, content)` | 添加自定义系统提示词模板 |
-| `updateSystemPrompt(id, title, content)` | 更新指定提示词模板 |
-| `deleteSystemPrompt(id)` | 删除提示词模板(若当前选中则自动切换) |
+| `updateSystemPrompt(id, title, content)` | 更新指定提示词模板；如果该ID绑定角色，同步更新角色名称和提示词 |
+| `deleteSystemPrompt(id)` | 删除提示词模板；如果该ID绑定角色，改为删除对应角色，避免悬挂引用 |
 | `selectSystemPrompt(id)` | 选择当前使用的提示词模板(null=使用默认systemPrompt) |
 
 | `applyConversationSettings(settings)` | 将当前对话的设置快照同步到全局设置，便于 UI 控件显示当前状态 |
 
 **计算属性**: `themeMode` → String; `themeModeEnum` → ThemeMode枚举; `effectiveSystemPrompt` → 当前生效的提示词内容(优先选中模板, 否则用默认)
+
+Settings、Conversation、ModelConfig 和 Feature 数据都会按快照进入串行保存队列。UI 状态仍立即更新，持久化按队列顺序异步落盘，保证最后一次修改最终写入。
 
 ---
 
