@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -624,22 +625,146 @@ class _SchedulePage extends StatefulWidget {
 }
 
 class _SchedulePageState extends State<_SchedulePage> {
-  static const _hourRowHeight = 56.0;
+  static const _baseHourRowHeight = 56.0;
   static const _dayInitialHour = 8;
+  static const _dayBaseColumnWidth = 72.0;
+  static const _timeColumnWidth = 56.0;
+  static const _dayHeaderHeight = 46.0;
+  static const _minDayZoom = 0.7;
+  static const _maxDayZoom = 1.8;
 
   final _dayScrollController = ScrollController(
-    initialScrollOffset: _dayInitialHour * _hourRowHeight,
+    initialScrollOffset: _dayInitialHour * _baseHourRowHeight,
   );
+  final _dayHorizontalController = ScrollController(
+    initialScrollOffset: 14 * _dayBaseColumnWidth,
+  );
+  final _dayHeaderHorizontalController = ScrollController(
+    initialScrollOffset: 14 * _dayBaseColumnWidth,
+  );
+  bool _syncingDayHorizontalScroll = false;
+  double _dayZoom = 1.0;
+  double _dayScaleStartZoom = 1.0;
+  double? _dayScaleStartDistance;
+  final Map<int, Offset> _dayPointerPositions = {};
 
   _CalendarMode _mode = _CalendarMode.month;
   DateTime _focus = DateTime.now();
   DateTime? _selectedDate;
   bool _showMonthDetail = false;
+  double _scheduleControlsCollapse = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _dayHorizontalController.addListener(() {
+      _syncDayHorizontalScroll(
+        _dayHorizontalController,
+        _dayHeaderHorizontalController,
+      );
+    });
+    _dayHeaderHorizontalController.addListener(() {
+      _syncDayHorizontalScroll(
+        _dayHeaderHorizontalController,
+        _dayHorizontalController,
+      );
+    });
+  }
 
   @override
   void dispose() {
     _dayScrollController.dispose();
+    _dayHorizontalController.dispose();
+    _dayHeaderHorizontalController.dispose();
     super.dispose();
+  }
+
+  void _syncDayHorizontalScroll(
+    ScrollController source,
+    ScrollController target,
+  ) {
+    if (_syncingDayHorizontalScroll ||
+        !source.hasClients ||
+        !target.hasClients) {
+      return;
+    }
+    _syncingDayHorizontalScroll = true;
+    final targetPosition = target.position;
+    final offset = source.offset.clamp(
+      targetPosition.minScrollExtent,
+      targetPosition.maxScrollExtent,
+    );
+    target.jumpTo(offset.toDouble());
+    _syncingDayHorizontalScroll = false;
+  }
+
+  void _setDayZoom(double value) {
+    final next = value.clamp(_minDayZoom, _maxDayZoom).toDouble();
+    if ((next - _dayZoom).abs() < 0.01) return;
+    setState(() => _dayZoom = next);
+  }
+
+  void _handleDayPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) return;
+    final keyboard = HardwareKeyboard.instance;
+    if (!keyboard.isControlPressed && !keyboard.isMetaPressed) return;
+    GestureBinding.instance.pointerSignalResolver.register(event, (event) {
+      if (event is! PointerScrollEvent) return;
+      final delta = event.scrollDelta.dy < 0 ? 0.08 : -0.08;
+      _setDayZoom(_dayZoom + delta);
+    });
+  }
+
+  void _handleDayPointerDown(PointerDownEvent event) {
+    _dayPointerPositions[event.pointer] = event.localPosition;
+    if (_dayPointerPositions.length == 2) {
+      _dayScaleStartZoom = _dayZoom;
+      _dayScaleStartDistance = _dayPointerDistance();
+    }
+  }
+
+  void _handleDayPointerMove(PointerMoveEvent event) {
+    if (!_dayPointerPositions.containsKey(event.pointer)) return;
+    _dayPointerPositions[event.pointer] = event.localPosition;
+    final startDistance = _dayScaleStartDistance;
+    final currentDistance = _dayPointerDistance();
+    if (_dayPointerPositions.length < 2 ||
+        startDistance == null ||
+        startDistance <= 0 ||
+        currentDistance == null) {
+      return;
+    }
+    _setDayZoom(_dayScaleStartZoom * currentDistance / startDistance);
+  }
+
+  void _handleDayPointerEnd(PointerEvent event) {
+    _dayPointerPositions.remove(event.pointer);
+    if (_dayPointerPositions.length < 2) {
+      _dayScaleStartDistance = null;
+      _dayScaleStartZoom = _dayZoom;
+    } else {
+      _dayScaleStartDistance = _dayPointerDistance();
+      _dayScaleStartZoom = _dayZoom;
+    }
+  }
+
+  double? _dayPointerDistance() {
+    if (_dayPointerPositions.length < 2) return null;
+    final values = _dayPointerPositions.values.take(2).toList();
+    return (values[0] - values[1]).distance;
+  }
+
+  bool _onScheduleScroll(ScrollNotification notification) {
+    if (notification.metrics.axis != Axis.vertical) return false;
+    if (notification is ScrollUpdateNotification) {
+      final delta = notification.scrollDelta;
+      if (delta == null || delta == 0) return false;
+      final next = (_scheduleControlsCollapse + delta / 72).clamp(0.0, 1.0);
+      if ((next - _scheduleControlsCollapse).abs() >= 0.01) {
+        setState(() => _scheduleControlsCollapse = next);
+      }
+    }
+    return false;
   }
 
   @override
@@ -649,11 +774,14 @@ class _SchedulePageState extends State<_SchedulePage> {
       children: [
         _scheduleHeader(context),
         Expanded(
-          child: switch (_mode) {
-            _CalendarMode.day => _dayView(fp.schedules),
-            _CalendarMode.year => _yearView(fp.schedules),
-            _ => _monthView(fp.schedules),
-          },
+          child: NotificationListener<ScrollNotification>(
+            onNotification: _onScheduleScroll,
+            child: switch (_mode) {
+              _CalendarMode.day => _dayView(fp.schedules),
+              _CalendarMode.year => _yearView(fp.schedules),
+              _ => _monthView(fp.schedules),
+            },
+          ),
         ),
       ],
     );
@@ -661,25 +789,48 @@ class _SchedulePageState extends State<_SchedulePage> {
 
   Widget _scheduleHeader(BuildContext context) {
     final compact = MediaQuery.sizeOf(context).width < 560;
-    final controls = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SegmentedButton<_CalendarMode>(
-          segments: const [
-            ButtonSegment(value: _CalendarMode.month, label: Text('月')),
-            ButtonSegment(value: _CalendarMode.day, label: Text('日')),
-            ButtonSegment(value: _CalendarMode.year, label: Text('年')),
-          ],
-          selected: {_mode},
-          onSelectionChanged: (v) => setState(() => _mode = v.first),
+    final progress = _scheduleControlsCollapse;
+    final controls = ClipRect(
+      child: Align(
+        alignment: Alignment.centerRight,
+        widthFactor: compact ? 1 : 1 - progress,
+        heightFactor: compact ? 1 - progress : 1,
+        child: Opacity(
+          opacity: 1 - progress,
+          child: Transform.translate(
+            offset: Offset(0, -12 * progress),
+            child: IgnorePointer(
+              ignoring: progress > 0.6,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SegmentedButton<_CalendarMode>(
+                    segments: const [
+                      ButtonSegment(
+                        value: _CalendarMode.month,
+                        label: Text('月'),
+                      ),
+                      ButtonSegment(value: _CalendarMode.day, label: Text('日')),
+                      ButtonSegment(
+                        value: _CalendarMode.year,
+                        label: Text('年'),
+                      ),
+                    ],
+                    selected: {_mode},
+                    onSelectionChanged: (v) => setState(() => _mode = v.first),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.icon(
+                    onPressed: _newSchedule,
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('新建'),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
-        const SizedBox(width: 8),
-        FilledButton.icon(
-          onPressed: _newSchedule,
-          icon: const Icon(Icons.add, size: 18),
-          label: const Text('新建'),
-        ),
-      ],
+      ),
     );
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 10, 12, 6),
@@ -699,7 +850,7 @@ class _SchedulePageState extends State<_SchedulePage> {
           ? Column(
               children: [
                 _dateNavigator(context),
-                const SizedBox(height: 10),
+                SizedBox(height: 10 * (1 - progress)),
                 Align(alignment: Alignment.centerRight, child: controls),
               ],
             )
@@ -1155,163 +1306,215 @@ class _SchedulePageState extends State<_SchedulePage> {
   }
 
   Widget _dayView(List<ScheduleItem> items) {
-    final weekStart = _focus.subtract(Duration(days: _focus.weekday - 1));
-    final weekDays = List.generate(7, (i) => weekStart.add(Duration(days: i)));
+    final startDate = _focus.subtract(const Duration(days: 14));
+    final days = List.generate(42, (i) => startDate.add(Duration(days: i)));
     final scheme = Theme.of(context).colorScheme;
-    return SingleChildScrollView(
-      controller: _dayScrollController,
-      padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
-      child: Container(
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: scheme.outlineVariant.withValues(alpha: 0.6),
+    final hourRowHeight = _baseHourRowHeight * _dayZoom;
+    final dayColumnWidth = _dayBaseColumnWidth * _dayZoom;
+    final timelineHeight = 24 * hourRowHeight;
+    final timelineWidth = days.length * dayColumnWidth;
+
+    return Listener(
+      onPointerSignal: _handleDayPointerSignal,
+      onPointerDown: _handleDayPointerDown,
+      onPointerMove: _handleDayPointerMove,
+      onPointerUp: _handleDayPointerEnd,
+      onPointerCancel: _handleDayPointerEnd,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
+        child: Container(
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: scheme.outlineVariant.withValues(alpha: 0.6),
+            ),
           ),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-              width: 56,
-              child: Column(
-                children: [
-                  const SizedBox(height: 42),
-                  ...List.generate(
-                    24,
-                    (h) => SizedBox(
-                      height: 58,
-                      child: Align(
-                        alignment: Alignment.topCenter,
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              SizedBox(
+                height: _dayHeaderHeight,
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: _timeColumnWidth,
+                      child: Center(
                         child: Text(
-                          '${h.toString().padLeft(2, '0')}:00',
+                          '${(_dayZoom * 100).round()}%',
                           style: TextStyle(
                             fontSize: 10.5,
                             color: scheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: Row(
-                children: weekDays.map((date) {
-                  final dayItems = _itemsOnDate(items, date);
-                  return Expanded(
-                    child: Column(
-                      children: [
-                        Container(
-                          height: 40,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            border: Border(
-                              bottom: BorderSide(
-                                color: scheme.outlineVariant.withValues(
-                                  alpha: 0.6,
+                    Expanded(
+                      child: SingleChildScrollView(
+                        controller: _dayHeaderHorizontalController,
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: days
+                              .map(
+                                (date) => _dayHeaderCell(
+                                  date,
+                                  scheme,
+                                  width: dayColumnWidth,
                                 ),
-                              ),
-                            ),
-                          ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                _weekdayName(date.weekday),
-                                style: TextStyle(
-                                  fontSize: 10.5,
-                                  color: scheme.onSurfaceVariant,
-                                ),
-                              ),
-                              Text(
-                                '${date.month}/${date.day}',
-                                style: TextStyle(
-                                  fontWeight: _sameDate(date, DateTime.now())
-                                      ? FontWeight.w800
-                                      : FontWeight.w600,
-                                  color: _sameDate(date, DateTime.now())
-                                      ? scheme.primary
-                                      : null,
-                                ),
-                              ),
-                            ],
-                          ),
+                              )
+                              .toList(),
                         ),
-                        SizedBox(
-                          height: 24 * _hourRowHeight,
-                          child: Stack(
-                            children: [
-                              for (var h = 0; h < 24; h++)
-                                Positioned(
-                                  top: h * _hourRowHeight,
-                                  left: 0,
-                                  right: 0,
-                                  child: Divider(
-                                    height: 1,
-                                    color: scheme.outlineVariant.withValues(
-                                      alpha: 0.45,
-                                    ),
-                                  ),
-                                ),
-                              Positioned.fill(
-                                child: DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    border: Border(
-                                      left: BorderSide(
-                                        color: scheme.outlineVariant.withValues(
-                                          alpha: 0.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: _dayScrollController,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: _timeColumnWidth,
+                        height: timelineHeight,
+                        child: Stack(
+                          children: [
+                            for (var h = 0; h < 24; h++)
+                              Positioned(
+                                top: h * hourRowHeight,
+                                left: 0,
+                                right: 0,
+                                child: SizedBox(
+                                  height: hourRowHeight,
+                                  child: Align(
+                                    alignment: Alignment.topCenter,
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(top: 2),
+                                      child: Text(
+                                        '${h.toString().padLeft(2, '0')}:00',
+                                        style: TextStyle(
+                                          fontSize: 10.5,
+                                          color: scheme.onSurfaceVariant,
                                         ),
                                       ),
                                     ),
                                   ),
                                 ),
                               ),
-                              for (final item in dayItems)
-                                _dayScheduleBlock(item, date, scheme),
-                              if (_sameDate(date, DateTime.now()))
-                                Positioned(
-                                  top:
-                                      DateTime.now().hour * _hourRowHeight +
-                                      DateTime.now().minute /
-                                          60 *
-                                          _hourRowHeight,
-                                  left: 0,
-                                  right: 0,
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        width: 44,
-                                        alignment: Alignment.centerRight,
-                                        padding: const EdgeInsets.only(
-                                          right: 4,
-                                        ),
-                                        child: Text(
-                                          '现在',
-                                          style: TextStyle(
-                                            fontSize: 9.5,
-                                            color: scheme.error,
-                                            fontWeight: FontWeight.w700,
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          controller: _dayHorizontalController,
+                          scrollDirection: Axis.horizontal,
+                          child: SizedBox(
+                            width: timelineWidth,
+                            height: timelineHeight,
+                            child: Stack(
+                              children: [
+                                for (var h = 0; h < 24; h++)
+                                  Positioned(
+                                    top: h * hourRowHeight,
+                                    left: 0,
+                                    right: 0,
+                                    child: Divider(
+                                      height: 1,
+                                      color: scheme.outlineVariant.withValues(
+                                        alpha: 0.45,
+                                      ),
+                                    ),
+                                  ),
+                                for (var i = 0; i < days.length; i++)
+                                  Positioned(
+                                    left: i * dayColumnWidth,
+                                    top: 0,
+                                    width: dayColumnWidth,
+                                    height: timelineHeight,
+                                    child: DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        border: Border(
+                                          left: BorderSide(
+                                            color: scheme.outlineVariant
+                                                .withValues(alpha: 0.35),
                                           ),
                                         ),
                                       ),
-                                      Expanded(
-                                        child: Container(
-                                          height: 1.8,
-                                          color: scheme.error,
-                                        ),
-                                      ),
-                                    ],
+                                    ),
                                   ),
-                                ),
-                            ],
+                                for (var i = 0; i < days.length; i++)
+                                  ..._itemsOnDate(items, days[i]).map(
+                                    (item) => _dayScheduleBlock(
+                                      item,
+                                      days[i],
+                                      scheme,
+                                      hourRowHeight: hourRowHeight,
+                                      left: i * dayColumnWidth + 2,
+                                      width: dayColumnWidth - 4,
+                                    ),
+                                  ),
+                                for (var i = 0; i < days.length; i++)
+                                  if (_sameDate(days[i], DateTime.now()))
+                                    _nowLine(
+                                      scheme,
+                                      left: i * dayColumnWidth,
+                                      width: dayColumnWidth,
+                                      hourRowHeight: hourRowHeight,
+                                    ),
+                              ],
+                            ),
                           ),
                         ),
-                      ],
-                    ),
-                  );
-                }).toList(),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _dayHeaderCell(
+    DateTime date,
+    ColorScheme scheme, {
+    required double width,
+  }) {
+    final today = _sameDate(date, DateTime.now());
+    final focused = _sameDate(date, _focus);
+    return InkWell(
+      onTap: () => setState(() => _focus = _dateOnly(date)),
+      child: Container(
+        width: width,
+        height: _dayHeaderHeight,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: focused ? scheme.primary.withValues(alpha: 0.08) : null,
+          border: Border(
+            left: BorderSide(
+              color: scheme.outlineVariant.withValues(alpha: 0.35),
+            ),
+            bottom: BorderSide(
+              color: scheme.outlineVariant.withValues(alpha: 0.6),
+            ),
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              _weekdayName(date.weekday),
+              style: TextStyle(fontSize: 10.5, color: scheme.onSurfaceVariant),
+            ),
+            Text(
+              '${date.month}/${date.day}',
+              style: TextStyle(
+                fontWeight: today ? FontWeight.w800 : FontWeight.w600,
+                color: today ? scheme.primary : null,
               ),
             ),
           ],
@@ -1320,26 +1523,63 @@ class _SchedulePageState extends State<_SchedulePage> {
     );
   }
 
+  Widget _nowLine(
+    ColorScheme scheme, {
+    required double left,
+    required double width,
+    required double hourRowHeight,
+  }) {
+    return Positioned(
+      top:
+          DateTime.now().hour * hourRowHeight +
+          DateTime.now().minute / 60 * hourRowHeight,
+      left: left,
+      width: width,
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.only(right: 4),
+            child: Text(
+              '现在',
+              style: TextStyle(
+                fontSize: 9.5,
+                color: scheme.error,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Expanded(child: Container(height: 1.8, color: scheme.error)),
+        ],
+      ),
+    );
+  }
+
   Widget _dayScheduleBlock(
     ScheduleItem item,
     DateTime date,
-    ColorScheme scheme,
-  ) {
+    ColorScheme scheme, {
+    required double hourRowHeight,
+    double? left,
+    double? width,
+  }) {
     final visibleStart = _visibleStartForDate(item, date);
     final visibleEnd = _visibleEndForDate(item, date);
     final top =
-        visibleStart.hour * _hourRowHeight +
-        visibleStart.minute / 60 * _hourRowHeight;
+        visibleStart.hour * hourRowHeight +
+        visibleStart.minute / 60 * hourRowHeight;
     final height =
-        (visibleEnd.difference(visibleStart).inMinutes / 60 * _hourRowHeight)
-            .clamp(26, 24 * _hourRowHeight)
+        (visibleEnd.difference(visibleStart).inMinutes / 60 * hourRowHeight)
+            .clamp(26, 24 * hourRowHeight)
             .toDouble();
     final maxLines = ((height - 8) / 13.5).floor().clamp(1, 20);
 
     return Positioned(
       top: top,
-      left: 2,
-      right: 2,
+      left: left ?? 2,
+      right: width == null ? 2 : null,
+      width: width,
       height: height,
       child: InkWell(
         onTap: () => _openScheduleEditor(item),
