@@ -273,15 +273,15 @@ class ToolCallService {
         case 'list_schedules':
           return _listSchedules(call.arguments);
         case 'create_schedule':
-          return _createSchedule(call.arguments);
+          return await _createSchedule(call.arguments);
         case 'update_schedule':
-          return _updateSchedule(call.arguments);
+          return await _updateSchedule(call.arguments);
         case 'list_notes':
           return _listNotes(call.arguments);
         case 'read_note':
           return _readNote(call.arguments);
         case 'save_note':
-          return _saveNote(call.arguments);
+          return await _saveNote(call.arguments);
         default:
           return _error('未知工具: ${call.name}');
       }
@@ -321,7 +321,9 @@ class ToolCallService {
     };
   }
 
-  Map<String, dynamic> _createSchedule(Map<String, dynamic> args) {
+  Future<Map<String, dynamic>> _createSchedule(
+    Map<String, dynamic> args,
+  ) async {
     final title = (args['title'] as String? ?? '').trim();
     final start = _dateArg(args, 'start');
     final end = _dateArg(args, 'end');
@@ -329,7 +331,7 @@ class ToolCallService {
       return _error('创建日程需要 title、start、end');
     }
     if (!end.isAfter(start)) return _error('结束时间必须晚于开始时间');
-    final id = _features.addSchedule(
+    final id = await _features.addSchedule(
       title,
       start,
       end,
@@ -342,7 +344,9 @@ class ToolCallService {
     };
   }
 
-  Map<String, dynamic> _updateSchedule(Map<String, dynamic> args) {
+  Future<Map<String, dynamic>> _updateSchedule(
+    Map<String, dynamic> args,
+  ) async {
     final id = (args['id'] as String? ?? '').trim();
     final current = _features.getSchedule(id);
     if (current == null) return _error('未找到日程: $id');
@@ -359,7 +363,7 @@ class ToolCallService {
             end: _dateArg(args, 'end'),
           );
     if (!updated.end.isAfter(updated.start)) return _error('结束时间必须晚于开始时间');
-    _features.updateSchedule(updated);
+    await _features.updateSchedule(updated);
     return {'ok': true, 'schedule': _scheduleJson(updated)};
   }
 
@@ -421,7 +425,7 @@ class ToolCallService {
     return null;
   }
 
-  Map<String, dynamic> _saveNote(Map<String, dynamic> args) {
+  Future<Map<String, dynamic>> _saveNote(Map<String, dynamic> args) async {
     final title = (args['title'] as String? ?? '').trim();
     final content = args['content'] as String? ?? '';
     if (title.isEmpty) return _error('笔记标题不能为空');
@@ -429,7 +433,7 @@ class ToolCallService {
     final append = args['append'] as bool? ?? false;
     Note? note = id.isEmpty ? null : _features.getNote(id);
     if (note == null) {
-      final newId = _features.addNote(title);
+      final newId = await _features.addNote(title);
       note = _features.getNote(newId);
     }
     if (note == null) return _error('创建笔记失败');
@@ -437,7 +441,7 @@ class ToolCallService {
         ? '${note.content}\n\n$content'
         : content;
     final updated = note.copyWith(title: title, content: nextContent);
-    _features.updateNote(updated);
+    await _features.updateNote(updated);
     return {'ok': true, 'note': updated.toJson()};
   }
 

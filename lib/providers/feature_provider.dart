@@ -70,12 +70,12 @@ class FeatureProvider extends ChangeNotifier {
     );
   }
 
-  String addSchedule(
+  Future<String> addSchedule(
     String title,
     DateTime start,
     DateTime end, {
     String? note,
-  }) {
+  }) async {
     final schedule = ScheduleItem(
       id: _uuid.v4(),
       title: title,
@@ -85,25 +85,25 @@ class FeatureProvider extends ChangeNotifier {
     );
     _schedules.add(schedule);
     _schedules.sort((a, b) => a.start.compareTo(b.start));
-    _saveSchedules();
+    await _saveSchedules();
     notifyListeners();
     return schedule.id;
   }
 
-  void updateSchedule(ScheduleItem schedule) {
+  Future<void> updateSchedule(ScheduleItem schedule) async {
     final index = _schedules.indexWhere((s) => s.id == schedule.id);
     if (index == -1) return;
     _schedules[index] = schedule;
     _schedules.sort((a, b) => a.start.compareTo(b.start));
-    _saveSchedules();
+    await _saveSchedules();
     notifyListeners();
   }
 
-  void deleteSchedule(String id) {
+  Future<void> deleteSchedule(String id) async {
     final before = _schedules.length;
     _schedules.removeWhere((s) => s.id == id);
     if (_schedules.length == before) return;
-    _saveSchedules();
+    await _saveSchedules();
     notifyListeners();
   }
 
@@ -115,11 +115,11 @@ class FeatureProvider extends ChangeNotifier {
     }
   }
 
-  String addNote(String title) {
+  Future<String> addNote(String title) {
     return addNoteWithContent(title, '');
   }
 
-  String addNoteWithContent(String title, String content) {
+  Future<String> addNoteWithContent(String title, String content) async {
     final now = DateTime.now();
     final note = Note(
       id: _uuid.v4(),
@@ -129,7 +129,7 @@ class FeatureProvider extends ChangeNotifier {
       updatedAt: now,
     );
     _notes.insert(0, note);
-    _saveNotes();
+    await _saveNotes();
     notifyListeners();
     return note.id;
   }
@@ -142,18 +142,20 @@ class FeatureProvider extends ChangeNotifier {
     }
   }
 
-  void updateNote(Note note) {
+  Future<void> updateNote(Note note) async {
     final index = _notes.indexWhere((n) => n.id == note.id);
     if (index == -1) return;
     _notes[index] = note;
     _notes.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-    _saveNotes();
+    await _saveNotes();
     notifyListeners();
   }
 
-  void deleteNote(String id) {
+  Future<void> deleteNote(String id) async {
+    final before = _notes.length;
     _notes.removeWhere((n) => n.id == id);
-    _saveNotes();
+    if (_notes.length == before) return;
+    await _saveNotes();
     notifyListeners();
   }
 }

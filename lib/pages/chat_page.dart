@@ -389,6 +389,17 @@ class _ChatPageState extends State<ChatPage> {
     return _draftSettings;
   }
 
+  ConversationSettings _imageRecognitionSettings() {
+    final current = _activeSettings() ?? _settingsToConversationSettings();
+    final settings = context.read<SettingsProvider>().settings;
+    return current.copyWith(
+      imageModelId: settings.imageModelId,
+      imageRecognitionModelId: settings.imageRecognitionModelId,
+      imageRecognitionEnabled: settings.imageRecognitionEnabled,
+      imageRecognitionPrompt: settings.imageRecognitionPrompt,
+    );
+  }
+
   Future<void> _send() async {
     final text = _msgCtrl.text.trim();
     if ((text.isEmpty && _pendingImages.isEmpty) || _streaming) return;
@@ -403,13 +414,23 @@ class _ChatPageState extends State<ChatPage> {
       _showMissingChatModelTip();
       return;
     }
-    _convId ??= cp.createConversation(
-      _currentConversationSettings(model),
-      roleId: context.read<SettingsProvider>().settings.currentRoleId,
-    );
+    final images = _pendingImages.map((e) => e.toMessageImage()).toList();
+    final conversationSettings = _currentConversationSettings(model);
+    final roleId = context.read<SettingsProvider>().settings.currentRoleId;
+    String apiUserContent;
+    try {
+      apiUserContent = await _buildUserContentWithImages(text, images);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('图片处理失败: $e')));
+      return;
+    }
+
+    _convId ??= cp.createConversation(conversationSettings, roleId: roleId);
     _pendingModelId = null;
     _clearRetryState();
-    final images = _pendingImages.map((e) => e.toMessageImage()).toList();
     final isFirstUserMessage =
         _convId != null &&
         (cp.getConversation(_convId!)?.messages.isEmpty ?? false);
@@ -422,20 +443,12 @@ class _ChatPageState extends State<ChatPage> {
     });
     _scrollEnd(force: true);
     cp.addMessage(_convId!, 'assistant', '');
-    try {
-      final apiUserContent = await _buildUserContentWithImages(text, images);
-      if (!mounted) return;
-      _doSend(
-        model,
-        lastUserContentOverride: apiUserContent,
-        allowTools: _isToolIntent(text),
-        createTitle: isFirstUserMessage,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _streaming = false);
-      cp.updateLastMessage(_convId!, '图片处理失败: $e', save: true);
-    }
+    _doSend(
+      model,
+      lastUserContentOverride: apiUserContent,
+      allowTools: true,
+      createTitle: isFirstUserMessage,
+    );
   }
 
   void _doSend(
@@ -502,11 +515,7 @@ class _ChatPageState extends State<ChatPage> {
         lastUser.images,
       );
       if (!mounted) return;
-      _doSend(
-        model,
-        lastUserContentOverride: apiUserContent,
-        allowTools: _isToolIntent(text),
-      );
+      _doSend(model, lastUserContentOverride: apiUserContent, allowTools: true);
     } catch (e) {
       if (!mounted) return;
       setState(() => _streaming = false);
@@ -558,30 +567,6 @@ class _ChatPageState extends State<ChatPage> {
     return msgs;
   }
 
-  bool _isToolIntent(String text) {
-    final value = text.toLowerCase();
-    return value.contains('日程') ||
-        value.contains('安排') ||
-        value.contains('计划') ||
-        value.contains('时间') ||
-        value.contains('几点') ||
-        value.contains('位置') ||
-        value.contains('在哪里') ||
-        value.contains('打开') ||
-        value.contains('应用') ||
-        value.contains('app') ||
-        value.contains('笔记') ||
-        value.contains('便签') ||
-        value.contains('备忘') ||
-        value.contains('查看') ||
-        value.contains('读取') ||
-        value.contains('读一下') ||
-        value.contains('总结') ||
-        value.contains('记录') ||
-        value.contains('保存') ||
-        value.contains('package');
-  }
-
   bool _supportsNativeTools(ModelConfig model) {
     return model.apiType != 'ollama' && model.apiType != 'anthropic';
   }
@@ -630,7 +615,11 @@ class _ChatPageState extends State<ChatPage> {
           conv?.messages ?? const [],
         );
         if (!mounted || gen != _streamGen) return;
-        working.add(_assistantToolCallMessage(response.content, calls));
+        working.add(
+          response.toolCalls.isNotEmpty
+              ? _assistantToolCallMessage(response.content, calls)
+              : _assistantFallbackToolCallMessage(response.content),
+        );
         for (final result in results) {
           working.add(
             _toolResultMessage(
@@ -697,6 +686,10 @@ class _ChatPageState extends State<ChatPage> {
           )
           .toList(),
     };
+  }
+
+  Map<String, dynamic> _assistantFallbackToolCallMessage(String content) {
+    return {'role': 'assistant', 'content': content};
   }
 
   Map<String, dynamic> _toolResultMessage(
@@ -904,7 +897,7 @@ class _ChatPageState extends State<ChatPage> {
         _doSend(
           retryModel,
           lastUserContentOverride: apiUserContent,
-          allowTools: _isToolIntent(lastUser.content),
+          allowTools: true,
         );
       } catch (e) {
         if (!mounted) return;
@@ -960,7 +953,7 @@ class _ChatPageState extends State<ChatPage> {
       _doSend(
         retryModel,
         lastUserContentOverride: apiUserContent,
-        allowTools: lastUser == null ? false : _isToolIntent(lastUser.content),
+        allowTools: lastUser != null,
       );
     } else {
       setState(() => _streaming = false);
@@ -1305,7 +1298,7 @@ class _ChatPageState extends State<ChatPage> {
     for (final image in images) {
       buffer.writeln('[图片: ${image.name} (${_fmtSz(image.size)})]');
     }
-    final set = _activeSettings() ?? _settingsToConversationSettings();
+    final set = _imageRecognitionSettings();
     final modelProvider = context.read<ModelConfigProvider>();
     final imageText = await _recognizeImagesForSend(images, set, modelProvider);
     if (imageText.isNotEmpty) {
@@ -2364,7 +2357,7 @@ class _ChatPageState extends State<ChatPage> {
       _doSend(
         editModel,
         lastUserContentOverride: apiUserContent,
-        allowTools: _isToolIntent(newText),
+        allowTools: true,
       );
     } catch (e) {
       if (!mounted) return;

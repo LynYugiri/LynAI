@@ -202,7 +202,7 @@ class _FeaturePageState extends State<FeaturePage> {
     );
     ctrl.dispose();
     if (!mounted || title == null || title.isEmpty) return;
-    final id = context.read<FeatureProvider>().addNote(title);
+    final id = await context.read<FeatureProvider>().addNote(title);
     setState(() {
       _selectedNoteId = id;
       _noteEditing = true;
@@ -226,7 +226,7 @@ class _FeaturePageState extends State<FeaturePage> {
       if (bytes == null) throw Exception('无法读取文件内容');
       final content = utf8.decode(bytes, allowMalformed: true);
       final title = _noteTitleFromFileName(file.name);
-      final id = features.addNoteWithContent(title, content);
+      final id = await features.addNoteWithContent(title, content);
       setState(() {
         _selectedNoteId = id;
         _noteEditing = false;
@@ -1727,7 +1727,7 @@ class _SchedulePageState extends State<_SchedulePage> {
     titleCtrl.dispose();
     noteCtrl.dispose();
     if (!mounted || result != true || title.isEmpty) return;
-    context.read<FeatureProvider>().addSchedule(
+    await context.read<FeatureProvider>().addSchedule(
       title,
       start,
       end,
@@ -1918,7 +1918,7 @@ class _SchedulePageState extends State<_SchedulePage> {
         ),
       );
       if (ok == true) {
-        fp.deleteSchedule(schedule.id);
+        await fp.deleteSchedule(schedule.id);
       }
       titleCtrl.dispose();
       noteCtrl.dispose();
@@ -1926,7 +1926,7 @@ class _SchedulePageState extends State<_SchedulePage> {
     }
     final title = titleCtrl.text.trim();
     final note = noteCtrl.text.trim();
-    fp.updateSchedule(
+    await fp.updateSchedule(
       schedule.copyWith(
         title: title.isEmpty ? schedule.title : title,
         start: start,
@@ -2186,7 +2186,7 @@ class _NoteDetailState extends State<_NoteDetail> {
   void _saveNote(String noteId) {
     final note = _features.getNote(noteId);
     if (note == null || note.content == _ctrl.text) return;
-    _features.updateNote(note.copyWith(content: _ctrl.text));
+    unawaited(_features.updateNote(note.copyWith(content: _ctrl.text)));
   }
 
   Future<void> _menu(String value, Note note) async {
@@ -2201,7 +2201,7 @@ class _NoteDetailState extends State<_NoteDetail> {
       case 'image':
         await _exportImage();
       case 'wrap':
-        _features.updateNote(note.copyWith(wrap: !note.wrap));
+        await _features.updateNote(note.copyWith(wrap: !note.wrap));
       case 'delete':
         await _delete(note);
     }
@@ -2232,7 +2232,7 @@ class _NoteDetailState extends State<_NoteDetail> {
     ctrl.dispose();
     if (!mounted) return;
     if (title != null && title.isNotEmpty) {
-      _features.updateNote(note.copyWith(title: title));
+      await _features.updateNote(note.copyWith(title: title));
     }
   }
 
@@ -2329,7 +2329,7 @@ class _NoteDetailState extends State<_NoteDetail> {
       ),
     );
     if (ok != true || !mounted) return;
-    _features.deleteNote(note.id);
+    await _features.deleteNote(note.id);
     widget.onDeleted();
   }
 }
