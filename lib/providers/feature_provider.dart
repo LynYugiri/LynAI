@@ -9,9 +9,7 @@ import '../models/schedule_item.dart';
 class FeatureProvider extends ChangeNotifier {
   static const _scheduleKey = 'schedule_items';
   static const _notesKey = 'notes';
-  static const _scheduleWidgetChannel = MethodChannel(
-    'lynai/schedule_widget',
-  );
+  static const _scheduleWidgetChannel = MethodChannel('lynai/schedule_widget');
   final _uuid = const Uuid();
   Future<void> _scheduleSaveQueue = Future.value();
   Future<void> _noteSaveQueue = Future.value();
@@ -38,6 +36,7 @@ class FeatureProvider extends ChangeNotifier {
         }
         _schedules = schedules..sort((a, b) => a.start.compareTo(b.start));
       }
+      await _refreshScheduleWidget();
       final notesJson = prefs.getString(_notesKey);
       if (notesJson != null) {
         final items = jsonDecode(notesJson) as List<dynamic>;

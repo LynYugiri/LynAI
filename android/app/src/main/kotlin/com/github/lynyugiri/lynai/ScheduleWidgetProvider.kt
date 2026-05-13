@@ -28,7 +28,182 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
 
     companion object {
         private const val SCHEDULE_KEY = "flutter.schedule_items"
-        private const val MAX_AGENDA_ITEMS = 3
+        private val CELL_IDS = intArrayOf(
+            R.id.schedule_widget_cell_1,
+            R.id.schedule_widget_cell_2,
+            R.id.schedule_widget_cell_3,
+            R.id.schedule_widget_cell_4,
+            R.id.schedule_widget_cell_5,
+            R.id.schedule_widget_cell_6,
+            R.id.schedule_widget_cell_7,
+            R.id.schedule_widget_cell_8,
+            R.id.schedule_widget_cell_9,
+            R.id.schedule_widget_cell_10,
+            R.id.schedule_widget_cell_11,
+            R.id.schedule_widget_cell_12,
+            R.id.schedule_widget_cell_13,
+            R.id.schedule_widget_cell_14,
+            R.id.schedule_widget_cell_15,
+            R.id.schedule_widget_cell_16,
+            R.id.schedule_widget_cell_17,
+            R.id.schedule_widget_cell_18,
+            R.id.schedule_widget_cell_19,
+            R.id.schedule_widget_cell_20,
+            R.id.schedule_widget_cell_21,
+            R.id.schedule_widget_cell_22,
+            R.id.schedule_widget_cell_23,
+            R.id.schedule_widget_cell_24,
+            R.id.schedule_widget_cell_25,
+            R.id.schedule_widget_cell_26,
+            R.id.schedule_widget_cell_27,
+            R.id.schedule_widget_cell_28,
+            R.id.schedule_widget_cell_29,
+            R.id.schedule_widget_cell_30,
+            R.id.schedule_widget_cell_31,
+            R.id.schedule_widget_cell_32,
+            R.id.schedule_widget_cell_33,
+            R.id.schedule_widget_cell_34,
+            R.id.schedule_widget_cell_35,
+            R.id.schedule_widget_cell_36,
+            R.id.schedule_widget_cell_37,
+            R.id.schedule_widget_cell_38,
+            R.id.schedule_widget_cell_39,
+            R.id.schedule_widget_cell_40,
+            R.id.schedule_widget_cell_41,
+            R.id.schedule_widget_cell_42
+        )
+        private val DAY_CELL_IDS = intArrayOf(
+            R.id.schedule_widget_day_1,
+            R.id.schedule_widget_day_2,
+            R.id.schedule_widget_day_3,
+            R.id.schedule_widget_day_4,
+            R.id.schedule_widget_day_5,
+            R.id.schedule_widget_day_6,
+            R.id.schedule_widget_day_7,
+            R.id.schedule_widget_day_8,
+            R.id.schedule_widget_day_9,
+            R.id.schedule_widget_day_10,
+            R.id.schedule_widget_day_11,
+            R.id.schedule_widget_day_12,
+            R.id.schedule_widget_day_13,
+            R.id.schedule_widget_day_14,
+            R.id.schedule_widget_day_15,
+            R.id.schedule_widget_day_16,
+            R.id.schedule_widget_day_17,
+            R.id.schedule_widget_day_18,
+            R.id.schedule_widget_day_19,
+            R.id.schedule_widget_day_20,
+            R.id.schedule_widget_day_21,
+            R.id.schedule_widget_day_22,
+            R.id.schedule_widget_day_23,
+            R.id.schedule_widget_day_24,
+            R.id.schedule_widget_day_25,
+            R.id.schedule_widget_day_26,
+            R.id.schedule_widget_day_27,
+            R.id.schedule_widget_day_28,
+            R.id.schedule_widget_day_29,
+            R.id.schedule_widget_day_30,
+            R.id.schedule_widget_day_31,
+            R.id.schedule_widget_day_32,
+            R.id.schedule_widget_day_33,
+            R.id.schedule_widget_day_34,
+            R.id.schedule_widget_day_35,
+            R.id.schedule_widget_day_36,
+            R.id.schedule_widget_day_37,
+            R.id.schedule_widget_day_38,
+            R.id.schedule_widget_day_39,
+            R.id.schedule_widget_day_40,
+            R.id.schedule_widget_day_41,
+            R.id.schedule_widget_day_42
+        )
+        private val DOT_IDS = intArrayOf(
+            R.id.schedule_widget_dot_1,
+            R.id.schedule_widget_dot_2,
+            R.id.schedule_widget_dot_3,
+            R.id.schedule_widget_dot_4,
+            R.id.schedule_widget_dot_5,
+            R.id.schedule_widget_dot_6,
+            R.id.schedule_widget_dot_7,
+            R.id.schedule_widget_dot_8,
+            R.id.schedule_widget_dot_9,
+            R.id.schedule_widget_dot_10,
+            R.id.schedule_widget_dot_11,
+            R.id.schedule_widget_dot_12,
+            R.id.schedule_widget_dot_13,
+            R.id.schedule_widget_dot_14,
+            R.id.schedule_widget_dot_15,
+            R.id.schedule_widget_dot_16,
+            R.id.schedule_widget_dot_17,
+            R.id.schedule_widget_dot_18,
+            R.id.schedule_widget_dot_19,
+            R.id.schedule_widget_dot_20,
+            R.id.schedule_widget_dot_21,
+            R.id.schedule_widget_dot_22,
+            R.id.schedule_widget_dot_23,
+            R.id.schedule_widget_dot_24,
+            R.id.schedule_widget_dot_25,
+            R.id.schedule_widget_dot_26,
+            R.id.schedule_widget_dot_27,
+            R.id.schedule_widget_dot_28,
+            R.id.schedule_widget_dot_29,
+            R.id.schedule_widget_dot_30,
+            R.id.schedule_widget_dot_31,
+            R.id.schedule_widget_dot_32,
+            R.id.schedule_widget_dot_33,
+            R.id.schedule_widget_dot_34,
+            R.id.schedule_widget_dot_35,
+            R.id.schedule_widget_dot_36,
+            R.id.schedule_widget_dot_37,
+            R.id.schedule_widget_dot_38,
+            R.id.schedule_widget_dot_39,
+            R.id.schedule_widget_dot_40,
+            R.id.schedule_widget_dot_41,
+            R.id.schedule_widget_dot_42
+        )
+        private val COUNT_IDS = intArrayOf(
+            R.id.schedule_widget_count_1,
+            R.id.schedule_widget_count_2,
+            R.id.schedule_widget_count_3,
+            R.id.schedule_widget_count_4,
+            R.id.schedule_widget_count_5,
+            R.id.schedule_widget_count_6,
+            R.id.schedule_widget_count_7,
+            R.id.schedule_widget_count_8,
+            R.id.schedule_widget_count_9,
+            R.id.schedule_widget_count_10,
+            R.id.schedule_widget_count_11,
+            R.id.schedule_widget_count_12,
+            R.id.schedule_widget_count_13,
+            R.id.schedule_widget_count_14,
+            R.id.schedule_widget_count_15,
+            R.id.schedule_widget_count_16,
+            R.id.schedule_widget_count_17,
+            R.id.schedule_widget_count_18,
+            R.id.schedule_widget_count_19,
+            R.id.schedule_widget_count_20,
+            R.id.schedule_widget_count_21,
+            R.id.schedule_widget_count_22,
+            R.id.schedule_widget_count_23,
+            R.id.schedule_widget_count_24,
+            R.id.schedule_widget_count_25,
+            R.id.schedule_widget_count_26,
+            R.id.schedule_widget_count_27,
+            R.id.schedule_widget_count_28,
+            R.id.schedule_widget_count_29,
+            R.id.schedule_widget_count_30,
+            R.id.schedule_widget_count_31,
+            R.id.schedule_widget_count_32,
+            R.id.schedule_widget_count_33,
+            R.id.schedule_widget_count_34,
+            R.id.schedule_widget_count_35,
+            R.id.schedule_widget_count_36,
+            R.id.schedule_widget_count_37,
+            R.id.schedule_widget_count_38,
+            R.id.schedule_widget_count_39,
+            R.id.schedule_widget_count_40,
+            R.id.schedule_widget_count_41,
+            R.id.schedule_widget_count_42
+        )
 
         fun refresh(context: Context) {
             val manager = AppWidgetManager.getInstance(context)
@@ -40,11 +215,8 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
             val views = RemoteViews(context.packageName, R.layout.schedule_widget)
             val today = Calendar.getInstance()
             val schedules = readSchedules(context)
-                .sortedWith(compareBy<ScheduleEntry> { it.start }.thenBy { it.end })
-            val upcoming = schedules.firstOrNull { sameDay(it.start, today.time) || it.start.after(today.time) }
-            val todayItems = schedules
-                .filter { occursOn(it, today.time) }
-                .take(MAX_AGENDA_ITEMS)
+            val dayCounts = monthDayCounts(schedules, today)
+            val todayCount = dayCounts[today.get(Calendar.DAY_OF_MONTH)]
 
             views.setTextViewText(R.id.schedule_widget_day, today.get(Calendar.DAY_OF_MONTH).toString())
             views.setTextViewText(R.id.schedule_widget_month, "${today.get(Calendar.YEAR)}.${today.get(Calendar.MONTH) + 1}")
@@ -53,18 +225,17 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.schedule_widget_root, launchIntent(context))
             views.setTextViewText(
                 R.id.schedule_widget_status,
-                if (upcoming == null) "暂无待办" else "下一项 ${timeLabel(upcoming.start)}"
+                if (todayCount == 0) "今天无日程" else "今天 ${todayCount} 条"
             )
 
-            fillCalendar(views, today, schedules)
-            fillAgenda(views, todayItems)
+            fillCalendar(views, today, dayCounts)
             return views
         }
 
         private fun fillCalendar(
             views: RemoteViews,
             today: Calendar,
-            schedules: List<ScheduleEntry>
+            dayCounts: IntArray
         ) {
             val first = Calendar.getInstance().apply {
                 set(Calendar.YEAR, today.get(Calendar.YEAR))
@@ -77,95 +248,45 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
             }
             val daysInMonth = first.getActualMaximum(Calendar.DAY_OF_MONTH)
             val offset = (first.get(Calendar.DAY_OF_WEEK) + 5) % 7
-            val markedDays = schedules
-                .flatMap { markedDaysInMonth(it, today) }
-                .toSet()
-            val dayIds = listOf(
-                R.id.schedule_widget_day_1,
-                R.id.schedule_widget_day_2,
-                R.id.schedule_widget_day_3,
-                R.id.schedule_widget_day_4,
-                R.id.schedule_widget_day_5,
-                R.id.schedule_widget_day_6,
-                R.id.schedule_widget_day_7,
-                R.id.schedule_widget_day_8,
-                R.id.schedule_widget_day_9,
-                R.id.schedule_widget_day_10,
-                R.id.schedule_widget_day_11,
-                R.id.schedule_widget_day_12,
-                R.id.schedule_widget_day_13,
-                R.id.schedule_widget_day_14,
-                R.id.schedule_widget_day_15,
-                R.id.schedule_widget_day_16,
-                R.id.schedule_widget_day_17,
-                R.id.schedule_widget_day_18,
-                R.id.schedule_widget_day_19,
-                R.id.schedule_widget_day_20,
-                R.id.schedule_widget_day_21,
-                R.id.schedule_widget_day_22,
-                R.id.schedule_widget_day_23,
-                R.id.schedule_widget_day_24,
-                R.id.schedule_widget_day_25,
-                R.id.schedule_widget_day_26,
-                R.id.schedule_widget_day_27,
-                R.id.schedule_widget_day_28,
-                R.id.schedule_widget_day_29,
-                R.id.schedule_widget_day_30,
-                R.id.schedule_widget_day_31,
-                R.id.schedule_widget_day_32,
-                R.id.schedule_widget_day_33,
-                R.id.schedule_widget_day_34,
-                R.id.schedule_widget_day_35,
-                R.id.schedule_widget_day_36,
-                R.id.schedule_widget_day_37,
-                R.id.schedule_widget_day_38,
-                R.id.schedule_widget_day_39,
-                R.id.schedule_widget_day_40,
-                R.id.schedule_widget_day_41,
-                R.id.schedule_widget_day_42
-            )
-            dayIds.forEachIndexed { index, viewId ->
+            CELL_IDS.forEachIndexed { index, cellId ->
+                val dayId = DAY_CELL_IDS[index]
+                val dotId = DOT_IDS[index]
+                val countId = COUNT_IDS[index]
                 val day = index - offset + 1
                 if (day !in 1..daysInMonth) {
-                    views.setTextViewText(viewId, "")
-                    views.setTextColor(viewId, 0xFF0F172A.toInt())
-                    views.setInt(viewId, "setBackgroundResource", R.drawable.schedule_widget_day_clear_bg)
+                    views.setViewVisibility(cellId, View.INVISIBLE)
+                    views.setTextViewText(dayId, "")
+                    views.setViewVisibility(dotId, View.GONE)
+                    views.setViewVisibility(countId, View.GONE)
                     return@forEachIndexed
                 }
+                views.setViewVisibility(cellId, View.VISIBLE)
                 val isToday = day == today.get(Calendar.DAY_OF_MONTH)
-                val hasSchedule = markedDays.contains(day)
-                views.setTextViewText(viewId, if (hasSchedule && !isToday) "$day ·" else day.toString())
-                views.setTextColor(viewId, if (isToday) 0xFFFFFFFF.toInt() else 0xFF0F172A.toInt())
+                val count = dayCounts[day]
+                views.setTextViewText(dayId, day.toString())
+                views.setTextColor(dayId, if (isToday) 0xFFFFFFFF.toInt() else 0xFF0F172A.toInt())
                 views.setInt(
-                    viewId,
+                    dayId,
+                    "setBackgroundResource",
+                    if (isToday) {
+                        R.drawable.schedule_widget_day_number_today_bg
+                    } else {
+                        R.drawable.schedule_widget_day_number_clear_bg
+                    }
+                )
+                views.setViewVisibility(dotId, if (count > 0) View.VISIBLE else View.GONE)
+                views.setTextViewText(countId, dayCountText(count))
+                views.setViewVisibility(countId, if (count > 0) View.VISIBLE else View.GONE)
+                views.setTextColor(countId, if (isToday) 0xFFDBEAFE.toInt() else 0xFF64748B.toInt())
+                views.setInt(
+                    cellId,
                     "setBackgroundResource",
                     when {
                         isToday -> R.drawable.schedule_widget_day_today_bg
-                        hasSchedule -> R.drawable.schedule_widget_day_marked_bg
+                        count > 0 -> R.drawable.schedule_widget_day_marked_bg
                         else -> R.drawable.schedule_widget_day_clear_bg
                     }
                 )
-            }
-        }
-
-        private fun fillAgenda(views: RemoteViews, items: List<ScheduleEntry>) {
-            val agendaIds = listOf(
-                R.id.schedule_widget_agenda_1,
-                R.id.schedule_widget_agenda_2,
-                R.id.schedule_widget_agenda_3
-            )
-            views.setTextViewText(
-                R.id.schedule_widget_agenda_title,
-                if (items.isEmpty()) "今日日程" else "今日日程 · ${items.size}"
-            )
-            agendaIds.forEachIndexed { index, viewId ->
-                val item = items.getOrNull(index)
-                views.setViewVisibility(viewId, if (item == null && index > 0) View.GONE else View.VISIBLE)
-                if (item != null) {
-                    views.setTextViewText(viewId, "${rangeLabel(item.start, item.end)}  ${item.title.ifBlank { "未命名日程" }}")
-                } else if (index == 0) {
-                    views.setTextViewText(viewId, "今天没有日程，点击进入应用添加安排")
-                }
             }
         }
 
@@ -183,10 +304,8 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
                         val end = parseDate(item.optString("end")) ?: start
                         add(
                             ScheduleEntry(
-                                title = item.optString("title"),
                                 start = start,
-                                end = end,
-                                note = item.optString("note").takeIf { it.isNotBlank() }
+                                end = maxOf(start, end)
                             )
                         )
                     }
@@ -198,6 +317,7 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
 
         private fun parseDate(value: String): Date? {
             if (value.isBlank()) return null
+            val normalized = normalizeIsoDate(value)
             val formats = listOf(
                 "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
                 "yyyy-MM-dd'T'HH:mm:ssXXX",
@@ -208,11 +328,28 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
             )
             return formats.firstNotNullOfOrNull { pattern ->
                 try {
-                    SimpleDateFormat(pattern, Locale.US).parse(value)
+                    SimpleDateFormat(pattern, Locale.US).parse(normalized)
                 } catch (_: Exception) {
                     null
                 }
             }
+        }
+
+        private fun normalizeIsoDate(value: String): String {
+            val dot = value.indexOf('.')
+            if (dot == -1) return value
+            val suffixStart = (dot + 1 until value.length)
+                .firstOrNull { !value[it].isDigit() }
+                ?: value.length
+            val fraction = value.substring(dot + 1, suffixStart)
+            if (fraction.length <= 3) return value
+            return value.substring(0, dot + 1) + fraction.take(3) + value.substring(suffixStart)
+        }
+
+        private fun dayCountText(count: Int): String = when {
+            count <= 0 -> ""
+            count > 99 -> "99+"
+            else -> count.toString()
         }
 
         private fun launchIntent(context: Context): PendingIntent {
@@ -227,23 +364,7 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
             return PendingIntent.getActivity(context, 0, intent, flags)
         }
 
-        private fun sameDay(date: Date, other: Date): Boolean {
-            val a = Calendar.getInstance().apply { time = date }
-            val b = Calendar.getInstance().apply { time = other }
-            return a.get(Calendar.YEAR) == b.get(Calendar.YEAR) &&
-                a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR)
-        }
-
-        private fun occursOn(item: ScheduleEntry, date: Date): Boolean {
-            val dayStart = startOfDay(date)
-            val dayEnd = Calendar.getInstance().apply {
-                time = dayStart
-                add(Calendar.DAY_OF_MONTH, 1)
-            }.time
-            return item.start.before(dayEnd) && item.end.after(dayStart)
-        }
-
-        private fun markedDaysInMonth(item: ScheduleEntry, month: Calendar): List<Int> {
+        private fun monthDayCounts(items: List<ScheduleEntry>, month: Calendar): IntArray {
             val monthStart = Calendar.getInstance().apply {
                 set(Calendar.YEAR, month.get(Calendar.YEAR))
                 set(Calendar.MONTH, month.get(Calendar.MONTH))
@@ -257,18 +378,22 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
                 time = monthStart.time
                 add(Calendar.MONTH, 1)
             }
-            if (!item.start.before(monthEnd.time) || !item.end.after(monthStart.time)) return emptyList()
-
-            val cursor = Calendar.getInstance().apply {
-                time = maxOf(startOfDay(item.start), monthStart.time)
+            val daysInMonth = monthStart.getActualMaximum(Calendar.DAY_OF_MONTH)
+            val counts = IntArray(daysInMonth + 1)
+            items.forEach { item ->
+                if (!item.start.before(monthEnd.time) || !item.end.after(monthStart.time)) {
+                    return@forEach
+                }
+                val cursor = Calendar.getInstance().apply {
+                    time = maxOf(startOfDay(item.start), monthStart.time)
+                }
+                val end = minOf(item.end, monthEnd.time)
+                while (cursor.time.before(end)) {
+                    counts[cursor.get(Calendar.DAY_OF_MONTH)] += 1
+                    cursor.add(Calendar.DAY_OF_MONTH, 1)
+                }
             }
-            val end = minOf(item.end, monthEnd.time)
-            val days = mutableListOf<Int>()
-            while (cursor.time.before(end)) {
-                days.add(cursor.get(Calendar.DAY_OF_MONTH))
-                cursor.add(Calendar.DAY_OF_MONTH, 1)
-            }
-            return days
+            return counts
         }
 
         private fun startOfDay(date: Date): Date = Calendar.getInstance().apply {
@@ -293,17 +418,10 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
             else -> "星期日"
         }
 
-        private fun rangeLabel(start: Date, end: Date): String =
-            "${timeLabel(start)}-${timeLabel(end)}"
-
-        private fun timeLabel(date: Date): String =
-            SimpleDateFormat("HH:mm", Locale.getDefault()).format(date)
     }
 }
 
 private data class ScheduleEntry(
-    val title: String,
     val start: Date,
-    val end: Date,
-    val note: String?
+    val end: Date
 )

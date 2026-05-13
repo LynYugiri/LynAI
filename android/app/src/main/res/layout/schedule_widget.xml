@@ -75,7 +75,7 @@
             android:paddingTop="5dp"
             android:paddingEnd="9dp"
             android:paddingBottom="5dp"
-            android:text="下一项 09:00"
+            android:text="今天无日程"
             android:textColor="#FF1D4ED8"
             android:textSize="11sp" />
     </LinearLayout>
@@ -83,8 +83,9 @@
     <GridLayout
         android:id="@+id/schedule_widget_calendar"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="0dp"
         android:layout_marginTop="12dp"
+        android:layout_weight="1"
         android:alignmentMode="alignBounds"
         android:columnCount="7"
         android:rowCount="7"
@@ -98,69 +99,47 @@
         <TextView style="@style/ScheduleWidgetWeekday" android:text="六" />
         <TextView style="@style/ScheduleWidgetWeekday" android:text="日" />
 
-        <TextView android:id="@+id/schedule_widget_day_1" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_2" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_3" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_4" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_5" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_6" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_7" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_8" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_9" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_10" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_11" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_12" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_13" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_14" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_15" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_16" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_17" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_18" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_19" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_20" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_21" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_22" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_23" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_24" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_25" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_26" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_27" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_28" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_29" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_30" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_31" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_32" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_33" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_34" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_35" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_36" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_37" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_38" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_39" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_40" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_41" style="@style/ScheduleWidgetDay" />
-        <TextView android:id="@+id/schedule_widget_day_42" style="@style/ScheduleWidgetDay" />
+        <FrameLayout android:id="@+id/schedule_widget_cell_1" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_1" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_1" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_1" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_2" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_2" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_2" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_2" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_3" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_3" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_3" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_3" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_4" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_4" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_4" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_4" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_5" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_5" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_5" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_5" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_6" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_6" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_6" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_6" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_7" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_7" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_7" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_7" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_8" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_8" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_8" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_8" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_9" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_9" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_9" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_9" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_10" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_10" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_10" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_10" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_11" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_11" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_11" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_11" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_12" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_12" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_12" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_12" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_13" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_13" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_13" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_13" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_14" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_14" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_14" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_14" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_15" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_15" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_15" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_15" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_16" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_16" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_16" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_16" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_17" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_17" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_17" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_17" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_18" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_18" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_18" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_18" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_19" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_19" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_19" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_19" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_20" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_20" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_20" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_20" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_21" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_21" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_21" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_21" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_22" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_22" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_22" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_22" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_23" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_23" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_23" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_23" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_24" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_24" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_24" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_24" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_25" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_25" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_25" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_25" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_26" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_26" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_26" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_26" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_27" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_27" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_27" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_27" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_28" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_28" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_28" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_28" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_29" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_29" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_29" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_29" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_30" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_30" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_30" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_30" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_31" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_31" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_31" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_31" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_32" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_32" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_32" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_32" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_33" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_33" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_33" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_33" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_34" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_34" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_34" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_34" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_35" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_35" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_35" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_35" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_36" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_36" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_36" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_36" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_37" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_37" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_37" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_37" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_38" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_38" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_38" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_38" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_39" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_39" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_39" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_39" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_40" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_40" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_40" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_40" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_41" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_41" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_41" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_41" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
+        <FrameLayout android:id="@+id/schedule_widget_cell_42" style="@style/ScheduleWidgetDayCell"><TextView android:id="@+id/schedule_widget_day_42" style="@style/ScheduleWidgetDayNumber" /><View android:id="@+id/schedule_widget_dot_42" style="@style/ScheduleWidgetDayDot" /><TextView android:id="@+id/schedule_widget_count_42" style="@style/ScheduleWidgetDayCount" /></FrameLayout>
     </GridLayout>
-
-    <LinearLayout
-        android:id="@+id/schedule_widget_agenda"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_marginTop="10dp"
-        android:layout_weight="1"
-        android:orientation="vertical">
-
-        <TextView
-            android:id="@+id/schedule_widget_agenda_title"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="今日日程"
-            android:textColor="#FF334155"
-            android:textSize="12sp"
-            android:textStyle="bold" />
-
-        <TextView android:id="@+id/schedule_widget_agenda_1" style="@style/ScheduleWidgetAgenda" />
-        <TextView android:id="@+id/schedule_widget_agenda_2" style="@style/ScheduleWidgetAgenda" />
-        <TextView android:id="@+id/schedule_widget_agenda_3" style="@style/ScheduleWidgetAgenda" />
-    </LinearLayout>
 </LinearLayout>
