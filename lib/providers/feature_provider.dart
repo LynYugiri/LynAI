@@ -1,24 +1,30 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/note.dart';
 import '../models/schedule_item.dart';
+import '../models/todo_list.dart';
 
 class FeatureProvider extends ChangeNotifier {
   static const _scheduleKey = 'schedule_items';
   static const _notesKey = 'notes';
+  static const _todoListsKey = 'todo_lists';
   static const _scheduleWidgetChannel = MethodChannel('lynai/schedule_widget');
   final _uuid = const Uuid();
   Future<void> _scheduleSaveQueue = Future.value();
   Future<void> _noteSaveQueue = Future.value();
+  Future<void> _todoListSaveQueue = Future.value();
 
   List<ScheduleItem> _schedules = [];
   List<Note> _notes = [];
+  List<TodoList> _todoLists = [];
 
   List<ScheduleItem> get schedules => List.unmodifiable(_schedules);
   List<Note> get notes => List.unmodifiable(_notes);
+  List<TodoList> get todoLists => List.unmodifiable(_todoLists);
 
   Future<void> load() async {
     try {
@@ -50,11 +56,25 @@ class FeatureProvider extends ChangeNotifier {
         }
         _notes = notes..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
       }
+      final todoListsJson = prefs.getString(_todoListsKey);
+      if (todoListsJson != null) {
+        final items = jsonDecode(todoListsJson) as List<dynamic>;
+        final todoLists = <TodoList>[];
+        for (final item in items) {
+          try {
+            todoLists.add(TodoList.fromJson(item as Map<String, dynamic>));
+          } catch (e) {
+            debugPrint('跳过损坏的待办清单记录: $e');
+          }
+        }
+        _todoLists = todoLists;
+      }
       notifyListeners();
     } catch (e) {
       debugPrint('加载功能数据失败: $e');
       _schedules = [];
       _notes = [];
+      _todoLists = [];
       notifyListeners();
     }
   }
@@ -81,6 +101,7 @@ class FeatureProvider extends ChangeNotifier {
   }
 
   Future<void> _refreshScheduleWidget() async {
+    if (!Platform.isAndroid) return;
     try {
       await _scheduleWidgetChannel.invokeMethod<void>('refresh');
     } catch (e) {
@@ -103,6 +124,26 @@ class FeatureProvider extends ChangeNotifier {
       );
     } catch (e) {
       debugPrint('保存笔记失败: $e');
+    }
+  }
+
+  Future<void> _queueSaveTodoLists() {
+    final snapshot = List<TodoList>.from(_todoLists);
+    _todoListSaveQueue = _todoListSaveQueue.then(
+      (_) => _saveTodoListsSnapshot(snapshot),
+    );
+    return _todoListSaveQueue;
+  }
+
+  Future<void> _saveTodoListsSnapshot(List<TodoList> snapshot) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _todoListsKey,
+        jsonEncode(snapshot.map((e) => e.toJson()).toList()),
+      );
+    } catch (e) {
+      debugPrint('保存待办清单失败: $e');
     }
   }
 
@@ -192,6 +233,62 @@ class FeatureProvider extends ChangeNotifier {
     _notes.removeWhere((n) => n.id == id);
     if (_notes.length == before) return;
     await _queueSaveNotes();
+    notifyListeners();
+  }
+
+  Future<String> addTodoList(String title) {
+    return addTodoListWithItems(title, <TodoItem>[]);
+  }
+
+  Future<String> addTodoListWithItems(
+    String title,
+    List<TodoItem> items,
+  ) async {
+    final now = DateTime.now();
+    final list = TodoList(
+      id: _uuid.v4(),
+      title: title,
+      items: items,
+      createdAt: now,
+      updatedAt: now,
+    );
+    _todoLists.insert(0, list);
+    await _queueSaveTodoLists();
+    notifyListeners();
+    return list.id;
+  }
+
+  TodoList? getTodoList(String id) {
+    try {
+      return _todoLists.firstWhere((n) => n.id == id);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> updateTodoList(TodoList list) async {
+    final index = _todoLists.indexWhere((n) => n.id == list.id);
+    if (index == -1) return;
+    _todoLists[index] = list;
+    await _queueSaveTodoLists();
+    notifyListeners();
+  }
+
+  Future<void> reorderTodoLists(int oldIndex, int newIndex) async {
+    if (oldIndex < 0 || oldIndex >= _todoLists.length) return;
+    if (newIndex < 0 || newIndex > _todoLists.length) return;
+    if (newIndex > oldIndex) newIndex -= 1;
+    final item = _todoLists.removeAt(oldIndex);
+    _todoLists.insert(newIndex, item);
+    await _queueSaveTodoLists();
+    notifyListeners();
+  }
+
+  Future<void> deleteTodoList(String id) async {
+    final before = _todoLists.length;
+    _todoLists.removeWhere((n) => n.id == id);
+    if (_todoLists.length == before) return;
+    await _queueSaveTodoLists();
     notifyListeners();
   }
 }

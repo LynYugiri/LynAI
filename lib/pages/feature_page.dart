@@ -10,14 +10,21 @@ import 'package:provider/provider.dart';
 import 'package:screenshot/screenshot.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:super_clipboard/super_clipboard.dart';
+import 'package:uuid/uuid.dart';
 import '../models/chat_role.dart';
 import '../models/conversation.dart';
 import '../models/note.dart';
 import '../models/schedule_item.dart';
+import '../models/todo_list.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/settings_provider.dart';
 import '../widgets/latex_renderer.dart';
+
+String _safeExportFileName(String name, String fallback) {
+  final cleaned = name.replaceAll(RegExp(r'[\\/:*?"<>|]+'), '_').trim();
+  return cleaned.isEmpty ? fallback : cleaned;
+}
 
 class FeaturePage extends StatefulWidget {
   final void Function(String conversationId) onConversationTap;
@@ -73,6 +80,11 @@ class _FeaturePageState extends State<FeaturePage> {
           onEditingChanged: (v) => setState(() => _noteEditing = v),
           onBack: () => setState(() => _selectedNoteId = null),
         ),
+        'todos' => _TodoListsPage(
+          searchController: _searchController,
+          searchQuery: _searchQuery,
+          onSearchChanged: (v) => setState(() => _searchQuery = v),
+        ),
         _ => _HistoryList(
           searchController: _searchController,
           searchQuery: _searchQuery,
@@ -89,6 +101,7 @@ class _FeaturePageState extends State<FeaturePage> {
     return switch (feature) {
       'schedule' => '日程表',
       'notes' => '笔记',
+      'todos' => '待办清单',
       _ => '功能页',
     };
   }
@@ -129,6 +142,13 @@ class _FeaturePageState extends State<FeaturePage> {
         title: '笔记',
         subtitle: 'Markdown/LaTeX 记录与导出',
       ),
+      _featureMenuItem(
+        value: 'todos',
+        selected: feature == 'todos',
+        icon: Icons.checklist,
+        title: '待办清单',
+        subtitle: '任务勾选、导入、导出与图片分享',
+      ),
     ];
   }
 
@@ -156,6 +176,8 @@ class _FeaturePageState extends State<FeaturePage> {
     setState(() {
       _selectedNoteId = null;
       _noteEditing = false;
+      _searchQuery = '';
+      _searchController.clear();
     });
     context.read<SettingsProvider>().setLastFeature(value);
   }
@@ -172,6 +194,20 @@ class _FeaturePageState extends State<FeaturePage> {
           tooltip: '导入 Markdown',
           icon: const Icon(Icons.upload_file),
           onPressed: _importMarkdown,
+        ),
+      ];
+    }
+    if (feature == 'todos') {
+      return [
+        IconButton(
+          tooltip: '新建待办清单',
+          icon: const Icon(Icons.add),
+          onPressed: _newTodoList,
+        ),
+        IconButton(
+          tooltip: '导入待办清单',
+          icon: const Icon(Icons.upload_file),
+          onPressed: _importTodoList,
         ),
       ];
     }
@@ -245,6 +281,100 @@ class _FeaturePageState extends State<FeaturePage> {
         .trim();
     return cleaned.isEmpty ? '导入笔记' : cleaned;
   }
+
+  Future<void> _newTodoList() async {
+    final ctrl = TextEditingController();
+    final title = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('新建待办清单'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: '标题'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('创建'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (!mounted || title == null || title.isEmpty) return;
+    await context.read<FeatureProvider>().addTodoList(title);
+    _clearSearch();
+  }
+
+  Future<void> _importTodoList() async {
+    final features = context.read<FeatureProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['md', 'markdown', 'txt'],
+        withData: true,
+      );
+      if (!mounted || result == null || result.files.isEmpty) return;
+      final file = result.files.single;
+      final bytes =
+          file.bytes ??
+          (file.path == null ? null : await File(file.path!).readAsBytes());
+      if (bytes == null) throw Exception('无法读取文件内容');
+      final content = utf8.decode(bytes, allowMalformed: true);
+      final title = _todoTitleFromFileName(file.name);
+      await features.addTodoListWithItems(title, _parseTodoItems(content));
+      _clearSearch();
+      messenger.showSnackBar(SnackBar(content: Text('已导入 $title')));
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('导入失败: $e')));
+    }
+  }
+
+  String _todoTitleFromFileName(String name) {
+    final cleaned = name
+        .replaceAll(RegExp(r'\.(md|markdown|txt)$', caseSensitive: false), '')
+        .trim();
+    return cleaned.isEmpty ? '导入待办清单' : cleaned;
+  }
+
+  List<TodoItem> _parseTodoItems(String content) {
+    const uuid = Uuid();
+    return content
+        .split(RegExp(r'\r?\n'))
+        .map((line) {
+          final text = line.trim();
+          if (text.isEmpty || text.startsWith('#')) return null;
+          final match = RegExp(
+            r'^[-*+]\s+\[([ xX])\]\s+(.*)$',
+          ).firstMatch(text);
+          if (match != null) {
+            return TodoItem(
+              id: uuid.v4(),
+              text: match.group(2)!.trim(),
+              done: match.group(1)!.toLowerCase() == 'x',
+            );
+          }
+          final plain = text.replaceFirst(RegExp(r'^[-*+]\s+'), '').trim();
+          return plain.isEmpty ? null : TodoItem(id: uuid.v4(), text: plain);
+        })
+        .whereType<TodoItem>()
+        .toList();
+  }
+
+  void _clearSearch() {
+    if (_searchQuery.isEmpty) return;
+    setState(() {
+      _searchQuery = '';
+      _searchController.clear();
+    });
+  }
 }
 
 class _FeatureIcon extends StatelessWidget {
@@ -258,6 +388,7 @@ class _FeatureIcon extends StatelessWidget {
     final icon = switch (feature) {
       'schedule' => Icons.calendar_month,
       'notes' => Icons.sticky_note_2_outlined,
+      'todos' => Icons.checklist,
       _ => Icons.widgets_outlined,
     };
     return Container(
@@ -2323,6 +2454,638 @@ class _FeatureEmptyState extends StatelessWidget {
   }
 }
 
+class _TodoListsPage extends StatefulWidget {
+  final TextEditingController searchController;
+  final String searchQuery;
+  final ValueChanged<String> onSearchChanged;
+
+  const _TodoListsPage({
+    required this.searchController,
+    required this.searchQuery,
+    required this.onSearchChanged,
+  });
+
+  @override
+  State<_TodoListsPage> createState() => _TodoListsPageState();
+}
+
+class _TodoListsPageState extends State<_TodoListsPage> {
+  static const _nativeTools = MethodChannel('lynai/native_tools');
+
+  final _shot = ScreenshotController();
+  final Set<String> _expandedListIds = {};
+  late FeatureProvider _features;
+
+  @override
+  void initState() {
+    super.initState();
+    _features = context.read<FeatureProvider>();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<FeatureProvider>();
+    final lists = provider.todoLists;
+    final visibleLists = _filteredLists(lists);
+    if (lists.isEmpty) {
+      return const _FeatureEmptyState(
+        icon: Icons.checklist,
+        title: '暂无待办清单',
+        subtitle: '点击右上角 + 创建第一份清单，支持 Markdown 任务列表导入与导出。',
+      );
+    }
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+          child: TextField(
+            controller: widget.searchController,
+            decoration: InputDecoration(
+              hintText: '搜索清单标题或待办内容...',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: widget.searchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        widget.searchController.clear();
+                        widget.onSearchChanged('');
+                      },
+                    )
+                  : null,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            onChanged: widget.onSearchChanged,
+          ),
+        ),
+        Expanded(
+          child: visibleLists.isEmpty
+              ? ListView(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  children: const [
+                    ListTile(
+                      leading: Icon(Icons.search_off),
+                      title: Text('未找到匹配的清单'),
+                    ),
+                  ],
+                )
+              : widget.searchQuery.isEmpty
+              ? ReorderableListView.builder(
+                  padding: const EdgeInsets.fromLTRB(8, 6, 8, 20),
+                  itemCount: visibleLists.length,
+                  buildDefaultDragHandles: false,
+                  onReorder: provider.reorderTodoLists,
+                  itemBuilder: (context, index) => _listCard(
+                    visibleLists[index],
+                    index: index,
+                    draggable: true,
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(8, 6, 8, 20),
+                  itemCount: visibleLists.length,
+                  itemBuilder: (context, index) => _listCard(
+                    visibleLists[index],
+                    index: index,
+                    draggable: false,
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+
+  List<TodoList> _filteredLists(List<TodoList> lists) {
+    final query = widget.searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return lists;
+    return lists.where((list) {
+      return list.title.toLowerCase().contains(query) ||
+          list.items.any((item) => item.text.toLowerCase().contains(query));
+    }).toList();
+  }
+
+  Widget _listCard(
+    TodoList list, {
+    required int index,
+    required bool draggable,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    final expanded = _expandedListIds.contains(list.id);
+    final done = list.items.where((e) => e.done).length;
+    return Card(
+      key: ValueKey(list.id),
+      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 5),
+      child: Column(
+        children: [
+          ListTile(
+            leading: draggable
+                ? ReorderableDragStartListener(
+                    index: index,
+                    child: const Icon(Icons.drag_handle),
+                  )
+                : const Icon(Icons.checklist),
+            title: Text(
+              list.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            subtitle: Text('${list.items.length} 项，已完成 $done 项'),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  tooltip: expanded ? '折叠' : '展开',
+                  icon: Icon(expanded ? Icons.expand_less : Icons.expand_more),
+                  onPressed: () => _toggleExpanded(list.id),
+                ),
+                PopupMenuButton<String>(
+                  onSelected: (v) => _menu(v, list),
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(value: 'rename', child: Text('重命名')),
+                    const PopupMenuItem(value: 'export', child: Text('导出')),
+                    const PopupMenuItem(value: 'image', child: Text('导出图片')),
+                    const PopupMenuDivider(),
+                    const PopupMenuItem(value: 'delete', child: Text('删除')),
+                  ],
+                ),
+              ],
+            ),
+            onTap: () => _toggleExpanded(list.id),
+          ),
+          if (expanded) ...[
+            const Divider(height: 1),
+            ListTile(
+              dense: true,
+              leading: Icon(Icons.add_task, color: scheme.primary),
+              title: Text('新增待办', style: TextStyle(color: scheme.primary)),
+              onTap: () => _addItem(list),
+            ),
+            if (list.items.isEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '清单为空',
+                    style: TextStyle(color: scheme.onSurfaceVariant),
+                  ),
+                ),
+              )
+            else
+              ReorderableListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                buildDefaultDragHandles: false,
+                itemCount: list.items.length,
+                onReorder: (oldIndex, newIndex) =>
+                    _reorderItems(list, oldIndex, newIndex),
+                itemBuilder: (context, index) =>
+                    _todoItemTile(list, list.items[index], index),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _todoItemTile(TodoList list, TodoItem item, int index) {
+    return ListTile(
+      key: ValueKey(item.id),
+      dense: true,
+      leading: ReorderableDragStartListener(
+        index: index,
+        child: const Icon(Icons.drag_indicator),
+      ),
+      title: Row(
+        children: [
+          Checkbox(
+            value: item.done,
+            onChanged: (v) => _toggleItem(list, item, v ?? false),
+          ),
+          Expanded(
+            child: Text(
+              item.text,
+              style: TextStyle(
+                decoration: item.done ? TextDecoration.lineThrough : null,
+                color: item.done
+                    ? Theme.of(context).colorScheme.onSurfaceVariant
+                    : null,
+              ),
+            ),
+          ),
+        ],
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            tooltip: '编辑',
+            icon: const Icon(Icons.edit_outlined, size: 20),
+            onPressed: () => _editItemText(list, item),
+          ),
+          IconButton(
+            tooltip: '删除',
+            icon: const Icon(Icons.delete_outline, size: 20),
+            onPressed: () => _deleteItem(list, item),
+          ),
+        ],
+      ),
+      onTap: () => _toggleItem(list, item, !item.done),
+    );
+  }
+
+  void _toggleExpanded(String id) {
+    setState(() {
+      if (!_expandedListIds.add(id)) _expandedListIds.remove(id);
+    });
+  }
+
+  Future<void> _menu(String value, TodoList list) async {
+    switch (value) {
+      case 'rename':
+        await _rename(list);
+      case 'export':
+        await _export(list);
+      case 'image':
+        await _exportImage(list);
+      case 'delete':
+        await _delete(list);
+    }
+  }
+
+  Future<void> _addItem(TodoList list) async {
+    final text = await _itemTextDialog(title: '新增待办');
+    if (text == null || text.isEmpty) return;
+    const uuid = Uuid();
+    await _features.updateTodoList(
+      list.copyWith(
+        items: [
+          ...list.items,
+          TodoItem(id: uuid.v4(), text: text),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _editItemText(TodoList list, TodoItem item) async {
+    final text = await _itemTextDialog(title: '编辑待办', initialText: item.text);
+    if (text == null || text.isEmpty) return;
+    await _features.updateTodoList(
+      list.copyWith(
+        items: list.items
+            .map((e) => e.id == item.id ? e.copyWith(text: text) : e)
+            .toList(),
+      ),
+    );
+  }
+
+  Future<void> _deleteItem(TodoList list, TodoItem item) async {
+    await _features.updateTodoList(
+      list.copyWith(items: list.items.where((e) => e.id != item.id).toList()),
+    );
+  }
+
+  Future<void> _reorderItems(TodoList list, int oldIndex, int newIndex) async {
+    final items = List<TodoItem>.from(list.items);
+    if (newIndex > oldIndex) newIndex -= 1;
+    final item = items.removeAt(oldIndex);
+    items.insert(newIndex, item);
+    await _features.updateTodoList(list.copyWith(items: items));
+  }
+
+  Future<String?> _itemTextDialog({
+    required String title,
+    String initialText = '',
+  }) async {
+    final ctrl = TextEditingController(text: initialText);
+    final text = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: '内容'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    return text;
+  }
+
+  Future<void> _toggleItem(TodoList list, TodoItem item, bool done) async {
+    await _features.updateTodoList(
+      list.copyWith(
+        items: list.items
+            .map((e) => e.id == item.id ? e.copyWith(done: done) : e)
+            .toList(),
+      ),
+    );
+  }
+
+  Future<void> _rename(TodoList list) async {
+    final ctrl = TextEditingController(text: list.title);
+    final title = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('重命名'),
+        content: TextField(
+          controller: ctrl,
+          decoration: const InputDecoration(labelText: '标题'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (!mounted) return;
+    if (title != null && title.isNotEmpty) {
+      await _features.updateTodoList(list.copyWith(title: title));
+    }
+  }
+
+  Future<void> _export(TodoList list) async {
+    final dir = await getTemporaryDirectory();
+    final file = File(
+      '${dir.path}/${_safeExportFileName(list.title, 'todo')}.md',
+    );
+    await file.writeAsString(_todoMarkdown(list));
+    await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
+  }
+
+  Future<void> _exportImage(TodoList list) async {
+    final bytes = await _captureTodoImage(list);
+    if (bytes == null) return;
+    final fileName = 'todo_${DateTime.now().millisecondsSinceEpoch}.png';
+    try {
+      if (_isDesktopPlatform) {
+        final clipboard = SystemClipboard.instance;
+        if (clipboard == null) throw Exception('当前平台不支持写入剪贴板');
+        final item = DataWriterItem(suggestedName: fileName);
+        item.add(Formats.png(bytes));
+        await clipboard.write([item]);
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('待办清单图片已复制到剪贴板')));
+        return;
+      }
+      if (Platform.isAndroid || Platform.isIOS) {
+        final result = await _nativeTools.invokeMapMethod<String, dynamic>(
+          'saveImageToGallery',
+          {'bytes': bytes, 'fileName': fileName},
+        );
+        if (result?['ok'] != true) {
+          throw Exception(result?['error'] ?? '保存到图库失败');
+        }
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('待办清单图片已保存到图库')));
+        return;
+      }
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/$fileName');
+      await file.writeAsBytes(bytes, flush: true);
+      await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('导出图片失败: $e')));
+    }
+  }
+
+  Future<Uint8List?> _captureTodoImage(TodoList list) {
+    final theme = Theme.of(context);
+    return _shot.captureFromLongWidget(
+      _TodoShareImage(
+        list: list,
+        seedColor: theme.colorScheme.primary,
+        brightness: theme.brightness,
+      ),
+      pixelRatio: list.items.length > 80 ? 1.15 : 1.5,
+      context: context,
+      constraints: const BoxConstraints(maxWidth: 720),
+    );
+  }
+
+  bool get _isDesktopPlatform {
+    return Platform.isLinux || Platform.isMacOS || Platform.isWindows;
+  }
+
+  Future<void> _delete(TodoList list) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除待办清单'),
+        content: Text('确定删除"${list.title}"吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await _features.deleteTodoList(list.id);
+    setState(() => _expandedListIds.remove(list.id));
+  }
+
+  String _todoMarkdown(TodoList list) {
+    final items = list.items
+        .map((e) => '- [${e.done ? 'x' : ' '}] ${e.text}')
+        .join('\n');
+    return '# ${list.title}\n\n$items\n';
+  }
+}
+
+class _TodoShareImage extends StatelessWidget {
+  final TodoList list;
+  final Color seedColor;
+  final Brightness brightness;
+
+  const _TodoShareImage({
+    required this.list,
+    required this.seedColor,
+    required this.brightness,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = brightness == Brightness.dark;
+    final scheme = ColorScheme.fromSeed(
+      seedColor: seedColor,
+      brightness: brightness,
+    );
+    final done = list.items.where((e) => e.done).length;
+    final bgColor = Color.lerp(
+      scheme.surface,
+      scheme.primary,
+      isDark ? 0.08 : 0.035,
+    )!;
+    final cardColor = Color.lerp(
+      scheme.surface,
+      scheme.surfaceContainerHighest,
+      isDark ? 0.35 : 0.18,
+    )!;
+    final mutedColor = isDark
+        ? const Color(0xFF94A3B8)
+        : const Color(0xFF64748B);
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        width: 720,
+        padding: const EdgeInsets.all(28),
+        color: bgColor,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 54,
+                  height: 54,
+                  decoration: BoxDecoration(
+                    color: scheme.primary,
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Icon(
+                    Icons.checklist,
+                    color: scheme.onPrimary,
+                    size: 30,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        list.title.isEmpty ? 'LynAI 待办清单' : list.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: scheme.onSurface,
+                          fontSize: 28,
+                          fontWeight: FontWeight.w800,
+                          height: 1.15,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        '待办清单 · ${list.items.length} 项 · 已完成 $done 项',
+                        style: TextStyle(color: mutedColor, fontSize: 16),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 22),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              decoration: BoxDecoration(
+                color: cardColor,
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(
+                  color: scheme.outlineVariant.withValues(alpha: 0.55),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: isDark ? 0.22 : 0.08),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: list.items.isEmpty
+                    ? [
+                        Text(
+                          '暂无待办',
+                          style: TextStyle(color: mutedColor, fontSize: 18),
+                        ),
+                      ]
+                    : list.items.map((item) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(
+                                item.done
+                                    ? Icons.check_circle
+                                    : Icons.radio_button_unchecked,
+                                color: item.done ? scheme.primary : mutedColor,
+                                size: 24,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  item.text,
+                                  style: TextStyle(
+                                    color: item.done
+                                        ? mutedColor
+                                        : scheme.onSurface,
+                                    fontSize: 18,
+                                    height: 1.35,
+                                    decoration: item.done
+                                        ? TextDecoration.lineThrough
+                                        : null,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              'Exported from LynAI',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: mutedColor,
+                fontSize: 18,
+                letterSpacing: 0.4,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _NoteDetail extends StatefulWidget {
   final String noteId;
   final bool editing;
@@ -2520,7 +3283,9 @@ class _NoteDetailState extends State<_NoteDetail> {
   Future<void> _export(Note note) async {
     _save();
     final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/${note.title}.md');
+    final file = File(
+      '${dir.path}/${_safeExportFileName(note.title, 'note')}.md',
+    );
     await file.writeAsString(_ctrl.text);
     await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
   }
