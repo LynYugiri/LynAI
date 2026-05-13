@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/rendering.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -78,6 +79,7 @@ class _ChatPageState extends State<ChatPage> {
   static const _backgroundServiceChannel = MethodChannel(
     'lynai/background_service',
   );
+  static const _emptyAssistantReply = '模型没有返回内容，请稍后重试或检查模型配置。';
 
   final _msgCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
@@ -97,7 +99,6 @@ class _ChatPageState extends State<ChatPage> {
   bool _transcribingSpeech = false;
   bool _autoScrollToBottom = true;
   bool _showScrollToBottom = false;
-  bool _scrollingToBottom = false;
   int _scrollGen = 0;
   String? _thinkingTxt;
   bool _thinkExpanded = false;
@@ -112,6 +113,8 @@ class _ChatPageState extends State<ChatPage> {
   Timer? _inputActionCollapseTimer;
 
   int _streamGen = 0;
+  String? _streamingConvId;
+  DateTime? _lastStreamUiUpdate;
 
   final List<_RetryEntry> _retryHistory = [];
   String? _retryMsgId;
@@ -144,6 +147,7 @@ class _ChatPageState extends State<ChatPage> {
       _applyConversationSettings(widget.conversationId!, notifyNow: false);
       widget.onConversationLoaded?.call();
     } else if (widget.roleChangeSerial != old.roleChangeSerial) {
+      if (_streaming) _stopStreaming();
       setState(() {
         _convId = null;
         _clearPendingState();
@@ -208,15 +212,39 @@ class _ChatPageState extends State<ChatPage> {
 
   void _setStreaming(bool value) {
     if (_streaming == value) return;
+    if (!value) {
+      _streamingConvId = null;
+      _lastStreamUiUpdate = null;
+    }
     _streaming = value;
     _setBackgroundGenerationActive(value);
   }
 
+  void _beginStreaming(String conversationId) {
+    _streamingConvId = conversationId;
+    _lastStreamUiUpdate = null;
+    _setStreaming(true);
+  }
+
+  bool _shouldUpdateStreamUi({bool force = false}) {
+    if (force) {
+      _lastStreamUiUpdate = DateTime.now();
+      return true;
+    }
+    final now = DateTime.now();
+    final last = _lastStreamUiUpdate;
+    if (last != null && now.difference(last).inMilliseconds < 80) {
+      return false;
+    }
+    _lastStreamUiUpdate = now;
+    return true;
+  }
+
   void _setBackgroundGenerationActive(bool active) {
     unawaited(
-      _backgroundServiceChannel.invokeMethod<void>(
-        active ? 'startGeneration' : 'stopGeneration',
-      ).catchError((_) {}),
+      _backgroundServiceChannel
+          .invokeMethod<void>(active ? 'startGeneration' : 'stopGeneration')
+          .catchError((_) {}),
     );
   }
 
@@ -256,7 +284,20 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   bool _onScrollNotification(ScrollNotification notification) {
-    if (_scrollingToBottom) return false;
+    if (notification is ScrollStartNotification &&
+        notification.dragDetails != null &&
+        _autoScrollToBottom &&
+        !_isNearBottom) {
+      _pauseAutoScroll();
+      return false;
+    }
+    if (notification is UserScrollNotification &&
+        notification.direction == ScrollDirection.forward &&
+        _autoScrollToBottom &&
+        !_isNearBottom) {
+      _pauseAutoScroll();
+      return false;
+    }
     if (notification is ScrollUpdateNotification ||
         notification is ScrollEndNotification) {
       _syncBottomState();
@@ -264,22 +305,33 @@ class _ChatPageState extends State<ChatPage> {
     return false;
   }
 
+  void _pauseAutoScroll() {
+    _scrollGen++;
+    setState(() {
+      _autoScrollToBottom = false;
+      _showScrollToBottom = true;
+    });
+  }
+
   void _scrollEnd({bool force = false}) {
     if (!force && !_autoScrollToBottom) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollCtrl.hasClients) {
         if (!force && !_autoScrollToBottom) return;
-        _scrollingToBottom = true;
+        final target = _scrollCtrl.position.maxScrollExtent;
+        if (!force) {
+          _scrollCtrl.jumpTo(target);
+          return;
+        }
         final scrollGen = ++_scrollGen;
         _scrollCtrl
             .animateTo(
-              _scrollCtrl.position.maxScrollExtent,
+              target,
               duration: const Duration(milliseconds: 300),
               curve: Curves.easeOut,
             )
             .whenComplete(() {
               if (!mounted || scrollGen != _scrollGen) return;
-              _scrollingToBottom = false;
               if (_scrollCtrl.hasClients) _syncBottomState();
             });
       }
@@ -303,18 +355,18 @@ class _ChatPageState extends State<ChatPage> {
 
   void _stopStreaming() {
     if (!_streaming) return;
+    final cid = _streamingConvId ?? _convId;
     _streamGen++;
     unawaited(_sub?.cancel());
     _sub = null;
     setState(() => _setStreaming(false));
-    final cid = _convId;
     if (cid == null) return;
     final cp = context.read<ConversationProvider>();
     final conv = cp.getConversation(cid);
     if (conv == null || conv.messages.isEmpty) return;
     final last = conv.messages.last;
     if (last.role == 'assistant' && last.content.trim().isEmpty) {
-      cp.deleteMessage(cid, last.id);
+      cp.updateLastMessage(cid, '已停止生成', save: true);
     } else if (last.role == 'assistant') {
       cp.updateLastMessage(cid, '${last.content}\n\n---\n已停止生成', save: true);
     }
@@ -441,7 +493,11 @@ class _ChatPageState extends State<ChatPage> {
     final conversationSettings = _currentConversationSettings(model);
     final roleId = context.read<SettingsProvider>().settings.currentRoleId;
     final apiUserContent = await _prepareUserContent(text, images);
-    if (!mounted || apiUserContent == null) return;
+    if (!mounted) return;
+    if (apiUserContent == null) {
+      _setBackgroundGenerationActive(false);
+      return;
+    }
 
     _convId ??= cp.createConversation(conversationSettings, roleId: roleId);
     _pendingModelId = null;
@@ -453,7 +509,7 @@ class _ChatPageState extends State<ChatPage> {
     _msgCtrl.clear();
     setState(() {
       _pendingImages.clear();
-      _setStreaming(true);
+      _beginStreaming(_convId!);
       _thinkingTxt = null;
     });
     _scrollEnd(force: true);
@@ -461,7 +517,6 @@ class _ChatPageState extends State<ChatPage> {
     _doSend(
       model,
       lastUserContentOverride: apiUserContent,
-      allowTools: true,
       createTitle: isFirstUserMessage,
     );
   }
@@ -469,7 +524,6 @@ class _ChatPageState extends State<ChatPage> {
   void _doSend(
     ModelConfig model, {
     Object? lastUserContentOverride,
-    bool allowTools = false,
     bool createTitle = false,
   }) {
     final cid = _convId;
@@ -479,13 +533,9 @@ class _ChatPageState extends State<ChatPage> {
     final msgs = _buildApiMessages(
       conv,
       lastUserContentOverride: lastUserContentOverride,
-      enableTools: allowTools,
+      enableTools: _supportsNativeTools(model),
     );
-    if (allowTools) {
-      unawaited(_doToolSend(model, msgs, createTitle: createTitle));
-      return;
-    }
-    _doStream(model, msgs, createTitle: createTitle);
+    _doStream(model, cid, msgs, createTitle: createTitle);
   }
 
   Future<void> _sendRetry(String text) async {
@@ -528,10 +578,10 @@ class _ChatPageState extends State<ChatPage> {
     _scrollEnd(force: true);
     cp.addMessage(_convId!, 'assistant', '');
     setState(() {
-      _setStreaming(true);
+      _beginStreaming(_convId!);
       _thinkingTxt = null;
     });
-    _doSend(model, lastUserContentOverride: apiUserContent, allowTools: true);
+    _doSend(model, lastUserContentOverride: apiUserContent);
   }
 
   List<Map<String, dynamic>> _buildApiMessages(
@@ -550,14 +600,14 @@ class _ChatPageState extends State<ChatPage> {
       msgs.add({
         'role': 'system',
         'content': enableTools
-            ? '$promptContent\n\n${ToolCallService.systemPrompt}\n\n${ToolCallService.currentTimeContext()}'
+            ? '$promptContent\n\n${ToolCallService.nativeSystemPrompt}\n\n${ToolCallService.currentTimeContext()}'
             : promptContent,
       });
     } else if (enableTools) {
       msgs.add({
         'role': 'system',
         'content':
-            '${ToolCallService.systemPrompt}\n\n${ToolCallService.currentTimeContext()}',
+            '${ToolCallService.nativeSystemPrompt}\n\n${ToolCallService.currentTimeContext()}',
       });
     }
     final lastUserIndex = lastUserContentOverride == null
@@ -579,103 +629,15 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   bool _supportsNativeTools(ModelConfig model) {
-    return model.apiType != 'ollama' && model.apiType != 'anthropic';
+    return model.apiType != 'ollama' &&
+        model.apiType != 'anthropic' &&
+        model.supportsTools &&
+        model.extraParams['disableTools'] != true;
   }
 
-  Future<void> _doToolSend(
-    ModelConfig model,
-    List<Map<String, dynamic>> msgs, {
-    bool createTitle = false,
-  }) async {
-    if (!mounted) return;
-    final cp = context.read<ConversationProvider>();
-    final cid = _convId!;
-    final gen = ++_streamGen;
-    String content = '';
-    final reasoningParts = <String>[];
-    try {
-      final toolService = ToolCallService(context.read<FeatureProvider>());
-      final working = List<Map<String, dynamic>>.from(msgs);
-      for (var i = 0; i < 4; i++) {
-        final supportsNativeTools = _supportsNativeTools(model);
-        final response = await _api.sendChatRequest(
-          model,
-          working,
-          thinking: _thinking,
-          tools: supportsNativeTools ? ToolCallService.openAITools() : const [],
-          toolChoice: i == 3 && supportsNativeTools ? 'none' : 'auto',
-        );
-        if (!mounted || gen != _streamGen) return;
-        final responseReasoning = response.reasoning?.trim();
-        if (responseReasoning != null && responseReasoning.isNotEmpty) {
-          reasoningParts.add(responseReasoning);
-        }
-        final fallbackCalls = response.toolCalls.isEmpty
-            ? ToolCallService.parseFallbackToolCalls(response.content)
-            : const <ChatToolCall>[];
-        final calls = response.toolCalls.isNotEmpty
-            ? response.toolCalls
-            : fallbackCalls;
-        if (calls.isEmpty) {
-          content = response.content;
-          break;
-        }
-        final conv = cp.getConversation(cid);
-        final results = await toolService.executeAll(
-          calls,
-          conv?.messages ?? const [],
-        );
-        if (!mounted || gen != _streamGen) return;
-        working.add(
-          response.toolCalls.isNotEmpty
-              ? _assistantToolCallMessage(response.content, calls)
-              : _assistantFallbackToolCallMessage(response.content),
-        );
-        for (final result in results) {
-          working.add(
-            _toolResultMessage(
-              result,
-              nativeTool: response.toolCalls.isNotEmpty,
-            ),
-          );
-        }
-      }
-      if (content.trim().isEmpty) {
-        content = '工具调用已执行，但模型没有返回最终回复。';
-      }
-      final reasoning = reasoningParts.isEmpty
-          ? null
-          : reasoningParts.join('\n\n');
-      setState(() {
-        _setStreaming(false);
-        _thinkingTxt = reasoning;
-      });
-      cp.updateLastMessage(
-        cid,
-        content,
-        thinkingContent: reasoning,
-        save: true,
-      );
-      final conv = cp.getConversation(cid);
-      if (conv != null && conv.messages.isNotEmpty) {
-        final lastMsg = conv.messages.last;
-        if (reasoning != null) _thinkMap[lastMsg.id] = reasoning;
-        if (_retryHistory.isNotEmpty && _retryIdx < _retryHistory.length) {
-          _retryHistory[_retryIdx].assistantId = lastMsg.id;
-          _retryHistory[_retryIdx].assistantContent = content;
-          _retryHistory[_retryIdx].thinkingContent = reasoning;
-        }
-      }
-      if (createTitle) unawaited(_maybeCreateConversationTitle(model, cid));
-      _scrollEnd();
-    } catch (e) {
-      if (!mounted || gen != _streamGen) return;
-      setState(() => _setStreaming(false));
-      String msg = e.toString();
-      if (msg.startsWith('Exception: ')) msg = msg.substring(11);
-      cp.updateLastMessage(cid, '请求失败: $msg', save: true);
-    }
-  }
+  bool _supportsThinking(ModelConfig model) => model.supportsThinking;
+
+  bool _supportsVision(ModelConfig model) => model.supportsVision;
 
   Map<String, dynamic> _assistantToolCallMessage(
     String content,
@@ -697,10 +659,6 @@ class _ChatPageState extends State<ChatPage> {
           )
           .toList(),
     };
-  }
-
-  Map<String, dynamic> _assistantFallbackToolCallMessage(String content) {
-    return {'role': 'assistant', 'content': content};
   }
 
   Map<String, dynamic> _toolResultMessage(
@@ -758,15 +716,94 @@ class _ChatPageState extends State<ChatPage> {
 
   void _doStream(
     ModelConfig model,
+    String cid,
     List<Map<String, dynamic>> msgs, {
     bool createTitle = false,
   }) {
+    _doStreamTurn(
+      model,
+      cid,
+      List<Map<String, dynamic>>.from(msgs),
+      createTitle: createTitle,
+      allowTools: _supportsNativeTools(model),
+      depth: 0,
+      priorThink: null,
+    );
+  }
+
+  void _doStreamTurn(
+    ModelConfig model,
+    String cid,
+    List<Map<String, dynamic>> working, {
+    required bool createTitle,
+    required bool allowTools,
+    required int depth,
+    required String? priorThink,
+  }) {
     if (!mounted) return;
     final cp = context.read<ConversationProvider>();
-    final cid = _convId!;
     final gen = ++_streamGen;
-    final stream = _api.sendStreamRequest(model, msgs, thinking: _thinking);
+    final stream = _api.sendStreamRequest(
+      model,
+      working,
+      thinking: _thinking && _supportsThinking(model),
+      tools: allowTools ? ToolCallService.openAITools() : const [],
+      toolChoice: depth >= 3 ? 'none' : 'auto',
+    );
     String buf = '', thinkBuf = '';
+    var finalized = false;
+    Future<void> finalizeStream(List<ChatToolCall> toolCalls) async {
+      if (finalized) return;
+      finalized = true;
+      final currentThink = thinkBuf.isNotEmpty ? thinkBuf : null;
+      final think = _joinThinking(priorThink, currentThink);
+      if (toolCalls.isNotEmpty && allowTools && depth < 4) {
+        final toolService = ToolCallService(context.read<FeatureProvider>());
+        final conv = cp.getConversation(cid);
+        final results = await toolService.executeAll(
+          toolCalls,
+          conv?.messages ?? const [],
+        );
+        if (!mounted || gen != _streamGen) return;
+        working.add(_assistantToolCallMessage(buf, toolCalls));
+        for (final result in results) {
+          working.add(_toolResultMessage(result, nativeTool: true));
+        }
+        if (think != null) {
+          setState(() => _thinkingTxt = think);
+        }
+        _doStreamTurn(
+          model,
+          cid,
+          working,
+          createTitle: createTitle,
+          allowTools: allowTools,
+          depth: depth + 1,
+          priorThink: think,
+        );
+        return;
+      }
+      final content = buf.trim().isEmpty ? _emptyAssistantReply : buf;
+      _shouldUpdateStreamUi(force: true);
+      setState(() {
+        _setStreaming(false);
+        _thinkingTxt = think;
+      });
+      cp.updateLastMessage(cid, content, thinkingContent: think, save: true);
+      final conv = cp.getConversation(cid);
+      if (conv != null && conv.messages.isNotEmpty) {
+        final lastMsg = conv.messages.last;
+        if (think != null) _thinkMap[lastMsg.id] = think;
+        if (_retryHistory.isNotEmpty && _retryIdx < _retryHistory.length) {
+          _retryHistory[_retryIdx].assistantId = lastMsg.id;
+          _retryHistory[_retryIdx].assistantContent = content;
+          _retryHistory[_retryIdx].thinkingContent = think;
+        }
+      }
+      if (createTitle) unawaited(_maybeCreateConversationTitle(model, cid));
+      _scrollEnd();
+    }
+
     _sub?.cancel();
     _sub = stream.listen(
       (chunk) {
@@ -774,31 +811,14 @@ class _ChatPageState extends State<ChatPage> {
         if (chunk.content != null) buf += chunk.content!;
         if (chunk.reasoningContent != null) thinkBuf += chunk.reasoningContent!;
         if (chunk.isDone) {
-          final think = thinkBuf.isNotEmpty ? thinkBuf : null;
-          setState(() {
-            _setStreaming(false);
-            _thinkingTxt = think;
-          });
-          cp.updateLastMessage(cid, buf, thinkingContent: think, save: true);
-          final conv = cp.getConversation(cid);
-          if (conv != null && conv.messages.isNotEmpty) {
-            final lastMsg = conv.messages.last;
-            if (think != null) _thinkMap[lastMsg.id] = think;
-          }
-          if (_retryHistory.isNotEmpty && _retryIdx < _retryHistory.length) {
-            if (conv != null && conv.messages.isNotEmpty) {
-              final lastMsg = conv.messages.last;
-              _retryHistory[_retryIdx].assistantId = lastMsg.id;
-              _retryHistory[_retryIdx].assistantContent = buf;
-              _retryHistory[_retryIdx].thinkingContent = think;
-            }
-          }
-          if (createTitle) unawaited(_maybeCreateConversationTitle(model, cid));
+          unawaited(finalizeStream(chunk.toolCalls));
         } else {
-          cp.updateLastMessage(cid, buf, save: false);
-          if (thinkBuf.isNotEmpty) setState(() => _thinkingTxt = thinkBuf);
+          if (_shouldUpdateStreamUi()) {
+            cp.updateLastMessage(cid, buf, save: false);
+            if (thinkBuf.isNotEmpty) setState(() => _thinkingTxt = thinkBuf);
+            _scrollEnd();
+          }
         }
-        _scrollEnd();
       },
       onError: (e) {
         if (!mounted || gen != _streamGen) return;
@@ -813,31 +833,21 @@ class _ChatPageState extends State<ChatPage> {
       onDone: () {
         if (!mounted || gen != _streamGen) return;
         if (_streaming) {
-          final think = thinkBuf.isNotEmpty ? thinkBuf : null;
-          setState(() {
-            _setStreaming(false);
-            _thinkingTxt = think;
-          });
-          cp.updateLastMessage(cid, buf, thinkingContent: think, save: true);
-          final conv = cp.getConversation(cid);
-          if (conv != null && conv.messages.isNotEmpty) {
-            final lastMsg = conv.messages.last;
-            if (think != null) _thinkMap[lastMsg.id] = think;
-          }
-          if (_retryHistory.isNotEmpty && _retryIdx < _retryHistory.length) {
-            if (conv != null && conv.messages.isNotEmpty) {
-              final lastMsg = conv.messages.last;
-              _retryHistory[_retryIdx].assistantId = lastMsg.id;
-              _retryHistory[_retryIdx].assistantContent = buf;
-              _retryHistory[_retryIdx].thinkingContent = think;
-            }
-          }
-          if (createTitle) unawaited(_maybeCreateConversationTitle(model, cid));
+          unawaited(finalizeStream(const []));
         } else {
           setState(() => _setStreaming(false));
         }
       },
     );
+  }
+
+  String? _joinThinking(String? first, String? second) {
+    final parts = [first, second]
+        .where((part) => part != null && part.trim().isNotEmpty)
+        .map((part) => part!.trim())
+        .toList();
+    if (parts.isEmpty) return null;
+    return parts.join('\n\n');
   }
 
   void _switchModel(ModelConfig model) {
@@ -904,16 +914,12 @@ class _ChatPageState extends State<ChatPage> {
     cp.deleteMessage(_convId!, lastAssistant.id);
     cp.addMessage(_convId!, 'assistant', '');
     setState(() {
-      _setStreaming(true);
+      _beginStreaming(_convId!);
       _thinkingTxt = null;
     });
     final retryModel = _getModel(context.read<ModelConfigProvider>());
     if (retryModel != null) {
-      _doSend(
-        retryModel,
-        lastUserContentOverride: apiUserContent,
-        allowTools: true,
-      );
+      _doSend(retryModel, lastUserContentOverride: apiUserContent);
     } else {
       setState(() => _setStreaming(false));
       _showMissingChatModelTip();
@@ -957,14 +963,10 @@ class _ChatPageState extends State<ChatPage> {
       cp.deleteMessage(_convId!, lastAssistant.id);
       cp.addMessage(_convId!, 'assistant', '');
       setState(() {
-        _setStreaming(true);
+        _beginStreaming(_convId!);
         _thinkingTxt = null;
       });
-      _doSend(
-        retryModel,
-        lastUserContentOverride: apiUserContent,
-        allowTools: lastUser != null,
-      );
+      _doSend(retryModel, lastUserContentOverride: apiUserContent);
     } else {
       setState(() => _setStreaming(false));
       _showMissingChatModelTip();
@@ -1454,6 +1456,9 @@ class _ChatPageState extends State<ChatPage> {
     if (model == null) {
       throw Exception('文件识别模型已不存在，请在设置中重新选择');
     }
+    if (!_supportsVision(model)) {
+      throw Exception('当前文件识别模型未开启视觉能力，请在模型设置中启用');
+    }
     final inputs = <ChatFileInput>[];
     for (final file in files) {
       final bytes = await File(file.path).readAsBytes();
@@ -1709,6 +1714,9 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   void _selectHistory(String cid) {
+    if (_streaming && cid != _streamingConvId) {
+      _stopStreaming();
+    }
     _clearRetryState();
     _pendingModelId = null;
     _expandedThinkIds.clear();
@@ -1806,6 +1814,7 @@ class _ChatPageState extends State<ChatPage> {
               icon: const Icon(Icons.add_comment_outlined),
               tooltip: '新建对话',
               onPressed: () {
+                if (_streaming) _stopStreaming();
                 _clearRetryState();
                 _clearPendingState();
                 setState(() {
@@ -2561,16 +2570,12 @@ class _ChatPageState extends State<ChatPage> {
     cp.addMessage(newConvId, 'user', newText, images: origMsg.images);
     setState(() {
       _convId = newConvId;
-      _setStreaming(true);
       _clearPendingState();
+      _beginStreaming(newConvId);
     });
     _scrollEnd();
     cp.addMessage(newConvId, 'assistant', '');
-    _doSend(
-      editModel,
-      lastUserContentOverride: apiUserContent,
-      allowTools: true,
-    );
+    _doSend(editModel, lastUserContentOverride: apiUserContent);
   }
 
   Widget _inputArea(ModelConfig? model, ModelConfigProvider mp) {
@@ -2792,7 +2797,7 @@ class _ChatPageState extends State<ChatPage> {
             },
           ),
           if (_showImageRecognitionList)
-            for (final m in models)
+            for (final m in models.where(_hasVisionModel))
               ListTile(
                 dense: true,
                 contentPadding: const EdgeInsets.only(left: 56),
@@ -2813,17 +2818,21 @@ class _ChatPageState extends State<ChatPage> {
                 ),
                 subtitle: Text(
                   m.hasMultipleModels
-                      ? '${m.enabledModelNames.length} 个模型'
+                      ? '${_enabledVisionEntries(m).length} 个视觉模型'
                       : m.modelName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 11),
                 ),
                 onTap: () {
+                  final next = _ensureVisionModel(m);
                   final base = _currentConversationSettings(cur ?? m);
                   _saveConversationSettings(
-                    base.copyWith(imageRecognitionModelId: m.id),
+                    base.copyWith(imageRecognitionModelId: next.id),
                   );
+                  if (next.modelName != m.modelName) {
+                    context.read<ModelConfigProvider>().updateModel(next);
+                  }
                   setState(() => _showImageRecognitionList = false);
                 },
               ),
@@ -2844,6 +2853,26 @@ class _ChatPageState extends State<ChatPage> {
         child: _modelList(mp),
       ),
     );
+  }
+
+  List<ModelEntry> _enabledVisionEntries(ModelConfig config) {
+    return config.models
+        .where((entry) => entry.enabled && entry.supportsVision)
+        .toList(growable: false);
+  }
+
+  bool _hasVisionModel(ModelConfig config) =>
+      _enabledVisionEntries(config).isNotEmpty;
+
+  ModelConfig _ensureVisionModel(ModelConfig config) {
+    final active = config.activeEntry;
+    if (active != null && active.enabled && active.supportsVision) {
+      return config;
+    }
+    final entries = _enabledVisionEntries(config);
+    return entries.isEmpty
+        ? config
+        : config.copyWith(modelName: entries.first.name);
   }
 
   Widget _modelSel(ModelConfig? cur, ModelConfigProvider mp) {
@@ -2948,11 +2977,16 @@ class _ChatPageState extends State<ChatPage> {
     required IconData icon,
     required String label,
     required bool selected,
-    required VoidCallback onPressed,
+    required VoidCallback? onPressed,
   }) {
     final expanded = _expandedInputAction == id;
     final scheme = Theme.of(context).colorScheme;
-    final foreground = selected ? scheme.primary : Colors.grey[500];
+    final enabled = onPressed != null;
+    final foreground = !enabled
+        ? Colors.grey[300]
+        : selected
+        ? scheme.primary
+        : Colors.grey[500];
     final child = AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOut,
@@ -2982,10 +3016,12 @@ class _ChatPageState extends State<ChatPage> {
       },
       onExit: (_) => _collapseInputAction(id),
       child: InkWell(
-        onTap: () {
-          _expandInputAction(id);
-          onPressed();
-        },
+        onTap: onPressed == null
+            ? null
+            : () {
+                _expandInputAction(id);
+                onPressed();
+              },
         borderRadius: BorderRadius.circular(8),
         child: child,
       ),
@@ -3000,26 +3036,34 @@ class _ChatPageState extends State<ChatPage> {
     onPressed: _showDialogSettings,
   );
 
-  Widget _thinkBtn() => _inputActionButton(
-    id: 'thinking',
-    icon: Icons.psychology,
-    label: '思考',
-    selected: _thinking,
-    onPressed: () {
-      final value = !_thinking;
-      setState(() => _thinking = value);
-      if (_convId != null) {
-        final conv = context.read<ConversationProvider>().getConversation(
-          _convId!,
-        );
-        if (conv != null) {
-          _saveConversationSettings(conv.settings.copyWith(thinking: value));
-        }
-      } else if (_draftSettings != null) {
-        _saveDraftSettings(_draftSettings!.copyWith(thinking: value));
-      }
-    },
-  );
+  Widget _thinkBtn() {
+    final model = _getModel(context.read<ModelConfigProvider>());
+    final available = model == null || _supportsThinking(model);
+    return _inputActionButton(
+      id: 'thinking',
+      icon: Icons.psychology,
+      label: '思考',
+      selected: _thinking && available,
+      onPressed: available
+          ? () {
+              final value = !_thinking;
+              setState(() => _thinking = value);
+              if (_convId != null) {
+                final conv = context
+                    .read<ConversationProvider>()
+                    .getConversation(_convId!);
+                if (conv != null) {
+                  _saveConversationSettings(
+                    conv.settings.copyWith(thinking: value),
+                  );
+                }
+              } else if (_draftSettings != null) {
+                _saveDraftSettings(_draftSettings!.copyWith(thinking: value));
+              }
+            }
+          : null,
+    );
+  }
 
   Widget _ocrBtn() {
     final enabled =
@@ -3961,6 +4005,10 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                     _settings.copyWith(imageRecognitionModelId: null),
                   );
                 },
+                filter: (config) => config.models.any(
+                  (entry) => entry.enabled && entry.supportsVision,
+                ),
+                entryFilter: (entry) => entry.supportsVision,
               ),
               const SizedBox(height: 16),
               // 文件识别提示词
@@ -4028,6 +4076,8 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
     required void Function(String) onExpandProvider,
     required void Function(ModelConfig, String) onSelectSub,
     required VoidCallback onClear,
+    bool Function(ModelConfig)? filter,
+    bool Function(ModelEntry)? entryFilter,
   }) {
     final compact = MediaQuery.sizeOf(context).width < 380;
     return Column(
@@ -4156,6 +4206,8 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                 onExpandProvider(id);
               }
             },
+            filter,
+            entryFilter,
           ),
         ],
       ],
@@ -4170,8 +4222,15 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
     String? selectedId,
     String? expandedId,
     void Function(String) onExpandToggle,
+    bool Function(ModelConfig)? filter,
+    bool Function(ModelEntry)? entryFilter,
   ) {
-    final models = mp.modelsByCategory(category);
+    final models = mp
+        .modelsByCategory(category)
+        .where((model) {
+          return filter == null || filter(model);
+        })
+        .toList(growable: false);
     return Container(
       constraints: const BoxConstraints(maxHeight: 300),
       decoration: BoxDecoration(
@@ -4225,6 +4284,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
               if (isExpanded && m.hasMultipleModels)
                 ...m.models
                     .where((e) => e.enabled)
+                    .where((e) => entryFilter == null || entryFilter(e))
                     .map(
                       (e) => ListTile(
                         dense: true,

@@ -1,24 +1,75 @@
 class ModelEntry {
   final String name;
   final bool enabled;
+  final bool supportsVision;
+  final bool supportsThinking;
+  final bool supportsTools;
+  final int? maxTokens;
+  final double? temperature;
+  final double? topP;
 
-  ModelEntry({required this.name, this.enabled = false});
+  ModelEntry({
+    required this.name,
+    this.enabled = false,
+    this.supportsVision = true,
+    this.supportsThinking = true,
+    this.supportsTools = true,
+    this.maxTokens,
+    this.temperature,
+    this.topP,
+  });
 
   factory ModelEntry.fromJson(Map<String, dynamic> json) {
     return ModelEntry(
       name: json['name'] as String,
       enabled: json['enabled'] as bool? ?? false,
+      supportsVision: json['supportsVision'] as bool? ?? true,
+      supportsThinking: json['supportsThinking'] as bool? ?? true,
+      supportsTools: json['supportsTools'] as bool? ?? true,
+      maxTokens: (json['maxTokens'] as num?)?.toInt(),
+      temperature: (json['temperature'] as num?)?.toDouble(),
+      topP: (json['topP'] as num?)?.toDouble(),
     );
   }
 
-  Map<String, dynamic> toJson() => {'name': name, 'enabled': enabled};
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'enabled': enabled,
+    'supportsVision': supportsVision,
+    'supportsThinking': supportsThinking,
+    'supportsTools': supportsTools,
+    if (maxTokens != null) 'maxTokens': maxTokens,
+    if (temperature != null) 'temperature': temperature,
+    if (topP != null) 'topP': topP,
+  };
 
-  ModelEntry copyWith({String? name, bool? enabled}) {
+  ModelEntry copyWith({
+    String? name,
+    bool? enabled,
+    bool? supportsVision,
+    bool? supportsThinking,
+    bool? supportsTools,
+    Object? maxTokens = _sentinel,
+    Object? temperature = _sentinel,
+    Object? topP = _sentinel,
+  }) {
     return ModelEntry(
       name: name ?? this.name,
       enabled: enabled ?? this.enabled,
+      supportsVision: supportsVision ?? this.supportsVision,
+      supportsThinking: supportsThinking ?? this.supportsThinking,
+      supportsTools: supportsTools ?? this.supportsTools,
+      maxTokens: identical(maxTokens, _sentinel)
+          ? this.maxTokens
+          : maxTokens as int?,
+      temperature: identical(temperature, _sentinel)
+          ? this.temperature
+          : temperature as double?,
+      topP: identical(topP, _sentinel) ? this.topP : topP as double?,
     );
   }
+
+  static const _sentinel = Object();
 }
 
 class ModelConfig {
@@ -62,6 +113,20 @@ class ModelConfig {
       models.where((m) => m.enabled).map((m) => m.name).toList();
 
   bool get hasMultipleModels => models.length > 1;
+
+  ModelEntry? get activeEntry {
+    for (final entry in models) {
+      if (entry.name == modelName) return entry;
+    }
+    return models.isEmpty ? null : models.first;
+  }
+
+  int? get effectiveMaxTokens => activeEntry?.maxTokens ?? maxTokens;
+  double? get effectiveTemperature => activeEntry?.temperature ?? temperature;
+  double? get effectiveTopP => activeEntry?.topP ?? topP;
+  bool get supportsVision => activeEntry?.supportsVision ?? true;
+  bool get supportsThinking => activeEntry?.supportsThinking ?? true;
+  bool get supportsTools => activeEntry?.supportsTools ?? true;
 
   ModelConfig copyWith({
     String? id,
@@ -113,19 +178,34 @@ class ModelConfig {
 
     final modelName =
         json['modelName'] as String? ?? firstEnabledModelName() ?? '';
+    final category = json['category'] as String? ?? categoryChat;
+    final maxTokens = (json['maxTokens'] as num?)?.toInt();
+    final temperature = (json['temperature'] as num?)?.toDouble();
+    final topP = (json['topP'] as num?)?.toDouble();
+    if (category == categoryChat) {
+      entries = entries
+          .map(
+            (entry) => entry.copyWith(
+              maxTokens: entry.maxTokens ?? maxTokens,
+              temperature: entry.temperature ?? temperature,
+              topP: entry.topP ?? topP,
+            ),
+          )
+          .toList();
+    }
 
     return ModelConfig(
       id: json['id'] as String,
       name: json['name'] as String,
-      category: json['category'] as String? ?? categoryChat,
+      category: category,
       endpoint: json['endpoint'] as String,
       apiKey: json['apiKey'] as String,
       modelName: modelName,
       apiType: json['apiType'] as String,
       priority: (json['priority'] as num?)?.toInt() ?? 0,
-      maxTokens: (json['maxTokens'] as num?)?.toInt(),
-      temperature: (json['temperature'] as num?)?.toDouble(),
-      topP: (json['topP'] as num?)?.toDouble(),
+      maxTokens: maxTokens,
+      temperature: temperature,
+      topP: topP,
       extraParams: json['extraParams'] != null
           ? Map<String, dynamic>.from(json['extraParams'] as Map)
           : {},

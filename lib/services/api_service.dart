@@ -23,9 +23,15 @@ class ChatFileInput {
 class StreamChunk {
   final String? content;
   final String? reasoningContent;
+  final List<ChatToolCall> toolCalls;
   final bool isDone;
 
-  StreamChunk({this.content, this.reasoningContent, this.isDone = false});
+  const StreamChunk({
+    this.content,
+    this.reasoningContent,
+    this.toolCalls = const [],
+    this.isDone = false,
+  });
 }
 
 class ChatResponse {
@@ -167,13 +173,15 @@ class ApiService {
       ],
       'stream': false,
     };
-    if (config.maxTokens != null ||
-        config.temperature != null ||
-        config.topP != null) {
+    if (config.effectiveMaxTokens != null ||
+        config.effectiveTemperature != null ||
+        config.effectiveTopP != null) {
       body['options'] = {
-        if (config.maxTokens != null) 'num_predict': config.maxTokens,
-        if (config.temperature != null) 'temperature': config.temperature,
-        if (config.topP != null) 'top_p': config.topP,
+        if (config.effectiveMaxTokens != null)
+          'num_predict': config.effectiveMaxTokens,
+        if (config.effectiveTemperature != null)
+          'temperature': config.effectiveTemperature,
+        if (config.effectiveTopP != null) 'top_p': config.effectiveTopP,
       };
     }
     for (final entry in config.extraParams.entries) {
@@ -616,6 +624,8 @@ class ApiService {
     ModelConfig config,
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
+    List<Map<String, dynamic>> tools = const [],
+    String? toolChoice,
   }) async* {
     try {
       if (config.apiType == 'ollama') {
@@ -635,6 +645,8 @@ class ApiService {
           config,
           messages,
           thinking: thinking,
+          tools: tools,
+          toolChoice: toolChoice,
         );
       }
     } catch (e) {
@@ -658,9 +670,11 @@ class ApiService {
         thinking: thinking,
       ),
       'stream': false,
-      if (config.maxTokens != null) 'max_tokens': config.maxTokens,
-      if (config.temperature != null) 'temperature': config.temperature,
-      if (config.topP != null) 'top_p': config.topP,
+      if (config.effectiveMaxTokens != null)
+        'max_tokens': config.effectiveMaxTokens,
+      if (config.effectiveTemperature != null)
+        'temperature': config.effectiveTemperature,
+      if (config.effectiveTopP != null) 'top_p': config.effectiveTopP,
       'thinking': {'type': thinking ? 'enabled' : 'disabled'},
       if (tools.isNotEmpty) 'tools': tools,
       if (tools.isNotEmpty) 'tool_choice': toolChoice ?? 'auto',
@@ -712,6 +726,8 @@ class ApiService {
     ModelConfig config,
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
+    List<Map<String, dynamic>> tools = const [],
+    String? toolChoice,
   }) async* {
     final uri = _endpointUri(config, '/chat/completions');
 
@@ -722,10 +738,14 @@ class ApiService {
         thinking: thinking,
       ),
       'stream': true,
-      if (config.maxTokens != null) 'max_tokens': config.maxTokens,
-      if (config.temperature != null) 'temperature': config.temperature,
-      if (config.topP != null) 'top_p': config.topP,
+      if (config.effectiveMaxTokens != null)
+        'max_tokens': config.effectiveMaxTokens,
+      if (config.effectiveTemperature != null)
+        'temperature': config.effectiveTemperature,
+      if (config.effectiveTopP != null) 'top_p': config.effectiveTopP,
       'thinking': {'type': thinking ? 'enabled' : 'disabled'},
+      if (tools.isNotEmpty) 'tools': tools,
+      if (tools.isNotEmpty) 'tool_choice': toolChoice ?? 'auto',
     };
     for (final entry in config.extraParams.entries) {
       if (!body.containsKey(entry.key)) {
@@ -751,6 +771,8 @@ class ApiService {
         throw Exception('流式请求失败: ${streamedResponse.statusCode} $errorBody');
       }
 
+      final toolCallParts = <int, _OpenAIStreamToolCallAccumulator>{};
+
       await for (final chunk
           in streamedResponse.stream
               .transform(utf8.decoder)
@@ -759,9 +781,13 @@ class ApiService {
         if (chunk.startsWith('data:')) {
           final data = chunk.substring(5).trim();
           if (data == '[DONE]') {
-            yield StreamChunk(isDone: true);
+            yield StreamChunk(
+              toolCalls: _finalizeOpenAIToolCalls(toolCallParts),
+              isDone: true,
+            );
             break;
           }
+          Object? finishReason;
           try {
             final json = jsonDecode(data);
             final choice = json['choices']?[0];
@@ -769,6 +795,7 @@ class ApiService {
               final delta = choice['delta'];
               final content = delta?['content'] as String?;
               final reasoning = _extractReasoning(delta);
+              _accumulateOpenAIToolCalls(delta, toolCallParts);
               if (content != null || reasoning != null) {
                 yield StreamChunk(
                   content: content,
@@ -776,19 +803,81 @@ class ApiService {
                 );
               }
             }
-            final finishReason = choice?['finish_reason'];
-            if (finishReason != null && finishReason != '') {
-              yield StreamChunk(isDone: true);
-              break;
-            }
+            finishReason = choice?['finish_reason'];
           } catch (e) {
             // malformed chunk, skip
+          }
+          if (finishReason != null && finishReason != '') {
+            yield StreamChunk(
+              toolCalls: _finalizeOpenAIToolCalls(toolCallParts),
+              isDone: true,
+            );
+            break;
           }
         }
       }
     } finally {
       client.close();
     }
+  }
+
+  void _accumulateOpenAIToolCalls(
+    dynamic delta,
+    Map<int, _OpenAIStreamToolCallAccumulator> toolCallParts,
+  ) {
+    if (delta is! Map) return;
+    final rawToolCalls = delta['tool_calls'];
+    if (rawToolCalls is! List) return;
+    for (final raw in rawToolCalls) {
+      if (raw is! Map) continue;
+      final index = (raw['index'] as num?)?.toInt() ?? 0;
+      final acc = toolCallParts.putIfAbsent(
+        index,
+        _OpenAIStreamToolCallAccumulator.new,
+      );
+      final id = raw['id'] as String?;
+      if (id != null && id.isNotEmpty) acc.id ??= id;
+      final function = raw['function'];
+      if (function is Map) {
+        final name = function['name'] as String?;
+        if (name != null && name.isNotEmpty) acc.name = name;
+        final arguments = function['arguments'] as String?;
+        if (arguments != null && arguments.isNotEmpty) {
+          acc.arguments.write(arguments);
+        }
+      }
+    }
+  }
+
+  List<ChatToolCall> _finalizeOpenAIToolCalls(
+    Map<int, _OpenAIStreamToolCallAccumulator> toolCallParts,
+  ) {
+    final calls = <ChatToolCall>[];
+    for (final entry
+        in toolCallParts.entries.toList()
+          ..sort((a, b) => a.key.compareTo(b.key))) {
+      final acc = entry.value;
+      final name = acc.name;
+      if (name == null || name.isEmpty) continue;
+      final rawArgs = acc.arguments.toString().trim();
+      var args = <String, dynamic>{};
+      if (rawArgs.isNotEmpty) {
+        final decoded = jsonDecode(rawArgs);
+        if (decoded is Map) {
+          args = decoded.map((key, value) => MapEntry(key.toString(), value));
+        } else {
+          throw FormatException('工具参数不是 JSON 对象: $rawArgs');
+        }
+      }
+      calls.add(
+        ChatToolCall(
+          id: acc.id ?? 'call_${entry.key}',
+          name: name,
+          arguments: args,
+        ),
+      );
+    }
+    return calls;
   }
 
   Future<ChatResponse> _sendOllamaRequest(
@@ -805,13 +894,15 @@ class ApiService {
       'think': thinking,
     };
 
-    if (config.maxTokens != null ||
-        config.temperature != null ||
-        config.topP != null) {
+    if (config.effectiveMaxTokens != null ||
+        config.effectiveTemperature != null ||
+        config.effectiveTopP != null) {
       body['options'] = {
-        if (config.maxTokens != null) 'num_predict': config.maxTokens,
-        if (config.temperature != null) 'temperature': config.temperature,
-        if (config.topP != null) 'top_p': config.topP,
+        if (config.effectiveMaxTokens != null)
+          'num_predict': config.effectiveMaxTokens,
+        if (config.effectiveTemperature != null)
+          'temperature': config.effectiveTemperature,
+        if (config.effectiveTopP != null) 'top_p': config.effectiveTopP,
       };
     }
 
@@ -865,13 +956,15 @@ class ApiService {
       'think': thinking,
     };
 
-    if (config.maxTokens != null ||
-        config.temperature != null ||
-        config.topP != null) {
+    if (config.effectiveMaxTokens != null ||
+        config.effectiveTemperature != null ||
+        config.effectiveTopP != null) {
       body['options'] = {
-        if (config.maxTokens != null) 'num_predict': config.maxTokens,
-        if (config.temperature != null) 'temperature': config.temperature,
-        if (config.topP != null) 'top_p': config.topP,
+        if (config.effectiveMaxTokens != null)
+          'num_predict': config.effectiveMaxTokens,
+        if (config.effectiveTemperature != null)
+          'temperature': config.effectiveTemperature,
+        if (config.effectiveTopP != null) 'top_p': config.effectiveTopP,
       };
     }
 
@@ -1020,12 +1113,13 @@ class ApiService {
     final body = <String, dynamic>{
       'model': config.modelName,
       'messages': anthropicMessages,
-      'max_tokens': config.maxTokens ?? 4096,
+      'max_tokens': config.effectiveMaxTokens ?? 4096,
       'stream': true,
       // ignore: use_null_aware_elements
       if (systemPrompt != null) 'system': systemPrompt,
-      if (config.temperature != null) 'temperature': config.temperature,
-      if (config.topP != null) 'top_p': config.topP,
+      if (config.effectiveTemperature != null)
+        'temperature': config.effectiveTemperature,
+      if (config.effectiveTopP != null) 'top_p': config.effectiveTopP,
     };
     for (final entry in config.extraParams.entries) {
       if (!body.containsKey(entry.key)) {
@@ -1111,12 +1205,13 @@ class ApiService {
     final body = <String, dynamic>{
       'model': config.modelName,
       'messages': anthropicMessages,
-      'max_tokens': config.maxTokens ?? 4096,
+      'max_tokens': config.effectiveMaxTokens ?? 4096,
       'stream': false,
       // ignore: use_null_aware_elements
       if (systemPrompt != null) 'system': systemPrompt,
-      if (config.temperature != null) 'temperature': config.temperature,
-      if (config.topP != null) 'top_p': config.topP,
+      if (config.effectiveTemperature != null)
+        'temperature': config.effectiveTemperature,
+      if (config.effectiveTopP != null) 'top_p': config.effectiveTopP,
     };
     for (final entry in config.extraParams.entries) {
       if (!body.containsKey(entry.key)) {
@@ -1269,4 +1364,10 @@ class ApiService {
       return {...message, 'reasoning_content': null};
     }).toList();
   }
+}
+
+class _OpenAIStreamToolCallAccumulator {
+  String? id;
+  String? name;
+  final StringBuffer arguments = StringBuffer();
 }

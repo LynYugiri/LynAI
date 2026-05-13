@@ -49,6 +49,15 @@ class ToolCallService {
 日程时间使用带时区偏移的 ISO-8601 字符串；用户说“今天/明天”时必须先结合 get_current_time 的 iso 与 timezoneOffsetMinutes 换算成本地日期时间。
 ''';
 
+  static const nativeSystemPrompt = '''
+你可以使用本地工具帮助用户管理日程、笔记、获取时间/位置、打开安卓应用和创建对话标题。
+需要调用工具时使用接口提供的 tool_calls；不需要工具时直接正常回答，不要提及工具。
+收到工具结果后，再用自然语言给用户最终回复。
+创建或修改数据前，应从用户输入中提取明确字段；缺少关键字段时先追问。
+需要查看笔记内容时，先用 list_notes 查找笔记 id，再用 read_note 读取完整内容；如果用户给出明确标题，也可以直接用 read_note 按标题搜索。
+日程时间使用带时区偏移的 ISO-8601 字符串；用户说“今天/明天”时必须先结合 get_current_time 的 iso 与 timezoneOffsetMinutes 换算成本地日期时间。
+''';
+
   static String currentTimeContext() {
     final now = DateTime.now();
     return '当前设备本地时间: ${now.toIso8601String()}，时区: ${now.timeZoneName}，timezoneOffsetMinutes: ${now.timeZoneOffset.inMinutes}。';

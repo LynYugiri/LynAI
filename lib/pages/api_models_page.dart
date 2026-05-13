@@ -328,13 +328,9 @@ class _EditModelPageState extends State<EditModelPage> {
       _endpointController,
       _apiKeyController,
       _appIdController;
-  late TextEditingController _maxTokensController,
-      _temperatureController,
-      _topPController;
   late TextEditingController _newModelController;
   late List<ModelEntry> _modelEntries;
   String _apiType = 'openai';
-  bool _showAdvanced = false;
   bool _obscureApiKey = true;
   bool _showEndpointSuggestions = false;
   bool _isFetchingModels = false;
@@ -364,15 +360,6 @@ class _EditModelPageState extends State<EditModelPage> {
     _appIdController = TextEditingController(
       text: model?.extraParams['appId'] as String? ?? '',
     );
-    _maxTokensController = TextEditingController(
-      text: model?.maxTokens?.toString() ?? '',
-    );
-    _temperatureController = TextEditingController(
-      text: model?.temperature?.toString() ?? '',
-    );
-    _topPController = TextEditingController(
-      text: model?.topP?.toString() ?? '',
-    );
     _newModelController = TextEditingController();
     _apiType =
         model?.apiType ??
@@ -381,15 +368,8 @@ class _EditModelPageState extends State<EditModelPage> {
             : isImageGeneration
             ? 'openai_image'
             : widget.category.id);
-    _showAdvanced =
-        model?.maxTokens != null ||
-        model?.temperature != null ||
-        model?.topP != null;
     _modelEntries =
-        model?.models
-            .map((m) => ModelEntry(name: m.name, enabled: m.enabled))
-            .toList() ??
-        [ModelEntry(name: '', enabled: false)];
+        model?.models.toList() ?? [ModelEntry(name: '', enabled: false)];
     _filteredPresets = List.from(_currentEndpointPresets);
   }
 
@@ -429,9 +409,6 @@ class _EditModelPageState extends State<EditModelPage> {
     _endpointController.dispose();
     _apiKeyController.dispose();
     _appIdController.dispose();
-    _maxTokensController.dispose();
-    _temperatureController.dispose();
-    _topPController.dispose();
     _newModelController.dispose();
     super.dispose();
   }
@@ -459,10 +436,12 @@ class _EditModelPageState extends State<EditModelPage> {
       apiKey: _apiKeyController.text.trim(),
       modelName: activeModelName,
       apiType: _apiType,
-      priority: widget.model?.priority ?? widget.provider.nextPriorityForCategory(widget.category.id),
-      maxTokens: int.tryParse(_maxTokensController.text.trim()),
-      temperature: double.tryParse(_temperatureController.text.trim()),
-      topP: double.tryParse(_topPController.text.trim()),
+      priority:
+          widget.model?.priority ??
+          widget.provider.nextPriorityForCategory(widget.category.id),
+      maxTokens: null,
+      temperature: null,
+      topP: null,
       extraParams: needsAppId
           ? {'appId': _appIdController.text.trim()}
           : widget.model?.extraParams,
@@ -480,7 +459,7 @@ class _EditModelPageState extends State<EditModelPage> {
     final name = _newModelController.text.trim();
     if (name.isEmpty || _modelEntries.any((m) => m.name == name)) return;
     setState(() {
-      _modelEntries.add(ModelEntry(name: name, enabled: false));
+      _modelEntries.add(ModelEntry(name: name, enabled: true));
       _newModelController.clear();
     });
   }
@@ -543,7 +522,7 @@ class _EditModelPageState extends State<EditModelPage> {
           final name = rawName.endsWith(':latest')
               ? rawName.substring(0, rawName.length - ':latest'.length)
               : rawName;
-          return ModelEntry(name: name, enabled: false);
+          return ModelEntry(name: name, enabled: true);
         }).toList();
       } else {
         final headers = <String, String>{};
@@ -555,7 +534,7 @@ class _EditModelPageState extends State<EditModelPage> {
         if (resp.statusCode != 200) throw Exception('${resp.statusCode}');
         final models = jsonDecode(resp.body)['data'] as List? ?? [];
         fetched = models
-            .map((m) => ModelEntry(name: m['id'] as String, enabled: false))
+            .map((m) => ModelEntry(name: m['id'] as String, enabled: true))
             .toList();
       }
       final existingNames = _modelEntries.map((e) => e.name).toSet();
@@ -684,10 +663,6 @@ class _EditModelPageState extends State<EditModelPage> {
                 ),
               if (isChat) const SizedBox(height: 12),
               if (!isInterfaceOnly) _modelList(),
-              if (hasChatStyleOptions) ...[
-                const SizedBox(height: 16),
-                _advancedOptions(),
-              ],
               const SizedBox(height: 32),
               ElevatedButton(
                 onPressed: _saveModel,
@@ -871,6 +846,17 @@ class _EditModelPageState extends State<EditModelPage> {
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        if (isChat)
+                          IconButton(
+                            tooltip: '模型设置',
+                            icon: const Icon(Icons.settings_outlined, size: 17),
+                            onPressed: () => _editModelEntry(idx),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(
+                              minWidth: 28,
+                              minHeight: 28,
+                            ),
+                          ),
                         Switch(
                           value: entry.enabled,
                           onChanged: (_) => _toggleModelEntry(idx),
@@ -922,79 +908,113 @@ class _EditModelPageState extends State<EditModelPage> {
     );
   }
 
-  Widget _advancedOptions() {
-    return Column(
-      children: [
-        InkWell(
-          onTap: () => setState(() => _showAdvanced = !_showAdvanced),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
+  Future<void> _editModelEntry(int index) async {
+    final entry = _modelEntries[index];
+    final maxTokens = TextEditingController(
+      text: entry.maxTokens?.toString() ?? '',
+    );
+    final temperature = TextEditingController(
+      text: entry.temperature?.toString() ?? '',
+    );
+    final topP = TextEditingController(text: entry.topP?.toString() ?? '');
+    var supportsVision = entry.supportsVision;
+    var supportsThinking = entry.supportsThinking;
+    var supportsTools = entry.supportsTools;
+    final result = await showDialog<ModelEntry>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialog) => AlertDialog(
+          title: Text(entry.name),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  _showAdvanced ? Icons.expand_less : Icons.expand_more,
-                  size: 20,
-                  color: Colors.grey[600],
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('视觉'),
+                  subtitle: const Text('可用于图片/文件识别和视觉输入'),
+                  value: supportsVision,
+                  onChanged: (v) => setDialog(() => supportsVision = v),
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  '高级选项',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.grey[700],
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('思考'),
+                  subtitle: const Text('发送 thinking/reasoning 相关参数'),
+                  value: supportsThinking,
+                  onChanged: (v) => setDialog(() => supportsThinking = v),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('工具使用'),
+                  subtitle: const Text('OpenAI 格式下发送 tools/tool_choice'),
+                  value: supportsTools,
+                  onChanged: (v) => setDialog(() => supportsTools = v),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: maxTokens,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Max Tokens',
+                    hintText: '留空使用服务默认值',
+                    border: OutlineInputBorder(),
                   ),
                 ),
-                const Spacer(),
-                Text(
-                  'max_tokens, temperature 等',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: temperature,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(
+                    labelText: 'Temperature',
+                    hintText: '留空使用服务默认值',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: topP,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(
+                    labelText: 'Top P',
+                    hintText: '留空使用服务默认值',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
               ],
             ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(
+                ctx,
+                entry.copyWith(
+                  supportsVision: supportsVision,
+                  supportsThinking: supportsThinking,
+                  supportsTools: supportsTools,
+                  maxTokens: int.tryParse(maxTokens.text.trim()),
+                  temperature: double.tryParse(temperature.text.trim()),
+                  topP: double.tryParse(topP.text.trim()),
+                ),
+              ),
+              child: const Text('保存'),
+            ),
+          ],
         ),
-        if (_showAdvanced) ...[
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: _maxTokensController,
-            decoration: const InputDecoration(
-              labelText: 'Max Tokens',
-              hintText: '例如：4096',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.numbers),
-            ),
-            keyboardType: TextInputType.number,
-          ),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: _temperatureController,
-            decoration: const InputDecoration(
-              labelText: 'Temperature',
-              hintText: '例如：0.7',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.thermostat),
-            ),
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          ),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: _topPController,
-            decoration: const InputDecoration(
-              labelText: 'Top P',
-              hintText: '例如：0.9',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.tune),
-            ),
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          ),
-        ],
-      ],
+      ),
     );
+    maxTokens.dispose();
+    temperature.dispose();
+    topP.dispose();
+    if (result == null || !mounted) return;
+    setState(() => _modelEntries[index] = result);
   }
 
   void _confirmDelete() {

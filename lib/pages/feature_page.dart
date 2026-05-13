@@ -1313,6 +1313,8 @@ class _SchedulePageState extends State<_SchedulePage> {
     final dayColumnWidth = _dayBaseColumnWidth * _dayZoom;
     final timelineHeight = 24 * hourRowHeight;
     final timelineWidth = days.length * dayColumnWidth;
+    final now = DateTime.now();
+    final showNow = days.any((date) => _sameDate(date, now));
 
     return Listener(
       onPointerSignal: _handleDayPointerSignal,
@@ -1403,6 +1405,12 @@ class _SchedulePageState extends State<_SchedulePage> {
                                   ),
                                 ),
                               ),
+                            if (showNow)
+                              _nowTimeLabel(
+                                now,
+                                scheme,
+                                hourRowHeight: hourRowHeight,
+                              ),
                           ],
                         ),
                       ),
@@ -1456,8 +1464,9 @@ class _SchedulePageState extends State<_SchedulePage> {
                                     ),
                                   ),
                                 for (var i = 0; i < days.length; i++)
-                                  if (_sameDate(days[i], DateTime.now()))
+                                  if (_sameDate(days[i], now))
                                     _nowLine(
+                                      now,
                                       scheme,
                                       left: i * dayColumnWidth,
                                       width: dayColumnWidth,
@@ -1523,35 +1532,72 @@ class _SchedulePageState extends State<_SchedulePage> {
     );
   }
 
+  Widget _nowTimeLabel(
+    DateTime now,
+    ColorScheme scheme, {
+    required double hourRowHeight,
+  }) {
+    final top = now.hour * hourRowHeight + now.minute / 60 * hourRowHeight;
+    return Positioned(
+      top: (top - 8).clamp(0, 24 * hourRowHeight - 16).toDouble(),
+      left: 0,
+      right: 4,
+      height: 16,
+      child: IgnorePointer(
+        child: Align(
+          alignment: Alignment.centerRight,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+            decoration: BoxDecoration(
+              color: scheme.errorContainer,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              '现在',
+              style: TextStyle(
+                fontSize: 9.5,
+                height: 1.1,
+                color: scheme.onErrorContainer,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _nowLine(
+    DateTime now,
     ColorScheme scheme, {
     required double left,
     required double width,
     required double hourRowHeight,
   }) {
+    final top = now.hour * hourRowHeight + now.minute / 60 * hourRowHeight;
     return Positioned(
-      top:
-          DateTime.now().hour * hourRowHeight +
-          DateTime.now().minute / 60 * hourRowHeight,
+      top: top,
       left: left,
       width: width,
-      child: Row(
-        children: [
-          Container(
-            width: 34,
-            alignment: Alignment.centerRight,
-            padding: const EdgeInsets.only(right: 4),
-            child: Text(
-              '现在',
-              style: TextStyle(
-                fontSize: 9.5,
+      child: IgnorePointer(
+        child: Row(
+          children: [
+            Container(
+              width: 5,
+              height: 5,
+              decoration: BoxDecoration(
                 color: scheme.error,
-                fontWeight: FontWeight.w700,
+                shape: BoxShape.circle,
               ),
             ),
-          ),
-          Expanded(child: Container(height: 1.8, color: scheme.error)),
-        ],
+            Expanded(
+              child: Container(
+                height: 1.6,
+                color: scheme.error.withValues(alpha: 0.75),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
