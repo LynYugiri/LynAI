@@ -139,12 +139,7 @@ class _MathBlock extends StatelessWidget {
     }
   }
 
-  Widget _latexBody(
-    BuildContext context,
-    ThemeData theme, {
-    bool? selectableOverride,
-  }) {
-    final canSelect = selectableOverride ?? selectable;
+  Widget _latexBody(BuildContext context, ThemeData theme) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
       child: LayoutBuilder(
@@ -163,9 +158,7 @@ class _MathBlock extends StatelessWidget {
                   ).merge(textStyle),
                   onErrorFallback: (_) => Padding(
                     padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: canSelect
-                        ? SelectableText(formula, style: _fallbackStyle(theme))
-                        : Text(formula, style: _fallbackStyle(theme)),
+                    child: Text(formula, style: _fallbackStyle(theme)),
                   ),
                 ),
               ),
@@ -230,15 +223,12 @@ class _MathBlock extends StatelessWidget {
     );
   }
 
-  Widget _fallbackBody(ThemeData theme, {bool? selectableOverride}) {
-    final canSelect = selectableOverride ?? selectable;
+  Widget _fallbackBody(ThemeData theme) {
     return Padding(
       padding: const EdgeInsets.all(16),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-        child: canSelect
-            ? SelectableText(formula, style: _fallbackStyle(theme))
-            : Text(formula, style: _fallbackStyle(theme)),
+        child: Text(formula, style: _fallbackStyle(theme)),
       ),
     );
   }
@@ -347,12 +337,11 @@ class MarkdownWithLatex extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (content.isEmpty) return const SizedBox.shrink();
-    if (LatexRenderer.hasLatexContent(
-      _contentOutsideFencedCodeBlocks(content),
-    )) {
-      return _buildLatexContent(context);
-    }
-    return _buildMarkdown(context, content);
+    final child =
+        LatexRenderer.hasLatexContent(_contentOutsideFencedCodeBlocks(content))
+        ? _buildLatexContent(context)
+        : _buildMarkdown(context, content);
+    return selectable ? SelectionArea(child: child) : child;
   }
 
   Widget _buildMarkdown(
@@ -375,7 +364,7 @@ class MarkdownWithLatex extends StatelessWidget {
 
     return MarkdownBody(
       data: text,
-      selectable: selectable,
+      selectable: false,
       styleSheet: styleSheet,
       builders: builders,
       extensionSet: withInlineLatex
@@ -631,11 +620,8 @@ class _CodeBlock extends StatelessWidget {
     );
   }
 
-  Widget _codeBody({required bool wrap, bool? selectableOverride}) {
-    final canSelect = selectableOverride ?? selectable;
-    final text = canSelect
-        ? SelectableText.rich(span)
-        : Text.rich(span, softWrap: wrap);
+  Widget _codeBody({required bool wrap}) {
+    final text = Text.rich(span, softWrap: wrap);
     final padded = Padding(padding: const EdgeInsets.all(8), child: text);
     if (wrap) return padded;
     return SingleChildScrollView(
@@ -971,7 +957,10 @@ class _ExportableBlock extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
-        children: [_header(context), child],
+        children: [
+          SelectionContainer.disabled(child: _header(context)),
+          child,
+        ],
       ),
     );
   }
