@@ -1030,7 +1030,7 @@ class _ExportableBlock extends StatelessWidget {
           compact: compactExport,
           child: exportChildBuilder(context),
         ),
-        pixelRatio: compactExport ? 3.0 : (source.length > 4000 ? 1.35 : 2.0),
+        pixelRatio: compactExport ? 4.0 : 2.5,
         context: context,
         constraints: const BoxConstraints(maxWidth: 840),
       );

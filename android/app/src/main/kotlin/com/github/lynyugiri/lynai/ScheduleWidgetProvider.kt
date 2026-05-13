@@ -292,8 +292,12 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
 
         private fun readSchedules(context: Context): List<ScheduleEntry> {
             val prefsName = "${context.packageName}_preferences"
-            val raw = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
-                .getString(SCHEDULE_KEY, null)
+            val prefs = listOf(
+                context.getSharedPreferences(prefsName, Context.MODE_PRIVATE),
+                context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            )
+            val raw = prefs.firstNotNullOfOrNull { it.getString(SCHEDULE_KEY, null) }
+                ?: prefs.firstNotNullOfOrNull { it.getString("schedule_items", null) }
                 ?: return emptyList()
             return try {
                 val array = JSONArray(raw)

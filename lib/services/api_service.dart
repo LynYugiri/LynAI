@@ -47,8 +47,8 @@ class ChatResponse {
 }
 
 class ApiService {
-  static const _timeout = Duration(seconds: 60);
-  static const _streamTimeout = Duration(minutes: 10);
+  static const _timeout = Duration(minutes: 5);
+  static const _streamTimeout = Duration(minutes: 30);
   static const _speechSliceSize = 5 * 1024 * 1024;
 
   Uri _endpointUri(ModelConfig config, String path) {

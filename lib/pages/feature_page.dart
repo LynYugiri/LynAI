@@ -2884,7 +2884,7 @@ class _TodoListsPageState extends State<_TodoListsPage> {
         seedColor: theme.colorScheme.primary,
         brightness: theme.brightness,
       ),
-      pixelRatio: list.items.length > 80 ? 1.15 : 1.5,
+      pixelRatio: 2.5,
       context: context,
       constraints: const BoxConstraints(maxWidth: 720),
     );
@@ -3346,7 +3346,7 @@ class _NoteDetailState extends State<_NoteDetail> {
     );
     return _shot.captureFromLongWidget(
       shareWidget,
-      pixelRatio: content.length > 6000 ? 1.15 : 1.5,
+      pixelRatio: 2.5,
       context: context,
       constraints: const BoxConstraints(maxWidth: 720),
     );

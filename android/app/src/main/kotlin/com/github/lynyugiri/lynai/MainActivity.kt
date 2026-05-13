@@ -116,6 +116,7 @@ class MainActivity : FlutterActivity() {
         } else {
             fileName
         }
+        var uri: android.net.Uri? = null
         return try {
             val values = ContentValues().apply {
                 put(MediaStore.Images.Media.DISPLAY_NAME, safeName)
@@ -133,18 +134,20 @@ class MainActivity : FlutterActivity() {
                 }
             }
             val resolver = contentResolver
-            val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
                 ?: return mapOf("ok" to false, "error" to "无法创建图库文件")
-            resolver.openOutputStream(uri)?.use { output ->
+            val imageUri = uri ?: return mapOf("ok" to false, "error" to "无法创建图库文件")
+            resolver.openOutputStream(imageUri)?.use { output ->
                 output.write(bytes)
             } ?: return mapOf("ok" to false, "error" to "无法写入图库文件")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 values.clear()
                 values.put(MediaStore.Images.Media.IS_PENDING, 0)
-                resolver.update(uri, values, null, null)
+                resolver.update(imageUri, values, null, null)
             }
-            mapOf("ok" to true, "uri" to uri.toString())
+            mapOf("ok" to true, "uri" to imageUri.toString())
         } catch (e: Exception) {
+            uri?.let { contentResolver.delete(it, null, null) }
             mapOf("ok" to false, "error" to (e.message ?: e.toString()))
         }
     }

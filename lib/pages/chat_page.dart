@@ -79,7 +79,9 @@ class _ChatPageState extends State<ChatPage> {
   static const _backgroundServiceChannel = MethodChannel(
     'lynai/background_service',
   );
+  static const _nativeToolsChannel = MethodChannel('lynai/native_tools');
   static const _emptyAssistantReply = '模型没有返回内容，请稍后重试或检查模型配置。';
+  static const _streamWaitTimeout = Duration(minutes: 5);
 
   final _msgCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
@@ -115,6 +117,7 @@ class _ChatPageState extends State<ChatPage> {
   int _streamGen = 0;
   String? _streamingConvId;
   DateTime? _lastStreamUiUpdate;
+  Timer? _streamWaitTimer;
 
   final List<_RetryEntry> _retryHistory = [];
   String? _retryMsgId;
@@ -202,6 +205,7 @@ class _ChatPageState extends State<ChatPage> {
     _sub?.cancel();
     _setBackgroundGenerationActive(false);
     _inputActionCollapseTimer?.cancel();
+    _streamWaitTimer?.cancel();
     unawaited(_speech.stop());
     _audioRecorder.dispose();
     _msgCtrl.dispose();
@@ -355,6 +359,8 @@ class _ChatPageState extends State<ChatPage> {
 
   void _stopStreaming() {
     if (!_streaming) return;
+    _streamWaitTimer?.cancel();
+    _streamWaitTimer = null;
     final cid = _streamingConvId ?? _convId;
     _streamGen++;
     unawaited(_sub?.cancel());
@@ -752,9 +758,25 @@ class _ChatPageState extends State<ChatPage> {
     );
     String buf = '', thinkBuf = '';
     var finalized = false;
+    var timeoutDisplayed = false;
+    void armWaitTimeout() {
+      _streamWaitTimer?.cancel();
+      _streamWaitTimer = Timer(_streamWaitTimeout, () {
+        if (!mounted || gen != _streamGen || finalized || !_streaming) return;
+        timeoutDisplayed = true;
+        cp.updateLastMessage(cid, '请求等待已超过 5 分钟，仍在继续接收模型返回。', save: true);
+      });
+    }
+
+    void clearWaitTimeout() {
+      _streamWaitTimer?.cancel();
+      _streamWaitTimer = null;
+    }
+
     Future<void> finalizeStream(List<ChatToolCall> toolCalls) async {
       if (finalized) return;
       finalized = true;
+      clearWaitTimeout();
       final currentThink = thinkBuf.isNotEmpty ? thinkBuf : null;
       final think = _joinThinking(priorThink, currentThink);
       if (toolCalls.isNotEmpty && allowTools && depth < 4) {
@@ -805,15 +827,22 @@ class _ChatPageState extends State<ChatPage> {
     }
 
     _sub?.cancel();
+    armWaitTimeout();
     _sub = stream.listen(
       (chunk) {
         if (!mounted || gen != _streamGen) return;
+        armWaitTimeout();
         if (chunk.content != null) buf += chunk.content!;
         if (chunk.reasoningContent != null) thinkBuf += chunk.reasoningContent!;
         if (chunk.isDone) {
           unawaited(finalizeStream(chunk.toolCalls));
         } else {
-          if (_shouldUpdateStreamUi()) {
+          if (timeoutDisplayed && (buf.isNotEmpty || thinkBuf.isNotEmpty)) {
+            timeoutDisplayed = false;
+            cp.updateLastMessage(cid, buf, save: false);
+            if (thinkBuf.isNotEmpty) setState(() => _thinkingTxt = thinkBuf);
+            _scrollEnd();
+          } else if (_shouldUpdateStreamUi()) {
             cp.updateLastMessage(cid, buf, save: false);
             if (thinkBuf.isNotEmpty) setState(() => _thinkingTxt = thinkBuf);
             _scrollEnd();
@@ -822,6 +851,7 @@ class _ChatPageState extends State<ChatPage> {
       },
       onError: (e) {
         if (!mounted || gen != _streamGen) return;
+        clearWaitTimeout();
         setState(() => _setStreaming(false));
         String msg = e.toString();
         if (msg.startsWith('Exception: ')) msg = msg.substring(11);
@@ -832,6 +862,7 @@ class _ChatPageState extends State<ChatPage> {
       },
       onDone: () {
         if (!mounted || gen != _streamGen) return;
+        clearWaitTimeout();
         if (_streaming) {
           unawaited(finalizeStream(const []));
         } else {
@@ -1089,7 +1120,7 @@ class _ChatPageState extends State<ChatPage> {
       final fileName =
           'lynai_share_${DateTime.now().millisecondsSinceEpoch}.png';
       if (Platform.isAndroid) {
-        final result = await _backgroundServiceChannel
+        final result = await _nativeToolsChannel
             .invokeMapMethod<String, dynamic>('saveImageToGallery', {
               'bytes': bytes,
               'fileName': fileName,
@@ -1142,7 +1173,7 @@ class _ChatPageState extends State<ChatPage> {
       seedColor: settings.themeColor,
       brightness: brightness,
     );
-    final pixelRatio = selected.length > 20 ? 1.25 : 1.75;
+    const pixelRatio = 2.5;
     try {
       return await _screenshotCtrl.captureFromLongWidget(
         shareWidget,
@@ -1153,7 +1184,7 @@ class _ChatPageState extends State<ChatPage> {
     } catch (_) {
       return _screenshotCtrl.captureFromWidget(
         shareWidget,
-        pixelRatio: 1.0,
+        pixelRatio: pixelRatio,
         context: context,
       );
     }
