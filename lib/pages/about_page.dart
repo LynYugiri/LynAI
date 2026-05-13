@@ -1,14 +1,21 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
-import '../app_version.dart';
 import '../providers/settings_provider.dart';
 
 /// 关于页面
 ///
 /// 显示应用的基本信息，包括名称、版本、描述等。
-class AboutPage extends StatelessWidget {
+class AboutPage extends StatefulWidget {
   const AboutPage({super.key});
+
+  @override
+  State<AboutPage> createState() => _AboutPageState();
+}
+
+class _AboutPageState extends State<AboutPage> {
+  late final Future<PackageInfo> _packageInfo = PackageInfo.fromPlatform();
 
   @override
   Widget build(BuildContext context) {
@@ -49,12 +56,19 @@ class AboutPage extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               // 版本号
-              Text(
-                'Version $appVersion',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey[600],
-                ),
+              FutureBuilder<PackageInfo>(
+                future: _packageInfo,
+                builder: (context, snapshot) {
+                  final version = snapshot.data?.version ?? '';
+
+                  return Text(
+                    version.isEmpty ? 'Version' : 'Version $version',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[600],
+                    ),
+                  );
+                },
               ),
               const SizedBox(height: 24),
               // 描述

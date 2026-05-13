@@ -522,7 +522,7 @@ class _EditModelPageState extends State<EditModelPage> {
           final name = rawName.endsWith(':latest')
               ? rawName.substring(0, rawName.length - ':latest'.length)
               : rawName;
-          return ModelEntry(name: name, enabled: true);
+          return ModelEntry(name: name, enabled: false);
         }).toList();
       } else {
         final headers = <String, String>{};
@@ -534,7 +534,7 @@ class _EditModelPageState extends State<EditModelPage> {
         if (resp.statusCode != 200) throw Exception('${resp.statusCode}');
         final models = jsonDecode(resp.body)['data'] as List? ?? [];
         fetched = models
-            .map((m) => ModelEntry(name: m['id'] as String, enabled: true))
+            .map((m) => ModelEntry(name: m['id'] as String, enabled: false))
             .toList();
       }
       final existingNames = _modelEntries.map((e) => e.name).toSet();
