@@ -8,6 +8,7 @@ import 'package:lynai/models/model_config.dart';
 import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
+import 'package:lynai/services/tool_call_service.dart';
 
 void main() {
   test('AppSettings preserves nullable fields through copyWith sentinel', () {
@@ -97,5 +98,59 @@ void main() {
     expect(modelProvider.models, hasLength(1));
     expect(featureProvider.schedules, hasLength(1));
     expect(featureProvider.notes, hasLength(1));
+  });
+
+  test('ToolCallService manages todo lists and items', () async {
+    SharedPreferences.setMockInitialValues({});
+    final featureProvider = FeatureProvider();
+    await featureProvider.load();
+    final service = ToolCallService(featureProvider);
+
+    final createResult = await service.execute(
+      const ChatToolCall(
+        id: 'create-list',
+        name: 'save_todo_list',
+        arguments: {
+          'title': '购物',
+          'items': [
+            {'text': '买牛奶', 'done': 'false'},
+            {'text': '  '},
+          ],
+        },
+      ),
+      const [],
+    );
+
+    expect(createResult['ok'], isTrue);
+    final list = createResult['todoList'] as Map<String, dynamic>;
+    expect(list['title'], '购物');
+    expect(list['items'], hasLength(1));
+    final listId = list['id'] as String;
+    final itemId = (list['items'] as List).single['id'] as String;
+
+    final completeResult = await service.execute(
+      ChatToolCall(
+        id: 'complete-item',
+        name: 'save_todo_item',
+        arguments: {'listId': listId, 'itemId': itemId, 'done': 'true'},
+      ),
+      const [],
+    );
+
+    expect(completeResult['ok'], isTrue);
+    expect(completeResult['item']['done'], isTrue);
+
+    final renameResult = await service.execute(
+      ChatToolCall(
+        id: 'rename-list',
+        name: 'save_todo_list',
+        arguments: {'id': listId, 'items': const []},
+      ),
+      const [],
+    );
+
+    expect(renameResult['ok'], isTrue);
+    expect(renameResult['todoList']['title'], '购物');
+    expect(renameResult['todoList']['items'], isEmpty);
   });
 }

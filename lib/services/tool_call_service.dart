@@ -2,10 +2,12 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:uuid/uuid.dart';
 
 import '../models/message.dart';
 import '../models/note.dart';
 import '../models/schedule_item.dart';
+import '../models/todo_list.dart';
 import '../providers/feature_provider.dart';
 
 class ChatToolCall {
@@ -36,25 +38,28 @@ class ToolCallService {
   ToolCallService(this._features);
 
   static const _channel = MethodChannel('lynai/native_tools');
+  static const _uuid = Uuid();
 
   final FeatureProvider _features;
 
   static const systemPrompt = '''
-你可以使用本地工具帮助用户管理日程、笔记、获取时间/位置、打开安卓应用和创建对话标题。
+你可以使用本地工具帮助用户管理日程、笔记、待办清单、获取时间/位置、打开安卓应用和创建对话标题。
 当需要调用工具且当前模型接口不支持原生 tool_calls 时，只返回一个 JSON 对象，不要包含 Markdown：
 {"tool_calls":[{"name":"工具名","arguments":{...}}]}
 收到工具结果后，再用自然语言给用户最终回复。
 创建或修改数据前，应从用户输入中提取明确字段；缺少关键字段时先追问。
 需要查看笔记内容时，先用 list_notes 查找笔记 id，再用 read_note 读取完整内容；如果用户给出明确标题，也可以直接用 read_note 按标题搜索。
+需要查看待办清单内容时，先用 list_todo_lists 查找清单 id，再用 read_todo_list 读取完整内容；创建或修改待办项用 save_todo_item，完成/未完成待办项时设置 done。
 日程时间使用带时区偏移的 ISO-8601 字符串；用户说“今天/明天”时必须先结合 get_current_time 的 iso 与 timezoneOffsetMinutes 换算成本地日期时间。
 ''';
 
   static const nativeSystemPrompt = '''
-你可以使用本地工具帮助用户管理日程、笔记、获取时间/位置、打开安卓应用和创建对话标题。
+你可以使用本地工具帮助用户管理日程、笔记、待办清单、获取时间/位置、打开安卓应用和创建对话标题。
 需要调用工具时使用接口提供的 tool_calls；不需要工具时直接正常回答，不要提及工具。
 收到工具结果后，再用自然语言给用户最终回复。
 创建或修改数据前，应从用户输入中提取明确字段；缺少关键字段时先追问。
 需要查看笔记内容时，先用 list_notes 查找笔记 id，再用 read_note 读取完整内容；如果用户给出明确标题，也可以直接用 read_note 按标题搜索。
+需要查看待办清单内容时，先用 list_todo_lists 查找清单 id，再用 read_todo_list 读取完整内容；创建或修改待办项用 save_todo_item，完成/未完成待办项时设置 done。
 日程时间使用带时区偏移的 ISO-8601 字符串；用户说“今天/明天”时必须先结合 get_current_time 的 iso 与 timezoneOffsetMinutes 换算成本地日期时间。
 ''';
 
@@ -192,6 +197,82 @@ class ToolCallService {
         },
       },
     },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'list_todo_lists',
+        'description': '查看用户待办清单列表，可按标题或待办内容搜索。默认返回清单摘要。',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'query': {'type': 'string', 'description': '可选搜索关键字'},
+            'includeItems': {
+              'type': 'boolean',
+              'description': '是否在列表中返回待办项；大量清单时优先使用 read_todo_list',
+            },
+          },
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'read_todo_list',
+        'description': '读取单个待办清单的完整内容。可按 id 精确读取，或按标题/关键字搜索最匹配的一份。',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'id': {'type': 'string', 'description': '待办清单 id'},
+            'title': {'type': 'string', 'description': '待办清单标题'},
+            'query': {'type': 'string', 'description': '标题或待办内容搜索关键字'},
+          },
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'save_todo_list',
+        'description': '创建或修改待办清单。传 id 时修改已有清单；不传 id 时创建新清单。items 会替换整份清单的待办项。',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'id': {'type': 'string', 'description': '已有待办清单 id；为空则创建'},
+            'title': {'type': 'string'},
+            'items': {
+              'type': 'array',
+              'items': {
+                'type': 'object',
+                'properties': {
+                  'id': {'type': 'string'},
+                  'text': {'type': 'string'},
+                  'done': {'type': 'boolean'},
+                },
+                'required': ['text'],
+              },
+            },
+          },
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'save_todo_item',
+        'description': '创建、修改、完成或未完成一个待办项。不传 itemId 时创建新待办项；传 delete=true 时删除。',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'listId': {'type': 'string', 'description': '待办清单 id'},
+            'itemId': {'type': 'string', 'description': '待办项 id；为空则创建'},
+            'text': {'type': 'string', 'description': '待办内容'},
+            'done': {'type': 'boolean', 'description': 'true 表示完成，false 表示未完成'},
+            'delete': {'type': 'boolean', 'description': '是否删除该待办项'},
+          },
+          'required': ['listId'],
+        },
+      },
+    },
   ];
 
   static List<ChatToolCall> parseFallbackToolCalls(String content) {
@@ -291,6 +372,14 @@ class ToolCallService {
           return _readNote(call.arguments);
         case 'save_note':
           return await _saveNote(call.arguments);
+        case 'list_todo_lists':
+          return _listTodoLists(call.arguments);
+        case 'read_todo_list':
+          return _readTodoList(call.arguments);
+        case 'save_todo_list':
+          return await _saveTodoList(call.arguments);
+        case 'save_todo_item':
+          return await _saveTodoItem(call.arguments);
         default:
           return _error('未知工具: ${call.name}');
       }
@@ -452,6 +541,189 @@ class ToolCallService {
     final updated = note.copyWith(title: title, content: nextContent);
     await _features.updateNote(updated);
     return {'ok': true, 'note': updated.toJson()};
+  }
+
+  Map<String, dynamic> _listTodoLists(Map<String, dynamic> args) {
+    final query = (args['query'] as String? ?? '').trim().toLowerCase();
+    final includeItems = _boolArg(args, 'includeItems') ?? false;
+    final lists = _features.todoLists.where((list) {
+      if (query.isEmpty) return true;
+      return list.title.toLowerCase().contains(query) ||
+          list.items.any((item) => item.text.toLowerCase().contains(query));
+    });
+    return {
+      'ok': true,
+      'todoLists': lists.map((list) {
+        final done = list.items.where((item) => item.done).length;
+        return {
+          'id': list.id,
+          'title': list.title,
+          'createdAt': list.createdAt.toIso8601String(),
+          'updatedAt': list.updatedAt.toIso8601String(),
+          'totalItems': list.items.length,
+          'doneItems': done,
+          if (includeItems) 'items': list.items.map(_todoItemJson).toList(),
+        };
+      }).toList(),
+    };
+  }
+
+  Map<String, dynamic> _readTodoList(Map<String, dynamic> args) {
+    final list = _findTodoList(args);
+    if (list == null) {
+      return _error('未找到匹配的待办清单，请先调用 list_todo_lists 查看可用清单');
+    }
+    return {'ok': true, 'todoList': _todoListJson(list)};
+  }
+
+  Future<Map<String, dynamic>> _saveTodoList(Map<String, dynamic> args) async {
+    final title = (args['title'] as String? ?? '').trim();
+    final id = (args['id'] as String? ?? '').trim();
+    final rawItems = args['items'];
+    final items = rawItems is List
+        ? rawItems.map(_todoItemFromRaw).whereType<TodoItem>().toList()
+        : <TodoItem>[];
+    if (id.isEmpty) {
+      if (title.isEmpty) return _error('创建待办清单需要 title');
+      final newId = await _features.addTodoListWithItems(title, items);
+      final list = _features.getTodoList(newId);
+      return {
+        'ok': true,
+        'todoList': list == null ? null : _todoListJson(list),
+      };
+    }
+    final current = _features.getTodoList(id);
+    if (current == null) return _error('未找到待办清单: $id');
+    if (title.isEmpty && rawItems is! List) {
+      return _error('修改待办清单需要 title 或 items');
+    }
+    final updated = rawItems is List
+        ? current.copyWith(title: title.isEmpty ? null : title, items: items)
+        : current.copyWith(title: title);
+    await _features.updateTodoList(updated);
+    return {'ok': true, 'todoList': _todoListJson(updated)};
+  }
+
+  Future<Map<String, dynamic>> _saveTodoItem(Map<String, dynamic> args) async {
+    final listId = (args['listId'] as String? ?? '').trim();
+    if (listId.isEmpty) return _error('缺少 listId');
+    final list = _features.getTodoList(listId);
+    if (list == null) return _error('未找到待办清单: $listId');
+    final itemId = (args['itemId'] as String? ?? '').trim();
+    final delete = _boolArg(args, 'delete') ?? false;
+    if (itemId.isEmpty) {
+      if (delete) return _error('删除待办项需要 itemId');
+      final text = (args['text'] as String? ?? '').trim();
+      if (text.isEmpty) return _error('创建待办项需要 text');
+      final item = TodoItem(
+        id: _uuid.v4(),
+        text: text,
+        done: _boolArg(args, 'done') ?? false,
+      );
+      final updated = list.copyWith(items: [...list.items, item]);
+      await _features.updateTodoList(updated);
+      return {
+        'ok': true,
+        'todoList': _todoListJson(updated),
+        'item': _todoItemJson(item),
+      };
+    }
+    final index = list.items.indexWhere((item) => item.id == itemId);
+    if (index == -1) return _error('未找到待办项: $itemId');
+    if (delete) {
+      final updated = list.copyWith(
+        items: list.items.where((item) => item.id != itemId).toList(),
+      );
+      await _features.updateTodoList(updated);
+      return {'ok': true, 'todoList': _todoListJson(updated)};
+    }
+    final current = list.items[index];
+    final text = (args['text'] as String?)?.trim();
+    final done = _boolArg(args, 'done');
+    final item = current.copyWith(
+      text: text == null || text.isEmpty ? null : text,
+      done: done,
+    );
+    final items = List<TodoItem>.from(list.items)..[index] = item;
+    final updated = list.copyWith(items: items);
+    await _features.updateTodoList(updated);
+    return {
+      'ok': true,
+      'todoList': _todoListJson(updated),
+      'item': _todoItemJson(item),
+    };
+  }
+
+  TodoList? _findTodoList(Map<String, dynamic> args) {
+    final id = (args['id'] as String? ?? '').trim();
+    final title = (args['title'] as String? ?? '').trim().toLowerCase();
+    final query = (args['query'] as String? ?? '').trim().toLowerCase();
+
+    if (id.isNotEmpty) return _features.getTodoList(id);
+    if (title.isNotEmpty) {
+      return _bestTodoListMatch((list) => list.title.toLowerCase() == title) ??
+          _bestTodoListMatch(
+            (list) => list.title.toLowerCase().contains(title),
+          );
+    }
+    if (query.isNotEmpty) {
+      return _bestTodoListMatch(
+            (list) => list.title.toLowerCase().contains(query),
+          ) ??
+          _bestTodoListMatch(
+            (list) => list.items.any(
+              (item) => item.text.toLowerCase().contains(query),
+            ),
+          );
+    }
+    return null;
+  }
+
+  TodoList? _bestTodoListMatch(bool Function(TodoList list) test) {
+    for (final list in _features.todoLists) {
+      if (test(list)) return list;
+    }
+    return null;
+  }
+
+  static TodoItem? _todoItemFromRaw(Object? raw) {
+    if (raw is! Map) return null;
+    final item = _todoItemFromJson(Map<String, dynamic>.from(raw));
+    return item.text.isEmpty ? null : item;
+  }
+
+  static TodoItem _todoItemFromJson(Map<String, dynamic> json) {
+    final id = (json['id'] as String? ?? '').trim();
+    return TodoItem(
+      id: id.isEmpty ? _uuid.v4() : id,
+      text: (json['text'] as String? ?? '').trim(),
+      done: _boolArg(json, 'done') ?? false,
+    );
+  }
+
+  static bool? _boolArg(Map<String, dynamic> args, String key) {
+    final raw = args[key];
+    if (raw is bool) return raw;
+    if (raw is String) {
+      final value = raw.trim().toLowerCase();
+      if (value == 'true') return true;
+      if (value == 'false') return false;
+    }
+    return null;
+  }
+
+  static Map<String, dynamic> _todoListJson(TodoList list) {
+    return {
+      'id': list.id,
+      'title': list.title,
+      'createdAt': list.createdAt.toIso8601String(),
+      'updatedAt': list.updatedAt.toIso8601String(),
+      'items': list.items.map(_todoItemJson).toList(),
+    };
+  }
+
+  static Map<String, dynamic> _todoItemJson(TodoItem item) {
+    return {'id': item.id, 'text': item.text, 'done': item.done};
   }
 
   static DateTime? _dateArg(Map<String, dynamic> args, String key) {

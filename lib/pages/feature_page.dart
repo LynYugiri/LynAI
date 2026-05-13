@@ -2767,6 +2767,8 @@ class _TodoListsPageState extends State<_TodoListsPage> {
         content: TextField(
           controller: ctrl,
           autofocus: true,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (value) => Navigator.pop(ctx, value.trim()),
           decoration: const InputDecoration(labelText: '内容'),
         ),
         actions: [
@@ -3171,6 +3173,10 @@ class _NoteDetailState extends State<_NoteDetail> {
                   const PopupMenuItem(value: 'rename', child: Text('重命名')),
                   const PopupMenuItem(value: 'export', child: Text('导出')),
                   const PopupMenuItem(value: 'image', child: Text('导出图片')),
+                  const PopupMenuItem(
+                    value: 'share_image',
+                    child: Text('分享长图'),
+                  ),
                   CheckedPopupMenuItem(
                     value: 'wrap',
                     checked: note.wrap,
@@ -3244,6 +3250,8 @@ class _NoteDetailState extends State<_NoteDetail> {
         await _export(note);
       case 'image':
         await _exportImage();
+      case 'share_image':
+        await _shareImage();
       case 'wrap':
         await _features.updateNote(note.copyWith(wrap: !note.wrap));
       case 'delete':
@@ -3282,12 +3290,29 @@ class _NoteDetailState extends State<_NoteDetail> {
 
   Future<void> _export(Note note) async {
     _save();
-    final dir = await getTemporaryDirectory();
-    final file = File(
-      '${dir.path}/${_safeExportFileName(note.title, 'note')}.md',
-    );
-    await file.writeAsString(_ctrl.text);
-    await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
+    final fileName = '${_safeExportFileName(note.title, 'note')}.md';
+    try {
+      final bytes = Uint8List.fromList(utf8.encode(_ctrl.text));
+      final path = await FilePicker.platform.saveFile(
+        dialogTitle: '导出笔记',
+        fileName: fileName,
+        bytes: bytes,
+      );
+      if (path == null) return;
+      final file = File(path);
+      if (!await file.exists()) {
+        await file.writeAsBytes(bytes, flush: true);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('笔记已导出到 $path')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('导出失败: $e')));
+    }
   }
 
   Future<void> _exportImage() async {
@@ -3333,6 +3358,27 @@ class _NoteDetailState extends State<_NoteDetail> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('导出图片失败: $e')));
+    }
+  }
+
+  Future<void> _shareImage() async {
+    _save();
+    final note = _features.getNote(widget.noteId);
+    if (note == null) return;
+    final bytes = await _captureNoteImage(note.title, _ctrl.text);
+    if (bytes == null) return;
+    try {
+      final dir = await getTemporaryDirectory();
+      final file = File(
+        '${dir.path}/note_${DateTime.now().millisecondsSinceEpoch}.png',
+      );
+      await file.writeAsBytes(bytes, flush: true);
+      await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('分享失败: $e')));
     }
   }
 
