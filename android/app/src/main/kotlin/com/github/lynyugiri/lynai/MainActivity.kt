@@ -8,12 +8,14 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationManager
 import android.os.Build
+import android.os.Environment
 import android.provider.MediaStore
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 
 class MainActivity : FlutterActivity() {
     private var pendingLocationResult: MethodChannel.Result? = null
@@ -121,6 +123,13 @@ class MainActivity : FlutterActivity() {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/LynAI")
                     put(MediaStore.Images.Media.IS_PENDING, 1)
+                } else {
+                    val directory = File(
+                        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+                        "LynAI"
+                    )
+                    if (!directory.exists()) directory.mkdirs()
+                    put(MediaStore.Images.Media.DATA, File(directory, safeName).absolutePath)
                 }
             }
             val resolver = contentResolver

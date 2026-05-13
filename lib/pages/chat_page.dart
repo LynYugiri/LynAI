@@ -1086,16 +1086,31 @@ class _ChatPageState extends State<ChatPage> {
       setState(() => _sharingImage = true);
       final bytes = await _captureShareImage();
       if (bytes == null) return;
+      final fileName =
+          'lynai_share_${DateTime.now().millisecondsSinceEpoch}.png';
+      if (Platform.isAndroid) {
+        final result = await _backgroundServiceChannel
+            .invokeMapMethod<String, dynamic>('saveImageToGallery', {
+              'bytes': bytes,
+              'fileName': fileName,
+            });
+        if (result?['ok'] != true) {
+          throw Exception(result?['error'] ?? '保存到图库失败');
+        }
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('长图已保存到 Pictures/LynAI')));
+        return;
+      }
       Directory? dir;
-      if (_isDesktopPlatform || Platform.isAndroid) {
+      if (_isDesktopPlatform) {
         dir = await getDownloadsDirectory();
       } else {
         dir = null;
       }
       dir ??= await getApplicationDocumentsDirectory();
-      final file = File(
-        '${dir.path}/lynai_share_${DateTime.now().millisecondsSinceEpoch}.png',
-      );
+      final file = File('${dir.path}/$fileName');
       await file.writeAsBytes(bytes, flush: true);
       if (!mounted) return;
       ScaffoldMessenger.of(
