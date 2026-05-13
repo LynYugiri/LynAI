@@ -16,6 +16,15 @@ import java.util.Date
 import java.util.Locale
 
 class ScheduleWidgetProvider : AppWidgetProvider() {
+    override fun onReceive(context: Context, intent: Intent) {
+        super.onReceive(context, intent)
+        when (intent.action) {
+            Intent.ACTION_DATE_CHANGED,
+            Intent.ACTION_TIME_CHANGED,
+            Intent.ACTION_TIMEZONE_CHANGED -> refresh(context)
+        }
+    }
+
     override fun onUpdate(
         context: Context,
         appWidgetManager: AppWidgetManager,
@@ -216,6 +225,7 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
             val today = Calendar.getInstance()
             val schedules = readSchedules(context)
             val dayCounts = monthDayCounts(schedules, today)
+            val nextSchedule = nextScheduleText(schedules, today.time)
             val todayCount = dayCounts[today.get(Calendar.DAY_OF_MONTH)]
 
             views.setTextViewText(R.id.schedule_widget_day, today.get(Calendar.DAY_OF_MONTH).toString())
@@ -223,10 +233,12 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
             views.setTextViewText(R.id.schedule_widget_title, "${today.get(Calendar.YEAR)} 年 ${today.get(Calendar.MONTH) + 1} 月")
             views.setTextViewText(R.id.schedule_widget_weekday, weekdayName(today.get(Calendar.DAY_OF_WEEK)))
             views.setOnClickPendingIntent(R.id.schedule_widget_root, launchIntent(context))
+            views.setOnClickPendingIntent(R.id.schedule_widget_next, launchIntent(context))
             views.setTextViewText(
                 R.id.schedule_widget_status,
                 if (todayCount == 0) "今天无日程" else "今天 ${todayCount} 条"
             )
+            views.setTextViewText(R.id.schedule_widget_next, nextSchedule)
 
             fillCalendar(views, today, dayCounts)
             return views
@@ -304,10 +316,12 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
                 buildList {
                     for (index in 0 until array.length()) {
                         val item = array.optJSONObject(index) ?: continue
+                        val title = item.optString("title").ifBlank { "未命名日程" }
                         val start = parseDate(item.optString("start")) ?: continue
                         val end = parseDate(item.optString("end")) ?: start
                         add(
                             ScheduleEntry(
+                                title = title,
                                 start = start,
                                 end = maxOf(start, end)
                             )
@@ -354,6 +368,27 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
             count <= 0 -> ""
             count > 99 -> "99+"
             else -> count.toString()
+        }
+
+        private fun nextScheduleText(items: List<ScheduleEntry>, now: Date): String {
+            val next = items
+                .asSequence()
+                .filter { !it.end.before(now) }
+                .sortedWith(compareBy<ScheduleEntry> { it.start }.thenBy { it.end })
+                .firstOrNull()
+                ?: return "近期无日程"
+            val prefix = if (next.start.after(now)) {
+                val diffDays = calendarDayDiff(now, next.start)
+                when {
+                    diffDays <= 0 -> "今天"
+                    diffDays == 1 -> "明天"
+                    diffDays < 7 -> "${diffDays} 天后"
+                    else -> SimpleDateFormat("M月d日", Locale.CHINA).format(next.start)
+                }
+            } else {
+                "进行中"
+            }
+            return "$prefix · ${next.title}"
         }
 
         private fun launchIntent(context: Context): PendingIntent {
@@ -408,6 +443,17 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
             set(Calendar.MILLISECOND, 0)
         }.time
 
+        private fun calendarDayDiff(from: Date, to: Date): Int {
+            val start = Calendar.getInstance().apply { time = startOfDay(from) }
+            val end = Calendar.getInstance().apply { time = startOfDay(to) }
+            var diff = 0
+            while (start.before(end)) {
+                start.add(Calendar.DAY_OF_MONTH, 1)
+                diff += 1
+            }
+            return diff
+        }
+
         private fun maxOf(a: Date, b: Date): Date = if (a.after(b)) a else b
 
         private fun minOf(a: Date, b: Date): Date = if (a.before(b)) a else b
@@ -426,6 +472,7 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
 }
 
 private data class ScheduleEntry(
+    val title: String,
     val start: Date,
     val end: Date
 )

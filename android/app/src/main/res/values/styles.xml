@@ -49,11 +49,11 @@
     </style>
 
     <style name="ScheduleWidgetDayDot">
-        <item name="android:layout_width">6dp</item>
-        <item name="android:layout_height">6dp</item>
+        <item name="android:layout_width">8dp</item>
+        <item name="android:layout_height">8dp</item>
         <item name="android:layout_gravity">top|end</item>
-        <item name="android:layout_marginTop">6dp</item>
-        <item name="android:layout_marginEnd">5dp</item>
+        <item name="android:layout_marginTop">5dp</item>
+        <item name="android:layout_marginEnd">4dp</item>
         <item name="android:background">@drawable/schedule_widget_day_dot_bg</item>
         <item name="android:visibility">gone</item>
     </style>
