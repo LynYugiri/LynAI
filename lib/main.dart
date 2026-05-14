@@ -73,6 +73,8 @@ class _LynAIAppState extends State<LynAIApp> {
         settingsProvider.loadSettings(),
       ]);
 
+      settingsProvider.repairMediaModelSelections(modelProvider.models);
+
       if (mounted) {
         setState(() {
           _isLoading = false;

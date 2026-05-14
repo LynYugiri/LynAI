@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import '../models/model_config.dart';
 import '../providers/model_config_provider.dart';
+import '../providers/settings_provider.dart';
 
 const _endpointPresets = [
   {'name': 'OpenAI', 'url': 'https://api.openai.com/v1', 'type': 'openai'},
@@ -451,6 +452,7 @@ class _EditModelPageState extends State<EditModelPage> {
       widget.provider.updateModel(config);
     } else {
       widget.provider.addModel(config);
+      context.read<SettingsProvider>().repairMediaModelSelections(widget.provider.models);
     }
     Navigator.pop(context);
   }
@@ -1031,6 +1033,7 @@ class _EditModelPageState extends State<EditModelPage> {
           TextButton(
             onPressed: () {
               widget.provider.deleteModel(widget.model!.id);
+              context.read<SettingsProvider>().repairMediaModelSelections(widget.provider.models);
               Navigator.pop(ctx);
               Navigator.pop(context);
             },

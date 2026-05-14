@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../models/app_settings.dart';
 import '../models/chat_role.dart';
 import '../models/conversation.dart';
+import '../models/model_config.dart';
 import '../models/system_prompt.dart';
 
 /// 设置状态管理
@@ -41,6 +42,36 @@ class SettingsProvider extends ChangeNotifier {
       _settings = AppSettings.defaults();
       notifyListeners();
     }
+  }
+
+  /// 修复 OCR / 语音转文字配置引用。
+  ///
+  /// 如果当前选中的配置已被删除或不存在，则自动回填同类第一个可用配置。
+  void repairMediaModelSelections(List<ModelConfig> models) {
+    final speechModels = models
+        .where((m) => m.category == ModelConfig.categorySpeech)
+        .toList(growable: false);
+    final ocrModels = models
+        .where((m) => m.category == ModelConfig.categoryOcr)
+        .toList(growable: false);
+
+    final nextSpeechId = _firstValidModelId(
+      _settings.speechModelId,
+      speechModels,
+    );
+    final nextOcrId = _firstValidModelId(_settings.imageModelId, ocrModels);
+
+    if (nextSpeechId == _settings.speechModelId &&
+        nextOcrId == _settings.imageModelId) {
+      return;
+    }
+
+    _settings = _settings.copyWith(
+      speechModelId: nextSpeechId,
+      imageModelId: nextOcrId,
+    );
+    _queueSaveSettings();
+    notifyListeners();
   }
 
   /// 将设置保存到 SharedPreferences
@@ -248,6 +279,14 @@ class SettingsProvider extends ChangeNotifier {
     _settings = _settings.copyWith(imageRecognitionPrompt: prompt);
     _queueSaveSettings();
     notifyListeners();
+  }
+
+  String? _firstValidModelId(String? currentId, List<ModelConfig> models) {
+    if (currentId != null && currentId.isNotEmpty) {
+      final exists = models.any((m) => m.id == currentId);
+      if (exists) return currentId;
+    }
+    return models.isEmpty ? null : models.first.id;
   }
 
   /// 设置系统提示词
