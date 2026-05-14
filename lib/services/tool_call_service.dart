@@ -48,7 +48,7 @@ class ToolCallService {
 {"tool_calls":[{"name":"工具名","arguments":{...}}]}
 收到工具结果后，再用自然语言给用户最终回复。
 创建或修改数据前，应从用户输入中提取明确字段；缺少关键字段时先追问。
-需要查看笔记内容时，先用 list_notes 查找笔记 id，再用 read_note 读取完整内容；如果用户给出明确标题，也可以直接用 read_note 按标题搜索。
+需要查看笔记内容时，先用 list_notes 查找笔记 id，再用 read_note 读取完整内容；如果用户给出明确标题，也可以直接用 read_note 按标题搜索。笔记可通过 list_note_folders/save_note_folder 管理文件夹，save_note 可用 folderId 移动笔记。
 需要查看待办清单内容时，先用 list_todo_lists 查找清单 id，再用 read_todo_list 读取完整内容；创建或修改待办项用 save_todo_item，完成/未完成待办项时设置 done。
 日程时间使用带时区偏移的 ISO-8601 字符串；用户说“今天/明天”时必须先结合 get_current_time 的 iso 与 timezoneOffsetMinutes 换算成本地日期时间。
 ''';
@@ -58,7 +58,7 @@ class ToolCallService {
 需要调用工具时使用接口提供的 tool_calls；不需要工具时直接正常回答，不要提及工具。
 收到工具结果后，再用自然语言给用户最终回复。
 创建或修改数据前，应从用户输入中提取明确字段；缺少关键字段时先追问。
-需要查看笔记内容时，先用 list_notes 查找笔记 id，再用 read_note 读取完整内容；如果用户给出明确标题，也可以直接用 read_note 按标题搜索。
+需要查看笔记内容时，先用 list_notes 查找笔记 id，再用 read_note 读取完整内容；如果用户给出明确标题，也可以直接用 read_note 按标题搜索。笔记可通过 list_note_folders/save_note_folder 管理文件夹，save_note 可用 folderId 移动笔记。
 需要查看待办清单内容时，先用 list_todo_lists 查找清单 id，再用 read_todo_list 读取完整内容；创建或修改待办项用 save_todo_item，完成/未完成待办项时设置 done。
 日程时间使用带时区偏移的 ISO-8601 字符串；用户说“今天/明天”时必须先结合 get_current_time 的 iso 与 timezoneOffsetMinutes 换算成本地日期时间。
 ''';
@@ -157,6 +157,7 @@ class ToolCallService {
           'type': 'object',
           'properties': {
             'query': {'type': 'string', 'description': '可选搜索关键字'},
+            'folderId': {'type': 'string', 'description': '可选笔记文件夹 id'},
             'includeContent': {
               'type': 'boolean',
               'description': '是否在列表中返回完整正文；大量笔记时优先使用 read_note',
@@ -184,16 +185,42 @@ class ToolCallService {
       'type': 'function',
       'function': {
         'name': 'save_note',
-        'description': '创建或修改并保存笔记',
+        'description': '创建或修改并保存笔记。传 id 时修改已有笔记；不传 id 时创建新笔记。',
         'parameters': {
           'type': 'object',
           'properties': {
             'id': {'type': 'string', 'description': '已有笔记 id；为空则创建'},
             'title': {'type': 'string'},
             'content': {'type': 'string'},
+            'folderId': {
+              'type': 'string',
+              'description': '目标笔记文件夹 id；传空字符串表示移出文件夹',
+            },
             'append': {'type': 'boolean', 'description': '是否追加到已有内容'},
           },
-          'required': ['title', 'content'],
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'list_note_folders',
+        'description': '查看笔记文件夹及每个文件夹的笔记数量。',
+        'parameters': {'type': 'object', 'properties': <String, dynamic>{}},
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'save_note_folder',
+        'description': '创建、重命名或删除笔记文件夹。传 delete=true 时删除文件夹，文件夹内笔记会移出文件夹。',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'id': {'type': 'string', 'description': '已有文件夹 id；为空则创建'},
+            'title': {'type': 'string'},
+            'delete': {'type': 'boolean'},
+          },
         },
       },
     },
@@ -372,6 +399,10 @@ class ToolCallService {
           return _readNote(call.arguments);
         case 'save_note':
           return await _saveNote(call.arguments);
+        case 'list_note_folders':
+          return _listNoteFolders();
+        case 'save_note_folder':
+          return await _saveNoteFolder(call.arguments);
         case 'list_todo_lists':
           return _listTodoLists(call.arguments);
         case 'read_todo_list':
@@ -467,8 +498,10 @@ class ToolCallService {
 
   Map<String, dynamic> _listNotes(Map<String, dynamic> args) {
     final query = (args['query'] as String? ?? '').trim().toLowerCase();
+    final folderId = (args['folderId'] as String? ?? '').trim();
     final includeContent = args['includeContent'] as bool? ?? false;
     final notes = _features.notes.where((note) {
+      if (folderId.isNotEmpty && note.folderId != folderId) return false;
       if (query.isEmpty) return true;
       return note.title.toLowerCase().contains(query) ||
           note.content.toLowerCase().contains(query);
@@ -482,6 +515,7 @@ class ToolCallService {
           'title': note.title,
           'createdAt': note.createdAt.toIso8601String(),
           'updatedAt': note.updatedAt.toIso8601String(),
+          if (note.folderId != null) 'folderId': note.folderId,
           'summary': summary.length > 120
               ? '${summary.substring(0, 120)}...'
               : summary,
@@ -526,21 +560,91 @@ class ToolCallService {
   Future<Map<String, dynamic>> _saveNote(Map<String, dynamic> args) async {
     final title = (args['title'] as String? ?? '').trim();
     final content = args['content'] as String? ?? '';
-    if (title.isEmpty) return _error('笔记标题不能为空');
     final id = (args['id'] as String? ?? '').trim();
     final append = args['append'] as bool? ?? false;
-    Note? note = id.isEmpty ? null : _features.getNote(id);
-    if (note == null) {
-      final newId = await _features.addNote(title);
-      note = _features.getNote(newId);
+    final hasContent = args.containsKey('content');
+    final hasFolderId = args.containsKey('folderId');
+    final folderId = (args['folderId'] as String? ?? '').trim();
+    if (hasFolderId &&
+        folderId.isNotEmpty &&
+        _features.getNoteFolder(folderId) == null) {
+      return _error('未找到笔记文件夹: $folderId');
     }
-    if (note == null) return _error('创建笔记失败');
-    final nextContent = append && note.content.trim().isNotEmpty
+    if (id.isEmpty) {
+      if (title.isEmpty) return _error('创建笔记需要 title');
+      if (!hasContent) return _error('创建笔记需要 content');
+      final newId = await _features.addNote(
+        title,
+        folderId: hasFolderId && folderId.isNotEmpty ? folderId : null,
+      );
+      final note = _features.getNote(newId);
+      if (note == null) return _error('创建笔记失败');
+      final updated = note.copyWith(content: content);
+      await _features.updateNote(updated);
+      return {'ok': true, 'note': updated.toJson()};
+    }
+    final note = _features.getNote(id);
+    if (note == null) return _error('未找到笔记: $id');
+    if (title.isEmpty && !hasContent && !hasFolderId) {
+      return _error('修改笔记需要 title、content 或 folderId');
+    }
+    final nextContent = !hasContent
+        ? note.content
+        : append && note.content.trim().isNotEmpty
         ? '${note.content}\n\n$content'
         : content;
-    final updated = note.copyWith(title: title, content: nextContent);
+    final updated = note.copyWith(
+      title: title.isEmpty ? null : title,
+      content: nextContent,
+      folderId: hasFolderId
+          ? (folderId.isEmpty ? null : folderId)
+          : note.folderId,
+    );
     await _features.updateNote(updated);
     return {'ok': true, 'note': updated.toJson()};
+  }
+
+  Map<String, dynamic> _listNoteFolders() {
+    return {
+      'ok': true,
+      'folders': _features.noteFolders.map((folder) {
+        final count = _features.notes
+            .where((note) => note.folderId == folder.id)
+            .length;
+        return {
+          'id': folder.id,
+          'title': folder.title,
+          'createdAt': folder.createdAt.toIso8601String(),
+          'updatedAt': folder.updatedAt.toIso8601String(),
+          'noteCount': count,
+        };
+      }).toList(),
+    };
+  }
+
+  Future<Map<String, dynamic>> _saveNoteFolder(
+    Map<String, dynamic> args,
+  ) async {
+    final id = (args['id'] as String? ?? '').trim();
+    final title = (args['title'] as String? ?? '').trim();
+    final delete = _boolArg(args, 'delete') ?? false;
+    if (id.isEmpty) {
+      if (delete) return _error('删除文件夹需要 id');
+      if (title.isEmpty) return _error('创建笔记文件夹需要 title');
+      final newId = await _features.addNoteFolder(title);
+      final folder = _features.getNoteFolder(newId);
+      return {'ok': true, 'folder': folder?.toJson()};
+    }
+    final folder = _features.getNoteFolder(id);
+    if (folder == null) return _error('未找到笔记文件夹: $id');
+    if (delete) {
+      await _features.deleteNoteFolder(id);
+      return {'ok': true, 'deleted': true};
+    }
+    if (title.isEmpty) return _error('重命名笔记文件夹需要 title');
+    final updated = folder.copyWith(title: title);
+    await _features.updateNoteFolder(updated);
+    return {'ok': true, 'folder': updated.toJson()};
   }
 
   Map<String, dynamic> _listTodoLists(Map<String, dynamic> args) {

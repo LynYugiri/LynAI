@@ -68,6 +68,7 @@ class _FeaturePageState extends State<FeaturePage> {
         title: Text(_title(feature)),
         actions: _actions(feature),
       ),
+      floatingActionButton: _floatingActionButton(feature),
       body: switch (feature) {
         'schedule' => const _SchedulePage(),
         'notes' => _NotesPage(
@@ -79,6 +80,11 @@ class _FeaturePageState extends State<FeaturePage> {
           }),
           onEditingChanged: (v) => setState(() => _noteEditing = v),
           onBack: () => setState(() => _selectedNoteId = null),
+          searchController: _searchController,
+          searchQuery: _searchQuery,
+          onSearchChanged: (v) => setState(() => _searchQuery = v),
+          onNewNote: _newNote,
+          onNewFolder: _newNoteFolder,
         ),
         'todos' => _TodoListsPage(
           searchController: _searchController,
@@ -185,10 +191,17 @@ class _FeaturePageState extends State<FeaturePage> {
   List<Widget> _actions(String feature) {
     if (feature == 'notes' && _selectedNoteId == null) {
       return [
-        IconButton(
-          tooltip: '新建笔记',
+        PopupMenuButton<String>(
+          tooltip: '新建',
           icon: const Icon(Icons.add),
-          onPressed: _newNote,
+          onSelected: (value) {
+            if (value == 'note') _newNote();
+            if (value == 'folder') _newNoteFolder();
+          },
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: 'note', child: Text('创建笔记')),
+            PopupMenuItem(value: 'folder', child: Text('创建文件夹')),
+          ],
         ),
         IconButton(
           tooltip: '导入 Markdown',
@@ -214,7 +227,29 @@ class _FeaturePageState extends State<FeaturePage> {
     return const [];
   }
 
-  Future<void> _newNote() async {
+  Widget? _floatingActionButton(String feature) {
+    if (feature == 'notes' && _selectedNoteId == null) {
+      return _AddMenuButton(
+        items: const [
+          _AddMenuItem('note', Icons.sticky_note_2_outlined, '创建笔记'),
+          _AddMenuItem('folder', Icons.create_new_folder_outlined, '创建文件夹'),
+        ],
+        onSelected: (value) {
+          if (value == 'note') _newNote();
+          if (value == 'folder') _newNoteFolder();
+        },
+      );
+    }
+    if (feature == 'todos') {
+      return _AddMenuButton(
+        items: const [_AddMenuItem('todo', Icons.checklist, '新建待办清单')],
+        onSelected: (_) => _newTodoList(),
+      );
+    }
+    return null;
+  }
+
+  Future<void> _newNote({String? folderId}) async {
     final ctrl = TextEditingController();
     final title = await showDialog<String>(
       context: context,
@@ -239,11 +274,43 @@ class _FeaturePageState extends State<FeaturePage> {
     );
     ctrl.dispose();
     if (!mounted || title == null || title.isEmpty) return;
-    final id = await context.read<FeatureProvider>().addNote(title);
+    final id = await context.read<FeatureProvider>().addNote(
+      title,
+      folderId: folderId,
+    );
     setState(() {
       _selectedNoteId = id;
       _noteEditing = true;
     });
+  }
+
+  Future<void> _newNoteFolder() async {
+    final ctrl = TextEditingController();
+    final title = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('新建文件夹'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: '名称'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('创建'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (!mounted || title == null || title.isEmpty) return;
+    await context.read<FeatureProvider>().addNoteFolder(title);
+    _clearSearch();
   }
 
   Future<void> _importMarkdown() async {
@@ -401,6 +468,60 @@ class _FeatureIcon extends StatelessWidget {
       ),
       child: Icon(icon, color: scheme.primary),
     );
+  }
+}
+
+class _AddMenuItem {
+  final String value;
+  final IconData icon;
+  final String label;
+
+  const _AddMenuItem(this.value, this.icon, this.label);
+}
+
+class _AddMenuButton extends StatelessWidget {
+  final List<_AddMenuItem> items;
+  final ValueChanged<String> onSelected;
+
+  const _AddMenuButton({required this.items, required this.onSelected});
+
+  @override
+  Widget build(BuildContext context) {
+    return FloatingActionButton(
+      heroTag: null,
+      tooltip: '新建',
+      onPressed: () => _showMenu(context),
+      child: const Icon(Icons.add),
+    );
+  }
+
+  Future<void> _showMenu(BuildContext context) async {
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final box = context.findRenderObject() as RenderBox;
+    final offset = box.localToGlobal(Offset.zero, ancestor: overlay);
+    final value = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        offset.dx,
+        offset.dy,
+        overlay.size.width - offset.dx - box.size.width,
+        overlay.size.height - offset.dy - box.size.height,
+      ),
+      items: items
+          .map(
+            (item) => PopupMenuItem(
+              value: item.value,
+              child: ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(item.icon),
+                title: Text(item.label),
+              ),
+            ),
+          )
+          .toList(),
+    );
+    if (value != null) onSelected(value);
   }
 }
 
@@ -2351,12 +2472,17 @@ class _SchedulePageState extends State<_SchedulePage> {
   }
 }
 
-class _NotesPage extends StatelessWidget {
+class _NotesPage extends StatefulWidget {
   final String? selectedNoteId;
   final bool editing;
   final ValueChanged<String> onSelect;
   final ValueChanged<bool> onEditingChanged;
   final VoidCallback onBack;
+  final TextEditingController searchController;
+  final String searchQuery;
+  final ValueChanged<String> onSearchChanged;
+  final Future<void> Function({String? folderId}) onNewNote;
+  final VoidCallback onNewFolder;
 
   const _NotesPage({
     required this.selectedNoteId,
@@ -2364,45 +2490,589 @@ class _NotesPage extends StatelessWidget {
     required this.onSelect,
     required this.onEditingChanged,
     required this.onBack,
+    required this.searchController,
+    required this.searchQuery,
+    required this.onSearchChanged,
+    required this.onNewNote,
+    required this.onNewFolder,
   });
 
   @override
+  State<_NotesPage> createState() => _NotesPageState();
+}
+
+class _NotesPageState extends State<_NotesPage> {
+  static const _nativeTools = MethodChannel('lynai/native_tools');
+
+  final _shot = ScreenshotController();
+  final Set<String> _expandedFolderIds = {};
+  late FeatureProvider _features;
+
+  @override
+  void initState() {
+    super.initState();
+    _features = context.read<FeatureProvider>();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (selectedNoteId != null) {
+    if (widget.selectedNoteId != null) {
       return _NoteDetail(
-        noteId: selectedNoteId!,
-        editing: editing,
-        onEditingChanged: onEditingChanged,
-        onDeleted: onBack,
+        noteId: widget.selectedNoteId!,
+        editing: widget.editing,
+        onEditingChanged: widget.onEditingChanged,
+        onDeleted: widget.onBack,
       );
     }
-    final notes = context.watch<FeatureProvider>().notes;
-    if (notes.isEmpty) {
-      return const _FeatureEmptyState(
-        icon: Icons.sticky_note_2_outlined,
-        title: '暂无笔记',
-        subtitle: '点击右上角 + 创建第一篇笔记，支持 Markdown 和 LaTeX 渲染。',
-      );
-    }
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      itemCount: notes.length,
-      itemBuilder: (context, index) {
-        final note = notes[index];
-        final preview = note.content.replaceAll(RegExp(r'\s+'), ' ').trim();
-        return ListTile(
-          title: Text(note.title),
-          subtitle: Text(
-            preview.isEmpty ? '空笔记' : preview,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
+    final provider = context.watch<FeatureProvider>();
+    final notes = provider.notes;
+    final folders = provider.noteFolders;
+    if (notes.isEmpty && folders.isEmpty) {
+      return Column(
+        children: [
+          _noteSearchBox(),
+          const Expanded(
+            child: _FeatureEmptyState(
+              icon: Icons.sticky_note_2_outlined,
+              title: '暂无笔记',
+              subtitle: '点击右上角 + 创建第一篇笔记，支持 Markdown 和 LaTeX 渲染。',
+            ),
           ),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => onSelect(note.id),
-        );
-      },
+        ],
+      );
+    }
+    final query = widget.searchQuery.trim().toLowerCase();
+    final visibleNotes = notes
+        .where((note) => _matchesNote(note, query))
+        .toList();
+    final visibleFolders = folders.where((folder) {
+      if (query.isEmpty) return true;
+      return folder.title.toLowerCase().contains(query) ||
+          visibleNotes.any((note) => note.folderId == folder.id);
+    }).toList();
+    final looseNotes = visibleNotes
+        .where((note) => note.folderId == null || _folderMissing(note, folders))
+        .toList();
+    final entries = <_NoteListEntry>[
+      ...visibleFolders.map(_NoteListEntry.folder),
+      ...looseNotes.map(_NoteListEntry.note),
+    ];
+    return Column(
+      children: [
+        _noteSearchBox(),
+        Expanded(
+          child: entries.isEmpty
+              ? ListView(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  children: const [
+                    ListTile(
+                      leading: Icon(Icons.search_off),
+                      title: Text('未找到匹配的笔记'),
+                    ),
+                  ],
+                )
+              : query.isEmpty
+              ? ReorderableListView.builder(
+                  padding: const EdgeInsets.fromLTRB(8, 6, 8, 88),
+                  itemCount: entries.length,
+                  buildDefaultDragHandles: false,
+                  onReorder: (oldIndex, newIndex) =>
+                      _reorderTopLevel(entries, oldIndex, newIndex),
+                  itemBuilder: (context, index) => _entryCard(
+                    entries[index],
+                    index: index,
+                    draggable: true,
+                    query: query,
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(8, 6, 8, 88),
+                  itemCount: entries.length,
+                  itemBuilder: (context, index) => _entryCard(
+                    entries[index],
+                    index: index,
+                    draggable: false,
+                    query: query,
+                  ),
+                ),
+        ),
+      ],
     );
   }
+
+  Widget _noteSearchBox() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+      child: TextField(
+        controller: widget.searchController,
+        decoration: InputDecoration(
+          hintText: '搜索笔记标题或内容...',
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: widget.searchQuery.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () {
+                    widget.searchController.clear();
+                    widget.onSearchChanged('');
+                  },
+                )
+              : null,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        onChanged: widget.onSearchChanged,
+      ),
+    );
+  }
+
+  bool _matchesNote(Note note, String query) {
+    if (query.isEmpty) return true;
+    return note.title.toLowerCase().contains(query) ||
+        note.content.toLowerCase().contains(query);
+  }
+
+  bool _folderMissing(Note note, List<NoteFolder> folders) {
+    final folderId = note.folderId;
+    if (folderId == null) return false;
+    return !folders.any((folder) => folder.id == folderId);
+  }
+
+  Widget _entryCard(
+    _NoteListEntry entry, {
+    required int index,
+    required bool draggable,
+    required String query,
+  }) {
+    final folder = entry.folder;
+    if (folder != null) {
+      return _folderCard(
+        folder,
+        index: index,
+        draggable: draggable,
+        query: query,
+      );
+    }
+    return _noteTile(entry.note!, index: index, draggable: draggable);
+  }
+
+  Widget _folderCard(
+    NoteFolder folder, {
+    required int index,
+    required bool draggable,
+    required String query,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    final expanded = query.isNotEmpty || _expandedFolderIds.contains(folder.id);
+    final notes = context
+        .watch<FeatureProvider>()
+        .notes
+        .where(
+          (note) => note.folderId == folder.id && _matchesNote(note, query),
+        )
+        .toList();
+    return Card(
+      key: ValueKey('folder-${folder.id}'),
+      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 5),
+      child: Column(
+        children: [
+          ListTile(
+            leading: draggable
+                ? ReorderableDragStartListener(
+                    index: index,
+                    child: const Icon(Icons.drag_handle),
+                  )
+                : const Icon(Icons.folder_outlined),
+            title: Text(
+              folder.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            subtitle: Text('${notes.length} 篇笔记'),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  tooltip: expanded ? '折叠' : '展开',
+                  icon: Icon(expanded ? Icons.expand_less : Icons.expand_more),
+                  onPressed: query.isEmpty
+                      ? () => _toggleFolder(folder.id)
+                      : null,
+                ),
+                PopupMenuButton<String>(
+                  onSelected: (v) => _folderMenu(v, folder),
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: 'rename', child: Text('重命名')),
+                    PopupMenuItem(value: 'delete', child: Text('删除')),
+                  ],
+                ),
+              ],
+            ),
+            onTap: query.isEmpty ? () => _toggleFolder(folder.id) : null,
+          ),
+          if (expanded) ...[
+            const Divider(height: 1),
+            ListTile(
+              dense: true,
+              leading: Icon(Icons.note_add_outlined, color: scheme.primary),
+              title: Text('创建笔记', style: TextStyle(color: scheme.primary)),
+              onTap: () => widget.onNewNote(folderId: folder.id),
+            ),
+            if (notes.isEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '文件夹为空',
+                    style: TextStyle(color: scheme.onSurfaceVariant),
+                  ),
+                ),
+              )
+            else if (query.isEmpty)
+              ReorderableListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                buildDefaultDragHandles: false,
+                itemCount: notes.length,
+                onReorder: (oldIndex, newIndex) => _features
+                    .reorderNotesInFolder(folder.id, oldIndex, newIndex),
+                itemBuilder: (context, noteIndex) => _noteTile(
+                  notes[noteIndex],
+                  index: noteIndex,
+                  draggable: true,
+                  nested: true,
+                ),
+              )
+            else
+              ...notes.map(
+                (note) =>
+                    _noteTile(note, index: 0, draggable: false, nested: true),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _noteTile(
+    Note note, {
+    required int index,
+    required bool draggable,
+    bool nested = false,
+  }) {
+    final preview = note.content.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return Card(
+      key: ValueKey('${nested ? 'nested' : 'note'}-${note.id}'),
+      margin: nested
+          ? EdgeInsets.zero
+          : const EdgeInsets.symmetric(horizontal: 4, vertical: 5),
+      elevation: nested ? 0 : null,
+      child: ListTile(
+        dense: nested,
+        leading: draggable
+            ? ReorderableDragStartListener(
+                index: index,
+                child: Icon(nested ? Icons.drag_indicator : Icons.drag_handle),
+              )
+            : const Icon(Icons.sticky_note_2_outlined),
+        title: Text(
+          note.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+        subtitle: Text(
+          preview.isEmpty ? '空笔记' : preview,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: PopupMenuButton<String>(
+          onSelected: (v) => _noteMenu(v, note),
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: 'rename', child: Text('重命名')),
+            PopupMenuItem(value: 'move', child: Text('移动到文件夹')),
+            PopupMenuItem(value: 'export', child: Text('导出')),
+            PopupMenuItem(value: 'image', child: Text('导出长图')),
+            PopupMenuDivider(),
+            PopupMenuItem(value: 'delete', child: Text('删除')),
+          ],
+        ),
+        onTap: () => widget.onSelect(note.id),
+      ),
+    );
+  }
+
+  Future<void> _reorderTopLevel(
+    List<_NoteListEntry> entries,
+    int oldIndex,
+    int newIndex,
+  ) async {
+    if (oldIndex < 0 || oldIndex >= entries.length) return;
+    if (newIndex > oldIndex) newIndex -= 1;
+    if (newIndex < 0 || newIndex >= entries.length) return;
+    final oldEntry = entries[oldIndex];
+    final newEntry = entries[newIndex];
+    if (oldEntry.isFolder != newEntry.isFolder) return;
+    if (oldEntry.isFolder && newEntry.isFolder) {
+      final folders = entries.where((e) => e.isFolder).toList();
+      final oldFolderIndex = folders.indexWhere(
+        (e) => e.folder!.id == oldEntry.folder!.id,
+      );
+      final newFolderIndex = folders.indexWhere(
+        (e) => e.folder!.id == newEntry.folder!.id,
+      );
+      await _features.reorderNoteFolders(oldFolderIndex, newFolderIndex);
+    } else if (!oldEntry.isFolder && !newEntry.isFolder) {
+      final notes = entries.where((e) => !e.isFolder).toList();
+      final oldNoteIndex = notes.indexWhere(
+        (e) => e.note!.id == oldEntry.note!.id,
+      );
+      final newNoteIndex = notes.indexWhere(
+        (e) => e.note!.id == newEntry.note!.id,
+      );
+      await _features.reorderNotesInFolder(null, oldNoteIndex, newNoteIndex);
+    }
+  }
+
+  void _toggleFolder(String id) {
+    setState(() {
+      if (!_expandedFolderIds.add(id)) _expandedFolderIds.remove(id);
+    });
+  }
+
+  Future<void> _noteMenu(String value, Note note) async {
+    switch (value) {
+      case 'rename':
+        await _renameNote(note);
+      case 'move':
+        await _moveNote(note);
+      case 'export':
+        await _exportNote(note);
+      case 'image':
+        await _exportNoteImage(note);
+      case 'delete':
+        await _deleteNote(note);
+    }
+  }
+
+  Future<void> _folderMenu(String value, NoteFolder folder) async {
+    switch (value) {
+      case 'rename':
+        await _renameFolder(folder);
+      case 'delete':
+        await _deleteFolder(folder);
+    }
+  }
+
+  Future<void> _renameNote(Note note) async {
+    final title = await _textDialog(
+      title: '重命名',
+      label: '标题',
+      initialText: note.title,
+    );
+    if (title == null || title.isEmpty) return;
+    await _features.updateNote(note.copyWith(title: title));
+  }
+
+  Future<void> _moveNote(Note note) async {
+    final folders = _features.noteFolders;
+    final folderId = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('移动到文件夹'),
+        children: [
+          ListTile(
+            leading: note.folderId == null
+                ? const Icon(Icons.check, size: 20)
+                : const SizedBox(width: 20),
+            title: const Text('不放入文件夹'),
+            onTap: () => Navigator.pop(ctx, ''),
+          ),
+          for (final folder in folders)
+            ListTile(
+              leading: note.folderId == folder.id
+                  ? const Icon(Icons.check, size: 20)
+                  : const SizedBox(width: 20),
+              title: Text(folder.title),
+              onTap: () => Navigator.pop(ctx, folder.id),
+            ),
+        ],
+      ),
+    );
+    if (!mounted || folderId == null) return;
+    await _features.updateNote(
+      note.copyWith(folderId: folderId.isEmpty ? null : folderId),
+    );
+  }
+
+  Future<void> _exportNote(Note note) async {
+    final fileName = '${_safeExportFileName(note.title, 'note')}.md';
+    try {
+      final bytes = Uint8List.fromList(utf8.encode(note.content));
+      final path = await FilePicker.platform.saveFile(
+        dialogTitle: '导出笔记',
+        fileName: fileName,
+        bytes: bytes,
+      );
+      if (path == null) return;
+      final file = File(path);
+      if (!await file.exists()) await file.writeAsBytes(bytes, flush: true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('笔记已导出到 $path')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('导出失败: $e')));
+    }
+  }
+
+  Future<void> _exportNoteImage(Note note) async {
+    final theme = Theme.of(context);
+    final bytes = await _shot.captureFromLongWidget(
+      _NoteShareImage(
+        title: note.title,
+        content: note.content,
+        seedColor: theme.colorScheme.primary,
+        brightness: theme.brightness,
+      ),
+      pixelRatio: 2.5,
+      context: context,
+      constraints: const BoxConstraints(maxWidth: 720),
+    );
+    if (!mounted) return;
+    await _writeNoteImage(bytes);
+  }
+
+  Future<void> _writeNoteImage(Uint8List bytes) async {
+    final fileName = 'note_${DateTime.now().millisecondsSinceEpoch}.png';
+    try {
+      if (Platform.isLinux || Platform.isMacOS || Platform.isWindows) {
+        final clipboard = SystemClipboard.instance;
+        if (clipboard == null) throw Exception('当前平台不支持写入剪贴板');
+        final item = DataWriterItem(suggestedName: fileName);
+        item.add(Formats.png(bytes));
+        await clipboard.write([item]);
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('笔记图片已复制到剪贴板')));
+        return;
+      }
+      if (Platform.isAndroid || Platform.isIOS) {
+        final result = await _nativeTools.invokeMapMethod<String, dynamic>(
+          'saveImageToGallery',
+          {'bytes': bytes, 'fileName': fileName},
+        );
+        if (result?['ok'] != true) {
+          throw Exception(result?['error'] ?? '保存到图库失败');
+        }
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('笔记图片已保存到图库')));
+        return;
+      }
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/$fileName');
+      await file.writeAsBytes(bytes, flush: true);
+      await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('导出图片失败: $e')));
+    }
+  }
+
+  Future<void> _deleteNote(Note note) async {
+    final ok = await _confirm(title: '删除笔记', message: '确定删除"${note.title}"吗？');
+    if (ok != true || !mounted) return;
+    await _features.deleteNote(note.id);
+  }
+
+  Future<void> _renameFolder(NoteFolder folder) async {
+    final title = await _textDialog(
+      title: '重命名文件夹',
+      label: '名称',
+      initialText: folder.title,
+    );
+    if (title == null || title.isEmpty) return;
+    await _features.updateNoteFolder(folder.copyWith(title: title));
+  }
+
+  Future<void> _deleteFolder(NoteFolder folder) async {
+    final ok = await _confirm(
+      title: '删除文件夹',
+      message: '确定删除"${folder.title}"吗？文件夹内笔记会移出文件夹。',
+    );
+    if (ok != true || !mounted) return;
+    await _features.deleteNoteFolder(folder.id);
+    setState(() => _expandedFolderIds.remove(folder.id));
+  }
+
+  Future<String?> _textDialog({
+    required String title,
+    required String label,
+    String initialText = '',
+  }) async {
+    final ctrl = TextEditingController(text: initialText);
+    final text = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: InputDecoration(labelText: label),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    return text;
+  }
+
+  Future<bool?> _confirm({required String title, required String message}) {
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NoteListEntry {
+  final NoteFolder? folder;
+  final Note? note;
+
+  const _NoteListEntry.folder(this.folder) : note = null;
+  const _NoteListEntry.note(this.note) : folder = null;
+
+  bool get isFolder => folder != null;
 }
 
 class _FeatureEmptyState extends StatelessWidget {

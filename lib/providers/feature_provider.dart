@@ -11,19 +11,23 @@ import '../models/todo_list.dart';
 class FeatureProvider extends ChangeNotifier {
   static const _scheduleKey = 'schedule_items';
   static const _notesKey = 'notes';
+  static const _noteFoldersKey = 'note_folders';
   static const _todoListsKey = 'todo_lists';
   static const _scheduleWidgetChannel = MethodChannel('lynai/schedule_widget');
   final _uuid = const Uuid();
   Future<void> _scheduleSaveQueue = Future.value();
   Future<void> _noteSaveQueue = Future.value();
+  Future<void> _noteFolderSaveQueue = Future.value();
   Future<void> _todoListSaveQueue = Future.value();
 
   List<ScheduleItem> _schedules = [];
   List<Note> _notes = [];
+  List<NoteFolder> _noteFolders = [];
   List<TodoList> _todoLists = [];
 
   List<ScheduleItem> get schedules => List.unmodifiable(_schedules);
   List<Note> get notes => List.unmodifiable(_notes);
+  List<NoteFolder> get noteFolders => List.unmodifiable(_noteFolders);
   List<TodoList> get todoLists => List.unmodifiable(_todoLists);
 
   Future<void> load() async {
@@ -54,8 +58,22 @@ class FeatureProvider extends ChangeNotifier {
             debugPrint('跳过损坏的笔记记录: $e');
           }
         }
-        _notes = notes..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+        _notes = notes;
       }
+      final noteFoldersJson = prefs.getString(_noteFoldersKey);
+      if (noteFoldersJson != null) {
+        final items = jsonDecode(noteFoldersJson) as List<dynamic>;
+        final folders = <NoteFolder>[];
+        for (final item in items) {
+          try {
+            folders.add(NoteFolder.fromJson(item as Map<String, dynamic>));
+          } catch (e) {
+            debugPrint('跳过损坏的笔记文件夹记录: $e');
+          }
+        }
+        _noteFolders = folders;
+      }
+      _removeMissingNoteFolderReferences();
       final todoListsJson = prefs.getString(_todoListsKey);
       if (todoListsJson != null) {
         final items = jsonDecode(todoListsJson) as List<dynamic>;
@@ -74,6 +92,7 @@ class FeatureProvider extends ChangeNotifier {
       debugPrint('加载功能数据失败: $e');
       _schedules = [];
       _notes = [];
+      _noteFolders = [];
       _todoLists = [];
       notifyListeners();
     }
@@ -115,6 +134,26 @@ class FeatureProvider extends ChangeNotifier {
     return _noteSaveQueue;
   }
 
+  Future<void> _queueSaveNoteFolders() {
+    final snapshot = List<NoteFolder>.from(_noteFolders);
+    _noteFolderSaveQueue = _noteFolderSaveQueue.then(
+      (_) => _saveNoteFoldersSnapshot(snapshot),
+    );
+    return _noteFolderSaveQueue;
+  }
+
+  Future<void> _saveNoteFoldersSnapshot(List<NoteFolder> snapshot) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _noteFoldersKey,
+        jsonEncode(snapshot.map((e) => e.toJson()).toList()),
+      );
+    } catch (e) {
+      debugPrint('保存笔记文件夹失败: $e');
+    }
+  }
+
   Future<void> _saveNotesSnapshot(List<Note> snapshot) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -125,6 +164,15 @@ class FeatureProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('保存笔记失败: $e');
     }
+  }
+
+  void _removeMissingNoteFolderReferences() {
+    final folderIds = _noteFolders.map((folder) => folder.id).toSet();
+    _notes = _notes.map((note) {
+      final folderId = note.folderId;
+      if (folderId == null || folderIds.contains(folderId)) return note;
+      return note.copyWith(folderId: null, preserveUpdatedAt: true);
+    }).toList();
   }
 
   Future<void> _queueSaveTodoLists() {
@@ -192,16 +240,21 @@ class FeatureProvider extends ChangeNotifier {
     }
   }
 
-  Future<String> addNote(String title) {
-    return addNoteWithContent(title, '');
+  Future<String> addNote(String title, {String? folderId}) {
+    return addNoteWithContent(title, '', folderId: folderId);
   }
 
-  Future<String> addNoteWithContent(String title, String content) async {
+  Future<String> addNoteWithContent(
+    String title,
+    String content, {
+    String? folderId,
+  }) async {
     final now = DateTime.now();
     final note = Note(
       id: _uuid.v4(),
       title: title,
       content: content,
+      folderId: _noteFolders.any((f) => f.id == folderId) ? folderId : null,
       createdAt: now,
       updatedAt: now,
     );
@@ -223,7 +276,28 @@ class FeatureProvider extends ChangeNotifier {
     final index = _notes.indexWhere((n) => n.id == note.id);
     if (index == -1) return;
     _notes[index] = note;
-    _notes.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    await _queueSaveNotes();
+    notifyListeners();
+  }
+
+  Future<void> reorderNotesInFolder(
+    String? folderId,
+    int oldIndex,
+    int newIndex,
+  ) async {
+    final indexes = <int>[];
+    for (var i = 0; i < _notes.length; i++) {
+      if (_notes[i].folderId == folderId) indexes.add(i);
+    }
+    if (oldIndex < 0 || oldIndex >= indexes.length) return;
+    if (newIndex < 0 || newIndex > indexes.length) return;
+    if (newIndex > oldIndex) newIndex -= 1;
+    final folderNotes = indexes.map((i) => _notes[i]).toList();
+    final note = folderNotes.removeAt(oldIndex);
+    folderNotes.insert(newIndex, note);
+    for (var i = 0; i < indexes.length; i++) {
+      _notes[indexes[i]] = folderNotes[i];
+    }
     await _queueSaveNotes();
     notifyListeners();
   }
@@ -232,6 +306,60 @@ class FeatureProvider extends ChangeNotifier {
     final before = _notes.length;
     _notes.removeWhere((n) => n.id == id);
     if (_notes.length == before) return;
+    await _queueSaveNotes();
+    notifyListeners();
+  }
+
+  Future<String> addNoteFolder(String title) async {
+    final now = DateTime.now();
+    final folder = NoteFolder(
+      id: _uuid.v4(),
+      title: title,
+      createdAt: now,
+      updatedAt: now,
+    );
+    _noteFolders.insert(0, folder);
+    await _queueSaveNoteFolders();
+    notifyListeners();
+    return folder.id;
+  }
+
+  NoteFolder? getNoteFolder(String id) {
+    try {
+      return _noteFolders.firstWhere((f) => f.id == id);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> updateNoteFolder(NoteFolder folder) async {
+    final index = _noteFolders.indexWhere((f) => f.id == folder.id);
+    if (index == -1) return;
+    _noteFolders[index] = folder;
+    await _queueSaveNoteFolders();
+    notifyListeners();
+  }
+
+  Future<void> reorderNoteFolders(int oldIndex, int newIndex) async {
+    if (oldIndex < 0 || oldIndex >= _noteFolders.length) return;
+    if (newIndex < 0 || newIndex > _noteFolders.length) return;
+    if (newIndex > oldIndex) newIndex -= 1;
+    final folder = _noteFolders.removeAt(oldIndex);
+    _noteFolders.insert(newIndex, folder);
+    await _queueSaveNoteFolders();
+    notifyListeners();
+  }
+
+  Future<void> deleteNoteFolder(String id) async {
+    final before = _noteFolders.length;
+    _noteFolders.removeWhere((f) => f.id == id);
+    if (_noteFolders.length == before) return;
+    _notes = _notes
+        .map(
+          (note) => note.folderId == id ? note.copyWith(folderId: null) : note,
+        )
+        .toList();
+    await _queueSaveNoteFolders();
     await _queueSaveNotes();
     notifyListeners();
   }

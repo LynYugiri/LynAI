@@ -363,16 +363,54 @@ class MarkdownWithLatex extends StatelessWidget {
     };
 
     return MarkdownBody(
-      data: text,
+      data: _normalizeIndentedCodeBlocks(text),
       selectable: false,
       styleSheet: styleSheet,
       builders: builders,
-      extensionSet: withInlineLatex
-          ? md.ExtensionSet(md.ExtensionSet.gitHubFlavored.blockSyntaxes, [
-              ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
-              _LatexInlineSyntax(),
-            ])
-          : null,
+      extensionSet: _extensionSet(withInlineLatex: withInlineLatex),
+    );
+  }
+
+  String _normalizeIndentedCodeBlocks(String text) {
+    final nbsp = String.fromCharCode(0x00A0);
+    final lines = text.split('\n');
+    var inFence = false;
+    var fenceMarker = '';
+    var fenceLength = 0;
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      final openMatch = RegExp(r'^ {0,3}(`{3,}|~{3,})').firstMatch(line);
+      final closeMatch = RegExp(
+        r'^ {0,3}(`{3,}|~{3,})[ \t]*$',
+      ).firstMatch(line);
+      final wasInFence = inFence;
+      if (!wasInFence && openMatch != null) {
+        inFence = true;
+        fenceMarker = openMatch.group(1)![0];
+        fenceLength = openMatch.group(1)!.length;
+      } else if (!wasInFence && line.startsWith('    ')) {
+        lines[i] = '$nbsp$nbsp$nbsp$nbsp${line.substring(4)}';
+      }
+      if (wasInFence && closeMatch != null) {
+        final marker = closeMatch.group(1)!;
+        if (marker[0] == fenceMarker && marker.length >= fenceLength) {
+          inFence = false;
+        }
+      }
+    }
+    return lines.join('\n');
+  }
+
+  md.ExtensionSet _extensionSet({required bool withInlineLatex}) {
+    final inlineSyntaxes = withInlineLatex
+        ? [
+            ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
+            _LatexInlineSyntax(),
+          ]
+        : md.ExtensionSet.gitHubFlavored.inlineSyntaxes;
+    return md.ExtensionSet(
+      md.ExtensionSet.gitHubFlavored.blockSyntaxes,
+      inlineSyntaxes,
     );
   }
 

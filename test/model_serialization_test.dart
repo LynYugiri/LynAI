@@ -5,10 +5,12 @@ import 'package:lynai/models/app_settings.dart';
 import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/message.dart';
 import 'package:lynai/models/model_config.dart';
+import 'package:lynai/models/note.dart';
 import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
 import 'package:lynai/services/tool_call_service.dart';
+import 'package:markdown/markdown.dart' as md;
 
 void main() {
   test('AppSettings preserves nullable fields through copyWith sentinel', () {
@@ -152,5 +154,100 @@ void main() {
     expect(renameResult['ok'], isTrue);
     expect(renameResult['todoList']['title'], '购物');
     expect(renameResult['todoList']['items'], isEmpty);
+  });
+
+  test('Note folders persist and clean missing references', () async {
+    SharedPreferences.setMockInitialValues({
+      'notes':
+          '[{"id":"n1","title":"orphan","content":"text","folderId":"missing","createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}]',
+      'note_folders': '[]',
+    });
+    final featureProvider = FeatureProvider();
+
+    await featureProvider.load();
+
+    expect(featureProvider.notes.single.folderId, isNull);
+  });
+
+  test('Note copyWith can clear folder without changing updatedAt', () {
+    final updatedAt = DateTime.utc(2026, 1, 1);
+    final note = Note(
+      id: 'n1',
+      title: 'note',
+      content: 'text',
+      folderId: 'f1',
+      createdAt: updatedAt,
+      updatedAt: updatedAt,
+    );
+
+    final cleaned = note.copyWith(folderId: null, preserveUpdatedAt: true);
+
+    expect(cleaned.folderId, isNull);
+    expect(cleaned.updatedAt, updatedAt);
+  });
+
+  test('ToolCallService manages note folders and moves notes', () async {
+    SharedPreferences.setMockInitialValues({});
+    final featureProvider = FeatureProvider();
+    await featureProvider.load();
+    final service = ToolCallService(featureProvider);
+
+    final folderResult = await service.execute(
+      const ChatToolCall(
+        id: 'folder',
+        name: 'save_note_folder',
+        arguments: {'title': '资料'},
+      ),
+      const [],
+    );
+    final folderId = folderResult['folder']['id'] as String;
+
+    final noteResult = await service.execute(
+      ChatToolCall(
+        id: 'note',
+        name: 'save_note',
+        arguments: {'title': '会议', 'content': '内容', 'folderId': folderId},
+      ),
+      const [],
+    );
+    final noteId = noteResult['note']['id'] as String;
+
+    expect(noteResult['note']['folderId'], folderId);
+
+    final moveResult = await service.execute(
+      ChatToolCall(
+        id: 'move',
+        name: 'save_note',
+        arguments: {'id': noteId, 'folderId': ''},
+      ),
+      const [],
+    );
+
+    expect(moveResult['ok'], isTrue);
+    expect(
+      (moveResult['note'] as Map<String, dynamic>).containsKey('folderId'),
+      isFalse,
+    );
+
+    final missingUpdate = await service.execute(
+      const ChatToolCall(
+        id: 'missing',
+        name: 'save_note',
+        arguments: {'id': 'missing', 'folderId': ''},
+      ),
+      const [],
+    );
+
+    expect(missingUpdate['ok'], isFalse);
+  });
+
+  test('Markdown parser accepts nbsp-indented paragraph as paragraph', () {
+    final document = md.Document(extensionSet: md.ExtensionSet.gitHubFlavored);
+    final nbsp = String.fromCharCode(0x00A0);
+
+    final nodes = document.parseLines(['$nbsp$nbsp$nbsp$nbsp普通段落']);
+
+    expect(nodes.single, isA<md.Element>());
+    expect((nodes.single as md.Element).tag, 'p');
   });
 }
