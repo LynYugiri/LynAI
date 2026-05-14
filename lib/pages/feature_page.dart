@@ -29,11 +29,13 @@ String _safeExportFileName(String name, String fallback) {
 class FeaturePage extends StatefulWidget {
   final void Function(String conversationId) onConversationTap;
   final VoidCallback onRoleChanged;
+  final void Function(bool Function() handler)? onBackHandlerChanged;
 
   const FeaturePage({
     super.key,
     required this.onConversationTap,
     required this.onRoleChanged,
+    this.onBackHandlerChanged,
   });
 
   @override
@@ -48,8 +50,26 @@ class _FeaturePageState extends State<FeaturePage> {
 
   @override
   void dispose() {
+    widget.onBackHandlerChanged?.call(() => false);
     _searchController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    widget.onBackHandlerChanged?.call(_handleBack);
+  }
+
+  bool _handleBack() {
+    if (_selectedNoteId != null) {
+      setState(() {
+        _selectedNoteId = null;
+        _noteEditing = false;
+      });
+      return true;
+    }
+    return false;
   }
 
   @override

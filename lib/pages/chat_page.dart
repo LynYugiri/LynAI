@@ -64,11 +64,15 @@ class ChatPage extends StatefulWidget {
   final String? conversationId;
   final int roleChangeSerial;
   final VoidCallback? onConversationLoaded;
+  final void Function(bool Function() handler)? onBackHandlerChanged;
+  final ValueChanged<bool>? onBackAvailabilityChanged;
   const ChatPage({
     super.key,
     this.conversationId,
     this.roleChangeSerial = 0,
     this.onConversationLoaded,
+    this.onBackHandlerChanged,
+    this.onBackAvailabilityChanged,
   });
 
   @override
@@ -139,6 +143,20 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    widget.onBackHandlerChanged?.call(_handleBack);
+  }
+
+  bool _handleBack() {
+    if (_shareSelecting) {
+      _cancelShareSelection();
+      return true;
+    }
+    return false;
+  }
+
+  @override
   void didUpdateWidget(ChatPage old) {
     super.didUpdateWidget(old);
     if (widget.conversationId != null && widget.conversationId != _convId) {
@@ -202,6 +220,8 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   void dispose() {
+    widget.onBackHandlerChanged?.call(() => false);
+    widget.onBackAvailabilityChanged?.call(false);
     _sub?.cancel();
     _setBackgroundGenerationActive(false);
     _inputActionCollapseTimer?.cancel();
@@ -1046,13 +1066,16 @@ class _ChatPageState extends State<ChatPage> {
         _selectedShareMessageIds.add(initialMessage.id);
       }
     });
+    widget.onBackAvailabilityChanged?.call(true);
   }
 
   void _cancelShareSelection() {
+    if (!_shareSelecting) return;
     setState(() {
       _shareSelecting = false;
       _selectedShareMessageIds.clear();
     });
+    widget.onBackAvailabilityChanged?.call(false);
   }
 
   void _toggleShareMessage(Message msg) {
@@ -1811,69 +1834,75 @@ class _ChatPageState extends State<ChatPage> {
     final mp = context.watch<ModelConfigProvider>();
     final model = _getModel(mp);
     final conv = cp.getConversation(_convId ?? '');
-    return Scaffold(
-      appBar: AppBar(
-        leading: _shareSelecting
-            ? IconButton(
-                icon: const Icon(Icons.close),
-                tooltip: '取消选择',
-                onPressed: _cancelShareSelection,
-              )
-            : Builder(
-                builder: (ctx) => IconButton(
-                  icon: const Icon(Icons.history),
-                  tooltip: '历史记录',
-                  onPressed: () => Scaffold.of(ctx).openDrawer(),
+    return PopScope(
+      canPop: !_shareSelecting,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _shareSelecting) _cancelShareSelection();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: _shareSelecting
+              ? IconButton(
+                  icon: const Icon(Icons.close),
+                  tooltip: '取消选择',
+                  onPressed: _cancelShareSelection,
+                )
+              : Builder(
+                  builder: (ctx) => IconButton(
+                    icon: const Icon(Icons.history),
+                    tooltip: '历史记录',
+                    onPressed: () => Scaffold.of(ctx).openDrawer(),
+                  ),
                 ),
+          title: Text(
+            _shareSelecting
+                ? '已选择 ${_selectedShareMessageIds.length} 条'
+                : (conv?.title ?? '新对话'),
+          ),
+          centerTitle: true,
+          actions: [
+            if (_shareSelecting)
+              IconButton(
+                icon: const Icon(Icons.save_alt),
+                tooltip: '保存到本地',
+                onPressed: _selectedShareMessageIds.isEmpty || _sharingImage
+                    ? null
+                    : _saveSelectedMessagesImage,
               ),
-        title: Text(
-          _shareSelecting
-              ? '已选择 ${_selectedShareMessageIds.length} 条'
-              : (conv?.title ?? '新对话'),
+            if (_shareSelecting)
+              IconButton(
+                icon: _sharingImage
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.ios_share),
+                tooltip: '生成长图分享',
+                onPressed: _selectedShareMessageIds.isEmpty || _sharingImage
+                    ? null
+                    : _shareSelectedMessages,
+              )
+            else if (_convId != null)
+              IconButton(
+                icon: const Icon(Icons.add_comment_outlined),
+                tooltip: '新建对话',
+                onPressed: () {
+                  if (_streaming) _stopStreaming();
+                  _clearRetryState();
+                  _clearPendingState();
+                  setState(() {
+                    _convId = null;
+                  });
+                },
+              ),
+          ],
         ),
-        centerTitle: true,
-        actions: [
-          if (_shareSelecting)
-            IconButton(
-              icon: const Icon(Icons.save_alt),
-              tooltip: '保存到本地',
-              onPressed: _selectedShareMessageIds.isEmpty || _sharingImage
-                  ? null
-                  : _saveSelectedMessagesImage,
-            ),
-          if (_shareSelecting)
-            IconButton(
-              icon: _sharingImage
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.ios_share),
-              tooltip: '生成长图分享',
-              onPressed: _selectedShareMessageIds.isEmpty || _sharingImage
-                  ? null
-                  : _shareSelectedMessages,
-            )
-          else if (_convId != null)
-            IconButton(
-              icon: const Icon(Icons.add_comment_outlined),
-              tooltip: '新建对话',
-              onPressed: () {
-                if (_streaming) _stopStreaming();
-                _clearRetryState();
-                _clearPendingState();
-                setState(() {
-                  _convId = null;
-                });
-              },
-            ),
-        ],
-      ),
-      drawer: _shareSelecting ? null : _drawer(context),
-      body: Screenshot(
-        controller: _screenshotCtrl,
-        child: _body(conv, model, mp),
+        drawer: _shareSelecting ? null : _drawer(context),
+        body: Screenshot(
+          controller: _screenshotCtrl,
+          child: _body(conv, model, mp),
+        ),
       ),
     );
   }

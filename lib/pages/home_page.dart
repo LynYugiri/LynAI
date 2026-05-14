@@ -23,6 +23,9 @@ class _HomePageState extends State<HomePage> {
   int _roleChangeSerial = 0;
   String? _cachedImagePath;
   bool _cachedImageExists = false;
+  bool Function()? _featureBackHandler;
+  bool Function()? _chatBackHandler;
+  bool _chatCanHandleBack = false;
 
   @override
   void initState() {
@@ -53,6 +56,43 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  void _setFeatureBackHandler(bool Function() handler) {
+    _featureBackHandler = handler;
+  }
+
+  void _setChatBackHandler(bool Function() handler) {
+    _chatBackHandler = handler;
+  }
+
+  void _setChatBackAvailability(bool canHandleBack) {
+    if (_chatCanHandleBack == canHandleBack) return;
+    setState(() => _chatCanHandleBack = canHandleBack);
+  }
+
+  void _handleRootBack(bool didPop) {
+    if (didPop) return;
+
+    if (_currentIndex == 1 && (_chatBackHandler?.call() ?? false)) {
+      return;
+    }
+
+    if (_currentIndex == 0 && (_featureBackHandler?.call() ?? false)) {
+      return;
+    }
+
+    if (_currentIndex != 1) {
+      setState(() {
+        _currentIndex = 1;
+        _targetConversationId = null;
+      });
+    }
+  }
+
+  bool get _canExitFromRoot {
+    if (_currentIndex != 1) return false;
+    return !_chatCanHandleBack;
+  }
+
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>().settings;
@@ -61,47 +101,54 @@ class _HomePageState extends State<HomePage> {
         _checkImageExists(settings.backgroundImagePath!);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    final scaffold = Scaffold(
-      backgroundColor: hasImage ? Colors.transparent : null,
-      extendBodyBehindAppBar: hasImage,
-      body: IndexedStack(
-        index: _currentIndex,
-        children: [
-          FeaturePage(
-            onConversationTap: _navigateToChat,
-            onRoleChanged: _roleChanged,
-          ),
-          ChatPage(
-            conversationId: _targetConversationId,
-            roleChangeSerial: _roleChangeSerial,
-            onConversationLoaded: () {
+    final scaffold = PopScope(
+      canPop: _canExitFromRoot,
+      onPopInvokedWithResult: (didPop, _) => _handleRootBack(didPop),
+      child: Scaffold(
+        backgroundColor: hasImage ? Colors.transparent : null,
+        extendBodyBehindAppBar: hasImage,
+        body: IndexedStack(
+          index: _currentIndex,
+          children: [
+            FeaturePage(
+              onConversationTap: _navigateToChat,
+              onRoleChanged: _roleChanged,
+              onBackHandlerChanged: _setFeatureBackHandler,
+            ),
+            ChatPage(
+              conversationId: _targetConversationId,
+              roleChangeSerial: _roleChangeSerial,
+              onBackHandlerChanged: _setChatBackHandler,
+              onBackAvailabilityChanged: _setChatBackAvailability,
+              onConversationLoaded: () {
+                _targetConversationId = null;
+              },
+            ),
+            const SettingsPage(),
+          ],
+        ),
+        bottomNavigationBar: BottomNavigationBar(
+          currentIndex: _currentIndex,
+          onTap: (index) {
+            setState(() {
+              _currentIndex = index;
               _targetConversationId = null;
-            },
-          ),
-          const SettingsPage(),
-        ],
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-            _targetConversationId = null;
-          });
-        },
-        selectedItemColor: settings.themeColor,
-        unselectedItemColor: Colors.grey,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.widgets_outlined),
-            label: '功能',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.chat_bubble_outline),
-            label: '对话',
-          ),
-          BottomNavigationBarItem(icon: Icon(Icons.settings), label: '设置'),
-        ],
+            });
+          },
+          selectedItemColor: settings.themeColor,
+          unselectedItemColor: Colors.grey,
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(Icons.widgets_outlined),
+              label: '功能',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.chat_bubble_outline),
+              label: '对话',
+            ),
+            BottomNavigationBarItem(icon: Icon(Icons.settings), label: '设置'),
+          ],
+        ),
       ),
     );
 
