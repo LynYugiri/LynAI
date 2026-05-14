@@ -26,6 +26,60 @@ String _safeExportFileName(String name, String fallback) {
   return cleaned.isEmpty ? fallback : cleaned;
 }
 
+const _exportImagePixelRatio = 2.5;
+const _exportTextChunkLength = 2800;
+const _exportTodoPageWeight = 3200;
+const _exportTodoItemChunkLength = 1200;
+
+SnackBar _shortSnackBar(String message) {
+  return SnackBar(
+    content: Builder(
+      builder: (context) {
+        final messenger = ScaffoldMessenger.of(context);
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: messenger.hideCurrentSnackBar,
+          child: Text(message),
+        );
+      },
+    ),
+    duration: const Duration(seconds: 2),
+    showCloseIcon: true,
+  );
+}
+
+String _imageFileName(String prefix, int timestamp, int index, int total) {
+  final suffix = total == 1 ? '' : '_part_${index + 1}_of_$total';
+  return '${prefix}_$timestamp$suffix.png';
+}
+
+String _imageDoneText(String base, int count) {
+  return count == 1 ? base : '$base，共 $count 张';
+}
+
+List<String> _splitExportText(String text) {
+  final trimmed = text.trim();
+  if (trimmed.length <= _exportTextChunkLength) return [trimmed];
+  final chunks = <String>[];
+  var start = 0;
+  while (start < trimmed.length) {
+    var end = (start + _exportTextChunkLength).clamp(0, trimmed.length);
+    if (end < trimmed.length) {
+      final paragraphBreak = trimmed.lastIndexOf('\n\n', end);
+      final lineBreak = trimmed.lastIndexOf('\n', end);
+      final space = trimmed.lastIndexOf(' ', end);
+      final splitAt = [paragraphBreak, lineBreak, space]
+          .where((i) => i > start + (_exportTextChunkLength ~/ 2))
+          .fold<int>(-1, (best, i) => i > best ? i : best);
+      if (splitAt != -1) end = splitAt;
+    }
+    final chunk = trimmed.substring(start, end).trim();
+    if (chunk.isNotEmpty) chunks.add(chunk);
+    start = end;
+  }
+  return chunks.isEmpty ? [''] : chunks;
+}
+
 class FeaturePage extends StatefulWidget {
   final void Function(String conversationId) onConversationTap;
   final VoidCallback onRoleChanged;
@@ -2951,60 +3005,83 @@ class _NotesPageState extends State<_NotesPage> {
 
   Future<void> _exportNoteImage(Note note) async {
     final theme = Theme.of(context);
-    final bytes = await _shot.captureFromLongWidget(
-      _NoteShareImage(
-        title: note.title,
-        content: note.content,
-        seedColor: theme.colorScheme.primary,
-        brightness: theme.brightness,
-      ),
-      pixelRatio: 2.5,
-      context: context,
-      constraints: const BoxConstraints(maxWidth: 720),
-    );
+    final bytes = <Uint8List>[];
+    final pages = _splitExportText(note.content);
+    for (var i = 0; i < pages.length; i++) {
+      bytes.add(
+        await _shot.captureFromLongWidget(
+          _NoteShareImage(
+            title: note.title,
+            content: pages[i],
+            seedColor: theme.colorScheme.primary,
+            brightness: theme.brightness,
+            pageNumber: pages.length == 1 ? null : i + 1,
+            pageCount: pages.length == 1 ? null : pages.length,
+          ),
+          pixelRatio: _exportImagePixelRatio,
+          context: context,
+          constraints: const BoxConstraints(maxWidth: 720),
+        ),
+      );
+    }
     if (!mounted) return;
     await _writeNoteImage(bytes);
   }
 
-  Future<void> _writeNoteImage(Uint8List bytes) async {
-    final fileName = 'note_${DateTime.now().millisecondsSinceEpoch}.png';
+  Future<void> _writeNoteImage(List<Uint8List> images) async {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
     try {
       if (Platform.isLinux || Platform.isMacOS || Platform.isWindows) {
         final clipboard = SystemClipboard.instance;
         if (clipboard == null) throw Exception('当前平台不支持写入剪贴板');
-        final item = DataWriterItem(suggestedName: fileName);
-        item.add(Formats.png(bytes));
-        await clipboard.write([item]);
+        final items = <DataWriterItem>[];
+        for (var i = 0; i < images.length; i++) {
+          final item = DataWriterItem(
+            suggestedName: _imageFileName('note', timestamp, i, images.length),
+          );
+          item.add(Formats.png(images[i]));
+          items.add(item);
+        }
+        await clipboard.write(items);
         if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('笔记图片已复制到剪贴板')));
+        _showImageSnack(_imageDoneText('笔记图片已复制到剪贴板', images.length));
         return;
       }
       if (Platform.isAndroid || Platform.isIOS) {
-        final result = await _nativeTools.invokeMapMethod<String, dynamic>(
-          'saveImageToGallery',
-          {'bytes': bytes, 'fileName': fileName},
-        );
-        if (result?['ok'] != true) {
-          throw Exception(result?['error'] ?? '保存到图库失败');
+        for (var i = 0; i < images.length; i++) {
+          final result = await _nativeTools
+              .invokeMapMethod<String, dynamic>('saveImageToGallery', {
+                'bytes': images[i],
+                'fileName': _imageFileName('note', timestamp, i, images.length),
+              });
+          if (result?['ok'] != true) {
+            throw Exception(result?['error'] ?? '保存到图库失败');
+          }
         }
         if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('笔记图片已保存到图库')));
+        _showImageSnack(_imageDoneText('笔记图片已保存到图库', images.length));
         return;
       }
       final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/$fileName');
-      await file.writeAsBytes(bytes, flush: true);
-      await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
+      final files = <XFile>[];
+      for (var i = 0; i < images.length; i++) {
+        final file = File(
+          '${dir.path}/${_imageFileName('note', timestamp, i, images.length)}',
+        );
+        await file.writeAsBytes(images[i], flush: true);
+        files.add(XFile(file.path));
+      }
+      await SharePlus.instance.share(ShareParams(files: files));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('导出图片失败: $e')));
+      _showImageSnack('导出图片失败: $e');
     }
+  }
+
+  void _showImageSnack(String message) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(_shortSnackBar(message));
   }
 
   Future<void> _deleteNote(Note note) async {
@@ -3526,60 +3603,141 @@ class _TodoListsPageState extends State<_TodoListsPage> {
   }
 
   Future<void> _exportImage(TodoList list) async {
-    final bytes = await _captureTodoImage(list);
-    if (bytes == null) return;
-    final fileName = 'todo_${DateTime.now().millisecondsSinceEpoch}.png';
+    final images = await _captureTodoImages(list);
+    if (images.isEmpty) return;
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
     try {
       if (_isDesktopPlatform) {
         final clipboard = SystemClipboard.instance;
         if (clipboard == null) throw Exception('当前平台不支持写入剪贴板');
-        final item = DataWriterItem(suggestedName: fileName);
-        item.add(Formats.png(bytes));
-        await clipboard.write([item]);
+        final items = <DataWriterItem>[];
+        for (var i = 0; i < images.length; i++) {
+          final item = DataWriterItem(
+            suggestedName: _imageFileName('todo', timestamp, i, images.length),
+          );
+          item.add(Formats.png(images[i]));
+          items.add(item);
+        }
+        await clipboard.write(items);
         if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('待办清单图片已复制到剪贴板')));
+        _showImageSnack(_imageDoneText('待办清单图片已复制到剪贴板', images.length));
         return;
       }
       if (Platform.isAndroid || Platform.isIOS) {
-        final result = await _nativeTools.invokeMapMethod<String, dynamic>(
-          'saveImageToGallery',
-          {'bytes': bytes, 'fileName': fileName},
-        );
-        if (result?['ok'] != true) {
-          throw Exception(result?['error'] ?? '保存到图库失败');
+        for (var i = 0; i < images.length; i++) {
+          final result = await _nativeTools
+              .invokeMapMethod<String, dynamic>('saveImageToGallery', {
+                'bytes': images[i],
+                'fileName': _imageFileName('todo', timestamp, i, images.length),
+              });
+          if (result?['ok'] != true) {
+            throw Exception(result?['error'] ?? '保存到图库失败');
+          }
         }
         if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('待办清单图片已保存到图库')));
+        _showImageSnack(_imageDoneText('待办清单图片已保存到图库', images.length));
         return;
       }
       final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/$fileName');
-      await file.writeAsBytes(bytes, flush: true);
-      await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
+      final files = <XFile>[];
+      for (var i = 0; i < images.length; i++) {
+        final file = File(
+          '${dir.path}/${_imageFileName('todo', timestamp, i, images.length)}',
+        );
+        await file.writeAsBytes(images[i], flush: true);
+        files.add(XFile(file.path));
+      }
+      await SharePlus.instance.share(ShareParams(files: files));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('导出图片失败: $e')));
+      _showImageSnack('导出图片失败: $e');
     }
   }
 
-  Future<Uint8List?> _captureTodoImage(TodoList list) {
+  Future<List<Uint8List>> _captureTodoImages(TodoList list) async {
     final theme = Theme.of(context);
-    return _shot.captureFromLongWidget(
-      _TodoShareImage(
-        list: list,
-        seedColor: theme.colorScheme.primary,
-        brightness: theme.brightness,
-      ),
-      pixelRatio: 2.5,
-      context: context,
-      constraints: const BoxConstraints(maxWidth: 720),
-    );
+    final chunks = _todoImagePages(list.items);
+    final images = <Uint8List>[];
+    for (var i = 0; i < chunks.length; i++) {
+      images.add(
+        await _shot.captureFromLongWidget(
+          _TodoShareImage(
+            list: list.copyWith(items: chunks[i]),
+            totalCount: list.items.length,
+            totalDone: list.items.where((e) => e.done).length,
+            seedColor: theme.colorScheme.primary,
+            brightness: theme.brightness,
+            pageNumber: chunks.length == 1 ? null : i + 1,
+            pageCount: chunks.length == 1 ? null : chunks.length,
+          ),
+          pixelRatio: _exportImagePixelRatio,
+          context: context,
+          constraints: const BoxConstraints(maxWidth: 720),
+        ),
+      );
+    }
+    return images;
+  }
+
+  List<List<TodoItem>> _todoImagePages(List<TodoItem> items) {
+    if (items.isEmpty) return const [[]];
+    final pages = <List<TodoItem>>[];
+    var current = <TodoItem>[];
+    var currentWeight = 0;
+    for (final item in items.expand(_splitTodoItemForImage)) {
+      final weight = item.text.length + 120;
+      if (current.isNotEmpty &&
+          currentWeight + weight > _exportTodoPageWeight) {
+        pages.add(current);
+        current = <TodoItem>[];
+        currentWeight = 0;
+      }
+      current.add(item);
+      currentWeight += weight;
+    }
+    if (current.isNotEmpty) pages.add(current);
+    return pages;
+  }
+
+  Iterable<TodoItem> _splitTodoItemForImage(TodoItem item) sync* {
+    if (item.text.length <= _exportTodoItemChunkLength) {
+      yield item;
+      return;
+    }
+    final chunks = _splitTodoTextForImage(item.text);
+    for (var i = 0; i < chunks.length; i++) {
+      yield TodoItem(
+        id: '${item.id}_export_$i',
+        text: chunks[i],
+        done: item.done,
+      );
+    }
+  }
+
+  List<String> _splitTodoTextForImage(String text) {
+    final chunks = <String>[];
+    var start = 0;
+    while (start < text.length) {
+      var end = (start + _exportTodoItemChunkLength).clamp(0, text.length);
+      if (end < text.length) {
+        final lineBreak = text.lastIndexOf('\n', end);
+        final space = text.lastIndexOf(' ', end);
+        final splitAt = [lineBreak, space]
+            .where((i) => i > start + (_exportTodoItemChunkLength ~/ 2))
+            .fold<int>(-1, (best, i) => i > best ? i : best);
+        if (splitAt != -1) end = splitAt;
+      }
+      final chunk = text.substring(start, end).trim();
+      if (chunk.isNotEmpty) chunks.add(chunk);
+      start = end;
+    }
+    return chunks;
+  }
+
+  void _showImageSnack(String message) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(_shortSnackBar(message));
   }
 
   bool get _isDesktopPlatform {
@@ -3619,13 +3777,21 @@ class _TodoListsPageState extends State<_TodoListsPage> {
 
 class _TodoShareImage extends StatelessWidget {
   final TodoList list;
+  final int? totalCount;
+  final int? totalDone;
   final Color seedColor;
   final Brightness brightness;
+  final int? pageNumber;
+  final int? pageCount;
 
   const _TodoShareImage({
     required this.list,
+    this.totalCount,
+    this.totalDone,
     required this.seedColor,
     required this.brightness,
+    this.pageNumber,
+    this.pageCount,
   });
 
   @override
@@ -3635,7 +3801,8 @@ class _TodoShareImage extends StatelessWidget {
       seedColor: seedColor,
       brightness: brightness,
     );
-    final done = list.items.where((e) => e.done).length;
+    final done = totalDone ?? list.items.where((e) => e.done).length;
+    final count = totalCount ?? list.items.length;
     final bgColor = Color.lerp(
       scheme.surface,
       scheme.primary,
@@ -3692,7 +3859,7 @@ class _TodoShareImage extends StatelessWidget {
                       ),
                       const SizedBox(height: 5),
                       Text(
-                        '待办清单 · ${list.items.length} 项 · 已完成 $done 项',
+                        '待办清单 · $count 项 · 已完成 $done 项',
                         style: TextStyle(color: mutedColor, fontSize: 16),
                       ),
                     ],
@@ -3763,7 +3930,9 @@ class _TodoShareImage extends StatelessWidget {
             ),
             const SizedBox(height: 18),
             Text(
-              'Exported from LynAI',
+              pageNumber == null || pageCount == null
+                  ? 'Exported from LynAI'
+                  : 'Exported from LynAI · $pageNumber/$pageCount',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: mutedColor,
@@ -4009,45 +4178,54 @@ class _NoteDetailState extends State<_NoteDetail> {
     _save();
     final note = _features.getNote(widget.noteId);
     if (note == null) return;
-    final bytes = await _captureNoteImage(note.title, _ctrl.text);
-    if (bytes == null) return;
-    final fileName = 'note_${DateTime.now().millisecondsSinceEpoch}.png';
+    final images = await _captureNoteImages(note.title, _ctrl.text);
+    if (images.isEmpty) return;
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
     try {
       if (_isDesktopPlatform) {
         final clipboard = SystemClipboard.instance;
         if (clipboard == null) throw Exception('当前平台不支持写入剪贴板');
-        final item = DataWriterItem(suggestedName: fileName);
-        item.add(Formats.png(bytes));
-        await clipboard.write([item]);
+        final items = <DataWriterItem>[];
+        for (var i = 0; i < images.length; i++) {
+          final item = DataWriterItem(
+            suggestedName: _imageFileName('note', timestamp, i, images.length),
+          );
+          item.add(Formats.png(images[i]));
+          items.add(item);
+        }
+        await clipboard.write(items);
         if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('笔记图片已复制到剪贴板')));
+        _showImageSnack(_imageDoneText('笔记图片已复制到剪贴板', images.length));
         return;
       }
       if (Platform.isAndroid || Platform.isIOS) {
-        final result = await _nativeTools.invokeMapMethod<String, dynamic>(
-          'saveImageToGallery',
-          {'bytes': bytes, 'fileName': fileName},
-        );
-        if (result?['ok'] != true) {
-          throw Exception(result?['error'] ?? '保存到图库失败');
+        for (var i = 0; i < images.length; i++) {
+          final result = await _nativeTools
+              .invokeMapMethod<String, dynamic>('saveImageToGallery', {
+                'bytes': images[i],
+                'fileName': _imageFileName('note', timestamp, i, images.length),
+              });
+          if (result?['ok'] != true) {
+            throw Exception(result?['error'] ?? '保存到图库失败');
+          }
         }
         if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('笔记图片已保存到图库')));
+        _showImageSnack(_imageDoneText('笔记图片已保存到图库', images.length));
         return;
       }
       final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/$fileName');
-      await file.writeAsBytes(bytes, flush: true);
-      await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
+      final files = <XFile>[];
+      for (var i = 0; i < images.length; i++) {
+        final file = File(
+          '${dir.path}/${_imageFileName('note', timestamp, i, images.length)}',
+        );
+        await file.writeAsBytes(images[i], flush: true);
+        files.add(XFile(file.path));
+      }
+      await SharePlus.instance.share(ShareParams(files: files));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('导出图片失败: $e')));
+      _showImageSnack('导出图片失败: $e');
     }
   }
 
@@ -4055,37 +4233,57 @@ class _NoteDetailState extends State<_NoteDetail> {
     _save();
     final note = _features.getNote(widget.noteId);
     if (note == null) return;
-    final bytes = await _captureNoteImage(note.title, _ctrl.text);
-    if (bytes == null) return;
+    final images = await _captureNoteImages(note.title, _ctrl.text);
+    if (images.isEmpty) return;
     try {
       final dir = await getTemporaryDirectory();
-      final file = File(
-        '${dir.path}/note_${DateTime.now().millisecondsSinceEpoch}.png',
-      );
-      await file.writeAsBytes(bytes, flush: true);
-      await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final files = <XFile>[];
+      for (var i = 0; i < images.length; i++) {
+        final file = File(
+          '${dir.path}/${_imageFileName('note', timestamp, i, images.length)}',
+        );
+        await file.writeAsBytes(images[i], flush: true);
+        files.add(XFile(file.path));
+      }
+      await SharePlus.instance.share(ShareParams(files: files));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('分享失败: $e')));
+      _showImageSnack('分享失败: $e');
     }
   }
 
-  Future<Uint8List?> _captureNoteImage(String title, String content) {
+  Future<List<Uint8List>> _captureNoteImages(
+    String title,
+    String content,
+  ) async {
     final theme = Theme.of(context);
-    final shareWidget = _NoteShareImage(
-      title: title,
-      content: content,
-      seedColor: theme.colorScheme.primary,
-      brightness: theme.brightness,
-    );
-    return _shot.captureFromLongWidget(
-      shareWidget,
-      pixelRatio: 2.5,
-      context: context,
-      constraints: const BoxConstraints(maxWidth: 720),
-    );
+    final pages = _splitExportText(content);
+    final images = <Uint8List>[];
+    for (var i = 0; i < pages.length; i++) {
+      images.add(
+        await _shot.captureFromLongWidget(
+          _NoteShareImage(
+            title: title,
+            content: pages[i],
+            seedColor: theme.colorScheme.primary,
+            brightness: theme.brightness,
+            pageNumber: pages.length == 1 ? null : i + 1,
+            pageCount: pages.length == 1 ? null : pages.length,
+          ),
+          pixelRatio: _exportImagePixelRatio,
+          context: context,
+          constraints: const BoxConstraints(maxWidth: 720),
+        ),
+      );
+    }
+    return images;
+  }
+
+  void _showImageSnack(String message) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(_shortSnackBar(message));
   }
 
   bool get _isDesktopPlatform {
@@ -4121,12 +4319,16 @@ class _NoteShareImage extends StatelessWidget {
   final String content;
   final Color seedColor;
   final Brightness brightness;
+  final int? pageNumber;
+  final int? pageCount;
 
   const _NoteShareImage({
     required this.title,
     required this.content,
     required this.seedColor,
     required this.brightness,
+    this.pageNumber,
+    this.pageCount,
   });
 
   @override
@@ -4225,7 +4427,9 @@ class _NoteShareImage extends StatelessWidget {
             ),
             const SizedBox(height: 18),
             Text(
-              'Exported from LynAI',
+              pageNumber == null || pageCount == null
+                  ? 'Exported from LynAI'
+                  : 'Exported from LynAI · $pageNumber/$pageCount',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: mutedColor,

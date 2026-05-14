@@ -13,6 +13,23 @@ import 'package:super_clipboard/super_clipboard.dart';
 
 const _codeFontFamily = 'Hurmit Nerd Font';
 
+SnackBar _shortSnackBar(String message) {
+  return SnackBar(
+    content: Builder(
+      builder: (context) {
+        final messenger = ScaffoldMessenger.of(context);
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: messenger.hideCurrentSnackBar,
+          child: Text(message),
+        );
+      },
+    ),
+    duration: const Duration(seconds: 2),
+    showCloseIcon: true,
+  );
+}
+
 class LatexRenderer {
   static List<InlineSpan> parseToSpans(String text, BuildContext context) {
     final spans = <InlineSpan>[];
@@ -1076,9 +1093,7 @@ class _ExportableBlock extends StatelessWidget {
       await _writeImage(context, bytes);
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('导出图片失败: $e')));
+      _showImageSnack(context, '导出图片失败: $e');
     }
   }
 
@@ -1091,9 +1106,7 @@ class _ExportableBlock extends StatelessWidget {
       item.add(Formats.png(bytes));
       await clipboard.write([item]);
       if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('图片已复制到剪贴板')));
+      _showImageSnack(context, '图片已复制到剪贴板');
       return;
     }
     if (Platform.isAndroid || Platform.isIOS) {
@@ -1105,9 +1118,7 @@ class _ExportableBlock extends StatelessWidget {
         throw Exception(result?['error'] ?? '保存到图库失败');
       }
       if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('图片已保存到图库')));
+      _showImageSnack(context, '图片已保存到图库');
       return;
     }
     final dir = await getTemporaryDirectory();
@@ -1118,6 +1129,12 @@ class _ExportableBlock extends StatelessWidget {
 
   bool get _isDesktopPlatform {
     return Platform.isLinux || Platform.isMacOS || Platform.isWindows;
+  }
+
+  void _showImageSnack(BuildContext context, String message) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(_shortSnackBar(message));
   }
 }
 

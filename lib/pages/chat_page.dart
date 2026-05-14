@@ -127,6 +127,10 @@ class _ChatPageState extends State<ChatPage> {
   String? _retryMsgId;
   int _retryIdx = 0;
 
+  static const _shareImagePixelRatio = 2.5;
+  static const _sharePageMaxWeight = 3600;
+  static const _shareMessageChunkLength = 2800;
+
   late stt.SpeechToText _speech;
   StreamSubscription<StreamChunk>? _sub;
   String? _recordPath;
@@ -1094,38 +1098,46 @@ class _ChatPageState extends State<ChatPage> {
     }
     try {
       setState(() => _sharingImage = true);
-      final bytes = await _captureShareImage();
-      if (bytes == null) return;
-      final f = File(
-        '${Directory.systemTemp.path}/lynai_${DateTime.now().millisecondsSinceEpoch}.png',
-      );
-      await f.writeAsBytes(bytes);
+      final images = await _captureShareImages();
+      if (images.isEmpty) return;
       if (mounted) {
         if (_isDesktopPlatform) {
           final clipboard = SystemClipboard.instance;
           if (clipboard == null) {
             throw Exception('当前平台不支持写入剪贴板');
           }
-          final item = DataWriterItem(suggestedName: 'LynAI 对话.png');
-          item.add(Formats.png(bytes));
-          await clipboard.write([item]);
+          final items = <DataWriterItem>[];
+          for (var i = 0; i < images.length; i++) {
+            final suffix = images.length == 1 ? '' : ' ${i + 1}';
+            final item = DataWriterItem(suggestedName: 'LynAI 对话$suffix.png');
+            item.add(Formats.png(images[i]));
+            items.add(item);
+          }
+          await clipboard.write(items);
           if (mounted) {
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(const SnackBar(content: Text('长图已复制到剪贴板')));
+            _showShareImageSnack(
+              _shareImageDoneText('长图已复制到剪贴板', images.length),
+            );
           }
         } else {
+          final files = <XFile>[];
+          final timestamp = DateTime.now().millisecondsSinceEpoch;
+          for (var i = 0; i < images.length; i++) {
+            final f = File(
+              '${Directory.systemTemp.path}/${_shareImageFileName(timestamp, i, images.length)}',
+            );
+            await f.writeAsBytes(images[i]);
+            files.add(XFile(f.path));
+          }
           await SharePlus.instance.share(
-            ShareParams(files: [XFile(f.path)], text: 'LynAI 对话'),
+            ShareParams(files: files, text: 'LynAI 对话'),
           );
         }
         _cancelShareSelection();
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('分享失败: $e')));
+        _showShareImageSnack('分享失败: $e');
       }
     } finally {
       if (mounted) setState(() => _sharingImage = false);
@@ -1138,23 +1150,24 @@ class _ChatPageState extends State<ChatPage> {
     }
     try {
       setState(() => _sharingImage = true);
-      final bytes = await _captureShareImage();
-      if (bytes == null) return;
-      final fileName =
-          'lynai_share_${DateTime.now().millisecondsSinceEpoch}.png';
+      final images = await _captureShareImages();
+      if (images.isEmpty) return;
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
       if (Platform.isAndroid) {
-        final result = await _nativeToolsChannel
-            .invokeMapMethod<String, dynamic>('saveImageToGallery', {
-              'bytes': bytes,
-              'fileName': fileName,
-            });
-        if (result?['ok'] != true) {
-          throw Exception(result?['error'] ?? '保存到图库失败');
+        for (var i = 0; i < images.length; i++) {
+          final result = await _nativeToolsChannel
+              .invokeMapMethod<String, dynamic>('saveImageToGallery', {
+                'bytes': images[i],
+                'fileName': _shareImageFileName(timestamp, i, images.length),
+              });
+          if (result?['ok'] != true) {
+            throw Exception(result?['error'] ?? '保存到图库失败');
+          }
         }
         if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('长图已保存到 Pictures/LynAI')));
+        _showShareImageSnack(
+          _shareImageDoneText('长图已保存到 Pictures/LynAI', images.length),
+        );
         return;
       }
       Directory? dir;
@@ -1164,53 +1177,158 @@ class _ChatPageState extends State<ChatPage> {
         dir = null;
       }
       dir ??= await getApplicationDocumentsDirectory();
-      final file = File('${dir.path}/$fileName');
-      await file.writeAsBytes(bytes, flush: true);
+      final files = <File>[];
+      for (var i = 0; i < images.length; i++) {
+        final file = File(
+          '${dir.path}/${_shareImageFileName(timestamp, i, images.length)}',
+        );
+        await file.writeAsBytes(images[i], flush: true);
+        files.add(file);
+      }
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('长图已保存到 ${file.path}')));
+      _showShareImageSnack(_savedShareImagePathText(files));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('保存失败: $e')));
+      _showShareImageSnack('保存失败: $e');
     } finally {
       if (mounted) setState(() => _sharingImage = false);
     }
   }
 
-  Future<Uint8List?> _captureShareImage() async {
-    if (_convId == null) return null;
+  Future<List<Uint8List>> _captureShareImages() async {
+    if (_convId == null) return const [];
     final conv = context.read<ConversationProvider>().getConversation(_convId!);
-    if (conv == null) return null;
+    if (conv == null) return const [];
     final selected = conv.messages
         .where((m) => _selectedShareMessageIds.contains(m.id))
         .toList(growable: false);
-    if (selected.isEmpty) return null;
+    if (selected.isEmpty) return const [];
     final settings = context.read<SettingsProvider>().settings;
     final brightness = Theme.of(context).brightness;
-    final shareWidget = _ShareConversationImage(
-      title: conv.title,
-      messages: selected,
-      seedColor: settings.themeColor,
-      brightness: brightness,
-    );
-    const pixelRatio = 2.5;
+    final pages = _shareMessagePages(selected);
+    final images = <Uint8List>[];
+    for (var i = 0; i < pages.length; i++) {
+      final shareWidget = _ShareConversationImage(
+        title: conv.title,
+        messages: pages[i],
+        seedColor: settings.themeColor,
+        brightness: brightness,
+        pageNumber: pages.length == 1 ? null : i + 1,
+        pageCount: pages.length == 1 ? null : pages.length,
+      );
+      images.add(await _captureSharePageImage(shareWidget));
+    }
+    return images;
+  }
+
+  Future<Uint8List> _captureSharePageImage(Widget shareWidget) async {
     try {
       return await _screenshotCtrl.captureFromLongWidget(
         shareWidget,
-        pixelRatio: pixelRatio,
+        pixelRatio: _shareImagePixelRatio,
         context: context,
         constraints: const BoxConstraints(maxWidth: 720),
       );
     } catch (_) {
       return _screenshotCtrl.captureFromWidget(
         shareWidget,
-        pixelRatio: pixelRatio,
+        pixelRatio: _shareImagePixelRatio,
         context: context,
       );
     }
+  }
+
+  List<List<Message>> _shareMessagePages(List<Message> messages) {
+    final pages = <List<Message>>[];
+    var current = <Message>[];
+    var currentWeight = 0;
+    for (final message in messages.expand(_splitShareMessage)) {
+      final weight = _shareMessageWeight(message);
+      if (current.isNotEmpty && currentWeight + weight > _sharePageMaxWeight) {
+        pages.add(current);
+        current = <Message>[];
+        currentWeight = 0;
+      }
+      current.add(message);
+      currentWeight += weight;
+    }
+    if (current.isNotEmpty) pages.add(current);
+    return pages;
+  }
+
+  Iterable<Message> _splitShareMessage(Message message) sync* {
+    final content = message.content.trim();
+    if (content.length <= _shareMessageChunkLength) {
+      yield message;
+      return;
+    }
+
+    final chunks = _splitTextForShare(content);
+    for (var i = 0; i < chunks.length; i++) {
+      yield Message(
+        id: '${message.id}_share_$i',
+        role: message.role,
+        content: chunks[i],
+        images: i == 0 ? message.images : const [],
+        thinkingContent: i == 0 ? message.thinkingContent : null,
+        timestamp: message.timestamp,
+      );
+    }
+  }
+
+  List<String> _splitTextForShare(String text) {
+    final chunks = <String>[];
+    var start = 0;
+    while (start < text.length) {
+      var end = (start + _shareMessageChunkLength).clamp(0, text.length);
+      if (end < text.length) {
+        final paragraphBreak = text.lastIndexOf('\n\n', end);
+        final lineBreak = text.lastIndexOf('\n', end);
+        final space = text.lastIndexOf(' ', end);
+        final splitAt = [paragraphBreak, lineBreak, space]
+            .where((i) => i > start + (_shareMessageChunkLength ~/ 2))
+            .fold<int>(-1, (best, i) => i > best ? i : best);
+        if (splitAt != -1) end = splitAt;
+      }
+      final chunk = text.substring(start, end).trim();
+      if (chunk.isNotEmpty) chunks.add(chunk);
+      start = end;
+    }
+    return chunks;
+  }
+
+  int _shareMessageWeight(Message message) {
+    return message.content.length + message.images.length * 800 + 300;
+  }
+
+  String _shareImageFileName(int timestamp, int index, int total) {
+    final suffix = total == 1 ? '' : '_part_${index + 1}_of_$total';
+    return 'lynai_share_$timestamp$suffix.png';
+  }
+
+  String _shareImageDoneText(String base, int count) {
+    return count == 1 ? base : '$base，共 $count 张';
+  }
+
+  String _savedShareImagePathText(List<File> files) {
+    if (files.length == 1) return '长图已保存到 ${files.single.path}';
+    return '长图已拆分为 ${files.length} 张，保存到 ${files.first.parent.path}';
+  }
+
+  void _showShareImageSnack(String message) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: messenger.hideCurrentSnackBar,
+          child: Text(message),
+        ),
+        duration: const Duration(seconds: 2),
+        showCloseIcon: true,
+      ),
+    );
   }
 
   bool get _isDesktopPlatform {
@@ -3486,12 +3604,16 @@ class _ShareConversationImage extends StatelessWidget {
   final List<Message> messages;
   final Color seedColor;
   final Brightness brightness;
+  final int? pageNumber;
+  final int? pageCount;
 
   const _ShareConversationImage({
     required this.title,
     required this.messages,
     required this.seedColor,
     required this.brightness,
+    this.pageNumber,
+    this.pageCount,
   });
 
   @override
@@ -3561,7 +3683,9 @@ class _ShareConversationImage extends StatelessWidget {
             ),
             const SizedBox(height: 18),
             Text(
-              'Shared from LynAI',
+              pageNumber == null || pageCount == null
+                  ? 'Shared from LynAI'
+                  : 'Shared from LynAI · $pageNumber/$pageCount',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: mutedColor,
