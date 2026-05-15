@@ -119,14 +119,18 @@ class LatexRenderer {
 
 class _MathBlock extends StatelessWidget {
   final String formula;
+  final String rawSource;
   final TextStyle? textStyle;
   final bool selectable;
+  final VoidCallback? onEdit;
 
   const _MathBlock({
     required this.formula,
+    String? rawSource,
     this.textStyle,
     this.selectable = true,
-  });
+    this.onEdit,
+  }) : rawSource = rawSource ?? formula;
 
   @override
   Widget build(BuildContext context) {
@@ -135,8 +139,9 @@ class _MathBlock extends StatelessWidget {
     try {
       return _ExportableBlock(
         label: label,
-        source: formula,
+        source: rawSource,
         includeActions: selectable,
+        onEdit: onEdit,
         margin: const EdgeInsets.symmetric(vertical: 10),
         decoration: BoxDecoration(
           color: theme.colorScheme.surfaceContainerHighest.withValues(
@@ -217,8 +222,9 @@ class _MathBlock extends StatelessWidget {
   Widget _fallback(String formula, ThemeData theme) {
     return _ExportableBlock(
       label: 'LaTeX',
-      source: formula,
+      source: rawSource,
       includeActions: selectable,
+      onEdit: onEdit,
       margin: const EdgeInsets.symmetric(vertical: 10),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
@@ -316,6 +322,22 @@ class _LatexInlineSyntax extends md.InlineSyntax {
   }
 }
 
+class _LatexParenthesizedInlineSyntax extends md.InlineSyntax {
+  _LatexParenthesizedInlineSyntax() : super(r'\\\((.+?)\\\)');
+
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    final formula = match[1]!;
+    if (LatexRenderer._looksLikeMath(formula)) {
+      final element = md.Element.text('inlineLatex', formula.trim());
+      parser.addNode(element);
+    } else {
+      parser.addNode(md.Text('\\($formula\\)'));
+    }
+    return true;
+  }
+}
+
 class _LatexBuilder extends MarkdownElementBuilder {
   final TextStyle? textStyle;
 
@@ -335,6 +357,7 @@ class MarkdownWithLatex extends StatelessWidget {
   final TextStyle? textStyle;
   final bool selectable;
   final bool wrapCodeBlocks;
+  final void Function(String source, int start, int end)? onEditLatexBlock;
 
   const MarkdownWithLatex({
     super.key,
@@ -342,11 +365,16 @@ class MarkdownWithLatex extends StatelessWidget {
     this.textStyle,
     this.selectable = true,
     this.wrapCodeBlocks = false,
+    this.onEditLatexBlock,
   });
 
   static final _inlineRegExp = RegExp(r'\$(.+?)\$');
   static bool _hasInlineMath(String text) {
-    return _inlineRegExp
+    final dollarMath = _inlineRegExp
+        .allMatches(text)
+        .any((m) => LatexRenderer._looksLikeMath(m.group(1) ?? ''));
+    if (dollarMath) return true;
+    return RegExp(r'\\\((.+?)\\\)')
         .allMatches(text)
         .any((m) => LatexRenderer._looksLikeMath(m.group(1) ?? ''));
   }
@@ -423,6 +451,7 @@ class MarkdownWithLatex extends StatelessWidget {
         ? [
             ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
             _LatexInlineSyntax(),
+            _LatexParenthesizedInlineSyntax(),
           ]
         : md.ExtensionSet.gitHubFlavored.inlineSyntaxes;
     return md.ExtensionSet(
@@ -470,7 +499,7 @@ class MarkdownWithLatex extends StatelessWidget {
 
   Widget _buildLatexContent(BuildContext context) {
     final segments = _splitFencedCodeBlocks(content);
-    final blockRegExp = RegExp(r'\$\$(.+?)\$\$', dotAll: true);
+    final blockRegExp = RegExp(r'\$\$(.+?)\$\$|\\\[(.+?)\\\]', dotAll: true);
     final widgets = <Widget>[];
 
     for (final segment in segments) {
@@ -479,32 +508,43 @@ class MarkdownWithLatex extends StatelessWidget {
         continue;
       }
 
-      final normalized = LatexRenderer._normalize(segment.text);
-      final parts = normalized.split(blockRegExp);
-      final blockMatches = blockRegExp.allMatches(normalized).toList();
-      for (var i = 0; i < parts.length; i++) {
-        if (i % 2 == 0) {
-          if (parts[i].isNotEmpty) {
-            if (_hasInlineMath(parts[i])) {
-              widgets.add(
-                _buildMarkdown(context, parts[i], withInlineLatex: true),
-              );
-            } else {
-              widgets.add(_buildMarkdown(context, parts[i]));
-            }
-          }
-        } else {
-          final idx = i ~/ 2;
-          if (idx < blockMatches.length) {
-            final formula = blockMatches[idx].group(1) ?? '';
+      var lastEnd = 0;
+      for (final match in blockRegExp.allMatches(segment.text)) {
+        final leading = segment.text.substring(lastEnd, match.start);
+        if (leading.isNotEmpty) {
+          if (_hasInlineMath(leading)) {
             widgets.add(
-              _MathBlock(
-                formula: formula.trim(),
-                textStyle: textStyle,
-                selectable: selectable,
-              ),
+              _buildMarkdown(context, leading, withInlineLatex: true),
             );
+          } else {
+            widgets.add(_buildMarkdown(context, leading));
           }
+        }
+        final source = match.group(0) ?? '';
+        final formula = (match.group(1) ?? match.group(2) ?? '').trim();
+        widgets.add(
+          _MathBlock(
+            formula: formula,
+            rawSource: source,
+            textStyle: textStyle,
+            selectable: selectable,
+            onEdit: onEditLatexBlock == null
+                ? null
+                : () => onEditLatexBlock!(
+                    source,
+                    segment.startOffset + match.start,
+                    segment.startOffset + match.end,
+                  ),
+          ),
+        );
+        lastEnd = match.end;
+      }
+      final trailing = segment.text.substring(lastEnd);
+      if (trailing.isNotEmpty) {
+        if (_hasInlineMath(trailing)) {
+          widgets.add(_buildMarkdown(context, trailing, withInlineLatex: true));
+        } else {
+          widgets.add(_buildMarkdown(context, trailing));
         }
       }
     }
@@ -529,15 +569,18 @@ class MarkdownWithLatex extends StatelessWidget {
     var inFence = false;
     var fenceMarker = '';
     var fenceLength = 0;
+    var bufferStart = 0;
+    var currentOffset = 0;
 
     void flush({required bool isFence}) {
       if (buffer.isEmpty) return;
-      segments.add(_MarkdownSegment(buffer.toString(), isFence));
+      segments.add(_MarkdownSegment(buffer.toString(), isFence, bufferStart));
       buffer.clear();
     }
 
     for (var i = 0; i < lines.length; i++) {
       final line = lines[i];
+      if (buffer.isEmpty) bufferStart = currentOffset;
       final openMatch = RegExp(r'^ {0,3}(`{3,}|~{3,})').firstMatch(line);
       final closeMatch = RegExp(
         r'^ {0,3}(`{3,}|~{3,})[ \t]*$',
@@ -551,7 +594,12 @@ class MarkdownWithLatex extends StatelessWidget {
       }
 
       buffer.write(line);
-      if (i != lines.length - 1) buffer.write('\n');
+      if (i != lines.length - 1) {
+        buffer.write('\n');
+        currentOffset += line.length + 1;
+      } else {
+        currentOffset += line.length;
+      }
 
       if (wasInFence && closeMatch != null) {
         final marker = closeMatch.group(1)!;
@@ -570,8 +618,9 @@ class MarkdownWithLatex extends StatelessWidget {
 class _MarkdownSegment {
   final String text;
   final bool isFencedCodeBlock;
+  final int startOffset;
 
-  const _MarkdownSegment(this.text, this.isFencedCodeBlock);
+  const _MarkdownSegment(this.text, this.isFencedCodeBlock, this.startOffset);
 }
 
 class _CodeBlockBuilder extends MarkdownElementBuilder {
@@ -990,6 +1039,7 @@ class _ExportableBlock extends StatelessWidget {
   final Widget child;
   final WidgetBuilder exportChildBuilder;
   final bool compactExport;
+  final VoidCallback? onEdit;
 
   const _ExportableBlock({
     required this.label,
@@ -1000,6 +1050,7 @@ class _ExportableBlock extends StatelessWidget {
     required this.exportChildBuilder,
     this.compactExport = false,
     this.margin,
+    this.onEdit,
   });
 
   @override
@@ -1049,6 +1100,12 @@ class _ExportableBlock extends StatelessWidget {
             ),
           ),
           if (includeActions) ...[
+            if (onEdit != null)
+              _BlockIconButton(
+                tooltip: '编辑',
+                icon: Icons.edit_outlined,
+                onTap: onEdit!,
+              ),
             _BlockIconButton(
               tooltip: '复制',
               icon: Icons.copy_all_outlined,

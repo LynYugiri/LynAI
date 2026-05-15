@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
@@ -11,6 +12,7 @@ import 'package:screenshot/screenshot.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:super_clipboard/super_clipboard.dart';
 import 'package:uuid/uuid.dart';
+import 'latex_formula_editor_page.dart';
 import '../models/chat_role.dart';
 import '../models/conversation.dart';
 import '../models/note.dart';
@@ -3969,16 +3971,32 @@ class _NoteDetailState extends State<_NoteDetail> {
 
   final _shot = ScreenshotController();
   late final TextEditingController _ctrl;
+  final _editorFocus = FocusNode();
+  final _findFocus = FocusNode();
+  final _editorScroll = ScrollController();
+  final _findCtrl = TextEditingController();
+  final _replaceCtrl = TextEditingController();
   late FeatureProvider _features;
   Timer? _timer;
+  var _showFind = false;
+  var _showReplace = false;
+  var _showLatexPanel = false;
+  var _caseSensitiveFind = false;
+  var _currentMatch = -1;
+  var _matches = <TextRange>[];
+  var _lastSavedDraft = '';
+  var _lastEditorSelection = const TextSelection.collapsed(offset: 0);
 
   @override
   void initState() {
     super.initState();
     _features = context.read<FeatureProvider>();
     final note = _features.getNote(widget.noteId);
-    _ctrl = TextEditingController(text: note?.content ?? '');
-    _ctrl.addListener(_scheduleSave);
+    _lastSavedDraft = note?.content ?? '';
+    _ctrl = TextEditingController(text: _lastSavedDraft);
+    _ctrl.addListener(_onEditorTextChanged);
+    _editorFocus.addListener(_refreshLatexPanel);
+    _findCtrl.addListener(_refreshMatches);
   }
 
   @override
@@ -3987,7 +4005,12 @@ class _NoteDetailState extends State<_NoteDetail> {
     if (oldWidget.noteId != widget.noteId) {
       _saveNote(oldWidget.noteId);
       final note = _features.getNote(widget.noteId);
-      _ctrl.text = note?.content ?? '';
+      _lastSavedDraft = note?.content ?? '';
+      _ctrl.text = _lastSavedDraft;
+      _lastEditorSelection = TextSelection.collapsed(
+        offset: _lastSavedDraft.length,
+      );
+      _refreshMatches();
     }
   }
 
@@ -3995,7 +4018,15 @@ class _NoteDetailState extends State<_NoteDetail> {
   void dispose() {
     _timer?.cancel();
     _save();
+    _ctrl.removeListener(_onEditorTextChanged);
+    _editorFocus.removeListener(_refreshLatexPanel);
+    _findCtrl.removeListener(_refreshMatches);
     _ctrl.dispose();
+    _editorFocus.dispose();
+    _findFocus.dispose();
+    _editorScroll.dispose();
+    _findCtrl.dispose();
+    _replaceCtrl.dispose();
     super.dispose();
   }
 
@@ -4025,11 +4056,19 @@ class _NoteDetailState extends State<_NoteDetail> {
                   widget.onEditingChanged(!widget.editing);
                 },
               ),
+              IconButton(
+                tooltip: '查找 / 替换',
+                icon: const Icon(Icons.find_replace),
+                onPressed: _openFind,
+              ),
               PopupMenuButton<String>(
                 onSelected: (v) => _menu(v, note),
                 itemBuilder: (_) => [
                   const PopupMenuItem(value: 'save', child: Text('保存')),
                   const PopupMenuItem(value: 'rename', child: Text('重命名')),
+                  const PopupMenuItem(value: 'find', child: Text('查找 / 替换')),
+                  const PopupMenuItem(value: 'goto', child: Text('跳转到行')),
+                  const PopupMenuItem(value: 'latex', child: Text('LaTeX 工具')),
                   const PopupMenuItem(value: 'export', child: Text('导出')),
                   const PopupMenuItem(value: 'image', child: Text('导出图片')),
                   const PopupMenuItem(
@@ -4048,20 +4087,12 @@ class _NoteDetailState extends State<_NoteDetail> {
             ],
           ),
         ),
+        if (widget.editing) _editorToolbar(note),
+        if (widget.editing && _showLatexPanel) _latexPanel(),
+        if (_showFind) _findReplaceBar(),
         Expanded(
           child: widget.editing
-              ? TextField(
-                  controller: _ctrl,
-                  expands: true,
-                  maxLines: null,
-                  minLines: null,
-                  keyboardType: TextInputType.multiline,
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    contentPadding: EdgeInsets.all(16),
-                  ),
-                  scrollPhysics: const ClampingScrollPhysics(),
-                )
+              ? _noteEditor(note)
               : Screenshot(
                   controller: _shot,
                   child: Container(
@@ -4073,14 +4104,75 @@ class _NoteDetailState extends State<_NoteDetail> {
                         constraints: BoxConstraints(
                           minWidth: MediaQuery.sizeOf(context).width - 32,
                         ),
-                        child: MarkdownWithLatex(content: note.content),
+                        child: MarkdownWithLatex(
+                          content: note.content,
+                          onEditLatexBlock: _editLatexBlockFromPreview,
+                        ),
                       ),
                     ),
                   ),
                 ),
         ),
+        _editorStatus(note),
       ],
     );
+  }
+
+  Widget _noteEditor(Note note) {
+    final editorSurface = Container(
+      color: Theme.of(context).colorScheme.surface,
+      child: _buildNoteEditorField(note),
+    );
+    return editorSurface;
+  }
+
+  Widget _buildNoteEditorField(Note note) {
+    final longestLine = _ctrl.text
+        .split('\n')
+        .fold<int>(
+          0,
+          (longest, line) => line.length > longest ? line.length : longest,
+        );
+    final editorWidth = (longestLine * 8.5 + 48).clamp(1600.0, 6000.0);
+    final editor = TextField(
+      controller: _ctrl,
+      focusNode: _editorFocus,
+      scrollController: _editorScroll,
+      expands: true,
+      maxLines: null,
+      minLines: null,
+      keyboardType: TextInputType.multiline,
+      textAlignVertical: TextAlignVertical.top,
+      style: const TextStyle(
+        fontFamily: 'Hurmit Nerd Font',
+        fontSize: 14,
+        height: 1.45,
+      ),
+      decoration: const InputDecoration(
+        border: InputBorder.none,
+        contentPadding: EdgeInsets.all(16),
+      ),
+      scrollPhysics: const ClampingScrollPhysics(),
+    );
+    if (note.wrap) return editor;
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: SizedBox(width: editorWidth, child: editor),
+    );
+  }
+
+  void _onEditorTextChanged() {
+    final textChanged = _ctrl.text != _lastSavedDraft;
+    if (textChanged) {
+      _scheduleSave();
+      if (_showFind) _refreshMatches();
+    }
+    if (_ctrl.selection.isValid) _lastEditorSelection = _ctrl.selection;
+    if (_showLatexPanel) setState(() {});
+  }
+
+  void _refreshLatexPanel() {
+    if (_showLatexPanel && mounted) setState(() {});
   }
 
   void _scheduleSave() {
@@ -4094,8 +4186,945 @@ class _NoteDetailState extends State<_NoteDetail> {
 
   void _saveNote(String noteId) {
     final note = _features.getNote(noteId);
-    if (note == null || note.content == _ctrl.text) return;
-    unawaited(_features.updateNote(note.copyWith(content: _ctrl.text)));
+    final content = _ctrl.text;
+    if (note == null || note.content == content) {
+      _lastSavedDraft = content;
+      return;
+    }
+    _lastSavedDraft = content;
+    unawaited(_features.updateNote(note.copyWith(content: content)));
+  }
+
+  Widget _editorToolbar(Note note) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Row(
+          children: [
+            _toolButton(
+              Icons.format_bold,
+              '粗体',
+              () => _wrapSelection('**', placeholder: '粗体'),
+            ),
+            _toolButton(
+              Icons.format_italic,
+              '斜体',
+              () => _wrapSelection('*', placeholder: '斜体'),
+            ),
+            _toolButton(
+              Icons.format_strikethrough,
+              '删除线',
+              () => _wrapSelection('~~', placeholder: '删除线'),
+            ),
+            _toolButton(
+              Icons.code,
+              '行内代码',
+              () => _wrapSelection('`', placeholder: 'code'),
+            ),
+            _toolDivider(),
+            _toolButton(Icons.title, '标题', () => _prefixLines('## ')),
+            _toolButton(
+              Icons.format_list_bulleted,
+              '无序列表',
+              () => _prefixLines('- '),
+            ),
+            _toolButton(
+              Icons.format_list_numbered,
+              '有序列表',
+              _numberSelectionLines,
+            ),
+            _toolButton(
+              Icons.check_box_outlined,
+              '任务列表',
+              () => _prefixLines('- [ ] '),
+            ),
+            _toolButton(Icons.format_quote, '引用', () => _prefixLines('> ')),
+            _toolDivider(),
+            _toolButton(Icons.data_object, '代码块', _insertCodeBlock),
+            _toolButton(Icons.table_chart_outlined, '表格', _insertTable),
+            _toolButton(
+              Icons.horizontal_rule,
+              '分割线',
+              () => _insertText('\n---\n'),
+            ),
+            _toolButton(Icons.link, '链接', _insertLink),
+            _toolButton(Icons.image_outlined, '图片', _insertImage),
+            _toolDivider(),
+            _toolButton(Icons.functions, 'LaTeX 行内公式', _insertInlineLatex),
+            _toolButton(
+              Icons.calculate_outlined,
+              'LaTeX 块公式',
+              _insertBlockLatex,
+            ),
+            _toolButton(Icons.science_outlined, 'LaTeX 工具', _toggleLatexPanel),
+            _toolDivider(),
+            _toolButton(Icons.find_replace, '查找 / 替换', _openFind),
+            _toolButton(Icons.low_priority, '跳转行', _showGoToLineDialog),
+            _toolButton(
+              note.wrap ? Icons.wrap_text : Icons.short_text,
+              note.wrap ? '关闭自动换行' : '开启自动换行',
+              () => _features.updateNote(note.copyWith(wrap: !note.wrap)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _toolButton(IconData icon, String tooltip, VoidCallback onPressed) {
+    return IconButton(
+      visualDensity: VisualDensity.compact,
+      tooltip: tooltip,
+      icon: Icon(icon),
+      onPressed: onPressed,
+    );
+  }
+
+  Widget _toolDivider() {
+    return Container(
+      width: 1,
+      height: 24,
+      margin: const EdgeInsets.symmetric(horizontal: 6),
+      color: Theme.of(context).colorScheme.outlineVariant,
+    );
+  }
+
+  Widget _latexPanel() {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: Color.lerp(scheme.surface, scheme.tertiaryContainer, 0.18),
+      child: Container(
+        width: double.infinity,
+        constraints: const BoxConstraints(maxHeight: 310),
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(color: scheme.outlineVariant),
+            bottom: BorderSide(color: scheme.outlineVariant),
+          ),
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.functions, color: scheme.tertiary),
+                      const SizedBox(width: 8),
+                      Text(
+                        'LaTeX 编辑器',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                  TextButton.icon(
+                    onPressed: _insertInlineLatex,
+                    icon: const Icon(Icons.short_text),
+                    label: const Text('行内'),
+                  ),
+                  TextButton.icon(
+                    onPressed: _insertBlockLatex,
+                    icon: const Icon(Icons.view_agenda_outlined),
+                    label: const Text('块级'),
+                  ),
+                  TextButton.icon(
+                    onPressed: _editCurrentLatexFormula,
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('编辑当前公式'),
+                  ),
+                  IconButton(
+                    tooltip: '关闭 LaTeX 工具',
+                    icon: const Icon(Icons.close),
+                    onPressed: _toggleLatexPanel,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              AnimatedBuilder(
+                animation: _ctrl,
+                builder: (context, _) => _latexPreview(_latexPreviewSource),
+              ),
+              const SizedBox(height: 8),
+              _latexPalette('结构', _latexStructures),
+              _latexPalette('希腊', _latexGreek),
+              _latexPalette('运算', _latexOperators),
+              _latexPalette('关系', _latexRelations),
+              _latexPalette('箭头', _latexArrows),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _latexPreview(String source) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: scheme.surface.withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.tertiary.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            source.isEmpty ? '选中公式或把光标放在公式内可即时预览' : source,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontFamily: 'Hurmit Nerd Font',
+              fontSize: 12,
+              color: source.isEmpty
+                  ? scheme.onSurfaceVariant
+                  : scheme.onSurfaceVariant,
+            ),
+          ),
+          if (source.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Math.tex(
+                source,
+                mathStyle: MathStyle.display,
+                textStyle: TextStyle(fontSize: 20, color: scheme.onSurface),
+                onErrorFallback: (_) => Text(
+                  'LaTeX 语法错误：请检查括号、命令或环境是否闭合',
+                  style: TextStyle(
+                    color: scheme.error,
+                    fontSize: 12,
+                    fontFamily: 'Hurmit Nerd Font',
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _latexPalette(String title, List<_LatexSnippet> snippets) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: Theme.of(context).textTheme.labelLarge),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final snippet in snippets)
+                ActionChip(
+                  visualDensity: VisualDensity.compact,
+                  label: Text(snippet.label),
+                  tooltip: snippet.source,
+                  onPressed: () => _insertLatexSnippet(snippet),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _findReplaceBar() {
+    final scheme = Theme.of(context).colorScheme;
+    final matchText = _matches.isEmpty
+        ? '无匹配'
+        : '${_currentMatch + 1}/${_matches.length}';
+    final controls = Wrap(
+      spacing: 2,
+      runSpacing: 2,
+      alignment: WrapAlignment.end,
+      children: [
+        IconButton(
+          tooltip: '上一个',
+          icon: const Icon(Icons.keyboard_arrow_up),
+          onPressed: _previousMatch,
+        ),
+        IconButton(
+          tooltip: '下一个',
+          icon: const Icon(Icons.keyboard_arrow_down),
+          onPressed: _nextMatch,
+        ),
+        IconButton(
+          tooltip: _caseSensitiveFind ? '区分大小写' : '不区分大小写',
+          icon: Icon(
+            Icons.text_fields,
+            color: _caseSensitiveFind ? scheme.primary : null,
+          ),
+          onPressed: () {
+            setState(() => _caseSensitiveFind = !_caseSensitiveFind);
+            _refreshMatches();
+          },
+        ),
+        IconButton(
+          tooltip: _showReplace ? '隐藏替换' : '显示替换',
+          icon: const Icon(Icons.swap_horiz),
+          onPressed: () => setState(() => _showReplace = !_showReplace),
+        ),
+        IconButton(
+          tooltip: '关闭',
+          icon: const Icon(Icons.close),
+          onPressed: () => setState(() => _showFind = false),
+        ),
+      ],
+    );
+    return Material(
+      color: scheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _findCtrl,
+                    focusNode: _findFocus,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      labelText: '查找',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixText: matchText,
+                      border: const OutlineInputBorder(),
+                    ),
+                    onSubmitted: (_) => _nextMatch(),
+                  ),
+                ),
+                controls,
+              ],
+            ),
+            if (_showReplace) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _replaceCtrl,
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        labelText: '替换为',
+                        prefixIcon: Icon(Icons.edit_note),
+                        border: OutlineInputBorder(),
+                      ),
+                      onSubmitted: (_) => _replaceCurrent(),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _replaceCurrent,
+                    child: const Text('替换'),
+                  ),
+                  TextButton(onPressed: _replaceAll, child: const Text('全部替换')),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _editorStatus(Note note) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (context, _) {
+        final currentText = _ctrl.text;
+        final currentSelection = _ctrl.selection;
+        final lineCount = currentText.isEmpty
+            ? 1
+            : '\n'.allMatches(currentText).length + 1;
+        final currentLine = _lineForOffset(
+          currentSelection.baseOffset < 0 ? 0 : currentSelection.baseOffset,
+        );
+        final currentColumn = _columnForOffset(
+          currentSelection.baseOffset < 0 ? 0 : currentSelection.baseOffset,
+        );
+        final currentWords = RegExp(
+          r'[^\s]+',
+        ).allMatches(currentText.trim()).length;
+        final saved = currentText == _lastSavedDraft;
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          color: Theme.of(
+            context,
+          ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '行 $currentLine/$lineCount · 列 $currentColumn · 字符 ${currentText.length} · 词 $currentWords · ${note.wrap ? '自动换行' : '横向滚动'} · 更新 ${_formatNoteTime(note.updatedAt)}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                saved ? '已保存' : '编辑中',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: saved
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).colorScheme.secondary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _openFind() {
+    if (!widget.editing) {
+      widget.onEditingChanged(true);
+    }
+    setState(() {
+      _showFind = true;
+      _showReplace = _showReplace || _findCtrl.text.isNotEmpty;
+    });
+    final selected = _selectedText;
+    if (selected.isNotEmpty && !selected.contains('\n')) {
+      _findCtrl.text = selected;
+      _findCtrl.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: selected.length,
+      );
+    }
+    _refreshMatches();
+    _findFocus.requestFocus();
+  }
+
+  void _refreshMatches() {
+    final query = _findCtrl.text;
+    if (query.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _matches = [];
+          _currentMatch = -1;
+        });
+      }
+      return;
+    }
+    final haystack = _caseSensitiveFind ? _ctrl.text : _ctrl.text.toLowerCase();
+    final needle = _caseSensitiveFind ? query : query.toLowerCase();
+    final matches = <TextRange>[];
+    var start = 0;
+    while (start <= haystack.length) {
+      final index = haystack.indexOf(needle, start);
+      if (index == -1) break;
+      matches.add(TextRange(start: index, end: index + query.length));
+      start = index + needle.length;
+    }
+    var current = matches.indexWhere((range) {
+      final offset = _ctrl.selection.baseOffset;
+      return offset >= range.start && offset <= range.end;
+    });
+    if (current == -1 && matches.isNotEmpty) current = 0;
+    if (!mounted) return;
+    setState(() {
+      _matches = matches;
+      _currentMatch = current;
+    });
+  }
+
+  void _nextMatch() => _selectMatch(_currentMatch + 1);
+
+  void _previousMatch() => _selectMatch(_currentMatch - 1);
+
+  void _selectMatch(int index) {
+    if (_matches.isEmpty) return;
+    if (!widget.editing) {
+      widget.onEditingChanged(true);
+    }
+    final next = index % _matches.length;
+    final normalized = next < 0 ? next + _matches.length : next;
+    final match = _matches[normalized];
+    setState(() => _currentMatch = normalized);
+    _ctrl.selection = TextSelection(
+      baseOffset: match.start,
+      extentOffset: match.end,
+    );
+    _scrollToOffset(match.start);
+    _editorFocus.requestFocus();
+  }
+
+  void _replaceCurrent() {
+    final index = _matchIndexAtCursor();
+    if (index < 0 || index >= _matches.length) return;
+    final match = _matches[index];
+    _replaceRange(match.start, match.end, _replaceCtrl.text);
+    _refreshMatches();
+    if (_matches.isNotEmpty) {
+      _selectMatch(index.clamp(0, _matches.length - 1));
+    }
+  }
+
+  void _replaceAll() {
+    if (_matches.isEmpty) return;
+    final replacement = _replaceCtrl.text;
+    final buffer = StringBuffer();
+    var cursor = 0;
+    for (final match in _matches) {
+      buffer
+        ..write(_ctrl.text.substring(cursor, match.start))
+        ..write(replacement);
+      cursor = match.end;
+    }
+    buffer.write(_ctrl.text.substring(cursor));
+    final count = _matches.length;
+    _setText(buffer.toString(), TextSelection.collapsed(offset: buffer.length));
+    _refreshMatches();
+    ScaffoldMessenger.of(context).showSnackBar(_shortSnackBar('已替换 $count 处'));
+  }
+
+  Future<void> _showGoToLineDialog() async {
+    final ctrl = TextEditingController();
+    final line = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('跳转到行'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(labelText: '行号'),
+          onSubmitted: (_) => Navigator.pop(ctx, int.tryParse(ctrl.text)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, int.tryParse(ctrl.text)),
+            child: const Text('跳转'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (line == null || line < 1) return;
+    _goToLine(line);
+  }
+
+  void _goToLine(int line) {
+    final lines = _ctrl.text.split('\n');
+    final targetLine = line.clamp(1, lines.length);
+    var offset = 0;
+    for (var i = 0; i < targetLine - 1; i++) {
+      offset += lines[i].length + 1;
+    }
+    _ctrl.selection = TextSelection.collapsed(offset: offset);
+    _scrollToOffset(offset);
+    _editorFocus.requestFocus();
+  }
+
+  void _wrapSelection(String marker, {String placeholder = ''}) {
+    _wrapSelectionWith(marker, marker, placeholder: placeholder);
+  }
+
+  void _wrapSelectionWith(
+    String before,
+    String after, {
+    String placeholder = '',
+  }) {
+    final selection = _normalizedSelection;
+    final selected = selection.isCollapsed
+        ? placeholder
+        : _ctrl.text.substring(selection.start, selection.end);
+    final replacement = '$before$selected$after';
+    _replaceRange(
+      selection.start,
+      selection.end,
+      replacement,
+      TextSelection(
+        baseOffset: selection.start + before.length,
+        extentOffset: selection.start + before.length + selected.length,
+      ),
+    );
+  }
+
+  void _prefixLines(String prefix) {
+    final range = _expandedLineRange;
+    final selected = _ctrl.text.substring(range.start, range.end);
+    final replacement = selected
+        .split('\n')
+        .map(
+          (line) => line.startsWith(prefix)
+              ? line.substring(prefix.length)
+              : '$prefix$line',
+        )
+        .join('\n');
+    _replaceRange(range.start, range.end, replacement);
+  }
+
+  void _numberSelectionLines() {
+    final range = _expandedLineRange;
+    final lines = _ctrl.text.substring(range.start, range.end).split('\n');
+    final numbered = <String>[];
+    for (var i = 0; i < lines.length; i++) {
+      numbered.add(
+        '${i + 1}. ${lines[i].replaceFirst(RegExp(r'^\d+\.\s*'), '')}',
+      );
+    }
+    _replaceRange(range.start, range.end, numbered.join('\n'));
+  }
+
+  void _insertCodeBlock() {
+    _wrapSelectionWith('\n```\n', '\n```\n', placeholder: 'code');
+  }
+
+  void _toggleLatexPanel() {
+    setState(() => _showLatexPanel = !_showLatexPanel);
+    if (_showLatexPanel) _editorFocus.requestFocus();
+  }
+
+  Future<void> _insertInlineLatex() =>
+      _insertLatexWithEditor(preferBlock: false);
+
+  Future<void> _insertBlockLatex() => _insertLatexWithEditor(preferBlock: true);
+
+  Future<void> _editCurrentLatexFormula() async {
+    final segment = _currentLatexSegment;
+    if (segment == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(_shortSnackBar('请先选中公式或把光标放到公式内'));
+      return;
+    }
+    final edited = await _openLatexFormulaEditor(
+      title: '编辑公式',
+      initialFormula: segment.formula,
+      preferBlock: _isBlockLatex(segment.source),
+    );
+    if (edited == null) return;
+    _replaceRange(
+      segment.start,
+      segment.end,
+      _wrapLatexFormula(edited, segment.source),
+    );
+  }
+
+  Future<void> _insertLatexWithEditor({required bool preferBlock}) async {
+    final formula = await _openLatexFormulaEditor(
+      title: preferBlock ? '插入块级公式' : '插入行内公式',
+      initialFormula: preferBlock ? r'E = mc^2' : r'x^2',
+      preferBlock: preferBlock,
+    );
+    if (formula == null) return;
+    final wrapped = preferBlock ? '\n\$\$\n$formula\n\$\$\n' : '\$$formula\$';
+    _replaceSelection(wrapped);
+  }
+
+  void _insertLatexSnippet(_LatexSnippet snippet) {
+    final selection = _normalizedSelection;
+    final selected = selection.isCollapsed
+        ? 'x'
+        : _ctrl.text.substring(selection.start, selection.end);
+    final replacement = snippet.source.replaceAll(_latexPlaceholder, selected);
+    final placeholderStart = snippet.source.indexOf(_latexPlaceholder);
+    final selectionStart = placeholderStart == -1
+        ? selection.start + replacement.length
+        : selection.start + placeholderStart;
+    final selectionEnd = selectionStart + selected.length;
+    _replaceRange(
+      selection.start,
+      selection.end,
+      replacement,
+      TextSelection(baseOffset: selectionStart, extentOffset: selectionEnd),
+    );
+  }
+
+  void _insertTable() {
+    _insertText('\n| 列 1 | 列 2 |\n| --- | --- |\n| 内容 | 内容 |\n');
+  }
+
+  void _insertLink() {
+    final selected = _selectedText;
+    final text = selected.isEmpty ? '链接文字' : selected;
+    _replaceSelection('[$text](https://)');
+  }
+
+  void _insertImage() {
+    final selected = _selectedText;
+    final text = selected.isEmpty ? '图片描述' : selected;
+    _replaceSelection('![$text](https://)');
+  }
+
+  void _insertText(String text) => _replaceSelection(text);
+
+  void _replaceSelection(String replacement) {
+    final selection = _normalizedSelection;
+    _replaceRange(selection.start, selection.end, replacement);
+  }
+
+  void _replaceRange(
+    int start,
+    int end,
+    String replacement, [
+    TextSelection? selection,
+  ]) {
+    final next = _ctrl.text.replaceRange(start, end, replacement);
+    _setText(
+      next,
+      selection ?? TextSelection.collapsed(offset: start + replacement.length),
+    );
+    _editorFocus.requestFocus();
+  }
+
+  void _setText(String text, TextSelection selection) {
+    _ctrl.value = TextEditingValue(text: text, selection: selection);
+  }
+
+  void _scrollToOffset(int offset) {
+    if (!_editorScroll.hasClients) return;
+    final line = _lineForOffset(offset);
+    final target = ((line - 1) * 22.0).clamp(
+      0.0,
+      _editorScroll.position.maxScrollExtent,
+    );
+    _editorScroll.animateTo(
+      target,
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+    );
+  }
+
+  TextSelection get _normalizedSelection {
+    final selection = _ctrl.selection.isValid
+        ? _ctrl.selection
+        : _lastEditorSelection;
+    if (!selection.isValid) {
+      return TextSelection.collapsed(offset: _ctrl.text.length);
+    }
+    final start = selection.start.clamp(0, _ctrl.text.length);
+    final end = selection.end.clamp(0, _ctrl.text.length);
+    return TextSelection(baseOffset: start, extentOffset: end);
+  }
+
+  TextRange get _expandedLineRange {
+    final selection = _normalizedSelection;
+    final text = _ctrl.text;
+    var start = selection.start;
+    var end = selection.end;
+    while (start > 0 && text.codeUnitAt(start - 1) != 10) {
+      start--;
+    }
+    while (end < text.length && text.codeUnitAt(end) != 10) {
+      end++;
+    }
+    return TextRange(start: start, end: end);
+  }
+
+  String get _selectedText {
+    final selection = _normalizedSelection;
+    if (selection.isCollapsed) return '';
+    return _ctrl.text.substring(selection.start, selection.end);
+  }
+
+  int _lineForOffset(int offset) {
+    final safeOffset = offset.clamp(0, _ctrl.text.length);
+    return '\n'.allMatches(_ctrl.text.substring(0, safeOffset)).length + 1;
+  }
+
+  int _columnForOffset(int offset) {
+    final safeOffset = offset.clamp(0, _ctrl.text.length);
+    final lineStart = _ctrl.text.lastIndexOf(
+      '\n',
+      safeOffset == 0 ? 0 : safeOffset - 1,
+    );
+    return safeOffset - lineStart;
+  }
+
+  String get _latexPreviewSource {
+    return _currentLatexSegment?.formula ?? '';
+  }
+
+  _LatexSegment? get _currentLatexSegment {
+    final selected = _selectedText.trim();
+    if (selected.isNotEmpty) {
+      final source = _stripLatexDelimiters(selected);
+      if (source.isNotEmpty && _shouldPreviewLatexSource(selected)) {
+        final selection = _normalizedSelection;
+        return _LatexSegment(selection.start, selection.end, selected, source);
+      }
+    }
+    final selection = _normalizedSelection;
+    return _latexSegmentAt(selection.baseOffset);
+  }
+
+  _LatexSegment? _latexSegmentAt(int offset) {
+    final text = _ctrl.text;
+    if (text.isEmpty) return null;
+    final safeOffset = offset.clamp(0, text.length);
+    final blockRanges = <_LatexSegment>[
+      ..._latexSegments(text, RegExp(r'\$\$(.+?)\$\$', dotAll: true)),
+      ..._latexSegments(text, RegExp(r'\\\[(.+?)\\\]', dotAll: true)),
+    ];
+    final ranges = <_LatexSegment>[
+      ...blockRanges,
+      ..._latexSegments(text, RegExp(r'\\\((.+?)\\\)')),
+      ..._inlineLatexRanges(text, blockRanges),
+    ];
+    ranges.sort((a, b) {
+      final aContains = safeOffset >= a.start && safeOffset <= a.end;
+      final bContains = safeOffset >= b.start && safeOffset <= b.end;
+      if (aContains != bContains) return aContains ? -1 : 1;
+      return (a.end - a.start).compareTo(b.end - b.start);
+    });
+    for (final range in ranges) {
+      if (safeOffset >= range.start &&
+          safeOffset <= range.end &&
+          _shouldPreviewLatexSource(range.source)) {
+        return range;
+      }
+    }
+    return null;
+  }
+
+  bool _shouldPreviewLatexSource(String source) {
+    if (source.startsWith(r'$$')) return true;
+    if (source.startsWith(r'\[') || source.startsWith(r'\(')) return true;
+    return LatexRenderer.hasLatexContent(source);
+  }
+
+  List<_LatexSegment> _latexSegments(String text, RegExp pattern) {
+    return pattern
+        .allMatches(text)
+        .map(
+          (match) => _LatexSegment(
+            match.start,
+            match.end,
+            match.group(0) ?? '',
+            _stripLatexDelimiters(match.group(0) ?? ''),
+          ),
+        )
+        .toList();
+  }
+
+  List<_LatexSegment> _inlineLatexRanges(
+    String text,
+    List<_LatexSegment> blockRanges,
+  ) {
+    return RegExp(r'\$(.+?)\$')
+        .allMatches(text)
+        .where(
+          (match) => !blockRanges.any((range) {
+            return match.start >= range.start && match.end <= range.end;
+          }),
+        )
+        .map(
+          (match) => _LatexSegment(
+            match.start,
+            match.end,
+            match.group(0) ?? '',
+            _stripLatexDelimiters(match.group(0) ?? ''),
+          ),
+        )
+        .toList();
+  }
+
+  Future<String?> _openLatexFormulaEditor({
+    required String title,
+    required String initialFormula,
+    required bool preferBlock,
+  }) {
+    return Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => LatexFormulaEditorPage(
+          title: title,
+          initialFormula: initialFormula,
+          preferBlock: preferBlock,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _editLatexBlockFromPreview(
+    String source,
+    int start,
+    int end,
+  ) async {
+    final edited = await _openLatexFormulaEditor(
+      title: '编辑公式',
+      initialFormula: _stripLatexDelimiters(source),
+      preferBlock: _isBlockLatex(source),
+    );
+    if (edited == null) return;
+    _replaceRange(start, end, _wrapLatexFormula(edited, source));
+    _save();
+  }
+
+  int _matchIndexAtCursor() {
+    final offset = _ctrl.selection.baseOffset;
+    final exactIndex = _matches.indexWhere(
+      (range) => offset >= range.start && offset <= range.end,
+    );
+    if (exactIndex != -1) return exactIndex;
+    return _currentMatch;
+  }
+
+  bool _isBlockLatex(String source) {
+    final trimmed = source.trimLeft();
+    return trimmed.startsWith(r'$$') || trimmed.startsWith(r'\[');
+  }
+
+  String _wrapLatexFormula(String formula, String originalSource) {
+    final trimmed = formula.trim();
+    final source = originalSource.trim();
+    if (source.startsWith(r'\[') && source.endsWith(r'\]')) {
+      return '\\[$trimmed\\]';
+    }
+    if (source.startsWith(r'\(') && source.endsWith(r'\)')) {
+      return '\\($trimmed\\)';
+    }
+    if (source.startsWith(r'$$') && source.endsWith(r'$$')) {
+      return '\$\$\n$trimmed\n\$\$';
+    }
+    return '\$$trimmed\$';
+  }
+
+  String _formatNoteTime(DateTime value) {
+    final year = value.year.toString().padLeft(4, '0');
+    final month = value.month.toString().padLeft(2, '0');
+    final day = value.day.toString().padLeft(2, '0');
+    final hour = value.hour.toString().padLeft(2, '0');
+    final minute = value.minute.toString().padLeft(2, '0');
+    return '$year-$month-$day $hour:$minute';
+  }
+
+  String _stripLatexDelimiters(String text) {
+    final trimmed = text.trim();
+    if (trimmed.startsWith(r'$$') && trimmed.endsWith(r'$$')) {
+      return trimmed.substring(2, trimmed.length - 2).trim();
+    }
+    if (trimmed.startsWith(r'\[') && trimmed.endsWith(r'\]')) {
+      return trimmed.substring(2, trimmed.length - 2).trim();
+    }
+    if (trimmed.startsWith(r'\(') && trimmed.endsWith(r'\)')) {
+      return trimmed.substring(2, trimmed.length - 2).trim();
+    }
+    if (trimmed.startsWith(r'$') && trimmed.endsWith(r'$')) {
+      return trimmed.substring(1, trimmed.length - 1).trim();
+    }
+    return trimmed;
   }
 
   Future<void> _menu(String value, Note note) async {
@@ -4105,6 +5134,13 @@ class _NoteDetailState extends State<_NoteDetail> {
         widget.onEditingChanged(false);
       case 'rename':
         await _rename(note);
+      case 'find':
+        _openFind();
+      case 'goto':
+        await _showGoToLineDialog();
+      case 'latex':
+        if (!widget.editing) widget.onEditingChanged(true);
+        _toggleLatexPanel();
       case 'export':
         await _export(note);
       case 'image':
@@ -4313,6 +5349,109 @@ class _NoteDetailState extends State<_NoteDetail> {
     widget.onDeleted();
   }
 }
+
+const _latexPlaceholder = '__LYNAI_LATEX_SELECTION__';
+
+class _LatexSegment {
+  final int start;
+  final int end;
+  final String source;
+  final String formula;
+
+  const _LatexSegment(this.start, this.end, this.source, this.formula);
+}
+
+class _LatexSnippet {
+  final String label;
+  final String source;
+
+  const _LatexSnippet(this.label, this.source);
+}
+
+const _latexStructures = [
+  _LatexSnippet('分数', r'\frac{__LYNAI_LATEX_SELECTION__}{y}'),
+  _LatexSnippet('根号', r'\sqrt{__LYNAI_LATEX_SELECTION__}'),
+  _LatexSnippet('n 次根', r'\sqrt[n]{__LYNAI_LATEX_SELECTION__}'),
+  _LatexSnippet('上标', r'__LYNAI_LATEX_SELECTION__^{2}'),
+  _LatexSnippet('下标', r'__LYNAI_LATEX_SELECTION___{i}'),
+  _LatexSnippet('求和', r'\sum_{i=1}^{n} __LYNAI_LATEX_SELECTION__'),
+  _LatexSnippet('积分', r'\int_{a}^{b} __LYNAI_LATEX_SELECTION__\,dx'),
+  _LatexSnippet('极限', r'\lim_{x \to 0} __LYNAI_LATEX_SELECTION__'),
+  _LatexSnippet('向量', r'\vec{__LYNAI_LATEX_SELECTION__}'),
+  _LatexSnippet('帽记号', r'\hat{__LYNAI_LATEX_SELECTION__}'),
+  _LatexSnippet('横线', r'\overline{__LYNAI_LATEX_SELECTION__}'),
+  _LatexSnippet('矩阵 2x2', r'\begin{bmatrix} a & b \\ c & d \end{bmatrix}'),
+  _LatexSnippet(
+    '分段',
+    r'\begin{cases} x^2, & x \ge 0 \\ -x, & x < 0 \end{cases}',
+  ),
+  _LatexSnippet(
+    '对齐',
+    r'\begin{aligned} a &= b + c \\ d &= e + f \end{aligned}',
+  ),
+];
+
+const _latexGreek = [
+  _LatexSnippet('α', r'\alpha'),
+  _LatexSnippet('β', r'\beta'),
+  _LatexSnippet('γ', r'\gamma'),
+  _LatexSnippet('δ', r'\delta'),
+  _LatexSnippet('ε', r'\epsilon'),
+  _LatexSnippet('θ', r'\theta'),
+  _LatexSnippet('λ', r'\lambda'),
+  _LatexSnippet('μ', r'\mu'),
+  _LatexSnippet('π', r'\pi'),
+  _LatexSnippet('ρ', r'\rho'),
+  _LatexSnippet('σ', r'\sigma'),
+  _LatexSnippet('φ', r'\varphi'),
+  _LatexSnippet('ω', r'\omega'),
+  _LatexSnippet('Γ', r'\Gamma'),
+  _LatexSnippet('Δ', r'\Delta'),
+  _LatexSnippet('Ω', r'\Omega'),
+];
+
+const _latexOperators = [
+  _LatexSnippet('×', r'\times'),
+  _LatexSnippet('÷', r'\div'),
+  _LatexSnippet('±', r'\pm'),
+  _LatexSnippet('∓', r'\mp'),
+  _LatexSnippet('⋅', r'\cdot'),
+  _LatexSnippet('∞', r'\infty'),
+  _LatexSnippet('∂', r'\partial'),
+  _LatexSnippet('∇', r'\nabla'),
+  _LatexSnippet('∫', r'\int'),
+  _LatexSnippet('∮', r'\oint'),
+  _LatexSnippet('∑', r'\sum'),
+  _LatexSnippet('∏', r'\prod'),
+  _LatexSnippet('sin', r'\sin'),
+  _LatexSnippet('cos', r'\cos'),
+  _LatexSnippet('ln', r'\ln'),
+];
+
+const _latexRelations = [
+  _LatexSnippet('≤', r'\le'),
+  _LatexSnippet('≥', r'\ge'),
+  _LatexSnippet('≠', r'\ne'),
+  _LatexSnippet('≈', r'\approx'),
+  _LatexSnippet('≡', r'\equiv'),
+  _LatexSnippet('∝', r'\propto'),
+  _LatexSnippet('∈', r'\in'),
+  _LatexSnippet('∉', r'\notin'),
+  _LatexSnippet('⊂', r'\subset'),
+  _LatexSnippet('⊆', r'\subseteq'),
+  _LatexSnippet('∪', r'\cup'),
+  _LatexSnippet('∩', r'\cap'),
+];
+
+const _latexArrows = [
+  _LatexSnippet('→', r'\to'),
+  _LatexSnippet('←', r'\leftarrow'),
+  _LatexSnippet('⇒', r'\Rightarrow'),
+  _LatexSnippet('⇔', r'\Leftrightarrow'),
+  _LatexSnippet('↦', r'\mapsto'),
+  _LatexSnippet('↑', r'\uparrow'),
+  _LatexSnippet('↓', r'\downarrow'),
+];
 
 class _NoteShareImage extends StatelessWidget {
   final String title;
