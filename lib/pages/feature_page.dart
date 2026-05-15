@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
@@ -3977,7 +3976,6 @@ class _NoteDetailState extends State<_NoteDetail> {
   final _findCtrl = TextEditingController();
   final _replaceCtrl = TextEditingController();
   late FeatureProvider _features;
-  Timer? _timer;
   var _showFind = false;
   var _showReplace = false;
   var _showLatexPanel = false;
@@ -3986,6 +3984,12 @@ class _NoteDetailState extends State<_NoteDetail> {
   var _matches = <TextRange>[];
   var _lastSavedDraft = '';
   var _lastEditorSelection = const TextSelection.collapsed(offset: 0);
+  var _trackedEditorText = '';
+  var _trackedEditorSelection = const TextSelection.collapsed(offset: 0);
+  var _undoStack = <_NoteEditStep>[];
+  var _redoStack = <_NoteEditStep>[];
+  var _applyingEditHistory = false;
+  String? _activeRevisionId;
 
   @override
   void initState() {
@@ -3993,6 +3997,7 @@ class _NoteDetailState extends State<_NoteDetail> {
     _features = context.read<FeatureProvider>();
     final note = _features.getNote(widget.noteId);
     _lastSavedDraft = note?.content ?? '';
+    _trackedEditorText = _lastSavedDraft;
     _ctrl = TextEditingController(text: _lastSavedDraft);
     _ctrl.addListener(_onEditorTextChanged);
     _editorFocus.addListener(_refreshLatexPanel);
@@ -4003,21 +4008,14 @@ class _NoteDetailState extends State<_NoteDetail> {
   void didUpdateWidget(covariant _NoteDetail oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.noteId != widget.noteId) {
-      _saveNote(oldWidget.noteId);
       final note = _features.getNote(widget.noteId);
-      _lastSavedDraft = note?.content ?? '';
-      _ctrl.text = _lastSavedDraft;
-      _lastEditorSelection = TextSelection.collapsed(
-        offset: _lastSavedDraft.length,
-      );
+      _loadEditorSnapshot(note?.content ?? '', revisionId: null);
       _refreshMatches();
     }
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
-    _save();
     _ctrl.removeListener(_onEditorTextChanged);
     _editorFocus.removeListener(_refreshLatexPanel);
     _findCtrl.removeListener(_refreshMatches);
@@ -4034,6 +4032,13 @@ class _NoteDetailState extends State<_NoteDetail> {
   Widget build(BuildContext context) {
     final note = context.watch<FeatureProvider>().getNote(widget.noteId);
     if (note == null) return const Center(child: Text('笔记不存在'));
+    final timeline = _features.getNoteTimeline(widget.noteId);
+    final viewingRevision = _activeRevisionId == null
+        ? null
+        : _features.getNoteRevision(_activeRevisionId!);
+    final viewingHistorical = viewingRevision != null;
+    final canUndo = widget.editing && _undoStack.isNotEmpty;
+    final canRedo = widget.editing && _redoStack.isNotEmpty;
     return Column(
       children: [
         Padding(
@@ -4049,12 +4054,31 @@ class _NoteDetailState extends State<_NoteDetail> {
                 ),
               ),
               IconButton(
-                tooltip: widget.editing ? '保存' : '编辑',
-                icon: Icon(widget.editing ? Icons.save : Icons.edit),
+                tooltip: '后退',
+                onPressed: canUndo ? _undo : null,
+                icon: const Icon(Icons.undo),
+              ),
+              IconButton(
+                tooltip: '前进',
+                onPressed: canRedo ? _redo : null,
+                icon: const Icon(Icons.redo),
+              ),
+              IconButton(
+                tooltip: '时间线',
+                icon: const Icon(Icons.timeline),
+                onPressed: () => _openTimeline(note, timeline),
+              ),
+              IconButton(
+                tooltip: widget.editing ? '预览' : '编辑',
+                icon: Icon(widget.editing ? Icons.visibility : Icons.edit),
                 onPressed: () {
-                  _save();
                   widget.onEditingChanged(!widget.editing);
                 },
+              ),
+              IconButton(
+                tooltip: '保存',
+                icon: const Icon(Icons.save),
+                onPressed: _canSave ? () => _save() : null,
               ),
               IconButton(
                 tooltip: '查找 / 替换',
@@ -4087,6 +4111,7 @@ class _NoteDetailState extends State<_NoteDetail> {
             ],
           ),
         ),
+        if (viewingHistorical) _historyBanner(note, viewingRevision),
         if (widget.editing) _editorToolbar(note),
         if (widget.editing && _showLatexPanel) _latexPanel(),
         if (_showFind) _findReplaceBar(),
@@ -4105,7 +4130,7 @@ class _NoteDetailState extends State<_NoteDetail> {
                           minWidth: MediaQuery.sizeOf(context).width - 32,
                         ),
                         child: MarkdownWithLatex(
-                          content: note.content,
+                          content: _ctrl.text,
                           onEditLatexBlock: _editLatexBlockFromPreview,
                         ),
                       ),
@@ -4162,37 +4187,345 @@ class _NoteDetailState extends State<_NoteDetail> {
   }
 
   void _onEditorTextChanged() {
-    final textChanged = _ctrl.text != _lastSavedDraft;
-    if (textChanged) {
-      _scheduleSave();
-      if (_showFind) _refreshMatches();
+    final textChanged = _ctrl.text != _trackedEditorText;
+    if (textChanged && !_applyingEditHistory) {
+      _undoStack.add(
+        _NoteEditStep.fromChange(
+          beforeText: _trackedEditorText,
+          afterText: _ctrl.text,
+          beforeSelection: _trackedEditorSelection,
+          afterSelection: _ctrl.selection,
+        ),
+      );
+      _redoStack.clear();
     }
+    if (textChanged && _showFind) _refreshMatches();
     if (_ctrl.selection.isValid) _lastEditorSelection = _ctrl.selection;
+    _trackedEditorText = _ctrl.text;
+    _trackedEditorSelection = _ctrl.selection.isValid
+        ? _ctrl.selection
+        : _lastEditorSelection;
     if (_showLatexPanel) setState(() {});
+    if (textChanged && mounted) setState(() {});
   }
 
   void _refreshLatexPanel() {
     if (_showLatexPanel && mounted) setState(() {});
   }
 
-  void _scheduleSave() {
-    _timer?.cancel();
-    _timer = Timer(const Duration(milliseconds: 800), _save);
-  }
-
-  void _save() {
-    _saveNote(widget.noteId);
-  }
-
-  void _saveNote(String noteId) {
-    final note = _features.getNote(noteId);
+  Future<void> _save() async {
+    final note = _features.getNote(widget.noteId);
     final content = _ctrl.text;
-    if (note == null || note.content == content) {
+    if (note == null) return;
+    if (!_canSave) {
       _lastSavedDraft = content;
       return;
     }
+    final revision = await _features.saveNoteContent(
+      widget.noteId,
+      content,
+      baseRevisionId: _activeRevisionId,
+    );
+    if (!mounted) return;
     _lastSavedDraft = content;
-    unawaited(_features.updateNote(note.copyWith(content: content)));
+    _activeRevisionId = null;
+    if (revision != null) {
+      ScaffoldMessenger.of(context).showSnackBar(_shortSnackBar('已保存到时间线'));
+    }
+    setState(() {});
+  }
+
+  bool get _canSave {
+    final note = _features.getNote(widget.noteId);
+    if (note == null) return false;
+    final baseContent = _activeRevisionId == null
+        ? note.content
+        : _features.getNoteContentAtRevision(widget.noteId, _activeRevisionId);
+    return _ctrl.text != baseContent;
+  }
+
+  bool get _hasUnsavedChanges => _ctrl.text != _lastSavedDraft;
+
+  void _loadEditorSnapshot(String text, {required String? revisionId}) {
+    _activeRevisionId = revisionId;
+    _lastSavedDraft = text;
+    _resetEditorState(text);
+  }
+
+  void _resetEditorState(String text) {
+    final selection = TextSelection.collapsed(offset: text.length);
+    _undoStack = [];
+    _redoStack = [];
+    _trackedEditorText = text;
+    _trackedEditorSelection = selection;
+    _lastEditorSelection = selection;
+    _ctrl.value = TextEditingValue(text: text, selection: selection);
+  }
+
+  void _undo() {
+    if (_undoStack.isEmpty) return;
+    final step = _undoStack.removeLast();
+    _redoStack.add(step);
+    _applyEditHistory(step.undo(_ctrl.text), step.beforeSelection);
+  }
+
+  void _redo() {
+    if (_redoStack.isEmpty) return;
+    final step = _redoStack.removeLast();
+    _undoStack.add(step);
+    _applyEditHistory(step.redo(_ctrl.text), step.afterSelection);
+  }
+
+  void _applyEditHistory(String text, TextSelection selection) {
+    _applyingEditHistory = true;
+    _ctrl.value = TextEditingValue(text: text, selection: selection);
+    _applyingEditHistory = false;
+    if (mounted) setState(() {});
+  }
+
+  Widget _historyBanner(Note note, NoteRevision revision) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+      padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+      decoration: BoxDecoration(
+        color: scheme.secondaryContainer.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              '正在查看 ${_formatNoteTime(revision.savedAt)} 的历史版本，基于它保存会新开分支并切到新分支。',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+          TextButton(
+            onPressed: () => _showCompareDialog(
+              currentLabel: '当前版本',
+              currentText: note.content,
+              otherLabel: '历史版本',
+              otherText: _ctrl.text,
+            ),
+            child: const Text('对比'),
+          ),
+          TextButton(
+            onPressed: () {
+              _returnToCurrentRevision(note);
+            },
+            child: const Text('回到当前'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openTimeline(Note note, List<NoteRevision> timeline) {
+    return showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '时间线',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Flexible(
+                child: timeline.isEmpty
+                    ? const Center(child: Text('还没有保存过时间线'))
+                    : ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: timeline.length,
+                        itemBuilder: (context, index) {
+                          final revision = timeline[index];
+                          final content = _features.getNoteContentAtRevision(
+                            note.id,
+                            revision.id,
+                          );
+                          final previous = revision.parentRevisionId == null
+                              ? ''
+                              : _features.getNoteContentAtRevision(
+                                  note.id,
+                                  revision.parentRevisionId,
+                                );
+                          final current = note.currentRevisionId == revision.id;
+                          final preview = content
+                              .replaceAll(RegExp(r'\s+'), ' ')
+                              .trim();
+                          return Card(
+                            margin: const EdgeInsets.symmetric(vertical: 4),
+                            child: ListTile(
+                              leading: Icon(
+                                current
+                                    ? Icons.radio_button_checked
+                                    : Icons.history_toggle_off,
+                              ),
+                              title: Text(_formatNoteTime(revision.savedAt)),
+                              subtitle: Text(
+                                '${_diffSummary(previous, content)} · ${preview.isEmpty ? '空笔记' : preview}',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              trailing: const Icon(Icons.chevron_right),
+                              onTap: () => _openRevisionFromTimeline(
+                                note: note,
+                                revision: revision,
+                                content: content,
+                              ),
+                              onLongPress: () {
+                                Navigator.pop(context);
+                                _showCompareDialog(
+                                  currentLabel: '当前版本',
+                                  currentText: note.content,
+                                  otherLabel: _formatNoteTime(revision.savedAt),
+                                  otherText: content,
+                                );
+                              },
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _diffSummary(String before, String after) {
+    final delta = NoteTextDelta.between(before, after);
+    final added = delta.insertedText.length;
+    final removed = delta.deletedText.length;
+    if (added == 0 && removed == 0) return '无内容变化';
+    if (added > 0 && removed > 0) return '+$added / -$removed 字符';
+    if (added > 0) return '+$added 字符';
+    return '-$removed 字符';
+  }
+
+  Future<void> _showCompareDialog({
+    required String currentLabel,
+    required String currentText,
+    required String otherLabel,
+    required String otherText,
+  }) {
+    final delta = NoteTextDelta.between(otherText, currentText);
+    final beforeChanged = delta.deletedText;
+    final afterChanged = delta.insertedText;
+    return showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('版本对比'),
+        content: SizedBox(
+          width: 680,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('$otherLabel -> $currentLabel'),
+                const SizedBox(height: 8),
+                Text(_diffSummary(otherText, currentText)),
+                const SizedBox(height: 12),
+                _compareSection(otherLabel, beforeChanged, removed: true),
+                const SizedBox(height: 10),
+                _compareSection(currentLabel, afterChanged, removed: false),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _returnToCurrentRevision(Note note) async {
+    if (!await _confirmDiscardUnsavedChanges()) return;
+    if (!mounted) return;
+    setState(() => _loadEditorSnapshot(note.content, revisionId: null));
+  }
+
+  Future<void> _openRevisionFromTimeline({
+    required Note note,
+    required NoteRevision revision,
+    required String content,
+  }) async {
+    Navigator.pop(context);
+    if (!await _confirmDiscardUnsavedChanges()) return;
+    if (!mounted) return;
+    final revisionId = revision.id == note.currentRevisionId
+        ? null
+        : revision.id;
+    setState(() => _loadEditorSnapshot(content, revisionId: revisionId));
+  }
+
+  Future<bool> _confirmDiscardUnsavedChanges() async {
+    if (!_hasUnsavedChanges) return true;
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('放弃未保存修改？'),
+        content: const Text('当前修改还没有保存到时间线，继续会丢失这些修改。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('放弃修改'),
+          ),
+        ],
+      ),
+    );
+    return discard == true;
+  }
+
+  Widget _compareSection(String label, String text, {required bool removed}) {
+    final scheme = Theme.of(context).colorScheme;
+    final bg = removed
+        ? scheme.errorContainer.withValues(alpha: 0.5)
+        : scheme.primaryContainer.withValues(alpha: 0.5);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: Theme.of(context).textTheme.labelLarge),
+        const SizedBox(height: 4),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: SelectableText(
+            text.isEmpty ? '无变化' : text,
+            style: const TextStyle(
+              fontFamily: 'Hurmit Nerd Font',
+              fontSize: 13,
+              height: 1.4,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _editorToolbar(Note note) {
@@ -4560,6 +4893,7 @@ class _NoteDetailState extends State<_NoteDetail> {
           r'[^\s]+',
         ).allMatches(currentText.trim()).length;
         final saved = currentText == _lastSavedDraft;
+        final viewLabel = _activeRevisionId == null ? '当前' : '历史';
         return Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -4570,7 +4904,7 @@ class _NoteDetailState extends State<_NoteDetail> {
             children: [
               Expanded(
                 child: Text(
-                  '行 $currentLine/$lineCount · 列 $currentColumn · 字符 ${currentText.length} · 词 $currentWords · ${note.wrap ? '自动换行' : '横向滚动'} · 更新 ${_formatNoteTime(note.updatedAt)}',
+                  '$viewLabel · 行 $currentLine/$lineCount · 列 $currentColumn · 字符 ${currentText.length} · 词 $currentWords · ${note.wrap ? '自动换行' : '横向滚动'} · 更新 ${_formatNoteTime(note.updatedAt)}',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
@@ -5069,7 +5403,6 @@ class _NoteDetailState extends State<_NoteDetail> {
     );
     if (edited == null) return;
     _replaceRange(start, end, _wrapLatexFormula(edited, source));
-    _save();
   }
 
   int _matchIndexAtCursor() {
@@ -5130,8 +5463,7 @@ class _NoteDetailState extends State<_NoteDetail> {
   Future<void> _menu(String value, Note note) async {
     switch (value) {
       case 'save':
-        _save();
-        widget.onEditingChanged(false);
+        await _save();
       case 'rename':
         await _rename(note);
       case 'find':
@@ -5184,7 +5516,6 @@ class _NoteDetailState extends State<_NoteDetail> {
   }
 
   Future<void> _export(Note note) async {
-    _save();
     final fileName = '${_safeExportFileName(note.title, 'note')}.md';
     try {
       final bytes = Uint8List.fromList(utf8.encode(_ctrl.text));
@@ -5211,7 +5542,6 @@ class _NoteDetailState extends State<_NoteDetail> {
   }
 
   Future<void> _exportImage() async {
-    _save();
     final note = _features.getNote(widget.noteId);
     if (note == null) return;
     final images = await _captureNoteImages(note.title, _ctrl.text);
@@ -5266,7 +5596,6 @@ class _NoteDetailState extends State<_NoteDetail> {
   }
 
   Future<void> _shareImage() async {
-    _save();
     final note = _features.getNote(widget.noteId);
     if (note == null) return;
     final images = await _captureNoteImages(note.title, _ctrl.text);
@@ -5359,6 +5688,35 @@ class _LatexSegment {
   final String formula;
 
   const _LatexSegment(this.start, this.end, this.source, this.formula);
+}
+
+class _NoteEditStep {
+  final NoteTextDelta delta;
+  final TextSelection beforeSelection;
+  final TextSelection afterSelection;
+
+  const _NoteEditStep({
+    required this.delta,
+    required this.beforeSelection,
+    required this.afterSelection,
+  });
+
+  factory _NoteEditStep.fromChange({
+    required String beforeText,
+    required String afterText,
+    required TextSelection beforeSelection,
+    required TextSelection afterSelection,
+  }) {
+    return _NoteEditStep(
+      delta: NoteTextDelta.between(beforeText, afterText),
+      beforeSelection: beforeSelection,
+      afterSelection: afterSelection,
+    );
+  }
+
+  String undo(String source) => delta.revert(source);
+
+  String redo(String source) => delta.apply(source);
 }
 
 class _LatexSnippet {

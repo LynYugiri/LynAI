@@ -11,19 +11,23 @@ import '../models/todo_list.dart';
 class FeatureProvider extends ChangeNotifier {
   static const _scheduleKey = 'schedule_items';
   static const _notesKey = 'notes';
+  static const _noteRevisionsKey = 'note_revisions';
   static const _noteFoldersKey = 'note_folders';
   static const _todoListsKey = 'todo_lists';
   static const _scheduleWidgetChannel = MethodChannel('lynai/schedule_widget');
   final _uuid = const Uuid();
   Future<void> _scheduleSaveQueue = Future.value();
   Future<void> _noteSaveQueue = Future.value();
+  Future<void> _noteRevisionSaveQueue = Future.value();
   Future<void> _noteFolderSaveQueue = Future.value();
   Future<void> _todoListSaveQueue = Future.value();
 
   List<ScheduleItem> _schedules = [];
   List<Note> _notes = [];
+  List<NoteRevision> _noteRevisions = [];
   List<NoteFolder> _noteFolders = [];
   List<TodoList> _todoLists = [];
+  final Map<String, String> _noteRevisionContentCache = {};
 
   List<ScheduleItem> get schedules => List.unmodifiable(_schedules);
   List<Note> get notes => List.unmodifiable(_notes);
@@ -73,6 +77,20 @@ class FeatureProvider extends ChangeNotifier {
         }
         _noteFolders = folders;
       }
+      final noteRevisionsJson = prefs.getString(_noteRevisionsKey);
+      if (noteRevisionsJson != null) {
+        final items = jsonDecode(noteRevisionsJson) as List<dynamic>;
+        final revisions = <NoteRevision>[];
+        for (final item in items) {
+          try {
+            revisions.add(NoteRevision.fromJson(item as Map<String, dynamic>));
+          } catch (e) {
+            debugPrint('跳过损坏的笔记时间线记录: $e');
+          }
+        }
+        _noteRevisions = revisions;
+      }
+      _normalizeNoteRevisionState();
       _removeMissingNoteFolderReferences();
       final todoListsJson = prefs.getString(_todoListsKey);
       if (todoListsJson != null) {
@@ -92,6 +110,7 @@ class FeatureProvider extends ChangeNotifier {
       debugPrint('加载功能数据失败: $e');
       _schedules = [];
       _notes = [];
+      _noteRevisions = [];
       _noteFolders = [];
       _todoLists = [];
       notifyListeners();
@@ -142,6 +161,14 @@ class FeatureProvider extends ChangeNotifier {
     return _noteFolderSaveQueue;
   }
 
+  Future<void> _queueSaveNoteRevisions() {
+    final snapshot = List<NoteRevision>.from(_noteRevisions);
+    _noteRevisionSaveQueue = _noteRevisionSaveQueue.then(
+      (_) => _saveNoteRevisionsSnapshot(snapshot),
+    );
+    return _noteRevisionSaveQueue;
+  }
+
   Future<void> _saveNoteFoldersSnapshot(List<NoteFolder> snapshot) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -151,6 +178,18 @@ class FeatureProvider extends ChangeNotifier {
       );
     } catch (e) {
       debugPrint('保存笔记文件夹失败: $e');
+    }
+  }
+
+  Future<void> _saveNoteRevisionsSnapshot(List<NoteRevision> snapshot) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _noteRevisionsKey,
+        jsonEncode(snapshot.map((e) => e.toJson()).toList()),
+      );
+    } catch (e) {
+      debugPrint('保存笔记时间线失败: $e');
     }
   }
 
@@ -250,16 +289,40 @@ class FeatureProvider extends ChangeNotifier {
     String? folderId,
   }) async {
     final now = DateTime.now();
+    final initialRevision = content.isEmpty
+        ? null
+        : NoteRevision(
+            id: _uuid.v4(),
+            noteId: '',
+            parentRevisionId: null,
+            savedAt: now,
+            delta: NoteTextDelta.between('', content),
+          );
     final note = Note(
       id: _uuid.v4(),
       title: title,
       content: content,
+      currentRevisionId: initialRevision?.id,
       folderId: _noteFolders.any((f) => f.id == folderId) ? folderId : null,
       createdAt: now,
       updatedAt: now,
     );
+    if (initialRevision != null) {
+      _noteRevisions.insert(
+        0,
+        NoteRevision(
+          id: initialRevision.id,
+          noteId: note.id,
+          parentRevisionId: null,
+          savedAt: now,
+          delta: initialRevision.delta,
+        ),
+      );
+      _noteRevisionContentCache[initialRevision.id] = content;
+    }
     _notes.insert(0, note);
     await _queueSaveNotes();
+    if (initialRevision != null) await _queueSaveNoteRevisions();
     notifyListeners();
     return note.id;
   }
@@ -270,6 +333,175 @@ class FeatureProvider extends ChangeNotifier {
     } catch (_) {
       return null;
     }
+  }
+
+  NoteRevision? getNoteRevision(String revisionId) {
+    try {
+      return _noteRevisions.firstWhere((revision) => revision.id == revisionId);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  List<NoteRevision> getNoteTimeline(String noteId) {
+    final revisions = _noteRevisions
+        .where((revision) => revision.noteId == noteId)
+        .toList();
+    revisions.sort((a, b) => b.savedAt.compareTo(a.savedAt));
+    return revisions;
+  }
+
+  String getNoteContentAtRevision(String noteId, String? revisionId) {
+    if (revisionId == null) {
+      return getNote(noteId)?.content ?? '';
+    }
+    return _getNoteContentAtRevision(noteId, revisionId, <String>{});
+  }
+
+  String _getNoteContentAtRevision(
+    String noteId,
+    String revisionId,
+    Set<String> visited,
+  ) {
+    if (!visited.add(revisionId)) return '';
+    final cached = _noteRevisionContentCache[revisionId];
+    if (cached != null) return cached;
+    final revision = getNoteRevision(revisionId);
+    if (revision == null || revision.noteId != noteId) return '';
+    final parentContent = revision.parentRevisionId == null
+        ? ''
+        : _getNoteContentAtRevision(
+            noteId,
+            revision.parentRevisionId!,
+            visited,
+          );
+    final content = revision.delta.apply(parentContent);
+    _noteRevisionContentCache[revisionId] = content;
+    return content;
+  }
+
+  void _normalizeNoteRevisionState() {
+    final revisionById = {
+      for (final revision in _noteRevisions) revision.id: revision,
+    };
+    final validChainCache = <String, bool>{};
+
+    bool hasValidChain(String revisionId, Set<String> visiting) {
+      final cached = validChainCache[revisionId];
+      if (cached != null) return cached;
+      final revision = revisionById[revisionId];
+      if (revision == null) return validChainCache[revisionId] = false;
+      if (!visiting.add(revisionId)) return validChainCache[revisionId] = false;
+      final parentId = revision.parentRevisionId;
+      if (parentId == null) {
+        visiting.remove(revisionId);
+        return validChainCache[revisionId] = true;
+      }
+      final parent = revisionById[parentId];
+      final valid =
+          parent != null &&
+          parent.noteId == revision.noteId &&
+          hasValidChain(parentId, visiting);
+      visiting.remove(revisionId);
+      return validChainCache[revisionId] = valid;
+    }
+
+    _noteRevisions = _noteRevisions
+        .where((revision) => hasValidChain(revision.id, <String>{}))
+        .toList();
+    final validRevisionIds = _noteRevisions
+        .map((revision) => revision.id)
+        .toSet();
+    _notes = _notes.map((note) {
+      final currentRevisionId = note.currentRevisionId;
+      if (currentRevisionId == null ||
+          validRevisionIds.contains(currentRevisionId)) {
+        return note;
+      }
+      return note.copyWith(currentRevisionId: null, preserveUpdatedAt: true);
+    }).toList();
+    _noteRevisionContentCache.clear();
+  }
+
+  Future<NoteRevision?> saveNoteContent(
+    String noteId,
+    String content, {
+    String? baseRevisionId,
+  }) async {
+    final index = _notes.indexWhere((note) => note.id == noteId);
+    if (index == -1) return null;
+    final note = _notes[index];
+    var parentRevisionId = baseRevisionId ?? note.currentRevisionId;
+    var baseContent = parentRevisionId == null
+        ? note.content
+        : getNoteContentAtRevision(noteId, parentRevisionId);
+    NoteRevision? bootstrappedRoot;
+
+    if (parentRevisionId == null && note.content.isNotEmpty) {
+      final now = DateTime.now();
+      final rootRevision = NoteRevision(
+        id: _uuid.v4(),
+        noteId: note.id,
+        parentRevisionId: null,
+        savedAt: now,
+        delta: NoteTextDelta.between('', note.content),
+      );
+      bootstrappedRoot = rootRevision;
+      _noteRevisions.insert(0, rootRevision);
+      _noteRevisionContentCache[rootRevision.id] = note.content;
+      parentRevisionId = rootRevision.id;
+      baseContent = note.content;
+      _notes[index] = note.copyWith(
+        currentRevisionId: rootRevision.id,
+        preserveUpdatedAt: true,
+      );
+    }
+
+    final currentRevisionId = _notes[index].currentRevisionId;
+    if (baseRevisionId == currentRevisionId && note.content == content) {
+      if (bootstrappedRoot != null) {
+        await _queueSaveNoteRevisions();
+        await _queueSaveNotes();
+        notifyListeners();
+      }
+      return currentRevisionId == null
+          ? null
+          : getNoteRevision(currentRevisionId);
+    }
+    if (baseRevisionId != null &&
+        baseContent == content &&
+        currentRevisionId == baseRevisionId) {
+      return getNoteRevision(baseRevisionId);
+    }
+    if (baseRevisionId == null &&
+        currentRevisionId != null &&
+        baseContent == content) {
+      if (bootstrappedRoot != null) {
+        await _queueSaveNoteRevisions();
+        await _queueSaveNotes();
+        notifyListeners();
+      }
+      return getNoteRevision(currentRevisionId);
+    }
+
+    final now = DateTime.now();
+    final revision = NoteRevision(
+      id: _uuid.v4(),
+      noteId: note.id,
+      parentRevisionId: parentRevisionId,
+      savedAt: now,
+      delta: NoteTextDelta.between(baseContent, content),
+    );
+    _noteRevisions.insert(0, revision);
+    _noteRevisionContentCache[revision.id] = content;
+    _notes[index] = note.copyWith(
+      content: content,
+      currentRevisionId: revision.id,
+    );
+    await _queueSaveNoteRevisions();
+    await _queueSaveNotes();
+    notifyListeners();
+    return revision;
   }
 
   Future<void> updateNote(Note note) async {
@@ -306,7 +538,16 @@ class FeatureProvider extends ChangeNotifier {
     final before = _notes.length;
     _notes.removeWhere((n) => n.id == id);
     if (_notes.length == before) return;
+    final deletedRevisionIds = _noteRevisions
+        .where((revision) => revision.noteId == id)
+        .map((revision) => revision.id)
+        .toSet();
+    _noteRevisions.removeWhere((revision) => revision.noteId == id);
+    _noteRevisionContentCache.removeWhere(
+      (revisionId, _) => deletedRevisionIds.contains(revisionId),
+    );
     await _queueSaveNotes();
+    await _queueSaveNoteRevisions();
     notifyListeners();
   }
 

@@ -573,15 +573,14 @@ class ToolCallService {
     if (id.isEmpty) {
       if (title.isEmpty) return _error('创建笔记需要 title');
       if (!hasContent) return _error('创建笔记需要 content');
-      final newId = await _features.addNote(
+      final newId = await _features.addNoteWithContent(
         title,
+        content,
         folderId: hasFolderId && folderId.isNotEmpty ? folderId : null,
       );
       final note = _features.getNote(newId);
       if (note == null) return _error('创建笔记失败');
-      final updated = note.copyWith(content: content);
-      await _features.updateNote(updated);
-      return {'ok': true, 'note': updated.toJson()};
+      return {'ok': true, 'note': note.toJson()};
     }
     final note = _features.getNote(id);
     if (note == null) return _error('未找到笔记: $id');
@@ -595,13 +594,18 @@ class ToolCallService {
         : content;
     final updated = note.copyWith(
       title: title.isEmpty ? null : title,
-      content: nextContent,
       folderId: hasFolderId
           ? (folderId.isEmpty ? null : folderId)
           : note.folderId,
     );
-    await _features.updateNote(updated);
-    return {'ok': true, 'note': updated.toJson()};
+    if (updated.title != note.title || updated.folderId != note.folderId) {
+      await _features.updateNote(updated);
+    }
+    if (hasContent) {
+      await _features.saveNoteContent(id, nextContent);
+    }
+    final savedNote = _features.getNote(id) ?? updated;
+    return {'ok': true, 'note': savedNote.toJson()};
   }
 
   Map<String, dynamic> _listNoteFolders() {
