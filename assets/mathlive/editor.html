@@ -12,27 +12,69 @@
       --text: #eef2f7;
       --hint: #9aa4b2;
       --mf-size: 1.1rem;
-      --keycap-height: 52px;
-      --keycap-font-size: 22px;
+      --keyboard-background: #20242c;
+      --keyboard-border: rgba(255,255,255,0.12);
+      --keyboard-toolbar-text: #aab4c3;
+      --keyboard-toolbar-text-active: #9bd7ff;
+      --keyboard-toolbar-background-hover: rgba(255,255,255,0.08);
+      --keyboard-toolbar-background-selected: rgba(132,210,255,0.16);
+      --keycap-background: #303642;
+      --keycap-background-hover: #394150;
+      --keycap-background-active: #4aa3ff;
+      --keycap-background-pressed: #4aa3ff;
+      --keycap-border: rgba(255,255,255,0.08);
+      --keycap-border-bottom: rgba(0,0,0,0.45);
+      --keycap-text: #eef2f7;
+      --keycap-text-hover: #ffffff;
+      --keycap-text-active: #07111f;
+      --keycap-text-pressed: #07111f;
+      --keycap-secondary-background: #454d5b;
+      --keycap-secondary-background-hover: #525c6d;
+      --keycap-secondary-border: rgba(255,255,255,0.08);
+      --keycap-secondary-border-bottom: rgba(0,0,0,0.45);
+      --keycap-secondary-text: #f6f8fb;
+      --keycap-primary-background: #77d1ff;
+      --keycap-primary-background-hover: #9cddff;
+      --keycap-primary-text: #07111f;
+      --keycap-height: 56px;
+      --keycap-font-size: clamp(19px, 5.6vw, 24px);
       --keycap-shift-font-size: 11px;
-      --keycap-small-font-size: 13px;
+      --keycap-small-font-size: 15px;
       --keycap-extra-small-font-size: 12px;
-      --keyboard-toolbar-font-size: 17px;
-      --keyboard-padding-horizontal: 12px;
+      --keycap-max-width: 72px;
+      --keyboard-toolbar-font-size: 15px;
+      --keyboard-padding-horizontal: 10px;
       --keyboard-padding-top: 10px;
-      --keyboard-padding-bottom: 12px;
-      --keycap-gap: 8px;
+      --keyboard-padding-bottom: max(12px, env(safe-area-inset-bottom));
+      --keyboard-row-padding-left: 0px;
+      --keyboard-row-padding-right: 0px;
+      --keycap-gap: 6px;
+    }
+    :root[data-theme="light"] {
+      color-scheme: light;
+    }
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+    }
+    html {
+      height: 100%;
     }
     body {
       margin: 0;
       padding: 12px;
+      height: 100%;
       background: var(--bg);
       color: var(--text);
       font-family: Inter, system-ui, sans-serif;
       box-sizing: border-box;
+      overflow: hidden;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
     }
     .panel {
-      min-height: calc(100vh - 24px);
+      --keyboard-overlay-height: 0px;
+      height: calc(100vh - 24px);
+      height: calc(100dvh - 24px);
       background: linear-gradient(180deg, rgba(132,210,255,0.08), transparent 42%), var(--panel);
       border: 1px solid var(--border);
       border-radius: 18px;
@@ -41,6 +83,8 @@
       display: flex;
       flex-direction: column;
       gap: 12px;
+      overflow: hidden;
+      position: relative;
     }
     .label {
       font-size: 13px;
@@ -49,17 +93,82 @@
     .editor-shell {
       flex: 1;
       min-height: 0;
+      position: relative;
     }
     #keyboard-host {
-      position: relative;
-      min-height: 0;
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
       height: 0;
       overflow: hidden;
-      transition: height 180ms ease;
+      transition: height 210ms cubic-bezier(.2, .8, .2, 1), border-color 210ms ease;
+      border-top: 1px solid transparent;
+      background: rgba(23,27,34,0.98);
+      background: color-mix(in srgb, var(--panel) 82%, #000 18%);
+      box-shadow: 0 -14px 32px rgba(0,0,0,0.22);
+      z-index: 4;
+      pointer-events: none;
+    }
+    #keyboard-host.visible {
+      border-color: rgba(255,255,255,0.1);
+      pointer-events: auto;
+    }
+    #keyboard-host .ML__keyboard,
+    #keyboard-host .MLK__backdrop {
+      border-radius: 20px 20px 0 0;
+    }
+    #keyboard-host .MLK__plate {
+      width: calc(100% - 2 * var(--keyboard-padding-horizontal));
+    }
+    #keyboard-host .MLK__toolbar {
+      min-height: 34px;
+      padding: 0 2px 6px;
+    }
+    #keyboard-host .MLK__toolbar .rows-label,
+    #keyboard-host .MLK__toolbar button,
+    #keyboard-host .MLK__toolbar div {
+      border-radius: 999px;
+    }
+    #keyboard-host .MLK__rows {
+      --keycap-width: calc((100cqw + var(--keycap-gap)) / 8);
+      gap: var(--keycap-gap);
+      padding-bottom: 1px;
+    }
+    #keyboard-host .MLK__row {
+      gap: var(--keycap-gap);
+    }
+    #keyboard-host .MLK__keycap,
+    #keyboard-host .action,
+    #keyboard-host .shift,
+    #keyboard-host .fnbutton,
+    #keyboard-host .bigfnbutton {
+      border-radius: 13px;
+      box-shadow: 0 2px 0 rgba(0,0,0,0.34);
+      min-width: 0;
+      overflow: hidden;
+      line-height: 1;
+    }
+    #keyboard-host .MLK__keycap .ML__latex {
+      max-width: 100%;
+      transform: scale(0.92);
+      transform-origin: center;
+    }
+    #keyboard-host .small,
+    #keyboard-host .template-key {
+      font-size: var(--keycap-small-font-size) !important;
+    }
+    #keyboard-host .tiny-key {
+      font-size: var(--keycap-extra-small-font-size) !important;
+      letter-spacing: -0.02em;
+    }
+    #keyboard-host .wide-label {
+      font-size: 13px !important;
+      font-weight: 700;
+      letter-spacing: -0.03em;
     }
     math-field {
       width: 100%;
-      min-height: 180px;
       height: 100%;
       font-size: var(--mf-size);
       background: rgba(255,255,255,0.03);
@@ -68,9 +177,260 @@
       padding: 12px 14px;
       box-sizing: border-box;
       color: var(--text);
+      overflow: auto;
+      -webkit-user-select: text;
+      user-select: text;
     }
     math-field::part(virtual-keyboard-toggle) {
       display: none;
+    }
+    #native-input {
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      bottom: 12px;
+      z-index: 3;
+      min-height: 42px;
+      max-height: 38%;
+      resize: none;
+      box-sizing: border-box;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(132,210,255,0.38);
+      outline: none;
+      background: rgba(16,18,22,0.92);
+      color: var(--text);
+      font: 15px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      box-shadow: 0 10px 28px rgba(0,0,0,0.28);
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(8px);
+      transition: opacity 140ms ease, transform 140ms ease;
+    }
+    #native-input.visible {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0);
+    }
+    #symbol-tools {
+      position: absolute;
+      left: 10px;
+      right: 10px;
+      bottom: calc(var(--keyboard-overlay-height) + 58px);
+      z-index: 6;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      pointer-events: none;
+      transition: bottom 210ms cubic-bezier(.2, .8, .2, 1);
+    }
+    #quick-strip {
+      flex: 1;
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      overscroll-behavior-x: contain;
+      scrollbar-width: none;
+      padding: 6px;
+      border: 1px solid var(--border);
+      border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+      border-radius: 16px;
+      background: var(--panel);
+      background: color-mix(in srgb, var(--panel) 88%, transparent);
+      box-shadow: 0 10px 28px rgba(0,0,0,0.22);
+      pointer-events: auto;
+    }
+    #quick-strip::-webkit-scrollbar {
+      display: none;
+    }
+    .symbol-chip,
+    #symbol-toggle,
+    .symbol-tab,
+    .favorite-toggle {
+      border: 1px solid var(--border);
+      border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+      background: var(--keycap-background);
+      color: var(--keycap-text);
+      border-radius: 12px;
+      min-width: 42px;
+      height: 36px;
+      padding: 0 10px;
+      font: 700 15px/1 system-ui, sans-serif;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      white-space: nowrap;
+      cursor: pointer;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .symbol-chip:active,
+    #symbol-toggle:active,
+    .symbol-tab:active,
+    .favorite-toggle:active {
+      background: var(--keycap-background-pressed);
+      color: var(--keycap-text-pressed);
+    }
+    #symbol-toggle {
+      width: 50px;
+      flex: 0 0 auto;
+      background: var(--keycap-primary-background);
+      color: var(--keycap-primary-text);
+      box-shadow: 0 10px 28px rgba(0,0,0,0.22);
+      pointer-events: auto;
+    }
+    #symbol-sheet {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 8;
+      height: min(66dvh, 560px);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 10px 10px max(12px, env(safe-area-inset-bottom));
+      box-sizing: border-box;
+      border-top: 1px solid var(--border);
+      border-radius: 20px 20px 0 0;
+      background: var(--panel);
+      background: color-mix(in srgb, var(--panel) 96%, var(--bg));
+      box-shadow: 0 -18px 38px rgba(0,0,0,0.32);
+      transform: translateY(105%);
+      transition: transform 210ms cubic-bezier(.2, .8, .2, 1);
+      pointer-events: none;
+    }
+    #symbol-sheet.visible {
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+    .sheet-header {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .sheet-title {
+      flex: 1;
+      font-weight: 800;
+      color: var(--text);
+    }
+    #symbol-tabs {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      padding-bottom: 2px;
+    }
+    #symbol-tabs::-webkit-scrollbar {
+      display: none;
+    }
+    .symbol-tab {
+      height: 34px;
+      min-width: auto;
+      font-size: 13px;
+      color: var(--hint);
+    }
+    .symbol-tab.active {
+      background: var(--keycap-primary-background);
+      color: var(--keycap-primary-text);
+      border-color: transparent;
+    }
+    #symbol-grid {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 8px;
+      padding: 2px 0 4px;
+    }
+    .symbol-cell {
+      min-width: 0;
+      height: 52px;
+      border: 1px solid var(--border);
+      border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+      border-radius: 14px;
+      background: var(--keycap-background);
+      color: var(--keycap-text);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      cursor: pointer;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .symbol-cell:active {
+      background: var(--keycap-background-pressed);
+      color: var(--keycap-text-pressed);
+    }
+    .symbol-cell-label {
+      font-size: 19px;
+      font-weight: 800;
+      line-height: 1;
+    }
+    .symbol-cell-name {
+      max-width: 100%;
+      color: var(--hint);
+      font-size: 10px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      padding: 0 5px;
+    }
+    .favorite-toggle {
+      min-width: 38px;
+      width: 38px;
+      padding: 0;
+      color: var(--hint);
+    }
+    .favorite-toggle.active {
+      color: var(--keycap-primary-background);
+      border-color: var(--keycap-primary-background);
+    }
+    @media (pointer: coarse) {
+      body {
+        padding: 0;
+      }
+      .panel {
+        height: 100vh;
+        height: 100dvh;
+        border: 0;
+        border-radius: 0;
+        padding: 10px 10px 0;
+      }
+      .label {
+        display: none;
+      }
+      math-field {
+        border-radius: 12px;
+        font-size: calc(var(--mf-size) + 0.08rem);
+      }
+      #native-input {
+        left: 10px;
+        right: 10px;
+        bottom: 10px;
+      }
+      #keyboard-host {
+        border-radius: 18px 18px 0 0;
+      }
+      #symbol-tools {
+        left: 8px;
+        right: 8px;
+      }
+      #symbol-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+    }
+    @media (max-width: 390px) {
+      :root {
+        --keycap-height: 52px;
+        --keycap-gap: 5px;
+        --keycap-font-size: 19px;
+        --keycap-small-font-size: 13px;
+        --keycap-extra-small-font-size: 11px;
+      }
     }
   </style>
 </head>
@@ -79,6 +439,20 @@
     <div class="label">MathLive 可视编辑</div>
     <div class="editor-shell">
       <math-field id="mf"></math-field>
+      <textarea id="native-input" rows="2" inputmode="text" autocapitalize="none" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="LaTeX 源码输入"></textarea>
+    </div>
+    <div id="symbol-tools">
+      <div id="quick-strip" aria-label="快捷符号"></div>
+      <button id="symbol-toggle" type="button" aria-label="打开符号库">Σ+</button>
+    </div>
+    <div id="symbol-sheet" aria-label="符号库">
+      <div class="sheet-header">
+        <div class="sheet-title">符号库</div>
+        <button id="favorite-toggle" class="favorite-toggle" type="button" aria-label="收藏当前符号">☆</button>
+        <button id="symbol-close" class="symbol-chip" type="button" aria-label="关闭符号库">关闭</button>
+      </div>
+      <div id="symbol-tabs"></div>
+      <div id="symbol-grid"></div>
     </div>
     <div id="keyboard-host"></div>
   </div>
@@ -90,29 +464,426 @@
         MathfieldElement.fontsDirectory = './fonts';
         MathfieldElement.soundsDirectory = './sounds';
         const mf = document.getElementById('mf');
+        const nativeInput = document.getElementById('native-input');
         const keyboardHost = document.getElementById('keyboard-host');
+        const quickStrip = document.getElementById('quick-strip');
+        const symbolToggle = document.getElementById('symbol-toggle');
+        const symbolSheet = document.getElementById('symbol-sheet');
+        const symbolClose = document.getElementById('symbol-close');
+        const symbolTabs = document.getElementById('symbol-tabs');
+        const symbolGrid = document.getElementById('symbol-grid');
+        const favoriteToggle = document.getElementById('favorite-toggle');
         let keyboardVisible = false;
+        let syncingNativeInput = false;
+        let inputBridgeTimer = 0;
+        let activeSymbolCategory = 'recent';
+        let selectedSymbol = null;
+        let recentSymbols = [];
+        let favoriteSymbols = [];
+        let suppressNativeInputFocus = false;
+        const touchLike = matchMedia('(pointer: coarse)').matches;
+
+        const key = (label, latex, extra = {}) => ({ label, latex, ...extra });
+        const tpl = (label, latex, extra = {}) => key(label, latex, { class: 'template-key', ...extra });
+        const small = (label, latex, extra = {}) => key(label, latex, { class: 'small', ...extra });
+        const sym = (label, latex, name = label) => ({ label, latex, name });
+        const storageKeys = {
+          recent: 'lynai.mathlive.recentSymbols.v1',
+          favorites: 'lynai.mathlive.favoriteSymbols.v1',
+        };
+        const navRow = [
+          '[undo]', '[redo]', '[separator]',
+          '[left]', '[right]',
+          { label: '[backspace]', class: 'action', width: 1.5 },
+          '[hide-keyboard]',
+        ];
+        const advancedMathLayouts = [
+          {
+            label: '123',
+            tooltip: '数字与结构',
+            layers: [{
+              id: 'numbers',
+              rows: [
+                ['7', '8', '9', '+', '-', key('×', '\\times'), key('÷', '\\div'), '='],
+                ['4', '5', '6', '(', ')', '[', ']', key('±', '\\pm')],
+                ['1', '2', '3', tpl('□²', '#@^{2}'), tpl('□ⁿ', '#@^{#?}'), tpl('□ᵢ', '#@_{#?}'), tpl('√□', '\\sqrt{#0}'), tpl('ⁿ√□', '\\sqrt[#0]{#@}')],
+                ['0', '.', ',', tpl('□/□', '\\frac{#@}{#0}'), key('π', '\\pi'), key('∞', '\\infty'), tpl('|□|', '\\left|#@\\right|'), tpl('(□)', '\\left(#@\\right)')],
+                navRow,
+              ],
+            }],
+          },
+          {
+            label: 'xyz',
+            tooltip: '变量与字母',
+            layers: [{
+              id: 'variables',
+              rows: [
+                ['x', 'y', 'z', 't', 'n', 'm', 'a', 'b'],
+                ['c', 'd', 'f', 'g', 'h', 'k', 'p', 'q'],
+                ['r', 's', 'u', 'v', 'w', 'A', 'B', 'C'],
+                [key('ℕ', '\\mathbb{N}'), key('ℤ', '\\mathbb{Z}'), key('ℚ', '\\mathbb{Q}'), key('ℝ', '\\mathbb{R}'), key('ℂ', '\\mathbb{C}'), key('ℙ', '\\mathbb{P}'), key('𝔼', '\\mathbb{E}'), key('𝟙', '\\mathbb{1}')],
+                navRow,
+              ],
+            }],
+          },
+          {
+            label: 'ƒx',
+            tooltip: '函数与微积分',
+            layers: [{
+              id: 'functions',
+              rows: [
+                [small('sin', '\\sin'), small('cos', '\\cos'), small('tan', '\\tan'), small('ln', '\\ln'), small('log', '\\log'), small('exp', '\\exp'), key('e', '\\mathrm{e}'), key('i', '\\mathrm{i}')],
+                [tpl('lim', '\\lim_{#0 \\to #0} #@'), tpl('∑', '\\sum_{#0}^{#0} #@'), tpl('∏', '\\prod_{#0}^{#0} #@'), tpl('∫', '\\int_{#0}^{#0} #@\\,d#0'), tpl('∂□/∂□', '\\frac{\\partial #@}{\\partial #0}', { class: 'tiny-key' }), tpl('d□/d□', '\\frac{d #@}{d #0}', { class: 'tiny-key' }), key('∇', '\\nabla'), key('′', "'")],
+                [tpl('x⃗', '\\vec{#@}'), tpl('x̂', '\\hat{#@}'), tpl('x̄', '\\overline{#@}'), tpl('ẋ', '\\dot{#@}'), tpl('x̃', '\\tilde{#@}'), tpl('|□|', '\\left|#@\\right|'), tpl('‖□‖', '\\left\\|#@\\right\\|'), tpl('⌊□⌋', '\\left\\lfloor#@\\right\\rfloor')],
+                [tpl('[□]', '\\begin{bmatrix} #0 & #0 \\\\ #0 & #0 \\end{bmatrix}'), tpl('{□', '\\begin{cases} #0, & #0 \\\\ #0, & #0 \\end{cases}', { class: 'tiny-key' }), tpl('&=', '\\begin{aligned} #0 &= #0 \\\\ #0 &= #0 \\end{aligned}', { class: 'tiny-key' }), key('→', '\\to'), key('↦', '\\mapsto'), key('∘', '\\circ'), key('∗', '\\ast'), key('⋯', '\\cdots')],
+                navRow,
+              ],
+            }],
+          },
+          {
+            label: '≤≠',
+            tooltip: '关系与集合',
+            layers: [{
+              id: 'relations',
+              rows: [
+                [key('<', '<'), key('>', '>'), key('≤', '\\le'), key('≥', '\\ge'), key('≠', '\\ne'), key('≈', '\\approx'), key('≡', '\\equiv'), key('∝', '\\propto')],
+                [key('∈', '\\in'), key('∉', '\\notin'), key('⊂', '\\subset'), key('⊆', '\\subseteq'), key('∪', '\\cup'), key('∩', '\\cap'), key('∅', '\\varnothing'), key('ℝ', '\\mathbb{R}')],
+                [key('∀', '\\forall'), key('∃', '\\exists'), key('¬', '\\neg'), key('∧', '\\land'), key('∨', '\\lor'), key('⇒', '\\Rightarrow'), key('⇔', '\\Leftrightarrow'), key('∴', '\\therefore')],
+                [key('←', '\\leftarrow'), key('→', '\\rightarrow'), key('↔', '\\leftrightarrow'), key('⇐', '\\Leftarrow'), key('⇒', '\\Rightarrow'), key('⇔', '\\Leftrightarrow'), key('⊥', '\\perp'), key('∥', '\\parallel')],
+                navRow,
+              ],
+            }],
+          },
+          {
+            label: 'αβ',
+            tooltip: '希腊字母',
+            layers: [{
+              id: 'greek',
+              rows: [
+                [key('α', '\\alpha'), key('β', '\\beta'), key('γ', '\\gamma'), key('δ', '\\delta'), key('ε', '\\epsilon'), key('ζ', '\\zeta'), key('η', '\\eta'), key('θ', '\\theta')],
+                [key('ι', '\\iota'), key('κ', '\\kappa'), key('λ', '\\lambda'), key('μ', '\\mu'), key('ν', '\\nu'), key('ξ', '\\xi'), key('π', '\\pi'), key('ρ', '\\rho')],
+                [key('σ', '\\sigma'), key('τ', '\\tau'), key('υ', '\\upsilon'), key('φ', '\\varphi'), key('χ', '\\chi'), key('ψ', '\\psi'), key('ω', '\\omega'), key('ϕ', '\\phi')],
+                [key('Γ', '\\Gamma'), key('Δ', '\\Delta'), key('Θ', '\\Theta'), key('Λ', '\\Lambda'), key('Ξ', '\\Xi'), key('Π', '\\Pi'), key('Σ', '\\Sigma'), key('Ω', '\\Omega')],
+                navRow,
+              ],
+            }],
+          },
+        ];
+
+        const defaultQuickSymbols = [
+          sym('x', 'x'), sym('y', 'y'), sym('z', 'z'), sym('□²', '#@^{2}', '平方'),
+          sym('□/□', '\\frac{#@}{#0}', '分式'), sym('√□', '\\sqrt{#0}', '根号'),
+          sym('∫', '\\int_{#0}^{#0} #@\\,d#0', '积分'), sym('∑', '\\sum_{#0}^{#0} #@', '求和'),
+          sym('α', '\\alpha'), sym('β', '\\beta'), sym('π', '\\pi'), sym('∞', '\\infty'),
+          sym('→', '\\to'), sym('≤', '\\le'), sym('≠', '\\ne'), sym('|□|', '\\left|#@\\right|', '绝对值'),
+        ];
+
+        const symbolCategories = [
+          { id: 'recent', title: '最近', symbols: [] },
+          { id: 'favorites', title: '收藏', symbols: [] },
+          { id: 'common', title: '高频', symbols: defaultQuickSymbols },
+          {
+            id: 'structures',
+            title: '结构',
+            symbols: [
+              sym('□²', '#@^{2}', '平方'), sym('□ⁿ', '#@^{#?}', '上标'), sym('□ᵢ', '#@_{#?}', '下标'),
+              sym('□/□', '\\frac{#@}{#0}', '分式'), sym('√□', '\\sqrt{#0}', '根号'), sym('ⁿ√□', '\\sqrt[#0]{#@}', 'n 次根'),
+              sym('(□)', '\\left(#@\\right)', '圆括号'), sym('[□]', '\\left[#@\\right]', '方括号'), sym('{□}', '\\left\\{#@\\right\\}', '花括号'),
+              sym('|□|', '\\left|#@\\right|', '绝对值'), sym('‖□‖', '\\left\\|#@\\right\\|', '范数'), sym('⌊□⌋', '\\left\\lfloor#@\\right\\rfloor', '下取整'),
+            ],
+          },
+          {
+            id: 'calculus',
+            title: '微积分',
+            symbols: [
+              sym('lim', '\\lim_{#0 \\to #0} #@', '极限'), sym('∑', '\\sum_{#0}^{#0} #@', '求和'), sym('∏', '\\prod_{#0}^{#0} #@', '连乘'),
+              sym('∫', '\\int_{#0}^{#0} #@\\,d#0', '积分'), sym('∮', '\\oint #@\\,d#0', '环积分'), sym('∂□/∂□', '\\frac{\\partial #@}{\\partial #0}', '偏导'),
+              sym('d□/d□', '\\frac{d #@}{d #0}', '导数'), sym('∇', '\\nabla', '梯度'), sym('′', "'", 'prime'),
+              sym('dx', '\\,dx', 'dx'), sym('dy', '\\,dy', 'dy'), sym('dt', '\\,dt', 'dt'),
+            ],
+          },
+          {
+            id: 'functions',
+            title: '函数',
+            symbols: [
+              sym('sin', '\\sin'), sym('cos', '\\cos'), sym('tan', '\\tan'), sym('cot', '\\cot'),
+              sym('sec', '\\sec'), sym('csc', '\\csc'), sym('ln', '\\ln'), sym('log', '\\log'),
+              sym('exp', '\\exp'), sym('min', '\\min'), sym('max', '\\max'), sym('arg', '\\arg'),
+            ],
+          },
+          {
+            id: 'relations',
+            title: '关系',
+            symbols: [
+              sym('=', '='), sym('≠', '\\ne'), sym('≈', '\\approx'), sym('≡', '\\equiv'), sym('∼', '\\sim'), sym('∝', '\\propto'),
+              sym('<', '<'), sym('>', '>'), sym('≤', '\\le'), sym('≥', '\\ge'), sym('≪', '\\ll'), sym('≫', '\\gg'),
+            ],
+          },
+          {
+            id: 'sets',
+            title: '集合',
+            symbols: [
+              sym('∈', '\\in'), sym('∉', '\\notin'), sym('∋', '\\ni'), sym('⊂', '\\subset'), sym('⊆', '\\subseteq'), sym('⊊', '\\subsetneq'),
+              sym('∪', '\\cup'), sym('∩', '\\cap'), sym('∅', '\\varnothing'), sym('ℕ', '\\mathbb{N}'), sym('ℤ', '\\mathbb{Z}'), sym('ℚ', '\\mathbb{Q}'),
+              sym('ℝ', '\\mathbb{R}'), sym('ℂ', '\\mathbb{C}'), sym('ℙ', '\\mathbb{P}'), sym('𝔼', '\\mathbb{E}'),
+            ],
+          },
+          {
+            id: 'logic',
+            title: '逻辑',
+            symbols: [
+              sym('∀', '\\forall'), sym('∃', '\\exists'), sym('∄', '\\nexists'), sym('¬', '\\neg'), sym('∧', '\\land'), sym('∨', '\\lor'),
+              sym('⇒', '\\Rightarrow'), sym('⇔', '\\Leftrightarrow'), sym('∴', '\\therefore'), sym('∵', '\\because'), sym('⊢', '\\vdash'), sym('⊨', '\\models'),
+            ],
+          },
+          {
+            id: 'arrows',
+            title: '箭头',
+            symbols: [
+              sym('←', '\\leftarrow'), sym('→', '\\rightarrow'), sym('↔', '\\leftrightarrow'), sym('↦', '\\mapsto'),
+              sym('⇐', '\\Leftarrow'), sym('⇒', '\\Rightarrow'), sym('⇔', '\\Leftrightarrow'), sym('↗', '\\nearrow'),
+              sym('↘', '\\searrow'), sym('↙', '\\swarrow'), sym('↖', '\\nwarrow'), sym('⟶', '\\longrightarrow'),
+            ],
+          },
+          {
+            id: 'greek',
+            title: '希腊',
+            symbols: [
+              sym('α', '\\alpha'), sym('β', '\\beta'), sym('γ', '\\gamma'), sym('δ', '\\delta'), sym('ε', '\\epsilon'), sym('ζ', '\\zeta'), sym('η', '\\eta'), sym('θ', '\\theta'),
+              sym('ι', '\\iota'), sym('κ', '\\kappa'), sym('λ', '\\lambda'), sym('μ', '\\mu'), sym('ν', '\\nu'), sym('ξ', '\\xi'), sym('π', '\\pi'), sym('ρ', '\\rho'),
+              sym('σ', '\\sigma'), sym('τ', '\\tau'), sym('υ', '\\upsilon'), sym('φ', '\\varphi'), sym('χ', '\\chi'), sym('ψ', '\\psi'), sym('ω', '\\omega'), sym('ϕ', '\\phi'),
+              sym('Γ', '\\Gamma'), sym('Δ', '\\Delta'), sym('Θ', '\\Theta'), sym('Λ', '\\Lambda'), sym('Ξ', '\\Xi'), sym('Π', '\\Pi'), sym('Σ', '\\Sigma'), sym('Ω', '\\Omega'),
+            ],
+          },
+          {
+            id: 'matrices',
+            title: '矩阵',
+            symbols: [
+              sym('[2×2]', '\\begin{bmatrix} #0 & #0 \\\\ #0 & #0 \\end{bmatrix}', '2x2'),
+              sym('[3×3]', '\\begin{bmatrix} #0 & #0 & #0 \\\\ #0 & #0 & #0 \\\\ #0 & #0 & #0 \\end{bmatrix}', '3x3'),
+              sym('(2×2)', '\\begin{pmatrix} #0 & #0 \\\\ #0 & #0 \\end{pmatrix}', 'pmatrix'),
+              sym('{□', '\\begin{cases} #0, & #0 \\\\ #0, & #0 \\end{cases}', 'cases'),
+              sym('&=', '\\begin{aligned} #0 &= #0 \\\\ #0 &= #0 \\end{aligned}', 'aligned'),
+            ],
+          },
+          {
+            id: 'decorations',
+            title: '装饰',
+            symbols: [
+              sym('x⃗', '\\vec{#@}', '向量'), sym('x̂', '\\hat{#@}', '帽'), sym('x̄', '\\overline{#@}', '横线'), sym('ẋ', '\\dot{#@}', '点'),
+              sym('ẍ', '\\ddot{#@}', '双点'), sym('x̃', '\\tilde{#@}', '波浪'), sym('x̆', '\\breve{#@}', '短音'), sym('x̅', '\\bar{#@}', 'bar'),
+            ],
+          },
+        ];
 
         const reportKeyboardVisibility = () => {
           bridge({ type: 'keyboard-visibility', visible: keyboardVisible });
         };
 
-        const setKeyboardVisible = (visible) => {
+        const reportInput = (latex, immediate = false) => {
+          clearTimeout(inputBridgeTimer);
+          if (immediate) {
+            bridge({ type: 'input', latex });
+            return;
+          }
+          inputBridgeTimer = setTimeout(() => {
+            bridge({ type: 'input', latex });
+          }, 90);
+        };
+
+        const symbolId = (item) => `${item.label}::${item.latex}`;
+
+        const safeReadList = (key) => {
+          try {
+            const raw = localStorage.getItem(key);
+            const parsed = raw ? JSON.parse(raw) : [];
+            return Array.isArray(parsed) ? parsed.filter((x) => x && x.label && x.latex) : [];
+          } catch (_) {
+            return [];
+          }
+        };
+
+        const safeWriteList = (key, value) => {
+          try {
+            localStorage.setItem(key, JSON.stringify(value.slice(0, 40)));
+          } catch (_) {}
+        };
+
+        const loadSymbolState = () => {
+          recentSymbols = safeReadList(storageKeys.recent);
+          favoriteSymbols = safeReadList(storageKeys.favorites);
+        };
+
+        const saveRecentSymbol = (item) => {
+          recentSymbols = [item, ...recentSymbols.filter((x) => symbolId(x) !== symbolId(item))].slice(0, 30);
+          safeWriteList(storageKeys.recent, recentSymbols);
+          renderQuickStrip();
+          if (activeSymbolCategory === 'recent') renderSymbolGrid();
+        };
+
+        const toggleFavoriteSymbol = (item = selectedSymbol) => {
+          if (!item) return;
+          const id = symbolId(item);
+          const exists = favoriteSymbols.some((x) => symbolId(x) === id);
+          favoriteSymbols = exists
+            ? favoriteSymbols.filter((x) => symbolId(x) !== id)
+            : [item, ...favoriteSymbols].slice(0, 40);
+          safeWriteList(storageKeys.favorites, favoriteSymbols);
+          updateFavoriteButton();
+          renderQuickStrip();
+          if (activeSymbolCategory === 'favorites') renderSymbolGrid();
+        };
+
+        const insertSymbol = (item) => {
+          selectedSymbol = item;
+          updateFavoriteButton();
+          setNativeInputVisible(false);
+          suppressNativeInputFocus = true;
+          mf.focus();
+          mf.insert(item.latex);
+          requestAnimationFrame(() => {
+            suppressNativeInputFocus = false;
+          });
+          syncNativeInput();
+          reportInput(mf.value, true);
+          saveRecentSymbol(item);
+        };
+
+        const categorySymbols = (id) => {
+          if (id === 'recent') return recentSymbols.length ? recentSymbols : defaultQuickSymbols;
+          if (id === 'favorites') return favoriteSymbols.length ? favoriteSymbols : defaultQuickSymbols;
+          return symbolCategories.find((category) => category.id === id)?.symbols ?? [];
+        };
+
+        const renderQuickStrip = () => {
+          const items = [
+            ...favoriteSymbols.slice(0, 8),
+            ...(recentSymbols.length ? recentSymbols : defaultQuickSymbols),
+          ];
+          const seen = new Set();
+          quickStrip.replaceChildren();
+          for (const item of items) {
+            const id = symbolId(item);
+            if (seen.has(id)) continue;
+            seen.add(id);
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'symbol-chip';
+            button.textContent = item.label;
+            button.title = item.name || item.latex;
+            button.addEventListener('click', () => insertSymbol(item));
+            button.addEventListener('contextmenu', (event) => {
+              event.preventDefault();
+              toggleFavoriteSymbol(item);
+            });
+            quickStrip.appendChild(button);
+            if (seen.size >= 24) break;
+          }
+        };
+
+        const renderSymbolTabs = () => {
+          symbolTabs.replaceChildren();
+          for (const category of symbolCategories) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = `symbol-tab${category.id === activeSymbolCategory ? ' active' : ''}`;
+            button.textContent = category.title;
+            button.addEventListener('click', () => {
+              activeSymbolCategory = category.id;
+              renderSymbolTabs();
+              renderSymbolGrid();
+            });
+            symbolTabs.appendChild(button);
+          }
+        };
+
+        const renderSymbolGrid = () => {
+          symbolGrid.replaceChildren();
+          for (const item of categorySymbols(activeSymbolCategory)) {
+            const cell = document.createElement('button');
+            cell.type = 'button';
+            cell.className = 'symbol-cell';
+            cell.title = item.latex;
+            const label = document.createElement('div');
+            label.className = 'symbol-cell-label';
+            label.textContent = item.label;
+            const name = document.createElement('div');
+            name.className = 'symbol-cell-name';
+            name.textContent = item.name || item.latex;
+            cell.append(label, name);
+            cell.addEventListener('click', () => insertSymbol(item));
+            cell.addEventListener('contextmenu', (event) => {
+              event.preventDefault();
+              selectedSymbol = item;
+              toggleFavoriteSymbol(item);
+            });
+            symbolGrid.appendChild(cell);
+          }
+        };
+
+        const updateFavoriteButton = () => {
+          const active = selectedSymbol && favoriteSymbols.some((x) => symbolId(x) === symbolId(selectedSymbol));
+          favoriteToggle.classList.toggle('active', Boolean(active));
+          favoriteToggle.textContent = active ? '★' : '☆';
+        };
+
+        const setSymbolSheetVisible = (visible) => {
+          symbolSheet.classList.toggle('visible', visible);
+          if (visible) {
+            setNativeInputVisible(false);
+            if (keyboardVisible) setKeyboardVisible(false, false);
+            renderSymbolTabs();
+            renderSymbolGrid();
+            updateFavoriteButton();
+          }
+        };
+
+        const setNativeInputVisible = (visible) => {
+          nativeInput.classList.toggle('visible', visible);
+          if (!visible) nativeInput.blur();
+        };
+
+        const syncNativeInput = () => {
+          if (syncingNativeInput || nativeInput.value === mf.value) return;
+          syncingNativeInput = true;
+          nativeInput.value = mf.value;
+          nativeInput.selectionStart = nativeInput.value.length;
+          nativeInput.selectionEnd = nativeInput.value.length;
+          syncingNativeInput = false;
+        };
+
+        const focusNativeInput = () => {
+          if (suppressNativeInputFocus) return;
+          if (!touchLike || keyboardVisible) return;
+          syncNativeInput();
+          setNativeInputVisible(true);
+          requestAnimationFrame(() => nativeInput.focus());
+        };
+
+        const setKeyboardVisible = (visible, activateNativeInput = true) => {
           keyboardVisible = visible;
           if (visible) {
+            setSymbolSheetVisible(false);
+            setNativeInputVisible(false);
+            mf.focus();
             mathVirtualKeyboard.show();
           } else {
             mathVirtualKeyboard.hide();
+            if (touchLike && activateNativeInput) focusNativeInput();
           }
           reportKeyboardVisibility();
         };
 
         mathVirtualKeyboard.container = keyboardHost;
-        mathVirtualKeyboard.layouts = ['compact', 'symbols', 'alphabetic', 'greek'];
+        mathVirtualKeyboard.layouts = advancedMathLayouts;
         mathVirtualKeyboard.addEventListener('geometrychange', () => {
           const height = mathVirtualKeyboard.boundingRect.height || 0;
-          keyboardHost.style.height = height > 0 ? `${height}px` : '0px';
+          const minHeight = touchLike ? 420 : 360;
+          const paddedHeight = height > 0 ? Math.max(Math.ceil(height), minHeight) : 0;
+          keyboardHost.style.height = paddedHeight > 0 ? `${paddedHeight}px` : '0px';
+          document.querySelector('.panel').style.setProperty('--keyboard-overlay-height', `${paddedHeight}px`);
           keyboardVisible = height > 0;
+          keyboardHost.classList.toggle('visible', keyboardVisible);
           reportKeyboardVisibility();
         });
         mf.mathModeSpace = '\\:';
@@ -120,21 +891,135 @@
         mf.mathVirtualKeyboardPolicy = 'manual';
         mf.smartFence = true;
         mf.inlineShortcuts = { 'oo': '\\infty' };
-        mf.addEventListener('input', () => {
-          bridge({ type: 'input', latex: mf.value });
+        mf.addEventListener('pointerup', focusNativeInput);
+        mf.addEventListener('focusin', () => {
+          if (touchLike && !keyboardVisible) focusNativeInput();
         });
+        mf.addEventListener('input', () => {
+          syncNativeInput();
+          reportInput(mf.value);
+        });
+        nativeInput.addEventListener('input', () => {
+          if (syncingNativeInput) return;
+          mf.setValue(nativeInput.value, { silenceNotifications: true });
+          reportInput(nativeInput.value);
+        });
+        nativeInput.addEventListener('change', () => {
+          reportInput(nativeInput.value, true);
+        });
+        nativeInput.addEventListener('blur', () => {
+          reportInput(nativeInput.value, true);
+        });
+        symbolToggle.addEventListener('click', () => {
+          setSymbolSheetVisible(!symbolSheet.classList.contains('visible'));
+        });
+        symbolClose.addEventListener('click', () => setSymbolSheetVisible(false));
+        favoriteToggle.addEventListener('click', () => toggleFavoriteSymbol());
         window.setFormula = (latex) => {
           mf.setValue(latex, { silenceNotifications: true });
+          nativeInput.value = latex;
         };
-        window.setKeyboardVisible = (visible) => {
-          if (visible) mf.focus();
-          setKeyboardVisible(Boolean(visible));
+        window.setKeyboardVisible = (rawConfig) => {
+          const config = typeof rawConfig === 'object'
+            ? rawConfig
+            : { visible: Boolean(rawConfig), activateNativeInput: true };
+          setKeyboardVisible(
+            Boolean(config.visible),
+            config.activateNativeInput !== false
+          );
         };
         window.configureMathLive = (rawConfig) => {
           const config = typeof rawConfig === 'string' ? JSON.parse(rawConfig) : rawConfig;
           const size = config.displayMode === 'block' ? '1.3rem' : '1.1rem';
           document.documentElement.style.setProperty('--mf-size', size);
         };
+        window.configureTheme = (rawConfig) => {
+          const config = typeof rawConfig === 'string' ? JSON.parse(rawConfig) : rawConfig;
+          const root = document.documentElement;
+          const dark = config.brightness === 'dark';
+          root.dataset.theme = dark ? 'dark' : 'light';
+          root.style.setProperty('--bg', config.surface);
+          root.style.setProperty('--panel', config.surfaceContainer);
+          root.style.setProperty('--border', config.outlineVariant);
+          root.style.setProperty('--text', config.onSurface);
+          root.style.setProperty('--hint', config.onSurfaceVariant);
+          root.style.setProperty('--keyboard-background', config.surfaceContainerHighest);
+          root.style.setProperty('--keyboard-border', config.outlineVariant);
+          root.style.setProperty('--keyboard-toolbar-text', config.onSurfaceVariant);
+          root.style.setProperty('--keyboard-toolbar-text-active', config.primary);
+          root.style.setProperty('--keyboard-toolbar-background-hover', mix(config.primary, config.surfaceContainerHighest, dark ? 0.24 : 0.14));
+          root.style.setProperty('--keyboard-toolbar-background-selected', mix(config.primary, config.surfaceContainerHighest, dark ? 0.32 : 0.2));
+          root.style.setProperty('--keycap-background', mix(config.surfaceContainerHighest, config.onSurface, dark ? 0.92 : 0.96));
+          root.style.setProperty('--keycap-background-hover', mix(config.surfaceContainerHighest, config.primary, dark ? 0.82 : 0.9));
+          root.style.setProperty('--keycap-background-active', config.primary);
+          root.style.setProperty('--keycap-background-pressed', config.primary);
+          root.style.setProperty('--keycap-border', mix(config.outlineVariant, config.surfaceContainerHighest, 0.56));
+          root.style.setProperty('--keycap-border-bottom', dark ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.18)');
+          root.style.setProperty('--keycap-text', config.onSurface);
+          root.style.setProperty('--keycap-text-hover', config.onSurface);
+          root.style.setProperty('--keycap-text-active', config.onPrimary);
+          root.style.setProperty('--keycap-text-pressed', config.onPrimary);
+          root.style.setProperty('--keycap-secondary-background', mix(config.secondaryContainer, config.surfaceContainerHighest, dark ? 0.5 : 0.62));
+          root.style.setProperty('--keycap-secondary-background-hover', mix(config.secondaryContainer, config.primary, dark ? 0.52 : 0.44));
+          root.style.setProperty('--keycap-secondary-border', config.outlineVariant);
+          root.style.setProperty('--keycap-secondary-border-bottom', dark ? 'rgba(0,0,0,0.38)' : 'rgba(0,0,0,0.16)');
+          root.style.setProperty('--keycap-secondary-text', config.onSurface);
+          root.style.setProperty('--keycap-primary-background', config.primary);
+          root.style.setProperty('--keycap-primary-background-hover', mix(config.primary, config.onPrimary, dark ? 0.82 : 0.9));
+          root.style.setProperty('--keycap-primary-text', config.onPrimary);
+          document.body.style.background = config.surface;
+          keyboardHost.style.background = mix(config.surfaceContainer, config.surface, dark ? 0.82 : 0.9);
+          nativeInput.style.background = alpha(config.surface, dark ? 0.94 : 0.96);
+          nativeInput.style.borderColor = alpha(config.primary, 0.42);
+          nativeInput.style.color = config.onSurface;
+          symbolSheet.style.background = mix(config.surfaceContainer, config.surface, dark ? 0.96 : 0.94);
+        };
+
+        window.disposeMathLiveEditor = () => {
+          clearTimeout(inputBridgeTimer);
+          mathVirtualKeyboard.hide();
+          keyboardVisible = false;
+          keyboardHost.classList.remove('visible');
+          keyboardHost.style.height = '0px';
+          document.querySelector('.panel').style.setProperty('--keyboard-overlay-height', '0px');
+          setSymbolSheetVisible(false);
+          setNativeInputVisible(false);
+          mf.blur();
+          if (document.activeElement && document.activeElement.blur) {
+            document.activeElement.blur();
+          }
+          reportKeyboardVisibility();
+        };
+
+        const mix = (a, b, ratio) => {
+          const ca = parseHex(a);
+          const cb = parseHex(b);
+          const r = Math.round(ca.r * ratio + cb.r * (1 - ratio));
+          const g = Math.round(ca.g * ratio + cb.g * (1 - ratio));
+          const bl = Math.round(ca.b * ratio + cb.b * (1 - ratio));
+          return `rgb(${r}, ${g}, ${bl})`;
+        };
+
+        const alpha = (color, opacity) => {
+          const c = parseHex(color);
+          return `rgba(${c.r}, ${c.g}, ${c.b}, ${opacity})`;
+        };
+
+        const parseHex = (color) => {
+          const raw = color.replace('#', '');
+          const value = Number.parseInt(raw.length === 3
+            ? raw.split('').map((x) => x + x).join('')
+            : raw, 16);
+          return {
+            r: (value >> 16) & 255,
+            g: (value >> 8) & 255,
+            b: value & 255,
+          };
+        };
+        loadSymbolState();
+        renderQuickStrip();
+        renderSymbolTabs();
+        renderSymbolGrid();
         bridge({ type: 'ready' });
       } catch (error) {
         bridge({ type: 'error', message: String(error) });

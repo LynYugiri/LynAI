@@ -34,6 +34,9 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
   var _keyboardVisible = false;
   var _syncingFromWeb = false;
   var _useSourceMode = false;
+  var _webViewActive = true;
+  var _closing = false;
+  String? _lastThemePayload;
   String? _notice;
 
   bool get _supportsEmbeddedMathLive {
@@ -74,16 +77,20 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
           onPageFinished: (_) {
             _scheduleReadyTimeout();
           },
-          onWebResourceError: (error) => _showNotice(
-            'MathLive 加载失败：${error.description}，可切到源码模式继续编辑。',
-          ),
         ),
       )
       ..loadFlutterAsset(_mathLiveEditorAssetKey);
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _pushThemeToMathLive();
+  }
+
+  @override
   void dispose() {
+    _cleanupMathLiveEditor();
     _readyTimeout?.cancel();
     _rawCtrl.dispose();
     super.dispose();
@@ -93,6 +100,7 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: BackButton(onPressed: _closeEditor),
         title: Text(widget.title),
         actions: [
           TextButton.icon(
@@ -102,88 +110,86 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
           ),
         ],
       ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (_notice != null) _noticeBanner(),
-              _introCard(context),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: SegmentedButton<bool>(
-                      segments: const [
-                        ButtonSegment<bool>(
-                          value: false,
-                          icon: Icon(Icons.functions),
-                          label: Text('可视编辑'),
-                        ),
-                        ButtonSegment<bool>(
-                          value: true,
-                          icon: Icon(Icons.code),
-                          label: Text('源码模式'),
-                        ),
-                      ],
-                      selected: {_useSourceMode},
-                      onSelectionChanged: (selection) {
-                        final next = selection.first;
-                        if (!next && !_supportsEmbeddedMathLive) {
-                          _showNotice('当前平台暂不支持内嵌 MathLive，可继续使用源码模式。');
-                          return;
-                        }
-                        setState(() => _useSourceMode = next);
-                        if (!next) {
-                          _pushFormulaToMathLive(_rawCtrl.text);
-                        } else {
-                          _setKeyboardVisible(false);
-                        }
-                      },
-                    ),
-                  ),
-                  if (!_useSourceMode && _supportsEmbeddedMathLive) ...[
-                    const SizedBox(width: 10),
-                    OutlinedButton.icon(
-                      onPressed: _toggleKeyboard,
-                      icon: Icon(
-                        _keyboardVisible ? Icons.keyboard_hide : Icons.keyboard,
+      body: PopScope(
+        canPop: !_supportsEmbeddedMathLive || _closing,
+        onPopInvokedWithResult: (didPop, _) {
+          if (didPop || _closing) return;
+          _closeEditor();
+        },
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (_notice != null) _noticeBanner(),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SegmentedButton<bool>(
+                        segments: const [
+                          ButtonSegment<bool>(
+                            value: false,
+                            icon: Icon(Icons.functions),
+                            label: Text('可视编辑'),
+                          ),
+                          ButtonSegment<bool>(
+                            value: true,
+                            icon: Icon(Icons.code),
+                            label: Text('源码模式'),
+                          ),
+                        ],
+                        selected: {_useSourceMode},
+                        onSelectionChanged: (selection) {
+                          final next = selection.first;
+                          if (!next && !_supportsEmbeddedMathLive) {
+                            _showNotice('当前平台暂不支持内嵌 MathLive，可继续使用源码模式。');
+                            return;
+                          }
+                          setState(() {
+                            _useSourceMode = next;
+                            if (next) _formula = _rawCtrl.text;
+                          });
+                          if (!next) {
+                            _formula = _rawCtrl.text;
+                            _pushFormulaToMathLive(_rawCtrl.text);
+                          } else {
+                            _setKeyboardVisible(
+                              false,
+                              activateNativeInput: false,
+                            );
+                          }
+                        },
                       ),
-                      label: Text(_keyboardVisible ? '收起键盘' : '键盘'),
                     ),
+                    if (!_useSourceMode && _supportsEmbeddedMathLive) ...[
+                      const SizedBox(width: 10),
+                      OutlinedButton.icon(
+                        onPressed: _toggleKeyboard,
+                        icon: Icon(
+                          _keyboardVisible
+                              ? Icons.keyboard_hide
+                              : Icons.keyboard,
+                        ),
+                        label: Text(_keyboardVisible ? '收起键盘' : '键盘'),
+                      ),
+                    ],
                   ],
+                ),
+                if (_useSourceMode) ...[
+                  const SizedBox(height: 10),
+                  _previewCard(context),
                 ],
-              ),
-              if (_useSourceMode) ...[
                 const SizedBox(height: 10),
-                _previewCard(context),
+                Expanded(
+                  child: _useSourceMode
+                      ? _sourceEditor()
+                      : _visualEditor(context),
+                ),
               ],
-              const SizedBox(height: 10),
-              Expanded(
-                child: _useSourceMode ? _sourceEditor() : _visualEditor(context),
-              ),
-            ],
+            ),
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _introCard(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: scheme.primaryContainer.withValues(alpha: 0.35),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Text(
-        widget.preferBlock
-            ? 'MathLive 可视编辑现已接入正式公式编辑页，支持等式、分式、上下标和矩阵等更完整的 LaTeX 输入。'
-            : 'MathLive 可视编辑现已接入正式公式编辑页，单变量、等式和常见表达式会直接按 LaTeX 同步。',
-        style: Theme.of(context).textTheme.bodyMedium,
       ),
     );
   }
@@ -211,7 +217,9 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.65)),
+        border: Border.all(
+          color: scheme.outlineVariant.withValues(alpha: 0.65),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -231,7 +239,9 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
               scrollDirection: Axis.horizontal,
               child: Math.tex(
                 _formula,
-                mathStyle: widget.preferBlock ? MathStyle.display : MathStyle.text,
+                mathStyle: widget.preferBlock
+                    ? MathStyle.display
+                    : MathStyle.text,
                 textStyle: TextStyle(
                   fontSize: widget.preferBlock ? 24 : 20,
                   color: scheme.onSurface,
@@ -271,12 +281,17 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
 
   Widget _visualEditor(BuildContext context) {
     final controller = _webCtrl;
+    if (!_webViewActive) {
+      return const Center(child: CircularProgressIndicator());
+    }
     if (controller == null) return _sourceEditor();
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
         ),
         child: Stack(
           children: [
@@ -284,7 +299,9 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
             if (!_mathLiveReady)
               Positioned.fill(
                 child: ColoredBox(
-                  color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.88),
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.surface.withValues(alpha: 0.88),
                   child: const Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -305,25 +322,66 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
 
   Future<void> _pushFormulaToMathLive(String formula) async {
     final controller = _webCtrl;
-    if (!_supportsEmbeddedMathLive || controller == null || !_mathLiveReady) return;
+    if (!_supportsEmbeddedMathLive || controller == null || !_mathLiveReady) {
+      return;
+    }
     final encoded = jsonEncode(formula);
     await controller.runJavaScript('window.setFormula($encoded);');
   }
 
   Future<void> _configureMathLive() async {
     final controller = _webCtrl;
-    if (!_supportsEmbeddedMathLive || controller == null || !_mathLiveReady) return;
+    if (!_supportsEmbeddedMathLive || controller == null || !_mathLiveReady) {
+      return;
+    }
     final encoded = jsonEncode({
       'displayMode': widget.preferBlock ? 'block' : 'inline',
     });
     await controller.runJavaScript('window.configureMathLive($encoded);');
   }
 
-  Future<void> _setKeyboardVisible(bool visible) async {
+  Future<void> _setKeyboardVisible(
+    bool visible, {
+    bool activateNativeInput = true,
+  }) async {
     final controller = _webCtrl;
-    if (!_supportsEmbeddedMathLive || controller == null || !_mathLiveReady) return;
-    final encoded = jsonEncode(visible);
+    if (!_supportsEmbeddedMathLive || controller == null || !_mathLiveReady) {
+      return;
+    }
+    final encoded = jsonEncode({
+      'visible': visible,
+      'activateNativeInput': activateNativeInput,
+    });
     await controller.runJavaScript('window.setKeyboardVisible($encoded);');
+  }
+
+  Future<void> _cleanupMathLiveEditor() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final controller = _webCtrl;
+    if (controller == null || !_mathLiveReady) return;
+    try {
+      await controller.runJavaScript('window.disposeMathLiveEditor?.();');
+    } catch (_) {
+      // The platform webview may already be tearing down.
+    }
+  }
+
+  Future<void> _detachWebView() async {
+    await _cleanupMathLiveEditor();
+    if (!mounted || !_webViewActive) return;
+    setState(() {
+      _webViewActive = false;
+      _keyboardVisible = false;
+    });
+    await Future<void>.delayed(const Duration(milliseconds: 90));
+  }
+
+  Future<void> _closeEditor() async {
+    if (_closing) return;
+    _closing = true;
+    await _detachWebView();
+    if (!mounted) return;
+    Navigator.of(context).pop();
   }
 
   Future<void> _toggleKeyboard() => _setKeyboardVisible(!_keyboardVisible);
@@ -347,6 +405,7 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
           _notice = null;
         });
         _configureMathLive();
+        _pushThemeToMathLive();
         _pushFormulaToMathLive(_rawCtrl.text);
       case 'keyboard-visibility':
         final visible = decoded['visible'] == true;
@@ -370,8 +429,44 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
         selection: TextSelection.collapsed(offset: latex.length),
       );
     }
-    if (mounted) setState(() => _formula = latex);
+    if (_useSourceMode) {
+      if (mounted) setState(() => _formula = latex);
+    } else {
+      _formula = latex;
+    }
     _syncingFromWeb = false;
+  }
+
+  Future<void> _pushThemeToMathLive() async {
+    final controller = _webCtrl;
+    if (!_supportsEmbeddedMathLive || controller == null || !_mathLiveReady) {
+      return;
+    }
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final payload = jsonEncode({
+      'brightness': theme.brightness.name,
+      'surface': _hexColor(scheme.surface),
+      'surfaceContainer': _hexColor(scheme.surfaceContainer),
+      'surfaceContainerHighest': _hexColor(scheme.surfaceContainerHighest),
+      'onSurface': _hexColor(scheme.onSurface),
+      'onSurfaceVariant': _hexColor(scheme.onSurfaceVariant),
+      'outlineVariant': _hexColor(scheme.outlineVariant),
+      'primary': _hexColor(scheme.primary),
+      'onPrimary': _hexColor(scheme.onPrimary),
+      'primaryContainer': _hexColor(scheme.primaryContainer),
+      'secondaryContainer': _hexColor(scheme.secondaryContainer),
+      'tertiary': _hexColor(scheme.tertiary),
+    });
+    if (payload == _lastThemePayload) return;
+    _lastThemePayload = payload;
+    if (!mounted) return;
+    await controller.runJavaScript('window.configureTheme($payload);');
+  }
+
+  String _hexColor(Color color) {
+    final value = color.toARGB32() & 0x00ffffff;
+    return '#${value.toRadixString(16).padLeft(6, '0')}';
   }
 
   void _scheduleReadyTimeout() {
@@ -387,7 +482,7 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
     setState(() => _notice = message);
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     final formula = _rawCtrl.text.trim();
     if (formula.isEmpty) {
       ScaffoldMessenger.of(
@@ -395,6 +490,10 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
       ).showSnackBar(const SnackBar(content: Text('公式不能为空')));
       return;
     }
+    if (_closing) return;
+    _closing = true;
+    await _detachWebView();
+    if (!mounted) return;
     Navigator.of(context).pop(formula);
   }
 }
