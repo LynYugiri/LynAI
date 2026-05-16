@@ -11,7 +11,7 @@
       --border: #394150;
       --text: #eef2f7;
       --hint: #9aa4b2;
-      --mf-size: 1.45rem;
+      --mf-size: 1.2rem;
     }
     body {
       margin: 0;
@@ -35,12 +35,12 @@
     }
     math-field {
       width: 100%;
-      min-height: 120px;
+      min-height: 96px;
       font-size: var(--mf-size);
       background: rgba(255,255,255,0.03);
       border: 1px solid rgba(255,255,255,0.1);
       border-radius: 14px;
-      padding: 14px;
+      padding: 10px 12px;
       box-sizing: border-box;
       color: var(--text);
     }
@@ -71,7 +71,7 @@
         };
         window.configureMathLive = (rawConfig) => {
           const config = typeof rawConfig === 'string' ? JSON.parse(rawConfig) : rawConfig;
-          const size = config.displayMode === 'block' ? '1.8rem' : '1.45rem';
+          const size = config.displayMode === 'block' ? '1.45rem' : '1.2rem';
           document.documentElement.style.setProperty('--mf-size', size);
         };
         bridge({ type: 'ready' });

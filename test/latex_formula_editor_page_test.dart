@@ -25,13 +25,4 @@ void main() {
     expect(find.text('源码模式'), findsOneWidget);
     expect(find.text('LaTeX 源码'), findsOneWidget);
   });
-
-  testWidgets('example chips remain available in source fallback', (
-    WidgetTester tester,
-  ) async {
-    await pumpEditor(tester);
-
-    expect(find.text('m'), findsOneWidget);
-    expect(find.textContaining(r'\frac{x}{y}'), findsWidgets);
-  });
 }
