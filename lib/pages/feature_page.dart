@@ -118,18 +118,23 @@ class _FeaturePageState extends State<FeaturePage> {
 
   bool _handleBack() {
     if (_selectedNoteId != null) {
-      setState(() {
-        _selectedNoteId = null;
-        _noteEditing = false;
-      });
+      _closeSelectedNote();
       return true;
     }
     return false;
   }
 
+  void _closeSelectedNote() {
+    setState(() {
+      _selectedNoteId = null;
+      _noteEditing = false;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>().settings;
+    final features = context.watch<FeatureProvider>();
     final feature = settings.lastFeature;
     return Scaffold(
       appBar: AppBar(
@@ -138,9 +143,13 @@ class _FeaturePageState extends State<FeaturePage> {
             : IconButton(
                 tooltip: '笔记列表',
                 icon: const Icon(Icons.menu),
-                onPressed: () => setState(() => _selectedNoteId = null),
+                onPressed: _closeSelectedNote,
               ),
-        title: Text(_title(feature)),
+        title: Text(
+          _title(feature, features),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
         actions: _actions(feature),
       ),
       floatingActionButton: _floatingActionButton(feature),
@@ -154,7 +163,7 @@ class _FeaturePageState extends State<FeaturePage> {
             _noteEditing = false;
           }),
           onEditingChanged: (v) => setState(() => _noteEditing = v),
-          onBack: () => setState(() => _selectedNoteId = null),
+          onBack: _closeSelectedNote,
           searchController: _searchController,
           searchQuery: _searchQuery,
           onSearchChanged: (v) => setState(() => _searchQuery = v),
@@ -177,8 +186,12 @@ class _FeaturePageState extends State<FeaturePage> {
     );
   }
 
-  String _title(String feature) {
-    if (_selectedNoteId != null) return '笔记';
+  String _title(String feature, FeatureProvider features) {
+    if (_selectedNoteId != null) {
+      final title = features.getNote(_selectedNoteId!)?.title.trim();
+      if (title != null && title.isNotEmpty) return title;
+      return '笔记';
+    }
     return switch (feature) {
       'schedule' => '日程表',
       'notes' => '笔记',
@@ -4045,14 +4058,7 @@ class _NoteDetailState extends State<_NoteDetail> {
           padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
           child: Row(
             children: [
-              Expanded(
-                child: Text(
-                  note.title,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
+              const Spacer(),
               IconButton(
                 tooltip: '后退',
                 onPressed: canUndo ? _undo : null,
@@ -4904,7 +4910,7 @@ class _NoteDetailState extends State<_NoteDetail> {
             children: [
               Expanded(
                 child: Text(
-                  '$viewLabel · 行 $currentLine/$lineCount · 列 $currentColumn · 字符 ${currentText.length} · 词 $currentWords · ${note.wrap ? '自动换行' : '横向滚动'} · 更新 ${_formatNoteTime(note.updatedAt)}',
+                  '$viewLabel · 行 $currentLine/$lineCount · 列 $currentColumn · 字符 ${currentText.length} · 词 $currentWords · ${note.wrap ? '自动换行' : '横向滚动'}',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),

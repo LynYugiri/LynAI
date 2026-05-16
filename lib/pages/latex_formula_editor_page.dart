@@ -207,7 +207,10 @@ class _LatexFormulaEditorPageState extends State<LatexFormulaEditorPage> {
         border: OutlineInputBorder(),
         alignLabelWithHint: true,
       ),
-      onChanged: (value) => setState(() => _formula = value.trim()),
+      onChanged: (value) => setState(() {
+        _formula = value.trim();
+        _showFallbackNotice = false;
+      }),
       onSubmitted: (_) => _submit(),
     );
   }
@@ -217,6 +220,7 @@ class _LatexFormulaEditorPageState extends State<LatexFormulaEditorPage> {
     if (trimmed.isEmpty) {
       _mathCtrl.clear();
       _formula = '';
+      _showFallbackNotice = false;
       return true;
     }
     try {
@@ -231,6 +235,7 @@ class _LatexFormulaEditorPageState extends State<LatexFormulaEditorPage> {
           selection: TextSelection.collapsed(offset: _formula.length),
         );
       }
+      _showFallbackNotice = false;
       return true;
     } catch (_) {
       _showFallbackNotice = true;
