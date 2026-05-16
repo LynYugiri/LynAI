@@ -11,7 +11,17 @@
       --border: #394150;
       --text: #eef2f7;
       --hint: #9aa4b2;
-      --mf-size: 1.2rem;
+      --mf-size: 1.1rem;
+      --keycap-height: 46px;
+      --keycap-font-size: 20px;
+      --keycap-shift-font-size: 10px;
+      --keycap-small-font-size: 12px;
+      --keycap-extra-small-font-size: 11px;
+      --keyboard-toolbar-font-size: 16px;
+      --keyboard-padding-horizontal: 10px;
+      --keyboard-padding-top: 8px;
+      --keyboard-padding-bottom: 10px;
+      --keycap-gap: 6px;
     }
     body {
       margin: 0;
@@ -19,37 +29,55 @@
       background: var(--bg);
       color: var(--text);
       font-family: Inter, system-ui, sans-serif;
+      box-sizing: border-box;
     }
     .panel {
       min-height: calc(100vh - 24px);
       background: linear-gradient(180deg, rgba(132,210,255,0.08), transparent 42%), var(--panel);
       border: 1px solid var(--border);
       border-radius: 18px;
-      padding: 16px;
+      padding: 12px;
       box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
     }
     .label {
       font-size: 13px;
       color: var(--hint);
-      margin-bottom: 10px;
+    }
+    #keyboard-host {
+      position: relative;
+      min-height: 0;
+    }
+    .editor-shell {
+      flex: 1;
+      min-height: 0;
     }
     math-field {
       width: 100%;
-      min-height: 96px;
+      min-height: 180px;
+      height: 100%;
       font-size: var(--mf-size);
       background: rgba(255,255,255,0.03);
       border: 1px solid rgba(255,255,255,0.1);
       border-radius: 14px;
-      padding: 10px 12px;
+      padding: 12px 14px;
       box-sizing: border-box;
       color: var(--text);
+    }
+    math-field::part(virtual-keyboard-toggle) {
+      display: none;
     }
   </style>
 </head>
 <body>
   <div class="panel">
     <div class="label">MathLive 可视编辑</div>
-    <math-field id="mf" virtual-keyboard-mode="onfocus"></math-field>
+    <div id="keyboard-host"></div>
+    <div class="editor-shell">
+      <math-field id="mf"></math-field>
+    </div>
   </div>
   <script src="./mathlive.min.js"></script>
   <script>
@@ -59,10 +87,16 @@
         MathfieldElement.fontsDirectory = './fonts';
         MathfieldElement.soundsDirectory = './sounds';
         const mf = document.getElementById('mf');
+        const keyboardHost = document.getElementById('keyboard-host');
+        mathVirtualKeyboard.container = keyboardHost;
+        mathVirtualKeyboard.layouts = ['compact', 'symbols', 'alphabetic', 'greek'];
         mf.mathModeSpace = '\\:';
         mf.defaultMode = 'math';
+        mf.mathVirtualKeyboardPolicy = 'manual';
         mf.smartFence = true;
         mf.inlineShortcuts = { 'oo': '\\infty' };
+        mf.addEventListener('focusin', () => mathVirtualKeyboard.show());
+        mf.addEventListener('focusout', () => mathVirtualKeyboard.hide());
         mf.addEventListener('input', () => {
           bridge({ type: 'input', latex: mf.value });
         });
@@ -71,7 +105,7 @@
         };
         window.configureMathLive = (rawConfig) => {
           const config = typeof rawConfig === 'string' ? JSON.parse(rawConfig) : rawConfig;
-          const size = config.displayMode === 'block' ? '1.45rem' : '1.2rem';
+          const size = config.displayMode === 'block' ? '1.3rem' : '1.1rem';
           document.documentElement.style.setProperty('--mf-size', size);
         };
         bridge({ type: 'ready' });

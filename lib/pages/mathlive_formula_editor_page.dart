@@ -109,9 +109,9 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
             children: [
               if (_notice != null) _noticeBanner(),
               _introCard(context),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               _exampleChips(),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               SegmentedButton<bool>(
                 segments: const [
                   ButtonSegment<bool>(
@@ -138,9 +138,11 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
                   }
                 },
               ),
-              const SizedBox(height: 12),
-              _previewCard(context),
-              const SizedBox(height: 12),
+              if (_useSourceMode) ...[
+                const SizedBox(height: 10),
+                _previewCard(context),
+              ],
+              const SizedBox(height: 10),
               Expanded(
                 child: _useSourceMode ? _sourceEditor() : _visualEditor(context),
               ),
@@ -155,7 +157,7 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
     final scheme = Theme.of(context).colorScheme;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: scheme.primaryContainer.withValues(alpha: 0.35),
         borderRadius: BorderRadius.circular(16),
@@ -193,16 +195,22 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
       'E = mc^2',
       r'\frac{x}{y}',
     ];
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        for (final example in examples)
-          ActionChip(
+    return SizedBox(
+      height: 38,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: examples.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final example = examples[index];
+          return ActionChip(
+            visualDensity: VisualDensity.compact,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             label: Text(example),
             onPressed: () => _setFormula(example),
-          ),
-      ],
+          );
+        },
+      ),
     );
   }
 
