@@ -12,16 +12,16 @@
       --text: #eef2f7;
       --hint: #9aa4b2;
       --mf-size: 1.1rem;
-      --keycap-height: 46px;
-      --keycap-font-size: 20px;
-      --keycap-shift-font-size: 10px;
-      --keycap-small-font-size: 12px;
-      --keycap-extra-small-font-size: 11px;
-      --keyboard-toolbar-font-size: 16px;
-      --keyboard-padding-horizontal: 10px;
-      --keyboard-padding-top: 8px;
-      --keyboard-padding-bottom: 10px;
-      --keycap-gap: 6px;
+      --keycap-height: 52px;
+      --keycap-font-size: 22px;
+      --keycap-shift-font-size: 11px;
+      --keycap-small-font-size: 13px;
+      --keycap-extra-small-font-size: 12px;
+      --keyboard-toolbar-font-size: 17px;
+      --keyboard-padding-horizontal: 12px;
+      --keyboard-padding-top: 10px;
+      --keyboard-padding-bottom: 12px;
+      --keycap-gap: 8px;
     }
     body {
       margin: 0;
@@ -46,14 +46,35 @@
       font-size: 13px;
       color: var(--hint);
     }
-    #keyboard-host {
-      position: relative;
-      min-height: 0;
-      transition: height 120ms ease;
-    }
     .editor-shell {
       flex: 1;
       min-height: 0;
+    }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .toolbar button {
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.05);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 6px 12px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .toolbar button.active {
+      background: rgba(132,210,255,0.18);
+      border-color: rgba(132,210,255,0.42);
+    }
+    #keyboard-host {
+      position: relative;
+      min-height: 0;
+      height: 0;
+      overflow: hidden;
+      transition: height 180ms ease;
     }
     math-field {
       width: 100%;
@@ -75,10 +96,17 @@
 <body>
   <div class="panel">
     <div class="label">MathLive 可视编辑</div>
-    <div id="keyboard-host"></div>
+    <div class="toolbar">
+      <button id="toggle-keyboard" type="button">键盘</button>
+      <button data-layout="compact" class="active" type="button">紧凑</button>
+      <button data-layout="symbols" type="button">符号</button>
+      <button data-layout="alphabetic" type="button">字母</button>
+      <button data-layout="greek" type="button">希腊</button>
+    </div>
     <div class="editor-shell">
       <math-field id="mf"></math-field>
     </div>
+    <div id="keyboard-host"></div>
   </div>
   <script src="./mathlive.min.js"></script>
   <script>
@@ -89,22 +117,57 @@
         MathfieldElement.soundsDirectory = './sounds';
         const mf = document.getElementById('mf');
         const keyboardHost = document.getElementById('keyboard-host');
+        const toggleButton = document.getElementById('toggle-keyboard');
+        const layoutButtons = Array.from(document.querySelectorAll('[data-layout]'));
+        let keyboardVisible = false;
+
+        const setKeyboardVisible = (visible) => {
+          keyboardVisible = visible;
+          toggleButton.classList.toggle('active', visible);
+          if (visible) {
+            mathVirtualKeyboard.show();
+          } else {
+            mathVirtualKeyboard.hide();
+          }
+        };
+
+        const setLayout = (layout) => {
+          mathVirtualKeyboard.layouts = [layout];
+          layoutButtons.forEach((button) => {
+            button.classList.toggle('active', button.dataset.layout === layout);
+          });
+          if (keyboardVisible) mathVirtualKeyboard.show();
+        };
+
         mathVirtualKeyboard.container = keyboardHost;
-        mathVirtualKeyboard.layouts = ['compact', 'symbols', 'alphabetic', 'greek'];
+        setLayout('compact');
         mathVirtualKeyboard.addEventListener('geometrychange', () => {
           const height = mathVirtualKeyboard.boundingRect.height || 0;
           keyboardHost.style.height = height > 0 ? `${height}px` : '0px';
+          keyboardVisible = height > 0;
+          toggleButton.classList.toggle('active', keyboardVisible);
         });
         mf.mathModeSpace = '\\:';
         mf.defaultMode = 'math';
         mf.mathVirtualKeyboardPolicy = 'manual';
         mf.smartFence = true;
         mf.inlineShortcuts = { 'oo': '\\infty' };
-        mf.addEventListener('focusin', () => mathVirtualKeyboard.show());
-        mf.addEventListener('pointerdown', () => mathVirtualKeyboard.show());
-        mf.addEventListener('focusout', () => mathVirtualKeyboard.hide());
+        mf.addEventListener('focusin', () => setKeyboardVisible(true));
+        mf.addEventListener('pointerdown', () => setKeyboardVisible(true));
+        mf.addEventListener('focusout', () => setKeyboardVisible(false));
         mf.addEventListener('input', () => {
           bridge({ type: 'input', latex: mf.value });
+        });
+        toggleButton.addEventListener('click', () => {
+          setKeyboardVisible(!keyboardVisible);
+          mf.focus();
+        });
+        layoutButtons.forEach((button) => {
+          button.addEventListener('click', () => {
+            setLayout(button.dataset.layout);
+            setKeyboardVisible(true);
+            mf.focus();
+          });
         });
         window.setFormula = (latex) => {
           mf.setValue(latex, { silenceNotifications: true });
