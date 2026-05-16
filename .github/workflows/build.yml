@@ -60,7 +60,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake clang ninja-build pkg-config libgtk-3-dev liblzma-dev zstd
+          sudo apt-get install -y cmake clang ninja-build pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev liblzma-dev zstd
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -97,7 +97,7 @@ jobs:
           Architecture: amd64
           Maintainer: lynai
           Installed-Size: ${SIZE_KB}
-          Depends: libgtk-3-0, liblzma5
+          Depends: libgtk-3-0, libwebkit2gtk-4.1-0, liblzma5
           Description: LynAI - Flutter desktop application
           CONTROL
 
@@ -136,6 +136,7 @@ jobs:
           arch = x86_64
           license = GPL-3.0-or-later
           depend = gtk3
+          depend = webkit2gtk-4.1
           depend = xz
           PKGINFO
 
