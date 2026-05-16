@@ -5165,7 +5165,7 @@ class _NoteDetailState extends State<_NoteDetail> {
   Future<void> _insertLatexWithEditor({required bool preferBlock}) async {
     final formula = await _openLatexFormulaEditor(
       title: preferBlock ? '插入块级公式' : '插入行内公式',
-      initialFormula: preferBlock ? r'E = mc^2' : r'x^2',
+      initialFormula: '',
       preferBlock: preferBlock,
     );
     if (formula == null) return;

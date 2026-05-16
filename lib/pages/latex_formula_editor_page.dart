@@ -2,6 +2,55 @@ import 'package:flutter/material.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:math_keyboard/math_keyboard.dart';
 
+final RegExp _latexCommandPattern = RegExp(r'\\[A-Za-z]+');
+
+String _normalizeForMathKeyboardImport(String formula) {
+  final trimmed = formula.trim();
+  if (trimmed.isEmpty) return trimmed;
+  final buffer = StringBuffer();
+  var index = 0;
+  while (index < trimmed.length) {
+    final char = trimmed[index];
+    if (char == r'\') {
+      final match = _latexCommandPattern.matchAsPrefix(trimmed, index);
+      if (match != null) {
+        buffer.write(match.group(0));
+        index = match.end;
+        continue;
+      }
+    }
+    if (_isAsciiLetter(char) && !_isInsideBraceGroup(trimmed, index)) {
+      buffer.write('{');
+      buffer.write(char);
+      buffer.write('}');
+      index++;
+      continue;
+    }
+    buffer.write(char);
+    index++;
+  }
+  return buffer.toString();
+}
+
+bool _isAsciiLetter(String value) {
+  final unit = value.codeUnitAt(0);
+  return (unit >= 65 && unit <= 90) || (unit >= 97 && unit <= 122);
+}
+
+bool _isInsideBraceGroup(String source, int index) {
+  var depth = 0;
+  for (var i = 0; i < index; i++) {
+    final char = source[i];
+    if (char == r'\') {
+      i++;
+      continue;
+    }
+    if (char == '{') depth++;
+    if (char == '}' && depth > 0) depth--;
+  }
+  return depth > 0;
+}
+
 class LatexFormulaEditorPage extends StatefulWidget {
   final String initialFormula;
   final bool preferBlock;
@@ -62,7 +111,7 @@ class _LatexFormulaEditorPageState extends State<LatexFormulaEditorPage> {
               if (_showFallbackNotice)
                 MaterialBanner(
                   content: const Text(
-                    '这条公式包含 math_keyboard 暂不支持的结构，已切换到源码模式。你也可以手动切回可视编辑重新输入。',
+                    '这条公式包含 math_keyboard 暂不支持的结构（例如等式或部分命令），已切换到源码模式。你也可以手动切回可视编辑重新输入。',
                   ),
                   actions: [
                     TextButton(
@@ -176,7 +225,7 @@ class _LatexFormulaEditorPageState extends State<LatexFormulaEditorPage> {
       variables: const ['x', 'y', 'z', 'n', 'i'],
       decoration: const InputDecoration(
         labelText: '公式',
-        hintText: '在这里输入公式',
+        hintText: '例如 x^2、mc^2、\\frac{x}{y}',
         border: OutlineInputBorder(),
         alignLabelWithHint: true,
       ),
@@ -203,7 +252,7 @@ class _LatexFormulaEditorPageState extends State<LatexFormulaEditorPage> {
       style: const TextStyle(fontFamily: 'Hurmit Nerd Font', height: 1.45),
       decoration: const InputDecoration(
         labelText: 'LaTeX 源码',
-        hintText: r'例如 \frac{x}{y} 或 \int_0^1 x^2\,dx',
+        hintText: r'例如 E = mc^2、x^2、\frac{x}{y}；等式请用源码模式',
         border: OutlineInputBorder(),
         alignLabelWithHint: true,
       ),
@@ -224,7 +273,9 @@ class _LatexFormulaEditorPageState extends State<LatexFormulaEditorPage> {
       return true;
     }
     try {
-      final expression = TeXParser(trimmed).parse();
+      final expression = TeXParser(
+        _normalizeForMathKeyboardImport(trimmed),
+      ).parse();
       _mathCtrl.updateValue(expression);
       _formula = _mathCtrl
           .currentEditingValue(placeholderWhenEmpty: false)
