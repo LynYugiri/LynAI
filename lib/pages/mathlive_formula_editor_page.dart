@@ -110,8 +110,6 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
               if (_notice != null) _noticeBanner(),
               _introCard(context),
               const SizedBox(height: 10),
-              _exampleChips(),
-              const SizedBox(height: 10),
               SegmentedButton<bool>(
                 segments: const [
                   ButtonSegment<bool>(
@@ -182,34 +180,6 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
             child: const Text('知道了'),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _exampleChips() {
-    final examples = [
-      'm',
-      'x',
-      'x^2',
-      'mc^2',
-      'E = mc^2',
-      r'\frac{x}{y}',
-    ];
-    return SizedBox(
-      height: 38,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: examples.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final example = examples[index];
-          return ActionChip(
-            visualDensity: VisualDensity.compact,
-            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            label: Text(example),
-            onPressed: () => _setFormula(example),
-          );
-        },
       ),
     );
   }
@@ -312,15 +282,6 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
         ),
       ),
     );
-  }
-
-  Future<void> _setFormula(String formula) async {
-    _rawCtrl.value = TextEditingValue(
-      text: formula,
-      selection: TextSelection.collapsed(offset: formula.length),
-    );
-    setState(() => _formula = formula);
-    await _pushFormulaToMathLive(formula);
   }
 
   Future<void> _pushFormulaToMathLive(String formula) async {

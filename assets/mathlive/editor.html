@@ -49,6 +49,7 @@
     #keyboard-host {
       position: relative;
       min-height: 0;
+      transition: height 120ms ease;
     }
     .editor-shell {
       flex: 1;
@@ -90,12 +91,17 @@
         const keyboardHost = document.getElementById('keyboard-host');
         mathVirtualKeyboard.container = keyboardHost;
         mathVirtualKeyboard.layouts = ['compact', 'symbols', 'alphabetic', 'greek'];
+        mathVirtualKeyboard.addEventListener('geometrychange', () => {
+          const height = mathVirtualKeyboard.boundingRect.height || 0;
+          keyboardHost.style.height = height > 0 ? `${height}px` : '0px';
+        });
         mf.mathModeSpace = '\\:';
         mf.defaultMode = 'math';
         mf.mathVirtualKeyboardPolicy = 'manual';
         mf.smartFence = true;
         mf.inlineShortcuts = { 'oo': '\\infty' };
         mf.addEventListener('focusin', () => mathVirtualKeyboard.show());
+        mf.addEventListener('pointerdown', () => mathVirtualKeyboard.show());
         mf.addEventListener('focusout', () => mathVirtualKeyboard.hide());
         mf.addEventListener('input', () => {
           bridge({ type: 'input', latex: mf.value });
