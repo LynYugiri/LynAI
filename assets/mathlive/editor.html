@@ -50,25 +50,6 @@
       flex: 1;
       min-height: 0;
     }
-    .toolbar {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      align-items: center;
-    }
-    .toolbar button {
-      border: 1px solid rgba(255,255,255,0.12);
-      background: rgba(255,255,255,0.05);
-      color: var(--text);
-      border-radius: 999px;
-      padding: 6px 12px;
-      font-size: 13px;
-      cursor: pointer;
-    }
-    .toolbar button.active {
-      background: rgba(132,210,255,0.18);
-      border-color: rgba(132,210,255,0.42);
-    }
     #keyboard-host {
       position: relative;
       min-height: 0;
@@ -96,13 +77,6 @@
 <body>
   <div class="panel">
     <div class="label">MathLive 可视编辑</div>
-    <div class="toolbar">
-      <button id="toggle-keyboard" type="button">键盘</button>
-      <button data-layout="compact" class="active" type="button">紧凑</button>
-      <button data-layout="symbols" type="button">符号</button>
-      <button data-layout="alphabetic" type="button">字母</button>
-      <button data-layout="greek" type="button">希腊</button>
-    </div>
     <div class="editor-shell">
       <math-field id="mf"></math-field>
     </div>
@@ -117,60 +91,44 @@
         MathfieldElement.soundsDirectory = './sounds';
         const mf = document.getElementById('mf');
         const keyboardHost = document.getElementById('keyboard-host');
-        const toggleButton = document.getElementById('toggle-keyboard');
-        const layoutButtons = Array.from(document.querySelectorAll('[data-layout]'));
         let keyboardVisible = false;
+
+        const reportKeyboardVisibility = () => {
+          bridge({ type: 'keyboard-visibility', visible: keyboardVisible });
+        };
 
         const setKeyboardVisible = (visible) => {
           keyboardVisible = visible;
-          toggleButton.classList.toggle('active', visible);
           if (visible) {
             mathVirtualKeyboard.show();
           } else {
             mathVirtualKeyboard.hide();
           }
-        };
-
-        const setLayout = (layout) => {
-          mathVirtualKeyboard.layouts = [layout];
-          layoutButtons.forEach((button) => {
-            button.classList.toggle('active', button.dataset.layout === layout);
-          });
-          if (keyboardVisible) mathVirtualKeyboard.show();
+          reportKeyboardVisibility();
         };
 
         mathVirtualKeyboard.container = keyboardHost;
-        setLayout('compact');
+        mathVirtualKeyboard.layouts = ['compact', 'symbols', 'alphabetic', 'greek'];
         mathVirtualKeyboard.addEventListener('geometrychange', () => {
           const height = mathVirtualKeyboard.boundingRect.height || 0;
           keyboardHost.style.height = height > 0 ? `${height}px` : '0px';
           keyboardVisible = height > 0;
-          toggleButton.classList.toggle('active', keyboardVisible);
+          reportKeyboardVisibility();
         });
         mf.mathModeSpace = '\\:';
         mf.defaultMode = 'math';
         mf.mathVirtualKeyboardPolicy = 'manual';
         mf.smartFence = true;
         mf.inlineShortcuts = { 'oo': '\\infty' };
-        mf.addEventListener('focusin', () => setKeyboardVisible(true));
-        mf.addEventListener('pointerdown', () => setKeyboardVisible(true));
-        mf.addEventListener('focusout', () => setKeyboardVisible(false));
         mf.addEventListener('input', () => {
           bridge({ type: 'input', latex: mf.value });
         });
-        toggleButton.addEventListener('click', () => {
-          setKeyboardVisible(!keyboardVisible);
-          mf.focus();
-        });
-        layoutButtons.forEach((button) => {
-          button.addEventListener('click', () => {
-            setLayout(button.dataset.layout);
-            setKeyboardVisible(true);
-            mf.focus();
-          });
-        });
         window.setFormula = (latex) => {
           mf.setValue(latex, { silenceNotifications: true });
+        };
+        window.setKeyboardVisible = (visible) => {
+          if (visible) mf.focus();
+          setKeyboardVisible(Boolean(visible));
         };
         window.configureMathLive = (rawConfig) => {
           const config = typeof rawConfig === 'string' ? JSON.parse(rawConfig) : rawConfig;

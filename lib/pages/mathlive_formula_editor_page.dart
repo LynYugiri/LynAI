@@ -31,6 +31,7 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
   Timer? _readyTimeout;
   var _formula = '';
   var _mathLiveReady = false;
+  var _keyboardVisible = false;
   var _syncingFromWeb = false;
   var _useSourceMode = false;
   String? _notice;
@@ -110,31 +111,49 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
               if (_notice != null) _noticeBanner(),
               _introCard(context),
               const SizedBox(height: 10),
-              SegmentedButton<bool>(
-                segments: const [
-                  ButtonSegment<bool>(
-                    value: false,
-                    icon: Icon(Icons.functions),
-                    label: Text('可视编辑'),
+              Row(
+                children: [
+                  Expanded(
+                    child: SegmentedButton<bool>(
+                      segments: const [
+                        ButtonSegment<bool>(
+                          value: false,
+                          icon: Icon(Icons.functions),
+                          label: Text('可视编辑'),
+                        ),
+                        ButtonSegment<bool>(
+                          value: true,
+                          icon: Icon(Icons.code),
+                          label: Text('源码模式'),
+                        ),
+                      ],
+                      selected: {_useSourceMode},
+                      onSelectionChanged: (selection) {
+                        final next = selection.first;
+                        if (!next && !_supportsEmbeddedMathLive) {
+                          _showNotice('当前平台暂不支持内嵌 MathLive，可继续使用源码模式。');
+                          return;
+                        }
+                        setState(() => _useSourceMode = next);
+                        if (!next) {
+                          _pushFormulaToMathLive(_rawCtrl.text);
+                        } else {
+                          _setKeyboardVisible(false);
+                        }
+                      },
+                    ),
                   ),
-                  ButtonSegment<bool>(
-                    value: true,
-                    icon: Icon(Icons.code),
-                    label: Text('源码模式'),
-                  ),
+                  if (!_useSourceMode && _supportsEmbeddedMathLive) ...[
+                    const SizedBox(width: 10),
+                    OutlinedButton.icon(
+                      onPressed: _toggleKeyboard,
+                      icon: Icon(
+                        _keyboardVisible ? Icons.keyboard_hide : Icons.keyboard,
+                      ),
+                      label: Text(_keyboardVisible ? '收起键盘' : '键盘'),
+                    ),
+                  ],
                 ],
-                selected: {_useSourceMode},
-                onSelectionChanged: (selection) {
-                  final next = selection.first;
-                  if (!next && !_supportsEmbeddedMathLive) {
-                    _showNotice('当前平台暂不支持内嵌 MathLive，可继续使用源码模式。');
-                    return;
-                  }
-                  setState(() => _useSourceMode = next);
-                  if (!next) {
-                    _pushFormulaToMathLive(_rawCtrl.text);
-                  }
-                },
               ),
               if (_useSourceMode) ...[
                 const SizedBox(height: 10),
@@ -300,6 +319,15 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
     await controller.runJavaScript('window.configureMathLive($encoded);');
   }
 
+  Future<void> _setKeyboardVisible(bool visible) async {
+    final controller = _webCtrl;
+    if (!_supportsEmbeddedMathLive || controller == null || !_mathLiveReady) return;
+    final encoded = jsonEncode(visible);
+    await controller.runJavaScript('window.setKeyboardVisible($encoded);');
+  }
+
+  Future<void> _toggleKeyboard() => _setKeyboardVisible(!_keyboardVisible);
+
   void _handleBridgeMessage(String rawMessage) {
     final dynamic decoded;
     try {
@@ -315,10 +343,14 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
         _readyTimeout?.cancel();
         setState(() {
           _mathLiveReady = true;
+          _keyboardVisible = false;
           _notice = null;
         });
         _configureMathLive();
         _pushFormulaToMathLive(_rawCtrl.text);
+      case 'keyboard-visibility':
+        final visible = decoded['visible'] == true;
+        if (mounted) setState(() => _keyboardVisible = visible);
       case 'error':
         _showNotice(
           'MathLive 初始化失败：${decoded['message'] ?? '未知错误'}，可切到源码模式继续编辑。',
