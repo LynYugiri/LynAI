@@ -10,6 +10,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   speech_to_text_windows
   super_native_extensions
   url_launcher_windows
+  webview_all_windows
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST

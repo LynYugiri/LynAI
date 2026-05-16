@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #101216;
+      --panel: #171b22;
+      --border: #394150;
+      --text: #eef2f7;
+      --hint: #9aa4b2;
+      --mf-size: 1.45rem;
+    }
+    body {
+      margin: 0;
+      padding: 12px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, system-ui, sans-serif;
+    }
+    .panel {
+      min-height: calc(100vh - 24px);
+      background: linear-gradient(180deg, rgba(132,210,255,0.08), transparent 42%), var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+    .label {
+      font-size: 13px;
+      color: var(--hint);
+      margin-bottom: 10px;
+    }
+    math-field {
+      width: 100%;
+      min-height: 120px;
+      font-size: var(--mf-size);
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 14px;
+      padding: 14px;
+      box-sizing: border-box;
+      color: var(--text);
+    }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <div class="label">MathLive 可视编辑</div>
+    <math-field id="mf" virtual-keyboard-mode="onfocus"></math-field>
+  </div>
+  <script src="./mathlive.min.js"></script>
+  <script>
+    (() => {
+      const bridge = (payload) => MathLiveBridge.postMessage(JSON.stringify(payload));
+      try {
+        MathfieldElement.fontsDirectory = './fonts';
+        MathfieldElement.soundsDirectory = './sounds';
+        const mf = document.getElementById('mf');
+        mf.mathModeSpace = '\\:';
+        mf.defaultMode = 'math';
+        mf.smartFence = true;
+        mf.inlineShortcuts = { 'oo': '\\infty' };
+        mf.addEventListener('input', () => {
+          bridge({ type: 'input', latex: mf.value });
+        });
+        window.setFormula = (latex) => {
+          mf.setValue(latex, { silenceNotifications: true });
+        };
+        window.configureMathLive = (rawConfig) => {
+          const config = typeof rawConfig === 'string' ? JSON.parse(rawConfig) : rawConfig;
+          const size = config.displayMode === 'block' ? '1.8rem' : '1.45rem';
+          document.documentElement.style.setProperty('--mf-size', size);
+        };
+        bridge({ type: 'ready' });
+      } catch (error) {
+        bridge({ type: 'error', message: String(error) });
+      }
+    })();
+  </script>
+</body>
+</html>
