@@ -33,6 +33,119 @@ const _exportTextChunkLength = 2800;
 const _exportTodoPageWeight = 3200;
 const _exportTodoItemChunkLength = 1200;
 
+class _SearchMatcher {
+  final String query;
+  final bool caseSensitive;
+  final String? regexError;
+  final RegExp? _regex;
+
+  _SearchMatcher._({
+    required this.query,
+    required this.caseSensitive,
+    required RegExp? regex,
+    required this.regexError,
+  }) : _regex = regex;
+
+  factory _SearchMatcher.literal(String query, {bool caseSensitive = false}) {
+    return _SearchMatcher._(
+      query: query,
+      caseSensitive: caseSensitive,
+      regex: null,
+      regexError: null,
+    );
+  }
+
+  factory _SearchMatcher.fromSearchSyntax(
+    String query, {
+    bool caseSensitive = false,
+  }) {
+    final parsed = _parseRegexSearch(query);
+    if (parsed == null) return _SearchMatcher.literal(query);
+    try {
+      return _SearchMatcher._(
+        query: query,
+        caseSensitive: parsed.caseSensitive ?? caseSensitive,
+        regex: RegExp(
+          parsed.pattern,
+          caseSensitive: parsed.caseSensitive ?? caseSensitive,
+          multiLine: true,
+        ),
+        regexError: null,
+      );
+    } catch (e) {
+      return _SearchMatcher._(
+        query: query,
+        caseSensitive: caseSensitive,
+        regex: null,
+        regexError: '$e',
+      );
+    }
+  }
+
+  factory _SearchMatcher.regex(String query, {required bool caseSensitive}) {
+    if (query.isEmpty) return _SearchMatcher.literal(query);
+    try {
+      return _SearchMatcher._(
+        query: query,
+        caseSensitive: caseSensitive,
+        regex: RegExp(query, caseSensitive: caseSensitive, multiLine: true),
+        regexError: null,
+      );
+    } catch (e) {
+      return _SearchMatcher._(
+        query: query,
+        caseSensitive: caseSensitive,
+        regex: null,
+        regexError: '$e',
+      );
+    }
+  }
+
+  bool get isEmpty => query.isEmpty;
+  bool get isRegex => _regex != null;
+  bool get hasError => regexError != null;
+
+  bool matches(String text) {
+    if (query.isEmpty) return true;
+    final regex = _regex;
+    if (regex != null) return regex.hasMatch(text);
+    if (regexError != null) return false;
+    if (caseSensitive) return text.contains(query);
+    return text.toLowerCase().contains(query.toLowerCase());
+  }
+
+  Iterable<RegExpMatch> allMatches(String text) {
+    final regex = _regex;
+    if (query.isEmpty || regexError != null) return const Iterable.empty();
+    if (regex != null) return regex.allMatches(text);
+    final pattern = RegExp.escape(query);
+    return RegExp(pattern, caseSensitive: caseSensitive).allMatches(text);
+  }
+}
+
+class _ParsedRegexSearch {
+  final String pattern;
+  final bool? caseSensitive;
+
+  const _ParsedRegexSearch(this.pattern, {this.caseSensitive});
+}
+
+_ParsedRegexSearch? _parseRegexSearch(String query) {
+  final trimmed = query.trim();
+  if (trimmed.startsWith('re:')) {
+    final pattern = trimmed.substring(3).trim();
+    return pattern.isEmpty ? null : _ParsedRegexSearch(pattern);
+  }
+  if (!trimmed.startsWith('/') || trimmed.length < 2) return null;
+  final lastSlash = trimmed.lastIndexOf('/');
+  if (lastSlash <= 0) return null;
+  final pattern = trimmed.substring(1, lastSlash);
+  if (pattern.isEmpty) return null;
+  final flags = trimmed.substring(lastSlash + 1);
+  final insensitive = flags.contains('i');
+  return _ParsedRegexSearch(pattern, caseSensitive: !insensitive);
+}
+
 SnackBar _shortSnackBar(String message) {
   return SnackBar(
     content: Builder(
@@ -391,6 +504,8 @@ class _FeaturePageState extends State<FeaturePage> {
         content: TextField(
           controller: ctrl,
           autofocus: true,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
           decoration: const InputDecoration(labelText: '标题'),
         ),
         actions: [
@@ -426,6 +541,8 @@ class _FeaturePageState extends State<FeaturePage> {
         content: TextField(
           controller: ctrl,
           autofocus: true,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
           decoration: const InputDecoration(labelText: '名称'),
         ),
         actions: [
@@ -491,6 +608,8 @@ class _FeaturePageState extends State<FeaturePage> {
         content: TextField(
           controller: ctrl,
           autofocus: true,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
           decoration: const InputDecoration(labelText: '标题'),
         ),
         actions: [
@@ -1205,10 +1324,14 @@ class _SchedulePageState extends State<_SchedulePage> {
                     onSelectionChanged: (v) => setState(() => _mode = v.first),
                   ),
                   const SizedBox(width: 8),
-                  FilledButton.icon(
-                    onPressed: _newSchedule,
-                    icon: const Icon(Icons.add, size: 18),
-                    label: const Text('新建'),
+                  _AddMenuButton(
+                    items: const [
+                      _AddMenuItem('schedule', Icons.event, '新建日程'),
+                      _AddMenuItem('task', Icons.flag_outlined, '新建任务'),
+                    ],
+                    onSelected: (value) => value == 'task'
+                        ? _newScheduleItem(ScheduleItem.kindTask)
+                        : _newScheduleItem(ScheduleItem.kindSchedule),
                   ),
                 ],
               ),
@@ -1477,7 +1600,7 @@ class _SchedulePageState extends State<_SchedulePage> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              '${_weekdayName(selectedDate.weekday)} | ${selectedItems.length} 条日程',
+                              '${_weekdayName(selectedDate.weekday)} | ${selectedItems.length} 条事项',
                               style: TextStyle(
                                 color: Theme.of(
                                   context,
@@ -1503,7 +1626,7 @@ class _SchedulePageState extends State<_SchedulePage> {
                       padding: const EdgeInsets.symmetric(vertical: 24),
                       child: Center(
                         child: Text(
-                          '这一天没有日程',
+                          '这一天没有事项',
                           style: TextStyle(
                             color: Theme.of(
                               context,
@@ -1555,7 +1678,7 @@ class _SchedulePageState extends State<_SchedulePage> {
                                       ),
                                     ),
                                     Text(
-                                      _timeRangeForDate(item, selectedDate),
+                                      _timeLabelForDate(item, selectedDate),
                                       style: TextStyle(
                                         fontSize: 11,
                                         color: Theme.of(
@@ -2023,7 +2146,7 @@ class _SchedulePageState extends State<_SchedulePage> {
             border: Border.all(color: scheme.primary.withValues(alpha: 0.18)),
           ),
           child: Text(
-            '${_timeRangeForDate(item, date)}  ${item.title}',
+            '${_timeLabelForDate(item, date)}  ${item.title}',
             maxLines: maxLines,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontSize: 10.5, height: 1.25),
@@ -2043,9 +2166,7 @@ class _SchedulePageState extends State<_SchedulePage> {
         final monthStart = DateTime(_focus.year, month, 1);
         final monthEnd = DateTime(_focus.year, month + 1, 1);
         final monthItems = items
-            .where(
-              (e) => e.start.isBefore(monthEnd) && e.end.isAfter(monthStart),
-            )
+            .where((e) => _itemOverlapsRange(e, monthStart, monthEnd))
             .toList();
         final count = monthItems.length;
         return Material(
@@ -2099,7 +2220,7 @@ class _SchedulePageState extends State<_SchedulePage> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              count == 0 ? '这个月没有日程' : '共 $count 条日程',
+                              count == 0 ? '这个月没有事项' : '共 $count 条事项',
                               style: TextStyle(
                                 fontSize: 11,
                                 color: Theme.of(
@@ -2191,9 +2312,14 @@ class _SchedulePageState extends State<_SchedulePage> {
   List<ScheduleItem> _itemsOnDate(List<ScheduleItem> items, DateTime date) {
     final dayStart = _dateOnly(date);
     final dayEnd = dayStart.add(const Duration(days: 1));
-    return items
-        .where((e) => e.start.isBefore(dayEnd) && e.end.isAfter(dayStart))
-        .toList();
+    return items.where((e) => _itemOverlapsRange(e, dayStart, dayEnd)).toList();
+  }
+
+  bool _itemOverlapsRange(ScheduleItem item, DateTime from, DateTime to) {
+    if (item.isTask) {
+      return !item.start.isBefore(from) && item.start.isBefore(to);
+    }
+    return item.start.isBefore(to) && item.end.isAfter(from);
   }
 
   static DateTime _dateOnly(DateTime date) {
@@ -2212,6 +2338,11 @@ class _SchedulePageState extends State<_SchedulePage> {
     return '${_time(visibleStart)} - ${_time(visibleEnd)}';
   }
 
+  String _timeLabelForDate(ScheduleItem item, DateTime date) {
+    if (item.isTask) return '任务 ${_time(item.start)}';
+    return _timeRangeForDate(item, date);
+  }
+
   DateTime _visibleStartForDate(ScheduleItem item, DateTime date) {
     final dayStart = _dateOnly(date);
     return item.start.isAfter(dayStart) ? item.start : dayStart;
@@ -2222,7 +2353,8 @@ class _SchedulePageState extends State<_SchedulePage> {
     return item.end.isBefore(dayEnd) ? item.end : dayEnd;
   }
 
-  Future<void> _newSchedule() async {
+  Future<void> _newScheduleItem(String kind) async {
+    final isTask = kind == ScheduleItem.kindTask;
     final titleCtrl = TextEditingController();
     final noteCtrl = TextEditingController();
     final baseDate = _mode == _CalendarMode.month
@@ -2247,13 +2379,15 @@ class _SchedulePageState extends State<_SchedulePage> {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialog) {
           return AlertDialog(
-            title: const Text('新建日程'),
+            title: Text(isTask ? '新建任务' : '新建日程'),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   TextField(
                     controller: titleCtrl,
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: (_) => Navigator.pop(ctx, true),
                     decoration: const InputDecoration(
                       labelText: '标题',
                       border: OutlineInputBorder(),
@@ -2333,44 +2467,46 @@ class _SchedulePageState extends State<_SchedulePage> {
                       }
                     },
                   ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('结束时间'),
-                    subtitle: Text(_time(end)),
-                    trailing: const Icon(Icons.schedule_outlined),
-                    onTap: () async {
-                      final time = await showTimePicker(
-                        context: ctx,
-                        initialTime: endTime,
-                      );
-                      if (time != null) {
-                        setDialog(() {
-                          endTime = time;
-                          end = DateTime(
-                            selectedDate.year,
-                            selectedDate.month,
-                            selectedDate.day,
-                            time.hour,
-                            time.minute,
-                          );
-                          if (!end.isAfter(start)) {
-                            end = start.add(const Duration(hours: 1));
-                            endTime = TimeOfDay.fromDateTime(end);
-                          }
-                        });
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      '时长：${(end.difference(start).inMinutes / 60).toStringAsFixed(1)} 小时',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  if (!isTask) ...[
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('结束时间'),
+                      subtitle: Text(_time(end)),
+                      trailing: const Icon(Icons.schedule_outlined),
+                      onTap: () async {
+                        final time = await showTimePicker(
+                          context: ctx,
+                          initialTime: endTime,
+                        );
+                        if (time != null) {
+                          setDialog(() {
+                            endTime = time;
+                            end = DateTime(
+                              selectedDate.year,
+                              selectedDate.month,
+                              selectedDate.day,
+                              time.hour,
+                              time.minute,
+                            );
+                            if (!end.isAfter(start)) {
+                              end = start.add(const Duration(hours: 1));
+                              endTime = TimeOfDay.fromDateTime(end);
+                            }
+                          });
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '时长：${(end.difference(start).inMinutes / 60).toStringAsFixed(1)} 小时',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
@@ -2398,6 +2534,7 @@ class _SchedulePageState extends State<_SchedulePage> {
       start,
       end,
       note: note.isEmpty ? null : note,
+      kind: kind,
     );
   }
 
@@ -2405,6 +2542,7 @@ class _SchedulePageState extends State<_SchedulePage> {
     final fp = context.read<FeatureProvider>();
     final titleCtrl = TextEditingController(text: schedule.title);
     final noteCtrl = TextEditingController(text: schedule.note ?? '');
+    final isTask = schedule.isTask;
     var start = schedule.start;
     var end = schedule.end;
     DateTime selectedDate = DateTime(
@@ -2433,6 +2571,8 @@ class _SchedulePageState extends State<_SchedulePage> {
                 children: [
                   TextField(
                     controller: titleCtrl,
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: (_) => Navigator.pop(ctx, 'save'),
                     decoration: const InputDecoration(
                       labelText: '标题',
                       border: OutlineInputBorder(),
@@ -2510,33 +2650,34 @@ class _SchedulePageState extends State<_SchedulePage> {
                       }
                     },
                   ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('结束时间'),
-                    subtitle: Text(_time(end)),
-                    onTap: () async {
-                      final time = await showTimePicker(
-                        context: ctx,
-                        initialTime: endTime,
-                      );
-                      if (time != null) {
-                        setDialog(() {
-                          endTime = time;
-                          end = DateTime(
-                            selectedDate.year,
-                            selectedDate.month,
-                            selectedDate.day,
-                            time.hour,
-                            time.minute,
-                          );
-                          if (!end.isAfter(start)) {
-                            end = start.add(const Duration(hours: 1));
-                            endTime = TimeOfDay.fromDateTime(end);
-                          }
-                        });
-                      }
-                    },
-                  ),
+                  if (!isTask)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('结束时间'),
+                      subtitle: Text(_time(end)),
+                      onTap: () async {
+                        final time = await showTimePicker(
+                          context: ctx,
+                          initialTime: endTime,
+                        );
+                        if (time != null) {
+                          setDialog(() {
+                            endTime = time;
+                            end = DateTime(
+                              selectedDate.year,
+                              selectedDate.month,
+                              selectedDate.day,
+                              time.hour,
+                              time.minute,
+                            );
+                            if (!end.isAfter(start)) {
+                              end = start.add(const Duration(hours: 1));
+                              endTime = TimeOfDay.fromDateTime(end);
+                            }
+                          });
+                        }
+                      },
+                    ),
                   const SizedBox(height: 8),
                   Row(
                     children: [
@@ -2569,7 +2710,7 @@ class _SchedulePageState extends State<_SchedulePage> {
       final ok = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('删除日程'),
+          title: Text(isTask ? '删除任务' : '删除日程'),
           content: Text('确定删除 "${schedule.title}" 吗？'),
           actions: [
             TextButton(
@@ -2596,7 +2737,7 @@ class _SchedulePageState extends State<_SchedulePage> {
       schedule.copyWith(
         title: title.isEmpty ? schedule.title : title,
         start: start,
-        end: end,
+        end: isTask ? start.add(const Duration(minutes: 1)) : end,
         note: note.isEmpty ? null : note,
       ),
     );
@@ -2675,13 +2816,14 @@ class _NotesPageState extends State<_NotesPage> {
         ],
       );
     }
-    final query = widget.searchQuery.trim().toLowerCase();
+    final query = widget.searchQuery.trim();
+    final matcher = _SearchMatcher.fromSearchSyntax(query);
     final visibleNotes = notes
-        .where((note) => _matchesNote(note, query))
+        .where((note) => _matchesNote(note, matcher))
         .toList();
     final visibleFolders = folders.where((folder) {
-      if (query.isEmpty) return true;
-      return folder.title.toLowerCase().contains(query) ||
+      if (matcher.isEmpty) return true;
+      return matcher.matches(folder.title) ||
           visibleNotes.any((note) => note.folderId == folder.id);
     }).toList();
     final looseNotes = visibleNotes
@@ -2694,6 +2836,19 @@ class _NotesPageState extends State<_NotesPage> {
     return Column(
       children: [
         _noteSearchBox(),
+        if (matcher.hasError)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '正则表达式无效',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: Colors.redAccent),
+              ),
+            ),
+          ),
         Expanded(
           child: entries.isEmpty
               ? ListView(
@@ -2705,7 +2860,7 @@ class _NotesPageState extends State<_NotesPage> {
                     ),
                   ],
                 )
-              : query.isEmpty
+              : matcher.isEmpty
               ? ReorderableListView.builder(
                   padding: const EdgeInsets.fromLTRB(8, 6, 8, 88),
                   itemCount: entries.length,
@@ -2740,7 +2895,7 @@ class _NotesPageState extends State<_NotesPage> {
       child: TextField(
         controller: widget.searchController,
         decoration: InputDecoration(
-          hintText: '搜索笔记标题或内容...',
+          hintText: '搜索笔记标题或内容，支持 re:正则 或 /正则/i',
           prefixIcon: const Icon(Icons.search),
           suffixIcon: widget.searchQuery.isNotEmpty
               ? IconButton(
@@ -2758,10 +2913,9 @@ class _NotesPageState extends State<_NotesPage> {
     );
   }
 
-  bool _matchesNote(Note note, String query) {
-    if (query.isEmpty) return true;
-    return note.title.toLowerCase().contains(query) ||
-        note.content.toLowerCase().contains(query);
+  bool _matchesNote(Note note, _SearchMatcher matcher) {
+    if (matcher.isEmpty) return true;
+    return matcher.matches(note.title) || matcher.matches(note.content);
   }
 
   bool _folderMissing(Note note, List<NoteFolder> folders) {
@@ -2800,7 +2954,9 @@ class _NotesPageState extends State<_NotesPage> {
         .watch<FeatureProvider>()
         .notes
         .where(
-          (note) => note.folderId == folder.id && _matchesNote(note, query),
+          (note) =>
+              note.folderId == folder.id &&
+              _matchesNote(note, _SearchMatcher.fromSearchSyntax(query)),
         )
         .toList();
     return Card(
@@ -3183,6 +3339,8 @@ class _NotesPageState extends State<_NotesPage> {
         content: TextField(
           controller: ctrl,
           autofocus: true,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
           decoration: InputDecoration(labelText: label),
         ),
         actions: [
@@ -3957,8 +4115,8 @@ class _TodoListsPageState extends State<_TodoListsPage> {
     await _features.updateTodoList(
       list.copyWith(
         items: [
-          ...list.items,
           TodoItem(id: uuid.v4(), text: text),
+          ...list.items,
         ],
       ),
     );
@@ -4040,6 +4198,9 @@ class _TodoListsPageState extends State<_TodoListsPage> {
         title: const Text('重命名'),
         content: TextField(
           controller: ctrl,
+          autofocus: true,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
           decoration: const InputDecoration(labelText: '标题'),
         ),
         actions: [
@@ -4449,7 +4610,9 @@ class _NoteDetailState extends State<_NoteDetail> {
   var _showReplace = false;
   var _showLatexPanel = false;
   var _caseSensitiveFind = false;
+  var _regexFind = false;
   var _currentMatch = -1;
+  String? _findError;
   var _matches = <TextRange>[];
   var _lastSavedDraft = '';
   var _lastEditorSelection = const TextSelection.collapsed(offset: 0);
@@ -4461,6 +4624,7 @@ class _NoteDetailState extends State<_NoteDetail> {
   String? _activeRevisionId;
   var _proposalSidebarExpanded = true;
   Offset? _proposalBubbleOffset;
+  String? _pendingExternalSyncContent;
 
   @override
   void initState() {
@@ -4516,6 +4680,7 @@ class _NoteDetailState extends State<_NoteDetail> {
         ? null
         : _features.getNoteRevision(_activeRevisionId!);
     final viewingHistorical = viewingRevision != null;
+    _queueExternalNoteSyncIfNeeded(note, hasProposal: hasProposal);
     final canUndo = widget.editing && _undoStack.isNotEmpty;
     final canRedo = widget.editing && _redoStack.isNotEmpty;
     return Column(
@@ -5053,7 +5218,7 @@ class _NoteDetailState extends State<_NoteDetail> {
     final baseContent = _activeRevisionId == null
         ? note.content
         : _features.getNoteContentAtRevision(widget.noteId, _activeRevisionId);
-    return _ctrl.text != baseContent;
+    return _activeRevisionId != null || _ctrl.text != baseContent;
   }
 
   bool get _hasUnsavedChanges => _ctrl.text != _lastSavedDraft;
@@ -5651,8 +5816,13 @@ class _NoteDetailState extends State<_NoteDetail> {
     List<NoteEditBlock> blocks,
   ) async {
     if (blocks.isEmpty) return;
+    final latestNote = _features.getNote(note.id);
+    if (latestNote == null) return;
     final currentText = _ctrl.text;
-    if (_contentHash(currentText) != proposal.baseContentHash) {
+    final editorHash = _contentHash(currentText);
+    final latestHash = _contentHash(latestNote.content);
+    if (editorHash != proposal.baseContentHash ||
+        latestHash != proposal.baseContentHash) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(_shortSnackBar('笔记内容已变化，请让 AI 重新生成修改建议'));
@@ -5700,6 +5870,29 @@ class _NoteDetailState extends State<_NoteDetail> {
     ScaffoldMessenger.of(context).showSnackBar(
       _shortSnackBar(revision == null ? '建议没有产生新修改' : '已接受建议并保存到时间线'),
     );
+  }
+
+  void _queueExternalNoteSyncIfNeeded(Note note, {required bool hasProposal}) {
+    if (_activeRevisionId != null || hasProposal || _hasUnsavedChanges) {
+      _pendingExternalSyncContent = null;
+      return;
+    }
+    if (note.content == _lastSavedDraft) {
+      _pendingExternalSyncContent = null;
+      return;
+    }
+    if (_pendingExternalSyncContent == note.content) return;
+    _pendingExternalSyncContent = note.content;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final latestNote = _features.getNote(widget.noteId);
+      if (latestNote == null ||
+          latestNote.content != _pendingExternalSyncContent) {
+        return;
+      }
+      _pendingExternalSyncContent = null;
+      setState(() => _loadEditorSnapshot(latestNote.content, revisionId: null));
+    });
   }
 
   void _rejectProposalBlock(NoteEditProposal proposal, String blockId) {
@@ -6099,6 +6292,17 @@ class _NoteDetailState extends State<_NoteDetail> {
           },
         ),
         IconButton(
+          tooltip: _regexFind ? '正则匹配' : '普通匹配',
+          icon: Icon(
+            Icons.data_object,
+            color: _regexFind ? scheme.primary : null,
+          ),
+          onPressed: () {
+            setState(() => _regexFind = !_regexFind);
+            _refreshMatches();
+          },
+        ),
+        IconButton(
           tooltip: _showReplace ? '隐藏替换' : '显示替换',
           icon: const Icon(Icons.swap_horiz),
           onPressed: () => setState(() => _showReplace = !_showReplace),
@@ -6124,9 +6328,10 @@ class _NoteDetailState extends State<_NoteDetail> {
                     focusNode: _findFocus,
                     decoration: InputDecoration(
                       isDense: true,
-                      labelText: '查找',
+                      labelText: _regexFind ? '查找正则' : '查找',
                       prefixIcon: const Icon(Icons.search),
                       suffixText: matchText,
+                      errorText: _findError,
                       border: const OutlineInputBorder(),
                     ),
                     onSubmitted: (_) => _nextMatch(),
@@ -6243,20 +6448,19 @@ class _NoteDetailState extends State<_NoteDetail> {
         setState(() {
           _matches = [];
           _currentMatch = -1;
+          _findError = null;
         });
       }
       return;
     }
-    final haystack = _caseSensitiveFind ? _ctrl.text : _ctrl.text.toLowerCase();
-    final needle = _caseSensitiveFind ? query : query.toLowerCase();
-    final matches = <TextRange>[];
-    var start = 0;
-    while (start <= haystack.length) {
-      final index = haystack.indexOf(needle, start);
-      if (index == -1) break;
-      matches.add(TextRange(start: index, end: index + query.length));
-      start = index + needle.length;
-    }
+    final matcher = _regexFind
+        ? _SearchMatcher.regex(query, caseSensitive: _caseSensitiveFind)
+        : _SearchMatcher.literal(query, caseSensitive: _caseSensitiveFind);
+    final matches = matcher
+        .allMatches(_ctrl.text)
+        .where((match) => match.end > match.start)
+        .map((match) => TextRange(start: match.start, end: match.end))
+        .toList();
     var current = matches.indexWhere((range) {
       final offset = _ctrl.selection.baseOffset;
       return offset >= range.start && offset <= range.end;
@@ -6266,6 +6470,7 @@ class _NoteDetailState extends State<_NoteDetail> {
     setState(() {
       _matches = matches;
       _currentMatch = current;
+      _findError = matcher.hasError ? '正则表达式无效' : null;
     });
   }
 
@@ -6776,6 +6981,9 @@ class _NoteDetailState extends State<_NoteDetail> {
         title: const Text('重命名'),
         content: TextField(
           controller: ctrl,
+          autofocus: true,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
           decoration: const InputDecoration(labelText: '标题'),
         ),
         actions: [

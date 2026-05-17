@@ -672,10 +672,13 @@ class _ChatPageState extends State<ChatPage> {
   Map<String, dynamic> _assistantToolCallMessage(
     String content,
     List<ChatToolCall> calls,
+    String? thinkingContent,
   ) {
     return {
       'role': 'assistant',
       'content': content,
+      if (thinkingContent != null && thinkingContent.isNotEmpty)
+        'reasoning_content': thinkingContent,
       'tool_calls': calls
           .map(
             (call) => {
@@ -811,7 +814,7 @@ class _ChatPageState extends State<ChatPage> {
           conv?.messages ?? const [],
         );
         if (!mounted || gen != _streamGen) return;
-        working.add(_assistantToolCallMessage(buf, toolCalls));
+        working.add(_assistantToolCallMessage(buf, toolCalls, think));
         for (final result in results) {
           working.add(_toolResultMessage(result, nativeTool: true));
         }

@@ -27,11 +27,13 @@ class _NoteLineEdit {
   final int startLine;
   final int deleteCount;
   final List<String> insertLines;
+  final List<String>? expectedLines;
 
   const _NoteLineEdit({
     required this.startLine,
     required this.deleteCount,
     required this.insertLines,
+    this.expectedLines,
   });
 
   static _NoteLineEdit? fromRaw(Object? raw) {
@@ -46,10 +48,15 @@ class _NoteLineEdit {
     final insertLines = rawLines is List
         ? rawLines.map((line) => line?.toString() ?? '').toList()
         : const <String>[];
+    final rawExpectedLines = json['expectedLines'];
+    final expectedLines = rawExpectedLines is List
+        ? rawExpectedLines.map((line) => line?.toString() ?? '').toList()
+        : null;
     return _NoteLineEdit(
       startLine: startLine,
       deleteCount: deleteCount,
       insertLines: insertLines,
+      expectedLines: expectedLines,
     );
   }
 
@@ -77,6 +84,68 @@ class _ParsedNoteEdit {
     : note = null,
       edits = const [],
       baseRevisionId = null;
+}
+
+class _AppliedLineEdits {
+  final String? content;
+  final String? error;
+
+  const _AppliedLineEdits.success(this.content) : error = null;
+  const _AppliedLineEdits.error(this.error) : content = null;
+}
+
+class _TextMatcher {
+  final String query;
+  final RegExp? _regex;
+
+  const _TextMatcher._(this.query, this._regex);
+
+  factory _TextMatcher(String query) {
+    final trimmed = query.trim();
+    final parsed = _parseRegexSearch(trimmed);
+    if (parsed == null) return _TextMatcher._(trimmed.toLowerCase(), null);
+    try {
+      return _TextMatcher._(
+        trimmed,
+        RegExp(parsed.pattern, caseSensitive: parsed.caseSensitive),
+      );
+    } catch (_) {
+      return _TextMatcher._('', RegExp(r'a^'));
+    }
+  }
+
+  bool get isEmpty => query.isEmpty;
+  bool get isRegex => _regex != null;
+
+  bool matches(String text) {
+    final regex = _regex;
+    if (query.isEmpty) return true;
+    if (regex != null) return regex.hasMatch(text);
+    return text.toLowerCase().contains(query);
+  }
+}
+
+class _ParsedRegexSearch {
+  final String pattern;
+  final bool caseSensitive;
+
+  const _ParsedRegexSearch(this.pattern, {required this.caseSensitive});
+}
+
+_ParsedRegexSearch? _parseRegexSearch(String query) {
+  if (query.startsWith('re:')) {
+    final pattern = query.substring(3).trim();
+    return pattern.isEmpty
+        ? null
+        : _ParsedRegexSearch(pattern, caseSensitive: false);
+  }
+  if (!query.startsWith('/') || query.length < 2) return null;
+  final lastSlash = query.lastIndexOf('/');
+  if (lastSlash <= 0) return null;
+  final pattern = query.substring(1, lastSlash);
+  if (pattern.isEmpty) return null;
+  final flags = query.substring(lastSlash + 1);
+  return _ParsedRegexSearch(pattern, caseSensitive: !flags.contains('i'));
 }
 
 class ToolExecutionResult {
@@ -153,7 +222,8 @@ class ToolCallService {
             },
             'edits': {
               'type': 'array',
-              'description': '逐行修改建议。行号从 1 开始；多个 edit 不可重叠。',
+              'description':
+                  '逐行修改建议。行号从 1 开始，使用 read_note 返回的 numberedLines；startLine=lineCount+1 可在末尾追加；多个 edit 不可重叠。强烈建议填写 expectedLines 校验被替换/删除的原文，避免行号偏移误改。',
               'items': {
                 'type': 'object',
                 'properties': {
@@ -161,6 +231,11 @@ class ToolCallService {
                   'deleteCount': {'type': 'integer'},
                   'insertLines': {
                     'type': 'array',
+                    'items': {'type': 'string'},
+                  },
+                  'expectedLines': {
+                    'type': 'array',
+                    'description': '可选。预期被 deleteCount 覆盖的原文行；不匹配时拒绝修改。',
                     'items': {'type': 'string'},
                   },
                 },
@@ -198,7 +273,7 @@ class ToolCallService {
       'type': 'function',
       'function': {
         'name': 'list_schedules',
-        'description': '查看用户日程列表，可用于规划日常安排。',
+        'description': '查看用户日程表事项列表，包含日程和只需要开始时间的任务。',
         'parameters': {
           'type': 'object',
           'properties': {
@@ -212,16 +287,21 @@ class ToolCallService {
       'type': 'function',
       'function': {
         'name': 'create_schedule',
-        'description': '创建新的日程。',
+        'description':
+            '创建新的日程或任务。kind=task 表示任务，只需要 title/start；默认 kind=schedule 表示日程，需要 title/start/end。',
         'parameters': {
           'type': 'object',
           'properties': {
             'title': {'type': 'string'},
+            'kind': {
+              'type': 'string',
+              'description': 'schedule 或 task；task 只需要开始时间',
+            },
             'start': {'type': 'string', 'description': 'ISO-8601 开始时间'},
-            'end': {'type': 'string', 'description': 'ISO-8601 结束时间'},
+            'end': {'type': 'string', 'description': 'ISO-8601 结束时间；任务可省略'},
             'note': {'type': 'string'},
           },
-          'required': ['title', 'start', 'end'],
+          'required': ['title', 'start'],
         },
       },
     },
@@ -229,11 +309,12 @@ class ToolCallService {
       'type': 'function',
       'function': {
         'name': 'update_schedule',
-        'description': '按 id 修改已有日程。',
+        'description': '按 id 修改已有日程或任务。任务只使用 start，忽略 end。',
         'parameters': {
           'type': 'object',
           'properties': {
             'id': {'type': 'string'},
+            'kind': {'type': 'string', 'description': 'schedule 或 task'},
             'title': {'type': 'string'},
             'start': {'type': 'string'},
             'end': {'type': 'string'},
@@ -317,7 +398,8 @@ class ToolCallService {
             },
             'edits': {
               'type': 'array',
-              'description': '逐行修改列表。行号从 1 开始；多个 edit 不可重叠。',
+              'description':
+                  '逐行修改列表。行号从 1 开始，使用 read_note 返回的 numberedLines；startLine=lineCount+1 可在末尾追加；多个 edit 不可重叠。强烈建议填写 expectedLines 校验被替换/删除的原文，避免行号偏移误改。',
               'items': {
                 'type': 'object',
                 'properties': {
@@ -325,6 +407,11 @@ class ToolCallService {
                   'deleteCount': {'type': 'integer'},
                   'insertLines': {
                     'type': 'array',
+                    'items': {'type': 'string'},
+                  },
+                  'expectedLines': {
+                    'type': 'array',
+                    'description': '可选。预期被 deleteCount 覆盖的原文行；不匹配时拒绝修改。',
                     'items': {'type': 'string'},
                   },
                 },
@@ -575,7 +662,9 @@ class ToolCallService {
     final to = _dateArg(args, 'to');
     final items = _features.schedules
         .where((item) {
-          if (from != null && !item.end.isAfter(from)) return false;
+          if (from != null && !_scheduleVisibleEnd(item).isAfter(from)) {
+            return false;
+          }
           if (to != null && !item.start.isBefore(to)) return false;
           return true;
         })
@@ -594,16 +683,26 @@ class ToolCallService {
   ) async {
     final title = (args['title'] as String? ?? '').trim();
     final start = _dateArg(args, 'start');
-    final end = _dateArg(args, 'end');
+    final kind = _scheduleKindArg(args);
+    final end = kind == ScheduleItem.kindTask
+        ? start?.add(const Duration(minutes: 1))
+        : _dateArg(args, 'end');
     if (title.isEmpty || start == null || end == null) {
-      return _error('创建日程需要 title、start、end');
+      return _error(
+        kind == ScheduleItem.kindTask
+            ? '创建任务需要 title、start'
+            : '创建日程需要 title、start、end',
+      );
     }
-    if (!end.isAfter(start)) return _error('结束时间必须晚于开始时间');
+    if (kind != ScheduleItem.kindTask && !end.isAfter(start)) {
+      return _error('结束时间必须晚于开始时间');
+    }
     final id = await _features.addSchedule(
       title,
       start,
       end,
       note: args['note'] as String?,
+      kind: kind,
     );
     final schedule = _features.getSchedule(id);
     return {
@@ -618,32 +717,44 @@ class ToolCallService {
     final id = (args['id'] as String? ?? '').trim();
     final current = _features.getSchedule(id);
     if (current == null) return _error('未找到日程: $id');
+    final nextKind = args.containsKey('kind')
+        ? _scheduleKindArg(args)
+        : current.kind;
+    final nextStart = _dateArg(args, 'start') ?? current.start;
+    final parsedEnd = _dateArg(args, 'end');
+    final nextEnd = nextKind == ScheduleItem.kindTask
+        ? nextStart.add(const Duration(minutes: 1))
+        : parsedEnd ?? current.end;
     final updated = args.containsKey('note')
         ? current.copyWith(
             title: (args['title'] as String?)?.trim(),
-            start: _dateArg(args, 'start'),
-            end: _dateArg(args, 'end'),
+            start: nextStart,
+            end: nextEnd,
             note: args['note'] as String?,
+            kind: nextKind,
           )
         : current.copyWith(
             title: (args['title'] as String?)?.trim(),
-            start: _dateArg(args, 'start'),
-            end: _dateArg(args, 'end'),
+            start: nextStart,
+            end: nextEnd,
+            kind: nextKind,
           );
-    if (!updated.end.isAfter(updated.start)) return _error('结束时间必须晚于开始时间');
+    if (!updated.isTask && !updated.end.isAfter(updated.start)) {
+      return _error('结束时间必须晚于开始时间');
+    }
     await _features.updateSchedule(updated);
     return {'ok': true, 'schedule': _scheduleJson(updated)};
   }
 
   Map<String, dynamic> _listNotes(Map<String, dynamic> args) {
-    final query = (args['query'] as String? ?? '').trim().toLowerCase();
+    final query = (args['query'] as String? ?? '').trim();
+    final matcher = _TextMatcher(query);
     final folderId = (args['folderId'] as String? ?? '').trim();
     final includeContent = args['includeContent'] as bool? ?? false;
     final notes = _features.notes.where((note) {
       if (folderId.isNotEmpty && note.folderId != folderId) return false;
-      if (query.isEmpty) return true;
-      return note.title.toLowerCase().contains(query) ||
-          note.content.toLowerCase().contains(query);
+      if (matcher.isEmpty) return true;
+      return matcher.matches(note.title) || matcher.matches(note.content);
     });
     return {
       'ok': true,
@@ -667,21 +778,23 @@ class ToolCallService {
   Map<String, dynamic> _readNote(Map<String, dynamic> args) {
     final id = (args['id'] as String? ?? '').trim();
     final title = (args['title'] as String? ?? '').trim().toLowerCase();
-    final query = (args['query'] as String? ?? '').trim().toLowerCase();
+    final query = (args['query'] as String? ?? '').trim();
+    final matcher = _TextMatcher(query);
 
     Note? note;
     if (id.isNotEmpty) {
       note = _features.getNote(id);
     }
     if (note == null && title.isNotEmpty) {
-      note =
-          _bestNoteMatch((n) => n.title.toLowerCase() == title) ??
-          _bestNoteMatch((n) => n.title.toLowerCase().contains(title));
+      note = _findNote(
+        (candidate) =>
+            _scoreNoteMatch(candidate, query: title, preferTitle: true),
+      );
     }
-    if (note == null && query.isNotEmpty) {
-      note =
-          _bestNoteMatch((n) => n.title.toLowerCase().contains(query)) ??
-          _bestNoteMatch((n) => n.content.toLowerCase().contains(query));
+    if (note == null && !matcher.isEmpty) {
+      note = _findNote(
+        (candidate) => _scoreNoteMatch(candidate, matcher: matcher),
+      );
     }
     if (note == null) {
       return _error('未找到匹配的笔记，请先调用 list_notes 查看可用笔记');
@@ -692,14 +805,55 @@ class ToolCallService {
       'contentHash': _contentHash(note.content),
       'currentRevisionId': note.currentRevisionId,
       'lineCount': _splitNoteLines(note.content).length,
+      'lineNumberBase': 1,
+      'appendStartLine': _splitNoteLines(note.content).length + 1,
+      'lineEditHint':
+          'edit_note/propose_note_edit 的 startLine 从 1 开始，对应 numberedLines.line；替换/删除时建议带 expectedLines 校验原文；startLine=lineCount+1 且 deleteCount=0 表示追加到末尾。',
+      'numberedLines': _numberedNoteLines(note.content),
     };
   }
 
-  Note? _bestNoteMatch(bool Function(Note note) test) {
+  Note? _findNote(int Function(Note note) score) {
+    Note? best;
+    var bestScore = 0;
     for (final note in _features.notes) {
-      if (test(note)) return note;
+      final currentScore = score(note);
+      if (currentScore <= 0) continue;
+      if (best == null ||
+          currentScore > bestScore ||
+          (currentScore == bestScore &&
+              note.updatedAt.isAfter(best.updatedAt))) {
+        best = note;
+        bestScore = currentScore;
+      }
     }
-    return null;
+    return best;
+  }
+
+  int _scoreNoteMatch(
+    Note note, {
+    String? query,
+    _TextMatcher? matcher,
+    bool preferTitle = false,
+  }) {
+    if (matcher != null && matcher.isRegex) {
+      if (matcher.matches(note.title)) return 250;
+      if (!preferTitle && matcher.matches(note.content)) return 100;
+      return 0;
+    }
+    final normalizedQuery = (query ?? matcher?.query ?? '').toLowerCase();
+    if (normalizedQuery.isEmpty) return 0;
+    final normalizedTitle = note.title.toLowerCase();
+    final normalizedContent = note.content.toLowerCase();
+    if (normalizedTitle == normalizedQuery) return preferTitle ? 600 : 500;
+    if (normalizedTitle.startsWith(normalizedQuery)) {
+      return preferTitle ? 450 : 350;
+    }
+    if (normalizedTitle.contains(normalizedQuery)) {
+      return preferTitle ? 300 : 250;
+    }
+    if (!preferTitle && normalizedContent.contains(normalizedQuery)) return 100;
+    return 0;
   }
 
   Future<Map<String, dynamic>> _saveNote(Map<String, dynamic> args) async {
@@ -784,8 +938,9 @@ class ToolCallService {
     if (parsed.error != null) return _error(parsed.error!);
     final note = parsed.note!;
     final edits = parsed.edits;
-    final nextContent = _applyLineEdits(note.content, edits);
-    if (nextContent == null) return _error('edits 行号越界或存在重叠');
+    final editResult = _applyLineEdits(note.content, edits);
+    if (editResult.error != null) return _error(editResult.error!);
+    final nextContent = editResult.content!;
     final baseRevisionId = (args['baseRevisionId'] as String? ?? '').trim();
     final revision = nextContent == note.content
         ? null
@@ -817,8 +972,9 @@ class ToolCallService {
     );
     if (parsed.error != null) return _error(parsed.error!);
     final note = parsed.note!;
-    final nextContent = _applyLineEdits(note.content, parsed.edits);
-    if (nextContent == null) return _error('edits 行号越界或存在重叠');
+    final editResult = _applyLineEdits(note.content, parsed.edits);
+    if (editResult.error != null) return _error(editResult.error!);
+    final nextContent = editResult.content!;
     if (nextContent == note.content) return _error('修改建议没有产生内容变化');
     final proposal = _proposalFromEdits(
       note: note,
@@ -992,7 +1148,7 @@ class ToolCallService {
         text: text,
         done: _boolArg(args, 'done') ?? false,
       );
-      final updated = list.copyWith(items: [...list.items, item]);
+      final updated = list.copyWith(items: [item, ...list.items]);
       await _features.updateTodoList(updated);
       return {
         'ok': true,
@@ -1082,11 +1238,21 @@ class ToolCallService {
     return content.split('\n');
   }
 
+  static List<Map<String, dynamic>> _numberedNoteLines(String content) {
+    final lines = _splitNoteLines(content);
+    return [
+      for (var i = 0; i < lines.length; i++) {'line': i + 1, 'text': lines[i]},
+    ];
+  }
+
   static String _joinNoteLines(List<String> lines) {
     return lines.join('\n');
   }
 
-  static String? _applyLineEdits(String content, List<_NoteLineEdit> edits) {
+  static _AppliedLineEdits _applyLineEdits(
+    String content,
+    List<_NoteLineEdit> edits,
+  ) {
     final lines = _splitNoteLines(content);
     final sorted = [...edits]
       ..sort((a, b) => b.startLine.compareTo(a.startLine));
@@ -1094,13 +1260,40 @@ class ToolCallService {
     for (final edit in sorted) {
       final startIndex = edit.startLine - 1;
       final endIndex = startIndex + edit.deleteCount;
-      if (edit.startLine < 1 || startIndex > lines.length) return null;
-      if (endIndex > lines.length) return null;
-      if (endIndex > previousStart - 1) return null;
+      if (edit.startLine < 1 || startIndex > lines.length) {
+        return _AppliedLineEdits.error(
+          'edits 行号越界：startLine 必须在 1 到 ${lines.length + 1} 之间，${lines.length + 1} 仅用于 deleteCount=0 的末尾追加',
+        );
+      }
+      if (startIndex == lines.length && edit.deleteCount != 0) {
+        return _AppliedLineEdits.error('末尾追加时 deleteCount 必须为 0');
+      }
+      if (endIndex > lines.length) {
+        return _AppliedLineEdits.error('edits 删除范围越界：deleteCount 超过可用行数');
+      }
+      if (endIndex > previousStart - 1) {
+        return _AppliedLineEdits.error('edits 存在重叠或顺序冲突，请合并相邻修改');
+      }
+      final expectedLines = edit.expectedLines;
+      if (expectedLines != null) {
+        if (expectedLines.length != edit.deleteCount) {
+          return _AppliedLineEdits.error(
+            'expectedLines 数量必须等于 deleteCount，用于校验被替换/删除的原文',
+          );
+        }
+        final actualLines = lines.sublist(startIndex, endIndex);
+        for (var i = 0; i < expectedLines.length; i++) {
+          if (expectedLines[i] != actualLines[i]) {
+            return _AppliedLineEdits.error(
+              '第 ${edit.startLine + i} 行原文不匹配，请重新 read_note 后按 numberedLines 行号编辑',
+            );
+          }
+        }
+      }
       lines.replaceRange(startIndex, endIndex, edit.insertLines);
       previousStart = edit.startLine;
     }
-    return _joinNoteLines(lines);
+    return _AppliedLineEdits.success(_joinNoteLines(lines));
   }
 
   static NoteEditProposal _proposalFromEdits({
@@ -1210,12 +1403,25 @@ class ToolCallService {
     return DateTime.tryParse(raw.trim())?.toLocal();
   }
 
+  static String _scheduleKindArg(Map<String, dynamic> args) {
+    final raw = (args['kind'] as String? ?? '').trim().toLowerCase();
+    if (raw == ScheduleItem.kindTask || raw == '任务') {
+      return ScheduleItem.kindTask;
+    }
+    return ScheduleItem.kindSchedule;
+  }
+
+  static DateTime _scheduleVisibleEnd(ScheduleItem item) {
+    return item.isTask ? item.start.add(const Duration(minutes: 1)) : item.end;
+  }
+
   static Map<String, dynamic> _scheduleJson(ScheduleItem item) {
     return {
       'id': item.id,
+      'kind': item.kind,
       'title': item.title,
       'start': item.start.toLocal().toIso8601String(),
-      'end': item.end.toLocal().toIso8601String(),
+      if (!item.isTask) 'end': item.end.toLocal().toIso8601String(),
       'timezone': item.start.toLocal().timeZoneName,
       'timezoneOffsetMinutes': item.start.toLocal().timeZoneOffset.inMinutes,
       if (item.note != null) 'note': item.note,

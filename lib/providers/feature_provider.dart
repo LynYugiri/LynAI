@@ -56,6 +56,7 @@ class FeatureProvider extends ChangeNotifier {
         _schedules = schedules..sort((a, b) => a.start.compareTo(b.start));
       }
       await _refreshScheduleWidget();
+      await _rescheduleScheduleNotifications();
       final notesJson = prefs.getString(_notesKey);
       if (notesJson != null) {
         final items = jsonDecode(notesJson) as List<dynamic>;
@@ -95,8 +96,14 @@ class FeatureProvider extends ChangeNotifier {
         }
         _noteRevisions = revisions;
       }
-      _normalizeNoteRevisionState();
-      _removeMissingNoteFolderReferences();
+      final normalizedRevisions = _normalizeNoteRevisionState();
+      final cleanedFolderRefs = _removeMissingNoteFolderReferences();
+      if (normalizedRevisions) {
+        await _queueSaveNoteRevisions();
+      }
+      if (normalizedRevisions || cleanedFolderRefs) {
+        await _queueSaveNotes();
+      }
       final todoListsJson = prefs.getString(_todoListsKey);
       if (todoListsJson != null) {
         final items = jsonDecode(todoListsJson) as List<dynamic>;
@@ -138,6 +145,7 @@ class FeatureProvider extends ChangeNotifier {
         jsonEncode(snapshot.map((e) => e.toJson()).toList()),
       );
       await _refreshScheduleWidget();
+      await _rescheduleScheduleNotifications();
     } catch (e) {
       debugPrint('保存日程失败: $e');
     }
@@ -149,6 +157,17 @@ class FeatureProvider extends ChangeNotifier {
       await _scheduleWidgetChannel.invokeMethod<void>('refresh');
     } catch (e) {
       debugPrint('刷新日程小组件失败: $e');
+    }
+  }
+
+  Future<void> _rescheduleScheduleNotifications() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _scheduleWidgetChannel.invokeMethod<void>(
+        'rescheduleNotifications',
+      );
+    } catch (e) {
+      debugPrint('重新安排日程通知失败: $e');
     }
   }
 
@@ -210,13 +229,16 @@ class FeatureProvider extends ChangeNotifier {
     }
   }
 
-  void _removeMissingNoteFolderReferences() {
+  bool _removeMissingNoteFolderReferences() {
     final folderIds = _noteFolders.map((folder) => folder.id).toSet();
+    var changed = false;
     _notes = _notes.map((note) {
       final folderId = note.folderId;
       if (folderId == null || folderIds.contains(folderId)) return note;
+      changed = true;
       return note.copyWith(folderId: null, preserveUpdatedAt: true);
     }).toList();
+    return changed;
   }
 
   Future<void> _queueSaveTodoLists() {
@@ -244,13 +266,18 @@ class FeatureProvider extends ChangeNotifier {
     DateTime start,
     DateTime end, {
     String? note,
+    String kind = ScheduleItem.kindSchedule,
   }) async {
+    final effectiveEnd = kind == ScheduleItem.kindTask
+        ? start.add(const Duration(minutes: 1))
+        : end;
     final schedule = ScheduleItem(
       id: _uuid.v4(),
       title: title,
       start: start,
-      end: end,
+      end: effectiveEnd,
       note: note,
+      kind: kind,
     );
     _schedules.add(schedule);
     _schedules.sort((a, b) => a.start.compareTo(b.start));
@@ -402,11 +429,13 @@ class FeatureProvider extends ChangeNotifier {
     return content;
   }
 
-  void _normalizeNoteRevisionState() {
+  bool _normalizeNoteRevisionState() {
     final revisionById = {
       for (final revision in _noteRevisions) revision.id: revision,
     };
     final validChainCache = <String, bool>{};
+    final previousRevisionCount = _noteRevisions.length;
+    var notesChanged = false;
 
     bool hasValidChain(String revisionId, Set<String> visiting) {
       final cached = validChainCache[revisionId];
@@ -440,10 +469,12 @@ class FeatureProvider extends ChangeNotifier {
           validRevisionIds.contains(currentRevisionId)) {
         return note;
       }
+      notesChanged = true;
       return note.copyWith(currentRevisionId: null, preserveUpdatedAt: true);
     }).toList();
     _noteRevisionContentCache.clear();
     _noteTimelineCache.clear();
+    return _noteRevisions.length != previousRevisionCount || notesChanged;
   }
 
   void _clearNoteTimelineCache(String noteId) {

@@ -6,9 +6,11 @@ import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/message.dart';
 import 'package:lynai/models/model_config.dart';
 import 'package:lynai/models/note.dart';
+import 'package:lynai/models/schedule_item.dart';
 import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
+import 'package:lynai/services/api_service.dart';
 import 'package:lynai/services/tool_call_service.dart';
 import 'package:markdown/markdown.dart' as md;
 
@@ -61,6 +63,28 @@ void main() {
     expect(settings.imageRecognitionPrompt, 'legacy prompt');
   });
 
+  test('OpenAI messages preserve assistant reasoning content', () {
+    final messages = ApiService.openAICompatibleMessagesForTest([
+      {
+        'role': 'assistant',
+        'content': '需要查日程',
+        'reasoning_content': '先判断是否需要调用工具',
+        'tool_calls': [
+          {
+            'id': 'call-1',
+            'type': 'function',
+            'function': {'name': 'list_schedules', 'arguments': '{}'},
+          },
+        ],
+      },
+      {'role': 'tool', 'tool_call_id': 'call-1', 'content': '{"ok":true}'},
+    ]);
+
+    expect(messages.first['reasoning_content'], '先判断是否需要调用工具');
+    expect(messages.first.containsKey('tool_calls'), isTrue);
+    expect(messages.first.containsKey('reasoningContent'), isFalse);
+  });
+
   test('ModelConfig defaults category and enabled model entry', () {
     final config = ModelConfig.fromJson({
       'id': '1',
@@ -100,6 +124,60 @@ void main() {
     expect(modelProvider.models, hasLength(1));
     expect(featureProvider.schedules, hasLength(1));
     expect(featureProvider.notes, hasLength(1));
+  });
+
+  test('ScheduleItem preserves task kind and keeps legacy schedules', () {
+    final legacy = ScheduleItem.fromJson({
+      'id': 's1',
+      'title': 'legacy',
+      'start': '2026-01-01T09:00:00.000',
+      'end': '2026-01-01T10:00:00.000',
+    });
+    final task = ScheduleItem.fromJson({
+      'id': 't1',
+      'title': 'task',
+      'kind': 'task',
+      'start': '2026-01-01T09:00:00.000',
+      'end': '2026-01-01T09:01:00.000',
+    });
+
+    expect(legacy.kind, ScheduleItem.kindSchedule);
+    expect(legacy.isTask, isFalse);
+    expect(task.kind, ScheduleItem.kindTask);
+    expect(task.isTask, isTrue);
+    expect(task.toJson(), containsPair('kind', 'task'));
+    expect(legacy.toJson().containsKey('kind'), isFalse);
+  });
+
+  test('ToolCallService creates schedule tasks with start only', () async {
+    SharedPreferences.setMockInitialValues({});
+    final featureProvider = FeatureProvider();
+    await featureProvider.load();
+    final service = ToolCallService(featureProvider);
+
+    final taskResult = await service.execute(
+      const ChatToolCall(
+        id: 'create-task',
+        name: 'create_schedule',
+        arguments: {
+          'kind': 'task',
+          'title': '交材料',
+          'start': '2026-01-01T09:00:00.000',
+        },
+      ),
+      const [],
+    );
+
+    expect(taskResult['ok'], isTrue);
+    expect(taskResult['schedule']['kind'], 'task');
+    expect(taskResult['schedule'].containsKey('end'), isFalse);
+    expect(featureProvider.schedules.single.isTask, isTrue);
+    expect(
+      featureProvider.schedules.single.end.difference(
+        featureProvider.schedules.single.start,
+      ),
+      const Duration(minutes: 1),
+    );
   });
 
   test('ToolCallService manages todo lists and items', () async {
@@ -142,6 +220,19 @@ void main() {
     expect(completeResult['ok'], isTrue);
     expect(completeResult['item']['done'], isTrue);
 
+    final addResult = await service.execute(
+      ChatToolCall(
+        id: 'add-item',
+        name: 'save_todo_item',
+        arguments: {'listId': listId, 'text': '买面包'},
+      ),
+      const [],
+    );
+
+    expect(addResult['ok'], isTrue);
+    expect(addResult['todoList']['items'], hasLength(2));
+    expect(addResult['todoList']['items'].first['text'], '买面包');
+
     final renameResult = await service.execute(
       ChatToolCall(
         id: 'rename-list',
@@ -167,6 +258,9 @@ void main() {
     await featureProvider.load();
 
     expect(featureProvider.notes.single.folderId, isNull);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('notes'), contains('"title":"orphan"'));
+    expect(prefs.getString('notes'), isNot(contains('"folderId":"missing"')));
   });
 
   test('Note copyWith can clear folder without changing updatedAt', () {
@@ -408,6 +502,161 @@ void main() {
       'alpha\nBETA\ndelta\ngamma',
     );
     expect(featureProvider.getNoteTimeline(noteId), hasLength(2));
+  });
+
+  test(
+    'ToolCallService exposes numbered note lines and appends safely',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final featureProvider = FeatureProvider();
+      await featureProvider.load();
+      final service = ToolCallService(featureProvider);
+
+      final noteId = await featureProvider.addNoteWithContent('note', 'a\nb');
+      final read = await service.execute(
+        ChatToolCall(id: 'read', name: 'read_note', arguments: {'id': noteId}),
+        const [],
+      );
+
+      expect(read['lineNumberBase'], 1);
+      expect(read['appendStartLine'], 3);
+      expect(read['numberedLines'], [
+        {'line': 1, 'text': 'a'},
+        {'line': 2, 'text': 'b'},
+      ]);
+
+      final append = await service.execute(
+        ChatToolCall(
+          id: 'append',
+          name: 'edit_note',
+          arguments: {
+            'id': noteId,
+            'expectedContentHash': read['contentHash'],
+            'edits': [
+              {
+                'startLine': read['appendStartLine'],
+                'deleteCount': 0,
+                'insertLines': ['c'],
+                'expectedLines': const [],
+              },
+            ],
+          },
+        ),
+        const [],
+      );
+
+      expect(append['ok'], isTrue);
+      expect(featureProvider.getNote(noteId)!.content, 'a\nb\nc');
+    },
+  );
+
+  test(
+    'ToolCallService validates expected note lines before editing',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final featureProvider = FeatureProvider();
+      await featureProvider.load();
+      final service = ToolCallService(featureProvider);
+
+      final noteId = await featureProvider.addNoteWithContent(
+        'note',
+        'a\nb\nc',
+      );
+      final read = await service.execute(
+        ChatToolCall(id: 'read', name: 'read_note', arguments: {'id': noteId}),
+        const [],
+      );
+
+      final wrongLine = await service.execute(
+        ChatToolCall(
+          id: 'wrong-line',
+          name: 'edit_note',
+          arguments: {
+            'id': noteId,
+            'expectedContentHash': read['contentHash'],
+            'edits': [
+              {
+                'startLine': 2,
+                'deleteCount': 1,
+                'expectedLines': ['c'],
+                'insertLines': ['B'],
+              },
+            ],
+          },
+        ),
+        const [],
+      );
+
+      expect(wrongLine['ok'], isFalse);
+      expect(wrongLine['error'], contains('原文不匹配'));
+      expect(featureProvider.getNote(noteId)!.content, 'a\nb\nc');
+    },
+  );
+
+  test('ToolCallService read_note prefers stronger title matches', () async {
+    SharedPreferences.setMockInitialValues({});
+    final featureProvider = FeatureProvider();
+    await featureProvider.load();
+    final service = ToolCallService(featureProvider);
+
+    await featureProvider.addNoteWithContent('项目例会记录', 'older exact');
+    await featureProvider.addNoteWithContent('项目例会记录补充', 'newer partial');
+
+    final exact = await service.execute(
+      const ChatToolCall(
+        id: 'read-exact',
+        name: 'read_note',
+        arguments: {'title': '项目例会记录'},
+      ),
+      const [],
+    );
+    final partial = await service.execute(
+      const ChatToolCall(
+        id: 'read-partial',
+        name: 'read_note',
+        arguments: {'query': '补充'},
+      ),
+      const [],
+    );
+
+    expect(exact['ok'], isTrue);
+    expect(exact['note']['title'], '项目例会记录');
+    expect(exact['note']['content'], 'older exact');
+    expect(partial['ok'], isTrue);
+    expect(partial['note']['title'], '项目例会记录补充');
+  });
+
+  test('ToolCallService searches notes with regex syntax', () async {
+    SharedPreferences.setMockInitialValues({});
+    final featureProvider = FeatureProvider();
+    await featureProvider.load();
+    final service = ToolCallService(featureProvider);
+
+    await featureProvider.addNoteWithContent('日志 2026-05-17', 'alpha');
+    await featureProvider.addNoteWithContent('随手记', 'beta-42');
+
+    final list = await service.execute(
+      const ChatToolCall(
+        id: 'list-regex',
+        name: 'list_notes',
+        arguments: {'query': r'/日志 \d{4}-\d{2}-\d{2}/'},
+      ),
+      const [],
+    );
+    final read = await service.execute(
+      const ChatToolCall(
+        id: 'read-regex',
+        name: 'read_note',
+        arguments: {'query': r're:beta-\d+'},
+      ),
+      const [],
+    );
+
+    expect(list['ok'], isTrue);
+    expect(list['notes'], hasLength(1));
+    expect(list['notes'].single['title'], '日志 2026-05-17');
+    expect(read['ok'], isTrue);
+    expect(read['note']['title'], '随手记');
   });
 
   test('ToolCallService proposes note edits without saving timeline', () async {

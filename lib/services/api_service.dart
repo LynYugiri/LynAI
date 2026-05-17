@@ -237,6 +237,12 @@ class ApiService {
   List<Map<String, dynamic>> _openAICompatibleMessages(
     List<Map<String, dynamic>> messages,
   ) {
+    return openAICompatibleMessagesForTest(messages);
+  }
+
+  static List<Map<String, dynamic>> openAICompatibleMessagesForTest(
+    List<Map<String, dynamic>> messages,
+  ) {
     return messages.map((message) {
       final content = message['content'];
       if (content is! List) return message;
@@ -314,7 +320,7 @@ class ApiService {
     }).toList();
   }
 
-  List<Map<String, dynamic>> _openAIContentToChatContent(List content) {
+  static List<Map<String, dynamic>> _openAIContentToChatContent(List content) {
     return content.map<Map<String, dynamic>>((part) {
       if (part is! Map || part['type'] != 'input_file') return part;
       final mimeType =
@@ -665,10 +671,7 @@ class ApiService {
 
     final body = <String, dynamic>{
       'model': config.modelName,
-      'messages': _withReasoningPlaceholders(
-        _openAICompatibleMessages(messages),
-        thinking: thinking,
-      ),
+      'messages': _openAICompatibleMessages(messages),
       'stream': false,
       if (config.effectiveMaxTokens != null)
         'max_tokens': config.effectiveMaxTokens,
@@ -733,10 +736,7 @@ class ApiService {
 
     final body = <String, dynamic>{
       'model': config.modelName,
-      'messages': _withReasoningPlaceholders(
-        _openAICompatibleMessages(messages),
-        thinking: thinking,
-      ),
+      'messages': _openAICompatibleMessages(messages),
       'stream': true,
       if (config.effectiveMaxTokens != null)
         'max_tokens': config.effectiveMaxTokens,
@@ -1349,20 +1349,6 @@ class ApiService {
     visit(message);
     if (parts.isEmpty) return null;
     return parts.toSet().join('\n\n');
-  }
-
-  List<Map<String, dynamic>> _withReasoningPlaceholders(
-    List<Map<String, dynamic>> messages, {
-    required bool thinking,
-  }) {
-    if (!thinking) return messages;
-    return messages.map((message) {
-      if (message['role'] != 'assistant' ||
-          message.containsKey('reasoning_content')) {
-        return message;
-      }
-      return {...message, 'reasoning_content': null};
-    }).toList();
   }
 }
 

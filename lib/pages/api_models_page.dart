@@ -335,6 +335,8 @@ class _EditModelPageState extends State<EditModelPage> {
   bool _obscureApiKey = true;
   bool _showEndpointSuggestions = false;
   bool _isFetchingModels = false;
+  bool _saved = false;
+  bool _closing = false;
   List<Map<String, dynamic>> _filteredPresets = [];
 
   bool get isEditing => widget.model != null;
@@ -414,8 +416,8 @@ class _EditModelPageState extends State<EditModelPage> {
     super.dispose();
   }
 
-  void _saveModel() {
-    if (!_formKey.currentState!.validate()) return;
+  bool _saveModel() {
+    if (!_formKey.currentState!.validate()) return false;
     final entries = isInterfaceOnly
         ? [ModelEntry(name: _fixedInterfaceModelName, enabled: true)]
         : _modelEntries.where((m) => m.name.trim().isNotEmpty).toList();
@@ -423,7 +425,7 @@ class _EditModelPageState extends State<EditModelPage> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('请至少添加一个模型')));
-      return;
+      return false;
     }
     final enabled = entries.where((m) => m.enabled).toList();
     final activeModelName = enabled.isNotEmpty
@@ -452,9 +454,88 @@ class _EditModelPageState extends State<EditModelPage> {
       widget.provider.updateModel(config);
     } else {
       widget.provider.addModel(config);
-      context.read<SettingsProvider>().repairMediaModelSelections(widget.provider.models);
+      context.read<SettingsProvider>().repairMediaModelSelections(
+        widget.provider.models,
+      );
     }
+    _saved = true;
+    _closeNow();
+    return true;
+  }
+
+  void _closeNow() {
+    if (!mounted) return;
+    setState(() => _closing = true);
     Navigator.pop(context);
+  }
+
+  Future<void> _attemptClose() async {
+    if (_saved || !_hasUnsavedChanges) {
+      _closeNow();
+      return;
+    }
+    final action = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('保存更改？'),
+        content: const Text('当前模型配置还没有保存，退出前是否保存？'),
+        actions: [
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, 'discard'),
+            child: const Text('不保存'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, 'save'),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'discard') {
+      _saved = true;
+      _closeNow();
+      return;
+    }
+    _saveModel();
+  }
+
+  bool get _hasUnsavedChanges {
+    final original = widget.model;
+    final currentEntries = isInterfaceOnly
+        ? [ModelEntry(name: _fixedInterfaceModelName, enabled: true)]
+        : _modelEntries.where((m) => m.name.trim().isNotEmpty).toList();
+    if (original == null) {
+      return _nameController.text.trim().isNotEmpty ||
+          _endpointController.text.trim().isNotEmpty ||
+          _apiKeyController.text.trim().isNotEmpty ||
+          _appIdController.text.trim().isNotEmpty ||
+          _apiType != _defaultApiType ||
+          (!isInterfaceOnly && currentEntries.isNotEmpty);
+    }
+    final originalAppId = original.extraParams['appId'] as String? ?? '';
+    return _nameController.text.trim() != original.name ||
+        _endpointController.text.trim() != original.endpoint ||
+        _apiKeyController.text.trim() != original.apiKey ||
+        _appIdController.text.trim() != originalAppId ||
+        _apiType != original.apiType ||
+        !_sameModelEntries(currentEntries, original.models);
+  }
+
+  String get _defaultApiType => isChat
+      ? 'openai'
+      : isImageGeneration
+      ? 'openai_image'
+      : widget.category.id;
+
+  bool _sameModelEntries(List<ModelEntry> a, List<ModelEntry> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (jsonEncode(a[i].toJson()) != jsonEncode(b[i].toJson())) return false;
+    }
+    return true;
   }
 
   void _addModelEntry() {
@@ -570,113 +651,125 @@ class _EditModelPageState extends State<EditModelPage> {
   Widget build(BuildContext context) {
     final apiKeyOptional = isChat && _apiType == 'ollama';
     final apiKeyLabel = needsAppId ? 'AppKey' : 'API Key';
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          isEditing
-              ? '编辑${widget.category.title}'
-              : '添加${widget.category.title}',
-        ),
-        centerTitle: true,
-        actions: [
-          if (isEditing)
-            IconButton(
-              icon: const Icon(Icons.delete, color: Colors.red),
-              tooltip: '删除模型',
-              onPressed: () => _confirmDelete(),
-            ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(
-                  labelText: '模型提供商名称',
-                  hintText: '例如：DeepSeek',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.label),
-                ),
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? '请输入名称' : null,
+    return PopScope(
+      canPop: _closing,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _attemptClose();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: _attemptClose,
+          ),
+          title: Text(
+            isEditing
+                ? '编辑${widget.category.title}'
+                : '添加${widget.category.title}',
+          ),
+          centerTitle: true,
+          actions: [
+            if (isEditing)
+              IconButton(
+                icon: const Icon(Icons.delete, color: Colors.red),
+                tooltip: '删除模型',
+                onPressed: () => _confirmDelete(),
               ),
-              const SizedBox(height: 16),
-              if (hasChatStyleOptions) ...[
-                _apiTypeField(),
-                const SizedBox(height: 16),
-              ],
-              _endpointField(),
-              const SizedBox(height: 16),
-              if (needsAppId) ...[
+          ],
+        ),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
                 TextFormField(
-                  controller: _appIdController,
+                  controller: _nameController,
                   decoration: const InputDecoration(
-                    labelText: 'AppID',
-                    hintText: '例如：123456',
+                    labelText: '模型提供商名称',
+                    hintText: '例如：DeepSeek',
                     border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.badge_outlined),
+                    prefixIcon: Icon(Icons.label),
                   ),
                   validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? '请输入 AppID' : null,
+                      (v == null || v.trim().isEmpty) ? '请输入名称' : null,
                 ),
                 const SizedBox(height: 16),
-              ],
-              TextFormField(
-                controller: _apiKeyController,
-                decoration: InputDecoration(
-                  labelText: apiKeyLabel,
-                  hintText: apiKeyOptional ? '可选（Ollama 无需 Key）' : 'sk-...',
-                  border: const OutlineInputBorder(),
-                  prefixIcon: const Icon(Icons.key),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _obscureApiKey ? Icons.visibility_off : Icons.visibility,
+                if (hasChatStyleOptions) ...[
+                  _apiTypeField(),
+                  const SizedBox(height: 16),
+                ],
+                _endpointField(),
+                const SizedBox(height: 16),
+                if (needsAppId) ...[
+                  TextFormField(
+                    controller: _appIdController,
+                    decoration: const InputDecoration(
+                      labelText: 'AppID',
+                      hintText: '例如：123456',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.badge_outlined),
                     ),
-                    onPressed: () =>
-                        setState(() => _obscureApiKey = !_obscureApiKey),
+                    validator: (v) =>
+                        (v == null || v.trim().isEmpty) ? '请输入 AppID' : null,
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                TextFormField(
+                  controller: _apiKeyController,
+                  decoration: InputDecoration(
+                    labelText: apiKeyLabel,
+                    hintText: apiKeyOptional ? '可选（Ollama 无需 Key）' : 'sk-...',
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.key),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscureApiKey
+                            ? Icons.visibility_off
+                            : Icons.visibility,
+                      ),
+                      onPressed: () =>
+                          setState(() => _obscureApiKey = !_obscureApiKey),
+                    ),
+                  ),
+                  obscureText: _obscureApiKey,
+                  validator: apiKeyOptional
+                      ? null
+                      : (v) => (v == null || v.trim().isEmpty)
+                            ? '请输入 $apiKeyLabel'
+                            : null,
+                ),
+                const SizedBox(height: 16),
+                if (isChat)
+                  OutlinedButton.icon(
+                    onPressed: _isFetchingModels ? null : _fetchModels,
+                    icon: _isFetchingModels
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.download),
+                    label: Text(
+                      _isFetchingModels ? '获取中...' : '从 Endpoint 获取模型列表',
+                    ),
+                  ),
+                if (isChat) const SizedBox(height: 12),
+                if (!isInterfaceOnly) _modelList(),
+                const SizedBox(height: 32),
+                ElevatedButton(
+                  onPressed: _saveModel,
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                  child: Text(
+                    isEditing ? '保存修改' : '添加模型',
+                    style: const TextStyle(fontSize: 16),
                   ),
                 ),
-                obscureText: _obscureApiKey,
-                validator: apiKeyOptional
-                    ? null
-                    : (v) => (v == null || v.trim().isEmpty)
-                          ? '请输入 $apiKeyLabel'
-                          : null,
-              ),
-              const SizedBox(height: 16),
-              if (isChat)
-                OutlinedButton.icon(
-                  onPressed: _isFetchingModels ? null : _fetchModels,
-                  icon: _isFetchingModels
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.download),
-                  label: Text(
-                    _isFetchingModels ? '获取中...' : '从 Endpoint 获取模型列表',
-                  ),
-                ),
-              if (isChat) const SizedBox(height: 12),
-              if (!isInterfaceOnly) _modelList(),
-              const SizedBox(height: 32),
-              ElevatedButton(
-                onPressed: _saveModel,
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-                child: Text(
-                  isEditing ? '保存修改' : '添加模型',
-                  style: const TextStyle(fontSize: 16),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -1033,7 +1126,9 @@ class _EditModelPageState extends State<EditModelPage> {
           TextButton(
             onPressed: () {
               widget.provider.deleteModel(widget.model!.id);
-              context.read<SettingsProvider>().repairMediaModelSelections(widget.provider.models);
+              context.read<SettingsProvider>().repairMediaModelSelections(
+                widget.provider.models,
+              );
               Navigator.pop(ctx);
               Navigator.pop(context);
             },

@@ -47,6 +47,10 @@ class MainActivity : FlutterActivity() {
                     ScheduleWidgetProvider.refresh(this)
                     result.success(null)
                 }
+                "rescheduleNotifications" -> {
+                    requestNotificationPermissionIfNeeded()
+                    result.success(ScheduleNotificationReceiver.reschedule(this))
+                }
                 else -> result.notImplemented()
             }
         }
@@ -77,6 +81,22 @@ class MainActivity : FlutterActivity() {
         } else {
             startService(intent)
         }
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < 33) return
+        if (ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+            NOTIFICATION_REQUEST_CODE
+        )
     }
 
     private fun openApp(packageName: String): Map<String, Any> {
@@ -207,5 +227,6 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val LOCATION_REQUEST_CODE = 7811
+        private const val NOTIFICATION_REQUEST_CODE = 7812
     }
 }
