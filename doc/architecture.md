@@ -35,6 +35,30 @@ MaterialApp
 流式: Stream.listen → updateLastMessage() → notifyListeners() → UI逐字更新
 ```
 
+### 持久化写入原则
+
+Provider 层优先保证 UI 状态立即更新，然后把不可变快照加入串行保存队列。这样可以避免用户连续输入、拖拽排序、切换模型时旧的异步写入覆盖新的状态。
+
+| Provider | 快照内容 | 写入策略 |
+|----------|----------|----------|
+| `ConversationProvider` | 当前对话列表 | 普通变更入队保存；流式中间态 `save:false` 只更新 UI，结束或失败后落盘 |
+| `SettingsProvider` | 当前 `AppSettings` | 每次设置变更保存一个快照；模型引用修复后也会保存 |
+| `ModelConfigProvider` | 当前模型配置列表 | 添加、编辑、删除、重排后保存 |
+| `FeatureProvider` | 日程、笔记、文件夹、待办等分区 | 各分区按功能保存，导入替换时按选择分区覆盖 |
+
+### 容错加载原则
+
+发布版的数据加载策略是“尽可能保留可用数据”。对话、设置、模型、日程和笔记都可能来自旧版本、手动编辑的备份或损坏的 SharedPreferences，因此加载时优先跳过坏项，而不是让整个模块不可用。
+
+| 数据 | 容错行为 |
+|------|----------|
+| 对话 | 对话关键字段损坏时跳过该对话；单条消息损坏时只跳过该消息 |
+| 设置 | 角色和系统提示词逐条解析，坏项跳过；默认角色缺失时补回默认角色 |
+| 附件 | 兼容旧 `filePath` 字段，并从路径推导缺失的文件名和 MIME 类型 |
+| 模型引用 | 语音、OCR、文件识别和最近聊天模型 ID 不存在时回填同类第一个可用配置或清空 |
+
+容错不会直接修改原始存储；只有用户后续触发保存或 Provider 执行修复保存时，当前内存状态才会写回。
+
 ## 功能页
 
 `FeaturePage` 是底部导航第一个 Tab，承载轻量生产力功能：
@@ -73,6 +97,18 @@ MaterialApp
 6. `stream.listen` → `updateLastMessage()` 逐字更新
 7. 流完成时保存思考内容到 `Message.thinkingContent` 并同步 `_thinkMap`, 支持历史恢复和重试导航；再次请求时会把 assistant 的 `thinkingContent` 回填为 `reasoning_content`
 
+### 流式错误与收尾
+
+流式请求有三个收尾路径：正常完成、用户停止、异常失败。三者都必须更新最后一条 assistant 消息并结束 `_streaming` 状态。
+
+| 路径 | 行为 |
+|------|------|
+| 正常完成 | 使用最终 `buf` 和累积 `thinkBuf` 更新最后一条消息，`save:true` 持久化 |
+| 用户停止 | 取消订阅并在最后一条 assistant 消息后追加“已停止生成”或填入停止提示 |
+| 异常失败 | 保留已有正文并追加失败原因；如果本轮没有 thinking，显式清空旧 `thinkingContent` |
+
+OpenAI 兼容 SSE 中的 `error` payload 和 Anthropic 的 `type:error` 会作为异常进入失败路径。格式异常的单个 chunk 会跳过，避免服务端偶发空行或非 JSON 事件中断整段回复。
+
 ### 本地工具调用
 - `ToolCallService.openAITools()` 定义工具 schema, OpenAI 兼容接口可通过原生 `tools` 调用。
 - 不支持原生 tool calls 的接口会通过系统提示词要求模型返回 JSON fallback。
@@ -86,6 +122,8 @@ MaterialApp
 3. `_processRecordedSpeech()` → `ApiService.transcribeAudio()` 调用 vivo 长语音转写流程
 4. 转写文本只回填输入框，不自动发送，用户可先修正
 
+语音按钮使用长按交互。已配置语音模型时，按下会异步申请权限和启动录音；如果用户在启动完成前松手，启动请求会被取消，避免录音在后台继续运行。页面销毁时也会停止系统语音识别和录音器。
+
 ### 附件
 1. 点击附件(+) 可选择文件、选择图片；移动端可拍照，桌面端可通过 `Ctrl/Cmd + V` 粘贴图片
 2. 附件会复制到应用私有目录，并作为 `Message.images` 附件持久化，字段包含路径、文件名、大小和 MIME 类型
@@ -93,6 +131,8 @@ MaterialApp
 4. **已开启文件识别**: 非图片文件先调用选中的 Chat 模型读取附件，再把识别结果拼入本轮用户上下文
 5. **未开启对应识别能力**: 附件会随请求直传给支持多模态内容的模型；在不支持文件输入的接口上退化为文件名、MIME 类型、大小或 base64 文本上下文
 6. 重试、失败后重试和编辑用户消息后重发都会复用原消息附件，并重新执行 OCR 或文件识别上下文构建
+
+附件处理包含多个异步文件操作：读取 picker 结果、复制到应用目录、计算文件大小、读取剪贴板二进制内容。每个最终 `setState()` 前都要检查 `mounted`，因为文件选择器、相机或系统剪贴板可能在用户离开页面后才返回结果。
 
 ### 长图分享
 1. 点击消息操作中的分享按钮进入选择模式
@@ -139,6 +179,10 @@ MaterialApp
 - `_doSend()` 在调用前检查 `_convId` 是否为null
 - 流式请求完成和出错时分别处理，确保 `_streaming` 状态正确重置
 - 图片选择/上传过程中的 `mounted` 检查，防止Widget销毁后操作Context
+- `updateLastMessage()` 使用 sentinel 区分“未传入 thinkingContent”和“显式清空 thinkingContent”
+- `ModelConfig.copyWith()` 对 nullable 高级参数也使用 sentinel，允许用户清空采样参数
+- `Conversation.fromJson()` 对消息逐条容错，避免单条损坏消息拖垮整个对话
+- `AppSettings.fromJson()` 对角色和提示词逐条容错，避免设置整体回退默认值
 
 ## 流式请求生命周期
 
@@ -167,3 +211,18 @@ _send() → addMessage(user) → addMessage(assistant, '') → _doSend()
 - OpenAI 兼容接口发送 `thinking: {type: enabled|disabled}` 显式控制思考能力
 - Ollama 使用 `think` 布尔值控制思考能力
 - Anthropic 保持标准 `/messages` 字段，额外能力由 `extraParams` 显式覆盖或补充
+- `extraParams` 不覆盖代码已经设置的关键字段，因此不能用它替换 `model`、`messages`、`stream` 等核心请求结构
+- OpenAI 兼容工具调用仅在模型 `supportsTools=true` 且未设置 `extraParams.disableTools=true` 时启用
+- Ollama 和 Anthropic 不走原生 tool calls，避免协议不完整导致工具消息格式错误
+
+## 发布风险清单
+
+这些风险不是当前版本阻断项，但发布前应理解边界。
+
+| 风险 | 说明 | 缓解 |
+|------|------|------|
+| API Key 备份 | 选择导出 API 配置时，模型配置会包含 API Key | 备份文件按敏感文件保存，不公开分享 |
+| 写工具副作用 | `save_note`、`create_schedule`、`update_schedule` 会修改本地数据 | 仅在可信对话中启用工具，后续可加用户确认 |
+| 精确位置 | `get_location` 会把位置作为工具结果发给模型 | Android 系统权限会先授权，后续可加应用内二次确认 |
+| SharedPreferences 容量 | 大量对话、笔记和修订仍存 JSON | 发布后可考虑迁移到 SQLite 或文件分片 |
+| 平台能力差异 | Web、桌面、移动端剪贴板/图库/分享行为不同 | 发布前按平台手测导出和分享 |

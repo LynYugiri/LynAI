@@ -22,10 +22,7 @@ class _AboutPageState extends State<AboutPage> {
     final settings = context.watch<SettingsProvider>().settings;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('About'),
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: const Text('About'), centerTitle: true),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(32.0),
@@ -51,8 +48,8 @@ class _AboutPageState extends State<AboutPage> {
               Text(
                 'LynAI',
                 style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 8),
               // 版本号
@@ -63,10 +60,7 @@ class _AboutPageState extends State<AboutPage> {
 
                   return Text(
                     version.isEmpty ? 'Version' : 'Version $version',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[600],
-                    ),
+                    style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                   );
                 },
               ),
@@ -75,29 +69,22 @@ class _AboutPageState extends State<AboutPage> {
               Text(
                 '一款基于 Flutter 的 AI 对话应用',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey[700],
-                ),
+                style: TextStyle(fontSize: 16, color: Colors.grey[700]),
               ),
               const SizedBox(height: 8),
               Text(
                 '支持多种 AI 模型接口，提供流畅的对话体验。',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey[500],
-                ),
+                style: TextStyle(fontSize: 14, color: Colors.grey[500]),
               ),
               const SizedBox(height: 32),
               // 技术栈信息
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .surfaceContainerHighest
-                      .withValues(alpha: 0.5),
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Column(
@@ -129,12 +116,18 @@ class _AboutPageState extends State<AboutPage> {
 
   String _currentPlatform() {
     switch (defaultTargetPlatform) {
-      case TargetPlatform.android: return 'Android';
-      case TargetPlatform.iOS: return 'iOS';
-      case TargetPlatform.macOS: return 'macOS';
-      case TargetPlatform.linux: return 'Linux';
-      case TargetPlatform.windows: return 'Windows';
-      case TargetPlatform.fuchsia: return 'Fuchsia';
+      case TargetPlatform.android:
+        return 'Android';
+      case TargetPlatform.iOS:
+        return 'iOS';
+      case TargetPlatform.macOS:
+        return 'macOS';
+      case TargetPlatform.linux:
+        return 'Linux';
+      case TargetPlatform.windows:
+        return 'Windows';
+      case TargetPlatform.fuchsia:
+        return 'Fuchsia';
     }
   }
 }

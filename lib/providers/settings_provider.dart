@@ -51,10 +51,13 @@ class SettingsProvider extends ChangeNotifier {
     }
   }
 
-  /// 修复 OCR / 语音转文字配置引用。
+  /// 修复已删除或不存在的模型配置引用。
   ///
   /// 如果当前选中的配置已被删除或不存在，则自动回填同类第一个可用配置。
   void repairMediaModelSelections(List<ModelConfig> models) {
+    final chatModels = models
+        .where((m) => m.category == ModelConfig.categoryChat)
+        .toList(growable: false);
     final speechModels = models
         .where((m) => m.category == ModelConfig.categorySpeech)
         .toList(growable: false);
@@ -67,15 +70,27 @@ class SettingsProvider extends ChangeNotifier {
       speechModels,
     );
     final nextOcrId = _firstValidModelId(_settings.imageModelId, ocrModels);
+    final nextImageRecognitionId = _firstValidModelId(
+      _settings.imageRecognitionModelId,
+      chatModels,
+    );
+    final nextLastChatId = _firstValidModelId(
+      _settings.lastChatModelId,
+      chatModels,
+    );
 
     if (nextSpeechId == _settings.speechModelId &&
-        nextOcrId == _settings.imageModelId) {
+        nextOcrId == _settings.imageModelId &&
+        nextImageRecognitionId == _settings.imageRecognitionModelId &&
+        nextLastChatId == _settings.lastChatModelId) {
       return;
     }
 
     _settings = _settings.copyWith(
       speechModelId: nextSpeechId,
       imageModelId: nextOcrId,
+      imageRecognitionModelId: nextImageRecognitionId,
+      lastChatModelId: nextLastChatId,
     );
     _queueSaveSettings();
     notifyListeners();

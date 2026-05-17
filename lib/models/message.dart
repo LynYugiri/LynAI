@@ -68,15 +68,13 @@ class MessageImage {
   bool get isImage => mimeType.startsWith('image/');
 
   factory MessageImage.fromJson(Map<String, dynamic> json) {
+    final path = json['path'] as String? ?? json['filePath'] as String? ?? '';
+    final name = json['name'] as String? ?? _nameFromPath(path);
     return MessageImage(
-      path: json['path'] as String? ?? json['filePath'] as String? ?? '',
-      name:
-          json['name'] as String? ??
-          _nameFromPath(json['path'] as String? ?? ''),
+      path: path,
+      name: name,
       size: (json['size'] as num?)?.toInt() ?? 0,
-      mimeType:
-          json['mimeType'] as String? ??
-          _mimeTypeFromName(json['name'] as String? ?? ''),
+      mimeType: json['mimeType'] as String? ?? _mimeTypeFromName(name),
     );
   }
 

@@ -134,6 +134,8 @@ class _ChatPageState extends State<ChatPage> {
   late stt.SpeechToText _speech;
   StreamSubscription<StreamChunk>? _sub;
   String? _recordPath;
+  int _recordingRequestGen = 0;
+  bool _recordingStartCancelled = false;
 
   @override
   void initState() {
@@ -230,7 +232,10 @@ class _ChatPageState extends State<ChatPage> {
     _setBackgroundGenerationActive(false);
     _inputActionCollapseTimer?.cancel();
     _streamWaitTimer?.cancel();
+    _recordingStartCancelled = true;
+    _recordingRequestGen++;
     unawaited(_speech.stop());
+    unawaited(_audioRecorder.stop());
     _audioRecorder.dispose();
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
@@ -866,11 +871,21 @@ class _ChatPageState extends State<ChatPage> {
         } else {
           if (timeoutDisplayed && (buf.isNotEmpty || thinkBuf.isNotEmpty)) {
             timeoutDisplayed = false;
-            cp.updateLastMessage(cid, buf, save: false);
+            cp.updateLastMessage(
+              cid,
+              buf,
+              thinkingContent: thinkBuf.isEmpty ? null : thinkBuf,
+              save: false,
+            );
             if (thinkBuf.isNotEmpty) setState(() => _thinkingTxt = thinkBuf);
             _scrollEnd();
           } else if (_shouldUpdateStreamUi()) {
-            cp.updateLastMessage(cid, buf, save: false);
+            cp.updateLastMessage(
+              cid,
+              buf,
+              thinkingContent: thinkBuf.isEmpty ? null : thinkBuf,
+              save: false,
+            );
             if (thinkBuf.isNotEmpty) setState(() => _thinkingTxt = thinkBuf);
             _scrollEnd();
           }
@@ -885,7 +900,12 @@ class _ChatPageState extends State<ChatPage> {
         final display = buf.isNotEmpty
             ? '$buf\n\n---\n请求失败: $msg'
             : '请求失败: $msg';
-        cp.updateLastMessage(cid, display, save: true);
+        cp.updateLastMessage(
+          cid,
+          display,
+          thinkingContent: thinkBuf.isEmpty ? null : thinkBuf,
+          save: true,
+        );
       },
       onDone: () {
         if (!mounted || gen != _streamGen) return;
@@ -1379,6 +1399,7 @@ class _ChatPageState extends State<ChatPage> {
       ).showSnackBar(SnackBar(content: Text('图片读取失败: $e')));
       return;
     }
+    if (!mounted) return;
     setState(() {
       _pendingImages.addAll(images);
     });
@@ -1396,6 +1417,7 @@ class _ChatPageState extends State<ChatPage> {
       for (final item in result.files) {
         if (item.path == null) continue;
         files.add(await _storeAttachmentFile(File(item.path!), item.name));
+        if (!mounted) return;
       }
       if (files.isEmpty) return;
       setState(() => _pendingImages.addAll(files));
@@ -1417,6 +1439,7 @@ class _ChatPageState extends State<ChatPage> {
         picked.name,
         mimeType: picked.mimeType ?? _mimeTypeForPath(picked.path),
       );
+      if (!mounted) return;
       setState(() => _pendingImages.add(file));
     } catch (e) {
       if (!mounted) return;
@@ -1539,6 +1562,7 @@ class _ChatPageState extends State<ChatPage> {
         '${imageDir.path}/${DateTime.now().millisecondsSinceEpoch}_${_safeFileName(fileName)}',
       );
       await storedFile.writeAsBytes(bytes, flush: true);
+      if (!mounted) return;
       final size = bytes.length;
       setState(() {
         _pendingImages.add(
@@ -1751,8 +1775,10 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Future<void> _startAudioRecording() async {
+    final requestGen = ++_recordingRequestGen;
+    _recordingStartCancelled = false;
     final hasPermission = await _audioRecorder.hasPermission();
-    if (!mounted) return;
+    if (!mounted || requestGen != _recordingRequestGen) return;
     if (!hasPermission) {
       ScaffoldMessenger.of(
         context,
@@ -1763,11 +1789,22 @@ class _ChatPageState extends State<ChatPage> {
       final dir = await getTemporaryDirectory();
       final path =
           '${dir.path}/lynai_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      if (!mounted ||
+          requestGen != _recordingRequestGen ||
+          _recordingStartCancelled) {
+        return;
+      }
       await _audioRecorder.start(
         const RecordConfig(encoder: AudioEncoder.aacLc),
         path: path,
       );
-      if (!mounted) return;
+      if (!mounted ||
+          requestGen != _recordingRequestGen ||
+          _recordingStartCancelled) {
+        await _audioRecorder.stop();
+        File(path).delete().catchError((_) => File(path));
+        return;
+      }
       setState(() {
         _recording = true;
         _recordPath = path;
@@ -1879,6 +1916,8 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Future<void> _stopVoice() async {
+    _recordingStartCancelled = true;
+    _recordingRequestGen++;
     if (_recordPath != null) {
       String? path;
       try {

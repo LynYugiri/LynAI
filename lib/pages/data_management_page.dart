@@ -123,7 +123,9 @@ class _DataManagementPageState extends State<DataManagementPage> {
     setState(() => _busy = true);
     try {
       final file = await _service(context).exportZip(selection);
+      if (!mounted) return;
       await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
+      if (!mounted) return;
       _showSnack('已生成备份：${file.uri.pathSegments.last}');
     } catch (e) {
       _showSnack('导出失败：$e');
@@ -140,9 +142,11 @@ class _DataManagementPageState extends State<DataManagementPage> {
         type: FileType.custom,
         allowedExtensions: ['zip'],
       );
+      if (!mounted) return;
       final path = result?.files.single.path;
       if (path == null) return;
       final archive = await service.readZip(File(path));
+      if (!mounted) return;
       setState(() {
         _archive = archive;
         _importSelection = BackupSelection.fromDataWithSettingsParts(
@@ -174,6 +178,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
           conflictActions: Map.of(_conflictActions),
         ),
       );
+      if (!mounted) return;
       setState(() {
         _archive = null;
         _preview = null;

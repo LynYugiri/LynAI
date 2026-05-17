@@ -15,6 +15,7 @@ class ConversationProvider extends ChangeNotifier {
   final _uuid = const Uuid();
   static const _storageKey = 'conversations';
   Future<void> _saveQueue = Future.value();
+  static const _sentinel = Object();
 
   void _touchConversation(int index, Conversation conversation) {
     _conversations[index] = conversation;
@@ -207,7 +208,7 @@ class ConversationProvider extends ChangeNotifier {
   void updateLastMessage(
     String conversationId,
     String content, {
-    String? thinkingContent,
+    Object? thinkingContent = _sentinel,
     bool save = true,
   }) {
     try {
@@ -221,7 +222,9 @@ class ConversationProvider extends ChangeNotifier {
         role: lastMsg.role,
         content: content,
         images: lastMsg.images,
-        thinkingContent: thinkingContent ?? lastMsg.thinkingContent,
+        thinkingContent: identical(thinkingContent, _sentinel)
+            ? lastMsg.thinkingContent
+            : thinkingContent as String?,
         timestamp: lastMsg.timestamp,
       );
 

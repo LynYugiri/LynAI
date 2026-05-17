@@ -387,6 +387,7 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
   Future<void> _toggleKeyboard() => _setKeyboardVisible(!_keyboardVisible);
 
   void _handleBridgeMessage(String rawMessage) {
+    if (!mounted) return;
     final dynamic decoded;
     try {
       decoded = jsonDecode(rawMessage);

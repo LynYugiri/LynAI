@@ -100,6 +100,66 @@ void main() {
     expect(config.enabledModelNames, ['model-a']);
   });
 
+  test('ModelConfig copyWith can clear nullable generation parameters', () {
+    final config = ModelConfig(
+      id: '1',
+      name: 'Provider',
+      endpoint: 'https://example.com',
+      apiKey: 'key',
+      modelName: 'model-a',
+      apiType: 'openai',
+      priority: 0,
+      maxTokens: 1024,
+      temperature: 0.7,
+      topP: 0.9,
+    );
+
+    final cleared = config.copyWith(
+      maxTokens: null,
+      temperature: null,
+      topP: null,
+    );
+
+    expect(cleared.maxTokens, isNull);
+    expect(cleared.temperature, isNull);
+    expect(cleared.topP, isNull);
+  });
+
+  test(
+    'Conversation skips malformed messages instead of dropping conversation',
+    () {
+      final conversation = Conversation.fromJson({
+        'id': 'c1',
+        'title': 'ok',
+        'messages': [
+          {
+            'id': 'm1',
+            'role': 'user',
+            'content': 'hello',
+            'timestamp': '2026-01-01T00:00:00.000Z',
+          },
+          {'id': 'broken'},
+        ],
+        'modelId': 'm1',
+        'settings': {'modelId': 'm1'},
+        'roleId': 'default',
+        'createdAt': '2026-01-01T00:00:00.000Z',
+        'updatedAt': '2026-01-01T00:00:00.000Z',
+      });
+
+      expect(conversation.messages, hasLength(1));
+      expect(conversation.messages.single.content, 'hello');
+    },
+  );
+
+  test('MessageImage derives legacy filePath name and mime type', () {
+    final image = MessageImage.fromJson({'filePath': '/tmp/photo.jpg'});
+
+    expect(image.path, '/tmp/photo.jpg');
+    expect(image.name, 'photo.jpg');
+    expect(image.mimeType, 'image/jpeg');
+  });
+
   test('Loaders skip malformed persisted items', () async {
     SharedPreferences.setMockInitialValues({
       'conversations':

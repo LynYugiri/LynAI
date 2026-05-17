@@ -31,7 +31,9 @@ class _BackgroundPageState extends State<BackgroundPage> {
   /// 从相册选择图片
   Future<void> _pickImage() async {
     try {
-      final pickedFile = await _imagePicker.pickImage(source: ImageSource.gallery);
+      final pickedFile = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+      );
       if (pickedFile == null) return;
       final dir = await getApplicationDocumentsDirectory();
       final bgDir = Directory('${dir.path}/backgrounds');
@@ -44,9 +46,9 @@ class _BackgroundPageState extends State<BackgroundPage> {
       context.read<SettingsProvider>().setBackgroundImage(stored.path);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('背景图片设置失败: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('背景图片设置失败: $e')));
     }
   }
 
@@ -62,10 +64,7 @@ class _BackgroundPageState extends State<BackgroundPage> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Background'),
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: const Text('Background'), centerTitle: true),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -94,7 +93,8 @@ class _BackgroundPageState extends State<BackgroundPage> {
                     Image.file(
                       File(settings.backgroundImagePath!),
                       fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => _buildNoBackgroundPlaceholder(),
+                      errorBuilder: (_, _, _) =>
+                          _buildNoBackgroundPlaceholder(),
                     )
                   else
                     _buildNoBackgroundPlaceholder(),
@@ -116,7 +116,9 @@ class _BackgroundPageState extends State<BackgroundPage> {
                     Positioned.fill(
                       child: Container(
                         color: (isDark ? Colors.black : Colors.white)
-                            .withValues(alpha: settings.blurEnabled ? 0.2 : 0.55),
+                            .withValues(
+                              alpha: settings.blurEnabled ? 0.2 : 0.55,
+                            ),
                       ),
                     ),
                   // 模拟对话内容预览
@@ -125,39 +127,59 @@ class _BackgroundPageState extends State<BackgroundPage> {
                     child: Container(
                       margin: const EdgeInsets.all(12),
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 8),
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
                       decoration: BoxDecoration(
                         color: settings.backgroundImagePath != null
-                            ? (isDark ? Colors.black : Colors.white)
-                                .withValues(alpha: 0.6)
+                            ? (isDark ? Colors.black : Colors.white).withValues(
+                                alpha: 0.6,
+                              )
                             : (isDark ? Colors.grey[800]! : Colors.white),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Row(
                         children: [
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
                             decoration: BoxDecoration(
-                              color: settings.themeColor.withValues(alpha: 0.15),
+                              color: settings.themeColor.withValues(
+                                alpha: 0.15,
+                              ),
                               borderRadius: BorderRadius.circular(6),
                             ),
-                            child: Text('你好', style: TextStyle(fontSize: 13,
+                            child: Text(
+                              '你好',
+                              style: TextStyle(
+                                fontSize: 13,
                                 color: settings.backgroundImagePath != null
                                     ? settings.themeColor
-                                    : Colors.grey[600])),
+                                    : Colors.grey[600],
+                              ),
+                            ),
                           ),
                           const SizedBox(width: 8),
                           Expanded(
-                            child: Text('这是一条预览消息',
-                                style: TextStyle(fontSize: 13,
-                                    color: settings.backgroundImagePath != null
-                                        ? (isDark ? Colors.white70 : Colors.black54)
-                                        : Colors.grey[500])),
+                            child: Text(
+                              '这是一条预览消息',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: settings.backgroundImagePath != null
+                                    ? (isDark ? Colors.white70 : Colors.black54)
+                                    : Colors.grey[500],
+                              ),
+                            ),
                           ),
-                          Icon(Icons.send, size: 16,
-                              color: settings.backgroundImagePath != null
-                                  ? settings.themeColor
-                                  : Colors.grey[400]),
+                          Icon(
+                            Icons.send,
+                            size: 16,
+                            color: settings.backgroundImagePath != null
+                                ? settings.themeColor
+                                : Colors.grey[400],
+                          ),
                         ],
                       ),
                     ),
@@ -175,8 +197,11 @@ class _BackgroundPageState extends State<BackgroundPage> {
                           onTap: _clearBackground,
                           child: const Padding(
                             padding: EdgeInsets.all(8),
-                            child: Icon(Icons.delete_outline,
-                                color: Colors.white, size: 20),
+                            child: Icon(
+                              Icons.delete_outline,
+                              color: Colors.white,
+                              size: 20,
+                            ),
                           ),
                         ),
                       ),
@@ -188,7 +213,9 @@ class _BackgroundPageState extends State<BackgroundPage> {
                       left: 8,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 5),
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.black.withValues(alpha: 0.4),
                           borderRadius: BorderRadius.circular(12),
@@ -196,9 +223,10 @@ class _BackgroundPageState extends State<BackgroundPage> {
                         child: Text(
                           settings.backgroundImagePath!.split('/').last,
                           style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontFamily: 'monospace'),
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontFamily: 'monospace',
+                          ),
                         ),
                       ),
                     ),
@@ -218,7 +246,9 @@ class _BackgroundPageState extends State<BackgroundPage> {
               child: ElevatedButton.icon(
                 onPressed: _pickImage,
                 icon: const Icon(Icons.photo_library),
-                label: Text(settings.backgroundImagePath != null ? '更换背景' : '从相册选择'),
+                label: Text(
+                  settings.backgroundImagePath != null ? '更换背景' : '从相册选择',
+                ),
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
@@ -257,8 +287,7 @@ class _BackgroundPageState extends State<BackgroundPage> {
                   child: Column(
                     children: [
                       Row(
-                        mainAxisAlignment:
-                            MainAxisAlignment.spaceBetween,
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           const Text('清晰'),
                           Text(
@@ -305,10 +334,7 @@ class _BackgroundPageState extends State<BackgroundPage> {
           children: [
             Icon(Icons.image, size: 48, color: Colors.grey[400]),
             const SizedBox(height: 8),
-            Text(
-              '未设置背景图片',
-              style: TextStyle(color: Colors.grey[500]),
-            ),
+            Text('未设置背景图片', style: TextStyle(color: Colors.grey[500])),
           ],
         ),
       ),

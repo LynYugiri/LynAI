@@ -1,4 +1,5 @@
 import 'message.dart';
+import 'package:flutter/foundation.dart';
 
 class ConversationSettings {
   final String modelId;
@@ -165,13 +166,20 @@ class Conversation {
         updatedAt == null) {
       throw const FormatException('Malformed conversation');
     }
+    final messages = <Message>[];
+    for (final item in json['messages'] as List<dynamic>? ?? const []) {
+      try {
+        if (item is Map) {
+          messages.add(Message.fromJson(Map<String, dynamic>.from(item)));
+        }
+      } catch (e) {
+        debugPrint('跳过损坏的消息记录: $e');
+      }
+    }
     return Conversation(
       id: id,
       title: title,
-      messages: (json['messages'] as List<dynamic>? ?? [])
-          .whereType<Map>()
-          .map((m) => Message.fromJson(Map<String, dynamic>.from(m)))
-          .toList(),
+      messages: messages,
       modelId: modelId,
       settings: json['settings'] != null
           ? ConversationSettings.fromJson(

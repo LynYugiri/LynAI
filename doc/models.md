@@ -18,7 +18,7 @@ class Message {
 }
 ```
 
-不可变类, 通过构造函数创建新实例进行更新。`thinkingContent` 用于保存流式和工具调用返回的 reasoning，切换历史对话或重试版本后仍可显示。
+不可变类, 通过构造函数创建新实例进行更新。`thinkingContent` 用于保存流式和工具调用返回的 reasoning，切换历史对话或重试版本后仍可显示。更新最后一条消息时可显式清空 `thinkingContent`，避免普通回复、失败回复或重试结果残留旧思考内容。
 
 ### MessageImage
 
@@ -33,7 +33,7 @@ class MessageImage {
 }
 ```
 
-附件不嵌入 JSON，只保存路径、文件名、大小和 MIME 类型。选择文件、选图、拍照或粘贴图片时会先复制到应用私有目录，降低历史消息附件丢失概率。重试历史会记录对应用户消息的附件列表，切换重试版本时同步恢复。
+附件不嵌入 JSON，只保存路径、文件名、大小和 MIME 类型。选择文件、选图、拍照或粘贴图片时会先复制到应用私有目录，降低历史消息附件丢失概率。旧版 `filePath` 字段会继续兼容，并用于推导文件名和 MIME 类型。重试历史会记录对应用户消息的附件列表，切换重试版本时同步恢复。
 
 ---
 
@@ -55,7 +55,7 @@ class Conversation {
 
 **计算属性**: `preview` → 第一条消息内容摘要(限80字符, 去除换行)
 
-不可变类, Provider 中通过创建新 Conversation 实例来更新消息列表。
+不可变类, Provider 中通过创建新 Conversation 实例来更新消息列表。反序列化时会逐条跳过损坏消息，避免一条坏消息导致整个对话无法加载。
 
 ### ConversationSettings
 
@@ -131,9 +131,21 @@ class ModelConfig {
 
 **构造器**: 若未传入 `models`, 自动创建含 `modelName` 的单元素列表(默认enabled)。`extraParams` 默认为空Map。
 
-**copyWith()**: 支持所有字段的可选覆盖, 用于不可变更新。
+**copyWith()**: 支持所有字段的可选覆盖, 用于不可变更新。`maxTokens`、`temperature` 和 `topP` 使用 sentinel 语义，因此可以显式传入 `null` 清空已有参数。
 
 **JSON**: `temperature` 和 `topP` 在JSON中作为num类型处理(支持int和double), `priority` 为int, `models` 数组的每个元素含name和enabled。
+
+### 参数继承
+
+Chat 配置支持提供商级参数和子模型级参数。请求时使用 `effectiveMaxTokens`、`effectiveTemperature`、`effectiveTopP`。
+
+| 参数位置 | 优先级 |
+|----------|--------|
+| 当前 `ModelEntry` 上的参数 | 最高 |
+| `ModelConfig` 提供商级参数 | 子模型未设置时使用 |
+| `null` | 不发送该采样参数 |
+
+清空高级参数后，对应 JSON 字段不会写入，后续请求也不会发送旧值。
 
 ---
 
@@ -166,13 +178,24 @@ class AppSettings {
 **方法**: 
 - `AppSettings.defaults()` → 工厂构造器, 创建默认设置(蓝色主题)
 - `copyWith()` → 支持 sentinel 模式: 可区分"显式传入null"(设为null)与"未传入"(保持原值)
-  - `backgroundImagePath`, `speechModelId`, `imageModelId` 使用 sentinel 模式
+  - `backgroundImagePath`, `speechModelId`, `imageModelId`, `imageRecognitionModelId`, `lastChatModelId`, `selectedSystemPromptId` 使用 sentinel 模式
   - 其余字段使用标准 null-check 覆盖
 
 **JSON持久化**:
 - `themeColor` 序列化为 int (ARGB32), 反序列化 `Color(json['themeColor'] as int)`
 - nullable 字段仅在非 null 时才写入 JSON (节省存储空间)
 - `blurAmount` 反序列化兼容 int/double 两种类型
+- `systemPrompts` 和 `roles` 逐条容错，坏项跳过，不影响其他设置
+- `currentRoleId` 如果指向不存在的角色，会回退到默认角色
+
+### 设置迁移兼容
+
+| 旧数据 | 新行为 |
+|--------|--------|
+| `imagePrompt` | 作为 `imageRecognitionPrompt` 的 fallback 读取 |
+| 缺失默认角色 | 自动补回 `ChatRole.defaultRole()` |
+| 损坏角色 | 跳过该角色，保留其他角色 |
+| 损坏系统提示词 | 跳过该提示词，保留其他提示词 |
 
 ---
 

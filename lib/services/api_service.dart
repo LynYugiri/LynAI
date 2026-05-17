@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/model_config.dart';
 import 'tool_call_service.dart';
@@ -790,6 +790,9 @@ class ApiService {
           Object? finishReason;
           try {
             final json = jsonDecode(data);
+            if (json is Map && json['error'] != null) {
+              throw Exception(_formatApiError(json['error']));
+            }
             final choice = json['choices']?[0];
             if (choice != null) {
               final delta = choice['delta'];
@@ -804,7 +807,7 @@ class ApiService {
               }
             }
             finishReason = choice?['finish_reason'];
-          } catch (e) {
+          } on FormatException {
             // malformed chunk, skip
           }
           if (finishReason != null && finishReason != '') {
@@ -862,11 +865,17 @@ class ApiService {
       final rawArgs = acc.arguments.toString().trim();
       var args = <String, dynamic>{};
       if (rawArgs.isNotEmpty) {
-        final decoded = jsonDecode(rawArgs);
-        if (decoded is Map) {
-          args = decoded.map((key, value) => MapEntry(key.toString(), value));
-        } else {
-          throw FormatException('工具参数不是 JSON 对象: $rawArgs');
+        try {
+          final decoded = jsonDecode(rawArgs);
+          if (decoded is Map) {
+            args = decoded.map((key, value) => MapEntry(key.toString(), value));
+          } else {
+            debugPrint('跳过非 JSON 对象工具参数: $rawArgs');
+            continue;
+          }
+        } catch (e) {
+          debugPrint('跳过无法解析的工具参数: $e');
+          continue;
         }
       }
       calls.add(
@@ -1157,6 +1166,9 @@ class ApiService {
           try {
             final json = jsonDecode(data);
             final type = json['type'] as String?;
+            if (type == 'error') {
+              throw Exception(_formatApiError(json['error']));
+            }
 
             if (type == 'content_block_delta') {
               final delta = json['delta'];
@@ -1174,7 +1186,7 @@ class ApiService {
               yield StreamChunk(isDone: true);
               break;
             }
-          } catch (_) {
+          } on FormatException {
             // malformed chunk, skip
           }
         }
@@ -1238,6 +1250,9 @@ class ApiService {
 
     if (response.statusCode == 200) {
       final data = jsonDecode(utf8.decode(response.bodyBytes));
+      if (data is Map && data['error'] != null) {
+        throw Exception(_formatApiError(data['error']));
+      }
       String content = '';
       String reasoning = '';
       for (final block in data['content'] ?? []) {
@@ -1349,6 +1364,14 @@ class ApiService {
     visit(message);
     if (parts.isEmpty) return null;
     return parts.toSet().join('\n\n');
+  }
+
+  String _formatApiError(Object? error) {
+    if (error is Map) {
+      final message = error['message'] ?? error['error'] ?? error['type'];
+      if (message != null) return message.toString();
+    }
+    return error?.toString() ?? '未知 API 错误';
   }
 }
 

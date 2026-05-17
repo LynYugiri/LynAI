@@ -53,36 +53,62 @@ class ThemePage extends StatelessWidget {
       appBar: AppBar(title: const Text('Theme'), centerTitle: true),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('主题模式', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 12),
-          _buildThemeModeSelector(context, provider),
-          const SizedBox(height: 24),
-          const Text('当前主题预览', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 12),
-          _buildThemePreview(context, settings.themeColor),
-          const SizedBox(height: 24),
-          const Text('选择主题颜色', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 12),
-          Wrap(spacing: 10, runSpacing: 10,
-            children: _presetColors.map((color) {
-              final isSelected = color.toARGB32() == settings.themeColor.toARGB32();
-              return _buildColorOption(context, color, isSelected, () => provider.setThemeColor(color));
-            }).toList(),
-          ),
-          const SizedBox(height: 24),
-          const Text('调色板', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 12),
-          _ColorPalette(
-            currentColor: settings.themeColor,
-            onColorChanged: provider.setThemeColor,
-          ),
-        ]),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '主题模式',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 12),
+            _buildThemeModeSelector(context, provider),
+            const SizedBox(height: 24),
+            const Text(
+              '当前主题预览',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 12),
+            _buildThemePreview(context, settings.themeColor),
+            const SizedBox(height: 24),
+            const Text(
+              '选择主题颜色',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: _presetColors.map((color) {
+                final isSelected =
+                    color.toARGB32() == settings.themeColor.toARGB32();
+                return _buildColorOption(
+                  context,
+                  color,
+                  isSelected,
+                  () => provider.setThemeColor(color),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              '调色板',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 12),
+            _ColorPalette(
+              currentColor: settings.themeColor,
+              onColorChanged: provider.setThemeColor,
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildThemeModeSelector(BuildContext context, SettingsProvider provider) {
+  Widget _buildThemeModeSelector(
+    BuildContext context,
+    SettingsProvider provider,
+  ) {
     final mode = provider.themeMode;
     final modeLabels = {'light': '浅色', 'dark': '深色', 'system': '跟随系统'};
     return Card(
@@ -90,22 +116,41 @@ class ThemePage extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         child: Row(
           children: [
-            Expanded(child: ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(mode == 'light' ? Icons.light_mode : (mode == 'dark' ? Icons.dark_mode : Icons.settings_suggest),
-                  color: Theme.of(context).colorScheme.primary),
-              title: Text(modeLabels[mode] ?? '跟随系统'),
-              subtitle: const Text('在此设置你的主题模式'),
-            )),
+            Expanded(
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                  mode == 'light'
+                      ? Icons.light_mode
+                      : (mode == 'dark'
+                            ? Icons.dark_mode
+                            : Icons.settings_suggest),
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                title: Text(modeLabels[mode] ?? '跟随系统'),
+                subtitle: const Text('在此设置你的主题模式'),
+              ),
+            ),
             DropdownButton<String>(
               value: mode,
               underline: const SizedBox(),
               items: [
-                DropdownMenuItem(value: 'light', child: Text('浅色', style: TextStyle(fontSize: 13))),
-                DropdownMenuItem(value: 'dark', child: Text('深色', style: TextStyle(fontSize: 13))),
-                DropdownMenuItem(value: 'system', child: Text('跟随系统', style: TextStyle(fontSize: 13))),
+                DropdownMenuItem(
+                  value: 'light',
+                  child: Text('浅色', style: TextStyle(fontSize: 13)),
+                ),
+                DropdownMenuItem(
+                  value: 'dark',
+                  child: Text('深色', style: TextStyle(fontSize: 13)),
+                ),
+                DropdownMenuItem(
+                  value: 'system',
+                  child: Text('跟随系统', style: TextStyle(fontSize: 13)),
+                ),
               ],
-              onChanged: (v) { if (v != null) provider.setThemeMode(v); },
+              onChanged: (v) {
+                if (v != null) provider.setThemeMode(v);
+              },
             ),
           ],
         ),
@@ -119,44 +164,94 @@ class ThemePage extends StatelessWidget {
       color: themeColor.withValues(alpha: 0.05),
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Container(
-            height: 40, decoration: BoxDecoration(color: themeColor, borderRadius: BorderRadius.circular(8)),
-            child: const Center(child: Text('AppBar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-          ),
-          const SizedBox(height: 12),
-          Row(children: [
-            ElevatedButton(onPressed: () {}, style: ElevatedButton.styleFrom(backgroundColor: themeColor, foregroundColor: Colors.white), child: const Text('按钮')),
-            const SizedBox(width: 12),
-            OutlinedButton(onPressed: () {}, style: OutlinedButton.styleFrom(foregroundColor: themeColor), child: const Text('按钮')),
-          ]),
-          const SizedBox(height: 12),
-          Row(mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              Icon(Icons.history, color: themeColor, size: 24),
-              Icon(Icons.chat_bubble, color: themeColor, size: 24),
-              Icon(Icons.settings, color: themeColor, size: 24),
-            ],
-          ),
-        ]),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              height: 40,
+              decoration: BoxDecoration(
+                color: themeColor,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Center(
+                child: Text(
+                  'AppBar',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                ElevatedButton(
+                  onPressed: () {},
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: themeColor,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('按钮'),
+                ),
+                const SizedBox(width: 12),
+                OutlinedButton(
+                  onPressed: () {},
+                  style: OutlinedButton.styleFrom(foregroundColor: themeColor),
+                  child: const Text('按钮'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                Icon(Icons.history, color: themeColor, size: 24),
+                Icon(Icons.chat_bubble, color: themeColor, size: 24),
+                Icon(Icons.settings, color: themeColor, size: 24),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildColorOption(BuildContext context, Color color, bool isSelected, VoidCallback onTap) {
+  Widget _buildColorOption(
+    BuildContext context,
+    Color color,
+    bool isSelected,
+    VoidCallback onTap,
+  ) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        width: 44, height: 44,
+        width: 44,
+        height: 44,
         decoration: BoxDecoration(
           color: color,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: isSelected ? (isDark ? Colors.white : Colors.black) : Colors.transparent, width: isSelected ? 3 : 0),
-          boxShadow: isSelected ? [BoxShadow(color: color.withValues(alpha: 0.4), blurRadius: 8, offset: const Offset(0, 2))] : null,
+          border: Border.all(
+            color: isSelected
+                ? (isDark ? Colors.white : Colors.black)
+                : Colors.transparent,
+            width: isSelected ? 3 : 0,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.4),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ]
+              : null,
         ),
-        child: isSelected ? const Icon(Icons.check, color: Colors.white, size: 20) : null,
+        child: isSelected
+            ? const Icon(Icons.check, color: Colors.white, size: 20)
+            : null,
       ),
     );
   }
@@ -165,7 +260,10 @@ class ThemePage extends StatelessWidget {
 class _ColorPalette extends StatefulWidget {
   final Color currentColor;
   final ValueChanged<Color> onColorChanged;
-  const _ColorPalette({required this.currentColor, required this.onColorChanged});
+  const _ColorPalette({
+    required this.currentColor,
+    required this.onColorChanged,
+  });
 
   @override
   State<_ColorPalette> createState() => _ColorPaletteState();
@@ -197,57 +295,122 @@ class _ColorPaletteState extends State<_ColorPalette> {
   }
 
   void _updateColor() {
-    widget.onColorChanged(HSLColor.fromAHSL(1, _hue, _saturation, _lightness.clamp(0.01, 1.0)).toColor());
+    widget.onColorChanged(
+      HSLColor.fromAHSL(
+        1,
+        _hue,
+        _saturation,
+        _lightness.clamp(0.01, 1.0),
+      ).toColor(),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final previewColor = HSLColor.fromAHSL(1, _hue, _saturation, _lightness).toColor();
-    final hex = '#${previewColor.toARGB32().toRadixString(16).substring(2).toUpperCase()}';
+    final previewColor = HSLColor.fromAHSL(
+      1,
+      _hue,
+      _saturation,
+      _lightness,
+    ).toColor();
+    final hex =
+        '#${previewColor.toARGB32().toRadixString(16).substring(2).toUpperCase()}';
 
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Container(
-              width: 56, height: 56,
-              decoration: BoxDecoration(color: previewColor, borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.withValues(alpha: 0.3))),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: previewColor,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Colors.grey.withValues(alpha: 0.3),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '当前颜色',
+                      style: TextStyle(fontWeight: FontWeight.w500),
+                    ),
+                    Text(
+                      hex,
+                      style: TextStyle(
+                        color: Colors.grey[600],
+                        fontFamily: 'monospace',
+                        fontSize: 16,
+                      ),
+                    ),
+                    Text(
+                      'H:${_hue.toInt()}° S:${(_saturation * 100).toInt()}% L:${(_lightness * 100).toInt()}%',
+                      style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            const SizedBox(width: 16),
-            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('当前颜色', style: TextStyle(fontWeight: FontWeight.w500)),
-              Text(hex, style: TextStyle(color: Colors.grey[600], fontFamily: 'monospace', fontSize: 16)),
-              Text('H:${_hue.toInt()}° S:${(_saturation*100).toInt()}% L:${(_lightness*100).toInt()}%',
-                  style: TextStyle(fontSize: 11, color: Colors.grey[500])),
-            ]),
-          ]),
-          const SizedBox(height: 16),
-          // Hue slider
-          const Text('色相', style: TextStyle(fontSize: 13, color: Colors.grey)),
-          const SizedBox(height: 4),
-          _HueSlider(hue: _hue, onChanged: (v) { setState(() => _hue = v); _updateColor(); }),
-          const SizedBox(height: 16),
-          // Saturation-Lightness picker
-          const Text('饱和度 / 亮度', style: TextStyle(fontSize: 13, color: Colors.grey)),
-          const SizedBox(height: 4),
-          _SaturationLightnessPicker(
-            hue: _hue,
-            saturation: _saturation,
-            lightness: _lightness,
-            onChanged: (s, l) {
-              setState(() { _saturation = s; _lightness = l; });
-              _updateColor();
-            },
-          ),
-          const SizedBox(height: 16),
-          // Quick brightness strip
-          Row(children: [
-            Expanded(child: _BrightnessStrip(hue: _hue, saturation: _saturation, selected: _lightness,
-              onChanged: (v) { setState(() => _lightness = v); _updateColor(); })),
-          ]),
-        ]),
+            const SizedBox(height: 16),
+            // Hue slider
+            const Text(
+              '色相',
+              style: TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+            const SizedBox(height: 4),
+            _HueSlider(
+              hue: _hue,
+              onChanged: (v) {
+                setState(() => _hue = v);
+                _updateColor();
+              },
+            ),
+            const SizedBox(height: 16),
+            // Saturation-Lightness picker
+            const Text(
+              '饱和度 / 亮度',
+              style: TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+            const SizedBox(height: 4),
+            _SaturationLightnessPicker(
+              hue: _hue,
+              saturation: _saturation,
+              lightness: _lightness,
+              onChanged: (s, l) {
+                setState(() {
+                  _saturation = s;
+                  _lightness = l;
+                });
+                _updateColor();
+              },
+            ),
+            const SizedBox(height: 16),
+            // Quick brightness strip
+            Row(
+              children: [
+                Expanded(
+                  child: _BrightnessStrip(
+                    hue: _hue,
+                    saturation: _saturation,
+                    selected: _lightness,
+                    onChanged: (v) {
+                      setState(() => _lightness = v);
+                      _updateColor();
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -260,84 +423,133 @@ class _HueSlider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (ctx, constraints) {
-      return GestureDetector(
-        onPanDown: (d) => onChanged((d.localPosition.dx / constraints.maxWidth * 360).clamp(0, 360)),
-        onPanUpdate: (d) => onChanged((d.localPosition.dx / constraints.maxWidth * 360).clamp(0, 360)),
-        child: Container(
-          height: 28,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(6),
-            gradient: LinearGradient(colors: List.generate(
-              7, (i) => HSLColor.fromAHSL(1, i * 60, 1, 0.5).toColor())),
+    return LayoutBuilder(
+      builder: (ctx, constraints) {
+        return GestureDetector(
+          onPanDown: (d) => onChanged(
+            (d.localPosition.dx / constraints.maxWidth * 360).clamp(0, 360),
           ),
-          child: Stack(children: [
-            Positioned(
-              left: (hue / 360 * constraints.maxWidth) - 10,
-              top: -2,
-              child: Container(width: 20, height: 32, decoration: BoxDecoration(
-                shape: BoxShape.circle, color: HSLColor.fromAHSL(1, hue, 1, 0.5).toColor(),
-                border: Border.all(color: Colors.white, width: 3),
-                boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
-              )),
+          onPanUpdate: (d) => onChanged(
+            (d.localPosition.dx / constraints.maxWidth * 360).clamp(0, 360),
+          ),
+          child: Container(
+            height: 28,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(6),
+              gradient: LinearGradient(
+                colors: List.generate(
+                  7,
+                  (i) => HSLColor.fromAHSL(1, i * 60, 1, 0.5).toColor(),
+                ),
+              ),
             ),
-          ]),
-        ),
-      );
-    });
+            child: Stack(
+              children: [
+                Positioned(
+                  left: (hue / 360 * constraints.maxWidth) - 10,
+                  top: -2,
+                  child: Container(
+                    width: 20,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: HSLColor.fromAHSL(1, hue, 1, 0.5).toColor(),
+                      border: Border.all(color: Colors.white, width: 3),
+                      boxShadow: [
+                        BoxShadow(color: Colors.black26, blurRadius: 4),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 }
 
 class _SaturationLightnessPicker extends StatelessWidget {
   final double hue, saturation, lightness;
   final Function(double s, double l) onChanged;
-  const _SaturationLightnessPicker({required this.hue, required this.saturation, required this.lightness, required this.onChanged});
+  const _SaturationLightnessPicker({
+    required this.hue,
+    required this.saturation,
+    required this.lightness,
+    required this.onChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (ctx, constraints) {
-      final w = constraints.maxWidth;
-      final h = 160.0;
-      return GestureDetector(
-        onPanDown: (d) { _update(d.localPosition, w, h); },
-        onPanUpdate: (d) { _update(d.localPosition, w, h); },
-        child: Container(
-          width: w, height: h,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            color: HSLColor.fromAHSL(1, hue, 1, 0.5).toColor(),
-          ),
-          foregroundDecoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            gradient: LinearGradient(
-              colors: [Colors.white, Colors.white.withValues(alpha: 0)],
-              begin: Alignment.centerLeft, end: Alignment.centerRight,
+    return LayoutBuilder(
+      builder: (ctx, constraints) {
+        final w = constraints.maxWidth;
+        final h = 160.0;
+        return GestureDetector(
+          onPanDown: (d) {
+            _update(d.localPosition, w, h);
+          },
+          onPanUpdate: (d) {
+            _update(d.localPosition, w, h);
+          },
+          child: Container(
+            width: w,
+            height: h,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              color: HSLColor.fromAHSL(1, hue, 1, 0.5).toColor(),
             ),
-          ),
-          child: Stack(children: [
-            // Vertical black gradient (bottom=black→top=white overlay)
-            Positioned.fill(child: Container(
-              decoration: BoxDecoration(borderRadius: BorderRadius.circular(8),
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter, end: Alignment.bottomCenter,
-                  colors: [Colors.transparent, Colors.black],
-                ),
+            foregroundDecoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              gradient: LinearGradient(
+                colors: [Colors.white, Colors.white.withValues(alpha: 0)],
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
               ),
-            )),
-            Positioned(
-              left: saturation * w - 9,
-              top: (1 - lightness) * h - 9,
-              child: Container(width: 18, height: 18, decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: HSLColor.fromAHSL(1, hue, saturation, lightness).toColor(),
-                border: Border.all(color: Colors.white, width: 3),
-                boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
-              )),
             ),
-          ]),
-        ),
-      );
-    });
+            child: Stack(
+              children: [
+                // Vertical black gradient (bottom=black→top=white overlay)
+                Positioned.fill(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Colors.transparent, Colors.black],
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: saturation * w - 9,
+                  top: (1 - lightness) * h - 9,
+                  child: Container(
+                    width: 18,
+                    height: 18,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: HSLColor.fromAHSL(
+                        1,
+                        hue,
+                        saturation,
+                        lightness,
+                      ).toColor(),
+                      border: Border.all(color: Colors.white, width: 3),
+                      boxShadow: [
+                        BoxShadow(color: Colors.black26, blurRadius: 4),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _update(Offset pos, double w, double h) {
@@ -350,38 +562,57 @@ class _SaturationLightnessPicker extends StatelessWidget {
 class _BrightnessStrip extends StatelessWidget {
   final double hue, saturation, selected;
   final ValueChanged<double> onChanged;
-  const _BrightnessStrip({required this.hue, required this.saturation, required this.selected, required this.onChanged});
+  const _BrightnessStrip({
+    required this.hue,
+    required this.saturation,
+    required this.selected,
+    required this.onChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (ctx, constraints) {
-      return GestureDetector(
-        onPanDown: (d) => onChanged((1 - d.localPosition.dx / constraints.maxWidth).clamp(0.01, 1.0)),
-        onPanUpdate: (d) => onChanged((1 - d.localPosition.dx / constraints.maxWidth).clamp(0.01, 1.0)),
-        child: Container(
-          height: 24,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(6),
-            gradient: LinearGradient(
-              colors: [
-                HSLColor.fromAHSL(1, hue, saturation, 0.95).toColor(),
-                HSLColor.fromAHSL(1, hue, saturation, 0.05).toColor(),
+    return LayoutBuilder(
+      builder: (ctx, constraints) {
+        return GestureDetector(
+          onPanDown: (d) => onChanged(
+            (1 - d.localPosition.dx / constraints.maxWidth).clamp(0.01, 1.0),
+          ),
+          onPanUpdate: (d) => onChanged(
+            (1 - d.localPosition.dx / constraints.maxWidth).clamp(0.01, 1.0),
+          ),
+          child: Container(
+            height: 24,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(6),
+              gradient: LinearGradient(
+                colors: [
+                  HSLColor.fromAHSL(1, hue, saturation, 0.95).toColor(),
+                  HSLColor.fromAHSL(1, hue, saturation, 0.05).toColor(),
+                ],
+                begin: Alignment.centerRight,
+                end: Alignment.centerLeft,
+              ),
+            ),
+            child: Stack(
+              children: [
+                Positioned(
+                  left: (1 - selected) * constraints.maxWidth - 8,
+                  top: -4,
+                  child: Container(
+                    width: 16,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white,
+                      border: Border.all(color: Colors.black26, width: 2),
+                    ),
+                  ),
+                ),
               ],
-              begin: Alignment.centerRight, end: Alignment.centerLeft,
             ),
           ),
-          child: Stack(children: [
-            Positioned(
-              left: (1 - selected) * constraints.maxWidth - 8,
-              top: -4,
-              child: Container(width: 16, height: 32, decoration: BoxDecoration(
-                shape: BoxShape.circle, color: Colors.white,
-                border: Border.all(color: Colors.black26, width: 2),
-              )),
-            ),
-          ]),
-        ),
-      );
-    });
+        );
+      },
+    );
   }
 }

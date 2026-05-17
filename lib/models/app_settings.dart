@@ -114,18 +114,28 @@ class AppSettings {
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
     final promptsJson = json['systemPrompts'] as List<dynamic>?;
-    final prompts = promptsJson != null
-        ? promptsJson
-              .map((e) => SystemPrompt.fromJson(e as Map<String, dynamic>))
-              .toList()
-        : <SystemPrompt>[];
+    final prompts = <SystemPrompt>[];
+    for (final item in promptsJson ?? const <dynamic>[]) {
+      try {
+        if (item is Map) {
+          prompts.add(SystemPrompt.fromJson(Map<String, dynamic>.from(item)));
+        }
+      } catch (e) {
+        debugPrint('跳过损坏的系统提示词: $e');
+      }
+    }
     final selectedId = json['selectedSystemPromptId'] as String?;
     final rolesJson = json['roles'] as List<dynamic>?;
-    var roles =
-        rolesJson
-            ?.map((e) => ChatRole.fromJson(e as Map<String, dynamic>))
-            .toList() ??
-        <ChatRole>[];
+    var roles = <ChatRole>[];
+    for (final item in rolesJson ?? const <dynamic>[]) {
+      try {
+        if (item is Map) {
+          roles.add(ChatRole.fromJson(Map<String, dynamic>.from(item)));
+        }
+      } catch (e) {
+        debugPrint('跳过损坏的角色配置: $e');
+      }
+    }
     if (roles.every((r) => r.id != ChatRole.defaultId)) {
       roles = [ChatRole.defaultRole(), ...roles];
     }
@@ -133,8 +143,12 @@ class AppSettings {
     final currentRoleId =
         json['currentRoleId'] as String? ?? ChatRole.defaultId;
     Color defaultColor = Color(Colors.blue.toARGB32());
-    Color themeColor = Color(json['themeColor'] as int? ?? defaultColor.toARGB32());
-    Color baseThemeColor = Color(json['baseThemeColor'] as int? ?? themeColor.toARGB32());
+    Color themeColor = Color(
+      json['themeColor'] as int? ?? defaultColor.toARGB32(),
+    );
+    Color baseThemeColor = Color(
+      json['baseThemeColor'] as int? ?? themeColor.toARGB32(),
+    );
     return AppSettings(
       themeColor: themeColor,
       baseThemeColor: baseThemeColor,

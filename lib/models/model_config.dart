@@ -137,9 +137,9 @@ class ModelConfig {
     String? modelName,
     String? apiType,
     int? priority,
-    int? maxTokens,
-    double? temperature,
-    double? topP,
+    Object? maxTokens = _sentinel,
+    Object? temperature = _sentinel,
+    Object? topP = _sentinel,
     Map<String, dynamic>? extraParams,
     List<ModelEntry>? models,
   }) {
@@ -152,13 +152,19 @@ class ModelConfig {
       modelName: modelName ?? this.modelName,
       apiType: apiType ?? this.apiType,
       priority: priority ?? this.priority,
-      maxTokens: maxTokens ?? this.maxTokens,
-      temperature: temperature ?? this.temperature,
-      topP: topP ?? this.topP,
+      maxTokens: identical(maxTokens, _sentinel)
+          ? this.maxTokens
+          : maxTokens as int?,
+      temperature: identical(temperature, _sentinel)
+          ? this.temperature
+          : temperature as double?,
+      topP: identical(topP, _sentinel) ? this.topP : topP as double?,
       extraParams: extraParams ?? this.extraParams,
       models: models ?? this.models,
     );
   }
+
+  static const _sentinel = Object();
 
   factory ModelConfig.fromJson(Map<String, dynamic> json) {
     List<ModelEntry> entries = [];
