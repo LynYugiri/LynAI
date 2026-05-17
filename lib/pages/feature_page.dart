@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -47,6 +48,50 @@ SnackBar _shortSnackBar(String message) {
     duration: const Duration(seconds: 2),
     showCloseIcon: true,
   );
+}
+
+String _formatNoteTime(DateTime value) {
+  final year = value.year.toString().padLeft(4, '0');
+  final month = value.month.toString().padLeft(2, '0');
+  final day = value.day.toString().padLeft(2, '0');
+  final hour = value.hour.toString().padLeft(2, '0');
+  final minute = value.minute.toString().padLeft(2, '0');
+  return '$year-$month-$day $hour:$minute';
+}
+
+_NoteDiffStats _noteDiffStats(String before, String after) {
+  final delta = NoteTextDelta.between(before, after);
+  return _NoteDiffStats(
+    addedChars: delta.insertedText.length,
+    removedChars: delta.deletedText.length,
+    addedLines: _changedLineCount(delta.insertedText),
+    removedLines: _changedLineCount(delta.deletedText),
+  );
+}
+
+int _changedLineCount(String text) {
+  if (text.isEmpty) return 0;
+  return '\n'.allMatches(text).length + 1;
+}
+
+String _noteDiffSummary(String before, String after) {
+  final stats = _noteDiffStats(before, after);
+  if (!stats.hasChanges) return '无内容变化';
+  if (stats.addedChars > 0 && stats.removedChars > 0) {
+    return '+${stats.addedChars} / -${stats.removedChars} 字符';
+  }
+  if (stats.addedChars > 0) return '+${stats.addedChars} 字符';
+  return '-${stats.removedChars} 字符';
+}
+
+String _noteLineDiffSummary(String before, String after) {
+  final stats = _noteDiffStats(before, after);
+  if (!stats.hasChanges) return '行无变化';
+  if (stats.addedLines > 0 && stats.removedLines > 0) {
+    return '+${stats.addedLines} / -${stats.removedLines} 行';
+  }
+  if (stats.addedLines > 0) return '+${stats.addedLines} 行';
+  return '-${stats.removedLines} 行';
 }
 
 String _imageFileName(String prefix, int timestamp, int index, int total) {
@@ -2610,6 +2655,7 @@ class _NotesPageState extends State<_NotesPage> {
         editing: widget.editing,
         onEditingChanged: widget.onEditingChanged,
         onDeleted: widget.onBack,
+        onSelectNote: widget.onSelect,
       );
     }
     final provider = context.watch<FeatureProvider>();
@@ -3233,6 +3279,414 @@ class _FeatureEmptyState extends StatelessWidget {
       ),
     );
   }
+}
+
+class _NoteDiffStats {
+  final int addedChars;
+  final int removedChars;
+  final int addedLines;
+  final int removedLines;
+
+  const _NoteDiffStats({
+    required this.addedChars,
+    required this.removedChars,
+    required this.addedLines,
+    required this.removedLines,
+  });
+
+  bool get hasChanges => addedChars > 0 || removedChars > 0;
+}
+
+enum _DiffLineType { context, added, removed }
+
+class _DiffLine {
+  final _DiffLineType type;
+  final int? beforeLine;
+  final int? afterLine;
+  final String text;
+
+  const _DiffLine({
+    required this.type,
+    required this.beforeLine,
+    required this.afterLine,
+    required this.text,
+  });
+}
+
+class _NoteTimelineSheet extends StatefulWidget {
+  final Note note;
+  final FeatureProvider features;
+  final void Function(NoteRevision revision, String content) onOpen;
+  final void Function(NoteRevision revision, String content) onCompare;
+  final Future<void> Function(NoteRevision revision) onRestore;
+  final Future<void> Function(String content) onCopy;
+  final Future<void> Function(NoteRevision revision, String content)
+  onDuplicate;
+  final Future<void> Function(NoteRevision revision) onDelete;
+  final Future<void> Function(NoteRevision revision, int branchCount)
+  onDeleteBranches;
+
+  const _NoteTimelineSheet({
+    required this.note,
+    required this.features,
+    required this.onOpen,
+    required this.onCompare,
+    required this.onRestore,
+    required this.onCopy,
+    required this.onDuplicate,
+    required this.onDelete,
+    required this.onDeleteBranches,
+  });
+
+  @override
+  State<_NoteTimelineSheet> createState() => _NoteTimelineSheetState();
+}
+
+class _NoteTimelineSheetState extends State<_NoteTimelineSheet> {
+  final _searchCtrl = TextEditingController();
+  final _contentCache = <String, String>{};
+  final _previousContentCache = <String, String>{};
+  final _statsCache = <String, _NoteDiffStats>{};
+  var _query = '';
+  var _filter = _NoteTimelineFilter.all;
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: widget.features,
+      builder: (context, _) {
+        final note = widget.features.getNote(widget.note.id) ?? widget.note;
+        final timeline = widget.features.getNoteTimeline(note.id);
+        _removeStaleCache(timeline);
+        final currentPath = widget.features.getNoteCurrentRevisionPath(note.id);
+        final entries = _filteredEntries(timeline, currentPath);
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+            child: SizedBox(
+              height: MediaQuery.sizeOf(context).height * 0.82,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '时间线',
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      Text(
+                        '${timeline.length} 个版本',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _searchCtrl,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      hintText: '搜索版本内容或时间...',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: _query.isEmpty
+                          ? null
+                          : IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                _searchCtrl.clear();
+                                setState(() => _query = '');
+                              },
+                            ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onChanged: (value) => setState(() => _query = value),
+                  ),
+                  const SizedBox(height: 8),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _filterChip('全部', _NoteTimelineFilter.all),
+                        const SizedBox(width: 8),
+                        _filterChip('当前路径', _NoteTimelineFilter.currentPath),
+                        const SizedBox(width: 8),
+                        _filterChip('分支', _NoteTimelineFilter.branches),
+                        const SizedBox(width: 8),
+                        _filterChip('大改动', _NoteTimelineFilter.largeChanges),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: timeline.isEmpty
+                        ? const Center(child: Text('还没有保存过时间线'))
+                        : entries.isEmpty
+                        ? const Center(child: Text('没有匹配的版本'))
+                        : ListView.builder(
+                            itemCount: entries.length,
+                            itemBuilder: (context, index) {
+                              final entry = entries[index];
+                              if (entry.header != null) {
+                                return _dateHeader(entry.header!);
+                              }
+                              return _revisionCard(
+                                note,
+                                entry.revision!,
+                                currentPath,
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _filterChip(String label, _NoteTimelineFilter filter) {
+    return FilterChip(
+      label: Text(label),
+      selected: _filter == filter,
+      onSelected: (_) => setState(() => _filter = filter),
+    );
+  }
+
+  List<_NoteTimelineEntry> _filteredEntries(
+    List<NoteRevision> timeline,
+    Set<String> currentPath,
+  ) {
+    final query = _query.trim().toLowerCase();
+    final revisions = <NoteRevision>[];
+    for (final revision in timeline) {
+      if (!_matchesFilter(revision, currentPath)) continue;
+      if (query.isNotEmpty && !_matchesQuery(revision, query)) continue;
+      revisions.add(revision);
+    }
+    final entries = <_NoteTimelineEntry>[];
+    String? previousHeader;
+    for (final revision in revisions) {
+      final header = _dateGroup(revision.savedAt);
+      if (header != previousHeader) {
+        entries.add(_NoteTimelineEntry.header(header));
+        previousHeader = header;
+      }
+      entries.add(_NoteTimelineEntry.revision(revision));
+    }
+    return entries;
+  }
+
+  bool _matchesFilter(NoteRevision revision, Set<String> currentPath) {
+    return switch (_filter) {
+      _NoteTimelineFilter.all => true,
+      _NoteTimelineFilter.currentPath => currentPath.contains(revision.id),
+      _NoteTimelineFilter.branches => !currentPath.contains(revision.id),
+      _NoteTimelineFilter.largeChanges => _isLargeChange(revision),
+    };
+  }
+
+  bool _matchesQuery(NoteRevision revision, String query) {
+    final time = _formatNoteTime(revision.savedAt).toLowerCase();
+    if (time.contains(query)) return true;
+    final content = _contentFor(revision).toLowerCase();
+    return content.contains(query);
+  }
+
+  bool _isLargeChange(NoteRevision revision) {
+    final stats = _statsFor(revision);
+    return stats.addedChars + stats.removedChars >= 240 ||
+        stats.addedLines + stats.removedLines >= 8;
+  }
+
+  Widget _dateHeader(String label) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 12, 4, 4),
+      child: Text(
+        label,
+        style: Theme.of(
+          context,
+        ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800),
+      ),
+    );
+  }
+
+  Widget _revisionCard(
+    Note note,
+    NoteRevision revision,
+    Set<String> currentPath,
+  ) {
+    final scheme = Theme.of(context).colorScheme;
+    final content = _contentFor(revision);
+    final previous = _previousContentFor(revision);
+    final current = note.currentRevisionId == revision.id;
+    final onCurrentPath = currentPath.contains(revision.id);
+    final branchCount = widget.features.countNoteBranchRevisions(
+      note.id,
+      revision.id,
+    );
+    final preview = content.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: ListTile(
+        leading: Icon(
+          current
+              ? Icons.radio_button_checked
+              : onCurrentPath
+              ? Icons.timeline
+              : Icons.call_split,
+          color: current
+              ? scheme.primary
+              : onCurrentPath
+              ? scheme.secondary
+              : scheme.tertiary,
+        ),
+        title: Wrap(
+          spacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(_formatNoteTime(revision.savedAt)),
+            Chip(
+              visualDensity: VisualDensity.compact,
+              label: Text(
+                current
+                    ? '当前'
+                    : onCurrentPath
+                    ? '当前路径'
+                    : '分支',
+              ),
+            ),
+          ],
+        ),
+        subtitle: Text(
+          '${_noteDiffSummary(previous, content)} · ${_noteLineDiffSummary(previous, content)} · ${preview.isEmpty ? '空笔记' : preview}',
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: PopupMenuButton<String>(
+          onSelected: (value) => _revisionAction(
+            value,
+            revision,
+            content,
+            onCurrentPath,
+            branchCount,
+          ),
+          itemBuilder: (_) => [
+            const PopupMenuItem(value: 'open', child: Text('查看此版本')),
+            const PopupMenuItem(value: 'compare', child: Text('与当前对比')),
+            const PopupMenuItem(value: 'restore', child: Text('恢复为当前版本')),
+            const PopupMenuItem(value: 'copy', child: Text('复制内容')),
+            const PopupMenuItem(value: 'duplicate', child: Text('另存为新笔记')),
+            const PopupMenuDivider(),
+            PopupMenuItem(
+              value: 'deleteBranches',
+              enabled: branchCount > 0,
+              child: Text(
+                branchCount > 0 ? '删除从此分出的支线 ($branchCount)' : '没有可删除的支线',
+              ),
+            ),
+            PopupMenuItem(
+              value: 'delete',
+              enabled: !onCurrentPath,
+              child: Text(onCurrentPath ? '当前路径版本不能删除' : '删除版本'),
+            ),
+          ],
+        ),
+        onTap: () => widget.onOpen(revision, content),
+        onLongPress: () => widget.onCompare(revision, content),
+      ),
+    );
+  }
+
+  void _revisionAction(
+    String value,
+    NoteRevision revision,
+    String content,
+    bool onCurrentPath,
+    int branchCount,
+  ) {
+    switch (value) {
+      case 'open':
+        widget.onOpen(revision, content);
+      case 'compare':
+        widget.onCompare(revision, content);
+      case 'restore':
+        widget.onRestore(revision);
+      case 'copy':
+        widget.onCopy(content);
+      case 'duplicate':
+        widget.onDuplicate(revision, content);
+      case 'deleteBranches':
+        if (branchCount > 0) widget.onDeleteBranches(revision, branchCount);
+      case 'delete':
+        if (!onCurrentPath) widget.onDelete(revision);
+    }
+  }
+
+  String _dateGroup(DateTime value) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final day = DateTime(value.year, value.month, value.day);
+    final difference = today.difference(day).inDays;
+    if (difference == 0) return '今天';
+    if (difference == 1) return '昨天';
+    if (difference < 7) return '本周';
+    final month = value.month.toString().padLeft(2, '0');
+    final date = value.day.toString().padLeft(2, '0');
+    return '${value.year}-$month-$date';
+  }
+
+  String _contentFor(NoteRevision revision) {
+    return _contentCache.putIfAbsent(
+      revision.id,
+      () =>
+          widget.features.getNoteContentAtRevision(widget.note.id, revision.id),
+    );
+  }
+
+  String _previousContentFor(NoteRevision revision) {
+    return _previousContentCache.putIfAbsent(revision.id, () {
+      final parentId = revision.parentRevisionId;
+      if (parentId == null) return '';
+      return widget.features.getNoteContentAtRevision(widget.note.id, parentId);
+    });
+  }
+
+  _NoteDiffStats _statsFor(NoteRevision revision) {
+    return _statsCache.putIfAbsent(
+      revision.id,
+      () =>
+          _noteDiffStats(_previousContentFor(revision), _contentFor(revision)),
+    );
+  }
+
+  void _removeStaleCache(List<NoteRevision> timeline) {
+    final ids = timeline.map((revision) => revision.id).toSet();
+    _contentCache.removeWhere((id, _) => !ids.contains(id));
+    _previousContentCache.removeWhere((id, _) => !ids.contains(id));
+    _statsCache.removeWhere((id, _) => !ids.contains(id));
+  }
+}
+
+enum _NoteTimelineFilter { all, currentPath, branches, largeChanges }
+
+class _NoteTimelineEntry {
+  final String? header;
+  final NoteRevision? revision;
+
+  const _NoteTimelineEntry.header(this.header) : revision = null;
+  const _NoteTimelineEntry.revision(this.revision) : header = null;
 }
 
 class _TodoListsPage extends StatefulWidget {
@@ -3966,12 +4420,14 @@ class _NoteDetail extends StatefulWidget {
   final bool editing;
   final ValueChanged<bool> onEditingChanged;
   final VoidCallback onDeleted;
+  final ValueChanged<String> onSelectNote;
 
   const _NoteDetail({
     required this.noteId,
     required this.editing,
     required this.onEditingChanged,
     required this.onDeleted,
+    required this.onSelectNote,
   });
 
   @override
@@ -4003,6 +4459,8 @@ class _NoteDetailState extends State<_NoteDetail> {
   var _redoStack = <_NoteEditStep>[];
   var _applyingEditHistory = false;
   String? _activeRevisionId;
+  var _proposalSidebarExpanded = true;
+  Offset? _proposalBubbleOffset;
 
   @override
   void initState() {
@@ -4023,6 +4481,8 @@ class _NoteDetailState extends State<_NoteDetail> {
     if (oldWidget.noteId != widget.noteId) {
       final note = _features.getNote(widget.noteId);
       _loadEditorSnapshot(note?.content ?? '', revisionId: null);
+      _proposalSidebarExpanded = true;
+      _proposalBubbleOffset = null;
       _refreshMatches();
     }
   }
@@ -4045,7 +4505,13 @@ class _NoteDetailState extends State<_NoteDetail> {
   Widget build(BuildContext context) {
     final note = context.watch<FeatureProvider>().getNote(widget.noteId);
     if (note == null) return const Center(child: Text('笔记不存在'));
-    final timeline = _features.getNoteTimeline(widget.noteId);
+    final proposal = context.watch<FeatureProvider>().getNoteEditProposal(
+      widget.noteId,
+    );
+    final hasProposal = proposal != null && proposal.blocks.isNotEmpty;
+    if (!hasProposal && _proposalSidebarExpanded != true) {
+      _proposalSidebarExpanded = true;
+    }
     final viewingRevision = _activeRevisionId == null
         ? null
         : _features.getNoteRevision(_activeRevisionId!);
@@ -4072,7 +4538,7 @@ class _NoteDetailState extends State<_NoteDetail> {
               IconButton(
                 tooltip: '时间线',
                 icon: const Icon(Icons.timeline),
-                onPressed: () => _openTimeline(note, timeline),
+                onPressed: () => _openTimeline(note),
               ),
               IconButton(
                 tooltip: widget.editing ? '预览' : '编辑',
@@ -4118,34 +4584,78 @@ class _NoteDetailState extends State<_NoteDetail> {
           ),
         ),
         if (viewingHistorical) _historyBanner(note, viewingRevision),
-        if (widget.editing) _editorToolbar(note),
-        if (widget.editing && _showLatexPanel) _latexPanel(),
-        if (_showFind) _findReplaceBar(),
+        if (widget.editing && !hasProposal) _editorToolbar(note),
+        if (widget.editing && _showLatexPanel && !hasProposal) _latexPanel(),
+        if (_showFind && !hasProposal) _findReplaceBar(),
         Expanded(
-          child: widget.editing
-              ? _noteEditor(note)
-              : Screenshot(
-                  controller: _shot,
-                  child: Container(
-                    color: Theme.of(context).colorScheme.surface,
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    child: SingleChildScrollView(
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          minWidth: MediaQuery.sizeOf(context).width - 32,
-                        ),
-                        child: MarkdownWithLatex(
-                          content: _ctrl.text,
-                          onEditLatexBlock: _editLatexBlockFromPreview,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
+          child: _noteBody(note, proposal, hasProposal, viewingHistorical),
         ),
         _editorStatus(note),
       ],
+    );
+  }
+
+  Widget _noteBody(
+    Note note,
+    NoteEditProposal? proposal,
+    bool hasProposal,
+    bool viewingHistorical,
+  ) {
+    final base = hasProposal && !viewingHistorical && _proposalSidebarExpanded
+        ? _buildAiProposalReviewView(note, proposal!)
+        : widget.editing
+        ? _noteEditor(note)
+        : Screenshot(
+            controller: _shot,
+            child: Container(
+              color: Theme.of(context).colorScheme.surface,
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              child: SingleChildScrollView(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minWidth: MediaQuery.sizeOf(context).width - 32,
+                  ),
+                  child: MarkdownWithLatex(
+                    content: _ctrl.text,
+                    onEditLatexBlock: _editLatexBlockFromPreview,
+                  ),
+                ),
+              ),
+            ),
+          );
+    if (!hasProposal || viewingHistorical || _proposalSidebarExpanded) {
+      return base;
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final bubbleSize = _proposalBubbleSize(proposal!);
+        final defaultOffset = Offset(
+          (constraints.maxWidth - bubbleSize.width - 16).clamp(
+            0.0,
+            double.infinity,
+          ),
+          (constraints.maxHeight - bubbleSize.height - 16).clamp(
+            0.0,
+            double.infinity,
+          ),
+        );
+        final offset = _clampProposalBubbleOffset(
+          _proposalBubbleOffset ?? defaultOffset,
+          constraints.biggest,
+          bubbleSize,
+        );
+        return Stack(
+          children: [
+            Positioned.fill(child: base),
+            Positioned(
+              left: offset.dx,
+              top: offset.dy,
+              child: _proposalBubble(note, proposal, constraints.biggest),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -4189,6 +4699,302 @@ class _NoteDetailState extends State<_NoteDetail> {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: SizedBox(width: editorWidth, child: editor),
+    );
+  }
+
+  Widget _buildAiProposalReviewView(Note note, NoteEditProposal proposal) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= 980;
+        final preview = Container(
+          color: Theme.of(context).colorScheme.surface,
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          child: SingleChildScrollView(
+            controller: _editorScroll,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minWidth: wide
+                    ? constraints.maxWidth - 320
+                    : constraints.maxWidth - 32,
+              ),
+              child: MarkdownWithLatex(
+                content: _ctrl.text,
+                onEditLatexBlock: _editLatexBlockFromPreview,
+              ),
+            ),
+          ),
+        );
+        final sidebar = _aiProposalSidebar(note, proposal, wide: wide);
+        if (wide) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: preview),
+              SizedBox(width: 300, child: sidebar),
+            ],
+          );
+        }
+        return Column(
+          children: [
+            Expanded(child: preview),
+            SizedBox(height: 260, child: sidebar),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _aiProposalSidebar(
+    Note note,
+    NoteEditProposal proposal, {
+    required bool wide,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      margin: wide ? EdgeInsets.zero : const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
+        border: Border(
+          left: wide
+              ? BorderSide(color: scheme.outlineVariant)
+              : BorderSide.none,
+          top: !wide
+              ? BorderSide(color: scheme.outlineVariant)
+              : BorderSide.none,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Icon(Icons.auto_fix_high, color: scheme.tertiary),
+              Text(
+                '逐行建议 · ${proposal.blocks.length} 处',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              IconButton(
+                tooltip: '收起建议',
+                visualDensity: VisualDensity.compact,
+                onPressed: () =>
+                    setState(() => _proposalSidebarExpanded = false),
+                icon: const Icon(Icons.close_fullscreen, size: 18),
+              ),
+              TextButton(
+                onPressed: () => _rejectAllProposal(note.id),
+                child: const Text('全部拒绝'),
+              ),
+              FilledButton.tonal(
+                onPressed: () => _acceptAllProposal(note, proposal),
+                child: const Text('全部接受'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Expanded(
+            child: ListView.builder(
+              itemCount: proposal.blocks.length,
+              itemBuilder: (context, index) =>
+                  _aiSidebarSuggestion(note, proposal, proposal.blocks[index]),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _proposalBubble(
+    Note note,
+    NoteEditProposal proposal,
+    Size availableSize,
+  ) {
+    final scheme = Theme.of(context).colorScheme;
+    final bubbleSize = _proposalBubbleSize(proposal);
+    return Material(
+      color: Colors.transparent,
+      child: GestureDetector(
+        onPanUpdate: (details) {
+          setState(() {
+            final current =
+                _proposalBubbleOffset ??
+                Offset(
+                  availableSize.width - bubbleSize.width - 16,
+                  availableSize.height - bubbleSize.height - 16,
+                );
+            _proposalBubbleOffset = _clampProposalBubbleOffset(
+              current + details.delta,
+              availableSize,
+              bubbleSize,
+            );
+          });
+        },
+        child: InkWell(
+          borderRadius: BorderRadius.circular(999),
+          onTap: () => setState(() => _proposalSidebarExpanded = true),
+          child: Ink(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: scheme.tertiaryContainer,
+              borderRadius: BorderRadius.circular(999),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.14),
+                  blurRadius: 14,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.auto_fix_high, color: scheme.tertiary),
+                const SizedBox(width: 8),
+                Text(
+                  '${proposal.blocks.length} 条建议',
+                  style: TextStyle(
+                    color: scheme.onTertiaryContainer,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _aiSidebarSuggestion(
+    Note note,
+    NoteEditProposal proposal,
+    NoteEditBlock block,
+  ) {
+    final scheme = Theme.of(context).colorScheme;
+    final removed = block.deletedLines.isEmpty
+        ? null
+        : block.deletedLines.join('\n');
+    final inserted = block.insertLines.isEmpty
+        ? '删除这些行'
+        : block.insertLines.join('\n');
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer.withValues(alpha: 0.28),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.24)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: scheme.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '第 ${block.startLine} 行',
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: scheme.primary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              Text(
+                block.deleteCount == 0 ? '插入' : '替换/删除',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              IconButton(
+                tooltip: '定位到这一行',
+                visualDensity: VisualDensity.compact,
+                onPressed: () => _locateProposalLine(block.startLine),
+                icon: const Icon(Icons.my_location_outlined, size: 18),
+              ),
+            ],
+          ),
+          if (removed != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              '原文',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: scheme.error,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            _renderProposalSnippet(
+              removed,
+              wrapCodeBlocks: true,
+              style: TextStyle(
+                color: scheme.error,
+                fontSize: 11,
+                height: 1.35,
+                decoration: TextDecoration.lineThrough,
+              ),
+            ),
+          ],
+          const SizedBox(height: 8),
+          Text(
+            '建议',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: scheme.primary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          _renderProposalSnippet(
+            inserted,
+            wrapCodeBlocks: true,
+            style: TextStyle(color: scheme.primary, fontSize: 12, height: 1.35),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: () => _rejectProposalBlock(proposal, block.id),
+                child: const Text('拒绝'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: () => _acceptProposalBlock(note, proposal, block),
+                child: const Text('接受'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _renderProposalSnippet(
+    String text, {
+    required TextStyle style,
+    required bool wrapCodeBlocks,
+  }) {
+    if (text.isEmpty) return Text(' ', style: style);
+    return DefaultTextStyle.merge(
+      style: style,
+      child: MarkdownWithLatex(
+        content: text,
+        selectable: false,
+        wrapCodeBlocks: wrapCodeBlocks,
+        textStyle: style,
+      ),
     );
   }
 
@@ -4327,98 +5133,143 @@ class _NoteDetailState extends State<_NoteDetail> {
     );
   }
 
-  Future<void> _openTimeline(Note note, List<NoteRevision> timeline) {
+  Future<void> _openTimeline(Note note) {
     return showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  '时间线',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Flexible(
-                child: timeline.isEmpty
-                    ? const Center(child: Text('还没有保存过时间线'))
-                    : ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: timeline.length,
-                        itemBuilder: (context, index) {
-                          final revision = timeline[index];
-                          final content = _features.getNoteContentAtRevision(
-                            note.id,
-                            revision.id,
-                          );
-                          final previous = revision.parentRevisionId == null
-                              ? ''
-                              : _features.getNoteContentAtRevision(
-                                  note.id,
-                                  revision.parentRevisionId,
-                                );
-                          final current = note.currentRevisionId == revision.id;
-                          final preview = content
-                              .replaceAll(RegExp(r'\s+'), ' ')
-                              .trim();
-                          return Card(
-                            margin: const EdgeInsets.symmetric(vertical: 4),
-                            child: ListTile(
-                              leading: Icon(
-                                current
-                                    ? Icons.radio_button_checked
-                                    : Icons.history_toggle_off,
-                              ),
-                              title: Text(_formatNoteTime(revision.savedAt)),
-                              subtitle: Text(
-                                '${_diffSummary(previous, content)} · ${preview.isEmpty ? '空笔记' : preview}',
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              trailing: const Icon(Icons.chevron_right),
-                              onTap: () => _openRevisionFromTimeline(
-                                note: note,
-                                revision: revision,
-                                content: content,
-                              ),
-                              onLongPress: () {
-                                Navigator.pop(context);
-                                _showCompareDialog(
-                                  currentLabel: '当前版本',
-                                  currentText: note.content,
-                                  otherLabel: _formatNoteTime(revision.savedAt),
-                                  otherText: content,
-                                );
-                              },
-                            ),
-                          );
-                        },
-                      ),
-              ),
-            ],
-          ),
+      builder: (context) => _NoteTimelineSheet(
+        note: note,
+        features: _features,
+        onOpen: (revision, content) => _openRevisionFromTimeline(
+          note: note,
+          revision: revision,
+          content: content,
         ),
+        onCompare: (revision, content) {
+          Navigator.pop(context);
+          _showCompareDialog(
+            currentLabel: '当前版本',
+            currentText: note.content,
+            otherLabel: _formatNoteTime(revision.savedAt),
+            otherText: content,
+          );
+        },
+        onRestore: (revision) => _restoreRevisionFromTimeline(note, revision),
+        onCopy: (content) => _copyRevisionContent(content),
+        onDuplicate: (revision, content) =>
+            _duplicateRevision(note, revision, content),
+        onDelete: (revision) => _deleteRevisionFromTimeline(note, revision),
+        onDeleteBranches: (revision, branchCount) =>
+            _deleteBranchesFromTimeline(note, revision, branchCount),
       ),
     );
   }
 
   String _diffSummary(String before, String after) {
-    final delta = NoteTextDelta.between(before, after);
-    final added = delta.insertedText.length;
-    final removed = delta.deletedText.length;
-    if (added == 0 && removed == 0) return '无内容变化';
-    if (added > 0 && removed > 0) return '+$added / -$removed 字符';
-    if (added > 0) return '+$added 字符';
-    return '-$removed 字符';
+    return '${_noteDiffSummary(before, after)} · ${_noteLineDiffSummary(before, after)}';
+  }
+
+  Future<void> _restoreRevisionFromTimeline(
+    Note note,
+    NoteRevision revision,
+  ) async {
+    Navigator.pop(context);
+    if (!await _confirmDiscardUnsavedChanges()) return;
+    if (!mounted) return;
+    final restored = await _features.restoreNoteRevision(note.id, revision.id);
+    if (!mounted || restored == null) return;
+    final content = _features.getNoteContentAtRevision(note.id, restored.id);
+    setState(() => _loadEditorSnapshot(content, revisionId: null));
+    ScaffoldMessenger.of(context).showSnackBar(_shortSnackBar('已恢复为当前版本'));
+  }
+
+  Future<void> _copyRevisionContent(String content) async {
+    await Clipboard.setData(ClipboardData(text: content));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(_shortSnackBar('版本内容已复制'));
+  }
+
+  Future<void> _duplicateRevision(
+    Note note,
+    NoteRevision revision,
+    String content,
+  ) async {
+    final title = '${note.title} ${_formatNoteTime(revision.savedAt)}';
+    final id = await _features.addNoteWithContent(
+      title,
+      content,
+      folderId: note.folderId,
+    );
+    if (!mounted) return;
+    widget.onEditingChanged(false);
+    Navigator.pop(context);
+    widget.onSelectNote(id);
+    ScaffoldMessenger.of(context).showSnackBar(_shortSnackBar('已另存为新笔记'));
+  }
+
+  Future<void> _deleteRevisionFromTimeline(
+    Note note,
+    NoteRevision revision,
+  ) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除版本？'),
+        content: const Text('删除此版本会同时删除基于它的分支版本，当前路径上的版本不能删除。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final deleted = await _features.deleteNoteRevision(note.id, revision.id);
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(_shortSnackBar(deleted ? '版本已删除' : '当前路径版本不能删除'));
+  }
+
+  Future<void> _deleteBranchesFromTimeline(
+    Note note,
+    NoteRevision revision,
+    int branchCount,
+  ) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除整条支线？'),
+        content: Text(
+          '将删除从 ${_formatNoteTime(revision.savedAt)} 分出的 $branchCount 个非当前路径版本，当前路径会保留。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('删除支线'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final deleted = await _features.deleteNoteBranchesFromRevision(
+      note.id,
+      revision.id,
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      _shortSnackBar(deleted > 0 ? '已删除 $deleted 个支线版本' : '没有可删除的支线'),
+    );
   }
 
   Future<void> _showCompareDialog({
@@ -4427,15 +5278,13 @@ class _NoteDetailState extends State<_NoteDetail> {
     required String otherLabel,
     required String otherText,
   }) {
-    final delta = NoteTextDelta.between(otherText, currentText);
-    final beforeChanged = delta.deletedText;
-    final afterChanged = delta.insertedText;
+    final diffLines = _buildDiffLines(otherText, currentText);
     return showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('版本对比'),
         content: SizedBox(
-          width: 680,
+          width: 820,
           child: SingleChildScrollView(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -4444,10 +5293,15 @@ class _NoteDetailState extends State<_NoteDetail> {
                 Text('$otherLabel -> $currentLabel'),
                 const SizedBox(height: 8),
                 Text(_diffSummary(otherText, currentText)),
+                const SizedBox(height: 4),
+                Text(
+                  _lineChangeDetail(otherText, currentText),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
                 const SizedBox(height: 12),
-                _compareSection(otherLabel, beforeChanged, removed: true),
-                const SizedBox(height: 10),
-                _compareSection(currentLabel, afterChanged, removed: false),
+                _diffLegend(otherLabel: otherLabel, currentLabel: currentLabel),
+                const SizedBox(height: 8),
+                _diffView(diffLines),
               ],
             ),
           ),
@@ -4462,10 +5316,471 @@ class _NoteDetailState extends State<_NoteDetail> {
     );
   }
 
+  String _lineChangeDetail(String before, String after) {
+    final stats = _noteDiffStats(before, after);
+    if (!stats.hasChanges) return '行级变化：无';
+    return '行级变化：新增 ${stats.addedLines} 行，删除 ${stats.removedLines} 行';
+  }
+
+  List<_DiffLine> _buildDiffLines(String before, String after) {
+    final beforeLines = before.split('\n');
+    final afterLines = after.split('\n');
+    final n = beforeLines.length;
+    final m = afterLines.length;
+    final maxCells = 60000;
+    if (n * m > maxCells) {
+      return _fallbackDiffLines(beforeLines, afterLines);
+    }
+    final dp = List.generate(n + 1, (_) => List<int>.filled(m + 1, 0));
+    for (var i = n - 1; i >= 0; i--) {
+      for (var j = m - 1; j >= 0; j--) {
+        dp[i][j] = beforeLines[i] == afterLines[j]
+            ? dp[i + 1][j + 1] + 1
+            : (dp[i + 1][j] >= dp[i][j + 1] ? dp[i + 1][j] : dp[i][j + 1]);
+      }
+    }
+    final lines = <_DiffLine>[];
+    var i = 0;
+    var j = 0;
+    while (i < n && j < m) {
+      if (beforeLines[i] == afterLines[j]) {
+        lines.add(
+          _DiffLine(
+            type: _DiffLineType.context,
+            beforeLine: i + 1,
+            afterLine: j + 1,
+            text: beforeLines[i],
+          ),
+        );
+        i++;
+        j++;
+      } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+        lines.add(
+          _DiffLine(
+            type: _DiffLineType.removed,
+            beforeLine: i + 1,
+            afterLine: null,
+            text: beforeLines[i],
+          ),
+        );
+        i++;
+      } else {
+        lines.add(
+          _DiffLine(
+            type: _DiffLineType.added,
+            beforeLine: null,
+            afterLine: j + 1,
+            text: afterLines[j],
+          ),
+        );
+        j++;
+      }
+    }
+    while (i < n) {
+      lines.add(
+        _DiffLine(
+          type: _DiffLineType.removed,
+          beforeLine: i + 1,
+          afterLine: null,
+          text: beforeLines[i],
+        ),
+      );
+      i++;
+    }
+    while (j < m) {
+      lines.add(
+        _DiffLine(
+          type: _DiffLineType.added,
+          beforeLine: null,
+          afterLine: j + 1,
+          text: afterLines[j],
+        ),
+      );
+      j++;
+    }
+    return lines;
+  }
+
+  List<_DiffLine> _fallbackDiffLines(
+    List<String> beforeLines,
+    List<String> afterLines,
+  ) {
+    final lines = <_DiffLine>[];
+    final shared = beforeLines.length < afterLines.length
+        ? beforeLines.length
+        : afterLines.length;
+    for (var i = 0; i < shared; i++) {
+      if (beforeLines[i] == afterLines[i]) {
+        lines.add(
+          _DiffLine(
+            type: _DiffLineType.context,
+            beforeLine: i + 1,
+            afterLine: i + 1,
+            text: beforeLines[i],
+          ),
+        );
+      } else {
+        lines.add(
+          _DiffLine(
+            type: _DiffLineType.removed,
+            beforeLine: i + 1,
+            afterLine: null,
+            text: beforeLines[i],
+          ),
+        );
+        lines.add(
+          _DiffLine(
+            type: _DiffLineType.added,
+            beforeLine: null,
+            afterLine: i + 1,
+            text: afterLines[i],
+          ),
+        );
+      }
+    }
+    for (var i = shared; i < beforeLines.length; i++) {
+      lines.add(
+        _DiffLine(
+          type: _DiffLineType.removed,
+          beforeLine: i + 1,
+          afterLine: null,
+          text: beforeLines[i],
+        ),
+      );
+    }
+    for (var i = shared; i < afterLines.length; i++) {
+      lines.add(
+        _DiffLine(
+          type: _DiffLineType.added,
+          beforeLine: null,
+          afterLine: i + 1,
+          text: afterLines[i],
+        ),
+      );
+    }
+    return lines;
+  }
+
+  Widget _diffLegend({
+    required String otherLabel,
+    required String currentLabel,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return Wrap(
+      spacing: 8,
+      runSpacing: 6,
+      children: [
+        _diffLegendChip('-', otherLabel, scheme.errorContainer, scheme.error),
+        _diffLegendChip(
+          '+',
+          currentLabel,
+          scheme.primaryContainer,
+          scheme.primary,
+        ),
+        _diffLegendChip(
+          ' ',
+          '未改上下文',
+          scheme.surfaceContainerHighest,
+          scheme.onSurfaceVariant,
+        ),
+      ],
+    );
+  }
+
+  Widget _diffLegendChip(String sign, String label, Color bg, Color fg) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        '$sign $label',
+        style: TextStyle(color: fg, fontSize: 12, fontWeight: FontWeight.w700),
+      ),
+    );
+  }
+
+  Widget _diffView(List<_DiffLine> lines) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        border: Border.all(color: scheme.outlineVariant),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(11),
+              ),
+            ),
+            child: Row(
+              children: [
+                _diffHeaderCell('旧行', 56),
+                _diffHeaderCell('新行', 56),
+                const Expanded(
+                  child: Text(
+                    '内容',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 420),
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: lines.length,
+              itemBuilder: (context, index) => _diffRow(lines[index]),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _diffHeaderCell(String label, double width) {
+    return SizedBox(
+      width: width,
+      child: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+    );
+  }
+
+  Widget _diffRow(_DiffLine line) {
+    final scheme = Theme.of(context).colorScheme;
+    final rowStyle = switch (line.type) {
+      _DiffLineType.added => (
+        scheme.primaryContainer.withValues(alpha: 0.42),
+        scheme.primary,
+        '+',
+      ),
+      _DiffLineType.removed => (
+        scheme.errorContainer.withValues(alpha: 0.42),
+        scheme.error,
+        '-',
+      ),
+      _DiffLineType.context => (scheme.surface, scheme.onSurfaceVariant, ' '),
+    };
+    return Container(
+      color: rowStyle.$1,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 56,
+            child: Text(
+              line.beforeLine?.toString() ?? '',
+              style: TextStyle(
+                color: scheme.onSurfaceVariant,
+                fontFamily: 'Hurmit Nerd Font',
+                fontSize: 12,
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 56,
+            child: Text(
+              line.afterLine?.toString() ?? '',
+              style: TextStyle(
+                color: scheme.onSurfaceVariant,
+                fontFamily: 'Hurmit Nerd Font',
+                fontSize: 12,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              '${rowStyle.$3} ${line.text.isEmpty ? ' ' : line.text}',
+              style: TextStyle(
+                color: rowStyle.$2,
+                fontFamily: 'Hurmit Nerd Font',
+                fontSize: 12.5,
+                height: 1.45,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _returnToCurrentRevision(Note note) async {
     if (!await _confirmDiscardUnsavedChanges()) return;
     if (!mounted) return;
     setState(() => _loadEditorSnapshot(note.content, revisionId: null));
+  }
+
+  Future<void> _acceptProposalBlock(
+    Note note,
+    NoteEditProposal proposal,
+    NoteEditBlock block,
+  ) async {
+    await _applyProposalBlocks(note, proposal, [block]);
+  }
+
+  void _locateProposalLine(int lineNumber) {
+    final offset = _offsetForLine(lineNumber);
+    if (widget.editing) {
+      setState(() {
+        _ctrl.selection = TextSelection.collapsed(offset: offset);
+        _lastEditorSelection = _ctrl.selection;
+        _trackedEditorSelection = _ctrl.selection;
+      });
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _scrollToOffset(offset);
+      if (widget.editing) _editorFocus.requestFocus();
+    });
+  }
+
+  Future<void> _acceptAllProposal(Note note, NoteEditProposal proposal) async {
+    await _applyProposalBlocks(note, proposal, proposal.blocks);
+  }
+
+  Future<void> _applyProposalBlocks(
+    Note note,
+    NoteEditProposal proposal,
+    List<NoteEditBlock> blocks,
+  ) async {
+    if (blocks.isEmpty) return;
+    final currentText = _ctrl.text;
+    if (_contentHash(currentText) != proposal.baseContentHash) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(_shortSnackBar('笔记内容已变化，请让 AI 重新生成修改建议'));
+      _features.removeNoteEditProposal(note.id);
+      return;
+    }
+    final next = _applyProposalBlocksToText(currentText, blocks);
+    if (next == null) {
+      ScaffoldMessenger.of(context).showSnackBar(_shortSnackBar('修改建议行号已失效'));
+      _features.removeNoteEditProposal(note.id);
+      return;
+    }
+    final revision = await _features.saveNoteContent(
+      note.id,
+      next,
+      baseRevisionId: proposal.baseRevisionId,
+    );
+    if (!mounted) return;
+    final acceptedIds = blocks.map((block) => block.id).toSet();
+    final remaining = proposal.blocks
+        .where((block) => !acceptedIds.contains(block.id))
+        .toList();
+    if (remaining.isEmpty) {
+      _features.removeNoteEditProposal(note.id);
+    } else {
+      _features.setNoteEditProposal(
+        proposal.copyWith(
+          baseRevisionId: revision?.id ?? note.currentRevisionId,
+          baseContentHash: _contentHash(next),
+          createdAt: DateTime.now(),
+          blocks: remaining.map((block) {
+            final shift = _proposalLineShift(blocks, block.startLine);
+            return NoteEditBlock(
+              id: block.id,
+              startLine: block.startLine + shift,
+              deleteCount: block.deleteCount,
+              deletedLines: block.deletedLines,
+              insertLines: block.insertLines,
+            );
+          }).toList(),
+        ),
+      );
+    }
+    setState(() => _loadEditorSnapshot(next, revisionId: null));
+    ScaffoldMessenger.of(context).showSnackBar(
+      _shortSnackBar(revision == null ? '建议没有产生新修改' : '已接受建议并保存到时间线'),
+    );
+  }
+
+  void _rejectProposalBlock(NoteEditProposal proposal, String blockId) {
+    final remaining = proposal.blocks
+        .where((block) => block.id != blockId)
+        .toList();
+    if (remaining.isEmpty) {
+      _features.removeNoteEditProposal(proposal.noteId);
+      return;
+    }
+    _features.setNoteEditProposal(proposal.copyWith(blocks: remaining));
+  }
+
+  void _rejectAllProposal(String noteId) {
+    _features.removeNoteEditProposal(noteId);
+  }
+
+  String? _applyProposalBlocksToText(
+    String content,
+    List<NoteEditBlock> blocks,
+  ) {
+    final lines = content.isEmpty ? [''] : content.split('\n');
+    final sorted = [...blocks]
+      ..sort((a, b) => b.startLine.compareTo(a.startLine));
+    var previousStart = lines.length + 1;
+    for (final block in sorted) {
+      final start = block.startLine - 1;
+      final end = start + block.deleteCount;
+      if (block.startLine < 1 || start > lines.length || end > lines.length) {
+        return null;
+      }
+      if (end > previousStart - 1) return null;
+      lines.replaceRange(start, end, block.insertLines);
+      previousStart = block.startLine;
+    }
+    return lines.join('\n');
+  }
+
+  int _proposalLineShift(List<NoteEditBlock> accepted, int line) {
+    var shift = 0;
+    for (final block in accepted) {
+      if (block.startLine >= line) continue;
+      shift += block.insertLines.length - block.deleteCount;
+    }
+    return shift;
+  }
+
+  String _contentHash(String content) {
+    return sha256.convert(utf8.encode(content)).toString();
+  }
+
+  int _offsetForLine(int lineNumber) {
+    if (lineNumber <= 1) return 0;
+    final text = _ctrl.text;
+    var currentLine = 1;
+    for (var i = 0; i < text.length; i++) {
+      if (currentLine >= lineNumber) return i;
+      if (text.codeUnitAt(i) == 10) currentLine++;
+    }
+    return text.length;
+  }
+
+  Size _proposalBubbleSize(NoteEditProposal proposal) {
+    final digits = proposal.blocks.length.toString().length;
+    return Size(88 + digits * 12, 48);
+  }
+
+  Offset _clampProposalBubbleOffset(
+    Offset offset,
+    Size availableSize,
+    Size bubbleSize,
+  ) {
+    final maxX = (availableSize.width - bubbleSize.width).clamp(
+      0.0,
+      double.infinity,
+    );
+    final maxY = (availableSize.height - bubbleSize.height).clamp(
+      0.0,
+      double.infinity,
+    );
+    return Offset(offset.dx.clamp(0.0, maxX), offset.dy.clamp(0.0, maxY));
   }
 
   Future<void> _openRevisionFromTimeline({
@@ -4502,36 +5817,6 @@ class _NoteDetailState extends State<_NoteDetail> {
       ),
     );
     return discard == true;
-  }
-
-  Widget _compareSection(String label, String text, {required bool removed}) {
-    final scheme = Theme.of(context).colorScheme;
-    final bg = removed
-        ? scheme.errorContainer.withValues(alpha: 0.5)
-        : scheme.primaryContainer.withValues(alpha: 0.5);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: Theme.of(context).textTheme.labelLarge),
-        const SizedBox(height: 4),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: SelectableText(
-            text.isEmpty ? '无变化' : text,
-            style: const TextStyle(
-              fontFamily: 'Hurmit Nerd Font',
-              fontSize: 13,
-              height: 1.4,
-            ),
-          ),
-        ),
-      ],
-    );
   }
 
   Widget _editorToolbar(Note note) {
@@ -5438,15 +6723,6 @@ class _NoteDetailState extends State<_NoteDetail> {
       return '\$\$\n$trimmed\n\$\$';
     }
     return '\$$trimmed\$';
-  }
-
-  String _formatNoteTime(DateTime value) {
-    final year = value.year.toString().padLeft(4, '0');
-    final month = value.month.toString().padLeft(2, '0');
-    final day = value.day.toString().padLeft(2, '0');
-    final hour = value.hour.toString().padLeft(2, '0');
-    final minute = value.minute.toString().padLeft(2, '0');
-    return '$year-$month-$day $hour:$minute';
   }
 
   String _stripLatexDelimiters(String text) {

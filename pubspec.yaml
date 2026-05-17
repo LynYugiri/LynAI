@@ -37,6 +37,7 @@ dependencies:
   image_picker: ^1.1.2
   shared_preferences: ^2.3.4
   http: ^1.2.2
+  crypto: ^3.0.6
   flutter_markdown_plus: ^1.0.7
   speech_to_text: ^7.3.0
   record: ^6.1.2

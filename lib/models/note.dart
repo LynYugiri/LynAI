@@ -173,6 +173,79 @@ class NoteRevision {
   }
 }
 
+class NoteEditProposal {
+  final String id;
+  final String noteId;
+  final String? baseRevisionId;
+  final String baseContentHash;
+  final DateTime createdAt;
+  final List<NoteEditBlock> blocks;
+
+  const NoteEditProposal({
+    required this.id,
+    required this.noteId,
+    required this.baseRevisionId,
+    required this.baseContentHash,
+    required this.createdAt,
+    required this.blocks,
+  });
+
+  NoteEditProposal copyWith({
+    Object? baseRevisionId = _sentinel,
+    String? baseContentHash,
+    DateTime? createdAt,
+    List<NoteEditBlock>? blocks,
+  }) {
+    return NoteEditProposal(
+      id: id,
+      noteId: noteId,
+      baseRevisionId: baseRevisionId == _sentinel
+          ? this.baseRevisionId
+          : baseRevisionId as String?,
+      baseContentHash: baseContentHash ?? this.baseContentHash,
+      createdAt: createdAt ?? this.createdAt,
+      blocks: blocks ?? this.blocks,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'noteId': noteId,
+      if (baseRevisionId != null) 'baseRevisionId': baseRevisionId,
+      'baseContentHash': baseContentHash,
+      'createdAt': createdAt.toIso8601String(),
+      'blocks': blocks.map((block) => block.toJson()).toList(),
+    };
+  }
+}
+
+class NoteEditBlock {
+  final String id;
+  final int startLine;
+  final int deleteCount;
+  final List<String> deletedLines;
+  final List<String> insertLines;
+
+  const NoteEditBlock({
+    required this.id,
+    required this.startLine,
+    required this.deleteCount,
+    required this.deletedLines,
+    required this.insertLines,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'startLine': startLine,
+      'deleteCount': deleteCount,
+      'deletedLines': deletedLines,
+      'insertLines': insertLines,
+    };
+  }
+}
+
 class NoteFolder {
   final String id;
   final String title;

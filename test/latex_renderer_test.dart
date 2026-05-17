@@ -52,4 +52,19 @@ void main() {
     expect(capturedStart, content.indexOf(blockSource));
     expect(capturedEnd, capturedStart! + capturedSource!.length);
   });
+
+  testWidgets('MarkdownWithLatex ignores invalid fenced code language', (
+    WidgetTester tester,
+  ) async {
+    const content = '```=\n=\n```';
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: MarkdownWithLatex(content: content)),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(find.textContaining('='), findsWidgets);
+  });
 }

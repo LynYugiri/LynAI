@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
@@ -20,6 +21,62 @@ class ChatToolCall {
     required this.name,
     required this.arguments,
   });
+}
+
+class _NoteLineEdit {
+  final int startLine;
+  final int deleteCount;
+  final List<String> insertLines;
+
+  const _NoteLineEdit({
+    required this.startLine,
+    required this.deleteCount,
+    required this.insertLines,
+  });
+
+  static _NoteLineEdit? fromRaw(Object? raw) {
+    if (raw is! Map) return null;
+    final json = Map<String, dynamic>.from(raw);
+    final startLine = _intArg(json['startLine']);
+    final deleteCount = _intArg(json['deleteCount']);
+    if (startLine == null || deleteCount == null || deleteCount < 0) {
+      return null;
+    }
+    final rawLines = json['insertLines'];
+    final insertLines = rawLines is List
+        ? rawLines.map((line) => line?.toString() ?? '').toList()
+        : const <String>[];
+    return _NoteLineEdit(
+      startLine: startLine,
+      deleteCount: deleteCount,
+      insertLines: insertLines,
+    );
+  }
+
+  static int? _intArg(Object? raw) {
+    if (raw is int) return raw;
+    if (raw is num) return raw.toInt();
+    if (raw is String) return int.tryParse(raw.trim());
+    return null;
+  }
+}
+
+class _ParsedNoteEdit {
+  final Note? note;
+  final List<_NoteLineEdit> edits;
+  final String? baseRevisionId;
+  final String? error;
+
+  const _ParsedNoteEdit({
+    required this.note,
+    required this.edits,
+    required this.baseRevisionId,
+  }) : error = null;
+
+  const _ParsedNoteEdit.error(this.error)
+    : note = null,
+      edits = const [],
+      baseRevisionId = null;
 }
 
 class ToolExecutionResult {
@@ -48,7 +105,7 @@ class ToolCallService {
 {"tool_calls":[{"name":"工具名","arguments":{...}}]}
 收到工具结果后，再用自然语言给用户最终回复。
 创建或修改数据前，应从用户输入中提取明确字段；缺少关键字段时先追问。
-需要查看笔记内容时，先用 list_notes 查找笔记 id，再用 read_note 读取完整内容；如果用户给出明确标题，也可以直接用 read_note 按标题搜索。笔记可通过 list_note_folders/save_note_folder 管理文件夹，save_note 可用 folderId 移动笔记。
+需要查看笔记内容时，先用 list_notes 查找笔记 id，再用 read_note 读取完整内容；如果用户给出明确标题，也可以直接用 read_note 按标题搜索。小范围修改笔记时，先 read_note，再用 propose_note_edit 按行提交 edits 让用户逐行确认；用户明确要求直接修改时才用 edit_note。创建、追加或整篇替换时用 save_note。笔记可通过 list_note_folders/save_note_folder 管理文件夹，save_note 可用 folderId 移动笔记。
 需要查看待办清单内容时，先用 list_todo_lists 查找清单 id，再用 read_todo_list 读取完整内容；创建或修改待办项用 save_todo_item，完成/未完成待办项时设置 done。
 日程时间使用带时区偏移的 ISO-8601 字符串；用户说“今天/明天”时必须先结合 get_current_time 的 iso 与 timezoneOffsetMinutes 换算成本地日期时间。
 ''';
@@ -58,7 +115,7 @@ class ToolCallService {
 需要调用工具时使用接口提供的 tool_calls；不需要工具时直接正常回答，不要提及工具。
 收到工具结果后，再用自然语言给用户最终回复。
 创建或修改数据前，应从用户输入中提取明确字段；缺少关键字段时先追问。
-需要查看笔记内容时，先用 list_notes 查找笔记 id，再用 read_note 读取完整内容；如果用户给出明确标题，也可以直接用 read_note 按标题搜索。笔记可通过 list_note_folders/save_note_folder 管理文件夹，save_note 可用 folderId 移动笔记。
+需要查看笔记内容时，先用 list_notes 查找笔记 id，再用 read_note 读取完整内容；如果用户给出明确标题，也可以直接用 read_note 按标题搜索。小范围修改笔记时，先 read_note，再用 propose_note_edit 按行提交 edits 让用户逐行确认；用户明确要求直接修改时才用 edit_note。创建、追加或整篇替换时用 save_note。笔记可通过 list_note_folders/save_note_folder 管理文件夹，save_note 可用 folderId 移动笔记。
 需要查看待办清单内容时，先用 list_todo_lists 查找清单 id，再用 read_todo_list 读取完整内容；创建或修改待办项用 save_todo_item，完成/未完成待办项时设置 done。
 日程时间使用带时区偏移的 ISO-8601 字符串；用户说“今天/明天”时必须先结合 get_current_time 的 iso 与 timezoneOffsetMinutes 换算成本地日期时间。
 ''';
@@ -75,6 +132,44 @@ class ToolCallService {
         'name': 'get_current_time',
         'description': '获取设备当前时间、时区和 ISO-8601 时间戳。',
         'parameters': {'type': 'object', 'properties': <String, dynamic>{}},
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'propose_note_edit',
+        'description': '按行提交笔记修改建议，不直接保存；用户会在笔记页逐行接受或拒绝。调用前必须先 read_note。',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'id': {'type': 'string', 'description': '已有笔记 id'},
+            'baseRevisionId': {
+              'type': 'string',
+              'description': 'read_note 返回的 currentRevisionId，可选',
+            },
+            'expectedContentHash': {
+              'type': 'string',
+              'description': 'read_note 返回的 contentHash，用于避免基于过期内容提案',
+            },
+            'edits': {
+              'type': 'array',
+              'description': '逐行修改建议。行号从 1 开始；多个 edit 不可重叠。',
+              'items': {
+                'type': 'object',
+                'properties': {
+                  'startLine': {'type': 'integer'},
+                  'deleteCount': {'type': 'integer'},
+                  'insertLines': {
+                    'type': 'array',
+                    'items': {'type': 'string'},
+                  },
+                },
+                'required': ['startLine', 'deleteCount'],
+              },
+            },
+          },
+          'required': ['id', 'edits'],
+        },
       },
     },
     {
@@ -185,7 +280,8 @@ class ToolCallService {
       'type': 'function',
       'function': {
         'name': 'save_note',
-        'description': '创建或修改并保存笔记。传 id 时修改已有笔记；不传 id 时创建新笔记。',
+        'description':
+            '创建或修改并保存笔记。传 id 时修改已有笔记；不传 id 时创建新笔记。小范围逐行修改优先使用 propose_note_edit 让用户确认。',
         'parameters': {
           'type': 'object',
           'properties': {
@@ -198,6 +294,45 @@ class ToolCallService {
             },
             'append': {'type': 'boolean', 'description': '是否追加到已有内容'},
           },
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'edit_note',
+        'description':
+            '按行修改已有笔记并保存到时间线。调用前必须先 read_note 获取 contentHash/currentRevisionId；edits 使用 read_note 返回内容的行号。',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'id': {'type': 'string', 'description': '已有笔记 id'},
+            'baseRevisionId': {
+              'type': 'string',
+              'description': 'read_note 返回的 currentRevisionId，可选',
+            },
+            'expectedContentHash': {
+              'type': 'string',
+              'description': 'read_note 返回的 contentHash，用于避免覆盖用户新改动',
+            },
+            'edits': {
+              'type': 'array',
+              'description': '逐行修改列表。行号从 1 开始；多个 edit 不可重叠。',
+              'items': {
+                'type': 'object',
+                'properties': {
+                  'startLine': {'type': 'integer'},
+                  'deleteCount': {'type': 'integer'},
+                  'insertLines': {
+                    'type': 'array',
+                    'items': {'type': 'string'},
+                  },
+                },
+                'required': ['startLine', 'deleteCount'],
+              },
+            },
+          },
+          'required': ['id', 'edits'],
         },
       },
     },
@@ -399,6 +534,10 @@ class ToolCallService {
           return _readNote(call.arguments);
         case 'save_note':
           return await _saveNote(call.arguments);
+        case 'edit_note':
+          return await _editNote(call.arguments);
+        case 'propose_note_edit':
+          return _proposeNoteEdit(call.arguments);
         case 'list_note_folders':
           return _listNoteFolders();
         case 'save_note_folder':
@@ -547,7 +686,13 @@ class ToolCallService {
     if (note == null) {
       return _error('未找到匹配的笔记，请先调用 list_notes 查看可用笔记');
     }
-    return {'ok': true, 'note': note.toJson()};
+    return {
+      'ok': true,
+      'note': note.toJson(),
+      'contentHash': _contentHash(note.content),
+      'currentRevisionId': note.currentRevisionId,
+      'lineCount': _splitNoteLines(note.content).length,
+    };
   }
 
   Note? _bestNoteMatch(bool Function(Note note) test) {
@@ -580,7 +725,19 @@ class ToolCallService {
       );
       final note = _features.getNote(newId);
       if (note == null) return _error('创建笔记失败');
-      return {'ok': true, 'note': note.toJson()};
+      return {
+        'ok': true,
+        'note': note.toJson(),
+        'contentHash': _contentHash(note.content),
+        'lineCount': _splitNoteLines(note.content).length,
+        'currentRevisionId': note.currentRevisionId,
+        'timelineSaved': note.currentRevisionId != null,
+        'revisionId': note.currentRevisionId,
+        'contentChanged': content.isNotEmpty,
+        'diff': _lineDiff('', note.content),
+        'diffSummary': _diffSummary('', note.content),
+        'lineDiffSummary': _lineDiffSummary('', note.content),
+      };
     }
     final note = _features.getNote(id);
     if (note == null) return _error('未找到笔记: $id');
@@ -601,11 +758,118 @@ class ToolCallService {
     if (updated.title != note.title || updated.folderId != note.folderId) {
       await _features.updateNote(updated);
     }
-    if (hasContent) {
-      await _features.saveNoteContent(id, nextContent);
-    }
+    NoteRevision? revision;
+    if (hasContent) revision = await _features.saveNoteContent(id, nextContent);
     final savedNote = _features.getNote(id) ?? updated;
-    return {'ok': true, 'note': savedNote.toJson()};
+    final contentChanged = hasContent && note.content != savedNote.content;
+    return {
+      'ok': true,
+      'note': savedNote.toJson(),
+      'contentHash': _contentHash(savedNote.content),
+      'lineCount': _splitNoteLines(savedNote.content).length,
+      'currentRevisionId': savedNote.currentRevisionId,
+      'timelineSaved': revision != null && contentChanged,
+      'revisionId': contentChanged ? revision?.id : null,
+      'contentChanged': contentChanged,
+      if (hasContent) 'diff': _lineDiff(note.content, savedNote.content),
+      if (hasContent)
+        'diffSummary': _diffSummary(note.content, savedNote.content),
+      if (hasContent)
+        'lineDiffSummary': _lineDiffSummary(note.content, savedNote.content),
+    };
+  }
+
+  Future<Map<String, dynamic>> _editNote(Map<String, dynamic> args) async {
+    final parsed = _parseNoteEditArgs(args, emptyMessage: 'edit_note 需要 edits');
+    if (parsed.error != null) return _error(parsed.error!);
+    final note = parsed.note!;
+    final edits = parsed.edits;
+    final nextContent = _applyLineEdits(note.content, edits);
+    if (nextContent == null) return _error('edits 行号越界或存在重叠');
+    final baseRevisionId = (args['baseRevisionId'] as String? ?? '').trim();
+    final revision = nextContent == note.content
+        ? null
+        : await _features.saveNoteContent(
+            note.id,
+            nextContent,
+            baseRevisionId: baseRevisionId.isEmpty ? null : baseRevisionId,
+          );
+    final savedNote = _features.getNote(note.id) ?? note;
+    return {
+      'ok': true,
+      'note': savedNote.toJson(),
+      'contentHash': _contentHash(savedNote.content),
+      'lineCount': _splitNoteLines(savedNote.content).length,
+      'currentRevisionId': savedNote.currentRevisionId,
+      'timelineSaved': revision != null,
+      'revisionId': revision?.id,
+      'contentChanged': nextContent != note.content,
+      'diff': _lineDiff(note.content, savedNote.content),
+      'diffSummary': _diffSummary(note.content, savedNote.content),
+      'lineDiffSummary': _lineDiffSummary(note.content, savedNote.content),
+    };
+  }
+
+  Map<String, dynamic> _proposeNoteEdit(Map<String, dynamic> args) {
+    final parsed = _parseNoteEditArgs(
+      args,
+      emptyMessage: 'propose_note_edit 需要 edits',
+    );
+    if (parsed.error != null) return _error(parsed.error!);
+    final note = parsed.note!;
+    final nextContent = _applyLineEdits(note.content, parsed.edits);
+    if (nextContent == null) return _error('edits 行号越界或存在重叠');
+    if (nextContent == note.content) return _error('修改建议没有产生内容变化');
+    final proposal = _proposalFromEdits(
+      note: note,
+      edits: parsed.edits,
+      baseRevisionId: parsed.baseRevisionId,
+    );
+    _features.setNoteEditProposal(proposal);
+    return {
+      'ok': true,
+      'proposal': proposal.toJson(),
+      'note': note.toJson(),
+      'contentHash': _contentHash(note.content),
+      'lineCount': _splitNoteLines(note.content).length,
+      'currentRevisionId': note.currentRevisionId,
+      'contentChanged': true,
+      'timelineSaved': false,
+      'diff': _lineDiff(note.content, nextContent),
+      'diffSummary': _diffSummary(note.content, nextContent),
+      'lineDiffSummary': _lineDiffSummary(note.content, nextContent),
+    };
+  }
+
+  _ParsedNoteEdit _parseNoteEditArgs(
+    Map<String, dynamic> args, {
+    required String emptyMessage,
+  }) {
+    final id = (args['id'] as String? ?? '').trim();
+    if (id.isEmpty) return _ParsedNoteEdit.error('缺少笔记 id');
+    final note = _features.getNote(id);
+    if (note == null) return _ParsedNoteEdit.error('未找到笔记: $id');
+    final expectedHash = (args['expectedContentHash'] as String? ?? '').trim();
+    final currentHash = _contentHash(note.content);
+    if (expectedHash.isNotEmpty && expectedHash != currentHash) {
+      return _ParsedNoteEdit.error('笔记内容已变化，请重新 read_note 后再编辑');
+    }
+    final rawEdits = args['edits'];
+    if (rawEdits is! List || rawEdits.isEmpty) {
+      return _ParsedNoteEdit.error(emptyMessage);
+    }
+    final edits = <_NoteLineEdit>[];
+    for (final raw in rawEdits) {
+      final edit = _NoteLineEdit.fromRaw(raw);
+      if (edit == null) return _ParsedNoteEdit.error('edits 格式错误');
+      edits.add(edit);
+    }
+    final baseRevisionId = (args['baseRevisionId'] as String? ?? '').trim();
+    return _ParsedNoteEdit(
+      note: note,
+      edits: edits,
+      baseRevisionId: baseRevisionId.isEmpty ? null : baseRevisionId,
+    );
   }
 
   Map<String, dynamic> _listNoteFolders() {
@@ -807,6 +1071,112 @@ class ToolCallService {
       text: (json['text'] as String? ?? '').trim(),
       done: _boolArg(json, 'done') ?? false,
     );
+  }
+
+  static String _contentHash(String content) {
+    return sha256.convert(utf8.encode(content)).toString();
+  }
+
+  static List<String> _splitNoteLines(String content) {
+    if (content.isEmpty) return const [''];
+    return content.split('\n');
+  }
+
+  static String _joinNoteLines(List<String> lines) {
+    return lines.join('\n');
+  }
+
+  static String? _applyLineEdits(String content, List<_NoteLineEdit> edits) {
+    final lines = _splitNoteLines(content);
+    final sorted = [...edits]
+      ..sort((a, b) => b.startLine.compareTo(a.startLine));
+    var previousStart = lines.length + 1;
+    for (final edit in sorted) {
+      final startIndex = edit.startLine - 1;
+      final endIndex = startIndex + edit.deleteCount;
+      if (edit.startLine < 1 || startIndex > lines.length) return null;
+      if (endIndex > lines.length) return null;
+      if (endIndex > previousStart - 1) return null;
+      lines.replaceRange(startIndex, endIndex, edit.insertLines);
+      previousStart = edit.startLine;
+    }
+    return _joinNoteLines(lines);
+  }
+
+  static NoteEditProposal _proposalFromEdits({
+    required Note note,
+    required List<_NoteLineEdit> edits,
+    required String? baseRevisionId,
+  }) {
+    final lines = _splitNoteLines(note.content);
+    return NoteEditProposal(
+      id: _uuid.v4(),
+      noteId: note.id,
+      baseRevisionId: baseRevisionId,
+      baseContentHash: _contentHash(note.content),
+      createdAt: DateTime.now(),
+      blocks: edits.map((edit) {
+        final start = edit.startLine - 1;
+        final end = (start + edit.deleteCount).clamp(0, lines.length);
+        return NoteEditBlock(
+          id: _uuid.v4(),
+          startLine: edit.startLine,
+          deleteCount: edit.deleteCount,
+          deletedLines: start >= 0 && start <= end
+              ? lines.sublist(start, end)
+              : const [],
+          insertLines: edit.insertLines,
+        );
+      }).toList(),
+    );
+  }
+
+  static List<Map<String, dynamic>> _lineDiff(String before, String after) {
+    final beforeLines = _splitNoteLines(before);
+    final afterLines = _splitNoteLines(after);
+    var prefix = 0;
+    final maxPrefix = beforeLines.length < afterLines.length
+        ? beforeLines.length
+        : afterLines.length;
+    while (prefix < maxPrefix && beforeLines[prefix] == afterLines[prefix]) {
+      prefix++;
+    }
+    var beforeSuffix = beforeLines.length;
+    var afterSuffix = afterLines.length;
+    while (beforeSuffix > prefix &&
+        afterSuffix > prefix &&
+        beforeLines[beforeSuffix - 1] == afterLines[afterSuffix - 1]) {
+      beforeSuffix--;
+      afterSuffix--;
+    }
+    final diff = <Map<String, dynamic>>[];
+    for (var i = prefix; i < beforeSuffix; i++) {
+      diff.add({'line': i + 1, 'type': 'remove', 'text': beforeLines[i]});
+    }
+    for (var i = prefix; i < afterSuffix; i++) {
+      diff.add({'line': i + 1, 'type': 'add', 'text': afterLines[i]});
+    }
+    return diff;
+  }
+
+  static String _diffSummary(String before, String after) {
+    final delta = NoteTextDelta.between(before, after);
+    final added = delta.insertedText.length;
+    final removed = delta.deletedText.length;
+    if (added == 0 && removed == 0) return '无内容变化';
+    if (added > 0 && removed > 0) return '+$added / -$removed 字符';
+    if (added > 0) return '+$added 字符';
+    return '-$removed 字符';
+  }
+
+  static String _lineDiffSummary(String before, String after) {
+    final diff = _lineDiff(before, after);
+    final added = diff.where((line) => line['type'] == 'add').length;
+    final removed = diff.where((line) => line['type'] == 'remove').length;
+    if (added == 0 && removed == 0) return '行无变化';
+    if (added > 0 && removed > 0) return '+$added / -$removed 行';
+    if (added > 0) return '+$added 行';
+    return '-$removed 行';
   }
 
   static bool? _boolArg(Map<String, dynamic> args, String key) {

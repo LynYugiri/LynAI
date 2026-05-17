@@ -408,12 +408,57 @@ class MarkdownWithLatex extends StatelessWidget {
     };
 
     return MarkdownBody(
-      data: _normalizeIndentedCodeBlocks(text),
+      data: _sanitizeFencedCodeInfo(_normalizeIndentedCodeBlocks(text)),
       selectable: false,
       styleSheet: styleSheet,
       builders: builders,
       extensionSet: _extensionSet(withInlineLatex: withInlineLatex),
     );
+  }
+
+  String _sanitizeFencedCodeInfo(String text) {
+    final lines = text.split('\n');
+    var inFence = false;
+    var fenceMarker = '';
+    var fenceLength = 0;
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      final openMatch = RegExp(
+        r'^([ \t]{0,3})(`{3,}|~{3,})([^`~]*)$',
+      ).firstMatch(line);
+      final closeMatch = RegExp(
+        r'^[ \t]{0,3}(`{3,}|~{3,})[ \t]*$',
+      ).firstMatch(line);
+      final wasInFence = inFence;
+      if (!wasInFence && openMatch != null) {
+        inFence = true;
+        final indent = openMatch.group(1)!;
+        final marker = openMatch.group(2)!;
+        final info = openMatch.group(3)!.trim();
+        fenceMarker = marker[0];
+        fenceLength = marker.length;
+        final language = _safeFenceLanguage(info);
+        lines[i] = language == null
+            ? '$indent$marker'
+            : '$indent$marker$language';
+      }
+      if (wasInFence && closeMatch != null) {
+        final marker = closeMatch.group(1)!;
+        if (marker[0] == fenceMarker && marker.length >= fenceLength) {
+          inFence = false;
+        }
+      }
+    }
+    return lines.join('\n');
+  }
+
+  String? _safeFenceLanguage(String info) {
+    if (info.isEmpty) return null;
+    final language = info.split(RegExp(r'\s+')).first.trim();
+    if (RegExp(r'^[A-Za-z][A-Za-z0-9_+#.-]*$').hasMatch(language)) {
+      return language;
+    }
+    return null;
   }
 
   String _normalizeIndentedCodeBlocks(String text) {
@@ -943,10 +988,14 @@ class _OneDarkSyntaxHighlighter extends SyntaxHighlighter {
 
   TextSpan formatCode(String source, {String? language}) {
     final normalized = _normalizeLanguage(language);
+    if (normalized == null) {
+      return TextSpan(
+        style: baseStyle,
+        children: _splitOperators(source, null),
+      );
+    }
     try {
-      final result = normalized == null
-          ? hl.highlight.parse(source, autoDetection: true)
-          : hl.highlight.parse(source, language: normalized);
+      final result = hl.highlight.parse(source, language: normalized);
       return TextSpan(
         style: baseStyle,
         children: _spansFromNodes(result.nodes),

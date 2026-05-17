@@ -186,6 +186,129 @@ void main() {
     expect(cleaned.updatedAt, updatedAt);
   });
 
+  test(
+    'Note timeline protects current path and deletes branch descendants',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final featureProvider = FeatureProvider();
+      await featureProvider.load();
+
+      final noteId = await featureProvider.addNoteWithContent('note', 'root');
+      final rootId = featureProvider.getNote(noteId)!.currentRevisionId!;
+      final second = await featureProvider.saveNoteContent(noteId, 'second');
+      final secondId = second!.id;
+      final third = await featureProvider.saveNoteContent(noteId, 'third');
+      final thirdId = third!.id;
+
+      expect(featureProvider.getNoteCurrentRevisionPath(noteId), {
+        rootId,
+        secondId,
+        thirdId,
+      });
+      expect(await featureProvider.deleteNoteRevision(noteId, rootId), isFalse);
+      expect(
+        await featureProvider.deleteNoteRevision(noteId, thirdId),
+        isFalse,
+      );
+
+      final restored = await featureProvider.restoreNoteRevision(
+        noteId,
+        rootId,
+      );
+      final restoredId = restored!.id;
+
+      expect(featureProvider.getNote(noteId)!.content, 'root');
+      expect(featureProvider.getNoteCurrentRevisionPath(noteId), {
+        rootId,
+        restoredId,
+      });
+      expect(
+        await featureProvider.deleteNoteRevision(noteId, secondId),
+        isTrue,
+      );
+
+      final timelineIds = featureProvider
+          .getNoteTimeline(noteId)
+          .map((revision) => revision.id)
+          .toSet();
+      expect(timelineIds, containsAll([rootId, restoredId]));
+      expect(timelineIds, isNot(contains(secondId)));
+      expect(timelineIds, isNot(contains(thirdId)));
+      expect(
+        featureProvider.getNoteContentAtRevision(noteId, restoredId),
+        'root',
+      );
+    },
+  );
+
+  test(
+    'Note timeline can delete branches from a current path fork point',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final featureProvider = FeatureProvider();
+      await featureProvider.load();
+
+      final noteId = await featureProvider.addNoteWithContent('note', 'root');
+      final rootId = featureProvider.getNote(noteId)!.currentRevisionId!;
+      final main = await featureProvider.saveNoteContent(noteId, 'main');
+      final mainId = main!.id;
+      final branch = await featureProvider.restoreNoteRevision(noteId, rootId);
+      final branchId = branch!.id;
+      final branchChild = await featureProvider.saveNoteContent(
+        noteId,
+        'branch child',
+      );
+      final branchChildId = branchChild!.id;
+      final mainAgain = await featureProvider.restoreNoteRevision(
+        noteId,
+        mainId,
+      );
+      final mainAgainId = mainAgain!.id;
+
+      expect(featureProvider.getNoteCurrentRevisionPath(noteId), {
+        rootId,
+        mainId,
+        mainAgainId,
+      });
+      expect(featureProvider.countNoteBranchRevisions(noteId, rootId), 2);
+
+      final deleted = await featureProvider.deleteNoteBranchesFromRevision(
+        noteId,
+        rootId,
+      );
+
+      expect(deleted, 2);
+      final timelineIds = featureProvider
+          .getNoteTimeline(noteId)
+          .map((revision) => revision.id)
+          .toSet();
+      expect(timelineIds, containsAll([rootId, mainId, mainAgainId]));
+      expect(timelineIds, isNot(contains(branchId)));
+      expect(timelineIds, isNot(contains(branchChildId)));
+      expect(featureProvider.getNote(noteId)!.content, 'main');
+    },
+  );
+
+  test('Note save falls back when base revision is missing', () async {
+    SharedPreferences.setMockInitialValues({});
+    final featureProvider = FeatureProvider();
+    await featureProvider.load();
+
+    final noteId = await featureProvider.addNoteWithContent('note', 'root');
+    final first = await featureProvider.saveNoteContent(noteId, 'first');
+    final second = await featureProvider.saveNoteContent(
+      noteId,
+      'second',
+      baseRevisionId: 'missing-revision',
+    );
+
+    expect(first, isNotNull);
+    expect(second, isNotNull);
+    expect(featureProvider.getNote(noteId)!.content, 'second');
+    expect(second!.parentRevisionId, first!.id);
+    expect(featureProvider.getNoteTimeline(noteId), hasLength(3));
+  });
+
   test('ToolCallService manages note folders and moves notes', () async {
     SharedPreferences.setMockInitialValues({});
     final featureProvider = FeatureProvider();
@@ -240,6 +363,207 @@ void main() {
 
     expect(missingUpdate['ok'], isFalse);
   });
+
+  test('ToolCallService edits notes by line and saves timeline', () async {
+    SharedPreferences.setMockInitialValues({});
+    final featureProvider = FeatureProvider();
+    await featureProvider.load();
+    final service = ToolCallService(featureProvider);
+
+    final noteId = await featureProvider.addNoteWithContent(
+      'note',
+      'alpha\nbeta\ngamma',
+    );
+    final read = await service.execute(
+      ChatToolCall(id: 'read', name: 'read_note', arguments: {'id': noteId}),
+      const [],
+    );
+
+    final result = await service.execute(
+      ChatToolCall(
+        id: 'edit',
+        name: 'edit_note',
+        arguments: {
+          'id': noteId,
+          'expectedContentHash': read['contentHash'],
+          'baseRevisionId': read['currentRevisionId'],
+          'edits': [
+            {
+              'startLine': 2,
+              'deleteCount': 1,
+              'insertLines': ['BETA', 'delta'],
+            },
+          ],
+        },
+      ),
+      const [],
+    );
+
+    expect(result['ok'], isTrue);
+    expect(result['timelineSaved'], isTrue);
+    expect(result['revisionId'], isNotNull);
+    expect(result['lineDiffSummary'], '+2 / -1 行');
+    expect(
+      featureProvider.getNote(noteId)!.content,
+      'alpha\nBETA\ndelta\ngamma',
+    );
+    expect(featureProvider.getNoteTimeline(noteId), hasLength(2));
+  });
+
+  test('ToolCallService proposes note edits without saving timeline', () async {
+    SharedPreferences.setMockInitialValues({});
+    final featureProvider = FeatureProvider();
+    await featureProvider.load();
+    final service = ToolCallService(featureProvider);
+
+    final noteId = await featureProvider.addNoteWithContent('note', 'a\nb\nc');
+    final read = await service.execute(
+      ChatToolCall(id: 'read', name: 'read_note', arguments: {'id': noteId}),
+      const [],
+    );
+
+    final result = await service.execute(
+      ChatToolCall(
+        id: 'proposal',
+        name: 'propose_note_edit',
+        arguments: {
+          'id': noteId,
+          'expectedContentHash': read['contentHash'],
+          'baseRevisionId': read['currentRevisionId'],
+          'edits': [
+            {
+              'startLine': 2,
+              'deleteCount': 1,
+              'insertLines': ['B'],
+            },
+          ],
+        },
+      ),
+      const [],
+    );
+
+    expect(result['ok'], isTrue);
+    expect(result['timelineSaved'], isFalse);
+    expect(featureProvider.getNote(noteId)!.content, 'a\nb\nc');
+    expect(featureProvider.getNoteTimeline(noteId), hasLength(1));
+    final proposal = featureProvider.getNoteEditProposal(noteId);
+    expect(proposal, isNotNull);
+    expect(proposal!.blocks.single.startLine, 2);
+    expect(proposal.blocks.single.deletedLines, ['b']);
+    expect(proposal.blocks.single.insertLines, ['B']);
+  });
+
+  test('Note edit proposals are cleared when note content changes', () async {
+    SharedPreferences.setMockInitialValues({});
+    final featureProvider = FeatureProvider();
+    await featureProvider.load();
+    final service = ToolCallService(featureProvider);
+
+    final noteId = await featureProvider.addNoteWithContent('note', 'a\nb');
+    final read = await service.execute(
+      ChatToolCall(id: 'read', name: 'read_note', arguments: {'id': noteId}),
+      const [],
+    );
+    await service.execute(
+      ChatToolCall(
+        id: 'proposal',
+        name: 'propose_note_edit',
+        arguments: {
+          'id': noteId,
+          'expectedContentHash': read['contentHash'],
+          'edits': [
+            {
+              'startLine': 2,
+              'deleteCount': 1,
+              'insertLines': ['B'],
+            },
+          ],
+        },
+      ),
+      const [],
+    );
+    expect(featureProvider.getNoteEditProposal(noteId), isNotNull);
+
+    await service.execute(
+      ChatToolCall(
+        id: 'edit',
+        name: 'edit_note',
+        arguments: {
+          'id': noteId,
+          'expectedContentHash': read['contentHash'],
+          'edits': [
+            {
+              'startLine': 1,
+              'deleteCount': 1,
+              'insertLines': ['A'],
+            },
+          ],
+        },
+      ),
+      const [],
+    );
+
+    expect(featureProvider.getNoteEditProposal(noteId), isNull);
+  });
+
+  test(
+    'ToolCallService rejects stale and overlapping note line edits',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final featureProvider = FeatureProvider();
+      await featureProvider.load();
+      final service = ToolCallService(featureProvider);
+
+      final noteId = await featureProvider.addNoteWithContent(
+        'note',
+        'a\nb\nc',
+      );
+      final stale = await service.execute(
+        ChatToolCall(
+          id: 'stale',
+          name: 'edit_note',
+          arguments: {
+            'id': noteId,
+            'expectedContentHash': 'stale',
+            'edits': [
+              {
+                'startLine': 1,
+                'deleteCount': 1,
+                'insertLines': ['A'],
+              },
+            ],
+          },
+        ),
+        const [],
+      );
+      expect(stale['ok'], isFalse);
+
+      final overlap = await service.execute(
+        ChatToolCall(
+          id: 'overlap',
+          name: 'edit_note',
+          arguments: {
+            'id': noteId,
+            'edits': [
+              {
+                'startLine': 1,
+                'deleteCount': 2,
+                'insertLines': ['A'],
+              },
+              {
+                'startLine': 2,
+                'deleteCount': 1,
+                'insertLines': ['B'],
+              },
+            ],
+          },
+        ),
+        const [],
+      );
+      expect(overlap['ok'], isFalse);
+      expect(featureProvider.getNote(noteId)!.content, 'a\nb\nc');
+    },
+  );
 
   test('Markdown parser accepts nbsp-indented paragraph as paragraph', () {
     final document = md.Document(extensionSet: md.ExtensionSet.gitHubFlavored);

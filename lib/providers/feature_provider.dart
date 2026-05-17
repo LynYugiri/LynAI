@@ -27,12 +27,17 @@ class FeatureProvider extends ChangeNotifier {
   List<NoteRevision> _noteRevisions = [];
   List<NoteFolder> _noteFolders = [];
   List<TodoList> _todoLists = [];
+  final Map<String, NoteEditProposal> _noteEditProposals = {};
   final Map<String, String> _noteRevisionContentCache = {};
+  final Map<String, List<NoteRevision>> _noteTimelineCache = {};
 
   List<ScheduleItem> get schedules => List.unmodifiable(_schedules);
   List<Note> get notes => List.unmodifiable(_notes);
   List<NoteFolder> get noteFolders => List.unmodifiable(_noteFolders);
   List<TodoList> get todoLists => List.unmodifiable(_todoLists);
+  NoteEditProposal? getNoteEditProposal(String noteId) {
+    return _noteEditProposals[noteId];
+  }
 
   Future<void> load() async {
     try {
@@ -344,11 +349,28 @@ class FeatureProvider extends ChangeNotifier {
   }
 
   List<NoteRevision> getNoteTimeline(String noteId) {
+    final cached = _noteTimelineCache[noteId];
+    if (cached != null) return List.unmodifiable(cached);
     final revisions = _noteRevisions
         .where((revision) => revision.noteId == noteId)
         .toList();
     revisions.sort((a, b) => b.savedAt.compareTo(a.savedAt));
-    return revisions;
+    _noteTimelineCache[noteId] = List.unmodifiable(revisions);
+    return List.unmodifiable(revisions);
+  }
+
+  Set<String> getNoteCurrentRevisionPath(String noteId) {
+    final note = getNote(noteId);
+    final currentRevisionId = note?.currentRevisionId;
+    if (currentRevisionId == null) return const <String>{};
+    final path = <String>{};
+    String? revisionId = currentRevisionId;
+    while (revisionId != null && path.add(revisionId)) {
+      final revision = getNoteRevision(revisionId);
+      if (revision == null || revision.noteId != noteId) break;
+      revisionId = revision.parentRevisionId;
+    }
+    return path;
   }
 
   String getNoteContentAtRevision(String noteId, String? revisionId) {
@@ -421,6 +443,11 @@ class FeatureProvider extends ChangeNotifier {
       return note.copyWith(currentRevisionId: null, preserveUpdatedAt: true);
     }).toList();
     _noteRevisionContentCache.clear();
+    _noteTimelineCache.clear();
+  }
+
+  void _clearNoteTimelineCache(String noteId) {
+    _noteTimelineCache.remove(noteId);
   }
 
   Future<NoteRevision?> saveNoteContent(
@@ -431,7 +458,14 @@ class FeatureProvider extends ChangeNotifier {
     final index = _notes.indexWhere((note) => note.id == noteId);
     if (index == -1) return null;
     final note = _notes[index];
-    var parentRevisionId = baseRevisionId ?? note.currentRevisionId;
+    final requestedParentRevisionId = baseRevisionId ?? note.currentRevisionId;
+    final requestedParent = requestedParentRevisionId == null
+        ? null
+        : getNoteRevision(requestedParentRevisionId);
+    var parentRevisionId =
+        requestedParent != null && requestedParent.noteId == noteId
+        ? requestedParentRevisionId
+        : note.currentRevisionId;
     var baseContent = parentRevisionId == null
         ? note.content
         : getNoteContentAtRevision(noteId, parentRevisionId);
@@ -449,6 +483,7 @@ class FeatureProvider extends ChangeNotifier {
       bootstrappedRoot = rootRevision;
       _noteRevisions.insert(0, rootRevision);
       _noteRevisionContentCache[rootRevision.id] = note.content;
+      _clearNoteTimelineCache(note.id);
       parentRevisionId = rootRevision.id;
       baseContent = note.content;
       _notes[index] = note.copyWith(
@@ -494,6 +529,8 @@ class FeatureProvider extends ChangeNotifier {
     );
     _noteRevisions.insert(0, revision);
     _noteRevisionContentCache[revision.id] = content;
+    _clearNoteTimelineCache(note.id);
+    _noteEditProposals.remove(note.id);
     _notes[index] = note.copyWith(
       content: content,
       currentRevisionId: revision.id,
@@ -507,6 +544,9 @@ class FeatureProvider extends ChangeNotifier {
   Future<void> updateNote(Note note) async {
     final index = _notes.indexWhere((n) => n.id == note.id);
     if (index == -1) return;
+    if (_notes[index].content != note.content) {
+      _noteEditProposals.remove(note.id);
+    }
     _notes[index] = note;
     await _queueSaveNotes();
     notifyListeners();
@@ -543,11 +583,112 @@ class FeatureProvider extends ChangeNotifier {
         .map((revision) => revision.id)
         .toSet();
     _noteRevisions.removeWhere((revision) => revision.noteId == id);
+    _clearNoteTimelineCache(id);
+    _noteEditProposals.remove(id);
     _noteRevisionContentCache.removeWhere(
       (revisionId, _) => deletedRevisionIds.contains(revisionId),
     );
     await _queueSaveNotes();
     await _queueSaveNoteRevisions();
+    notifyListeners();
+  }
+
+  Future<NoteRevision?> restoreNoteRevision(
+    String noteId,
+    String revisionId,
+  ) async {
+    final revision = getNoteRevision(revisionId);
+    if (revision == null || revision.noteId != noteId) return null;
+    final content = getNoteContentAtRevision(noteId, revisionId);
+    return saveNoteContent(noteId, content, baseRevisionId: revisionId);
+  }
+
+  Future<bool> deleteNoteRevision(String noteId, String revisionId) async {
+    final revision = getNoteRevision(revisionId);
+    if (revision == null || revision.noteId != noteId) return false;
+    if (getNoteCurrentRevisionPath(noteId).contains(revisionId)) return false;
+    return _deleteNoteRevisionSet(noteId, {revisionId});
+  }
+
+  int countNoteBranchRevisions(String noteId, String parentRevisionId) {
+    final currentPath = getNoteCurrentRevisionPath(noteId);
+    final branchRoots = _noteRevisions
+        .where(
+          (revision) =>
+              revision.noteId == noteId &&
+              revision.parentRevisionId == parentRevisionId &&
+              !currentPath.contains(revision.id),
+        )
+        .map((revision) => revision.id)
+        .toSet();
+    if (branchRoots.isEmpty) return 0;
+    return _collectRevisionDescendants(noteId, branchRoots).length;
+  }
+
+  Future<int> deleteNoteBranchesFromRevision(
+    String noteId,
+    String parentRevisionId,
+  ) async {
+    final parent = getNoteRevision(parentRevisionId);
+    if (parent == null || parent.noteId != noteId) return 0;
+    final currentPath = getNoteCurrentRevisionPath(noteId);
+    final branchRoots = _noteRevisions
+        .where(
+          (revision) =>
+              revision.noteId == noteId &&
+              revision.parentRevisionId == parentRevisionId &&
+              !currentPath.contains(revision.id),
+        )
+        .map((revision) => revision.id)
+        .toSet();
+    if (branchRoots.isEmpty) return 0;
+    final descendants = _collectRevisionDescendants(noteId, branchRoots);
+    final deleted = await _deleteNoteRevisionSet(noteId, descendants);
+    return deleted ? descendants.length : 0;
+  }
+
+  Set<String> _collectRevisionDescendants(String noteId, Set<String> roots) {
+    final descendants = <String>{...roots};
+    var changed = true;
+    while (changed) {
+      changed = false;
+      for (final item in _noteRevisions) {
+        final parentId = item.parentRevisionId;
+        if (item.noteId == noteId &&
+            parentId != null &&
+            descendants.contains(parentId) &&
+            descendants.add(item.id)) {
+          changed = true;
+        }
+      }
+    }
+    return descendants;
+  }
+
+  Future<bool> _deleteNoteRevisionSet(
+    String noteId,
+    Set<String> revisionIds,
+  ) async {
+    if (revisionIds.isEmpty) return false;
+    final currentPath = getNoteCurrentRevisionPath(noteId);
+    if (revisionIds.any(currentPath.contains)) return false;
+    final descendants = _collectRevisionDescendants(noteId, revisionIds);
+    if (descendants.any(currentPath.contains)) return false;
+    _noteRevisions.removeWhere((item) => descendants.contains(item.id));
+    _noteRevisionContentCache.removeWhere((id, _) => descendants.contains(id));
+    _clearNoteTimelineCache(noteId);
+    await _queueSaveNoteRevisions();
+    notifyListeners();
+    return true;
+  }
+
+  void setNoteEditProposal(NoteEditProposal proposal) {
+    _noteEditProposals[proposal.noteId] = proposal;
+    notifyListeners();
+  }
+
+  void removeNoteEditProposal(String noteId) {
+    if (_noteEditProposals.remove(noteId) == null) return;
     notifyListeners();
   }
 
