@@ -25,6 +25,14 @@ class ConversationProvider extends ChangeNotifier {
   /// 获取所有对话列表（按更新时间倒序排列）
   List<Conversation> get conversations => List.unmodifiable(_conversations);
 
+  Future<void> replaceConversations(List<Conversation> conversations) async {
+    _conversations = List<Conversation>.from(conversations)
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    _queueSaveConversations();
+    await _saveQueue;
+    notifyListeners();
+  }
+
   /// 从 SharedPreferences 加载对话数据
   Future<void> loadConversations() async {
     try {

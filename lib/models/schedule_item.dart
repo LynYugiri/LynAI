@@ -41,6 +41,7 @@ class ScheduleItem {
   }
 
   ScheduleItem copyWith({
+    String? id,
     String? title,
     DateTime? start,
     DateTime? end,
@@ -48,7 +49,7 @@ class ScheduleItem {
     String? kind,
   }) {
     return ScheduleItem(
-      id: id,
+      id: id ?? this.id,
       title: title ?? this.title,
       start: start ?? this.start,
       end: end ?? this.end,

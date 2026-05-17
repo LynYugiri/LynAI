@@ -33,8 +33,45 @@ class FeatureProvider extends ChangeNotifier {
 
   List<ScheduleItem> get schedules => List.unmodifiable(_schedules);
   List<Note> get notes => List.unmodifiable(_notes);
+  List<NoteRevision> get noteRevisions => List.unmodifiable(_noteRevisions);
   List<NoteFolder> get noteFolders => List.unmodifiable(_noteFolders);
   List<TodoList> get todoLists => List.unmodifiable(_todoLists);
+
+  Future<void> replaceFeatureData({
+    List<ScheduleItem>? schedules,
+    List<NoteFolder>? noteFolders,
+    List<Note>? notes,
+    List<NoteRevision>? noteRevisions,
+    List<TodoList>? todoLists,
+  }) async {
+    final saveTasks = <Future<void>>[];
+    if (schedules != null) {
+      _schedules = List<ScheduleItem>.from(schedules)
+        ..sort((a, b) => a.start.compareTo(b.start));
+      saveTasks.add(_queueSaveSchedules());
+    }
+    if (noteFolders != null) {
+      _noteFolders = List<NoteFolder>.from(noteFolders);
+      saveTasks.add(_queueSaveNoteFolders());
+    }
+    if (notes != null) {
+      _notes = List<Note>.from(notes);
+      saveTasks.add(_queueSaveNotes());
+    }
+    if (noteRevisions != null) {
+      _noteRevisions = List<NoteRevision>.from(noteRevisions);
+      _noteRevisionContentCache.clear();
+      _noteTimelineCache.clear();
+      saveTasks.add(_queueSaveNoteRevisions());
+    }
+    if (todoLists != null) {
+      _todoLists = List<TodoList>.from(todoLists);
+      saveTasks.add(_queueSaveTodoLists());
+    }
+    await Future.wait(saveTasks);
+    notifyListeners();
+  }
+
   NoteEditProposal? getNoteEditProposal(String noteId) {
     return _noteEditProposals[noteId];
   }

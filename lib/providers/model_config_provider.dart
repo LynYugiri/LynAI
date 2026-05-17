@@ -17,6 +17,13 @@ class ModelConfigProvider extends ChangeNotifier {
   /// 获取所有模型配置（按优先级升序）
   List<ModelConfig> get models => List.unmodifiable(_models);
 
+  Future<void> replaceModels(List<ModelConfig> models) async {
+    _models = List<ModelConfig>.from(models)..sort(_compareModels);
+    _queueSaveModels();
+    await _saveQueue;
+    notifyListeners();
+  }
+
   List<ModelConfig> modelsByCategory(String category) {
     return _models.where((m) => m.category == category).toList(growable: false);
   }

@@ -53,6 +53,7 @@ class ChatRole {
   }
 
   ChatRole copyWith({
+    String? id,
     String? name,
     String? description,
     String? systemPrompt,
@@ -60,7 +61,7 @@ class ChatRole {
     Object? themeColor = _sentinel,
   }) {
     return ChatRole(
-      id: id,
+      id: id ?? this.id,
       name: name ?? this.name,
       description: description ?? this.description,
       systemPrompt: systemPrompt ?? this.systemPrompt,

@@ -198,4 +198,26 @@ class Conversation {
       'updatedAt': updatedAt.toIso8601String(),
     };
   }
+
+  Conversation copyWith({
+    String? id,
+    String? title,
+    List<Message>? messages,
+    String? modelId,
+    ConversationSettings? settings,
+    String? roleId,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return Conversation(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      messages: messages ?? this.messages,
+      modelId: modelId ?? this.modelId,
+      settings: settings ?? this.settings,
+      roleId: roleId ?? this.roleId,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
 }

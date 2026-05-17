@@ -46,6 +46,7 @@ class Note {
   }
 
   Note copyWith({
+    String? id,
     String? title,
     String? content,
     Object? currentRevisionId = _sentinel,
@@ -54,7 +55,7 @@ class Note {
     bool preserveUpdatedAt = false,
   }) {
     return Note(
-      id: id,
+      id: id ?? this.id,
       title: title ?? this.title,
       content: content ?? this.content,
       currentRevisionId: currentRevisionId == _sentinel
@@ -171,6 +172,24 @@ class NoteRevision {
       'delta': delta.toJson(),
     };
   }
+
+  NoteRevision copyWith({
+    String? id,
+    String? noteId,
+    Object? parentRevisionId = _sentinel,
+    DateTime? savedAt,
+    NoteTextDelta? delta,
+  }) {
+    return NoteRevision(
+      id: id ?? this.id,
+      noteId: noteId ?? this.noteId,
+      parentRevisionId: parentRevisionId == _sentinel
+          ? this.parentRevisionId
+          : parentRevisionId as String?,
+      savedAt: savedAt ?? this.savedAt,
+      delta: delta ?? this.delta,
+    );
+  }
 }
 
 class NoteEditProposal {
@@ -277,9 +296,9 @@ class NoteFolder {
     };
   }
 
-  NoteFolder copyWith({String? title}) {
+  NoteFolder copyWith({String? id, String? title}) {
     return NoteFolder(
-      id: id,
+      id: id ?? this.id,
       title: title ?? this.title,
       createdAt: createdAt,
       updatedAt: DateTime.now(),

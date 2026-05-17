@@ -35,9 +35,9 @@ class TodoList {
     };
   }
 
-  TodoList copyWith({String? title, List<TodoItem>? items}) {
+  TodoList copyWith({String? id, String? title, List<TodoItem>? items}) {
     return TodoList(
-      id: id,
+      id: id ?? this.id,
       title: title ?? this.title,
       items: items ?? this.items,
       createdAt: createdAt,
@@ -65,7 +65,11 @@ class TodoItem {
     return {'id': id, 'text': text, 'done': done};
   }
 
-  TodoItem copyWith({String? text, bool? done}) {
-    return TodoItem(id: id, text: text ?? this.text, done: done ?? this.done);
+  TodoItem copyWith({String? id, String? text, bool? done}) {
+    return TodoItem(
+      id: id ?? this.id,
+      text: text ?? this.text,
+      done: done ?? this.done,
+    );
   }
 }

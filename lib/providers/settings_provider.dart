@@ -19,6 +19,13 @@ class SettingsProvider extends ChangeNotifier {
 
   AppSettings get settings => _settings;
 
+  Future<void> replaceSettings(AppSettings settings) async {
+    _settings = settings;
+    _queueSaveSettings();
+    await _saveQueue;
+    notifyListeners();
+  }
+
   ChatRole get currentRole {
     return _settings.roles.firstWhere(
       (r) => r.id == _settings.currentRoleId,

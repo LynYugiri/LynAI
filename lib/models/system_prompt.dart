@@ -17,9 +17,9 @@ class SystemPrompt {
     return {'id': id, 'title': title, 'content': content};
   }
 
-  SystemPrompt copyWith({String? title, String? content}) {
+  SystemPrompt copyWith({String? id, String? title, String? content}) {
     return SystemPrompt(
-      id: id,
+      id: id ?? this.id,
       title: title ?? this.title,
       content: content ?? this.content,
     );
