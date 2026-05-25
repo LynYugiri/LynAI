@@ -408,15 +408,19 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
         _configureMathLive();
         _pushThemeToMathLive();
         _pushFormulaToMathLive(_rawCtrl.text);
+        break;
       case 'keyboard-visibility':
         final visible = decoded['visible'] == true;
         if (mounted) setState(() => _keyboardVisible = visible);
+        break;
       case 'error':
         _showNotice(
           'MathLive 初始化失败：${decoded['message'] ?? '未知错误'}，可切到源码模式继续编辑。',
         );
+        break;
       case 'input':
         _applyFormulaFromWeb(decoded['latex'] as String? ?? '');
+        break;
       default:
         break;
     }
@@ -424,18 +428,21 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
 
   void _applyFormulaFromWeb(String latex) {
     _syncingFromWeb = true;
-    if (_rawCtrl.text != latex) {
-      _rawCtrl.value = TextEditingValue(
-        text: latex,
-        selection: TextSelection.collapsed(offset: latex.length),
-      );
+    try {
+      if (_rawCtrl.text != latex) {
+        _rawCtrl.value = TextEditingValue(
+          text: latex,
+          selection: TextSelection.collapsed(offset: latex.length),
+        );
+      }
+      if (_useSourceMode) {
+        if (mounted) setState(() => _formula = latex);
+      } else {
+        _formula = latex;
+      }
+    } finally {
+      _syncingFromWeb = false;
     }
-    if (_useSourceMode) {
-      if (mounted) setState(() => _formula = latex);
-    } else {
-      _formula = latex;
-    }
-    _syncingFromWeb = false;
   }
 
   Future<void> _pushThemeToMathLive() async {

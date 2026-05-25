@@ -5,11 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
-
-String _safeBackgroundFileName(String name) {
-  final safe = name.replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_');
-  return safe.isEmpty ? 'background' : safe;
-}
+import '../utils/file_name_utils.dart';
 
 /// 背景图片设置页面
 ///
@@ -40,7 +36,7 @@ class _BackgroundPageState extends State<BackgroundPage> {
       if (!await bgDir.exists()) await bgDir.create(recursive: true);
       // image_picker 可能返回缓存路径；复制到应用私有目录后再保存，避免背景图被系统清理。
       final stored = await File(pickedFile.path).copy(
-        '${bgDir.path}/${DateTime.now().millisecondsSinceEpoch}_${_safeBackgroundFileName(pickedFile.name)}',
+        '${bgDir.path}/${DateTime.now().millisecondsSinceEpoch}_${safeStorageFileName(pickedFile.name, fallback: 'background')}',
       );
       if (!mounted) return;
       context.read<SettingsProvider>().setBackgroundImage(stored.path);

@@ -202,11 +202,13 @@ class BackupArchiveData {
   final Map<String, dynamic> manifest;
   final BackupData data;
   final List<String> warnings;
+  final Map<String, List<int>> assetFiles;
 
   const BackupArchiveData({
     required this.manifest,
     required this.data,
     this.warnings = const [],
+    this.assetFiles = const {},
   });
 
   Set<BackupSection> get availableSections => data.availableSections;

@@ -13,6 +13,7 @@ class FeatureProvider extends ChangeNotifier {
   static const _notesKey = 'notes';
   static const _noteRevisionsKey = 'note_revisions';
   static const _noteFoldersKey = 'note_folders';
+  static const _noteEditProposalsKey = 'note_edit_proposals';
   static const _todoListsKey = 'todo_lists';
   static const _scheduleWidgetChannel = MethodChannel('lynai/schedule_widget');
   final _uuid = const Uuid();
@@ -20,6 +21,7 @@ class FeatureProvider extends ChangeNotifier {
   Future<void> _noteSaveQueue = Future.value();
   Future<void> _noteRevisionSaveQueue = Future.value();
   Future<void> _noteFolderSaveQueue = Future.value();
+  Future<void> _noteEditProposalSaveQueue = Future.value();
   Future<void> _todoListSaveQueue = Future.value();
 
   List<ScheduleItem> _schedules = [];
@@ -141,6 +143,23 @@ class FeatureProvider extends ChangeNotifier {
       if (normalizedRevisions || cleanedFolderRefs) {
         await _queueSaveNotes();
       }
+      final noteEditProposalsJson = prefs.getString(_noteEditProposalsKey);
+      if (noteEditProposalsJson != null) {
+        final items = jsonDecode(noteEditProposalsJson) as List<dynamic>;
+        _noteEditProposals.clear();
+        for (final item in items) {
+          try {
+            final proposal = NoteEditProposal.fromJson(
+              item as Map<String, dynamic>,
+            );
+            if (_isUsableNoteEditProposal(proposal)) {
+              _noteEditProposals[proposal.noteId] = proposal;
+            }
+          } catch (e) {
+            debugPrint('跳过损坏的笔记修改建议记录: $e');
+          }
+        }
+      }
       final todoListsJson = prefs.getString(_todoListsKey);
       if (todoListsJson != null) {
         final items = jsonDecode(todoListsJson) as List<dynamic>;
@@ -161,6 +180,7 @@ class FeatureProvider extends ChangeNotifier {
       _notes = [];
       _noteRevisions = [];
       _noteFolders = [];
+      _noteEditProposals.clear();
       _todoLists = [];
       notifyListeners();
     }
@@ -230,6 +250,14 @@ class FeatureProvider extends ChangeNotifier {
     return _noteRevisionSaveQueue;
   }
 
+  Future<void> _queueSaveNoteEditProposals() {
+    final snapshot = List<NoteEditProposal>.from(_noteEditProposals.values);
+    _noteEditProposalSaveQueue = _noteEditProposalSaveQueue.then(
+      (_) => _saveNoteEditProposalsSnapshot(snapshot),
+    );
+    return _noteEditProposalSaveQueue;
+  }
+
   Future<void> _saveNoteFoldersSnapshot(List<NoteFolder> snapshot) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -264,6 +292,34 @@ class FeatureProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('保存笔记失败: $e');
     }
+  }
+
+  Future<void> _saveNoteEditProposalsSnapshot(
+    List<NoteEditProposal> snapshot,
+  ) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _noteEditProposalsKey,
+        jsonEncode(snapshot.map((e) => e.toJson()).toList()),
+      );
+    } catch (e) {
+      debugPrint('保存笔记修改建议失败: $e');
+    }
+  }
+
+  bool _isUsableNoteEditProposal(NoteEditProposal proposal) {
+    if (proposal.blocks.isEmpty || proposal.baseContentHash.isEmpty) {
+      return false;
+    }
+    final note = getNote(proposal.noteId);
+    if (note == null) return false;
+    final baseRevisionId = proposal.baseRevisionId;
+    if (baseRevisionId != null) {
+      final revision = getNoteRevision(baseRevisionId);
+      if (revision == null || revision.noteId != proposal.noteId) return false;
+    }
+    return true;
   }
 
   bool _removeMissingNoteFolderReferences() {
@@ -598,13 +654,14 @@ class FeatureProvider extends ChangeNotifier {
     _noteRevisions.insert(0, revision);
     _noteRevisionContentCache[revision.id] = content;
     _clearNoteTimelineCache(note.id);
-    _noteEditProposals.remove(note.id);
+    final removedProposal = _noteEditProposals.remove(note.id) != null;
     _notes[index] = note.copyWith(
       content: content,
       currentRevisionId: revision.id,
     );
     await _queueSaveNoteRevisions();
     await _queueSaveNotes();
+    if (removedProposal) await _queueSaveNoteEditProposals();
     notifyListeners();
     return revision;
   }
@@ -612,11 +669,12 @@ class FeatureProvider extends ChangeNotifier {
   Future<void> updateNote(Note note) async {
     final index = _notes.indexWhere((n) => n.id == note.id);
     if (index == -1) return;
-    if (_notes[index].content != note.content) {
-      _noteEditProposals.remove(note.id);
-    }
+    final removedProposal =
+        _notes[index].content != note.content &&
+        _noteEditProposals.remove(note.id) != null;
     _notes[index] = note;
     await _queueSaveNotes();
+    if (removedProposal) await _queueSaveNoteEditProposals();
     notifyListeners();
   }
 
@@ -652,12 +710,13 @@ class FeatureProvider extends ChangeNotifier {
         .toSet();
     _noteRevisions.removeWhere((revision) => revision.noteId == id);
     _clearNoteTimelineCache(id);
-    _noteEditProposals.remove(id);
+    final removedProposal = _noteEditProposals.remove(id) != null;
     _noteRevisionContentCache.removeWhere(
       (revisionId, _) => deletedRevisionIds.contains(revisionId),
     );
     await _queueSaveNotes();
     await _queueSaveNoteRevisions();
+    if (removedProposal) await _queueSaveNoteEditProposals();
     notifyListeners();
   }
 
@@ -750,13 +809,15 @@ class FeatureProvider extends ChangeNotifier {
     return true;
   }
 
-  void setNoteEditProposal(NoteEditProposal proposal) {
+  Future<void> setNoteEditProposal(NoteEditProposal proposal) async {
     _noteEditProposals[proposal.noteId] = proposal;
+    await _queueSaveNoteEditProposals();
     notifyListeners();
   }
 
-  void removeNoteEditProposal(String noteId) {
+  Future<void> removeNoteEditProposal(String noteId) async {
     if (_noteEditProposals.remove(noteId) == null) return;
+    await _queueSaveNoteEditProposals();
     notifyListeners();
   }
 

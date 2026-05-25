@@ -10,6 +10,7 @@ import '../models/app_settings.dart';
 import '../models/backup_models.dart';
 import '../models/chat_role.dart';
 import '../models/conversation.dart';
+import '../models/message.dart';
 import '../models/model_config.dart';
 import '../models/note.dart';
 import '../models/schedule_item.dart';
@@ -18,6 +19,7 @@ import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/settings_provider.dart';
+import '../utils/file_name_utils.dart';
 
 class BackupService {
   BackupService({
@@ -73,6 +75,9 @@ class BackupService {
     final createdAt = DateTime.now();
     final archive = Archive();
     final sections = <String, dynamic>{};
+    final assetRecords = <Map<String, dynamic>>[];
+    final archivedAssetPaths = <String, String>{};
+    final privateRoots = await _privateStorageRoots();
 
     void addJson(String path, Object value) {
       final bytes = utf8.encode(
@@ -81,17 +86,48 @@ class BackupService {
       archive.addFile(ArchiveFile(path, bytes.length, bytes));
     }
 
+    Future<void> addPrivateAsset(
+      String? originalPath,
+      String kind, {
+      String? name,
+    }) async {
+      if (originalPath == null || originalPath.isEmpty) return;
+      if (archivedAssetPaths.containsKey(originalPath)) return;
+      final file = File(originalPath);
+      if (!await file.exists()) return;
+      if (!_isInPrivateStorage(file, privateRoots)) return;
+      final safeName = safeStorageFileName(
+        name ?? file.uri.pathSegments.last,
+        fallback: 'asset',
+      );
+      final archivePath = 'assets/$kind/${assetRecords.length}_$safeName';
+      final bytes = await file.readAsBytes();
+      archive.addFile(ArchiveFile(archivePath, bytes.length, bytes));
+      archivedAssetPaths[originalPath] = archivePath;
+      assetRecords.add({
+        'kind': kind,
+        'originalPath': originalPath,
+        'archivePath': archivePath,
+        'name': safeName,
+      });
+    }
+
     if (selection.contains(BackupSection.settings)) {
+      final settings = settingsProvider.settings;
       final models =
           selection.settingsParts.contains(BackupSettingsPart.apiConfigs)
           ? modelConfigProvider.models
           : const <ModelConfig>[];
       addJson('settings.json', {
-        'appSettings': _settingsToJson(
-          settingsProvider.settings,
-          selection.settingsParts,
-        ),
+        'appSettings': _settingsToJson(settings, selection.settingsParts),
       });
+      if (selection.settingsParts.contains(BackupSettingsPart.appearance)) {
+        await addPrivateAsset(
+          settings.backgroundImagePath,
+          'backgrounds',
+          name: 'background${_extensionFromPath(settings.backgroundImagePath)}',
+        );
+      }
       addJson('model_configs.json', {
         'models': models.map((model) => model.toJson()).toList(),
       });
@@ -106,6 +142,17 @@ class BackupService {
       final conversations = conversationProvider.conversations
           .where((item) => selection.conversationIds.contains(item.id))
           .toList();
+      for (final conversation in conversations) {
+        for (final message in conversation.messages) {
+          for (final image in message.images) {
+            await addPrivateAsset(
+              image.path,
+              'message_images',
+              name: image.name,
+            );
+          }
+        }
+      }
       addJson('conversations.json', {
         'conversations': conversations.map((item) => item.toJson()).toList(),
       });
@@ -185,6 +232,7 @@ class BackupService {
       'createdAt': createdAt.toUtc().toIso8601String(),
       'format': 'zip',
       'sections': sections,
+      if (assetRecords.isNotEmpty) 'assets': assetRecords,
     });
 
     final dir = await getTemporaryDirectory();
@@ -197,6 +245,13 @@ class BackupService {
   Future<BackupArchiveData> readZip(File file) async {
     final decoded = ZipDecoder().decodeBytes(await file.readAsBytes());
     final files = {for (final file in decoded.files) file.name: file};
+    final assetFiles = <String, List<int>>{};
+    for (final entry in decoded.files) {
+      final content = entry.content;
+      if (entry.name.startsWith('assets/')) {
+        assetFiles[entry.name] = List<int>.from(content);
+      }
+    }
     final warnings = <String>[];
 
     Map<String, dynamic>? readMap(String path) {
@@ -278,6 +333,7 @@ class BackupService {
           '待办清单',
         ),
       ),
+      assetFiles: assetFiles,
     );
   }
 
@@ -307,49 +363,61 @@ class BackupService {
     BackupArchiveData archive,
     ImportPlan plan,
   ) async {
-    final data = _filterData(archive.data, plan.selection);
+    final filteredData = _filterData(archive.data, plan.selection);
+    final restoredAssetPaths = await _restoreAssets(
+      archive,
+      _referencedAssetPaths(filteredData, plan.selection.settingsParts),
+    );
+    final data = _remapBackupAssetPaths(filteredData, restoredAssetPaths);
     var added = 0;
     var replaced = 0;
     var skipped = 0;
     final idMap = _ImportIdMap();
 
-    if (plan.sections.contains(BackupSection.settings)) {
-      final result = await _applySettings(data, plan, idMap);
-      added += result.added;
-      replaced += result.replaced;
-      skipped += result.skipped;
-    }
-    if (plan.sections.contains(BackupSection.conversations)) {
-      final result = await _applyConversations(data, plan, idMap);
-      added += result.added;
-      replaced += result.replaced;
-      skipped += result.skipped;
-    }
-    if (plan.sections.contains(BackupSection.notes)) {
-      final result = await _applyNotes(data, plan, idMap);
-      added += result.added;
-      replaced += result.replaced;
-      skipped += result.skipped;
-    }
-    if (plan.sections.contains(BackupSection.schedules)) {
-      final result = await _applySchedules(data, plan);
-      added += result.added;
-      replaced += result.replaced;
-      skipped += result.skipped;
-    }
-    if (plan.sections.contains(BackupSection.todoLists)) {
-      final result = await _applyTodoLists(data, plan);
-      added += result.added;
-      replaced += result.replaced;
-      skipped += result.skipped;
-    }
+    try {
+      if (plan.sections.contains(BackupSection.settings)) {
+        final result = await _applySettings(data, plan, idMap);
+        added += result.added;
+        replaced += result.replaced;
+        skipped += result.skipped;
+      }
+      if (plan.sections.contains(BackupSection.conversations)) {
+        final result = await _applyConversations(data, plan, idMap);
+        added += result.added;
+        replaced += result.replaced;
+        skipped += result.skipped;
+      }
+      if (plan.sections.contains(BackupSection.notes)) {
+        final result = await _applyNotes(data, plan, idMap);
+        added += result.added;
+        replaced += result.replaced;
+        skipped += result.skipped;
+      }
+      if (plan.sections.contains(BackupSection.schedules)) {
+        final result = await _applySchedules(data, plan);
+        added += result.added;
+        replaced += result.replaced;
+        skipped += result.skipped;
+      }
+      if (plan.sections.contains(BackupSection.todoLists)) {
+        final result = await _applyTodoLists(data, plan);
+        added += result.added;
+        replaced += result.replaced;
+        skipped += result.skipped;
+      }
 
-    return ImportResult(
-      added: added,
-      replaced: replaced,
-      skipped: skipped,
-      warnings: archive.warnings,
-    );
+      return ImportResult(
+        added: added,
+        replaced: replaced,
+        skipped: skipped,
+        warnings: archive.warnings,
+      );
+    } finally {
+      await _deleteUnreferencedRestoredAssets(
+        restoredAssetPaths.values,
+        archive.warnings,
+      );
+    }
   }
 
   Future<ImportResult> _applySettings(
@@ -1145,6 +1213,182 @@ class BackupService {
   static String? _remapNullable(String? id, Map<String, String> map) {
     if (id == null) return null;
     return map[id] ?? id;
+  }
+
+  Future<Map<String, String>> _restoreAssets(
+    BackupArchiveData archive,
+    Set<String> neededOriginalPaths,
+  ) async {
+    if (neededOriginalPaths.isEmpty || archive.assetFiles.isEmpty) return {};
+    final records = archive.manifest['assets'];
+    if (records is! List) return {};
+    final dir = await getApplicationDocumentsDirectory();
+    final restored = <String, String>{};
+    for (final raw in records) {
+      if (raw is! Map) continue;
+      final originalPath = raw['originalPath'] as String?;
+      final archivePath = raw['archivePath'] as String?;
+      if (originalPath == null ||
+          archivePath == null ||
+          !neededOriginalPaths.contains(originalPath)) {
+        continue;
+      }
+      final bytes = archive.assetFiles[archivePath];
+      if (bytes == null) {
+        archive.warnings.add('资源文件缺失：$archivePath');
+        continue;
+      }
+      final kind = raw['kind'] as String? ?? 'assets';
+      final targetFolder = kind == 'backgrounds'
+          ? 'backgrounds'
+          : 'message_images';
+      final targetDir = Directory('${dir.path}/$targetFolder');
+      if (!await targetDir.exists()) await targetDir.create(recursive: true);
+      final name = safeStorageFileName(
+        raw['name'] as String? ?? File(originalPath).uri.pathSegments.last,
+        fallback: 'asset',
+      );
+      final file = File(
+        '${targetDir.path}/${DateTime.now().microsecondsSinceEpoch}_$name',
+      );
+      await file.writeAsBytes(bytes, flush: true);
+      restored[originalPath] = file.path;
+    }
+    return restored;
+  }
+
+  Future<void> _deleteUnreferencedRestoredAssets(
+    Iterable<String> restoredPaths,
+    List<String> warnings,
+  ) async {
+    final restored = restoredPaths.map(_normalizePath).toSet();
+    if (restored.isEmpty) return;
+
+    final referenced = <String>{};
+    final backgroundPath = settingsProvider.settings.backgroundImagePath;
+    if (backgroundPath != null && backgroundPath.isNotEmpty) {
+      referenced.add(_normalizePath(backgroundPath));
+    }
+    for (final conversation in conversationProvider.conversations) {
+      for (final message in conversation.messages) {
+        for (final image in message.images) {
+          if (image.path.isNotEmpty) referenced.add(_normalizePath(image.path));
+        }
+      }
+    }
+
+    for (final path in restored.difference(referenced)) {
+      try {
+        final file = File(path);
+        if (await file.exists()) await file.delete();
+      } catch (e) {
+        warnings.add('清理未使用资源失败：$path，$e');
+      }
+    }
+  }
+
+  static Set<String> _referencedAssetPaths(
+    BackupData data,
+    Set<BackupSettingsPart> settingsParts,
+  ) {
+    final paths = <String>{};
+    if (settingsParts.contains(BackupSettingsPart.appearance)) {
+      final path = data.appSettings?.backgroundImagePath;
+      if (path != null && path.isNotEmpty) paths.add(path);
+    }
+    for (final conversation in data.conversations ?? const <Conversation>[]) {
+      for (final message in conversation.messages) {
+        for (final image in message.images) {
+          if (image.path.isNotEmpty) paths.add(image.path);
+        }
+      }
+    }
+    return paths;
+  }
+
+  static BackupData _remapBackupAssetPaths(
+    BackupData data,
+    Map<String, String> assetPaths,
+  ) {
+    if (assetPaths.isEmpty) return data;
+    final appSettings = data.appSettings;
+    final backgroundPath = appSettings?.backgroundImagePath;
+    return BackupData(
+      appSettings: appSettings?.copyWith(
+        backgroundImagePath: backgroundPath == null
+            ? null
+            : assetPaths[backgroundPath] ?? backgroundPath,
+      ),
+      modelConfigs: data.modelConfigs,
+      conversations: data.conversations
+          ?.map(
+            (conversation) =>
+                _remapConversationAssetPaths(conversation, assetPaths),
+          )
+          .toList(),
+      noteFolders: data.noteFolders,
+      notes: data.notes,
+      noteRevisions: data.noteRevisions,
+      schedules: data.schedules,
+      todoLists: data.todoLists,
+    );
+  }
+
+  static Conversation _remapConversationAssetPaths(
+    Conversation conversation,
+    Map<String, String> assetPaths,
+  ) {
+    final messages = conversation.messages.map((message) {
+      final images = message.images.map((image) {
+        final path = assetPaths[image.path];
+        return path == null
+            ? image
+            : MessageImage(
+                path: path,
+                name: image.name,
+                size: image.size,
+                mimeType: image.mimeType,
+              );
+      }).toList();
+      return Message(
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        images: images,
+        thinkingContent: message.thinkingContent,
+        timestamp: message.timestamp,
+      );
+    }).toList();
+    return conversation.copyWith(messages: messages);
+  }
+
+  static Future<List<Directory>> _privateStorageRoots() async {
+    final roots = <Directory>[await getApplicationDocumentsDirectory()];
+    try {
+      roots.add(await getApplicationSupportDirectory());
+    } catch (_) {
+      // Some platforms may not expose an application support directory.
+    }
+    return roots;
+  }
+
+  static bool _isInPrivateStorage(File file, List<Directory> roots) {
+    final path = _normalizePath(file.absolute.path);
+    for (final root in roots) {
+      final rootPath = _normalizePath(root.absolute.path);
+      if (path == rootPath || path.startsWith('$rootPath/')) return true;
+    }
+    return false;
+  }
+
+  static String _normalizePath(String path) => path.replaceAll('\\', '/');
+
+  static String _extensionFromPath(String? path) {
+    if (path == null || path.isEmpty) return '';
+    final name = path.replaceAll('\\', '/').split('/').last;
+    final dot = name.lastIndexOf('.');
+    if (dot <= 0 || dot == name.length - 1) return '';
+    return name.substring(dot);
   }
 
   static BackupData _filterData(BackupData data, BackupSelection selection) {

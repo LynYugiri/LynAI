@@ -1,0 +1,940 @@
+part of '../chat_page.dart';
+
+class _DialogSettingsContent extends StatefulWidget {
+  final ConversationSettings settings;
+  final ValueChanged<ConversationSettings> onChanged;
+
+  const _DialogSettingsContent({
+    required this.settings,
+    required this.onChanged,
+  });
+
+  @override
+  State<_DialogSettingsContent> createState() => _DialogSettingsContentState();
+}
+
+class _DialogSettingsContentState extends State<_DialogSettingsContent> {
+  bool _showSpeechList = false;
+  bool _showImageList = false;
+  bool _showImageRecognitionList = false;
+  bool _showRoleList = false;
+  bool _showSystemPromptList = false;
+  String? _expandedSpeechId;
+  String? _expandedImageId;
+  String? _expandedImageRecognitionId;
+  late ConversationSettings _settings;
+
+  @override
+  void initState() {
+    super.initState();
+    _settings = widget.settings;
+  }
+
+  void _updateSettings(ConversationSettings settings) {
+    _settings = settings;
+    widget.onChanged(settings);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final set = context.watch<SettingsProvider>().settings;
+    final mp = context.watch<ModelConfigProvider>();
+    final speechModel = _settings.speechModelId != null
+        ? _findModelConfigById(mp.models, _settings.speechModelId!)
+        : null;
+    final ocrModel = _settings.imageModelId != null
+        ? _findModelConfigById(mp.models, _settings.imageModelId!)
+        : null;
+    final imageRecognitionModel = _settings.imageRecognitionModelId != null
+        ? _findModelConfigById(mp.models, _settings.imageRecognitionModelId!)
+        : null;
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.55,
+      minChildSize: 0.35,
+      maxChildSize: 0.85,
+      expand: false,
+      builder: (ctx, scrollCtrl) => SingleChildScrollView(
+        controller: scrollCtrl,
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.tune, size: 22),
+                  const SizedBox(width: 8),
+                  Text('对话设置', style: Theme.of(context).textTheme.titleLarge),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Text(
+                '角色管理',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700],
+                ),
+              ),
+              const SizedBox(height: 8),
+              InkWell(
+                onTap: () => setState(() => _showRoleList = !_showRoleList),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: _showRoleList
+                          ? Theme.of(
+                              context,
+                            ).colorScheme.primary.withValues(alpha: 0.3)
+                          : Colors.grey.withValues(alpha: 0.3),
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                    color: _showRoleList
+                        ? Theme.of(
+                            context,
+                          ).colorScheme.primary.withValues(alpha: 0.05)
+                        : null,
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          context.watch<SettingsProvider>().currentRole.name,
+                        ),
+                      ),
+                      Icon(
+                        _showRoleList ? Icons.expand_less : Icons.expand_more,
+                        size: 18,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (_showRoleList) ...[const SizedBox(height: 4), _roleList(set)],
+              const SizedBox(height: 20),
+              // 系统提示词
+              Text(
+                '系统提示词',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700],
+                ),
+              ),
+              const SizedBox(height: 8),
+              InkWell(
+                onTap: () => setState(
+                  () => _showSystemPromptList = !_showSystemPromptList,
+                ),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: _showSystemPromptList
+                          ? Theme.of(
+                              context,
+                            ).colorScheme.primary.withValues(alpha: 0.3)
+                          : Colors.grey.withValues(alpha: 0.3),
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                    color: _showSystemPromptList
+                        ? Theme.of(
+                            context,
+                          ).colorScheme.primary.withValues(alpha: 0.05)
+                        : null,
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _currentSystemPromptLabel(set),
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey[600],
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      Icon(
+                        _showSystemPromptList
+                            ? Icons.expand_less
+                            : Icons.expand_more,
+                        size: 18,
+                        color: Colors.grey[400],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (_showSystemPromptList) ...[
+                const SizedBox(height: 4),
+                _systemPromptList(set),
+              ],
+              const SizedBox(height: 20),
+              // 语音转文字模型
+              Text(
+                '语音转文字模型',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700],
+                ),
+              ),
+              const SizedBox(height: 8),
+              _inlineModelPicker(
+                mp: mp,
+                category: ModelConfig.categorySpeech,
+                currentModel: speechModel,
+                showList: _showSpeechList,
+                expandedId: _expandedSpeechId,
+                hint: '未设置（设置后将支持发送语音）',
+                icon: Icons.mic,
+                onToggle: () => setState(() {
+                  _showSpeechList = !_showSpeechList;
+                  _showImageList = false;
+                  _expandedSpeechId = null;
+                }),
+                onSelect: (id) {
+                  _updateSettings(_settings.copyWith(speechModelId: id));
+                  setState(() {
+                    _showSpeechList = false;
+                    _expandedSpeechId = null;
+                  });
+                },
+                onExpandProvider: (id) {
+                  _updateSettings(_settings.copyWith(speechModelId: id));
+                  setState(() {
+                    _expandedSpeechId = id;
+                  });
+                },
+                onSelectSub: (config, modelName) {
+                  final c = config.copyWith(modelName: modelName);
+                  context.read<ModelConfigProvider>().updateModel(c);
+                  setState(() {
+                    _showSpeechList = false;
+                    _expandedSpeechId = null;
+                  });
+                },
+                onClear: () {
+                  _updateSettings(_settings.copyWith(speechModelId: null));
+                  setState(() {
+                    _expandedSpeechId = null;
+                  });
+                },
+              ),
+              const SizedBox(height: 20),
+              // OCR 模型
+              Text(
+                'OCR 模型',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700],
+                ),
+              ),
+              const SizedBox(height: 8),
+              _inlineModelPicker(
+                mp: mp,
+                category: ModelConfig.categoryOcr,
+                currentModel: ocrModel,
+                showList: _showImageList,
+                expandedId: _expandedImageId,
+                hint: '未设置（非图片文件将跳过 OCR，仅保留附件信息）',
+                icon: Icons.image,
+                onToggle: () => setState(() {
+                  _showImageList = !_showImageList;
+                  _showSpeechList = false;
+                  _expandedImageId = null;
+                }),
+                onSelect: (id) {
+                  _updateSettings(_settings.copyWith(imageModelId: id));
+                  setState(() {
+                    _showImageList = false;
+                    _expandedImageId = null;
+                  });
+                },
+                onExpandProvider: (id) {
+                  _updateSettings(_settings.copyWith(imageModelId: id));
+                  setState(() {
+                    _expandedImageId = id;
+                  });
+                },
+                onSelectSub: (config, modelName) {
+                  final c = config.copyWith(modelName: modelName);
+                  context.read<ModelConfigProvider>().updateModel(c);
+                  setState(() {
+                    _showImageList = false;
+                    _expandedImageId = null;
+                  });
+                },
+                onClear: () {
+                  _updateSettings(_settings.copyWith(imageModelId: null));
+                  setState(() {
+                    _expandedImageId = null;
+                  });
+                },
+              ),
+              const SizedBox(height: 16),
+              // 文件识别模型
+              Text(
+                '文件识别模型',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700],
+                ),
+              ),
+              const SizedBox(height: 8),
+              _inlineModelPicker(
+                mp: mp,
+                category: ModelConfig.categoryChat,
+                currentModel: imageRecognitionModel,
+                showList: _showImageRecognitionList,
+                expandedId: _expandedImageRecognitionId,
+                hint: '未设置（启用文件识别后将用该模型读取附件）',
+                icon: Icons.file_present_outlined,
+                onToggle: () => setState(() {
+                  _showSpeechList = false;
+                  _showImageList = false;
+                  _showSystemPromptList = false;
+                  _showImageRecognitionList = !_showImageRecognitionList;
+                  _expandedImageRecognitionId = null;
+                }),
+                onSelect: (id) {
+                  _updateSettings(
+                    _settings.copyWith(imageRecognitionModelId: id),
+                  );
+                  setState(() {
+                    _showImageRecognitionList = false;
+                    _expandedImageRecognitionId = null;
+                  });
+                },
+                onExpandProvider: (id) {
+                  _updateSettings(
+                    _settings.copyWith(imageRecognitionModelId: id),
+                  );
+                  setState(() => _expandedImageRecognitionId = id);
+                },
+                onSelectSub: (config, modelName) {
+                  final c = config.copyWith(modelName: modelName);
+                  context.read<ModelConfigProvider>().updateModel(c);
+                },
+                onClear: () {
+                  _updateSettings(
+                    _settings.copyWith(imageRecognitionModelId: null),
+                  );
+                },
+                filter: (config) => config.models.any(
+                  (entry) => entry.enabled && entry.supportsVision,
+                ),
+                entryFilter: (entry) => entry.supportsVision,
+              ),
+              const SizedBox(height: 16),
+              // 文件识别提示词
+              Text(
+                '文件识别提示词',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700],
+                ),
+              ),
+              const SizedBox(height: 8),
+              InkWell(
+                onTap: () async {
+                  final result = await _showPromptDialog(
+                    context,
+                    _settings.imageRecognitionPrompt,
+                  );
+                  if (result != null && mounted) {
+                    _updateSettings(
+                      _settings.copyWith(imageRecognitionPrompt: result),
+                    );
+                  }
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: Colors.grey.withValues(alpha: 0.3),
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    _settings.imageRecognitionPrompt,
+                    style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 30),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('完成'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _inlineModelPicker({
+    required ModelConfigProvider mp,
+    required String category,
+    required ModelConfig? currentModel,
+    required bool showList,
+    required String? expandedId,
+    required String hint,
+    required IconData icon,
+    required VoidCallback onToggle,
+    required void Function(String) onSelect,
+    required void Function(String) onExpandProvider,
+    required void Function(ModelConfig, String) onSelectSub,
+    required VoidCallback onClear,
+    bool Function(ModelConfig)? filter,
+    bool Function(ModelEntry)? entryFilter,
+  }) {
+    final compact = MediaQuery.sizeOf(context).width < 380;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (currentModel != null)
+          Container(
+            margin: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: Theme.of(
+                context,
+              ).colorScheme.primary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: Theme.of(
+                  context,
+                ).colorScheme.primary.withValues(alpha: 0.2),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  icon,
+                  size: 14,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    compact
+                        ? currentModel.name
+                        : '${currentModel.name} / ${currentModel.modelName}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: onClear,
+                  child: Icon(
+                    Icons.close,
+                    size: 14,
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.primary.withValues(alpha: 0.6),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        InkWell(
+          onTap: onToggle,
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: showList
+                    ? Theme.of(
+                        context,
+                      ).colorScheme.primary.withValues(alpha: 0.3)
+                    : Colors.grey.withValues(alpha: 0.3),
+              ),
+              color: showList
+                  ? Theme.of(
+                      context,
+                    ).colorScheme.primary.withValues(alpha: 0.05)
+                  : null,
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  icon,
+                  size: 18,
+                  color: showList
+                      ? Theme.of(context).colorScheme.primary
+                      : (currentModel != null
+                            ? Theme.of(context).colorScheme.primary
+                            : Colors.grey[400]),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    currentModel != null ? '已选择：${currentModel.name}' : hint,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: currentModel != null ? null : Colors.grey[500],
+                    ),
+                  ),
+                ),
+                Icon(
+                  showList ? Icons.expand_less : Icons.expand_more,
+                  size: 18,
+                  color: Colors.grey[400],
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (showList) ...[
+          const SizedBox(height: 4),
+          _modelSelectList(
+            mp,
+            category,
+            onSelect,
+            onSelectSub,
+            currentModel?.id,
+            expandedId,
+            (id) {
+              if (id == expandedId) {
+                onToggle();
+              } else {
+                onExpandProvider(id);
+              }
+            },
+            filter,
+            entryFilter,
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _modelSelectList(
+    ModelConfigProvider mp,
+    String category,
+    void Function(String) onSelect,
+    void Function(ModelConfig, String) onSelectSub,
+    String? selectedId,
+    String? expandedId,
+    void Function(String) onExpandToggle,
+    bool Function(ModelConfig)? filter,
+    bool Function(ModelEntry)? entryFilter,
+  ) {
+    final models = mp
+        .modelsByCategory(category)
+        .where((model) {
+          return filter == null || filter(model);
+        })
+        .toList(growable: false);
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 300),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: ListView.builder(
+        shrinkWrap: true,
+        itemCount: models.length,
+        itemBuilder: (_, i) {
+          final m = models[i];
+          final isSelected = selectedId != null && m.id == selectedId;
+          final isExpanded = expandedId != null && m.id == expandedId;
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                dense: true,
+                title: Text(
+                  m.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 14),
+                ),
+                subtitle: Text(
+                  m.hasMultipleModels
+                      ? '${m.enabledModelNames.length} 个模型'
+                      : m.modelName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                ),
+                leading: Icon(
+                  isSelected ? Icons.check_circle : Icons.circle_outlined,
+                  size: 18,
+                  color: isSelected
+                      ? Theme.of(context).colorScheme.primary
+                      : Colors.grey[400],
+                ),
+                trailing: m.hasMultipleModels
+                    ? const Icon(Icons.chevron_right, size: 16)
+                    : null,
+                onTap: () {
+                  if (m.hasMultipleModels) {
+                    onExpandToggle(m.id);
+                  } else {
+                    onSelect(m.id);
+                  }
+                },
+              ),
+              if (isExpanded && m.hasMultipleModels)
+                ...m.models
+                    .where((e) => e.enabled)
+                    .where((e) => entryFilter == null || entryFilter(e))
+                    .map(
+                      (e) => ListTile(
+                        dense: true,
+                        contentPadding: const EdgeInsets.only(left: 56),
+                        leading: Icon(
+                          e.name == m.modelName
+                              ? Icons.radio_button_checked
+                              : Icons.radio_button_off,
+                          size: 14,
+                          color: e.name == m.modelName
+                              ? Theme.of(context).colorScheme.primary
+                              : Colors.grey,
+                        ),
+                        title: Text(
+                          e.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                        onTap: () => onSelectSub(m, e.name),
+                      ),
+                    ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<String?> _showPromptDialog(BuildContext context, String current) {
+    final ctrl = TextEditingController(text: current);
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('自定义提示词'),
+        content: TextField(
+          controller: ctrl,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            hintText: '请根据下面的文件内容或识别结果回答。',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () {
+              final text = ctrl.text.trim();
+              Navigator.pop(ctx, text);
+            },
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _currentSystemPromptLabel(AppSettings set) {
+    if (_settings.selectedSystemPromptId != null) {
+      try {
+        final p = set.systemPrompts.firstWhere(
+          (p) => p.id == _settings.selectedSystemPromptId,
+        );
+        return p.title;
+      } catch (_) {}
+    }
+    return '默认';
+  }
+
+  void _closeSystemPromptList() {
+    setState(() => _showSystemPromptList = false);
+  }
+
+  Widget _systemPromptList(AppSettings set) {
+    final prompts = set.systemPrompts;
+    final selectedId = _settings.selectedSystemPromptId;
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 220),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: ListView.builder(
+        key: ValueKey('sysprompt_${selectedId ?? 'none'}_${prompts.length}'),
+        shrinkWrap: true,
+        itemCount: 1 + prompts.length + 1,
+        itemBuilder: (_, i) {
+          if (i == 0) {
+            final sel = selectedId == null;
+            return ListTile(
+              dense: true,
+              leading: Icon(
+                sel ? Icons.check_circle : Icons.circle_outlined,
+                size: 18,
+                color: sel
+                    ? Theme.of(context).colorScheme.primary
+                    : Colors.grey,
+              ),
+              title: const Text('默认', style: TextStyle(fontSize: 14)),
+              subtitle: const Text(
+                'You are a helpful assistant.',
+                style: TextStyle(fontSize: 11),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              onTap: () {
+                _updateSettings(
+                  _settings.copyWith(selectedSystemPromptId: null),
+                );
+                _closeSystemPromptList();
+              },
+            );
+          }
+          if (i == 1 + prompts.length) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Divider(height: 1),
+                ListTile(
+                  dense: true,
+                  leading: Icon(
+                    Icons.add,
+                    size: 18,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  title: Text(
+                    '添加系统提示词',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                  onTap: () => _addSystemPrompt(),
+                ),
+              ],
+            );
+          }
+          final p = prompts[i - 1];
+          final sel = p.id == selectedId;
+          return ListTile(
+            dense: true,
+            leading: Icon(
+              sel ? Icons.check_circle : Icons.circle_outlined,
+              size: 18,
+              color: sel ? Theme.of(context).colorScheme.primary : Colors.grey,
+            ),
+            title: Text(p.title, style: const TextStyle(fontSize: 14)),
+            subtitle: Text(
+              p.content.length > 40
+                  ? '${p.content.substring(0, 40)}...'
+                  : p.content,
+              style: const TextStyle(fontSize: 11),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: IconButton(
+              icon: const Icon(Icons.edit, size: 18),
+              onPressed: () => _editSystemPrompt(p),
+            ),
+            onTap: () {
+              _updateSettings(_settings.copyWith(selectedSystemPromptId: p.id));
+              _closeSystemPromptList();
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _roleList(AppSettings set) {
+    final roles = set.roles;
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 240),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: ListView.builder(
+        shrinkWrap: true,
+        itemCount: roles.length + 1,
+        itemBuilder: (_, i) {
+          if (i == roles.length) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Divider(height: 1),
+                ListTile(
+                  dense: true,
+                  leading: Icon(
+                    Icons.add,
+                    size: 18,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  title: Text(
+                    '添加角色',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                  onTap: _addRole,
+                ),
+              ],
+            );
+          }
+          final role = roles[i];
+          final selected = role.id == set.currentRoleId;
+          return ListTile(
+            dense: true,
+            leading: Icon(
+              selected ? Icons.check_circle : Icons.circle_outlined,
+              size: 18,
+              color: selected
+                  ? Theme.of(context).colorScheme.primary
+                  : Colors.grey,
+            ),
+            title: Text(role.name),
+            subtitle: Text(
+              role.description.isNotEmpty
+                  ? role.description
+                  : role.systemPrompt,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: role.id == ChatRole.defaultId
+                ? null
+                : IconButton(
+                    icon: const Icon(Icons.edit, size: 18),
+                    onPressed: () => _editRole(role),
+                  ),
+            onTap: () {
+              context.read<SettingsProvider>().selectRole(role.id);
+              _updateSettings(_roleConversationSettings(role));
+              setState(() => _showRoleList = false);
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  ConversationSettings _roleConversationSettings(ChatRole role) {
+    return _settings.copyWith(
+      modelId: role.modelId ?? _settings.modelId,
+      selectedSystemPromptId: role.id == ChatRole.defaultId ? null : role.id,
+      systemPrompt: role.systemPrompt,
+    );
+  }
+
+  void _addRole() {
+    showDialog(
+      context: context,
+      builder: (ctx) => _RoleEditDialog(
+        onSave: (name, description, prompt, modelId, themeColor) {
+          context.read<SettingsProvider>().addRole(
+            name: name,
+            description: description,
+            systemPrompt: prompt,
+            modelId: modelId,
+            themeColor: themeColor,
+          );
+        },
+      ),
+    );
+  }
+
+  void _editRole(ChatRole role) {
+    final sp = context.read<SettingsProvider>();
+    showDialog(
+      context: context,
+      builder: (ctx) => _RoleEditDialog(
+        initialRole: role,
+        onSave: (name, description, prompt, modelId, themeColor) {
+          sp.updateRole(
+            id: role.id,
+            name: name,
+            description: description,
+            systemPrompt: prompt,
+            modelId: modelId,
+            themeColor: themeColor,
+          );
+          if (role.id == sp.settings.currentRoleId) {
+            _updateSettings(_roleConversationSettings(sp.currentRole));
+          }
+        },
+        onDelete: () => sp.deleteRole(role.id),
+      ),
+    );
+  }
+
+  void _addSystemPrompt() {
+    showDialog(
+      context: context,
+      builder: (ctx) => _SystemPromptEditDialog(
+        onSave: (title, content) {
+          final id = context.read<SettingsProvider>().addSystemPrompt(
+            title,
+            content,
+          );
+          _updateSettings(_settings.copyWith(selectedSystemPromptId: id));
+        },
+      ),
+    );
+  }
+
+  void _editSystemPrompt(SystemPrompt p) {
+    final sp = context.read<SettingsProvider>();
+    showDialog(
+      context: context,
+      builder: (ctx) => _SystemPromptEditDialog(
+        initialTitle: p.title,
+        initialContent: p.content,
+        onSave: (title, content) {
+          sp.updateSystemPrompt(p.id, title, content);
+        },
+        onDelete: () {
+          sp.deleteSystemPrompt(p.id);
+        },
+      ),
+    );
+  }
+}

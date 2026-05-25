@@ -209,6 +209,19 @@ class NoteEditProposal {
     required this.blocks,
   });
 
+  factory NoteEditProposal.fromJson(Map<String, dynamic> json) {
+    return NoteEditProposal(
+      id: json['id'] as String,
+      noteId: json['noteId'] as String,
+      baseRevisionId: json['baseRevisionId'] as String?,
+      baseContentHash: json['baseContentHash'] as String? ?? '',
+      createdAt: DateTime.parse(json['createdAt'] as String),
+      blocks: (json['blocks'] as List<dynamic>? ?? [])
+          .map((block) => NoteEditBlock.fromJson(block as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+
   NoteEditProposal copyWith({
     Object? baseRevisionId = _sentinel,
     String? baseContentHash,
@@ -253,6 +266,20 @@ class NoteEditBlock {
     required this.deletedLines,
     required this.insertLines,
   });
+
+  factory NoteEditBlock.fromJson(Map<String, dynamic> json) {
+    return NoteEditBlock(
+      id: json['id'] as String,
+      startLine: json['startLine'] as int? ?? 1,
+      deleteCount: json['deleteCount'] as int? ?? 0,
+      deletedLines: (json['deletedLines'] as List<dynamic>? ?? [])
+          .whereType<String>()
+          .toList(),
+      insertLines: (json['insertLines'] as List<dynamic>? ?? [])
+          .whereType<String>()
+          .toList(),
+    );
+  }
 
   Map<String, dynamic> toJson() {
     return {

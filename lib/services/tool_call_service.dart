@@ -624,7 +624,7 @@ class ToolCallService {
         case 'edit_note':
           return await _editNote(call.arguments);
         case 'propose_note_edit':
-          return _proposeNoteEdit(call.arguments);
+          return await _proposeNoteEdit(call.arguments);
         case 'list_note_folders':
           return _listNoteFolders();
         case 'save_note_folder':
@@ -965,7 +965,7 @@ class ToolCallService {
     };
   }
 
-  Map<String, dynamic> _proposeNoteEdit(Map<String, dynamic> args) {
+  Future<Map<String, dynamic>> _proposeNoteEdit(Map<String, dynamic> args) async {
     final parsed = _parseNoteEditArgs(
       args,
       emptyMessage: 'propose_note_edit 需要 edits',
@@ -981,7 +981,7 @@ class ToolCallService {
       edits: parsed.edits,
       baseRevisionId: parsed.baseRevisionId,
     );
-    _features.setNoteEditProposal(proposal);
+    await _features.setNoteEditProposal(proposal);
     return {
       'ok': true,
       'proposal': proposal.toJson(),

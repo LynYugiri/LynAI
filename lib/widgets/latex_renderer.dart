@@ -11,24 +11,9 @@ import 'package:screenshot/screenshot.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:super_clipboard/super_clipboard.dart';
 
-const _codeFontFamily = 'Hurmit Nerd Font';
+import '../utils/snackbar_utils.dart';
 
-SnackBar _shortSnackBar(String message) {
-  return SnackBar(
-    content: Builder(
-      builder: (context) {
-        final messenger = ScaffoldMessenger.of(context);
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: messenger.hideCurrentSnackBar,
-          child: Text(message),
-        );
-      },
-    ),
-    duration: const Duration(seconds: 2),
-    showCloseIcon: true,
-  );
-}
+const _codeFontFamily = 'Hurmit Nerd Font';
 
 class LatexRenderer {
   static List<InlineSpan> parseToSpans(String text, BuildContext context) {
@@ -1240,7 +1225,7 @@ class _ExportableBlock extends StatelessWidget {
   void _showImageSnack(BuildContext context, String message) {
     final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(_shortSnackBar(message));
+    messenger.showSnackBar(shortSnackBar(message));
   }
 }
 

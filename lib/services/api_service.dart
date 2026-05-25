@@ -772,6 +772,7 @@ class ApiService {
       }
 
       final toolCallParts = <int, _OpenAIStreamToolCallAccumulator>{};
+      var doneEmitted = false;
 
       await for (final chunk
           in streamedResponse.stream
@@ -781,6 +782,7 @@ class ApiService {
         if (chunk.startsWith('data:')) {
           final data = chunk.substring(5).trim();
           if (data == '[DONE]') {
+            doneEmitted = true;
             yield StreamChunk(
               toolCalls: _finalizeOpenAIToolCalls(toolCallParts),
               isDone: true,
@@ -811,6 +813,7 @@ class ApiService {
             // malformed chunk, skip
           }
           if (finishReason != null && finishReason != '') {
+            doneEmitted = true;
             yield StreamChunk(
               toolCalls: _finalizeOpenAIToolCalls(toolCallParts),
               isDone: true,
@@ -818,6 +821,12 @@ class ApiService {
             break;
           }
         }
+      }
+      if (!doneEmitted) {
+        yield StreamChunk(
+          toolCalls: _finalizeOpenAIToolCalls(toolCallParts),
+          isDone: true,
+        );
       }
     } finally {
       client.close();
@@ -1067,6 +1076,7 @@ class ApiService {
         return result;
       }
 
+      var doneEmitted = false;
       await for (final chunk
           in streamedResponse.stream
               .transform(utf8.decoder)
@@ -1089,12 +1099,19 @@ class ApiService {
             for (final c in processBuffer(flush: true)) {
               yield c;
             }
+            doneEmitted = true;
             yield StreamChunk(isDone: true);
             break;
           }
         } catch (e) {
           throw Exception('Ollama 流式解析失败: $e');
         }
+      }
+      if (!doneEmitted) {
+        for (final c in processBuffer(flush: true)) {
+          yield c;
+        }
+        yield StreamChunk(isDone: true);
       }
     } finally {
       client.close();
@@ -1155,6 +1172,7 @@ class ApiService {
         );
       }
 
+      var doneEmitted = false;
       await for (final chunk
           in streamedResponse.stream
               .transform(utf8.decoder)
@@ -1183,6 +1201,7 @@ class ApiService {
                 }
               }
             } else if (type == 'message_stop') {
+              doneEmitted = true;
               yield StreamChunk(isDone: true);
               break;
             }
@@ -1190,6 +1209,9 @@ class ApiService {
             // malformed chunk, skip
           }
         }
+      }
+      if (!doneEmitted) {
+        yield StreamChunk(isDone: true);
       }
     } finally {
       client.close();
