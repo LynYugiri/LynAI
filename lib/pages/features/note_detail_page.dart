@@ -1540,11 +1540,16 @@ class _NoteDetailState extends State<_NoteDetail> {
 
   Widget _latexPanel() {
     final scheme = Theme.of(context).colorScheme;
+    final media = MediaQuery.sizeOf(context);
+    final compact = media.width < 600;
+    final maxHeight = (media.height * (compact ? 0.36 : 0.42))
+        .clamp(220.0, 310.0)
+        .toDouble();
     return Material(
       color: Color.lerp(scheme.surface, scheme.tertiaryContainer, 0.18),
       child: Container(
         width: double.infinity,
-        constraints: const BoxConstraints(maxHeight: 310),
+        constraints: BoxConstraints(maxHeight: maxHeight),
         decoration: BoxDecoration(
           border: Border(
             top: BorderSide(color: scheme.outlineVariant),
@@ -1556,46 +1561,7 @@ class _NoteDetailState extends State<_NoteDetail> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Wrap(
-                spacing: 8,
-                runSpacing: 4,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.functions, color: scheme.tertiary),
-                      const SizedBox(width: 8),
-                      Text(
-                        'LaTeX 编辑器',
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ],
-                  ),
-                  TextButton.icon(
-                    onPressed: _insertInlineLatex,
-                    icon: const Icon(Icons.short_text),
-                    label: const Text('行内'),
-                  ),
-                  TextButton.icon(
-                    onPressed: _insertBlockLatex,
-                    icon: const Icon(Icons.view_agenda_outlined),
-                    label: const Text('块级'),
-                  ),
-                  TextButton.icon(
-                    onPressed: _editCurrentLatexFormula,
-                    icon: const Icon(Icons.edit_outlined),
-                    label: const Text('编辑当前公式'),
-                  ),
-                  IconButton(
-                    tooltip: '关闭 LaTeX 工具',
-                    icon: const Icon(Icons.close),
-                    onPressed: _toggleLatexPanel,
-                  ),
-                ],
-              ),
+              _latexPanelHeader(compact, scheme),
               const SizedBox(height: 6),
               AnimatedBuilder(
                 animation: _ctrl,
@@ -1611,6 +1577,62 @@ class _NoteDetailState extends State<_NoteDetail> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _latexPanelHeader(bool compact, ColorScheme scheme) {
+    final title = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.functions, color: scheme.tertiary),
+        const SizedBox(width: 8),
+        Text(
+          'LaTeX 编辑器',
+          style: Theme.of(
+            context,
+          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+        ),
+      ],
+    );
+    final actions = Wrap(
+      spacing: 6,
+      runSpacing: 4,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        TextButton.icon(
+          onPressed: _insertInlineLatex,
+          icon: const Icon(Icons.short_text),
+          label: const Text('行内'),
+        ),
+        TextButton.icon(
+          onPressed: _insertBlockLatex,
+          icon: const Icon(Icons.view_agenda_outlined),
+          label: const Text('块级'),
+        ),
+        TextButton.icon(
+          onPressed: _editCurrentLatexFormula,
+          icon: const Icon(Icons.edit_outlined),
+          label: const Text('编辑当前公式'),
+        ),
+        IconButton(
+          tooltip: '关闭 LaTeX 工具',
+          icon: const Icon(Icons.close),
+          onPressed: _toggleLatexPanel,
+        ),
+      ],
+    );
+    if (compact) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [title, const SizedBox(height: 4), actions],
+      );
+    }
+    return Row(
+      children: [
+        title,
+        const SizedBox(width: 8),
+        Expanded(child: actions),
+      ],
     );
   }
 

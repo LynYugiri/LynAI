@@ -92,6 +92,7 @@
       flex: 1;
       min-height: 0;
       position: relative;
+      box-sizing: border-box;
     }
     #keyboard-host {
       position: absolute;
@@ -398,6 +399,9 @@
         border-radius: 0;
         padding: 10px 10px 0;
       }
+      .editor-shell {
+        min-height: 132px;
+      }
       .label {
         display: none;
       }
@@ -428,6 +432,32 @@
         --keycap-font-size: 19px;
         --keycap-small-font-size: 13px;
         --keycap-extra-small-font-size: 11px;
+      }
+    }
+    @media (max-height: 620px) {
+      :root {
+        --keycap-height: 46px;
+        --keycap-gap: 4px;
+        --keycap-font-size: 18px;
+        --keycap-small-font-size: 12px;
+        --keycap-extra-small-font-size: 10px;
+        --keyboard-toolbar-font-size: 13px;
+        --keyboard-padding-top: 6px;
+        --keyboard-padding-bottom: max(8px, env(safe-area-inset-bottom));
+      }
+      #keyboard-host .MLK__toolbar {
+        min-height: 28px;
+        padding-bottom: 4px;
+      }
+      .symbol-chip,
+      #symbol-toggle,
+      .symbol-tab,
+      .favorite-toggle {
+        height: 32px;
+        min-width: 38px;
+      }
+      #symbol-tools {
+        bottom: calc(var(--keyboard-overlay-height) + 46px);
       }
     }
   </style>
@@ -858,6 +888,15 @@
           requestAnimationFrame(() => nativeInput.focus());
         };
 
+        const focusFormulaEditor = () => {
+          if (!touchLike) {
+            mf.focus();
+            return;
+          }
+          setNativeInputVisible(false);
+          setKeyboardVisible(true, false);
+        };
+
         const setKeyboardVisible = (visible, activateNativeInput = true) => {
           keyboardVisible = visible;
           if (visible) {
@@ -876,8 +915,12 @@
         mathVirtualKeyboard.layouts = advancedMathLayouts;
         mathVirtualKeyboard.addEventListener('geometrychange', () => {
           const height = mathVirtualKeyboard.boundingRect.height || 0;
-          const minHeight = touchLike ? 420 : 360;
-          const paddedHeight = height > 0 ? Math.max(Math.ceil(height), minHeight) : 0;
+          const viewportHeight = window.visualViewport?.height || window.innerHeight || 720;
+          const maxKeyboardHeight = Math.max(220, Math.floor(viewportHeight * (touchLike ? 0.58 : 0.48)));
+          const minHeight = Math.min(touchLike ? 360 : 300, maxKeyboardHeight);
+          const paddedHeight = height > 0
+            ? Math.min(Math.max(Math.ceil(height), minHeight), maxKeyboardHeight)
+            : 0;
           keyboardHost.style.height = paddedHeight > 0 ? `${paddedHeight}px` : '0px';
           document.querySelector('.panel').style.setProperty('--keyboard-overlay-height', `${paddedHeight}px`);
           keyboardVisible = height > 0;
@@ -889,9 +932,9 @@
         mf.mathVirtualKeyboardPolicy = 'manual';
         mf.smartFence = true;
         mf.inlineShortcuts = { 'oo': '\\infty' };
-        mf.addEventListener('pointerup', focusNativeInput);
+        mf.addEventListener('pointerup', focusFormulaEditor);
         mf.addEventListener('focusin', () => {
-          if (touchLike && !keyboardVisible) focusNativeInput();
+          if (touchLike && !keyboardVisible) setKeyboardVisible(true, false);
         });
         mf.addEventListener('input', () => {
           syncNativeInput();

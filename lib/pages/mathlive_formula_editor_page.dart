@@ -98,6 +98,8 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    final compact = size.width < 600;
     return Scaffold(
       appBar: AppBar(
         leading: BackButton(onPressed: _closeEditor),
@@ -118,64 +120,12 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
         },
         child: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: EdgeInsets.all(compact ? 10 : 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (_notice != null) _noticeBanner(),
-                Row(
-                  children: [
-                    Expanded(
-                      child: SegmentedButton<bool>(
-                        segments: const [
-                          ButtonSegment<bool>(
-                            value: false,
-                            icon: Icon(Icons.functions),
-                            label: Text('可视编辑'),
-                          ),
-                          ButtonSegment<bool>(
-                            value: true,
-                            icon: Icon(Icons.code),
-                            label: Text('源码模式'),
-                          ),
-                        ],
-                        selected: {_useSourceMode},
-                        onSelectionChanged: (selection) {
-                          final next = selection.first;
-                          if (!next && !_supportsEmbeddedMathLive) {
-                            _showNotice('当前平台暂不支持内嵌 MathLive，可继续使用源码模式。');
-                            return;
-                          }
-                          setState(() {
-                            _useSourceMode = next;
-                            if (next) _formula = _rawCtrl.text;
-                          });
-                          if (!next) {
-                            _formula = _rawCtrl.text;
-                            _pushFormulaToMathLive(_rawCtrl.text);
-                          } else {
-                            _setKeyboardVisible(
-                              false,
-                              activateNativeInput: false,
-                            );
-                          }
-                        },
-                      ),
-                    ),
-                    if (!_useSourceMode && _supportsEmbeddedMathLive) ...[
-                      const SizedBox(width: 10),
-                      OutlinedButton.icon(
-                        onPressed: _toggleKeyboard,
-                        icon: Icon(
-                          _keyboardVisible
-                              ? Icons.keyboard_hide
-                              : Icons.keyboard,
-                        ),
-                        label: Text(_keyboardVisible ? '收起键盘' : '键盘'),
-                      ),
-                    ],
-                  ],
-                ),
+                _modeBar(compact),
                 if (_useSourceMode) ...[
                   const SizedBox(height: 10),
                   _previewCard(context),
@@ -191,6 +141,69 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _modeBar(bool compact) {
+    final modeSwitcher = SegmentedButton<bool>(
+      segments: const [
+        ButtonSegment<bool>(
+          value: false,
+          icon: Icon(Icons.functions),
+          label: Text('可视编辑'),
+        ),
+        ButtonSegment<bool>(
+          value: true,
+          icon: Icon(Icons.code),
+          label: Text('源码模式'),
+        ),
+      ],
+      selected: {_useSourceMode},
+      onSelectionChanged: (selection) {
+        final next = selection.first;
+        if (!next && !_supportsEmbeddedMathLive) {
+          _showNotice('当前平台暂不支持内嵌 MathLive，可继续使用源码模式。');
+          return;
+        }
+        setState(() {
+          _useSourceMode = next;
+          if (next) _formula = _rawCtrl.text;
+        });
+        if (!next) {
+          _formula = _rawCtrl.text;
+          _pushFormulaToMathLive(_rawCtrl.text);
+        } else {
+          _setKeyboardVisible(false, activateNativeInput: false);
+        }
+      },
+    );
+    final keyboardButton = !_useSourceMode && _supportsEmbeddedMathLive
+        ? OutlinedButton.icon(
+            onPressed: _toggleKeyboard,
+            icon: Icon(_keyboardVisible ? Icons.keyboard_hide : Icons.keyboard),
+            label: Text(_keyboardVisible ? '收起键盘' : '键盘'),
+          )
+        : null;
+    if (compact) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          modeSwitcher,
+          if (keyboardButton != null) ...[
+            const SizedBox(height: 8),
+            Align(alignment: Alignment.centerRight, child: keyboardButton),
+          ],
+        ],
+      );
+    }
+    return Row(
+      children: [
+        Expanded(child: modeSwitcher),
+        if (keyboardButton != null) ...[
+          const SizedBox(width: 10),
+          keyboardButton,
+        ],
+      ],
     );
   }
 
@@ -261,8 +274,9 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
     return TextField(
       controller: _rawCtrl,
       autofocus: true,
-      minLines: 8,
-      maxLines: 18,
+      expands: true,
+      minLines: null,
+      maxLines: null,
       style: const TextStyle(fontFamily: 'Hurmit Nerd Font', height: 1.45),
       decoration: const InputDecoration(
         labelText: 'LaTeX 源码',
@@ -384,7 +398,12 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
     Navigator.of(context).pop();
   }
 
-  Future<void> _toggleKeyboard() => _setKeyboardVisible(!_keyboardVisible);
+  Future<void> _toggleKeyboard() {
+    return _setKeyboardVisible(
+      !_keyboardVisible,
+      activateNativeInput: !_keyboardVisible,
+    );
+  }
 
   void _handleBridgeMessage(String rawMessage) {
     if (!mounted) return;
