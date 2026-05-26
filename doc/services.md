@@ -1,20 +1,20 @@
-# API 服务与工具调用
+# 服务层
+
+`lib/services/` 把外部 API、平台工具和备份导入导出从页面中隔离出来。页面负责收集上下文和展示结果，服务负责协议转换、错误处理和数据搬运。
 
 ## ApiService
 
-**文件**：`lib/services/api_service.dart`
+文件：`lib/services/api_service.dart`
 
-`ApiService` 是所有远程能力的入口，负责 Chat、流式 Chat、OCR、语音转写、图片生成、多模态文件识别和附件内容转换。
+`ApiService` 负责 Chat、流式 Chat、OCR、语音转写、图片生成、附件内容转换和 reasoning 提取。
 
-## 数据类型
+### 核心数据类型
 
 ```dart
 class ChatFileInput {
   final Uint8List bytes;
   final String mimeType;
   final String name;
-
-  bool get isImage => mimeType.startsWith('image/');
 }
 
 class StreamChunk {
@@ -31,144 +31,101 @@ class ChatResponse {
 }
 ```
 
-`StreamChunk` 将正文和思考内容拆开返回，便于 UI 分区展示。`ChatResponse` 用于非流式请求和工具调用二次请求。
+`StreamChunk` 把正文、思考内容和工具调用分离，使 UI 可以独立展示正文和 reasoning，并在流结束后继续工具调用循环。
 
-## Chat 请求
+### Chat 请求入口
 
-### 非流式
+| 方法 | 用途 |
+|------|------|
+| `sendChatRequest(config, messages, {thinking, tools, toolChoice})` | 非流式对话、工具调用二次请求、工具结果回传后的最终回复 |
+| `sendStreamRequest(config, messages, {thinking})` | 聊天主链路的流式回复 |
+| `chatContentWithFiles(text, files)` | 把文本和附件转换为统一内容结构 |
+| `recognizeImageText(config, imageBytes)` | vivo OCR 图片识别 |
+| `recognizeImageTextWithChatModel(config, prompt, files)` | 用 Chat 模型识别图片或文件内容 |
+| `transcribeAudio(config, audioBytes, {audioType})` | vivo 长语音转写 |
+| `generateImages(config, prompt, {image, parameters})` | OpenAI Images 或 vivo 图片生成 |
 
-```dart
-Future<ChatResponse> sendChatRequest(
-  ModelConfig config,
-  List<Map<String, dynamic>> messages, {
-  bool thinking = false,
-  List<Map<String, dynamic>> tools = const [],
-  String? toolChoice,
-})
-```
-
-用途：普通非流式回复、工具调用、工具结果回传后的最终回复。
-
-### 流式
-
-```dart
-Stream<StreamChunk> sendStreamRequest(
-  ModelConfig config,
-  List<Map<String, dynamic>> messages, {
-  bool thinking = false,
-})
-```
-
-用途：聊天主回复。UI 逐 chunk 更新最后一条 assistant 消息，流结束后再持久化。
-
-流式结束时，如果模型返回了原生工具调用，`StreamChunk.toolCalls` 会随 `isDone=true` 一起返回给 `ChatPage`，由页面执行本地工具并继续下一轮模型请求。
-
-## 支持接口
+### 支持协议
 
 | `apiType` | 路径 | 认证 | 流式格式 |
 |-----------|------|------|----------|
-| `openai` | `/chat/completions` | `Authorization: Bearer <key>`，API Key 可为空 | SSE `data:` |
+| `openai` | `/chat/completions` | `Authorization: Bearer <key>`，key 可为空 | SSE `data:` |
 | `custom` | `/chat/completions` | 同 OpenAI 兼容 | SSE `data:` |
 | `ollama` | `/api/chat` | 无认证 | 逐行 JSON |
 | `anthropic` | `/messages` | `x-api-key` + `anthropic-version` | SSE `data:` |
 | `openai_image` | `/images/generations` | Bearer Token | 非流式 JSON |
 | `vivo_image` | 配置的完整 endpoint | Bearer Token | 非流式 JSON |
 
-## 请求体策略
+### 请求体策略
 
-| 接口 | 行为 |
+| 协议 | 行为 |
 |------|------|
-| OpenAI 兼容 | 发送 `model`、`messages`、`stream`、`thinking`、`max_tokens`、`temperature`、`top_p`、`tools`、`tool_choice` |
-| Ollama | 发送 `model`、`messages`、`stream`、`think`；采样参数放入 `options` |
-| Anthropic | 将 system 消息提取为顶层 `system`，其余消息写入 `messages`；默认 `max_tokens=4096` |
-| 图片生成 | OpenAI Images 使用 `/images/generations`；vivo 图片生成使用配置的完整 endpoint |
+| OpenAI 兼容 | 发送 `model`、`messages`、`stream`、`thinking`、采样参数；工具开启时发送 `tools` 和 `tool_choice` |
+| Ollama | 发送 `model`、`messages`、`stream`、`think`；采样参数进入 `options` |
+| Anthropic | system 消息提升到顶层 `system`，其余消息写入 `messages`，默认 `max_tokens=4096` |
+| 图片生成 | OpenAI Images 使用标准 `/images/generations`，vivo 使用配置的完整 endpoint |
 
-`extraParams` 会被合并进请求体，但不会覆盖已经由代码设置的关键字段。
+`extraParams` 会合并到请求体，但不会覆盖代码已经设置的核心字段，例如 `model`、`messages`、`stream`。
 
-### OpenAI 兼容请求细节
+### 模型能力开关
 
-OpenAI 兼容路径用于 `apiType=openai` 和 `apiType=custom`。请求体固定包含 `thinking` 字段，以保持应用内思考开关的一致行为。
+当前请求使用 `ModelConfig.activeEntry` 的能力字段。
 
-| 字段 | 来源 |
+| 字段 | 影响 |
 |------|------|
-| `model` | `ModelConfig.modelName` 当前激活子模型 |
-| `messages` | `_openAICompatibleMessages()` 转换后的历史消息 |
-| `stream` | 非流式为 `false`，流式为 `true` |
-| `thinking` | `{type: enabled}` 或 `{type: disabled}` |
-| `max_tokens` | `effectiveMaxTokens` 非空时发送 |
-| `temperature` | `effectiveTemperature` 非空时发送 |
-| `top_p` | `effectiveTopP` 非空时发送 |
-| `tools` | 启用原生工具调用时发送 |
-| `tool_choice` | 默认为 `auto`，工具循环过深时为 `none` |
+| `supportsVision` | 控制是否把图片作为多模态内容发送；不支持时退化为文本上下文 |
+| `supportsThinking` | 控制 UI 思考开关和请求中的 thinking/think 参数 |
+| `supportsTools` | 控制 OpenAI 兼容协议是否发送原生 tools |
 
-如果目标服务不接受 `thinking` 字段，需要在服务端或兼容网关处理；客户端当前保持既有协议行为。
+### 思考内容解析
 
-## 思考内容解析
-
-| 接口 | 解析来源 |
-|------|----------|
-| OpenAI 兼容 | `reasoning_content`、`reasoning`、`thinking`、`thinking_content` 及对应流式 delta 字段 |
-| Ollama | 非流式和流式文本中的 `<think>...</think>` |
-| Anthropic | 非流式 `thinking` 内容块与流式 `thinking_delta` |
-
-当 `thinking=true` 时，OpenAI 兼容接口发送 `thinking: {type: enabled}`，Ollama 发送 `think: true`。Anthropic 不自动注入厂商私有 thinking 参数，需要时通过 `extraParams` 显式配置。
-
-## 附件、图片与语音接口
-
-| 方法 | 说明 |
+| 协议 | 来源 |
 |------|------|
-| `chatContentWithFiles(text, files)` | 把文本和附件转换成统一的 `text`/`input_file` 内容列表 |
-| `recognizeImageText(config, imageBytes)` | 调用 vivo OCR，返回识别文本 |
-| `recognizeImageTextWithChatModel(config, prompt, files)` | 使用多模态 Chat 模型识别文件；图片按各接口多模态格式发送，非图片文件按接口能力转换为 `input_file`、文本或 base64 上下文 |
-| `transcribeAudio(config, audioBytes, {audioType})` | 调用 vivo 长语音转写，自动分片上传并轮询结果 |
-| `generateImages(config, prompt, {image, parameters})` | 调用 OpenAI Images 或 vivo 图片生成接口 |
+| OpenAI 兼容 | `reasoning_content`、`reasoning`、`thinking`、`thinking_content` 及对应 delta 字段 |
+| Ollama | 文本中的 `<think>...</think>` |
+| Anthropic | 非流式 thinking content block 和流式 `thinking_delta` |
 
-OpenAI 兼容接口会把图片附件转换为 `image_url`，其他文件转换为文本上下文；Ollama 图片走 `images` 数组，其他文件写入文本内容；Anthropic 图片使用 `image` content block，其他文件写入文本内容。聊天主链路在发送前会按接口类型执行同样的内容转换。
+如果模型或接口没有暴露可见 reasoning，UI 会在最后一条回复中显示说明，而不是伪造思考过程。
 
-## vivo 长语音转写流程
+### 附件转换
 
-1. `/lasr/create` 创建音频任务。
-2. `/lasr/upload` 按 5 MB 分片上传音频。
-3. `/lasr/run` 启动转写。
+| 接口 | 图片 | 非图片文件 |
+|------|------|------------|
+| OpenAI 兼容 | `image_url` data URL | 文本上下文或 `input_file` 风格内容，取决于链路 |
+| Ollama | `images` 数组 | 文本上下文 |
+| Anthropic | `image` content block | 文本上下文 |
+| 不支持多模态 | 文件名、MIME、大小、文本/base64 摘要 | 文件名、MIME、大小、文本/base64 摘要 |
+
+对话主链路、OCR 前处理和文件识别链路都会复用相同的附件输入模型 `ChatFileInput`。
+
+### vivo 长语音转写
+
+1. `/lasr/create` 创建任务。
+2. `/lasr/upload` 按 5 MB 分片上传。
+3. `/lasr/run` 启动任务。
 4. `/lasr/progress` 每 2 秒轮询，最多 120 次。
-5. `/lasr/result` 获取最终 `onebest` 文本并拼接返回。
+5. `/lasr/result` 获取 `onebest` 并拼接最终文本。
 
-## 超时与错误处理
+### 错误处理
 
-- 普通请求超时为 60 秒。
-- 流式请求建立连接超时为 60 秒，流读取总超时为 10 分钟。
-- 非 200 或业务错误码会抛出包含状态码和响应体的中文异常。
-- 流式解析中格式异常的 chunk 会被跳过，避免单个坏 chunk 中断整个响应。
-- OpenAI 兼容 SSE 的 `error` payload 和 Anthropic 的 `type: error` 会转换为明确异常，避免空回复或卡住。
-- OpenAI 兼容流式工具调用参数如果不是合法 JSON 对象，会跳过该工具调用并继续处理已有回复。
-
-### 流式错误示例
-
-OpenAI 兼容服务可能在 SSE 中返回：
-
-```json
-{"error":{"message":"context length exceeded"}}
-```
-
-Anthropic 可能返回：
-
-```json
-{"type":"error","error":{"message":"rate limit exceeded"}}
-```
-
-这两类事件会进入 `ChatPage` 的 `onError` 分支，最终显示为 `请求失败: ...`，并保留已收到的正文。
-
-### 工具参数容错
-
-流式工具调用会逐 chunk 累积 `function.arguments`。如果结束时参数不是 JSON 对象，会记录调试日志并跳过该工具调用。这样做的目的是优先保留用户可见回复，避免模型输出半截工具参数时整条消息失败。
+| 场景 | 行为 |
+|------|------|
+| 普通请求超时 | 60 秒 |
+| 流式建立超时 | 60 秒 |
+| 流读取总超时 | 10 分钟 |
+| 非 200 或业务错误 | 抛出包含状态码/响应体的中文异常 |
+| OpenAI SSE `error` payload | 转换为异常进入 ChatPage 失败分支 |
+| Anthropic `type:error` | 转换为异常进入失败分支 |
+| 单个坏 chunk | 跳过，保留已收到正文 |
+| 工具参数不是 JSON 对象 | 跳过该工具调用，保留回复正文 |
 
 ## ToolCallService
 
-**文件**：`lib/services/tool_call_service.dart`
+文件：`lib/services/tool_call_service.dart`
 
-`ToolCallService` 定义本地工具、解析 fallback JSON，并把模型工具调用映射为本地执行结果。
+`ToolCallService` 定义工具 schema、解析 fallback JSON，并把模型工具调用映射到本地 Provider 或平台通道。
 
-## 工具数据类型
+### 数据类型
 
 ```dart
 class ChatToolCall {
@@ -184,39 +141,90 @@ class ToolExecutionResult {
 }
 ```
 
-## 可用工具
+### 工具清单
 
-| 工具名 | 说明 | 数据来源 |
-|--------|------|----------|
-| `get_current_time` | 获取当前时间、时区和 ISO 时间 | Dart `DateTime.now()` |
-| `get_location` | 获取设备最近位置 | 原生通道 `getLocation` |
-| `open_app` | Android 按包名打开应用 | 原生通道 `openApp` |
-| `list_schedules` | 查询日程列表，可按时间范围过滤 | `FeatureProvider.schedules` |
-| `create_schedule` | 创建日程 | `FeatureProvider.addSchedule()` |
-| `update_schedule` | 修改日程 | `FeatureProvider.updateSchedule()` |
-| `list_notes` | 查询笔记列表，可返回摘要或完整内容 | `FeatureProvider.notes` |
-| `read_note` | 按 id、标题或关键字读取笔记 | `FeatureProvider.getNote()` |
-| `save_note` | 创建、覆盖或追加笔记 | `FeatureProvider.addNote()` / `updateNote()` |
+| 工具 | 来源/副作用 |
+|------|-------------|
+| `get_current_time` | `DateTime.now()`，无副作用 |
+| `get_location` | Android 原生通道，需定位权限 |
+| `open_app` | Android 原生通道，按包名打开应用 |
+| `list_schedules` | 读取 `FeatureProvider.schedules` |
+| `create_schedule` | 写入 `FeatureProvider.addSchedule()` |
+| `update_schedule` | 写入 `FeatureProvider.updateSchedule()` |
+| `list_notes` | 读取 `FeatureProvider.notes` |
+| `read_note` | 读取单篇笔记 |
+| `save_note` | 创建、覆盖或追加笔记 |
 
-## 工具调用策略
+### 调用策略
 
-- OpenAI 兼容接口支持原生 `tools` 和 `tool_choice`。
-- 不支持原生 tool calls 的接口可按系统提示返回 JSON：`{"tool_calls":[{"name":"工具名","arguments":{...}}]}`。
-- `parseFallbackToolCalls()` 会自动剥离 JSON 代码围栏并解析 `tool_calls`。
+- OpenAI 兼容协议在 `supportsTools=true` 且未设置 `extraParams.disableTools=true` 时使用原生 `tools`。
+- Ollama、Anthropic 和不稳定兼容接口可走 JSON fallback：`{"tool_calls":[{"name":"工具名","arguments":{...}}]}`。
+- `parseFallbackToolCalls()` 会剥离 JSON 代码围栏后解析。
 - 工具结果统一返回 `{ok: true, ...}` 或 `{ok: false, error: ...}`。
-- 工具调用循环会累积每轮 `ChatResponse.reasoning`，并把工具调用阶段与最终回复阶段的思考过程一起显示在最终 assistant 消息上。
-- 启用工具时，系统消息会追加当前设备本地时间、时区名和 `timezoneOffsetMinutes`，降低相对时间理解偏差。
-- 日程工具参数使用 ISO-8601 字符串；解析后统一转本地时间保存，返回 `start`/`end` 时输出本地 ISO，并附带时区名与偏移量。
-- `list_schedules` 使用时间区间相交过滤，适配跨天日程和按日期范围查询。
+- 工具调用循环会累积工具阶段和最终回复阶段的 reasoning，保存到最终 assistant 消息。
+- 启用工具时会注入当前本地时间、时区名和 `timezoneOffsetMinutes`。
+- 日程工具解析 ISO-8601 后统一转本地时间，返回时也输出本地 ISO。
 
-## 平台通道
+### 平台通道
 
-通道名：`lynai/native_tools`。
+| 通道 | 方法 | 平台 | 说明 |
+|------|------|------|------|
+| `lynai/native_tools` | `openApp` | Android | 调用 `PackageManager.getLaunchIntentForPackage()` |
+| `lynai/native_tools` | `getLocation` | Android | 请求定位权限并读取最近位置 |
+| `lynai/native_tools` | `saveImageToGallery` | Android | 保存 PNG 到 `Pictures/LynAI` |
+| `lynai/schedule_widget` | `refresh` | Android | 日程变更后刷新小组件 |
+| `lynai/schedule_widget` | `rescheduleNotifications` | Android | 日程变更后重新安排通知 |
 
-Android 实现位于 `android/app/src/main/kotlin/com/github/lynyugiri/lynai/MainActivity.kt`。
+桌面端导出图片优先通过 `super_clipboard` 写入系统剪贴板；移动端优先保存到图库或调用系统分享。
 
-| 方法 | 说明 |
+## BackupService
+
+文件：`lib/services/backup_service.dart`
+
+`BackupService` 负责 ZIP 备份导出、读取、预览和导入。当前 schema version 为 `1`，备份类型为 `lynai.backup`。
+
+### 导出结构
+
+```text
+manifest.json
+settings.json
+model_configs.json
+conversations.json
+notes/folders.json
+notes/notes.json
+notes/revisions.json
+schedules.json
+todo_lists.json
+assets/backgrounds/...
+assets/message_images/...
+```
+
+实际文件由 `BackupSelection` 决定，不会无条件全部写入。`manifest.json` 记录类型、schema、应用版本、创建时间、分区信息和附件映射。
+
+### 分区
+
+| 分区 | 内容 |
 |------|------|
-| `openApp` | 使用 `PackageManager.getLaunchIntentForPackage()` 启动应用 |
-| `getLocation` | 请求 `ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION` 后读取最近位置 |
-| `saveImageToGallery` | 写入 `MediaStore.Images`，Android Q 及以上保存到 `Pictures/LynAI` |
+| `settings` | `AppSettings` 和/或 `ModelConfig`，可细分 API 配置、外观、对话设置、角色与提示词 |
+| `conversations` | 选中的对话和其私有附件 |
+| `notes` | 选中笔记、关联文件夹和修订 |
+| `schedules` | 选中日程 |
+| `todoLists` | 选中待办清单 |
+
+### 导入流程
+
+1. `readZip(file)` 解压 ZIP，校验 `manifest.json`，解析各分区 JSON，收集警告。
+2. `preview(archive, selection)` 根据用户选择过滤数据，生成分区摘要和冲突列表。
+3. 用户选择导入模式和冲突动作。
+4. `importArchive(archive, plan)` 恢复私有附件、重映射路径、应用各分区数据。
+5. 导入完成后删除未被最终数据引用的临时恢复附件。
+
+### 导入模式
+
+| 模式 | 行为 |
+|------|------|
+| `merge` | 合并数据，冲突按用户选择处理 |
+| `addOnly` | 只添加新数据，跳过冲突 |
+| `replaceSection` | 替换所选分区 |
+
+冲突动作包括保留本地、使用导入、两者保留。两者保留时服务会生成新 ID，并修复对话、笔记、修订等内部引用。

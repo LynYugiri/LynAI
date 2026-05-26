@@ -1,6 +1,6 @@
 # LynAI
 
-LynAI 是一个跨平台 AI 对话客户端，基于 Flutter 开发，支持 OpenAI 兼容接口、Ollama、Anthropic 以及 vivo OCR/长语音转写/图片生成等能力。当前版本：`v2.2.10`。
+LynAI 是一个基于 Flutter 的跨平台 AI 对话与本地生产力客户端。它把多模型对话、Markdown/LaTeX 渲染、文件与图片理解、语音输入、本地工具调用、日程、笔记、待办和备份恢复放在同一个本地优先的应用中。当前版本：`v2.2.10`。
 
 ## 截图
 
@@ -8,43 +8,49 @@ LynAI 是一个跨平台 AI 对话客户端，基于 Flutter 开发，支持 Ope
 |------|------|
 | ![设置](./images/demo/1.png) | ![对话](./images/demo/2.png) |
 
-## 核心能力
+## 功能总览
 
-- **跨平台客户端**：支持 Android、iOS、Linux、macOS、Windows 和 Web 构建。
-- **多模型配置**：Chat、OCR、语音转文字、图片生成四类配置独立管理，支持拖拽排序和多子模型启用。
-- **多接口协议**：支持 OpenAI 兼容 `/chat/completions`、Ollama `/api/chat`、Anthropic `/messages`，并可通过自定义 Endpoint 接入兼容服务。
-- **流式对话**：SSE 或逐行 JSON 实时渲染回复，支持停止生成、重试、编辑后重发和重试版本切换。
-- **Markdown 与 LaTeX**：消息和笔记支持 Markdown、Hurmit Nerd Font 代码字体、One Dark Pro 风格多语言代码高亮、内联公式 `$...$`、块级公式 `$$...$$`、`\(...\)`、`\[...\]`，代码块和公式块可复制或单独导出图片。
-- **思考过程展示**：支持解析 DeepSeek `reasoning_content`、常见 `reasoning`/`thinking` 字段、Ollama `<think>`、Anthropic thinking delta，并随消息持久化恢复；如果模型或 API 不暴露可见 reasoning，会在消息上明确提示。
-- **文件与图片输入**：支持选择文件、多图选择、移动端拍照和桌面端剪贴板粘贴图片；附件会复制到应用私有目录，避免历史消息引用临时文件失效。
-- **OCR 与文件理解**：图片可通过 vivo OCR 提取文字；PDF、文本、表格、Office、压缩包等文件可通过 Chat 模型识别，未开启识别时会随请求直传给支持附件的模型或保留元数据上下文。
-- **语音输入**：未配置接口时使用系统语音识别；配置语音模型后使用录音文件调用 vivo 长语音转写。
-- **本地工具调用**：模型可调用本地工具获取时间、位置、打开 Android 应用、管理日程和笔记；日程工具统一使用本地时区；不支持原生 tool_calls 的接口可走 JSON fallback。
-- **长图分享**：可选择多条对话生成长图，保留 Markdown/LaTeX 排版，桌面端可复制到剪贴板，移动端可分享或保存。
-- **功能页**：包含对话历史、日程表和 Markdown 笔记，支持历史搜索、角色分组、日程月/周/年视图、笔记导入导出。
-- **角色与提示词**：可为不同角色保存系统提示词、默认模型和主题色，新对话继承当前角色，历史对话保留设置快照。
-- **外观定制**：支持 36 种预设主题色、HSV 调色板、浅色/深色/跟随系统，以及图片背景和毛玻璃效果。
+| 模块 | 能力 |
+|------|------|
+| AI 对话 | OpenAI 兼容接口、Ollama、Anthropic；流式回复；停止生成；失败重试；编辑后重发；多版本重试历史 |
+| 模型管理 | Chat、OCR、语音转文字、图片生成四类配置；Endpoint 预设；模型拉取；多子模型；视觉/思考/工具能力开关；子模型级采样参数 |
+| Markdown/LaTeX | Markdown、代码高亮、Hurmit Nerd Font、内联/块级 LaTeX、代码块和公式块复制或单独导出图片 |
+| 附件输入 | 文件、多图、拍照、桌面剪贴板图片；附件复制到应用私有目录并随历史消息恢复 |
+| 图片与文件理解 | 图片可走 vivo OCR；PDF、文本、表格、Office、压缩包等可由 Chat 模型识别或作为多模态附件直传/退化为文本上下文 |
+| 语音输入 | 无接口时使用系统语音识别；配置语音模型后录音并调用 vivo 长语音转写 |
+| 本地工具 | 时间、位置、打开 Android 应用、查询/创建/修改日程、查询/读取/保存笔记 |
+| 功能页 | 按角色管理对话历史；日程月/周/年视图；Markdown 笔记；待办清单；搜索、导入、导出、长图分享 |
+| 角色与提示词 | 多角色、系统提示词模板、角色默认模型、角色主题色；历史对话保留设置快照 |
+| 外观 | Material 3、36 种预设色、HSV 调色板、浅色/深色/跟随系统、全局背景图和毛玻璃 |
+| 数据管理 | ZIP 备份导出/读取预览/按分区导入/冲突处理；支持对话、设置、模型、日程、笔记、待办和私有附件恢复 |
 
 ## 支持平台
 
 | 平台 | 状态 | 说明 |
 |------|------|------|
-| Android | 支持 | 额外包含位置、打开应用、保存长图到图库等原生能力 |
-| iOS | 支持 | 依赖 Flutter 与插件能力 |
-| Linux | 支持 | 桌面端长图可写入系统剪贴板 |
-| macOS | 支持 | 桌面端长图可写入系统剪贴板 |
-| Windows | 支持 | 桌面端长图可写入系统剪贴板 |
-| Web | 可构建 | 部分本地文件、剪贴板和平台工具能力受浏览器限制 |
+| Android | 支持 | 额外包含定位、打开应用、图库保存、日程小组件/通知等原生能力 |
+| iOS | 支持 | 依赖 Flutter 与插件能力，分享/相册/录音需系统权限 |
+| Linux | 支持 | 长图、代码块和公式块图片可写入剪贴板 |
+| macOS | 支持 | CI 同时构建 x64 与 arm64 包 |
+| Windows | 支持 | CI 构建 x64 zip 包 |
+| Web | 可构建 | 文件、剪贴板、本地工具和平台能力受浏览器限制 |
 
 ## 快速开始
 
-环境要求：Flutter SDK `^3.11.5`，Dart SDK 由 Flutter 管理。
+环境要求：Flutter stable，项目 Dart SDK 约束为 `^3.11.5`。
 
 ```bash
 git clone https://github.com/lynyugiri/lynai.git
 cd lynai
 flutter pub get
 flutter run
+```
+
+常用验证命令：
+
+```bash
+flutter analyze
+flutter test
 ```
 
 常用构建命令：
@@ -58,164 +64,102 @@ flutter build ios
 flutter build web
 ```
 
-开发验证：
-
-```bash
-flutter analyze
-flutter test
-```
-
 ## 首次配置
 
-进入 `设置 -> API`，按类别添加模型或能力配置。
+进入 `设置 -> API` 添加模型配置。Chat 配置可使用 OpenAI、DeepSeek、Anthropic、Google AI、Ollama、OpenRouter、Groq、Together AI、xAI、Moonshot、vivo、智谱、通义千问、SiliconFlow 等预设，也可填写自定义 OpenAI 兼容 Endpoint。
 
-| 类别 | 用途 | 主要字段 |
+| 类别 | 用途 | 关键字段 |
 |------|------|----------|
-| Chat | 普通对话、流式回复、多模态文件识别、本地工具调用 | Provider 名称、API 类型、Endpoint、API Key、模型列表 |
+| Chat | 对话、文件识别、多模态输入、本地工具调用 | Provider 名称、API 类型、Endpoint、API Key、模型列表、能力开关、高级参数 |
 | OCR | 图片文字提取 | vivo OCR Endpoint、AppID、AppKey |
-| 语音转文字 | 录音文件转写 | vivo 长语音转写 Endpoint、AppID、AppKey、engineid |
-| 图片生成 | 文生图或图生图接口 | OpenAI Images 或 vivo 图片生成 Endpoint、API Key、模型名 |
+| Speech | 录音转文字 | vivo 长语音转写 Endpoint、AppID、AppKey、engineid |
+| Image Generation | 图片生成 | OpenAI Images 或 vivo 图片生成 Endpoint、API Key、模型名 |
 
-Chat 配置支持 Endpoint 预设，包括 OpenAI、DeepSeek、Anthropic、Google AI、Ollama、OpenRouter、Groq、Together AI、xAI、Moonshot、vivo、智谱、通义千问、SiliconFlow 和自定义接口。
+Chat 提供商下可以维护多个 `ModelEntry`。只有启用的子模型会出现在对话模型选择器中；当前激活子模型的 `maxTokens`、`temperature`、`topP` 优先于提供商级参数。
 
-## 使用说明
+## 对话链路
 
-### 对话
+1. 用户输入文本，并可附加文件、图片、相机照片或剪贴板图片。
+2. `ChatPage` 根据当前角色、当前对话快照和全局设置选择 Chat、OCR、语音和文件识别模型。
+3. 图片在 OCR 开启时先提取文字；非图片文件在文件识别开启时先由选中的 Chat 模型读取。
+4. 附件未启用预处理时，会按接口能力直传为多模态内容，或退化为文件名、大小、MIME、base64/文本上下文。
+5. `ApiService.sendStreamRequest()` 发起流式请求，把正文 chunk、reasoning chunk 和最终 tool calls 分开返回。
+6. `ConversationProvider.updateLastMessage(save: false)` 实时刷新 UI，流结束或失败后再落盘。
+7. 如果模型返回工具调用，`ToolCallService` 执行本地工具，再把结果回传模型生成最终自然语言回复。
 
-- 桌面端 `Enter` 发送，`Shift + Enter` 换行；移动端回车默认换行。
-- 点击底部模型按钮可切换当前对话使用的 Chat 模型。
-- 对话设置面板可切换系统提示词、语音模型、OCR 模型、文件识别模型和文件识别提示词。
-- 每个对话保存自己的 `ConversationSettings` 快照，切换历史对话时会恢复当时的模型和辅助能力设置。
-- 开启 OCR 后，发送图片会先调用 OCR 模型提取文字，再把结果追加给当前对话模型。
-- 开启文件识别后，发送非图片文件会先调用所选 Chat 模型读取附件，再把识别结果追加给当前对话模型。
-- 未开启对应识别能力时，附件会随请求直传给支持多模态内容的模型；不支持时至少保留文件名、大小和 MIME 类型作为文本上下文。
-- 带附件消息重试或编辑后重发时，会复用原消息的附件并重新构建 OCR/文件识别上下文；重试历史切换也会同步恢复对应附件。
+重试、编辑后重发和从历史消息创建分支都会保留原用户消息附件，并重新构建 OCR/文件识别上下文。
 
-### 本地工具
+## 本地工具
 
-LynAI 在 Chat 模型支持 tool calls 时会传入工具定义；如果接口不支持原生工具调用，系统提示词会要求模型返回 JSON fallback。
-
-工具调用时会把当前设备本地时间、时区名和 `timezoneOffsetMinutes` 注入系统上下文。日程工具解析 ISO-8601 时间后统一转成本地时间保存和返回，避免 `Z` 或带偏移时间在 UI 中错位。模型在工具调用前后返回的思考内容会累积展示在最终回复上。
+OpenAI 兼容模型在 `supportsTools=true` 且未禁用工具时使用原生 `tools`；不支持原生工具的接口可通过 JSON fallback 调用。启用工具时，系统上下文会注入当前本地时间、时区和 `timezoneOffsetMinutes`，日程时间统一转为本地时间保存与返回。
 
 | 工具 | 说明 |
 |------|------|
-| `get_current_time` | 获取设备当前时间、时区和 ISO 时间戳 |
-| `get_location` | 获取设备最近位置，Android 会请求定位权限 |
-| `open_app` | Android 端按包名打开已安装应用 |
-| `list_schedules` | 查询本地日程，可按时间范围过滤 |
+| `get_current_time` | 返回设备当前时间、时区、ISO 时间戳和偏移 |
+| `get_location` | Android 请求定位权限后读取最近位置 |
+| `open_app` | Android 按包名打开已安装应用 |
+| `list_schedules` | 查询本地日程，可按时间区间过滤 |
 | `create_schedule` | 创建本地日程 |
 | `update_schedule` | 修改本地日程 |
-| `list_notes` | 查询本地笔记，可按关键字搜索 |
+| `list_notes` | 查询笔记，可按关键字搜索 |
 | `read_note` | 读取单篇笔记完整内容 |
 | `save_note` | 创建、覆盖或追加笔记内容 |
 
-### 功能页
+## 功能页
 
-底部导航的 `功能` 页由 `lib/pages/feature_page.dart` 实现。
+底部导航包含 `功能 / 对话 / 设置` 三个主 Tab，`HomePage` 使用 `IndexedStack` 保持页面状态。
 
 | 功能 | 说明 |
 |------|------|
-| 对话历史 | 按角色分组展示历史对话，支持标题/内容搜索、关键词高亮、删除和快速跳转 |
-| 日程表 | 支持月视图、周时间轴、全年总览，可新增、编辑、删除日程和备注；跨天日程会按日期范围显示 |
-| 笔记 | 支持 Markdown/LaTeX 编辑、自动保存、导入 Markdown、导出 Markdown 和导出图片 |
+| 对话历史 | 按当前角色和其他角色分组，支持标题/内容搜索、关键词高亮、删除、跳转和角色切换 |
+| 日程表 | 月视图、周时间轴、全年总览；支持跨天日程、任务类日程、本地时区显示、Android 小组件/通知刷新 |
+| 笔记 | Markdown/LaTeX 编辑与预览、文件夹、自动保存、修订时间线、导入 Markdown、导出 Markdown/长图 |
+| 待办清单 | 多清单、任务勾选、拖拽排序、搜索、Markdown 任务列表导入导出、长图分享 |
 
-### 长图分享与导出
+## 数据与备份
 
-- 对话页可进入选择模式，选择多条消息后生成分享长图。
-- 笔记页可将 Markdown 笔记导出为 `.md` 文件或长图。
-- Markdown 中的代码块和块级公式带有标题栏，可复制源码并单独导出 PNG；桌面端写入剪贴板，Android/iOS 保存到图库。
-- 长图场景会让 Markdown 代码块自动换行，避免横向滚动内容被截图裁剪。
-- 桌面端优先复制 PNG 到系统剪贴板，Android/iOS 保存到图库或调用系统分享。
+应用主要使用 `SharedPreferences` 保存 JSON 数据。对话附件、背景图等文件类资源只保存路径；对话附件会先复制到应用私有目录，避免引用系统临时文件。
 
-## 数据存储
-
-应用当前使用 `SharedPreferences` 保存 JSON 数据。
-
-| 数据 | Provider | 存储键 |
-|------|----------|--------|
+| 数据 | Provider/Service | 存储键或文件 |
+|------|------------------|--------------|
 | 对话历史 | `ConversationProvider` | `conversations` |
 | 模型配置 | `ModelConfigProvider` | `model_configs` |
 | 应用设置 | `SettingsProvider` | `app_settings` |
 | 日程 | `FeatureProvider` | `schedule_items` |
-| 笔记 | `FeatureProvider` | `notes` |
+| 笔记 | `FeatureProvider` | `notes`, `note_folders`, `note_revisions`, `note_edit_proposals` |
+| 待办 | `FeatureProvider` | `todo_lists` |
+| 备份 | `BackupService` | ZIP：`manifest.json` + 分区 JSON + 私有附件 assets |
 
-消息附件不会嵌入 JSON，而是复制到应用私有目录后保存路径、文件名、大小和 MIME 类型。
-
-## v2.2.10 更新
-
-`v2.2.10` 是发布前稳定性版本，重点不是新增大功能，而是把对话、附件、语音、备份导入和历史数据恢复这些发布后最容易暴露问题的路径重新检查了一遍。
-
-### 对话与流式回复
-
-- OpenAI 兼容接口继续默认发送 `thinking: {type: enabled|disabled}`，保持现有模型供应商的思考开关行为。
-- OpenAI 兼容 SSE 现在会识别服务端返回的 `error` payload，并把错误显示为明确失败信息，而不是空回复或等待到超时。
-- Anthropic 流式 `type: error` 现在会被转换为异常，鉴权失败、限流、上下文过长等问题更容易定位。
-- 流式工具调用参数如果不是合法 JSON 对象，会跳过该工具调用并继续保留已有正文，避免一段坏参数导致整条回复丢失。
-- 停止生成、请求失败、普通非 thinking 模型回复和重试结果会正确清理旧 `thinkingContent`，避免上一轮思考内容污染新消息。
-
-### 数据恢复与兼容
-
-- 对话加载时会逐条跳过损坏消息；单条坏消息不再导致整个对话历史不可见。
-- 设置加载时会逐条跳过损坏角色和系统提示词；单个坏模板不再导致主题、角色、模型选择全部回到默认值。
-- 旧版附件字段 `filePath` 继续兼容，并会用于推导文件名和 MIME 类型，历史附件显示更稳定。
-- 删除或导入模型配置后，会修复语音、OCR、文件识别和最近聊天模型选择中的悬空 ID。
-
-### 模型配置与高级参数
-
-- `ModelConfig.copyWith()` 现在支持显式清空 `maxTokens`、`temperature`、`topP`。
-- API 模型页清空高级参数后，后续请求不再继续携带旧采样参数。
-- 多子模型的参数继承逻辑保持不变：子模型参数优先，未设置时回退到提供商级参数。
-
-### 附件、语音与页面生命周期
-
-- 长按语音后立刻松手时，录音启动流程会被取消，不再出现后台继续录音或 UI 停留在录音状态的问题。
-- 选择图片、选择文件、拍照、剪贴板图片写入、备份导入导出、MathLive WebView 回调等异步流程增加 `mounted` 防护，降低页面关闭后的 `setState` 崩溃风险。
-- 附件仍会复制到应用私有目录，历史消息、重试版本和编辑后重发都复用同一套附件元数据。
-
-### 验证
-
-- 已运行 `dart format lib test`。
-- 已运行 `flutter analyze`，结果为 `No issues found!`。
-- 已运行 `flutter test`，结果为 `All tests passed!`。
-
-### 发布前建议手测
-
-- Android：长按语音后快速松手、拒绝麦克风权限、保存长图到图库、日程通知权限场景。
-- iOS：拍照/相册权限、系统分享、长图导出。
-- 桌面端：`Ctrl/Cmd + V` 粘贴图片、复制代码块/公式块 PNG 到剪贴板、窗口快速切换页面。
-- API：OpenAI 兼容、Ollama、Anthropic、带工具调用模型、返回错误的流式请求。
-- 数据：导入旧备份、包含坏消息的对话、包含旧 `filePath` 附件的历史记录。
+备份导出可按分区选择数据，也可细分设置中的 API 配置、外观、对话设置、角色与提示词。导出 API 配置会包含 API Key，备份文件应按敏感文件处理。
 
 ## 技术栈
 
 | 类别 | 技术 |
 |------|------|
-| 框架 | Flutter SDK ^3.11.5 |
+| 框架 | Flutter / Dart |
 | 状态管理 | Provider + ChangeNotifier |
+| 持久化 | SharedPreferences(JSON) + 应用私有文件目录 |
 | HTTP | http |
-| 持久化 | SharedPreferences(JSON) |
-| Markdown | flutter_markdown_plus |
-| LaTeX | flutter_math_fork |
-| Markdown AST | markdown |
+| Markdown | flutter_markdown_plus + markdown |
+| LaTeX | flutter_math_fork，另有 MathLive WebView 公式编辑页 |
 | 代码高亮 | highlight |
-| 语音识别 | speech_to_text |
-| 录音 | record |
-| 图片选择 | image_picker |
-| 文件选择 | file_picker |
-| 剪贴板 | super_clipboard |
-| 分享 | share_plus |
-| 截图 | screenshot |
-| UI | Material 3, ColorScheme.fromSeed |
+| 语音 | speech_to_text, record |
+| 文件/图片 | file_picker, image_picker, path_provider |
+| 截图与分享 | screenshot, share_plus, super_clipboard |
+| 备份 | archive ZIP |
+| 应用信息 | package_info_plus |
+| WebView | webview_all |
 
 ## 项目结构
 
 ```text
 lib/
-├── main.dart                  # 应用入口、Provider 注册、主题构建、启动页
-├── models/                    # 不可变数据模型与 JSON 序列化
-├── providers/                 # ChangeNotifier 状态与 SharedPreferences 持久化
-├── services/                  # API 请求、本地工具调用适配
-├── pages/                     # 页面、导航、功能实现
+├── main.dart                  # Provider 注册、持久化加载、主题和启动页
+├── models/                    # JSON 模型：对话、消息、配置、设置、笔记、日程、待办、备份
+├── providers/                 # ChangeNotifier 状态和 SharedPreferences 持久化
+├── services/                  # API、工具调用、备份导入导出
+├── pages/                     # 主页面、设置页、功能页、对话页和子功能实现
+├── utils/                     # 文件名、分享、SnackBar 等工具
 └── widgets/                   # Markdown/LaTeX 渲染组件
 ```
 
@@ -223,30 +167,15 @@ lib/
 
 GitHub Actions 工作流位于 `.github/workflows/build.yml`。
 
-| Job | 产物 |
-|-----|------|
-| Android | split ABI APK |
-| Linux | `.deb` 与 Arch `.pkg.tar.zst` |
-| Windows | x64 zip |
-| macOS | x64 与 arm64 zip |
-| Web | 静态站点 zip |
+| 触发 | 行为 |
+|------|------|
+| push 到 `main`/`master` | 构建 Android、Linux、Windows、macOS、Web，并更新 `nightly` 预发布 |
+| pull request 到 `main`/`master` | 构建验证 |
+| tag `v*` | 构建并创建正式 Release |
 
-Release 文件统一命名为 `LynAI_<platform>_<version>_<short_sha>_<arch-or-target>.<ext>`，例如 `LynAI_android_2.2.10_abcdef0_arm64-v8a.apk`、`LynAI_web_2.2.10_abcdef0_universal.zip`。
+Release 产物命名为 `LynAI_<platform>_<version>_<short_sha>_<arch-or-target>.<ext>`，例如 `LynAI_android_2.2.10_abcdef0_arm64-v8a.apk`、`LynAI_web_2.2.10_abcdef0_universal.zip`。
 
-当前 release 产物命名：
-
-| 平台 | 文件名格式 |
-|------|------------|
-| Android | `LynAI_android_<version>_<short_sha>_<abi>.apk` |
-| Debian | `LynAI_debian_<version>_<short_sha>_amd64.deb` |
-| Arch Linux | `LynAI_archlinux_<version>_<short_sha>_amd64.pkg.tar.zst` |
-| Windows | `LynAI_windows_<version>_<short_sha>_x64.zip` |
-| macOS | `LynAI_macos_<version>_<short_sha>_<x64|arm64>.zip` |
-| Web | `LynAI_web_<version>_<short_sha>_universal.zip` |
-
-推送到 `main` / `master` 会创建 `nightly` 预发布；推送 `v*` 标签会创建正式 Release。
-
-## 项目文档
+## 文档
 
 - [文档首页](doc/README.md)
 - [架构概览](doc/architecture.md)
