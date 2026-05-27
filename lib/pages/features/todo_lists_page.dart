@@ -376,12 +376,21 @@ class _TodoListsPageState extends State<_TodoListsPage> {
   }
 
   Future<void> _export(TodoList list) async {
-    final dir = await getTemporaryDirectory();
-    final file = File(
-      '${dir.path}/${safeExportFileName(list.title, fallback: 'todo')}.md',
+    final fileName = '${safeExportFileName(list.title, fallback: 'todo')}.md';
+    final bytes = Uint8List.fromList(utf8.encode(_todoMarkdown(list)));
+    final path = await FilePicker.platform.saveFile(
+      dialogTitle: '导出待办清单',
+      fileName: fileName,
+      bytes: bytes,
     );
-    await file.writeAsString(_todoMarkdown(list));
-    await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
+    if (path == null) return;
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      await File(path).writeAsBytes(bytes, flush: true);
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('待办清单已导出到 $path')));
   }
 
   Future<void> _exportImage(TodoList list) async {

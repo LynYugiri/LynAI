@@ -194,6 +194,10 @@ String _noteLineDiffSummary(String before, String after) {
   return '-${stats.removedLines} 行';
 }
 
+/// 功能页 shell。
+///
+/// 根据 `AppSettings.lastFeature` 在历史、日程、笔记和待办之间切换。子页面
+/// 拆成 `part` 文件，但共享搜索语法、导出工具和若干内部组件。
 class FeaturePage extends StatefulWidget {
   final void Function(String conversationId) onConversationTap;
   final VoidCallback onRoleChanged;
@@ -212,6 +216,7 @@ class FeaturePage extends StatefulWidget {
 
 class _FeaturePageState extends State<FeaturePage> {
   final _searchController = TextEditingController();
+  final _noteDetailKey = GlobalKey<_NoteDetailState>();
   String _searchQuery = '';
   String? _selectedNoteId;
   bool _noteEditing = false;
@@ -237,11 +242,18 @@ class _FeaturePageState extends State<FeaturePage> {
     return false;
   }
 
-  void _closeSelectedNote() {
+  Future<void> _closeSelectedNote() async {
+    if (!await _canLeaveSelectedNote()) return;
+    if (!mounted) return;
     setState(() {
       _selectedNoteId = null;
       _noteEditing = false;
     });
+  }
+
+  Future<bool> _canLeaveSelectedNote() async {
+    return await _noteDetailKey.currentState?.confirmDiscardUnsavedChanges() ??
+        true;
   }
 
   @override
@@ -269,6 +281,7 @@ class _FeaturePageState extends State<FeaturePage> {
       body: switch (feature) {
         'schedule' => const _SchedulePage(),
         'notes' => _NotesPage(
+          noteDetailKey: _noteDetailKey,
           selectedNoteId: _selectedNoteId,
           editing: _noteEditing,
           onSelect: (id) => setState(() {
@@ -379,7 +392,9 @@ class _FeaturePageState extends State<FeaturePage> {
     );
   }
 
-  void _selectFeature(String value) {
+  Future<void> _selectFeature(String value) async {
+    if (!await _canLeaveSelectedNote()) return;
+    if (!mounted) return;
     setState(() {
       _selectedNoteId = null;
       _noteEditing = false;

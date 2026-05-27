@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'chat_role.dart';
 import 'system_prompt.dart';
 
-/// 应用设置数据模型
+/// 应用级设置快照。
 ///
-/// 存储用户的应用偏好设置。
+/// 保存主题、背景、最近模型、OCR/文件识别开关、角色和系统提示词。
+/// 这个对象会整体序列化到 SharedPreferences，因此新增字段必须提供默认值
+/// 或旧数据 fallback。
 class AppSettings {
   final Color themeColor;
   final Color baseThemeColor;

@@ -8,6 +8,7 @@ class _NoteDetail extends StatefulWidget {
   final ValueChanged<String> onSelectNote;
 
   const _NoteDetail({
+    super.key,
     required this.noteId,
     required this.editing,
     required this.onEditingChanged,
@@ -643,10 +644,14 @@ class _NoteDetailState extends State<_NoteDetail> {
     final baseContent = _activeRevisionId == null
         ? note.content
         : _features.getNoteContentAtRevision(widget.noteId, _activeRevisionId);
-    return _activeRevisionId != null || _ctrl.text != baseContent;
+    return _ctrl.text != baseContent;
   }
 
   bool get _hasUnsavedChanges => _ctrl.text != _lastSavedDraft;
+
+  Future<bool> confirmDiscardUnsavedChanges() {
+    return _confirmDiscardUnsavedChanges();
+  }
 
   void _loadEditorSnapshot(String text, {required String? revisionId}) {
     _activeRevisionId = revisionId;

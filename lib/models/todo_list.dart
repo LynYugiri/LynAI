@@ -1,3 +1,7 @@
+/// 一个待办清单。
+///
+/// 清单负责组织任务顺序；单个任务只保存文本和完成状态。页面层处理 Markdown
+/// 导入导出、拖拽排序和长图分享。
 class TodoList {
   final String id;
   final String title;
@@ -46,6 +50,7 @@ class TodoList {
   }
 }
 
+/// 待办清单中的一个任务项。
 class TodoItem {
   final String id;
   final String text;

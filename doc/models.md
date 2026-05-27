@@ -1,235 +1,161 @@
 # 数据模型
 
-`lib/models/` 中的模型都是 Provider 和 Service 之间的稳定数据契约，主要目标是 JSON 序列化、不可变更新和旧数据兼容。
+`lib/models/` 是项目的数据契约层。这里的类应该保持可序列化、可兼容旧数据，并尽量避免混入页面逻辑或网络逻辑。
 
-## Conversation 与 Message
+## 设计原则
 
-### `Message`
+1. 模型只描述数据，不主动读写本地存储。
+2. `fromJson()` 必须考虑旧字段、缺失字段和可恢复的坏数据。
+3. `toJson()` 不写入空值或默认值，减少本地 JSON 体积。
+4. `copyWith()` 对可清空字段使用 sentinel，区分“不更新”和“更新为 null”。
+
+## Message 与附件
 
 文件：`lib/models/message.dart`
 
-```dart
-class Message {
-  final String id;
-  final String role;
-  final String content;
-  final List<MessageImage> images;
-  final String? thinkingContent;
-  final DateTime timestamp;
-}
-```
+`Message` 是对话中的一条消息。
 
 | 字段 | 说明 |
 |------|------|
-| `role` | 当前只使用 `user` 和 `assistant` |
-| `content` | 可直接发送给文本模型的内容 |
-| `images` | 历史字段名，实际表示附件列表，包含图片和非图片文件 |
-| `thinkingContent` | assistant 思考内容，可从流式 reasoning、Anthropic thinking、Ollama `<think>` 等来源恢复 |
+| `id` | 消息 ID。 |
+| `role` | 当前使用 `user` 或 `assistant`。 |
+| `content` | 可直接发给文本模型或渲染的正文。 |
+| `images` | 历史字段名，实际表示附件列表。 |
+| `thinkingContent` | assistant 的可见思考内容。 |
+| `timestamp` | 消息创建时间。 |
 
-`MessageImage` 保存 `path`、`name`、`size`、`mimeType`。反序列化兼容旧字段 `filePath`，并可从路径推导文件名和 MIME 类型。附件只保存路径和元数据，不把文件内容嵌入对话 JSON。
+`MessageImage` 保存附件路径、文件名、大小和 MIME 类型。字段名叫 `images` 是为了兼容旧数据；现在它既可以表示图片，也可以表示 PDF、文本、Office 文件或压缩包。
 
-### `Conversation`
+附件只保存路径和元数据，不把文件内容写进对话 JSON。页面层会把附件复制到应用私有目录，避免历史消息引用系统临时文件。
+
+## Conversation 与设置快照
 
 文件：`lib/models/conversation.dart`
 
-```dart
-class Conversation {
-  final String id;
-  final String title;
-  final List<Message> messages;
-  final String modelId;
-  final ConversationSettings settings;
-  final String roleId;
-  final DateTime createdAt;
-  final DateTime updatedAt;
-}
-```
+`Conversation` 保存完整对话。
 
-`Conversation.fromJson()` 会逐条解析消息，损坏消息会被跳过，避免单条坏消息导致整个对话不可见。
+| 字段 | 说明 |
+|------|------|
+| `title` | 对话标题，通常由第一条用户消息生成。 |
+| `messages` | 消息列表。 |
+| `modelId` | 当前对话绑定的模型配置 ID。 |
+| `settings` | 对话设置快照。 |
+| `roleId` | 当前角色 ID，用于历史分组。 |
+| `createdAt` / `updatedAt` | 创建和更新时间。 |
 
-### `ConversationSettings`
+`ConversationSettings` 保存发送对话所需的模型、系统提示词、OCR、文件识别和语音配置。历史对话必须保存自己的设置快照，否则全局设置改变后旧对话上下文也会被改变。
 
-```dart
-class ConversationSettings {
-  final String modelId;
-  final bool thinking;
-  final String? selectedSystemPromptId;
-  final String systemPrompt;
-  final String? speechModelId;
-  final String? imageModelId;
-  final bool imageOcrEnabled;
-  final String? imageRecognitionModelId;
-  final bool imageRecognitionEnabled;
-  final String imageRecognitionPrompt;
-}
-```
-
-每个历史对话保存自己的设置快照。切回历史对话时，`SettingsProvider.applyConversationSettings()` 会把快照同步给 UI 控件，避免全局设置覆盖历史上下文。
+反序列化时，坏消息会被跳过；如果整条对话结构损坏，则由 Provider 跳过该对话。
 
 ## ModelConfig 与 ModelEntry
 
 文件：`lib/models/model_config.dart`
 
-```dart
-class ModelEntry {
-  final String name;
-  final bool enabled;
-  final bool supportsVision;
-  final bool supportsThinking;
-  final bool supportsTools;
-  final int? maxTokens;
-  final double? temperature;
-  final double? topP;
-}
+`ModelConfig` 表示一个模型提供商或一个接口配置。
 
-class ModelConfig {
-  final String id;
-  final String name;
-  final String category;
-  final String endpoint;
-  final String apiKey;
-  final String modelName;
-  final String apiType;
-  final int priority;
-  final List<ModelEntry> models;
-  final int? maxTokens;
-  final double? temperature;
-  final double? topP;
-  final Map<String, dynamic> extraParams;
-}
-```
+| 字段 | 说明 |
+|------|------|
+| `category` | 用途：`chat`、`ocr`、`speech`、`image_generation`。 |
+| `endpoint` | 接口地址或基础地址。 |
+| `apiKey` | 密钥或 AppKey。 |
+| `modelName` | 当前激活的子模型名。 |
+| `apiType` | 协议类型，例如 `openai`、`ollama`、`anthropic`。 |
+| `priority` | 分类内排序。 |
+| `models` | 子模型列表。 |
+| `extraParams` | 用户自定义请求参数。 |
 
-| 常量 | 值 | 用途 |
-|------|----|------|
-| `ModelConfig.categoryChat` | `chat` | 对话、文件识别、多模态和工具调用 |
-| `ModelConfig.categoryOcr` | `ocr` | vivo OCR |
-| `ModelConfig.categorySpeech` | `speech` | vivo 长语音转写 |
-| `ModelConfig.categoryImageGeneration` | `image_generation` | OpenAI Images 或 vivo 图片生成 |
+`ModelEntry` 是子模型。子模型可以独立设置是否启用、是否支持视觉、是否支持 thinking、是否支持工具，以及采样参数。
 
-`modelName` 是当前激活子模型名。`activeEntry` 会优先找到同名 `ModelEntry`，找不到时回退到第一个子模型。请求参数读取 `effectiveMaxTokens`、`effectiveTemperature`、`effectiveTopP`，优先级为当前子模型参数高于提供商级参数。
-
-`supportsVision`、`supportsThinking`、`supportsTools` 由当前激活子模型决定，用于控制多模态内容、思考开关和工具调用。`copyWith()` 对 nullable 参数使用 sentinel，允许把高级参数显式清空为 `null`。
+请求参数优先级为：子模型参数高于 Provider 参数，高于接口默认值。
 
 ## AppSettings、角色和提示词
 
 文件：`lib/models/app_settings.dart`、`chat_role.dart`、`system_prompt.dart`
 
-```dart
-class AppSettings {
-  final Color themeColor;
-  final Color baseThemeColor;
-  final String? backgroundImagePath;
-  final bool blurEnabled;
-  final double blurAmount;
-  final String? speechModelId;
-  final String? imageModelId;
-  final bool imageOcrEnabled;
-  final String? imageRecognitionModelId;
-  final bool imageRecognitionEnabled;
-  final String? lastChatModelId;
-  final String imageRecognitionPrompt;
-  final String systemPrompt;
-  final List<SystemPrompt> systemPrompts;
-  final String? selectedSystemPromptId;
-  final String themeMode;
-  final List<ChatRole> roles;
-  final String currentRoleId;
-  final String lastFeature;
-}
-```
+`AppSettings` 保存跨页面设置。
 
-| 字段 | 说明 |
+| 类别 | 字段 |
 |------|------|
-| `themeColor` | 当前 Material 3 seed color |
-| `baseThemeColor` | HSV 调色板的基础色 |
-| `lastFeature` | 功能页最近入口：`history`、`schedule`、`notes`、`todos` |
-| `roles` | 聊天角色，至少包含 `default` |
-| `systemPrompts` | 可复用系统提示词模板 |
+| 外观 | `themeColor`, `baseThemeColor`, `themeMode`, `backgroundImagePath`, `blurEnabled`, `blurAmount` |
+| 模型选择 | `speechModelId`, `imageModelId`, `imageRecognitionModelId`, `lastChatModelId` |
+| 图片/文件识别 | `imageOcrEnabled`, `imageRecognitionEnabled`, `imageRecognitionPrompt` |
+| 提示词 | `systemPrompt`, `systemPrompts`, `selectedSystemPromptId` |
+| 角色 | `roles`, `currentRoleId` |
+| 功能页 | `lastFeature` |
 
-`AppSettings.fromJson()` 对角色和提示词逐条容错；缺失默认角色时自动补回；`currentRoleId` 指向不存在角色时回退到 `default`。旧字段 `imagePrompt` 会作为 `imageRecognitionPrompt` fallback。
+`AppSettings.fromJson()` 会跳过坏角色和坏提示词，缺失默认角色时自动补回。如果当前角色不存在，会回退到 `default`。
 
-`ChatRole` 保存角色名、系统提示词、默认模型和可选主题色。选择角色时会同步系统提示词、默认模型和主题色，新建对话会绑定当前角色。
+`ChatRole` 保存角色名、系统提示词、默认模型和可选主题色。选择角色时，设置页会同步系统提示词、默认模型和主题色。
 
-## 日程模型
+## ScheduleItem
 
 文件：`lib/models/schedule_item.dart`
 
-```dart
-class ScheduleItem {
-  final String id;
-  final String title;
-  final DateTime start;
-  final DateTime end;
-  final String? note;
-  final String kind;
-}
-```
+`ScheduleItem` 同时表示普通日程和任务类日程。
 
-`kind` 区分普通日程和任务类日程。反序列化、工具参数解析和工具返回值都会把时间转为本地时间，避免 `Z` 或显式时区偏移在 UI 中错位。月/周/年视图按日期区间相交展示跨天日程。
+| 字段 | 说明 |
+|------|------|
+| `title` | 标题。 |
+| `start` / `end` | 本地时间。 |
+| `note` | 可选备注。 |
+| `kind` | `schedule` 或 `task`。 |
 
-## 笔记模型
+时间读写都会转成本地时间，避免 API 或工具传入带时区字符串后在 UI 上错位。月/周/年视图按日期区间相交展示跨天日程。
+
+## Note、修订和修改建议
 
 文件：`lib/models/note.dart`
 
-```dart
-class Note {
-  final String id;
-  final String title;
-  final String content;
-  final String? currentRevisionId;
-  final String? folderId;
-  final DateTime createdAt;
-  final DateTime updatedAt;
-  final bool wrap;
-}
-```
+笔记模型分成几个部分：
 
 | 类型 | 说明 |
 |------|------|
-| `Note` | 当前笔记内容、当前修订、文件夹引用和自动换行设置 |
-| `NoteFolder` | 笔记文件夹 |
-| `NoteRevision` | 单次保存的增量修订，包含父修订 ID 和 `NoteTextDelta` |
-| `NoteTextDelta` | 通过最长公共前后缀计算出的文本增量，可 apply/revert |
-| `NoteEditProposal` | AI 或工具生成的分块修改建议 |
-| `NoteEditBlock` | 修改建议中的行级插入/删除块 |
+| `Note` | 当前标题、当前正文、当前修订 ID、文件夹引用和自动换行设置。 |
+| `NoteFolder` | 文件夹，只保存标题和创建时间。 |
+| `NoteRevision` | 时间线节点，保存父修订 ID、保存时间、摘要和 delta。 |
+| `NoteTextDelta` | 两个版本之间的文本增量。 |
+| `NoteEditProposal` | AI 或工具生成的修改建议。 |
+| `NoteEditBlock` | 修改建议中的行级块。 |
 
-Provider 会维护修订内容缓存和时间线缓存。加载时会修复缺失修订、缺失文件夹引用等可恢复状态。
+修订链是树，不是线性历史。用户可以从历史版本另开分支。Provider 负责重放 delta、缓存内容、清理不可达状态和修复缺失修订。
 
-## 待办模型
+`NoteTextDelta` 通过最长公共前后缀生成。它能从父版本 apply 到子版本，也能从子版本 revert 回父版本。
+
+## TodoList 与 TodoItem
 
 文件：`lib/models/todo_list.dart`
 
-```dart
-class TodoList {
-  final String id;
-  final String title;
-  final List<TodoItem> items;
-  final DateTime createdAt;
-  final DateTime updatedAt;
-}
+`TodoList` 保存清单标题、任务列表和时间戳。`TodoItem` 保存任务文本和完成状态。
 
-class TodoItem {
-  final String id;
-  final String text;
-  final bool done;
-}
-```
-
-待办清单支持多清单、任务勾选、拖拽排序、Markdown 任务列表导入导出和长图分享。
+待办清单的 Markdown 导入导出、长图分享和拖拽排序都在页面层完成，模型层只保存结果数据。
 
 ## 备份模型
 
 文件：`lib/models/backup_models.dart`
 
+备份相关模型描述用户选择、读取结果、预览和导入计划。
+
 | 类型 | 说明 |
 |------|------|
-| `BackupSection` | 设置、对话、笔记、日程、待办五个备份分区 |
-| `BackupSettingsPart` | API 配置、外观、对话设置、角色与提示词四个设置子分区 |
-| `BackupSelection` | 用户选择的导出或导入范围，包含分区和具体 ID 集合 |
-| `BackupData` | 读取备份后的结构化数据 |
-| `BackupArchiveData` | manifest、结构化数据、警告和附件文件内容 |
-| `BackupPreview` | 导入前预览信息和冲突列表 |
-| `ImportPlan` | 导入模式和冲突处理动作 |
-| `ImportResult` | 导入统计：新增、替换、跳过、警告 |
+| `BackupSection` | 可备份分区：设置、对话、笔记、日程、待办。 |
+| `BackupSettingsPart` | 设置内部的细分选择。 |
+| `BackupSelection` | 用户选择的分区和具体条目。 |
+| `BackupData` | 读取 ZIP 后得到的结构化数据。 |
+| `BackupArchiveData` | manifest、警告、数据和附件文件。 |
+| `BackupPreview` | 导入前预览。 |
+| `ImportPlan` | 导入模式、选择和冲突动作。 |
+| `ImportResult` | 新增、覆盖、跳过统计。 |
 
-导入模式包括合并询问、只添加新数据、替换所选分类。冲突动作包括保留本地、使用导入、两者保留。
+备份模型只描述计划和数据，不直接读写文件。实际 ZIP 处理在 `BackupService`。
+
+## 兼容旧数据的注意事项
+
+| 位置 | 兼容行为 |
+|------|----------|
+| `MessageImage` | 兼容旧字段 `filePath`。 |
+| `ConversationSettings` | 旧字段 `imagePrompt` 可作为 `imageRecognitionPrompt` fallback。 |
+| `AppSettings` | 缺失默认角色时补回，坏角色/提示词跳过。 |
+| `ScheduleItem` | 缺失 `kind` 时作为普通日程。 |
+| `Note` | 缺失 `wrap` 时默认自动换行。 |
+
+新增字段时应优先给出默认值，而不是强制旧 JSON 必须包含新字段。

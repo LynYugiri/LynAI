@@ -1,207 +1,192 @@
-# 架构概览
+# 架构说明
 
-LynAI 的架构分为四层：页面层、Provider 状态层、Service 协议层、Model 数据层。页面层不直接持久化数据；Provider 只管理本地状态和落盘；Service 处理外部 API、平台通道和备份文件；Model 保持可序列化、可兼容旧数据。
+LynAI 的架构目标是让页面、状态、协议和数据模型各做各的事。项目功能很多，但核心边界保持稳定：页面收集用户意图，Provider 维护本地状态，Service 和外部世界打交道，Model 只定义数据。
 
-## 运行时结构
-
-```text
-MaterialApp
-  └── MultiProvider
-        ├── SettingsProvider
-        ├── ModelConfigProvider
-        ├── FeatureProvider
-        └── ConversationProvider
-              └── HomePage
-                    ├── FeaturePage
-                    │     ├── History
-                    │     ├── Schedule
-                    │     ├── Notes
-                    │     └── Todo Lists
-                    ├── ChatPage
-                    │     ├── ApiService
-                    │     ├── ToolCallService
-                    │     ├── MarkdownWithLatex
-                    │     └── ShareConversationImage
-                    └── SettingsPage
-                          ├── ApiModelsPage
-                          ├── DataManagementPage → BackupService
-                          ├── ThemePage
-                          ├── BackgroundPage
-                          └── AboutPage
-```
-
-## 启动流程
-
-1. `main()` 注册四个 Provider。
-2. `LynAIApp.initState()` 通过 `Future.microtask()` 调用 `_loadData()`。
-3. 并行加载对话、功能数据、模型配置和应用设置。
-4. `SettingsProvider.repairMediaModelSelections()` 修复设置中已不存在的模型引用。
-5. 根据 `AppSettings.themeColor` 和 `themeMode` 构建 `MaterialApp`。
-6. 加载中显示 Splash，失败显示可重试错误页，成功进入 `HomePage`。
-
-## 数据流
+## 分层
 
 ```text
 用户操作
-  → Page 校验输入并组装参数
-  → Provider 创建新的不可变模型实例
-  → notifyListeners() 立即刷新 UI
-  → 保存快照进入串行 Future 队列
-  → SharedPreferences(JSON) / 应用私有文件目录
+  → Page：展示界面、收集输入、处理生命周期
+  → Provider：更新内存状态、通知 UI、排队持久化
+  → Model：不可变数据和 JSON 契约
+
+外部能力
+  → Service：API 协议、工具调用、备份文件、平台通道
 ```
 
-串行保存队列是关键约束：UI 更新不等待落盘，但落盘按快照顺序执行，避免连续编辑、拖拽、流式刷新或导入替换时旧状态覆盖新状态。
+| 层 | 典型文件 | 不能做什么 |
+|----|----------|------------|
+| Page | `chat_page.dart`, `feature_page.dart` | 不直接写 SharedPreferences，不把 API 协议散落到 UI。 |
+| Provider | `providers/*.dart` | 不展示 UI，不调用外部模型 API。 |
+| Service | `api_service.dart`, `tool_call_service.dart`, `backup_service.dart` | 不持有页面状态，不依赖 BuildContext。 |
+| Model | `models/*.dart` | 不做网络请求，不读写本地存储。 |
 
-## 聊天主链路
+## 启动流程
 
 ```text
-_send()
-  → 复制附件到私有目录
-  → 解析当前角色和 ConversationSettings
-  → 创建 conversation（如果还没有）
-  → addMessage(user)
-  → addMessage(assistant, '')
-  → 构建 API messages
-  → ApiService.sendStreamRequest()
-  → updateLastMessage(save:false) 逐 chunk 更新
-  → 流结束后处理 toolCalls
-  → updateLastMessage(save:true) 保存最终正文和 thinkingContent
+main()
+  → MultiProvider 注册四个 Provider
+  → LynAIApp.initState()
+  → 并行加载本地数据
+  → 修复设置中的悬空模型引用
+  → 构建 MaterialApp
+  → HomePage
 ```
 
-### 模型选择优先级
+启动加载由 `LynAIApp` 控制。加载中显示启动页，失败显示可重试错误页。Provider 会尽量跳过单条损坏数据，让应用仍然可进入主界面。
 
-1. 当前历史对话绑定的 `modelId`。
-2. 对话创建前暂存的 pending model。
-3. 草稿 `ConversationSettings.modelId`。
+## 主界面结构
+
+```text
+HomePage
+├── FeaturePage
+│   ├── History
+│   ├── Schedule
+│   ├── Notes
+│   └── Todo Lists
+├── ChatPage
+└── SettingsPage
+    ├── AboutPage
+    ├── BackgroundPage
+    ├── ApiModelsPage
+    ├── ThemePage
+    └── DataManagementPage
+```
+
+`HomePage` 使用 `IndexedStack` 保留三个主 Tab 的状态。对话页正在生成、功能页打开笔记详情或设置页切换回来时，页面状态不会因为 Tab 切换被销毁。
+
+## 对话链路
+
+一次普通发送大致经过这些步骤：
+
+1. `ChatPage` 读取输入框、附件、当前角色、当前对话设置和模型配置。
+2. 附件复制到应用私有目录，并转换成 `MessageImage` 元数据。
+3. 如果还没有对话，`ConversationProvider.createConversation()` 创建对话。
+4. 添加 user 消息，再添加一个空 assistant 消息作为流式占位。
+5. `ApiService.sendStreamRequest()` 发起请求。
+6. 每个 `StreamChunk` 到达时，`ConversationProvider.updateLastMessage(save:false)` 刷新 UI。
+7. 流结束后，如果存在工具调用，进入工具调用循环。
+8. 最终正文、思考内容和工具结果保存到最后一条 assistant 消息。
+
+```text
+Input + Attachments
+  → ChatPage
+  → ConversationProvider
+  → ApiService Stream<StreamChunk>
+  → ConversationProvider.updateLastMessage()
+  → ToolCallService（可选）
+  → 保存最终消息
+```
+
+## 模型选择优先级
+
+聊天模型来源可能有多个。实际发送时按下面顺序选择：
+
+1. 当前历史对话绑定的模型。
+2. 新对话创建前暂存的 pending model。
+3. 对话设置面板中的模型。
 4. `AppSettings.lastChatModelId`。
 5. Chat 分类中第一个可用模型。
 
-### 请求上下文
+历史对话保存自己的 `ConversationSettings`，避免用户后来切换全局设置后改变旧对话上下文。
 
-| 上下文 | 来源 |
-|--------|------|
-| 系统提示词 | 当前角色、选中提示词模板或对话设置快照 |
-| Chat 模型 | 当前对话绑定模型或全局最近模型 |
-| thinking | 对话设置和当前子模型 `supportsThinking` |
-| OCR | `imageOcrEnabled` + OCR 模型 |
-| 文件识别 | `imageRecognitionEnabled` + Chat 文件识别模型 + prompt |
-| 工具调用 | 当前子模型 `supportsTools` + API 类型 + extraParams |
+## 附件策略
 
-## 流式生命周期
+附件进入模型前会先复制到应用私有目录。这样做有三个原因：
 
-| 路径 | 处理 |
-|------|------|
-| 正常完成 | 保存最终正文和累积 reasoning；如果有工具调用则进入工具循环 |
-| 用户停止 | 取消 stream subscription，保留已生成正文并写入停止提示 |
-| 请求失败 | 保留已收到正文，追加失败原因，清理本轮不存在的旧 thinking |
-| 旧流事件 | 通过流 generation 忽略，避免停止/重试后旧事件污染当前消息 |
-
-OpenAI SSE 的 `error` payload 和 Anthropic 的 `type:error` 会作为异常进入失败路径。格式异常的单个 chunk 会跳过，不中断整段回复。
-
-## 附件链路
+1. 系统 picker 返回的临时路径可能随时被清理。
+2. 历史消息需要在重启后继续显示附件。
+3. 备份服务只归档应用私有目录内被引用的文件，避免把任意外部路径打进备份。
 
 ```text
-文件/图片/拍照/剪贴板
-  → 写入应用私有目录
+文件 / 图片 / 拍照 / 剪贴板
+  → 应用私有目录
   → MessageImage(path, name, size, mimeType)
-  → 发送前转成 ChatFileInput
-  → 可选 OCR 或文件识别
-  → 按协议转换为多模态内容或文本上下文
+  → ChatFileInput(bytes, mimeType, name)
+  → 多模态内容或文本上下文
 ```
 
-附件策略有两个目的：历史消息不依赖系统临时文件；备份服务可以安全归档私有目录内被引用的附件。重试、编辑重发和历史分支都复用原附件元数据。
+如果模型不支持视觉，图片和文件会退化为文件名、MIME、大小、文本或 base64 摘要上下文。
 
 ## 工具调用链路
+
+工具调用让模型访问受控的本地能力。OpenAI 兼容协议可以使用原生 `tools`，其他协议可以使用 JSON fallback。
 
 ```text
 模型返回 toolCalls
   → ToolCallService.execute()
-  → 读取或修改 FeatureProvider / 平台通道
-  → 工具结果作为 tool message 或文本上下文回传模型
+  → FeatureProvider / 平台通道
+  → 工具结果回传模型
   → 模型生成最终自然语言回复
 ```
 
-原生工具调用仅对 OpenAI 兼容协议启用。其他协议可通过 JSON fallback 触发。启用工具时系统消息会追加本地时间、时区和偏移量；日程工具所有时间统一转为本地时间，避免 UI 与模型理解不一致。
+工具调用有副作用，例如创建日程、更新日程或保存笔记。只有在可信模型和可信对话中才应该开启工具能力。
 
-## 功能页架构
+## 持久化策略
 
-`FeaturePage` 是一个轻量 shell，当前子功能由 `AppSettings.lastFeature` 决定。
+Provider 的共同策略是“先更新 UI，再排队保存快照”。这样用户操作会立即反馈，而连续操作不会因为异步保存乱序覆盖新状态。
 
-| 子功能 | 依赖 | 说明 |
-|--------|------|------|
-| 对话历史 | `ConversationProvider`, `SettingsProvider` | 搜索、按角色分组、跳转历史对话 |
-| 日程 | `FeatureProvider.schedules` | 月/周/年视图和本地时区展示 |
-| 笔记 | `FeatureProvider.notes/revisions/folders` | Markdown 编辑、修订、文件夹、导入导出 |
-| 待办 | `FeatureProvider.todoLists` | 多清单、勾选、排序、导入导出 |
+```text
+Provider mutation
+  → 修改内存中的不可变模型列表
+  → notifyListeners()
+  → 保存当前快照进入 Future 队列
+  → SharedPreferences(JSON)
+```
 
-功能页内部子页面通过 Dart `part` 文件拆分，保持共享搜索、导出、格式化和 UI 组件在同一 library 中可访问。
+`FeatureProvider` 因为管理多个分区，所以日程、笔记、修订、文件夹、修改建议和待办各有独立保存队列。
 
-## Markdown/LaTeX 渲染
+## 笔记时间线
 
-文件：`lib/widgets/latex_renderer.dart`
+笔记当前内容保存在 `Note.content`。历史版本不保存整篇正文，而是保存 `NoteRevision` 和 `NoteTextDelta`。
 
-| 能力 | 实现 |
-|------|------|
-| Markdown | `flutter_markdown_plus` |
-| LaTeX | `flutter_math_fork`，支持 `$...$`、`$$...$$`、`\(...\)`、`\[...\]` |
-| 代码高亮 | `highlight`，One Dark Pro 风格映射 |
-| 字体 | 内置 Hurmit Nerd Font 用于代码块和导出图 |
-| 保护 | LaTeX 检测跳过 fenced code block，避免误解析代码中的 `$` |
-| 导出 | 代码块和公式块可复制源码或导出 PNG |
-| 长图 | `wrapCodeBlocks` 让代码块自动换行，避免截图裁剪横向滚动内容 |
+```text
+Note.currentRevisionId
+  → NoteRevision
+  → parentRevisionId
+  → ...
+```
 
-解析失败时公式回退为 monospace 原文，不阻塞页面渲染。
+修订是树，不是单链表。用户可以从历史版本另开分支。Provider 会缓存修订内容和时间线，避免每次渲染都从头重放 delta。
 
 ## 备份架构
 
-```text
-BackupSelection
-  → BackupService.exportZip()
-  → manifest.json + 分区 JSON + 私有附件
+备份是 ZIP 文件，内部包含 manifest、分区 JSON 和私有附件。
 
-ZIP 文件
-  → readZip()
-  → BackupArchiveData
-  → preview()
-  → ImportPlan
-  → importArchive()
-  → Provider.replace / merge / add
+```text
+lynai-YYYYMMDD-HHMMSS.zip
+├── manifest.json
+├── settings.json
+├── model_configs.json
+├── conversations.json
+├── notes/
+│   ├── folders.json
+│   ├── notes.json
+│   └── revisions.json
+├── schedules.json
+├── todo_lists.json
+└── assets/
 ```
 
-备份服务不会盲目复制外部路径，只会归档应用私有目录中被当前数据引用的附件。导入时先恢复附件到当前设备私有目录，再重映射数据中的路径。
-
-## 平台能力
-
-| 能力 | 平台 | 通道/插件 |
-|------|------|-----------|
-| 打开 App | Android | `lynai/native_tools.openApp` |
-| 定位 | Android | `lynai/native_tools.getLocation` |
-| 保存图片到图库 | Android | `lynai/native_tools.saveImageToGallery` |
-| 日程小组件/通知 | Android | `lynai/schedule_widget` |
-| 桌面剪贴板图片 | Linux/macOS/Windows | `super_clipboard` |
-| 文件选择 | 多平台 | `file_picker` |
-| 图片/拍照 | 移动端为主 | `image_picker` |
-| 系统分享 | 多平台 | `share_plus` |
-
-Web 可构建，但浏览器沙箱会限制本地文件、剪贴板、平台通道和后台能力。
+导入时先读取 ZIP，生成预览和冲突列表。用户确认导入计划后，服务会恢复附件、重映射路径、处理 ID 冲突，再调用 Provider 替换或合并数据。
 
 ## 容错原则
 
 | 场景 | 策略 |
 |------|------|
-| SharedPreferences 中单条数据损坏 | 跳过坏项，保留其他数据 |
-| 旧附件字段 | 兼容 `filePath` 并推导缺失元数据 |
-| 模型 ID 悬空 | 回填同类第一个可用模型或清空 |
-| 流式 chunk 格式异常 | 跳过坏 chunk |
-| 工具参数异常 | 跳过该工具调用，保留正文 |
-| 页面销毁后的异步回调 | `mounted` 检查后再更新 UI |
+| 单条持久化数据损坏 | 跳过坏项，保留其他数据。 |
+| 顶层 JSON 损坏 | 对应分区回退为空或默认值，保证应用可启动。 |
+| 模型 ID 指向已删除配置 | 自动回填同分类第一个可用模型或清空。 |
+| 流式 chunk 格式异常 | 跳过坏 chunk，不中断已收到正文。 |
+| 工具参数异常 | 工具返回结构化错误，不让异常直接破坏对话。 |
+| 页面销毁后的异步回调 | 检查 `mounted` 后再更新 UI。 |
 
-## 发布风险
+## 需要谨慎维护的行为
 
-| 风险 | 说明 | 缓解 |
-|------|------|------|
-| API Key 泄露 | 备份 API 配置会包含 Key | 明确提示用户按敏感文件处理 |
-| 本地工具副作用 | `save_note`、`create_schedule`、`update_schedule` 会写本地数据 | 只在可信模型和对话中启用工具 |
-| 位置信息 | `get_location` 会把位置结果发给模型 | Android 权限先授权，后续可加应用内确认 |
-| JSON 存储规模 | 大量历史和笔记会增加 SharedPreferences 压力 | 后续可迁移 SQLite 或文件分片 |
-| 平台差异 | 分享、剪贴板、图库、WebView 能力不一致 | 发布前按平台手测关键路径 |
+| 行为 | 原因 |
+|------|------|
+| OpenAI 兼容请求总是发送 `thinking: {type: enabled|disabled}` | 部分已配置后端依赖显式 disabled 标记，不能自动删掉。 |
+| `Message.images` 实际表示附件列表 | 字段名为兼容旧数据保留。 |
+| 备份 API 配置会包含 API Key | 这是完整恢复所需行为，但备份文件必须按敏感文件处理。 |
+| 工具调用可修改本地数据 | 工具能力应由用户在可信上下文中开启。 |
+| SharedPreferences 保存 JSON | 适合个人本地数据，超大历史后可能需要迁移 SQLite 或文件分片。 |

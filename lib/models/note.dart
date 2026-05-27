@@ -1,3 +1,7 @@
+/// 当前笔记内容和展示状态。
+///
+/// [content] 是当前可编辑正文；历史版本由 [NoteRevision] 增量链维护。
+/// [currentRevisionId] 指向当前内容所在的修订节点，允许从历史版本创建分支。
 class Note {
   final String id;
   final String title;
@@ -69,6 +73,10 @@ class Note {
   }
 }
 
+/// 两个笔记版本之间的最小文本增量。
+///
+/// 通过最长公共前后缀计算得到，既能从父版本 apply 到子版本，也能从子版本
+/// revert 回父版本。修订链只保存 delta，避免每次保存复制完整正文。
 class NoteTextDelta {
   final int start;
   final String deletedText;
@@ -138,6 +146,10 @@ class NoteTextDelta {
   bool get isEmpty => deletedText.isEmpty && insertedText.isEmpty;
 }
 
+/// 笔记时间线中的一个修订节点。
+///
+/// 修订通过 [parentRevisionId] 组成树，而不是单链表，因此用户可以从历史版本
+/// 另开分支。Provider 负责缓存和校验可达时间线。
 class NoteRevision {
   final String id;
   final String noteId;
@@ -292,6 +304,10 @@ class NoteEditBlock {
   }
 }
 
+/// 笔记文件夹，只保存标题和创建时间。
+///
+/// 文件夹不持有笔记列表；笔记通过 `folderId` 引用文件夹，删除文件夹时由
+/// Provider 清理笔记引用。
 class NoteFolder {
   final String id;
   final String title;

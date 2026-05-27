@@ -61,6 +61,10 @@ class _PendingImage {
       MessageImage(path: path, name: name, size: size, mimeType: mimeType);
 }
 
+/// 主对话页面。
+///
+/// 负责输入、附件、语音、流式请求、工具调用、重试分支和对话分享。实际数据
+/// 写入 [ConversationProvider]，外部 API 协议交给 [ApiService]。
 class ChatPage extends StatefulWidget {
   final String? conversationId;
   final int roleChangeSerial;
@@ -1806,9 +1810,13 @@ class _ChatPageState extends State<ChatPage> {
           onResult: (r) {
             if (!mounted) return;
             _msgCtrl.text = r.recognizedWords;
+            _msgCtrl.selection = TextSelection.collapsed(
+              offset: _msgCtrl.text.length,
+            );
             if (r.finalResult) {
               setState(() => _recording = false);
-              _fillSpeechText(r.recognizedWords);
+            } else {
+              setState(() {});
             }
           },
           localeId: localeId,

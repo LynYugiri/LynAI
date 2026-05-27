@@ -4,17 +4,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/model_config.dart';
 
-/// 模型配置状态管理
+/// 管理所有模型配置和分类内优先级。
 ///
-/// 管理所有 AI 模型配置的增删改查和优先级排序。
-/// 模型按 priority 升序排列（数字越小优先级越高）。
+/// 模型按 `category` 分组，再按 `priority` 升序排列。一个 [ModelConfig]
+/// 表示一个提供商配置，内部可以包含多个可启用的子模型。
 class ModelConfigProvider extends ChangeNotifier {
   List<ModelConfig> _models = [];
   final _uuid = const Uuid();
   static const _storageKey = 'model_configs';
   Future<void> _saveQueue = Future.value();
 
-  /// 获取所有模型配置（按优先级升序）
+  /// 所有模型配置，按分类和优先级排序。
   List<ModelConfig> get models => List.unmodifiable(_models);
 
   Future<void> replaceModels(List<ModelConfig> models) async {
@@ -43,7 +43,7 @@ class ModelConfigProvider extends ChangeNotifier {
     return a.priority.compareTo(b.priority);
   }
 
-  /// 从 SharedPreferences 加载模型配置
+  /// 从 SharedPreferences 加载模型配置，单条坏配置会被跳过。
   Future<void> loadModels() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -69,7 +69,7 @@ class ModelConfigProvider extends ChangeNotifier {
     }
   }
 
-  /// 将模型配置保存到 SharedPreferences
+  /// 把当前模型配置快照排入保存队列。
   void _queueSaveModels() {
     final snapshot = List<ModelConfig>.from(_models);
     _saveQueue = _saveQueue.then((_) => _saveModelsSnapshot(snapshot));
@@ -85,7 +85,7 @@ class ModelConfigProvider extends ChangeNotifier {
     }
   }
 
-  /// 添加新模型配置
+  /// 添加一个模型配置并按分类优先级重新排序。
   void addModel(ModelConfig config) {
     _models.add(config);
     _models.sort(_compareModels);

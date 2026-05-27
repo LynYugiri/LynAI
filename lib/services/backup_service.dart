@@ -21,6 +21,11 @@ import '../providers/model_config_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/file_name_utils.dart';
 
+/// 负责 LynAI ZIP 备份的导出、读取、预览和导入。
+///
+/// 备份格式由 `manifest.json` 描述，业务数据按分区写入 JSON，应用私有目录
+/// 中被引用的附件写入 `assets/`。导入时先恢复附件，再把旧设备路径重映射
+/// 为当前设备路径，避免数据引用不可用文件。
 class BackupService {
   BackupService({
     required this.settingsProvider,
@@ -1219,7 +1224,7 @@ class BackupService {
     BackupArchiveData archive,
     Set<String> neededOriginalPaths,
   ) async {
-    if (neededOriginalPaths.isEmpty || archive.assetFiles.isEmpty) return {};
+    if (neededOriginalPaths.isEmpty) return {};
     final records = archive.manifest['assets'];
     if (records is! List) return {};
     final dir = await getApplicationDocumentsDirectory();
@@ -1236,6 +1241,7 @@ class BackupService {
       final bytes = archive.assetFiles[archivePath];
       if (bytes == null) {
         archive.warnings.add('资源文件缺失：$archivePath');
+        restored[originalPath] = '';
         continue;
       }
       final kind = raw['kind'] as String? ?? 'assets';
@@ -1313,11 +1319,16 @@ class BackupService {
     if (assetPaths.isEmpty) return data;
     final appSettings = data.appSettings;
     final backgroundPath = appSettings?.backgroundImagePath;
+    final mappedBackgroundPath = backgroundPath == null
+        ? null
+        : assetPaths[backgroundPath];
     return BackupData(
       appSettings: appSettings?.copyWith(
-        backgroundImagePath: backgroundPath == null
+        backgroundImagePath: mappedBackgroundPath == null
+            ? backgroundPath
+            : mappedBackgroundPath.isEmpty
             ? null
-            : assetPaths[backgroundPath] ?? backgroundPath,
+            : mappedBackgroundPath,
       ),
       modelConfigs: data.modelConfigs,
       conversations: data.conversations
@@ -1339,17 +1350,25 @@ class BackupService {
     Map<String, String> assetPaths,
   ) {
     final messages = conversation.messages.map((message) {
-      final images = message.images.map((image) {
-        final path = assetPaths[image.path];
-        return path == null
-            ? image
-            : MessageImage(
-                path: path,
-                name: image.name,
-                size: image.size,
-                mimeType: image.mimeType,
-              );
-      }).toList();
+      final images = message.images
+          .map((image) {
+            if (!assetPaths.containsKey(image.path)) return image;
+            final path = assetPaths[image.path];
+            return path == null || path.isEmpty
+                ? image
+                : MessageImage(
+                    path: path,
+                    name: image.name,
+                    size: image.size,
+                    mimeType: image.mimeType,
+                  );
+          })
+          .where(
+            (image) =>
+                !assetPaths.containsKey(image.path) ||
+                assetPaths[image.path] != '',
+          )
+          .toList();
       return Message(
         id: message.id,
         role: message.role,

@@ -6,6 +6,10 @@ import 'package:http/http.dart' as http;
 import '../models/model_config.dart';
 import 'tool_call_service.dart';
 
+/// 发送给模型前的附件输入。
+///
+/// 页面层负责把用户选择的文件复制到应用私有目录；服务层只接收文件字节、
+/// MIME 类型和展示名称，并按不同协议转换为多模态内容或文本上下文。
 class ChatFileInput {
   final Uint8List bytes;
   final String mimeType;
@@ -20,6 +24,10 @@ class ChatFileInput {
   bool get isImage => mimeType.startsWith('image/');
 }
 
+/// 流式聊天中的一个标准化增量。
+///
+/// 不同供应商的 SSE/JSON 行格式在这里被统一成正文、思考内容、工具调用
+/// 和结束信号，页面层不需要关心底层协议差异。
 class StreamChunk {
   final String? content;
   final String? reasoningContent;
@@ -34,6 +42,9 @@ class StreamChunk {
   });
 }
 
+/// 非流式聊天响应。
+///
+/// 主要用于工具调用后的二次请求，或不需要逐字刷新的接口调用。
 class ChatResponse {
   final String content;
   final String? reasoning;
@@ -46,6 +57,10 @@ class ChatResponse {
   });
 }
 
+/// 封装外部模型接口、OCR、语音转写、图片生成和附件转换。
+///
+/// 服务层只处理协议和数据转换，不保存应用状态。调用者负责选择模型、
+/// 构建上下文、处理取消和把结果写回 Provider。
 class ApiService {
   static const _timeout = Duration(minutes: 5);
   static const _streamTimeout = Duration(minutes: 30);
@@ -678,6 +693,7 @@ class ApiService {
       if (config.effectiveTemperature != null)
         'temperature': config.effectiveTemperature,
       if (config.effectiveTopP != null) 'top_p': config.effectiveTopP,
+      // 显式发送 disabled 标记；部分已配置后端依赖这个字段，不能省略。
       'thinking': {'type': thinking ? 'enabled' : 'disabled'},
       if (tools.isNotEmpty) 'tools': tools,
       if (tools.isNotEmpty) 'tool_choice': toolChoice ?? 'auto',
@@ -743,6 +759,7 @@ class ApiService {
       if (config.effectiveTemperature != null)
         'temperature': config.effectiveTemperature,
       if (config.effectiveTopP != null) 'top_p': config.effectiveTopP,
+      // 显式发送 disabled 标记；部分已配置后端依赖这个字段，不能省略。
       'thinking': {'type': thinking ? 'enabled' : 'disabled'},
       if (tools.isNotEmpty) 'tools': tools,
       if (tools.isNotEmpty) 'tool_choice': toolChoice ?? 'auto',

@@ -1,6 +1,6 @@
 # 状态管理
 
-项目使用 `Provider + ChangeNotifier`。四个 Provider 在 `main.dart` 中注册，启动时并行加载本地数据。
+LynAI 使用 `Provider + ChangeNotifier`。四个 Provider 在 `main.dart` 注册，启动时并行加载本地数据。
 
 ```dart
 MultiProvider(
@@ -13,154 +13,158 @@ MultiProvider(
 )
 ```
 
-Provider 的共同策略是：先更新内存状态并通知 UI，再把不可变快照加入串行保存队列，避免连续操作时旧异步写入覆盖新状态。
+## 共同策略
+
+Provider 的更新策略是：先更新内存状态并通知 UI，再把当前快照放入保存队列。
+
+```text
+用户操作
+  → Provider 修改内存状态
+  → notifyListeners()
+  → 快照进入 Future 保存队列
+  → SharedPreferences(JSON)
+```
+
+这样 UI 反馈更快，连续操作也不会让旧异步写入覆盖新状态。保存失败目前记录到 `debugPrint`，不会阻止 UI 更新。
 
 ## ConversationProvider
 
 文件：`lib/providers/conversation_provider.dart`
 
-核心数据：`List<Conversation> conversations`，按 `updatedAt` 倒序。
+负责对话列表、消息增删改、流式中间态和搜索。
 
 | 方法 | 说明 |
 |------|------|
-| `loadConversations()` | 从 `conversations` 加载对话，坏对话跳过，坏消息由模型层跳过 |
-| `createConversation(settings, {roleId})` | 创建新对话，绑定角色和设置快照 |
-| `addMessage(convId, role, content, {images, thinkingContent})` | 添加消息和附件，首条 user 消息会生成标题 |
-| `updateLastMessage(convId, content, {thinkingContent, save})` | 流式刷新最后一条 assistant 消息，可保存或清空思考内容 |
-| `updateMessageContent(convId, msgId, content)` | 编辑或重试时替换指定消息文本 |
-| `updateMessageImages(convId, msgId, images)` | 重试版本切换时替换指定消息附件 |
-| `updateConversationTitle(convId, title)` | 修改标题 |
-| `updateConversationModelId(convId, modelId)` | 修改对话绑定模型 |
-| `updateConversationSettings(convId, settings)` | 修改对话级设置快照 |
-| `deleteMessage(convId, msgId)` | 删除指定消息 |
-| `deleteConversation(convId)` | 删除对话 |
-| `searchConversations(query)` | 搜索标题和消息内容，返回匹配位置摘要 |
+| `loadConversations()` | 加载 `conversations`，坏对话跳过。 |
+| `replaceConversations()` | 备份导入时整体替换对话列表。 |
+| `createConversation()` | 创建新对话并绑定角色和设置快照。 |
+| `addMessage()` | 添加 user 或 assistant 消息。 |
+| `updateLastMessage()` | 流式刷新最后一条 assistant 消息。 |
+| `updateMessageContent()` | 编辑或重试时替换指定消息正文。 |
+| `updateMessageImages()` | 重试版本切换时替换附件。 |
+| `deleteMessage()` | 删除单条消息。 |
+| `deleteConversation()` | 删除对话。 |
+| `searchConversations()` | 搜索标题和正文。 |
 
-`updateLastMessage()` 的 `thinkingContent` 使用 sentinel 语义。
+`updateLastMessage()` 的 `thinkingContent` 有特殊语义：
 
-| 调用 | 行为 |
-|------|------|
-| 不传 `thinkingContent` | 保留原思考内容 |
-| `thinkingContent: '...'` | 覆盖为新思考内容 |
-| `thinkingContent: null` | 显式清空思考内容 |
+| 调用方式 | 行为 |
+|----------|------|
+| 不传 | 保留原思考内容。 |
+| 传字符串 | 覆盖思考内容。 |
+| 显式传 `null` | 清空思考内容。 |
 
-流式中间态通常使用 `save:false`，正常完成、停止或失败后再使用 `save:true` 持久化最终状态。
+流式中间态通常使用 `save:false`。正常完成、停止或失败后再用 `save:true` 保存最终状态。
 
 ## ModelConfigProvider
 
 文件：`lib/providers/model_config_provider.dart`
 
-核心数据：`List<ModelConfig> models`，按分类和优先级排序。
+负责模型配置列表、分类查询和排序。
 
 | 方法 | 说明 |
 |------|------|
-| `loadModels()` | 从 `model_configs` 加载，失败时置空 |
-| `modelsByCategory(category)` | 返回指定分类配置 |
-| `nextPriorityForCategory(category)` | 计算分类内新增配置优先级 |
-| `addModel(config)` | 添加配置并排序保存 |
-| `updateModel(config)` | 按 ID 更新配置并排序保存 |
-| `deleteModel(id)` | 删除配置 |
-| `reorderModel(old, new)` | 全局重排并重写 priority |
-| `reorderModelsInCategory(category, old, new)` | 分类内拖拽重排 |
-| `generateId()` | 生成 UUID v4 |
+| `loadModels()` | 加载 `model_configs`，坏配置跳过。 |
+| `replaceModels()` | 备份导入时整体替换模型配置。 |
+| `modelsByCategory()` | 获取某个分类的配置。 |
+| `nextPriorityForCategory()` | 新增配置时计算分类内优先级。 |
+| `addModel()` | 添加配置。 |
+| `updateModel()` | 按 ID 更新配置。 |
+| `deleteModel()` | 删除配置。 |
+| `reorderModel()` | 全局重排。 |
+| `reorderModelsInCategory()` | 分类内重排。 |
 
-模型删除或导入替换后，`main.dart` 和数据管理页会调用 `SettingsProvider.repairMediaModelSelections()` 修复设置中的悬空模型 ID。
+模型排序先按 `category`，再按 `priority`。删除或导入替换模型后，应调用 `SettingsProvider.repairMediaModelSelections()` 修复设置里的悬空模型 ID。
 
 ## SettingsProvider
 
 文件：`lib/providers/settings_provider.dart`
 
-核心数据：`AppSettings settings`。
+负责应用级设置、角色、系统提示词和最近使用模型。
 
 | 方法 | 说明 |
 |------|------|
-| `loadSettings()` | 加载 `app_settings`，失败时使用默认设置 |
-| `setThemeColor(color)` | 设置当前主题色 |
-| `setThemeMode(mode)` | `light`、`dark`、`system` |
-| `setBackgroundImage(path)` | 设置或清除背景图 |
-| `setBlurEnabled(bool)` | 开关背景模糊 |
-| `setBlurAmount(double)` | 设置模糊强度 |
-| `setLastFeature(feature)` | 保存功能页入口：`history`、`schedule`、`notes`、`todos` |
-| `setSpeechModelId(id)` | 设置语音模型 |
-| `setImageModelId(id)` | 设置 OCR 模型 |
-| `setImageOcrEnabled(bool)` | 开关 OCR |
-| `setImageRecognitionModelId(id)` | 设置文件识别 Chat 模型 |
-| `setImageRecognitionEnabled(bool)` | 开关文件识别 |
-| `setLastChatModelId(id)` | 新对话默认 Chat 模型 |
-| `setImageRecognitionPrompt(prompt)` | 文件识别提示词 |
-| `setSystemPrompt(prompt)` | 默认系统提示词 |
-| `addSystemPrompt(title, content)` | 新增提示词模板 |
-| `updateSystemPrompt(id, title, content)` | 更新提示词；如果绑定角色则同步角色 |
-| `deleteSystemPrompt(id)` | 删除提示词；如果绑定角色则删除角色避免悬挂引用 |
-| `selectSystemPrompt(id)` | 选择模板或回退默认提示词 |
-| `addRole(...)` | 新增角色，并同步创建同 ID 提示词模板 |
-| `selectRole(roleId)` | 切换角色并同步系统提示词、默认模型和主题色 |
-| `applyConversationSettings(settings)` | 把历史对话设置快照同步到 UI |
-| `repairMediaModelSelections(models)` | 修复已删除或不存在的模型引用 |
+| `loadSettings()` | 加载 `app_settings`，顶层损坏时回退默认设置。 |
+| `replaceSettings()` | 备份导入时整体替换设置。 |
+| `setThemeColor()` / `setThemeMode()` | 修改主题。 |
+| `setBackgroundImage()` | 设置或清除背景图。 |
+| `setLastFeature()` | 记住功能页入口。 |
+| `setSpeechModelId()` / `setImageModelId()` | 设置语音和 OCR 模型。 |
+| `setImageRecognitionModelId()` | 设置文件识别模型。 |
+| `setLastChatModelId()` | 设置新对话默认 Chat 模型。 |
+| `addSystemPrompt()` / `updateSystemPrompt()` / `deleteSystemPrompt()` | 管理提示词模板。 |
+| `addRole()` / `updateRole()` / `deleteRole()` / `selectRole()` | 管理角色。 |
+| `applyConversationSettings()` | 把历史对话设置快照应用到当前 UI。 |
+| `repairMediaModelSelections()` | 修复已删除或不存在的模型引用。 |
 
-计算属性包括 `themeModeEnum` 和 `effectiveSystemPrompt`。`AppSettings.copyWith()` 对可清空字段使用 sentinel，避免 `null` 被误认为“不更新”。
+`AppSettings.copyWith()` 对可清空字段使用 sentinel。调用者可以明确把字段清空为 `null`，而不是只能“不更新”。
 
 ## FeatureProvider
 
 文件：`lib/providers/feature_provider.dart`
 
-核心数据：日程、笔记、笔记修订、笔记文件夹、笔记修改建议、待办清单。
+负责日程、笔记、笔记文件夹、修订、AI 修改建议和待办清单。
 
-| 数据 | Getter | 存储键 |
+| 分区 | Getter | 存储键 |
 |------|--------|--------|
 | 日程 | `schedules` | `schedule_items` |
 | 笔记 | `notes` | `notes` |
-| 笔记文件夹 | `noteFolders` | `note_folders` |
-| 笔记修订 | `noteRevisions` | `note_revisions` |
-| 笔记修改建议 | `getNoteEditProposal()` | `note_edit_proposals` |
-| 待办清单 | `todoLists` | `todo_lists` |
+| 文件夹 | `noteFolders` | `note_folders` |
+| 修订 | `noteRevisions` | `note_revisions` |
+| 修改建议 | `getNoteEditProposal()` | `note_edit_proposals` |
+| 待办 | `todoLists` | `todo_lists` |
 
-### 日程方法
-
-| 方法 | 说明 |
-|------|------|
-| `addSchedule(title, start, end, {note, kind})` | 新增日程或任务类日程 |
-| `updateSchedule(schedule)` | 更新日程 |
-| `deleteSchedule(id)` | 删除日程 |
-| `getSchedule(id)` | 按 ID 获取日程 |
-
-日程保存后 Android 会通过 `lynai/schedule_widget` 通道刷新小组件并重新安排通知；其他平台直接跳过。
-
-### 笔记方法
+### 日程
 
 | 方法 | 说明 |
 |------|------|
-| `addNote(title, {folderId})` | 新建空笔记 |
-| `addNoteWithContent(title, content, {folderId})` | 带初始内容创建笔记，并创建初始修订 |
-| `getNote(id)` | 按 ID 获取笔记 |
-| `updateNote(note)` | 更新笔记并写入修订 |
-| `deleteNote(id)` | 删除笔记及相关修订/建议 |
-| `addNoteFolder(title)` | 新建文件夹 |
-| `updateNoteFolder(folder)` | 更新文件夹 |
-| `deleteNoteFolder(id)` | 删除文件夹并清理笔记引用 |
-| `getNoteTimeline(noteId)` | 获取笔记修订时间线 |
-| `getNoteContentAtRevision(noteId, revisionId)` | 还原某个修订版本内容 |
+| `addSchedule()` | 新增普通日程或任务类日程。 |
+| `updateSchedule()` | 修改日程。 |
+| `deleteSchedule()` | 删除日程。 |
+| `getSchedule()` | 按 ID 查询。 |
 
-加载后会执行引用归一化：补齐缺失修订、移除指向不存在文件夹的引用，并清理不可用的修改建议。
+日程变更后 Android 会通过 `lynai/schedule_widget` 平台通道刷新小组件并重新安排通知。其他平台直接跳过。
 
-### 待办方法
+### 笔记
 
 | 方法 | 说明 |
 |------|------|
-| `addTodoList(title, items)` | 新建清单 |
-| `updateTodoList(list)` | 更新清单标题或条目 |
-| `deleteTodoList(id)` | 删除清单 |
-| `reorderTodoLists(oldIndex, newIndex)` | 清单排序 |
+| `addNote()` | 新建空笔记。 |
+| `addNoteWithContent()` | 创建带内容的笔记并写入初始修订。 |
+| `saveNoteContent()` | 保存正文并生成 delta 修订。 |
+| `restoreNoteRevision()` | 把历史修订恢复为当前版本。 |
+| `getNoteTimeline()` | 获取修订时间线。 |
+| `getNoteContentAtRevision()` | 重放 delta 得到某个版本的正文。 |
+| `deleteNote()` | 删除笔记、修订和修改建议。 |
+| `addNoteFolder()` / `updateNoteFolder()` / `deleteNoteFolder()` | 管理文件夹。 |
 
-待办页面还会在 UI 层处理清单内任务排序、勾选、导入导出和长图分享。
+加载后会执行归一化：补齐缺失修订、清理不存在文件夹引用、清理不再适用的修改建议、刷新缓存。
 
-## 容错加载策略
+### 待办
+
+| 方法 | 说明 |
+|------|------|
+| `addTodoList()` | 新建清单。 |
+| `updateTodoList()` | 修改标题或任务。 |
+| `deleteTodoList()` | 删除清单。 |
+| `reorderTodoLists()` | 清单排序。 |
+
+清单内任务排序、Markdown 导入导出和长图分享在页面层完成。
+
+## 容错加载
 
 | 数据 | 行为 |
 |------|------|
-| 对话 | 坏对话跳过，坏消息跳过 |
-| 设置 | 坏角色/提示词跳过，默认角色缺失时补回 |
-| 模型 | 加载失败置空，不影响应用启动 |
-| 日程/笔记/待办 | 单条坏记录跳过，整体失败时该功能分区置空 |
-| 附件 | 兼容旧 `filePath`，并推导缺失名称/MIME |
-| 模型引用 | 删除或导入后修复语音、OCR、文件识别和最近 Chat 模型 ID |
+| 对话 | 坏对话跳过，坏消息跳过。 |
+| 模型 | 坏配置跳过；顶层损坏时模型列表置空。 |
+| 设置 | 坏角色/提示词跳过；顶层损坏时使用默认设置。 |
+| 日程/笔记/待办 | 单条坏记录跳过；顶层损坏时对应分区置空。 |
+| 附件 | 兼容旧 `filePath`，并从路径推导文件名和 MIME。 |
+
+## 修改 Provider 时要注意
+
+1. 修改内存列表后要保存对应分区。
+2. 影响 UI 的修改要 `notifyListeners()`。
+3. 批量导入应尽量等待保存队列完成后再通知 UI。
+4. 删除模型后要修复设置中的模型引用。
+5. 修改笔记修订时要清理修订内容缓存和时间线缓存。

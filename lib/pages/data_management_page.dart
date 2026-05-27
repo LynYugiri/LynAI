@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../models/backup_models.dart';
 import '../models/conversation.dart';
@@ -16,6 +15,10 @@ import '../providers/model_config_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/backup_service.dart';
 
+/// 数据管理页面。
+///
+/// 提供可选择分区的 ZIP 备份导出、备份读取预览、导入模式选择和冲突处理。
+/// 具体归档和恢复逻辑由 [BackupService] 执行。
 class DataManagementPage extends StatefulWidget {
   const DataManagementPage({super.key});
 
@@ -123,10 +126,21 @@ class _DataManagementPageState extends State<DataManagementPage> {
     setState(() => _busy = true);
     try {
       final file = await _service(context).exportZip(selection);
+      final bytes = await file.readAsBytes();
+      final fileName = file.uri.pathSegments.last;
+      final path = await FilePicker.platform.saveFile(
+        dialogTitle: '导出备份',
+        fileName: fileName,
+        type: FileType.custom,
+        allowedExtensions: ['zip'],
+        bytes: bytes,
+      );
+      if (path == null) return;
+      if (!Platform.isAndroid && !Platform.isIOS) {
+        await File(path).writeAsBytes(bytes, flush: true);
+      }
       if (!mounted) return;
-      await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
-      if (!mounted) return;
-      _showSnack('已生成备份：${file.uri.pathSegments.last}');
+      _showSnack('备份已导出到 $path');
     } catch (e) {
       _showSnack('导出失败：$e');
     } finally {

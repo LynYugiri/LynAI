@@ -1,6 +1,10 @@
 import 'message.dart';
 import 'package:flutter/foundation.dart';
 
+/// 一次对话保存的设置快照。
+///
+/// 历史对话不能只依赖全局设置，否则用户后来切换模型、提示词或 OCR 配置时，
+/// 旧对话的上下文会被悄悄改变。这个模型把发送所需的设置固定在对话上。
 class ConversationSettings {
   final String modelId;
   final bool thinking;
@@ -114,6 +118,10 @@ class ConversationSettings {
 /// [modelId] 本次对话使用的 AI 模型ID
 /// [createdAt] 对话创建时间
 /// [updatedAt] 对话最后更新时间
+/// 一条完整的对话记录。
+///
+/// [messages] 保存用户和 assistant 消息；[modelId] 与 [settings] 记录创建或
+/// 最近发送时使用的模型上下文；[roleId] 用于历史页按角色分组。
 class Conversation {
   final String id;
   final String title;

@@ -1,3 +1,7 @@
+/// 提供商配置中的一个可选子模型。
+///
+/// 一个 Provider 可能暴露多个模型名。子模型级参数优先于 Provider 级参数，
+/// 并决定当前请求是否启用视觉、思考和工具能力。
 class ModelEntry {
   final String name;
   final bool enabled;
@@ -72,6 +76,10 @@ class ModelEntry {
   static const _sentinel = Object();
 }
 
+/// 一个模型提供商或接口配置。
+///
+/// `category` 决定配置用途：聊天、OCR、语音转写或图片生成。聊天配置可以
+/// 通过 [models] 维护多个子模型，`modelName` 表示当前激活子模型。
 class ModelConfig {
   static const categoryChat = 'chat';
   static const categoryOcr = 'ocr';

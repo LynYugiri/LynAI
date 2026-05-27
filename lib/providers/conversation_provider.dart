@@ -5,11 +5,10 @@ import 'package:uuid/uuid.dart';
 import '../models/conversation.dart';
 import '../models/message.dart';
 
-/// 对话状态管理
+/// 管理对话历史、消息流式更新和对话持久化。
 ///
-/// 使用 ChangeNotifier 模式管理所有对话的状态。
-/// 负责对话的增删改查、持久化存储、搜索等功能。
-/// 通过 Provider 在 Widget 树中共享。
+/// 约定：UI 可以先看到内存更新，落盘通过串行保存队列按快照顺序执行。
+/// 这样流式刷新、停止生成、重试切换不会让较旧的异步写入覆盖新状态。
 class ConversationProvider extends ChangeNotifier {
   List<Conversation> _conversations = [];
   final _uuid = const Uuid();
@@ -23,7 +22,7 @@ class ConversationProvider extends ChangeNotifier {
     _conversations.insert(0, updated);
   }
 
-  /// 获取所有对话列表（按更新时间倒序排列）
+  /// 所有对话，按最近更新时间倒序排列。
   List<Conversation> get conversations => List.unmodifiable(_conversations);
 
   Future<void> replaceConversations(List<Conversation> conversations) async {
@@ -34,7 +33,9 @@ class ConversationProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 从 SharedPreferences 加载对话数据
+  /// 从 SharedPreferences 加载对话。
+  ///
+  /// 单条损坏对话会被跳过；单条损坏消息由 [Conversation.fromJson] 跳过。
   Future<void> loadConversations() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -52,19 +53,17 @@ class ConversationProvider extends ChangeNotifier {
           }
         }
         _conversations = conversations;
-        // 按更新时间倒序排列
         _conversations.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
         notifyListeners();
       }
     } catch (e) {
       debugPrint('加载对话失败: $e');
-      // 初始化空列表，避免应用崩溃
       _conversations = [];
       notifyListeners();
     }
   }
 
-  /// 将对话数据保存到 SharedPreferences
+  /// 把当前对话快照排入保存队列。
   void _queueSaveConversations() {
     final snapshot = List<Conversation>.from(_conversations);
     _saveQueue = _saveQueue.then((_) => _saveConversationsSnapshot(snapshot));
@@ -80,7 +79,7 @@ class ConversationProvider extends ChangeNotifier {
     }
   }
 
-  /// 创建新对话，返回对话ID
+  /// 创建新对话并返回对话 ID。
   String createConversation(
     ConversationSettings settings, {
     String roleId = 'default',
@@ -107,7 +106,7 @@ class ConversationProvider extends ChangeNotifier {
     }
   }
 
-  /// 向指定对话添加消息
+  /// 向指定对话添加一条消息。
   void addMessage(
     String conversationId,
     String role,

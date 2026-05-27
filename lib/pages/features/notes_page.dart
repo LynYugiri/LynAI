@@ -1,6 +1,7 @@
 part of '../feature_page.dart';
 
 class _NotesPage extends StatefulWidget {
+  final GlobalKey<_NoteDetailState> noteDetailKey;
   final String? selectedNoteId;
   final bool editing;
   final ValueChanged<String> onSelect;
@@ -13,6 +14,7 @@ class _NotesPage extends StatefulWidget {
   final VoidCallback onNewFolder;
 
   const _NotesPage({
+    required this.noteDetailKey,
     required this.selectedNoteId,
     required this.editing,
     required this.onSelect,
@@ -46,6 +48,7 @@ class _NotesPageState extends State<_NotesPage> {
   Widget build(BuildContext context) {
     if (widget.selectedNoteId != null) {
       return _NoteDetail(
+        key: widget.noteDetailKey,
         noteId: widget.selectedNoteId!,
         editing: widget.editing,
         onEditingChanged: widget.onEditingChanged,
@@ -353,29 +356,47 @@ class _NotesPageState extends State<_NotesPage> {
     int newIndex,
   ) async {
     if (oldIndex < 0 || oldIndex >= entries.length) return;
-    if (newIndex > oldIndex) newIndex -= 1;
-    if (newIndex < 0 || newIndex >= entries.length) return;
+    if (newIndex < 0 || newIndex > entries.length) return;
     final oldEntry = entries[oldIndex];
-    final newEntry = entries[newIndex];
-    if (oldEntry.isFolder != newEntry.isFolder) return;
-    if (oldEntry.isFolder && newEntry.isFolder) {
-      final folders = entries.where((e) => e.isFolder).toList();
-      final oldFolderIndex = folders.indexWhere(
+    final remainingEntries = [...entries]..removeAt(oldIndex);
+    final insertionIndex = newIndex > oldIndex ? newIndex - 1 : newIndex;
+    if (insertionIndex < 0 || insertionIndex > remainingEntries.length) return;
+    final remainingFolderCount = remainingEntries
+        .where((entry) => entry.isFolder)
+        .length;
+    if (oldEntry.isFolder && insertionIndex > remainingFolderCount) {
+      return;
+    }
+    if (!oldEntry.isFolder && insertionIndex < remainingFolderCount) {
+      return;
+    }
+    final sameTypeEntries = entries
+        .where((entry) => entry.isFolder == oldEntry.isFolder)
+        .toList();
+    final oldSameTypeIndex = sameTypeEntries.indexWhere(
+      (entry) => entry.id == oldEntry.id,
+    );
+    final newSameTypeIndex = remainingEntries
+        .take(insertionIndex)
+        .where((entry) => entry.isFolder == oldEntry.isFolder)
+        .length;
+    final providerNewIndex = newSameTypeIndex > oldSameTypeIndex
+        ? newSameTypeIndex + 1
+        : newSameTypeIndex;
+    if (oldEntry.isFolder) {
+      final oldFolderIndex = sameTypeEntries.indexWhere(
         (e) => e.folder!.id == oldEntry.folder!.id,
       );
-      final newFolderIndex = folders.indexWhere(
-        (e) => e.folder!.id == newEntry.folder!.id,
-      );
-      await _features.reorderNoteFolders(oldFolderIndex, newFolderIndex);
-    } else if (!oldEntry.isFolder && !newEntry.isFolder) {
-      final notes = entries.where((e) => !e.isFolder).toList();
-      final oldNoteIndex = notes.indexWhere(
+      await _features.reorderNoteFolders(oldFolderIndex, providerNewIndex);
+    } else {
+      final oldNoteIndex = sameTypeEntries.indexWhere(
         (e) => e.note!.id == oldEntry.note!.id,
       );
-      final newNoteIndex = notes.indexWhere(
-        (e) => e.note!.id == newEntry.note!.id,
+      await _features.reorderNotesInFolder(
+        null,
+        oldNoteIndex,
+        providerNewIndex,
       );
-      await _features.reorderNotesInFolder(null, oldNoteIndex, newNoteIndex);
     }
   }
 
@@ -633,6 +654,7 @@ class _NoteListEntry {
   const _NoteListEntry.note(this.note) : folder = null;
 
   bool get isFolder => folder != null;
+  String get id => folder?.id ?? note!.id;
 }
 
 class _NoteTimelineSheet extends StatefulWidget {

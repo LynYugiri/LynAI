@@ -6,12 +6,10 @@ import 'providers/model_config_provider.dart';
 import 'providers/settings_provider.dart';
 import 'pages/home_page.dart';
 
-/// LynAI - AI 对话应用
+/// LynAI 的应用入口。
 ///
-/// 应用入口，负责：
-/// 1. 初始化 Provider 状态管理
-/// 2. 从 SharedPreferences 加载持久化数据
-/// 3. 构建 MaterialApp 并应用自定义主题
+/// 入口只做三件事：注册全局 Provider、启动根组件、把 Flutter 绑定初始化。
+/// 数据加载和主题构建留给 [LynAIApp]，避免入口函数承担运行时状态。
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -28,10 +26,10 @@ void main() {
   );
 }
 
-/// 应用根 Widget
+/// 应用根组件。
 ///
-/// 在初始化时加载所有持久化数据（对话、模型配置、设置），
-/// 然后根据设置中的主题颜色动态构建 Material Theme。
+/// 负责加载本地持久化数据、修复悬空模型引用，并根据用户设置构建
+/// Material 主题。加载失败时停留在可重试错误页，而不是让空状态进入主界面。
 class LynAIApp extends StatefulWidget {
   const LynAIApp({super.key});
 
@@ -47,13 +45,14 @@ class _LynAIAppState extends State<LynAIApp> {
   @override
   void initState() {
     super.initState();
-    // 使用 Future.microtask 确保 context 已经准备好
+    // Provider 已在父级注册；延后到 microtask 后再读取 context。
     Future.microtask(() => _loadData());
   }
 
-  /// 加载所有持久化数据
+  /// 并行加载所有本地数据分区。
   ///
-  /// 从 SharedPreferences 中读取对话列表、模型配置和应用设置。
+  /// Provider 会自行处理单条坏数据；这里关心的是启动阶段是否完成，以及
+  /// 模型配置变更后设置中的模型 ID 是否仍然有效。
   Future<void> _loadData() async {
     if (!mounted) return;
     setState(() {
@@ -94,14 +93,12 @@ class _LynAIAppState extends State<LynAIApp> {
 
   @override
   Widget build(BuildContext context) {
-    // 获取设置中的主题颜色
     final settings = context.watch<SettingsProvider>().settings;
 
     final settingsProvider = context.read<SettingsProvider>();
     return MaterialApp(
       title: 'LynAI',
       debugShowCheckedModeBanner: false,
-      // 动态主题：使用用户自定义的主题颜色作为 seed
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: settings.themeColor,

@@ -1,3 +1,7 @@
+/// 本地日程或任务。
+///
+/// 时间统一按本地时间存取。普通日程使用 [kindSchedule]，任务类项目使用
+/// [kindTask]，方便工具调用和页面用不同方式展示。
 class ScheduleItem {
   static const kindSchedule = 'schedule';
   static const kindTask = 'task';

@@ -8,10 +8,10 @@ import '../models/conversation.dart';
 import '../models/model_config.dart';
 import '../models/system_prompt.dart';
 
-/// 设置状态管理
+/// 管理应用级设置、角色、系统提示词和最近使用模型。
 ///
-/// 管理应用的所有设置项，包括主题颜色、背景图片、毛玻璃效果等。
-/// 设置变更后自动持久化到 SharedPreferences。
+/// 设置是跨页面共享的 UI 状态。修改后立即通知界面，并把不可变快照排入
+/// 串行保存队列；这样快速切换主题、角色或模型时不会出现旧设置覆盖新设置。
 class SettingsProvider extends ChangeNotifier {
   AppSettings _settings = AppSettings.defaults();
   static const _storageKey = 'app_settings';
@@ -33,7 +33,10 @@ class SettingsProvider extends ChangeNotifier {
     );
   }
 
-  /// 从 SharedPreferences 加载设置
+  /// 从 SharedPreferences 加载设置。
+  ///
+  /// 角色和提示词的单条坏数据由 [AppSettings.fromJson] 跳过；顶层结构损坏
+  /// 时回退默认设置，保证应用仍可启动。
   Future<void> loadSettings() async {
     try {
       final prefs = await SharedPreferences.getInstance();

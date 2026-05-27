@@ -8,6 +8,10 @@ import '../models/note.dart';
 import '../models/schedule_item.dart';
 import '../models/todo_list.dart';
 
+/// 管理功能页数据：日程、笔记、笔记修订、文件夹、修改建议和待办清单。
+///
+/// 这些数据共享一个 Provider，是因为工具调用和备份导入经常需要跨功能区
+/// 读写。每个分区仍然使用独立存储键和独立保存队列，避免无关更新互相阻塞。
 class FeatureProvider extends ChangeNotifier {
   static const _scheduleKey = 'schedule_items';
   static const _notesKey = 'notes';
@@ -39,6 +43,10 @@ class FeatureProvider extends ChangeNotifier {
   List<NoteFolder> get noteFolders => List.unmodifiable(_noteFolders);
   List<TodoList> get todoLists => List.unmodifiable(_todoLists);
 
+  /// 批量替换一个或多个功能分区。
+  ///
+  /// 主要供备份导入使用。未传入的分区保持不变；传入的分区会立即替换内存
+  /// 状态并等待对应保存队列完成后再通知 UI。
   Future<void> replaceFeatureData({
     List<ScheduleItem>? schedules,
     List<NoteFolder>? noteFolders,

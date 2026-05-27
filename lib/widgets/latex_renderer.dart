@@ -15,6 +15,10 @@ import '../utils/snackbar_utils.dart';
 
 const _codeFontFamily = 'Hurmit Nerd Font';
 
+/// 低层 LaTeX 渲染工具。
+///
+/// 页面通常直接使用 [MarkdownWithLatex]；这个类保留给需要单独渲染公式的
+/// 场景，例如块级公式导出或独立预览。
 class LatexRenderer {
   static List<InlineSpan> parseToSpans(String text, BuildContext context) {
     final spans = <InlineSpan>[];
@@ -337,6 +341,10 @@ class _LatexBuilder extends MarkdownElementBuilder {
   }
 }
 
+/// 支持 Markdown、代码高亮和 LaTeX 的统一渲染组件。
+///
+/// 组件会避开 fenced code block 中的 `$`，避免把代码误判为公式。代码块和
+/// 公式块可以复制源码，也可以按平台导出为图片。
 class MarkdownWithLatex extends StatelessWidget {
   final String content;
   final TextStyle? textStyle;

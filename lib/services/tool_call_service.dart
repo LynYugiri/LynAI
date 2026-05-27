@@ -11,6 +11,10 @@ import '../models/schedule_item.dart';
 import '../models/todo_list.dart';
 import '../providers/feature_provider.dart';
 
+/// 模型请求执行本地工具的标准化描述。
+///
+/// OpenAI 原生 tool call 和 JSON fallback 都会被转换为这个结构，再交给
+/// [ToolCallService] 统一校验和执行。
 class ChatToolCall {
   final String id;
   final String name;
@@ -160,6 +164,10 @@ class ToolExecutionResult {
   });
 }
 
+/// 执行模型可调用的本地工具。
+///
+/// 工具只通过 Provider 或平台通道访问本地能力。所有结果都返回结构化 JSON，
+/// 让模型可以继续生成自然语言回复，也让失败原因不会被吞掉。
 class ToolCallService {
   ToolCallService(this._features);
 
@@ -965,7 +973,9 @@ class ToolCallService {
     };
   }
 
-  Future<Map<String, dynamic>> _proposeNoteEdit(Map<String, dynamic> args) async {
+  Future<Map<String, dynamic>> _proposeNoteEdit(
+    Map<String, dynamic> args,
+  ) async {
     final parsed = _parseNoteEditArgs(
       args,
       emptyMessage: 'propose_note_edit 需要 edits',
