@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/model_config.dart';
+import '../services/storage_migration_service.dart';
+import '../services/storage_v2_service.dart';
 
 /// 管理所有模型配置和分类内优先级。
 ///
@@ -13,9 +15,15 @@ class ModelConfigProvider extends ChangeNotifier {
   final _uuid = const Uuid();
   static const _storageKey = 'model_configs';
   Future<void> _saveQueue = Future.value();
+  final StorageV2Service _storageV2;
+  bool _usingStorageV2 = false;
+
+  ModelConfigProvider({StorageV2Service? storageV2})
+    : _storageV2 = storageV2 ?? StorageV2Service();
 
   /// 所有模型配置，按分类和优先级排序。
   List<ModelConfig> get models => List.unmodifiable(_models);
+  bool get usingStorageV2 => _usingStorageV2;
 
   Future<void> replaceModels(List<ModelConfig> models) async {
     _models = List<ModelConfig>.from(models)..sort(_compareModels);
@@ -47,18 +55,20 @@ class ModelConfigProvider extends ChangeNotifier {
   Future<void> loadModels() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      if ((prefs.getInt('storage_schema_version') ?? 1) >=
+              StorageMigrationService.currentSchemaVersion &&
+          await _storageV2.exists()) {
+        final json = await _storageV2.loadDataFile('model_configs.json');
+        _models = _parseModels(json['models']);
+        _models.sort(_compareModels);
+        _usingStorageV2 = true;
+        notifyListeners();
+        return;
+      }
       final jsonString = prefs.getString(_storageKey);
       if (jsonString != null) {
         final List<dynamic> jsonList = jsonDecode(jsonString);
-        final models = <ModelConfig>[];
-        for (final item in jsonList) {
-          try {
-            models.add(ModelConfig.fromJson(item as Map<String, dynamic>));
-          } catch (e) {
-            debugPrint('跳过损坏的模型配置: $e');
-          }
-        }
-        _models = models;
+        _models = _parseModels(jsonList);
         _models.sort(_compareModels);
         notifyListeners();
       }
@@ -78,11 +88,35 @@ class ModelConfigProvider extends ChangeNotifier {
   Future<void> _saveModelsSnapshot(List<ModelConfig> snapshot) async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      if (_usingStorageV2 ||
+          ((prefs.getInt('storage_schema_version') ?? 1) >=
+                  StorageMigrationService.currentSchemaVersion &&
+              await _storageV2.exists())) {
+        _usingStorageV2 = true;
+        await _storageV2.writeDataFile('model_configs.json', {
+          'models': snapshot.map((m) => m.toJson()).toList(),
+        });
+        return;
+      }
       final jsonString = jsonEncode(snapshot.map((m) => m.toJson()).toList());
       await prefs.setString(_storageKey, jsonString);
     } catch (e) {
       debugPrint('保存模型配置失败: $e');
     }
+  }
+
+  List<ModelConfig> _parseModels(Object? raw) {
+    final models = <ModelConfig>[];
+    for (final item in raw as List<dynamic>? ?? const []) {
+      try {
+        if (item is Map) {
+          models.add(ModelConfig.fromJson(Map<String, dynamic>.from(item)));
+        }
+      } catch (e) {
+        debugPrint('跳过损坏的模型配置: $e');
+      }
+    }
+    return models;
   }
 
   /// 添加一个模型配置并按分类优先级重新排序。

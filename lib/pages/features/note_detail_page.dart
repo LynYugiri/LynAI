@@ -34,6 +34,7 @@ class _NoteDetailState extends State<_NoteDetail> {
   var _showFind = false;
   var _showReplace = false;
   var _showLatexPanel = false;
+  var _showPageSidebar = true;
   var _caseSensitiveFind = false;
   var _regexFind = false;
   var _currentMatch = -1;
@@ -114,6 +115,17 @@ class _NoteDetailState extends State<_NoteDetail> {
           padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
           child: Row(
             children: [
+              if (_features.usingStorageV2)
+                IconButton(
+                  tooltip: _showPageSidebar ? '隐藏分页' : '显示分页',
+                  icon: Icon(
+                    _showPageSidebar
+                        ? Icons.menu_book
+                        : Icons.menu_book_outlined,
+                  ),
+                  onPressed: () =>
+                      setState(() => _showPageSidebar = !_showPageSidebar),
+                ),
               const Spacer(),
               IconButton(
                 tooltip: '后退',
@@ -215,8 +227,9 @@ class _NoteDetailState extends State<_NoteDetail> {
               ),
             ),
           );
+    final body = _withPageSidebar(note, base, hasProposal, viewingHistorical);
     if (!hasProposal || viewingHistorical || _proposalSidebarExpanded) {
-      return base;
+      return body;
     }
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -238,7 +251,7 @@ class _NoteDetailState extends State<_NoteDetail> {
         );
         return Stack(
           children: [
-            Positioned.fill(child: base),
+            Positioned.fill(child: body),
             Positioned(
               left: offset.dx,
               top: offset.dy,
@@ -248,6 +261,245 @@ class _NoteDetailState extends State<_NoteDetail> {
         );
       },
     );
+  }
+
+  Widget _withPageSidebar(
+    Note note,
+    Widget body,
+    bool hasProposal,
+    bool viewingHistorical,
+  ) {
+    if (!_features.usingStorageV2 ||
+        !_showPageSidebar ||
+        hasProposal ||
+        viewingHistorical) {
+      return body;
+    }
+    final pages = _features.notePages(note.id);
+    if (pages.length <= 1) return body;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 720;
+        if (compact) {
+          return Column(
+            children: [
+              SizedBox(height: 92, child: _pageSidebar(note, pages, true)),
+              Expanded(child: body),
+            ],
+          );
+        }
+        return Row(
+          children: [
+            SizedBox(width: 250, child: _pageSidebar(note, pages, false)),
+            VerticalDivider(width: 1, color: Theme.of(context).dividerColor),
+            Expanded(child: body),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _pageSidebar(Note note, List<StorageV2NotePage> pages, bool compact) {
+    final active = _features.activeNotePage(note.id);
+    final scheme = Theme.of(context).colorScheme;
+    final headings = _markdownHeadings(_ctrl.text);
+    final children = pages.map((page) {
+      final selected = page.id == active?.id;
+      if (compact) {
+        return Padding(
+          padding: const EdgeInsets.only(right: 6),
+          child: FilterChip(
+            selected: selected,
+            avatar: Icon(
+              selected ? Icons.description : Icons.description_outlined,
+              size: 18,
+            ),
+            label: Text(page.title.isEmpty ? page.fileName : page.title),
+            onSelected: selected ? null : (_) => _selectPage(note, page),
+          ),
+        );
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ListTile(
+            dense: true,
+            selected: selected,
+            leading: Icon(
+              selected ? Icons.description : Icons.description_outlined,
+              size: 20,
+            ),
+            title: Text(
+              page.title.isEmpty ? page.fileName : page.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: PopupMenuButton<String>(
+              tooltip: '分页操作',
+              onSelected: (value) => _pageMenu(value, note, page),
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'rename', child: Text('重命名分页')),
+                PopupMenuItem(value: 'delete', child: Text('删除分页')),
+              ],
+            ),
+            onTap: selected ? null : () => _selectPage(note, page),
+          ),
+          if (selected && headings.isNotEmpty)
+            ...headings.map(
+              (heading) => Padding(
+                padding: EdgeInsets.only(left: 12.0 + (heading.level - 1) * 12),
+                child: ListTile(
+                  dense: true,
+                  visualDensity: VisualDensity.compact,
+                  leading: const Icon(Icons.subdirectory_arrow_right, size: 16),
+                  title: Text(
+                    heading.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                  onTap: () => _goToLine(heading.line),
+                ),
+              ),
+            ),
+        ],
+      );
+    }).toList();
+    final addButton = TextButton.icon(
+      onPressed: _addPage,
+      icon: const Icon(Icons.note_add_outlined),
+      label: const Text('新增分页'),
+    );
+    return Material(
+      color: scheme.surfaceContainerHighest.withValues(alpha: 0.32),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: compact
+            ? ListView(
+                scrollDirection: Axis.horizontal,
+                children: [addButton, ...children],
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '分页',
+                          style: Theme.of(context).textTheme.titleSmall
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: '新增分页',
+                        onPressed: _addPage,
+                        icon: const Icon(Icons.add),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(child: ListView(children: children)),
+                ],
+              ),
+      ),
+    );
+  }
+
+  List<_MarkdownHeading> _markdownHeadings(String text) {
+    final headings = <_MarkdownHeading>[];
+    final lines = text.split('\n');
+    var offset = 0;
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      final match = RegExp(r'^(#{1,3})\s+(.+?)\s*$').firstMatch(line);
+      if (match != null) {
+        headings.add(
+          _MarkdownHeading(
+            level: match.group(1)!.length,
+            title: match.group(2)!,
+            line: i + 1,
+            offset: offset,
+          ),
+        );
+      }
+      offset += line.length + 1;
+    }
+    return headings;
+  }
+
+  Future<void> _pageMenu(
+    String value,
+    Note note,
+    StorageV2NotePage page,
+  ) async {
+    switch (value) {
+      case 'rename':
+        await _renamePage(note, page);
+      case 'delete':
+        await _deletePage(note, page);
+    }
+  }
+
+  Future<void> _renamePage(Note note, StorageV2NotePage page) async {
+    final ctrl = TextEditingController(text: page.title);
+    final title = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('重命名分页'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: '分页标题'),
+          onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (!mounted || title == null || title.isEmpty) return;
+    await _features.renameNotePage(note.id, page.id, title);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _deletePage(Note note, StorageV2NotePage page) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除分页'),
+        content: Text('确定删除分页“${page.title}”吗？该分页文件会被删除。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final deleted = await _features.deleteNotePage(note.id, page.id);
+    if (!mounted) return;
+    if (!deleted) {
+      ScaffoldMessenger.of(context).showSnackBar(shortSnackBar('至少保留一个分页'));
+      return;
+    }
+    final updated = _features.getNote(note.id);
+    if (updated != null) {
+      setState(() => _loadEditorSnapshot(updated.content, revisionId: null));
+    }
   }
 
   Widget _noteEditor(Note note) {
@@ -636,6 +888,81 @@ class _NoteDetailState extends State<_NoteDetail> {
       ScaffoldMessenger.of(context).showSnackBar(shortSnackBar('已保存到时间线'));
     }
     setState(() {});
+  }
+
+  Future<void> _selectPage(Note note, StorageV2NotePage page) async {
+    if (_hasUnsavedChanges) {
+      final action = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('切换分页'),
+          content: const Text('当前分页有未保存修改，切换前要如何处理？'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, 'cancel'),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, 'discard'),
+              child: const Text('放弃修改'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, 'save'),
+              child: const Text('保存并切换'),
+            ),
+          ],
+        ),
+      );
+      if (action == null || action == 'cancel') return;
+      if (action == 'save') await _save();
+    }
+    await _features.selectNotePage(note.id, page.id);
+    if (!mounted) return;
+    final updated = _features.getNote(note.id);
+    if (updated == null) return;
+    setState(() => _loadEditorSnapshot(updated.content, revisionId: null));
+  }
+
+  Future<void> _addPage() async {
+    final note = _features.getNote(widget.noteId);
+    if (note == null) return;
+    final ctrl = TextEditingController(text: '新分页');
+    final title = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('新增分页'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: '分页标题'),
+          onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('创建'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (!mounted || title == null) return;
+    if (_hasUnsavedChanges) await _save();
+    final pageId = await _features.addNotePage(
+      note.id,
+      title.isEmpty ? '新分页' : title,
+    );
+    if (!mounted || pageId == null) return;
+    final updated = _features.getNote(note.id);
+    if (updated == null) return;
+    setState(() {
+      _showPageSidebar = true;
+      _loadEditorSnapshot(updated.content, revisionId: null);
+    });
   }
 
   bool get _canSave {
@@ -1514,6 +1841,8 @@ class _NoteDetailState extends State<_NoteDetail> {
             _toolDivider(),
             _toolButton(Icons.find_replace, '查找 / 替换', _openFind),
             _toolButton(Icons.low_priority, '跳转行', _showGoToLineDialog),
+            if (_features.usingStorageV2)
+              _toolButton(Icons.note_add_outlined, '新增分页', _addPage),
             _toolButton(
               note.wrap ? Icons.wrap_text : Icons.short_text,
               note.wrap ? '关闭自动换行' : '开启自动换行',
@@ -2464,6 +2793,10 @@ class _NoteDetailState extends State<_NoteDetail> {
   }
 
   Future<void> _export(Note note) async {
+    if (_features.usingStorageV2 && _features.notePages(note.id).length > 1) {
+      await _exportPagesZip(note);
+      return;
+    }
     final fileName = '${safeExportFileName(note.title, fallback: 'note')}.md';
     try {
       final bytes = Uint8List.fromList(utf8.encode(_ctrl.text));
@@ -2488,8 +2821,46 @@ class _NoteDetailState extends State<_NoteDetail> {
     }
   }
 
+  Future<void> _exportPagesZip(Note note) async {
+    try {
+      if (_hasUnsavedChanges) await _save();
+      final pages = await _features.notePageExports(note.id);
+      final archive = Archive();
+      for (final page in pages) {
+        final bytes = utf8.encode(page.content);
+        archive.addFile(ArchiveFile(page.fileName, bytes.length, bytes));
+      }
+      final zipBytes = Uint8List.fromList(ZipEncoder().encode(archive));
+      final fileName =
+          '${safeExportFileName(note.title, fallback: 'note')}.zip';
+      final path = await FilePicker.platform.saveFile(
+        dialogTitle: '按分页导出笔记',
+        fileName: fileName,
+        type: FileType.custom,
+        allowedExtensions: ['zip'],
+        bytes: zipBytes,
+      );
+      if (path == null) return;
+      if (!Platform.isAndroid && !Platform.isIOS) {
+        await File(path).writeAsBytes(zipBytes, flush: true);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('分页已导出到 $path')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('导出失败: $e')));
+    }
+  }
+
   Future<void> _shareFile(Note note) async {
-    final fileName = '${safeExportFileName(note.title, fallback: 'note')}.md';
+    final activePage = _features.activeNotePage(note.id);
+    final fileName = activePage?.fileName.isNotEmpty == true
+        ? activePage!.fileName
+        : '${safeExportFileName(note.title, fallback: 'note')}.md';
     try {
       await shareTextFile(
         fileName: fileName,
@@ -2618,6 +2989,20 @@ class _LatexSegment {
   final String formula;
 
   const _LatexSegment(this.start, this.end, this.source, this.formula);
+}
+
+class _MarkdownHeading {
+  final int level;
+  final String title;
+  final int line;
+  final int offset;
+
+  const _MarkdownHeading({
+    required this.level,
+    required this.title,
+    required this.line,
+    required this.offset,
+  });
 }
 
 class _NoteEditStep {

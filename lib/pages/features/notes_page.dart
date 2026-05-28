@@ -474,6 +474,10 @@ class _NotesPageState extends State<_NotesPage> {
   }
 
   Future<void> _exportNote(Note note) async {
+    if (_features.usingStorageV2 && _features.notePages(note.id).length > 1) {
+      await _exportNotePagesZip(note);
+      return;
+    }
     final fileName = '${safeExportFileName(note.title, fallback: 'note')}.md';
     try {
       final bytes = Uint8List.fromList(utf8.encode(note.content));
@@ -490,6 +494,39 @@ class _NotesPageState extends State<_NotesPage> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('笔记已导出到 $path')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('导出失败: $e')));
+    }
+  }
+
+  Future<void> _exportNotePagesZip(Note note) async {
+    final fileName = '${safeExportFileName(note.title, fallback: 'note')}.zip';
+    try {
+      final pages = await _features.notePageExports(note.id);
+      final archive = Archive();
+      for (final page in pages) {
+        final bytes = utf8.encode(page.content);
+        archive.addFile(ArchiveFile(page.fileName, bytes.length, bytes));
+      }
+      final bytes = Uint8List.fromList(ZipEncoder().encode(archive));
+      final path = await FilePicker.platform.saveFile(
+        dialogTitle: '按分页导出笔记',
+        fileName: fileName,
+        type: FileType.custom,
+        allowedExtensions: ['zip'],
+        bytes: bytes,
+      );
+      if (path == null) return;
+      if (!Platform.isAndroid && !Platform.isIOS) {
+        await File(path).writeAsBytes(bytes, flush: true);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('分页已导出到 $path')));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(

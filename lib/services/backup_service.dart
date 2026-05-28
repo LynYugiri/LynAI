@@ -185,9 +185,15 @@ class BackupService {
       addJson('notes/folders.json', {
         'folders': folders.map((item) => item.toJson()).toList(),
       });
-      addJson('notes/notes.json', {
-        'notes': notes.map((item) => item.toJson()).toList(),
-      });
+      final exportedNotes = <Map<String, dynamic>>[];
+      for (final note in notes) {
+        exportedNotes.add({
+          ...note.toJson(),
+          if (featureProvider.usingStorageV2)
+            'content': await featureProvider.noteExportContent(note.id),
+        });
+      }
+      addJson('notes/notes.json', {'notes': exportedNotes});
       addJson('notes/revisions.json', {
         'revisions': revisions.map((item) => item.toJson()).toList(),
       });
