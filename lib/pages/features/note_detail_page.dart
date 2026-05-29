@@ -28,13 +28,15 @@ class _NoteDetailState extends State<_NoteDetail> {
   final _editorFocus = FocusNode();
   final _findFocus = FocusNode();
   final _editorScroll = ScrollController();
+  final _outlineScroll = ScrollController();
   final _findCtrl = TextEditingController();
   final _replaceCtrl = TextEditingController();
   late FeatureProvider _features;
   var _showFind = false;
   var _showReplace = false;
   var _showLatexPanel = false;
-  var _showPageSidebar = true;
+  var _showOutlineDrawer = false;
+  final Set<String> _expandedOutlinePageIds = {};
   var _caseSensitiveFind = false;
   var _regexFind = false;
   var _currentMatch = -1;
@@ -51,6 +53,7 @@ class _NoteDetailState extends State<_NoteDetail> {
   var _proposalSidebarExpanded = true;
   Offset? _proposalBubbleOffset;
   String? _pendingExternalSyncContent;
+  int? _activeOutlineLine;
 
   @override
   void initState() {
@@ -62,6 +65,7 @@ class _NoteDetailState extends State<_NoteDetail> {
     _ctrl = TextEditingController(text: _lastSavedDraft);
     _ctrl.addListener(_onEditorTextChanged);
     _editorFocus.addListener(_refreshLatexPanel);
+    _editorScroll.addListener(_updateActiveOutlineFromScroll);
     _findCtrl.addListener(_refreshMatches);
   }
 
@@ -73,6 +77,7 @@ class _NoteDetailState extends State<_NoteDetail> {
       _loadEditorSnapshot(note?.content ?? '', revisionId: null);
       _proposalSidebarExpanded = true;
       _proposalBubbleOffset = null;
+      _expandedOutlinePageIds.clear();
       _refreshMatches();
     }
   }
@@ -81,11 +86,13 @@ class _NoteDetailState extends State<_NoteDetail> {
   void dispose() {
     _ctrl.removeListener(_onEditorTextChanged);
     _editorFocus.removeListener(_refreshLatexPanel);
+    _editorScroll.removeListener(_updateActiveOutlineFromScroll);
     _findCtrl.removeListener(_refreshMatches);
     _ctrl.dispose();
     _editorFocus.dispose();
     _findFocus.dispose();
     _editorScroll.dispose();
+    _outlineScroll.dispose();
     _findCtrl.dispose();
     _replaceCtrl.dispose();
     super.dispose();
@@ -117,14 +124,11 @@ class _NoteDetailState extends State<_NoteDetail> {
             children: [
               if (_features.usingStorageV2)
                 IconButton(
-                  tooltip: _showPageSidebar ? '隐藏分页' : '显示分页',
+                  tooltip: _showOutlineDrawer ? '隐藏目录' : '目录',
                   icon: Icon(
-                    _showPageSidebar
-                        ? Icons.menu_book
-                        : Icons.menu_book_outlined,
+                    _showOutlineDrawer ? Icons.article : Icons.article_outlined,
                   ),
-                  onPressed: () =>
-                      setState(() => _showPageSidebar = !_showPageSidebar),
+                  onPressed: _toggleOutlineDrawer,
                 ),
               const Spacer(),
               IconButton(
@@ -214,20 +218,25 @@ class _NoteDetailState extends State<_NoteDetail> {
               color: Theme.of(context).colorScheme.surface,
               width: double.infinity,
               padding: const EdgeInsets.all(16),
-              child: SingleChildScrollView(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    minWidth: MediaQuery.sizeOf(context).width - 32,
-                  ),
-                  child: MarkdownWithLatex(
-                    content: _ctrl.text,
-                    onEditLatexBlock: _editLatexBlockFromPreview,
-                  ),
-                ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return SingleChildScrollView(
+                    controller: _editorScroll,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minWidth: constraints.maxWidth,
+                      ),
+                      child: MarkdownWithLatex(
+                        content: _ctrl.text,
+                        onEditLatexBlock: _editLatexBlockFromPreview,
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
           );
-    final body = _withPageSidebar(note, base, hasProposal, viewingHistorical);
+    final body = _withOutlineDrawer(note, base, hasProposal, viewingHistorical);
     if (!hasProposal || viewingHistorical || _proposalSidebarExpanded) {
       return body;
     }
@@ -263,157 +272,423 @@ class _NoteDetailState extends State<_NoteDetail> {
     );
   }
 
-  Widget _withPageSidebar(
+  Widget _withOutlineDrawer(
     Note note,
     Widget body,
     bool hasProposal,
     bool viewingHistorical,
   ) {
     if (!_features.usingStorageV2 ||
-        !_showPageSidebar ||
+        !_showOutlineDrawer ||
         hasProposal ||
         viewingHistorical) {
       return body;
     }
-    final pages = _features.notePages(note.id);
-    if (pages.length <= 1) return body;
     return LayoutBuilder(
       builder: (context, constraints) {
-        final compact = constraints.maxWidth < 720;
-        if (compact) {
-          return Column(
-            children: [
-              SizedBox(height: 92, child: _pageSidebar(note, pages, true)),
-              Expanded(child: body),
-            ],
-          );
-        }
-        return Row(
+        final scheme = Theme.of(context).colorScheme;
+        final drawerWidth = constraints.maxWidth < 520
+            ? (constraints.maxWidth * 0.58).clamp(240.0, 320.0)
+            : 320.0;
+        return Stack(
           children: [
-            SizedBox(width: 250, child: _pageSidebar(note, pages, false)),
-            VerticalDivider(width: 1, color: Theme.of(context).dividerColor),
-            Expanded(child: body),
+            Positioned.fill(child: body),
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: drawerWidth,
+              child: Material(
+                elevation: 8,
+                color: scheme.surfaceContainer,
+                shadowColor: scheme.shadow.withValues(alpha: 0.22),
+                borderRadius: const BorderRadius.horizontal(
+                  right: Radius.circular(18),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border(
+                      right: BorderSide(color: scheme.outlineVariant),
+                    ),
+                  ),
+                  child: _outlineDrawer(note, scheme),
+                ),
+              ),
+            ),
           ],
         );
       },
     );
   }
 
-  Widget _pageSidebar(Note note, List<StorageV2NotePage> pages, bool compact) {
-    final active = _features.activeNotePage(note.id);
-    final scheme = Theme.of(context).colorScheme;
+  void _toggleOutlineDrawer() {
+    final opening = !_showOutlineDrawer;
+    setState(() => _showOutlineDrawer = opening);
+    if (opening) _syncActiveOutline(scrollOutline: true);
+  }
+
+  void _updateActiveOutlineFromScroll() {
+    if (!_showOutlineDrawer) return;
+    _syncActiveOutline(scrollOutline: false);
+  }
+
+  void _syncActiveOutline({required bool scrollOutline}) {
     final headings = _markdownHeadings(_ctrl.text);
-    final children = pages.map((page) {
-      final selected = page.id == active?.id;
-      if (compact) {
-        return Padding(
-          padding: const EdgeInsets.only(right: 6),
-          child: FilterChip(
-            selected: selected,
-            avatar: Icon(
-              selected ? Icons.description : Icons.description_outlined,
-              size: 18,
-            ),
-            label: Text(page.title.isEmpty ? page.fileName : page.title),
-            onSelected: selected ? null : (_) => _selectPage(note, page),
-          ),
-        );
+    int? activeLine;
+    if (headings.isNotEmpty) {
+      final currentLine =
+          (_editorScroll.hasClients
+                  ? (_editorScroll.offset / 22.0).floor() + 1
+                  : _lineForOffset(_ctrl.selection.baseOffset))
+              .clamp(1, _ctrl.text.split('\n').length);
+      for (final heading in headings) {
+        if (heading.line <= currentLine) {
+          activeLine = heading.line;
+        } else {
+          break;
+        }
       }
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ListTile(
-            dense: true,
-            selected: selected,
-            leading: Icon(
-              selected ? Icons.description : Icons.description_outlined,
-              size: 20,
-            ),
-            title: Text(
-              page.title.isEmpty ? page.fileName : page.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            trailing: PopupMenuButton<String>(
-              tooltip: '分页操作',
-              onSelected: (value) => _pageMenu(value, note, page),
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'rename', child: Text('重命名分页')),
-                PopupMenuItem(value: 'delete', child: Text('删除分页')),
-              ],
-            ),
-            onTap: selected ? null : () => _selectPage(note, page),
-          ),
-          if (selected && headings.isNotEmpty)
-            ...headings.map(
-              (heading) => Padding(
-                padding: EdgeInsets.only(left: 12.0 + (heading.level - 1) * 12),
-                child: ListTile(
-                  dense: true,
-                  visualDensity: VisualDensity.compact,
-                  leading: const Icon(Icons.subdirectory_arrow_right, size: 16),
-                  title: Text(
-                    heading.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 13),
-                  ),
-                  onTap: () => _goToLine(heading.line),
+      activeLine ??= headings.first.line;
+    }
+    if (_activeOutlineLine == activeLine) {
+      if (scrollOutline) _scrollOutlineToActive(activeLine, headings);
+      return;
+    }
+    if (mounted) setState(() => _activeOutlineLine = activeLine);
+    if (scrollOutline) _scrollOutlineToActive(activeLine, headings);
+  }
+
+  void _scrollOutlineToActive(
+    int? activeLine,
+    List<_MarkdownHeading> headings,
+  ) {
+    if (activeLine == null || !_outlineScroll.hasClients) return;
+    final note = _features.getNote(widget.noteId);
+    if (note == null) return;
+    final pages = _features.notePages(note.id);
+    final activePage = _features.activeNotePage(note.id);
+    final pageIndex = pages.indexWhere((page) => page.id == activePage?.id);
+    if (activePage != null &&
+        !_expandedOutlinePageIds.contains(activePage.id)) {
+      return;
+    }
+    final headingIndex = headings.indexWhere(
+      (heading) => heading.line == activeLine,
+    );
+    if (pageIndex < 0 || headingIndex < 0) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_outlineScroll.hasClients) return;
+      final target = (pageIndex * 58.0 + headingIndex * 34.0).clamp(
+        0.0,
+        _outlineScroll.position.maxScrollExtent,
+      );
+      _outlineScroll.animateTo(
+        target,
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
+  Widget _outlineDrawer(Note note, ColorScheme scheme) {
+    final pages = _features.notePages(note.id);
+    final active = _features.activeNotePage(note.id);
+    final headings = _markdownHeadings(_ctrl.text);
+    return ColoredBox(
+      color: scheme.surfaceContainer,
+      child: IconTheme.merge(
+        data: IconThemeData(color: scheme.onSurfaceVariant),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(10, 10, 10, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _outlineDrawerHeader(),
+              const SizedBox(height: 8),
+              Expanded(
+                child: ListView(
+                  controller: _outlineScroll,
+                  children: pages.isEmpty
+                      ? [_emptyOutlineMessage('暂无分页')]
+                      : pages.indexed.map((entry) {
+                          return _pageOutlineGroup(
+                            note,
+                            entry.$2,
+                            entry.$1,
+                            active?.id == entry.$2.id,
+                            _expandedOutlinePageIds.contains(entry.$2.id),
+                            headings,
+                          );
+                        }).toList(),
                 ),
               ),
-            ),
-        ],
-      );
-    }).toList();
-    final addButton = TextButton.icon(
-      onPressed: _addPage,
-      icon: const Icon(Icons.note_add_outlined),
-      label: const Text('新增分页'),
-    );
-    return Material(
-      color: scheme.surfaceContainerHighest.withValues(alpha: 0.32),
-      child: Padding(
-        padding: const EdgeInsets.all(10),
-        child: compact
-            ? ListView(
-                scrollDirection: Axis.horizontal,
-                children: [addButton, ...children],
-              )
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          '分页',
-                          style: Theme.of(context).textTheme.titleSmall
-                              ?.copyWith(fontWeight: FontWeight.w800),
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: '新增分页',
-                        onPressed: _addPage,
-                        icon: const Icon(Icons.add),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Expanded(child: ListView(children: children)),
-                ],
-              ),
+            ],
+          ),
+        ),
       ),
     );
+  }
+
+  Widget _outlineDrawerHeader() {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            '目录',
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+          ),
+        ),
+        IconButton(
+          tooltip: '新增分页',
+          onPressed: _addPage,
+          icon: const Icon(Icons.add),
+        ),
+        IconButton(
+          tooltip: '关闭目录',
+          onPressed: () => setState(() => _showOutlineDrawer = false),
+          icon: const Icon(Icons.close),
+        ),
+      ],
+    );
+  }
+
+  Widget _pageOutlineGroup(
+    Note note,
+    StorageV2NotePage page,
+    int index,
+    bool selected,
+    bool expanded,
+    List<_MarkdownHeading> activeHeadings,
+  ) {
+    final scheme = Theme.of(context).colorScheme;
+    final headings = selected && expanded
+        ? _numberedHeadings(activeHeadings)
+        : const <_NumberedHeading>[];
+    return Card(
+      elevation: 0,
+      color: selected
+          ? scheme.primaryContainer.withValues(alpha: 0.38)
+          : scheme.surfaceContainer,
+      surfaceTintColor: selected ? scheme.primary : scheme.surfaceTint,
+      margin: const EdgeInsets.symmetric(vertical: 3),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _pageOutlineHeader(note, page, index, selected, expanded),
+          if (selected && expanded)
+            headings.isEmpty
+                ? _emptyOutlineMessage('暂无目录，使用 # 标题创建目录')
+                : Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+                    child: Column(
+                      children: headings.map((heading) {
+                        return _headingOutlineRow(
+                          heading,
+                          active: heading.heading.line == _activeOutlineLine,
+                        );
+                      }).toList(),
+                    ),
+                  ),
+        ],
+      ),
+    );
+  }
+
+  Widget _pageOutlineHeader(
+    Note note,
+    StorageV2NotePage page,
+    int index,
+    bool selected,
+    bool expanded,
+  ) {
+    return ListTile(
+      dense: true,
+      selected: selected,
+      leading: Icon(
+        expanded ? Icons.expand_more : Icons.chevron_right,
+        size: 20,
+      ),
+      title: Text(
+        _pageLabel(page, index),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontWeight: FontWeight.w700),
+      ),
+      trailing: PopupMenuButton<String>(
+        tooltip: '分页操作',
+        onSelected: (value) => _pageMenu(value, note, page),
+        itemBuilder: (_) => const [
+          PopupMenuItem(value: 'move_up', child: Text('上移')),
+          PopupMenuItem(value: 'move_down', child: Text('下移')),
+          PopupMenuDivider(),
+          PopupMenuItem(value: 'rename', child: Text('重命名分页')),
+          PopupMenuItem(value: 'delete', child: Text('删除分页')),
+        ],
+      ),
+      onTap: () => _togglePageOutline(note, page, selected),
+      onLongPress: () => _renamePage(note, page),
+    );
+  }
+
+  Future<void> _togglePageOutline(
+    Note note,
+    StorageV2NotePage page,
+    bool selected,
+  ) async {
+    if (!selected) {
+      final selected = await _selectPage(note, page);
+      if (!mounted || !selected) return;
+      setState(() => _expandedOutlinePageIds.add(page.id));
+      _syncActiveOutline(scrollOutline: true);
+      return;
+    }
+    setState(() {
+      if (!_expandedOutlinePageIds.add(page.id)) {
+        _expandedOutlinePageIds.remove(page.id);
+      }
+    });
+    if (_expandedOutlinePageIds.contains(page.id)) {
+      _syncActiveOutline(scrollOutline: true);
+    }
+  }
+
+  Widget _headingOutlineRow(_NumberedHeading heading, {required bool active}) {
+    final indent = heading.visualLevel * 14.0;
+    final numberWidth = 38.0 + heading.visualLevel * 14.0;
+    final scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: () => _goToLine(heading.heading.line),
+      child: Container(
+        decoration: BoxDecoration(
+          color: active
+              ? scheme.primaryContainer.withValues(alpha: 0.48)
+              : null,
+          borderRadius: BorderRadius.circular(10),
+          border: active
+              ? Border(left: BorderSide(color: scheme.primary, width: 3))
+              : null,
+        ),
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(8 + indent, 5, 8, 5),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: numberWidth,
+                child: Text(
+                  '${heading.number}.',
+                  style: TextStyle(
+                    color: active ? scheme.onPrimaryContainer : null,
+                    fontSize: heading.visualLevel == 0 ? 13 : 12,
+                    fontWeight: heading.visualLevel == 0
+                        ? FontWeight.w700
+                        : FontWeight.w500,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  heading.heading.title,
+                  softWrap: true,
+                  style: TextStyle(
+                    color: active ? scheme.onPrimaryContainer : null,
+                    fontSize: heading.visualLevel == 0 ? 13 : 12,
+                    height: 1.25,
+                    fontWeight: active || heading.visualLevel == 0
+                        ? FontWeight.w700
+                        : null,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _emptyOutlineMessage(String message) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+      child: Text(
+        message,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+
+  String _pageLabel(StorageV2NotePage page, int index) {
+    final title = page.title.trim();
+    return title.isEmpty ? '第 ${index + 1} 页' : title;
+  }
+
+  String _pageLabelForNote(String noteId, StorageV2NotePage page) {
+    final index = _features
+        .notePages(noteId)
+        .indexWhere((item) => item.id == page.id);
+    return _pageLabel(page, index < 0 ? 0 : index);
+  }
+
+  List<_NumberedHeading> _numberedHeadings(List<_MarkdownHeading> headings) {
+    if (headings.isEmpty) return const [];
+    final minLevel = headings
+        .map((heading) => heading.level)
+        .reduce((a, b) => a < b ? a : b);
+    final counters = List<int>.filled(6, 0);
+    final numbered = <_NumberedHeading>[];
+    for (final heading in headings) {
+      final visualLevel = (heading.level - minLevel).clamp(0, 5);
+      counters[visualLevel]++;
+      for (var i = visualLevel + 1; i < counters.length; i++) {
+        counters[i] = 0;
+      }
+      final number = counters
+          .take(visualLevel + 1)
+          .where((count) => count > 0)
+          .join('.');
+      numbered.add(
+        _NumberedHeading(
+          heading: heading,
+          number: number.isEmpty ? counters[visualLevel].toString() : number,
+          visualLevel: visualLevel,
+        ),
+      );
+    }
+    return numbered;
   }
 
   List<_MarkdownHeading> _markdownHeadings(String text) {
     final headings = <_MarkdownHeading>[];
     final lines = text.split('\n');
     var offset = 0;
+    String? fenceChar;
+    var fenceLength = 0;
     for (var i = 0; i < lines.length; i++) {
       final line = lines[i];
-      final match = RegExp(r'^(#{1,3})\s+(.+?)\s*$').firstMatch(line);
-      if (match != null) {
+      final fenceMatch = RegExp(r'^\s{0,3}(`{3,}|~{3,})').firstMatch(line);
+      if (fenceMatch != null) {
+        final marker = fenceMatch.group(1)!;
+        final markerChar = marker[0];
+        if (fenceChar == null) {
+          fenceChar = markerChar;
+          fenceLength = marker.length;
+        } else if (markerChar == fenceChar && marker.length >= fenceLength) {
+          fenceChar = null;
+          fenceLength = 0;
+        }
+        offset += line.length + 1;
+        continue;
+      }
+      final match = RegExp(
+        r'^\s{0,3}(#{1,6})\s+(.+?)(?:\s+#+)?\s*$',
+      ).firstMatch(line);
+      if (fenceChar == null && match != null) {
         headings.add(
           _MarkdownHeading(
             level: match.group(1)!.length,
@@ -434,6 +709,10 @@ class _NoteDetailState extends State<_NoteDetail> {
     StorageV2NotePage page,
   ) async {
     switch (value) {
+      case 'move_up':
+        await _movePage(note, page, -1);
+      case 'move_down':
+        await _movePage(note, page, 1);
       case 'rename':
         await _renamePage(note, page);
       case 'delete':
@@ -441,17 +720,30 @@ class _NoteDetailState extends State<_NoteDetail> {
     }
   }
 
+  Future<void> _movePage(Note note, StorageV2NotePage page, int delta) async {
+    final moved = await _features.moveNotePage(note.id, page.id, delta);
+    if (!mounted) return;
+    if (!moved) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(shortSnackBar(delta < 0 ? '已经是第一个分页' : '已经是最后一个分页'));
+      return;
+    }
+    setState(() {});
+  }
+
   Future<void> _renamePage(Note note, StorageV2NotePage page) async {
-    final ctrl = TextEditingController(text: page.title);
+    var input = page.title;
     final title = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('重命名分页'),
-        content: TextField(
-          controller: ctrl,
+        content: TextFormField(
+          initialValue: input,
           autofocus: true,
           decoration: const InputDecoration(labelText: '分页标题'),
-          onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
+          onChanged: (value) => input = value,
+          onFieldSubmitted: (value) => Navigator.pop(ctx, value.trim()),
         ),
         actions: [
           TextButton(
@@ -459,14 +751,13 @@ class _NoteDetailState extends State<_NoteDetail> {
             child: const Text('取消'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            onPressed: () => Navigator.pop(ctx, input.trim()),
             child: const Text('保存'),
           ),
         ],
       ),
     );
-    ctrl.dispose();
-    if (!mounted || title == null || title.isEmpty) return;
+    if (!mounted || title == null) return;
     await _features.renameNotePage(note.id, page.id, title);
     if (mounted) setState(() {});
   }
@@ -476,7 +767,9 @@ class _NoteDetailState extends State<_NoteDetail> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('删除分页'),
-        content: Text('确定删除分页“${page.title}”吗？该分页文件会被删除。'),
+        content: Text(
+          '确定删除分页“${_pageLabelForNote(note.id, page)}”吗？该分页文件会被删除。',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -490,6 +783,11 @@ class _NoteDetailState extends State<_NoteDetail> {
       ),
     );
     if (ok != true) return;
+    final activePage = _features.activeNotePage(note.id);
+    if (activePage?.id == page.id && !await _resolveUnsavedBeforePageAction()) {
+      return;
+    }
+    if (!mounted) return;
     final deleted = await _features.deleteNotePage(note.id, page.id);
     if (!mounted) return;
     if (!deleted) {
@@ -498,7 +796,10 @@ class _NoteDetailState extends State<_NoteDetail> {
     }
     final updated = _features.getNote(note.id);
     if (updated != null) {
-      setState(() => _loadEditorSnapshot(updated.content, revisionId: null));
+      setState(() {
+        _expandedOutlinePageIds.remove(page.id);
+        _loadEditorSnapshot(updated.content, revisionId: null);
+      });
     }
   }
 
@@ -860,6 +1161,9 @@ class _NoteDetailState extends State<_NoteDetail> {
     _trackedEditorSelection = _ctrl.selection.isValid
         ? _ctrl.selection
         : _lastEditorSelection;
+    if (textChanged && _showOutlineDrawer) {
+      _syncActiveOutline(scrollOutline: false);
+    }
     if (_showLatexPanel) setState(() {});
     if (textChanged && mounted) setState(() {});
   }
@@ -890,52 +1194,36 @@ class _NoteDetailState extends State<_NoteDetail> {
     setState(() {});
   }
 
-  Future<void> _selectPage(Note note, StorageV2NotePage page) async {
-    if (_hasUnsavedChanges) {
-      final action = await showDialog<String>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('切换分页'),
-          content: const Text('当前分页有未保存修改，切换前要如何处理？'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, 'cancel'),
-              child: const Text('取消'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, 'discard'),
-              child: const Text('放弃修改'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, 'save'),
-              child: const Text('保存并切换'),
-            ),
-          ],
-        ),
-      );
-      if (action == null || action == 'cancel') return;
-      if (action == 'save') await _save();
-    }
+  Future<bool> _selectPage(Note note, StorageV2NotePage page) async {
+    if (!await _resolveUnsavedBeforePageAction()) return false;
+    if (!mounted) return false;
     await _features.selectNotePage(note.id, page.id);
-    if (!mounted) return;
+    if (!mounted) return false;
     final updated = _features.getNote(note.id);
-    if (updated == null) return;
-    setState(() => _loadEditorSnapshot(updated.content, revisionId: null));
+    if (updated == null) return false;
+    setState(() {
+      _expandedOutlinePageIds.add(page.id);
+      _loadEditorSnapshot(updated.content, revisionId: null);
+    });
+    return true;
   }
 
   Future<void> _addPage() async {
     final note = _features.getNote(widget.noteId);
     if (note == null) return;
-    final ctrl = TextEditingController(text: '新分页');
+    var input = '';
     final title = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('新增分页'),
-        content: TextField(
-          controller: ctrl,
+        content: TextFormField(
           autofocus: true,
-          decoration: const InputDecoration(labelText: '分页标题'),
-          onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
+          decoration: const InputDecoration(
+            labelText: '分页标题',
+            hintText: '可留空，将显示为第 N 页',
+          ),
+          onChanged: (value) => input = value,
+          onFieldSubmitted: (value) => Navigator.pop(ctx, value.trim()),
         ),
         actions: [
           TextButton(
@@ -943,24 +1231,22 @@ class _NoteDetailState extends State<_NoteDetail> {
             child: const Text('取消'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            onPressed: () => Navigator.pop(ctx, input.trim()),
             child: const Text('创建'),
           ),
         ],
       ),
     );
-    ctrl.dispose();
     if (!mounted || title == null) return;
-    if (_hasUnsavedChanges) await _save();
-    final pageId = await _features.addNotePage(
-      note.id,
-      title.isEmpty ? '新分页' : title,
-    );
+    if (!await _resolveUnsavedBeforePageAction()) return;
+    if (!mounted) return;
+    final pageId = await _features.addNotePage(note.id, title);
     if (!mounted || pageId == null) return;
     final updated = _features.getNote(note.id);
     if (updated == null) return;
     setState(() {
-      _showPageSidebar = true;
+      _showOutlineDrawer = true;
+      _expandedOutlinePageIds.add(pageId);
       _loadEditorSnapshot(updated.content, revisionId: null);
     });
   }
@@ -980,10 +1266,44 @@ class _NoteDetailState extends State<_NoteDetail> {
     return _confirmDiscardUnsavedChanges();
   }
 
+  Future<bool> _resolveUnsavedBeforePageAction() async {
+    if (!_hasUnsavedChanges) return true;
+    final action = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('当前分页有未保存修改'),
+        content: const Text('继续前要如何处理这些修改？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'cancel'),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'discard'),
+            child: const Text('放弃修改'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, 'save'),
+            child: const Text('保存并继续'),
+          ),
+        ],
+      ),
+    );
+    if (action == null || action == 'cancel') return false;
+    if (action == 'save') await _save();
+    return mounted;
+  }
+
   void _loadEditorSnapshot(String text, {required String? revisionId}) {
     _activeRevisionId = revisionId;
     _lastSavedDraft = text;
     _resetEditorState(text);
+    _activeOutlineLine = null;
+    if (_showOutlineDrawer) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _syncActiveOutline(scrollOutline: true);
+      });
+    }
   }
 
   void _resetEditorState(String text) {
@@ -2310,17 +2630,17 @@ class _NoteDetailState extends State<_NoteDetail> {
   }
 
   Future<void> _showGoToLineDialog() async {
-    final ctrl = TextEditingController();
+    var input = '';
     final line = await showDialog<int>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('跳转到行'),
-        content: TextField(
-          controller: ctrl,
+        content: TextFormField(
           autofocus: true,
           keyboardType: TextInputType.number,
           decoration: const InputDecoration(labelText: '行号'),
-          onSubmitted: (_) => Navigator.pop(ctx, int.tryParse(ctrl.text)),
+          onChanged: (value) => input = value,
+          onFieldSubmitted: (value) => Navigator.pop(ctx, int.tryParse(value)),
         ),
         actions: [
           TextButton(
@@ -2328,13 +2648,12 @@ class _NoteDetailState extends State<_NoteDetail> {
             child: const Text('取消'),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(ctx, int.tryParse(ctrl.text)),
+            onPressed: () => Navigator.pop(ctx, int.tryParse(input)),
             child: const Text('跳转'),
           ),
         ],
       ),
     );
-    ctrl.dispose();
     if (line == null || line < 1) return;
     _goToLine(line);
   }
@@ -2346,9 +2665,16 @@ class _NoteDetailState extends State<_NoteDetail> {
     for (var i = 0; i < targetLine - 1; i++) {
       offset += lines[i].length + 1;
     }
-    _ctrl.selection = TextSelection.collapsed(offset: offset);
-    _scrollToOffset(offset);
-    _editorFocus.requestFocus();
+    if (widget.editing) {
+      _ctrl.selection = TextSelection.collapsed(offset: offset);
+      _editorFocus.requestFocus();
+    }
+    _activeOutlineLine = targetLine;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _scrollToOffset(offset);
+      if (_showOutlineDrawer) _syncActiveOutline(scrollOutline: true);
+    });
   }
 
   void _wrapSelection(String marker, {String placeholder = ''}) {
@@ -2761,17 +3087,18 @@ class _NoteDetailState extends State<_NoteDetail> {
   }
 
   Future<void> _rename(Note note) async {
-    final ctrl = TextEditingController(text: note.title);
+    var input = note.title;
     final title = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('重命名'),
-        content: TextField(
-          controller: ctrl,
+        content: TextFormField(
+          initialValue: input,
           autofocus: true,
           textInputAction: TextInputAction.done,
-          onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
           decoration: const InputDecoration(labelText: '标题'),
+          onChanged: (value) => input = value,
+          onFieldSubmitted: (value) => Navigator.pop(ctx, value.trim()),
         ),
         actions: [
           TextButton(
@@ -2779,13 +3106,12 @@ class _NoteDetailState extends State<_NoteDetail> {
             child: const Text('取消'),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            onPressed: () => Navigator.pop(ctx, input.trim()),
             child: const Text('保存'),
           ),
         ],
       ),
     );
-    ctrl.dispose();
     if (!mounted) return;
     if (title != null && title.isNotEmpty) {
       await _features.updateNote(note.copyWith(title: title));
@@ -3002,6 +3328,18 @@ class _MarkdownHeading {
     required this.title,
     required this.line,
     required this.offset,
+  });
+}
+
+class _NumberedHeading {
+  final _MarkdownHeading heading;
+  final String number;
+  final int visualLevel;
+
+  const _NumberedHeading({
+    required this.heading,
+    required this.number,
+    required this.visualLevel,
   });
 }
 

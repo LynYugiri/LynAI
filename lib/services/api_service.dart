@@ -896,7 +896,7 @@ class ApiService {
           if (decoded is Map) {
             args = decoded.map((key, value) => MapEntry(key.toString(), value));
           } else {
-            debugPrint('跳过非 JSON 对象工具参数: $rawArgs');
+            debugPrint('跳过非 JSON 对象工具参数，长度: ${rawArgs.length}');
             continue;
           }
         } catch (e) {

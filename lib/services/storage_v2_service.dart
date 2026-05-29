@@ -205,7 +205,8 @@ class StorageV2Service {
     final root = await _storageRoot();
     final normalized = relativePath.replaceAll('\\', '/');
     final parts = normalized.split('/');
-    if (normalized.startsWith('/') || parts.any((part) => part == '..')) {
+    if (normalized.startsWith('/') ||
+        parts.any((part) => part.isEmpty || part == '.' || part == '..')) {
       throw ArgumentError('Unsafe storage path: $relativePath');
     }
     final file = File('${root.path}/$normalized');
@@ -350,6 +351,7 @@ class StorageV2NotePage {
   final String title;
   final String fileName;
   final String relativePath;
+  final String? currentRevisionId;
   final int sortOrder;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -360,6 +362,7 @@ class StorageV2NotePage {
     required this.title,
     required this.fileName,
     required this.relativePath,
+    this.currentRevisionId,
     required this.sortOrder,
     required this.createdAt,
     required this.updatedAt,
@@ -372,6 +375,7 @@ class StorageV2NotePage {
       title: json['title'] as String? ?? '',
       fileName: json['fileName'] as String? ?? '',
       relativePath: json['relativePath'] as String,
+      currentRevisionId: json['currentRevisionId'] as String?,
       sortOrder: json['sortOrder'] as int? ?? 0,
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: DateTime.parse(json['updatedAt'] as String),
@@ -384,6 +388,7 @@ class StorageV2NotePage {
     'title': title,
     'fileName': fileName,
     'relativePath': relativePath,
+    if (currentRevisionId != null) 'currentRevisionId': currentRevisionId,
     'sortOrder': sortOrder,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),

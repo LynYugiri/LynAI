@@ -2082,7 +2082,8 @@ class $MessageRowsTable extends MessageRows
     aliasedName,
     false,
     type: DriftSqlType.int,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
   );
   @override
   List<GeneratedColumn> get $columns => [
@@ -2160,8 +2161,6 @@ class $MessageRowsTable extends MessageRows
         _sortOrderMeta,
         sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
       );
-    } else if (isInserting) {
-      context.missing(_sortOrderMeta);
     }
     return context;
   }
@@ -2382,14 +2381,13 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
     required String content,
     this.thinkingContent = const Value.absent(),
     required String timestamp,
-    required int sortOrder,
+    this.sortOrder = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        conversationId = Value(conversationId),
        role = Value(role),
        content = Value(content),
-       timestamp = Value(timestamp),
-       sortOrder = Value(sortOrder);
+       timestamp = Value(timestamp);
   static Insertable<MessageRow> custom({
     Expression<String>? id,
     Expression<String>? conversationId,
@@ -2557,7 +2555,8 @@ class $MessageAttachmentRowsTable extends MessageAttachmentRows
     aliasedName,
     false,
     type: DriftSqlType.int,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
   );
   static const VerificationMeta _legacyPathMeta = const VerificationMeta(
     'legacyPath',
@@ -2644,8 +2643,6 @@ class $MessageAttachmentRowsTable extends MessageAttachmentRows
         _sortOrderMeta,
         sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
       );
-    } else if (isInserting) {
-      context.missing(_sortOrderMeta);
     }
     if (data.containsKey('legacy_path')) {
       context.handle(
@@ -2896,15 +2893,14 @@ class MessageAttachmentRowsCompanion
     required String displayName,
     required String mimeType,
     required int size,
-    required int sortOrder,
+    this.sortOrder = const Value.absent(),
     this.legacyPath = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        messageId = Value(messageId),
        displayName = Value(displayName),
        mimeType = Value(mimeType),
-       size = Value(size),
-       sortOrder = Value(sortOrder);
+       size = Value(size);
   static Insertable<MessageAttachmentRow> custom({
     Expression<String>? id,
     Expression<String>? messageId,
@@ -3049,8 +3045,25 @@ class $NoteFolderRowsTable extends NoteFolderRows
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _sortOrderMeta = const VerificationMeta(
+    'sortOrder',
+  );
   @override
-  List<GeneratedColumn> get $columns => [id, title, createdAt, updatedAt];
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+    'sort_order',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    title,
+    createdAt,
+    updatedAt,
+    sortOrder,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -3092,6 +3105,14 @@ class $NoteFolderRowsTable extends NoteFolderRows
     } else if (isInserting) {
       context.missing(_updatedAtMeta);
     }
+    if (data.containsKey('sort_order')) {
+      context.handle(
+        _sortOrderMeta,
+        sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sortOrderMeta);
+    }
     return context;
   }
 
@@ -3117,6 +3138,10 @@ class $NoteFolderRowsTable extends NoteFolderRows
         DriftSqlType.string,
         data['${effectivePrefix}updated_at'],
       )!,
+      sortOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sort_order'],
+      )!,
     );
   }
 
@@ -3131,11 +3156,13 @@ class NoteFolderRow extends DataClass implements Insertable<NoteFolderRow> {
   final String title;
   final String createdAt;
   final String updatedAt;
+  final int sortOrder;
   const NoteFolderRow({
     required this.id,
     required this.title,
     required this.createdAt,
     required this.updatedAt,
+    required this.sortOrder,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -3144,6 +3171,7 @@ class NoteFolderRow extends DataClass implements Insertable<NoteFolderRow> {
     map['title'] = Variable<String>(title);
     map['created_at'] = Variable<String>(createdAt);
     map['updated_at'] = Variable<String>(updatedAt);
+    map['sort_order'] = Variable<int>(sortOrder);
     return map;
   }
 
@@ -3153,6 +3181,7 @@ class NoteFolderRow extends DataClass implements Insertable<NoteFolderRow> {
       title: Value(title),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
+      sortOrder: Value(sortOrder),
     );
   }
 
@@ -3166,6 +3195,7 @@ class NoteFolderRow extends DataClass implements Insertable<NoteFolderRow> {
       title: serializer.fromJson<String>(json['title']),
       createdAt: serializer.fromJson<String>(json['createdAt']),
       updatedAt: serializer.fromJson<String>(json['updatedAt']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
     );
   }
   @override
@@ -3176,6 +3206,7 @@ class NoteFolderRow extends DataClass implements Insertable<NoteFolderRow> {
       'title': serializer.toJson<String>(title),
       'createdAt': serializer.toJson<String>(createdAt),
       'updatedAt': serializer.toJson<String>(updatedAt),
+      'sortOrder': serializer.toJson<int>(sortOrder),
     };
   }
 
@@ -3184,11 +3215,13 @@ class NoteFolderRow extends DataClass implements Insertable<NoteFolderRow> {
     String? title,
     String? createdAt,
     String? updatedAt,
+    int? sortOrder,
   }) => NoteFolderRow(
     id: id ?? this.id,
     title: title ?? this.title,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
+    sortOrder: sortOrder ?? this.sortOrder,
   );
   NoteFolderRow copyWithCompanion(NoteFolderRowsCompanion data) {
     return NoteFolderRow(
@@ -3196,6 +3229,7 @@ class NoteFolderRow extends DataClass implements Insertable<NoteFolderRow> {
       title: data.title.present ? data.title.value : this.title,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
     );
   }
 
@@ -3205,13 +3239,14 @@ class NoteFolderRow extends DataClass implements Insertable<NoteFolderRow> {
           ..write('id: $id, ')
           ..write('title: $title, ')
           ..write('createdAt: $createdAt, ')
-          ..write('updatedAt: $updatedAt')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('sortOrder: $sortOrder')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, title, createdAt, updatedAt);
+  int get hashCode => Object.hash(id, title, createdAt, updatedAt, sortOrder);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -3219,7 +3254,8 @@ class NoteFolderRow extends DataClass implements Insertable<NoteFolderRow> {
           other.id == this.id &&
           other.title == this.title &&
           other.createdAt == this.createdAt &&
-          other.updatedAt == this.updatedAt);
+          other.updatedAt == this.updatedAt &&
+          other.sortOrder == this.sortOrder);
 }
 
 class NoteFolderRowsCompanion extends UpdateCompanion<NoteFolderRow> {
@@ -3227,12 +3263,14 @@ class NoteFolderRowsCompanion extends UpdateCompanion<NoteFolderRow> {
   final Value<String> title;
   final Value<String> createdAt;
   final Value<String> updatedAt;
+  final Value<int> sortOrder;
   final Value<int> rowid;
   const NoteFolderRowsCompanion({
     this.id = const Value.absent(),
     this.title = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
+    this.sortOrder = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   NoteFolderRowsCompanion.insert({
@@ -3240,16 +3278,19 @@ class NoteFolderRowsCompanion extends UpdateCompanion<NoteFolderRow> {
     required String title,
     required String createdAt,
     required String updatedAt,
+    required int sortOrder,
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        title = Value(title),
        createdAt = Value(createdAt),
-       updatedAt = Value(updatedAt);
+       updatedAt = Value(updatedAt),
+       sortOrder = Value(sortOrder);
   static Insertable<NoteFolderRow> custom({
     Expression<String>? id,
     Expression<String>? title,
     Expression<String>? createdAt,
     Expression<String>? updatedAt,
+    Expression<int>? sortOrder,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -3257,6 +3298,7 @@ class NoteFolderRowsCompanion extends UpdateCompanion<NoteFolderRow> {
       if (title != null) 'title': title,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
+      if (sortOrder != null) 'sort_order': sortOrder,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -3266,6 +3308,7 @@ class NoteFolderRowsCompanion extends UpdateCompanion<NoteFolderRow> {
     Value<String>? title,
     Value<String>? createdAt,
     Value<String>? updatedAt,
+    Value<int>? sortOrder,
     Value<int>? rowid,
   }) {
     return NoteFolderRowsCompanion(
@@ -3273,6 +3316,7 @@ class NoteFolderRowsCompanion extends UpdateCompanion<NoteFolderRow> {
       title: title ?? this.title,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      sortOrder: sortOrder ?? this.sortOrder,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -3292,6 +3336,9 @@ class NoteFolderRowsCompanion extends UpdateCompanion<NoteFolderRow> {
     if (updatedAt.present) {
       map['updated_at'] = Variable<String>(updatedAt.value);
     }
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -3305,6 +3352,7 @@ class NoteFolderRowsCompanion extends UpdateCompanion<NoteFolderRow> {
           ..write('title: $title, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
+          ..write('sortOrder: $sortOrder, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -3399,6 +3447,17 @@ class $NoteRowsTable extends NoteRows with TableInfo<$NoteRowsTable, NoteRow> {
     type: DriftSqlType.int,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _sortOrderMeta = const VerificationMeta(
+    'sortOrder',
+  );
+  @override
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+    'sort_order',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -3409,6 +3468,7 @@ class $NoteRowsTable extends NoteRows with TableInfo<$NoteRowsTable, NoteRow> {
     createdAt,
     updatedAt,
     wrap,
+    sortOrder,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -3483,6 +3543,14 @@ class $NoteRowsTable extends NoteRows with TableInfo<$NoteRowsTable, NoteRow> {
     } else if (isInserting) {
       context.missing(_wrapMeta);
     }
+    if (data.containsKey('sort_order')) {
+      context.handle(
+        _sortOrderMeta,
+        sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sortOrderMeta);
+    }
     return context;
   }
 
@@ -3524,6 +3592,10 @@ class $NoteRowsTable extends NoteRows with TableInfo<$NoteRowsTable, NoteRow> {
         DriftSqlType.int,
         data['${effectivePrefix}wrap'],
       )!,
+      sortOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sort_order'],
+      )!,
     );
   }
 
@@ -3542,6 +3614,7 @@ class NoteRow extends DataClass implements Insertable<NoteRow> {
   final String createdAt;
   final String updatedAt;
   final int wrap;
+  final int sortOrder;
   const NoteRow({
     required this.id,
     required this.title,
@@ -3551,6 +3624,7 @@ class NoteRow extends DataClass implements Insertable<NoteRow> {
     required this.createdAt,
     required this.updatedAt,
     required this.wrap,
+    required this.sortOrder,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -3569,6 +3643,7 @@ class NoteRow extends DataClass implements Insertable<NoteRow> {
     map['created_at'] = Variable<String>(createdAt);
     map['updated_at'] = Variable<String>(updatedAt);
     map['wrap'] = Variable<int>(wrap);
+    map['sort_order'] = Variable<int>(sortOrder);
     return map;
   }
 
@@ -3588,6 +3663,7 @@ class NoteRow extends DataClass implements Insertable<NoteRow> {
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
       wrap: Value(wrap),
+      sortOrder: Value(sortOrder),
     );
   }
 
@@ -3607,6 +3683,7 @@ class NoteRow extends DataClass implements Insertable<NoteRow> {
       createdAt: serializer.fromJson<String>(json['createdAt']),
       updatedAt: serializer.fromJson<String>(json['updatedAt']),
       wrap: serializer.fromJson<int>(json['wrap']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
     );
   }
   @override
@@ -3621,6 +3698,7 @@ class NoteRow extends DataClass implements Insertable<NoteRow> {
       'createdAt': serializer.toJson<String>(createdAt),
       'updatedAt': serializer.toJson<String>(updatedAt),
       'wrap': serializer.toJson<int>(wrap),
+      'sortOrder': serializer.toJson<int>(sortOrder),
     };
   }
 
@@ -3633,6 +3711,7 @@ class NoteRow extends DataClass implements Insertable<NoteRow> {
     String? createdAt,
     String? updatedAt,
     int? wrap,
+    int? sortOrder,
   }) => NoteRow(
     id: id ?? this.id,
     title: title ?? this.title,
@@ -3646,6 +3725,7 @@ class NoteRow extends DataClass implements Insertable<NoteRow> {
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     wrap: wrap ?? this.wrap,
+    sortOrder: sortOrder ?? this.sortOrder,
   );
   NoteRow copyWithCompanion(NoteRowsCompanion data) {
     return NoteRow(
@@ -3661,6 +3741,7 @@ class NoteRow extends DataClass implements Insertable<NoteRow> {
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       wrap: data.wrap.present ? data.wrap.value : this.wrap,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
     );
   }
 
@@ -3674,7 +3755,8 @@ class NoteRow extends DataClass implements Insertable<NoteRow> {
           ..write('currentPageId: $currentPageId, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
-          ..write('wrap: $wrap')
+          ..write('wrap: $wrap, ')
+          ..write('sortOrder: $sortOrder')
           ..write(')'))
         .toString();
   }
@@ -3689,6 +3771,7 @@ class NoteRow extends DataClass implements Insertable<NoteRow> {
     createdAt,
     updatedAt,
     wrap,
+    sortOrder,
   );
   @override
   bool operator ==(Object other) =>
@@ -3701,7 +3784,8 @@ class NoteRow extends DataClass implements Insertable<NoteRow> {
           other.currentPageId == this.currentPageId &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
-          other.wrap == this.wrap);
+          other.wrap == this.wrap &&
+          other.sortOrder == this.sortOrder);
 }
 
 class NoteRowsCompanion extends UpdateCompanion<NoteRow> {
@@ -3713,6 +3797,7 @@ class NoteRowsCompanion extends UpdateCompanion<NoteRow> {
   final Value<String> createdAt;
   final Value<String> updatedAt;
   final Value<int> wrap;
+  final Value<int> sortOrder;
   final Value<int> rowid;
   const NoteRowsCompanion({
     this.id = const Value.absent(),
@@ -3723,6 +3808,7 @@ class NoteRowsCompanion extends UpdateCompanion<NoteRow> {
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.wrap = const Value.absent(),
+    this.sortOrder = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   NoteRowsCompanion.insert({
@@ -3734,12 +3820,14 @@ class NoteRowsCompanion extends UpdateCompanion<NoteRow> {
     required String createdAt,
     required String updatedAt,
     required int wrap,
+    required int sortOrder,
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        title = Value(title),
        createdAt = Value(createdAt),
        updatedAt = Value(updatedAt),
-       wrap = Value(wrap);
+       wrap = Value(wrap),
+       sortOrder = Value(sortOrder);
   static Insertable<NoteRow> custom({
     Expression<String>? id,
     Expression<String>? title,
@@ -3749,6 +3837,7 @@ class NoteRowsCompanion extends UpdateCompanion<NoteRow> {
     Expression<String>? createdAt,
     Expression<String>? updatedAt,
     Expression<int>? wrap,
+    Expression<int>? sortOrder,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -3760,6 +3849,7 @@ class NoteRowsCompanion extends UpdateCompanion<NoteRow> {
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (wrap != null) 'wrap': wrap,
+      if (sortOrder != null) 'sort_order': sortOrder,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -3773,6 +3863,7 @@ class NoteRowsCompanion extends UpdateCompanion<NoteRow> {
     Value<String>? createdAt,
     Value<String>? updatedAt,
     Value<int>? wrap,
+    Value<int>? sortOrder,
     Value<int>? rowid,
   }) {
     return NoteRowsCompanion(
@@ -3784,6 +3875,7 @@ class NoteRowsCompanion extends UpdateCompanion<NoteRow> {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       wrap: wrap ?? this.wrap,
+      sortOrder: sortOrder ?? this.sortOrder,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -3815,6 +3907,9 @@ class NoteRowsCompanion extends UpdateCompanion<NoteRow> {
     if (wrap.present) {
       map['wrap'] = Variable<int>(wrap.value);
     }
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -3832,6 +3927,7 @@ class NoteRowsCompanion extends UpdateCompanion<NoteRow> {
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('wrap: $wrap, ')
+          ..write('sortOrder: $sortOrder, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -3893,6 +3989,18 @@ class $NotePageRowsTable extends NotePageRows
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _currentRevisionIdMeta = const VerificationMeta(
+    'currentRevisionId',
+  );
+  @override
+  late final GeneratedColumn<String> currentRevisionId =
+      GeneratedColumn<String>(
+        'current_revision_id',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
   static const VerificationMeta _sortOrderMeta = const VerificationMeta(
     'sortOrder',
   );
@@ -3933,6 +4041,7 @@ class $NotePageRowsTable extends NotePageRows
     title,
     fileName,
     relativePath,
+    currentRevisionId,
     sortOrder,
     createdAt,
     updatedAt,
@@ -3989,6 +4098,15 @@ class $NotePageRowsTable extends NotePageRows
     } else if (isInserting) {
       context.missing(_relativePathMeta);
     }
+    if (data.containsKey('current_revision_id')) {
+      context.handle(
+        _currentRevisionIdMeta,
+        currentRevisionId.isAcceptableOrUnknown(
+          data['current_revision_id']!,
+          _currentRevisionIdMeta,
+        ),
+      );
+    }
     if (data.containsKey('sort_order')) {
       context.handle(
         _sortOrderMeta,
@@ -4042,6 +4160,10 @@ class $NotePageRowsTable extends NotePageRows
         DriftSqlType.string,
         data['${effectivePrefix}relative_path'],
       )!,
+      currentRevisionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}current_revision_id'],
+      ),
       sortOrder: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}sort_order'],
@@ -4069,6 +4191,7 @@ class NotePageRow extends DataClass implements Insertable<NotePageRow> {
   final String title;
   final String fileName;
   final String relativePath;
+  final String? currentRevisionId;
   final int sortOrder;
   final String createdAt;
   final String updatedAt;
@@ -4078,6 +4201,7 @@ class NotePageRow extends DataClass implements Insertable<NotePageRow> {
     required this.title,
     required this.fileName,
     required this.relativePath,
+    this.currentRevisionId,
     required this.sortOrder,
     required this.createdAt,
     required this.updatedAt,
@@ -4090,6 +4214,9 @@ class NotePageRow extends DataClass implements Insertable<NotePageRow> {
     map['title'] = Variable<String>(title);
     map['file_name'] = Variable<String>(fileName);
     map['relative_path'] = Variable<String>(relativePath);
+    if (!nullToAbsent || currentRevisionId != null) {
+      map['current_revision_id'] = Variable<String>(currentRevisionId);
+    }
     map['sort_order'] = Variable<int>(sortOrder);
     map['created_at'] = Variable<String>(createdAt);
     map['updated_at'] = Variable<String>(updatedAt);
@@ -4103,6 +4230,9 @@ class NotePageRow extends DataClass implements Insertable<NotePageRow> {
       title: Value(title),
       fileName: Value(fileName),
       relativePath: Value(relativePath),
+      currentRevisionId: currentRevisionId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(currentRevisionId),
       sortOrder: Value(sortOrder),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
@@ -4120,6 +4250,9 @@ class NotePageRow extends DataClass implements Insertable<NotePageRow> {
       title: serializer.fromJson<String>(json['title']),
       fileName: serializer.fromJson<String>(json['fileName']),
       relativePath: serializer.fromJson<String>(json['relativePath']),
+      currentRevisionId: serializer.fromJson<String?>(
+        json['currentRevisionId'],
+      ),
       sortOrder: serializer.fromJson<int>(json['sortOrder']),
       createdAt: serializer.fromJson<String>(json['createdAt']),
       updatedAt: serializer.fromJson<String>(json['updatedAt']),
@@ -4134,6 +4267,7 @@ class NotePageRow extends DataClass implements Insertable<NotePageRow> {
       'title': serializer.toJson<String>(title),
       'fileName': serializer.toJson<String>(fileName),
       'relativePath': serializer.toJson<String>(relativePath),
+      'currentRevisionId': serializer.toJson<String?>(currentRevisionId),
       'sortOrder': serializer.toJson<int>(sortOrder),
       'createdAt': serializer.toJson<String>(createdAt),
       'updatedAt': serializer.toJson<String>(updatedAt),
@@ -4146,6 +4280,7 @@ class NotePageRow extends DataClass implements Insertable<NotePageRow> {
     String? title,
     String? fileName,
     String? relativePath,
+    Value<String?> currentRevisionId = const Value.absent(),
     int? sortOrder,
     String? createdAt,
     String? updatedAt,
@@ -4155,6 +4290,9 @@ class NotePageRow extends DataClass implements Insertable<NotePageRow> {
     title: title ?? this.title,
     fileName: fileName ?? this.fileName,
     relativePath: relativePath ?? this.relativePath,
+    currentRevisionId: currentRevisionId.present
+        ? currentRevisionId.value
+        : this.currentRevisionId,
     sortOrder: sortOrder ?? this.sortOrder,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
@@ -4168,6 +4306,9 @@ class NotePageRow extends DataClass implements Insertable<NotePageRow> {
       relativePath: data.relativePath.present
           ? data.relativePath.value
           : this.relativePath,
+      currentRevisionId: data.currentRevisionId.present
+          ? data.currentRevisionId.value
+          : this.currentRevisionId,
       sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
@@ -4182,6 +4323,7 @@ class NotePageRow extends DataClass implements Insertable<NotePageRow> {
           ..write('title: $title, ')
           ..write('fileName: $fileName, ')
           ..write('relativePath: $relativePath, ')
+          ..write('currentRevisionId: $currentRevisionId, ')
           ..write('sortOrder: $sortOrder, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
@@ -4196,6 +4338,7 @@ class NotePageRow extends DataClass implements Insertable<NotePageRow> {
     title,
     fileName,
     relativePath,
+    currentRevisionId,
     sortOrder,
     createdAt,
     updatedAt,
@@ -4209,6 +4352,7 @@ class NotePageRow extends DataClass implements Insertable<NotePageRow> {
           other.title == this.title &&
           other.fileName == this.fileName &&
           other.relativePath == this.relativePath &&
+          other.currentRevisionId == this.currentRevisionId &&
           other.sortOrder == this.sortOrder &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
@@ -4220,6 +4364,7 @@ class NotePageRowsCompanion extends UpdateCompanion<NotePageRow> {
   final Value<String> title;
   final Value<String> fileName;
   final Value<String> relativePath;
+  final Value<String?> currentRevisionId;
   final Value<int> sortOrder;
   final Value<String> createdAt;
   final Value<String> updatedAt;
@@ -4230,6 +4375,7 @@ class NotePageRowsCompanion extends UpdateCompanion<NotePageRow> {
     this.title = const Value.absent(),
     this.fileName = const Value.absent(),
     this.relativePath = const Value.absent(),
+    this.currentRevisionId = const Value.absent(),
     this.sortOrder = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
@@ -4241,6 +4387,7 @@ class NotePageRowsCompanion extends UpdateCompanion<NotePageRow> {
     required String title,
     required String fileName,
     required String relativePath,
+    this.currentRevisionId = const Value.absent(),
     required int sortOrder,
     required String createdAt,
     required String updatedAt,
@@ -4259,6 +4406,7 @@ class NotePageRowsCompanion extends UpdateCompanion<NotePageRow> {
     Expression<String>? title,
     Expression<String>? fileName,
     Expression<String>? relativePath,
+    Expression<String>? currentRevisionId,
     Expression<int>? sortOrder,
     Expression<String>? createdAt,
     Expression<String>? updatedAt,
@@ -4270,6 +4418,7 @@ class NotePageRowsCompanion extends UpdateCompanion<NotePageRow> {
       if (title != null) 'title': title,
       if (fileName != null) 'file_name': fileName,
       if (relativePath != null) 'relative_path': relativePath,
+      if (currentRevisionId != null) 'current_revision_id': currentRevisionId,
       if (sortOrder != null) 'sort_order': sortOrder,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
@@ -4283,6 +4432,7 @@ class NotePageRowsCompanion extends UpdateCompanion<NotePageRow> {
     Value<String>? title,
     Value<String>? fileName,
     Value<String>? relativePath,
+    Value<String?>? currentRevisionId,
     Value<int>? sortOrder,
     Value<String>? createdAt,
     Value<String>? updatedAt,
@@ -4294,6 +4444,7 @@ class NotePageRowsCompanion extends UpdateCompanion<NotePageRow> {
       title: title ?? this.title,
       fileName: fileName ?? this.fileName,
       relativePath: relativePath ?? this.relativePath,
+      currentRevisionId: currentRevisionId ?? this.currentRevisionId,
       sortOrder: sortOrder ?? this.sortOrder,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -4319,6 +4470,9 @@ class NotePageRowsCompanion extends UpdateCompanion<NotePageRow> {
     if (relativePath.present) {
       map['relative_path'] = Variable<String>(relativePath.value);
     }
+    if (currentRevisionId.present) {
+      map['current_revision_id'] = Variable<String>(currentRevisionId.value);
+    }
     if (sortOrder.present) {
       map['sort_order'] = Variable<int>(sortOrder.value);
     }
@@ -4342,6 +4496,7 @@ class NotePageRowsCompanion extends UpdateCompanion<NotePageRow> {
           ..write('title: $title, ')
           ..write('fileName: $fileName, ')
           ..write('relativePath: $relativePath, ')
+          ..write('currentRevisionId: $currentRevisionId, ')
           ..write('sortOrder: $sortOrder, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
@@ -8043,7 +8198,7 @@ typedef $$MessageRowsTableCreateCompanionBuilder =
       required String content,
       Value<String?> thinkingContent,
       required String timestamp,
-      required int sortOrder,
+      Value<int> sortOrder,
       Value<int> rowid,
     });
 typedef $$MessageRowsTableUpdateCompanionBuilder =
@@ -8246,7 +8401,7 @@ class $$MessageRowsTableTableManager
                 required String content,
                 Value<String?> thinkingContent = const Value.absent(),
                 required String timestamp,
-                required int sortOrder,
+                Value<int> sortOrder = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => MessageRowsCompanion.insert(
                 id: id,
@@ -8291,7 +8446,7 @@ typedef $$MessageAttachmentRowsTableCreateCompanionBuilder =
       required String displayName,
       required String mimeType,
       required int size,
-      required int sortOrder,
+      Value<int> sortOrder,
       Value<String?> legacyPath,
       Value<int> rowid,
     });
@@ -8522,7 +8677,7 @@ class $$MessageAttachmentRowsTableTableManager
                 required String displayName,
                 required String mimeType,
                 required int size,
-                required int sortOrder,
+                Value<int> sortOrder = const Value.absent(),
                 Value<String?> legacyPath = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => MessageAttachmentRowsCompanion.insert(
@@ -8571,6 +8726,7 @@ typedef $$NoteFolderRowsTableCreateCompanionBuilder =
       required String title,
       required String createdAt,
       required String updatedAt,
+      required int sortOrder,
       Value<int> rowid,
     });
 typedef $$NoteFolderRowsTableUpdateCompanionBuilder =
@@ -8579,6 +8735,7 @@ typedef $$NoteFolderRowsTableUpdateCompanionBuilder =
       Value<String> title,
       Value<String> createdAt,
       Value<String> updatedAt,
+      Value<int> sortOrder,
       Value<int> rowid,
     });
 
@@ -8608,6 +8765,11 @@ class $$NoteFolderRowsTableFilterComposer
 
   ColumnFilters<String> get updatedAt => $composableBuilder(
     column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -8640,6 +8802,11 @@ class $$NoteFolderRowsTableOrderingComposer
     column: $table.updatedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$NoteFolderRowsTableAnnotationComposer
@@ -8662,6 +8829,9 @@ class $$NoteFolderRowsTableAnnotationComposer
 
   GeneratedColumn<String> get updatedAt =>
       $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
 }
 
 class $$NoteFolderRowsTableTableManager
@@ -8705,12 +8875,14 @@ class $$NoteFolderRowsTableTableManager
                 Value<String> title = const Value.absent(),
                 Value<String> createdAt = const Value.absent(),
                 Value<String> updatedAt = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => NoteFolderRowsCompanion(
                 id: id,
                 title: title,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
+                sortOrder: sortOrder,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -8719,12 +8891,14 @@ class $$NoteFolderRowsTableTableManager
                 required String title,
                 required String createdAt,
                 required String updatedAt,
+                required int sortOrder,
                 Value<int> rowid = const Value.absent(),
               }) => NoteFolderRowsCompanion.insert(
                 id: id,
                 title: title,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
+                sortOrder: sortOrder,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -8766,6 +8940,7 @@ typedef $$NoteRowsTableCreateCompanionBuilder =
       required String createdAt,
       required String updatedAt,
       required int wrap,
+      required int sortOrder,
       Value<int> rowid,
     });
 typedef $$NoteRowsTableUpdateCompanionBuilder =
@@ -8778,6 +8953,7 @@ typedef $$NoteRowsTableUpdateCompanionBuilder =
       Value<String> createdAt,
       Value<String> updatedAt,
       Value<int> wrap,
+      Value<int> sortOrder,
       Value<int> rowid,
     });
 
@@ -8827,6 +9003,11 @@ class $$NoteRowsTableFilterComposer
 
   ColumnFilters<int> get wrap => $composableBuilder(
     column: $table.wrap,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -8879,6 +9060,11 @@ class $$NoteRowsTableOrderingComposer
     column: $table.wrap,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$NoteRowsTableAnnotationComposer
@@ -8917,6 +9103,9 @@ class $$NoteRowsTableAnnotationComposer
 
   GeneratedColumn<int> get wrap =>
       $composableBuilder(column: $table.wrap, builder: (column) => column);
+
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
 }
 
 class $$NoteRowsTableTableManager
@@ -8958,6 +9147,7 @@ class $$NoteRowsTableTableManager
                 Value<String> createdAt = const Value.absent(),
                 Value<String> updatedAt = const Value.absent(),
                 Value<int> wrap = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => NoteRowsCompanion(
                 id: id,
@@ -8968,6 +9158,7 @@ class $$NoteRowsTableTableManager
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 wrap: wrap,
+                sortOrder: sortOrder,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -8980,6 +9171,7 @@ class $$NoteRowsTableTableManager
                 required String createdAt,
                 required String updatedAt,
                 required int wrap,
+                required int sortOrder,
                 Value<int> rowid = const Value.absent(),
               }) => NoteRowsCompanion.insert(
                 id: id,
@@ -8990,6 +9182,7 @@ class $$NoteRowsTableTableManager
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 wrap: wrap,
+                sortOrder: sortOrder,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -9024,6 +9217,7 @@ typedef $$NotePageRowsTableCreateCompanionBuilder =
       required String title,
       required String fileName,
       required String relativePath,
+      Value<String?> currentRevisionId,
       required int sortOrder,
       required String createdAt,
       required String updatedAt,
@@ -9036,6 +9230,7 @@ typedef $$NotePageRowsTableUpdateCompanionBuilder =
       Value<String> title,
       Value<String> fileName,
       Value<String> relativePath,
+      Value<String?> currentRevisionId,
       Value<int> sortOrder,
       Value<String> createdAt,
       Value<String> updatedAt,
@@ -9073,6 +9268,11 @@ class $$NotePageRowsTableFilterComposer
 
   ColumnFilters<String> get relativePath => $composableBuilder(
     column: $table.relativePath,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get currentRevisionId => $composableBuilder(
+    column: $table.currentRevisionId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -9126,6 +9326,11 @@ class $$NotePageRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get currentRevisionId => $composableBuilder(
+    column: $table.currentRevisionId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<int> get sortOrder => $composableBuilder(
     column: $table.sortOrder,
     builder: (column) => ColumnOrderings(column),
@@ -9165,6 +9370,11 @@ class $$NotePageRowsTableAnnotationComposer
 
   GeneratedColumn<String> get relativePath => $composableBuilder(
     column: $table.relativePath,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get currentRevisionId => $composableBuilder(
+    column: $table.currentRevisionId,
     builder: (column) => column,
   );
 
@@ -9220,6 +9430,7 @@ class $$NotePageRowsTableTableManager
                 Value<String> title = const Value.absent(),
                 Value<String> fileName = const Value.absent(),
                 Value<String> relativePath = const Value.absent(),
+                Value<String?> currentRevisionId = const Value.absent(),
                 Value<int> sortOrder = const Value.absent(),
                 Value<String> createdAt = const Value.absent(),
                 Value<String> updatedAt = const Value.absent(),
@@ -9230,6 +9441,7 @@ class $$NotePageRowsTableTableManager
                 title: title,
                 fileName: fileName,
                 relativePath: relativePath,
+                currentRevisionId: currentRevisionId,
                 sortOrder: sortOrder,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
@@ -9242,6 +9454,7 @@ class $$NotePageRowsTableTableManager
                 required String title,
                 required String fileName,
                 required String relativePath,
+                Value<String?> currentRevisionId = const Value.absent(),
                 required int sortOrder,
                 required String createdAt,
                 required String updatedAt,
@@ -9252,6 +9465,7 @@ class $$NotePageRowsTableTableManager
                 title: title,
                 fileName: fileName,
                 relativePath: relativePath,
+                currentRevisionId: currentRevisionId,
                 sortOrder: sortOrder,
                 createdAt: createdAt,
                 updatedAt: updatedAt,

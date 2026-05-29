@@ -130,29 +130,50 @@ class ConversationProvider extends ChangeNotifier {
         ),
       );
     }
-    final messagesByConversationId = <String, List<Message>>{};
+    final messagesByConversationId = <String, List<_StorageV2MessageRow>>{};
     for (final item in json['messages'] as List<dynamic>? ?? const []) {
       if (item is! Map) continue;
-      final raw = Map<String, dynamic>.from(item);
-      final conversationId = raw['conversationId'] as String?;
-      if (conversationId == null) continue;
-      (messagesByConversationId[conversationId] ??= []).add(
-        Message(
-          id: raw['id'] as String,
-          role: raw['role'] as String,
-          content: raw['content'] as String? ?? '',
-          images: attachmentsByMessageId[raw['id'] as String] ?? const [],
-          thinkingContent: raw['thinkingContent'] as String?,
-          timestamp: DateTime.parse(raw['timestamp'] as String),
-        ),
-      );
+      try {
+        final raw = Map<String, dynamic>.from(item);
+        final conversationId = raw['conversationId'] as String?;
+        if (conversationId == null) continue;
+        final messageId = raw['id'] as String;
+        final timestamp = DateTime.tryParse(raw['timestamp'] as String? ?? '');
+        if (timestamp == null) throw const FormatException('Invalid timestamp');
+        (messagesByConversationId[conversationId] ??= []).add(
+          _StorageV2MessageRow(
+            message: Message(
+              id: messageId,
+              role: raw['role'] as String,
+              content: raw['content'] as String? ?? '',
+              images: attachmentsByMessageId[messageId] ?? const [],
+              thinkingContent: raw['thinkingContent'] as String?,
+              timestamp: timestamp,
+            ),
+            sortOrder: (raw['sortOrder'] as num?)?.toInt(),
+          ),
+        );
+      } catch (e) {
+        debugPrint('跳过损坏的新版消息记录: $e');
+      }
     }
     final conversations = <Conversation>[];
     for (final item in json['conversations'] as List<dynamic>? ?? const []) {
       if (item is! Map) continue;
       final raw = Map<String, dynamic>.from(item);
       final id = raw['id'] as String;
-      final messages = messagesByConversationId[id] ?? const <Message>[];
+      final messageRows = List<_StorageV2MessageRow>.from(
+        messagesByConversationId[id] ?? const [],
+      );
+      messageRows.sort((a, b) {
+        final orderA = a.sortOrder;
+        final orderB = b.sortOrder;
+        if (orderA != null && orderB != null) return orderA.compareTo(orderB);
+        if (orderA != null) return -1;
+        if (orderB != null) return 1;
+        return a.message.timestamp.compareTo(b.message.timestamp);
+      });
+      final messages = messageRows.map((row) => row.message).toList();
       conversations.add(
         Conversation(
           id: id,
@@ -587,4 +608,11 @@ class ConversationProvider extends ChangeNotifier {
         )
         .toList();
   }
+}
+
+class _StorageV2MessageRow {
+  final Message message;
+  final int? sortOrder;
+
+  const _StorageV2MessageRow({required this.message, required this.sortOrder});
 }

@@ -896,7 +896,7 @@ void main() {
     final root = await Directory.systemTemp.createTemp('lynai_migration_test_');
     final image = File('${root.path}/legacy.png');
     await image.writeAsBytes([1, 2, 3, 4], flush: true);
-    final noteId = await featureProvider.addNoteWithContent('分页测试', '# 标题\n正文');
+    await featureProvider.addNoteWithContent('分页测试', '# 标题\n正文');
     conversationProvider.createConversation(ConversationSettings(modelId: 'm'));
     final conversation = conversationProvider.conversations.first;
     conversationProvider.addMessage(
@@ -946,7 +946,15 @@ void main() {
     } finally {
       database.dispose();
     }
-    final pageFile = File('${root.path}/storage_v2/notes/$noteId/分页测试.md');
+    final notesJson =
+        jsonDecode(
+              await File(
+                '${root.path}/storage_v2/data/notes.json',
+              ).readAsString(),
+            )
+            as Map<String, dynamic>;
+    final page = (notesJson['pages'] as List<dynamic>).single as Map;
+    final pageFile = File('${root.path}/storage_v2/${page['relativePath']}');
     expect(await pageFile.exists(), isTrue);
     expect(await pageFile.readAsString(), '# 标题\n正文');
     final resourcesJson =
@@ -969,6 +977,56 @@ void main() {
             as Map<String, dynamic>;
     expect(conversationsJson['messageAttachments'], hasLength(1));
     await root.delete(recursive: true);
+  });
+
+  test('Storage migration keeps unsafe note ids inside storage root', () async {
+    SharedPreferences.setMockInitialValues({});
+    final settingsProvider = SettingsProvider();
+    final modelProvider = ModelConfigProvider();
+    final conversationProvider = ConversationProvider();
+    final featureProvider = FeatureProvider();
+    await settingsProvider.loadSettings();
+    await modelProvider.loadModels();
+    await conversationProvider.loadConversations();
+    await featureProvider.load();
+
+    final now = DateTime(2026);
+    await featureProvider.replaceFeatureData(
+      notes: [
+        Note(
+          id: '../escape',
+          title: 'unsafe',
+          content: 'secret',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      ],
+      noteFolders: const [],
+      noteRevisions: const [],
+    );
+
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_migration_path_test_',
+    );
+    try {
+      await StorageMigrationService(
+        settingsProvider: settingsProvider,
+        modelConfigProvider: modelProvider,
+        conversationProvider: conversationProvider,
+        featureProvider: featureProvider,
+        rootDirectory: root,
+      ).migrate();
+
+      expect(await File('${root.path}/escape/unsafe.md').exists(), isFalse);
+      final storage = StorageV2Service(rootDirectory: root);
+      final notes = await storage.loadNotes();
+      expect(notes.notes.single.id, '../escape');
+      expect(notes.pages.single.relativePath, startsWith('notes/'));
+      expect(notes.pages.single.relativePath, isNot(contains('..')));
+      expect(await storage.readNotePage(notes.pages.single), 'secret');
+    } finally {
+      await root.delete(recursive: true);
+    }
   });
 
   test('StorageV2Service reads migrated notes and resources', () async {
@@ -1317,6 +1375,8 @@ void main() {
 
     await loaded.saveNoteContent(noteId, 'new body');
     final page = loaded.activeNotePage(noteId)!;
+    final firstPageId = page.id;
+    final firstPageRevisionId = loaded.getNote(noteId)!.currentRevisionId;
     final storage = StorageV2Service(rootDirectory: root);
     expect(await storage.readNotePage(page), 'new body');
 
@@ -1324,7 +1384,62 @@ void main() {
     expect(pageId, isNotNull);
     expect(loaded.notePages(noteId), hasLength(2));
     expect(loaded.getNote(noteId)!.content, '# chapter\n');
-    await loaded.renameNotePage(noteId, pageId!, 'chapter renamed');
+    final chapterRevision = await loaded.saveNoteContent(
+      noteId,
+      'chapter body',
+    );
+    expect(chapterRevision, isNotNull);
+    expect(chapterRevision!.id, isNot(firstPageRevisionId));
+    final service = ToolCallService(loaded);
+    final pagesResult = await service.execute(
+      ChatToolCall(
+        id: 'pages',
+        name: 'list_note_pages',
+        arguments: {'id': noteId},
+      ),
+      const [],
+    );
+    expect(pagesResult['pages'], hasLength(2));
+    final readChapter = await service.execute(
+      ChatToolCall(
+        id: 'read-page',
+        name: 'read_note',
+        arguments: {'id': noteId, 'pageId': pageId},
+      ),
+      const [],
+    );
+    expect(readChapter['note']['content'], 'chapter body');
+    expect(readChapter['note']['pageId'], pageId);
+    expect(readChapter['outline'], isA<List>());
+    expect(loaded.getNoteTimeline(noteId).map((revision) => revision.id), [
+      chapterRevision.id,
+      chapterRevision.parentRevisionId,
+    ]);
+    await loaded.setNoteEditProposal(
+      NoteEditProposal(
+        id: 'chapter-proposal',
+        noteId: noteId,
+        pageId: pageId,
+        baseRevisionId: chapterRevision.id,
+        baseContentHash: 'hash',
+        createdAt: DateTime(2026),
+        blocks: const [
+          NoteEditBlock(
+            id: 'block',
+            startLine: 1,
+            deleteCount: 1,
+            deletedLines: ['chapter body'],
+            insertLines: ['updated chapter body'],
+          ),
+        ],
+      ),
+    );
+    expect(loaded.getNoteEditProposal(noteId), isNotNull);
+    await loaded.selectNotePage(noteId, firstPageId);
+    expect(loaded.getNoteEditProposal(noteId), isNull);
+    await loaded.selectNotePage(noteId, pageId!);
+    expect(loaded.getNoteEditProposal(noteId)?.id, 'chapter-proposal');
+    await loaded.renameNotePage(noteId, pageId, 'chapter renamed');
     expect(loaded.activeNotePage(noteId)!.title, 'chapter renamed');
     final exports = await loaded.notePageExports(noteId);
     expect(exports.map((page) => page.fileName), contains('chapter.md'));
@@ -1334,7 +1449,352 @@ void main() {
     );
     expect(await loaded.deleteNotePage(noteId, pageId), isTrue);
     expect(loaded.notePages(noteId), hasLength(1));
+    expect(
+      loaded.noteRevisions.map((revision) => revision.id),
+      isNot(contains(chapterRevision.id)),
+    );
+    await loaded.selectNotePage(noteId, firstPageId);
+    expect(loaded.getNote(noteId)!.content, 'new body');
+    expect(loaded.getNote(noteId)!.currentRevisionId, firstPageRevisionId);
+    expect(
+      loaded.getNoteTimeline(noteId).map((revision) => revision.id),
+      contains(firstPageRevisionId),
+    );
     await root.delete(recursive: true);
+  });
+
+  test('Storage v2 note pages protect inactive page revisions', () async {
+    SharedPreferences.setMockInitialValues({});
+    final settingsProvider = SettingsProvider();
+    final modelProvider = ModelConfigProvider();
+    final conversationProvider = ConversationProvider();
+    final featureProvider = FeatureProvider();
+    await settingsProvider.loadSettings();
+    await modelProvider.loadModels();
+    await conversationProvider.loadConversations();
+    await featureProvider.load();
+
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_feature_v2_revision_guard_test_',
+    );
+    try {
+      await StorageMigrationService(
+        settingsProvider: settingsProvider,
+        modelConfigProvider: modelProvider,
+        conversationProvider: conversationProvider,
+        featureProvider: featureProvider,
+        rootDirectory: root,
+      ).migrate();
+
+      final loaded = FeatureProvider(
+        storageV2: StorageV2Service(rootDirectory: root),
+      );
+      await loaded.load();
+      final noteId = await loaded.addNoteWithContent('book', 'first page');
+      final firstPageRevisionId = loaded.getNote(noteId)!.currentRevisionId!;
+      final firstPageId = loaded.activeNotePage(noteId)!.id;
+
+      final secondPageId = await loaded.addNotePage(noteId, 'second');
+      expect(secondPageId, isNotNull);
+      await loaded.saveNoteContent(noteId, 'second page');
+
+      expect(
+        loaded.getNoteCurrentRevisionPath(noteId),
+        isNot(contains(firstPageRevisionId)),
+      );
+      expect(
+        await loaded.deleteNoteRevision(noteId, firstPageRevisionId),
+        isFalse,
+      );
+
+      await loaded.selectNotePage(noteId, firstPageId);
+      expect(loaded.getNote(noteId)!.currentRevisionId, firstPageRevisionId);
+      expect(
+        loaded.getNoteTimeline(noteId).map((revision) => revision.id),
+        contains(firstPageRevisionId),
+      );
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('Storage v2 load clears page revision from another page', () async {
+    SharedPreferences.setMockInitialValues({});
+    final settingsProvider = SettingsProvider();
+    final modelProvider = ModelConfigProvider();
+    final conversationProvider = ConversationProvider();
+    final featureProvider = FeatureProvider();
+    await settingsProvider.loadSettings();
+    await modelProvider.loadModels();
+    await conversationProvider.loadConversations();
+    await featureProvider.load();
+
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_feature_v2_page_revision_normalize_test_',
+    );
+    try {
+      await StorageMigrationService(
+        settingsProvider: settingsProvider,
+        modelConfigProvider: modelProvider,
+        conversationProvider: conversationProvider,
+        featureProvider: featureProvider,
+        rootDirectory: root,
+      ).migrate();
+
+      final loaded = FeatureProvider(
+        storageV2: StorageV2Service(rootDirectory: root),
+      );
+      await loaded.load();
+      final noteId = await loaded.addNoteWithContent('book', 'first page');
+      final firstPageId = loaded.activeNotePage(noteId)!.id;
+      final secondPageId = await loaded.addNotePage(noteId, 'second');
+      expect(secondPageId, isNotNull);
+      final secondRevision = await loaded.saveNoteContent(
+        noteId,
+        'second page',
+      );
+      expect(secondRevision, isNotNull);
+
+      final storage = StorageV2Service(rootDirectory: root);
+      final data = await storage.loadNotesData();
+      final notes = data['notes'] as List<dynamic>;
+      final note = notes.single as Map<String, dynamic>;
+      note['currentPageId'] = firstPageId;
+      note['currentRevisionId'] = secondRevision!.id;
+      final pages = data['pages'] as List<dynamic>;
+      final firstPage = pages
+          .whereType<Map>()
+          .cast<Map<String, dynamic>>()
+          .singleWhere((page) => page['id'] == firstPageId);
+      firstPage['currentRevisionId'] = secondRevision.id;
+      await storage.writeNotesData(data);
+
+      final reloaded = FeatureProvider(
+        storageV2: StorageV2Service(rootDirectory: root),
+      );
+      await reloaded.load();
+
+      expect(reloaded.activeNotePage(noteId)!.id, firstPageId);
+      expect(reloaded.activeNotePage(noteId)!.currentRevisionId, isNull);
+      expect(reloaded.getNote(noteId)!.currentRevisionId, isNull);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('Storage v2 note pages insert after active page and move', () async {
+    SharedPreferences.setMockInitialValues({});
+    final settingsProvider = SettingsProvider();
+    final modelProvider = ModelConfigProvider();
+    final conversationProvider = ConversationProvider();
+    final featureProvider = FeatureProvider();
+    await settingsProvider.loadSettings();
+    await modelProvider.loadModels();
+    await conversationProvider.loadConversations();
+    await featureProvider.load();
+
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_feature_v2_page_order_test_',
+    );
+    try {
+      await StorageMigrationService(
+        settingsProvider: settingsProvider,
+        modelConfigProvider: modelProvider,
+        conversationProvider: conversationProvider,
+        featureProvider: featureProvider,
+        rootDirectory: root,
+      ).migrate();
+
+      final loaded = FeatureProvider(
+        storageV2: StorageV2Service(rootDirectory: root),
+      );
+      await loaded.load();
+      final noteId = await loaded.addNoteWithContent('book', 'first');
+      final firstPageId = loaded.activeNotePage(noteId)!.id;
+      final secondPageId = await loaded.addNotePage(noteId, 'second');
+      expect(secondPageId, isNotNull);
+      await loaded.selectNotePage(noteId, firstPageId);
+      final insertedPageId = await loaded.addNotePage(noteId, 'inserted');
+      expect(insertedPageId, isNotNull);
+
+      expect(loaded.notePages(noteId).map((page) => page.id), [
+        firstPageId,
+        insertedPageId,
+        secondPageId,
+      ]);
+      expect(loaded.notePages(noteId).map((page) => page.sortOrder), [0, 1, 2]);
+
+      expect(await loaded.moveNotePage(noteId, secondPageId!, -1), isTrue);
+      expect(loaded.notePages(noteId).map((page) => page.id), [
+        firstPageId,
+        secondPageId,
+        insertedPageId,
+      ]);
+      expect(await loaded.moveNotePage(noteId, firstPageId, -1), isFalse);
+      await loaded.selectNotePage(noteId, 'missing-page');
+      expect(loaded.activeNotePage(noteId)!.id, insertedPageId);
+      await loaded.selectNotePage(noteId, secondPageId);
+      expect(await loaded.deleteNotePage(noteId, secondPageId), isTrue);
+      expect(loaded.activeNotePage(noteId)!.id, insertedPageId);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('Storage v2 preserves note folder and note order', () async {
+    SharedPreferences.setMockInitialValues({});
+    final settingsProvider = SettingsProvider();
+    final modelProvider = ModelConfigProvider();
+    final conversationProvider = ConversationProvider();
+    final featureProvider = FeatureProvider();
+    await settingsProvider.loadSettings();
+    await modelProvider.loadModels();
+    await conversationProvider.loadConversations();
+    await featureProvider.load();
+
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_feature_v2_note_order_test_',
+    );
+    try {
+      await StorageMigrationService(
+        settingsProvider: settingsProvider,
+        modelConfigProvider: modelProvider,
+        conversationProvider: conversationProvider,
+        featureProvider: featureProvider,
+        rootDirectory: root,
+      ).migrate();
+
+      final loaded = FeatureProvider(
+        storageV2: StorageV2Service(rootDirectory: root),
+      );
+      await loaded.load();
+      final firstFolderId = await loaded.addNoteFolder('first folder');
+      final secondFolderId = await loaded.addNoteFolder('second folder');
+      await loaded.reorderNoteFolders(1, 0);
+      final firstNoteId = await loaded.addNoteWithContent('first note', 'one');
+      final secondNoteId = await loaded.addNoteWithContent(
+        'second note',
+        'two',
+      );
+      await loaded.reorderNotesInFolder(null, 1, 0);
+
+      expect(loaded.noteFolders.map((folder) => folder.id), [
+        firstFolderId,
+        secondFolderId,
+      ]);
+      expect(loaded.notes.map((note) => note.id), [firstNoteId, secondNoteId]);
+
+      final reloaded = FeatureProvider(
+        storageV2: StorageV2Service(rootDirectory: root),
+      );
+      await reloaded.load();
+
+      expect(reloaded.noteFolders.map((folder) => folder.id), [
+        firstFolderId,
+        secondFolderId,
+      ]);
+      expect(reloaded.notes.map((note) => note.id), [
+        firstNoteId,
+        secondNoteId,
+      ]);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('Storage v2 migrates note order columns from schema 2', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_feature_v2_schema3_migration_test_',
+    );
+    try {
+      final storageRoot = Directory('${root.path}/storage_v2');
+      await storageRoot.create(recursive: true);
+      await File('${storageRoot.path}/manifest.json').writeAsString('{}');
+      final db = sqlite3.open('${storageRoot.path}/app.db');
+      try {
+        db.execute('''
+CREATE TABLE storage_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+CREATE TABLE note_folders (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE notes (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  folder_id TEXT,
+  current_revision_id TEXT,
+  current_page_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  wrap INTEGER NOT NULL
+);
+PRAGMA user_version = 2;
+''');
+      } finally {
+        db.dispose();
+      }
+
+      final storage = StorageV2Service(rootDirectory: root);
+      final data = await storage.loadNotesData();
+
+      expect(data['folders'], isEmpty);
+      expect(data['notes'], isEmpty);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('Storage v2 schema 3 order migration is idempotent', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_feature_v2_schema3_partial_test_',
+    );
+    try {
+      final storageRoot = Directory('${root.path}/storage_v2');
+      await storageRoot.create(recursive: true);
+      await File('${storageRoot.path}/manifest.json').writeAsString('{}');
+      final db = sqlite3.open('${storageRoot.path}/app.db');
+      try {
+        db.execute('''
+CREATE TABLE storage_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+CREATE TABLE note_folders (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE notes (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  folder_id TEXT,
+  current_revision_id TEXT,
+  current_page_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  wrap INTEGER NOT NULL
+);
+PRAGMA user_version = 2;
+''');
+      } finally {
+        db.dispose();
+      }
+
+      final storage = StorageV2Service(rootDirectory: root);
+      final data = await storage.loadNotesData();
+
+      expect(data['folders'], isEmpty);
+      expect(data['notes'], isEmpty);
+    } finally {
+      await root.delete(recursive: true);
+    }
   });
 
   test('FeatureProvider batch replace persists storage v2 notes', () async {
@@ -1557,6 +2017,50 @@ void main() {
       expect(image.path, contains('/storage_v2/assets/documents/'));
       expect(await File(image.path).readAsString(), 'new attachment');
       await root.delete(recursive: true);
+    },
+  );
+
+  test(
+    'Migration restores existing storage v2 when activation fails',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final settingsProvider = SettingsProvider();
+      final modelProvider = ModelConfigProvider();
+      final conversationProvider = ConversationProvider();
+      final featureProvider = FeatureProvider();
+      await settingsProvider.loadSettings();
+      await modelProvider.loadModels();
+      await conversationProvider.loadConversations();
+      await featureProvider.load();
+
+      final root = await Directory.systemTemp.createTemp(
+        'lynai_migration_restore_test_',
+      );
+      try {
+        final existingStorage = Directory('${root.path}/storage_v2');
+        await existingStorage.create(recursive: true);
+        final marker = File('${existingStorage.path}/marker.txt');
+        await marker.writeAsString('old storage');
+
+        await expectLater(
+          StorageMigrationService(
+            settingsProvider: settingsProvider,
+            modelConfigProvider: modelProvider,
+            conversationProvider: conversationProvider,
+            featureProvider: featureProvider,
+            rootDirectory: root,
+            afterActivateStorageForTest: () async => throw StateError('boom'),
+          ).migrate(force: true),
+          throwsA(isA<StateError>()),
+        );
+
+        expect(await marker.exists(), isTrue);
+        expect(await marker.readAsString(), 'old storage');
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getString('storage_migration_status'), 'failed');
+      } finally {
+        await root.delete(recursive: true);
+      }
     },
   );
 

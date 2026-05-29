@@ -68,6 +68,11 @@ class FeatureProvider extends ChangeNotifier {
     );
   }
 
+  String _noteEditProposalKey(String noteId, [String? pageId]) {
+    if (!_usingStorageV2) return noteId;
+    return '$noteId:${pageId ?? _activeStorageV2PageIds[noteId] ?? ''}';
+  }
+
   Future<String> noteExportContent(String noteId) async {
     final note = getNote(noteId);
     if (note == null) return '';
@@ -171,7 +176,7 @@ class FeatureProvider extends ChangeNotifier {
   }
 
   NoteEditProposal? getNoteEditProposal(String noteId) {
-    return _noteEditProposals[noteId];
+    return _noteEditProposals[_noteEditProposalKey(noteId)];
   }
 
   Future<void> load() async {
@@ -249,7 +254,8 @@ class FeatureProvider extends ChangeNotifier {
               item as Map<String, dynamic>,
             );
             if (_isUsableNoteEditProposal(proposal)) {
-              _noteEditProposals[proposal.noteId] = proposal;
+              _noteEditProposals[_noteEditProposalKey(proposal.noteId)] =
+                  proposal;
             }
           } catch (e) {
             debugPrint('跳过损坏的笔记修改建议记录: $e');
@@ -444,6 +450,10 @@ class FeatureProvider extends ChangeNotifier {
       final revision = getNoteRevision(baseRevisionId);
       if (revision == null || revision.noteId != proposal.noteId) return false;
     }
+    if (_usingStorageV2 && proposal.pageId != null) {
+      final pages = _storageV2PagesByNoteId[proposal.noteId] ?? const [];
+      if (!pages.any((page) => page.id == proposal.pageId)) return false;
+    }
     return true;
   }
 
@@ -582,7 +592,8 @@ class FeatureProvider extends ChangeNotifier {
             id: id,
             title: json['title'] as String? ?? '',
             content: await _storageV2.readNotePage(page),
-            currentRevisionId: json['currentRevisionId'] as String?,
+            currentRevisionId:
+                page.currentRevisionId ?? json['currentRevisionId'] as String?,
             folderId: json['folderId'] as String?,
             createdAt: DateTime.parse(json['createdAt'] as String),
             updatedAt: DateTime.parse(json['updatedAt'] as String),
@@ -603,6 +614,7 @@ class FeatureProvider extends ChangeNotifier {
           NoteRevision(
             id: json['id'] as String,
             noteId: json['noteId'] as String,
+            pageId: json['pageId'] as String?,
             parentRevisionId: json['parentRevisionId'] as String?,
             savedAt: DateTime.parse(json['savedAt'] as String),
             delta: NoteTextDelta(
@@ -617,6 +629,7 @@ class FeatureProvider extends ChangeNotifier {
       }
     }
 
+    _usingStorageV2 = true;
     final proposals = <String, NoteEditProposal>{};
     final blocksByProposal = <String, List<NoteEditBlock>>{};
     for (final item in data['editBlocks'] as List<dynamic>? ?? const []) {
@@ -648,20 +661,21 @@ class FeatureProvider extends ChangeNotifier {
         final proposal = NoteEditProposal(
           id: json['id'] as String,
           noteId: json['noteId'] as String,
+          pageId: json['pageId'] as String?,
           baseRevisionId: json['baseRevisionId'] as String?,
           baseContentHash: json['baseContentHash'] as String? ?? '',
           createdAt: DateTime.parse(json['createdAt'] as String),
           blocks: blocksByProposal[json['id'] as String] ?? const [],
         );
         if (proposal.blocks.isNotEmpty && proposal.baseContentHash.isNotEmpty) {
-          proposals[proposal.noteId] = proposal;
+          proposals[_noteEditProposalKey(proposal.noteId, proposal.pageId)] =
+              proposal;
         }
       } catch (e) {
         debugPrint('跳过损坏的新版笔记建议记录: $e');
       }
     }
 
-    _usingStorageV2 = true;
     _noteFolders = folders;
     _notes = notes;
     _noteRevisions = revisions;
@@ -677,18 +691,19 @@ class FeatureProvider extends ChangeNotifier {
   Future<void> selectNotePage(String noteId, String pageId) async {
     if (!_usingStorageV2) return;
     final pages = _storageV2PagesByNoteId[noteId] ?? const [];
-    final page = pages.firstWhere(
-      (page) => page.id == pageId,
-      orElse: () => throw StateError('分页不存在'),
-    );
+    final pageIndex = pages.indexWhere((page) => page.id == pageId);
+    if (pageIndex == -1) return;
+    final page = pages[pageIndex];
     final index = _notes.indexWhere((note) => note.id == noteId);
     if (index == -1) return;
     final content = await _storageV2.readNotePage(page);
     _activeStorageV2PageIds[noteId] = page.id;
     _notes[index] = _notes[index].copyWith(
       content: content,
+      currentRevisionId: page.currentRevisionId,
       preserveUpdatedAt: true,
     );
+    _clearNoteTimelineCache(noteId);
     await _persistStorageV2NotesData();
     notifyListeners();
   }
@@ -707,23 +722,29 @@ class FeatureProvider extends ChangeNotifier {
       suffix++;
     }
     final now = DateTime.now();
+    final noteDirectoryName = safeStorageSegment(noteId, fallback: 'note');
+    final activePageId = _activeStorageV2PageIds[noteId];
+    final activeIndex = pages.indexWhere((page) => page.id == activePageId);
+    final insertIndex = activeIndex == -1 ? pages.length : activeIndex + 1;
     final page = StorageV2NotePage(
       id: '${noteId}_page_${_uuid.v4()}',
       noteId: noteId,
-      title: title.isEmpty ? '新分页' : title,
+      title: title,
       fileName: fileName,
-      relativePath: 'notes/$noteId/$fileName',
-      sortOrder: pages.length,
+      relativePath: 'notes/$noteDirectoryName/$fileName',
+      currentRevisionId: null,
+      sortOrder: insertIndex,
       createdAt: now,
       updatedAt: now,
     );
-    pages.add(page);
+    pages.insert(insertIndex, page);
+    _renumberNotePages(pages);
     _activeStorageV2PageIds[noteId] = page.id;
-    final content = '# ${page.title}\n';
+    final content = page.title.isEmpty ? '' : '# ${page.title}\n';
     await _storageV2.writeNotePage(page, content);
     final index = _notes.indexWhere((item) => item.id == noteId);
     if (index != -1) {
-      _notes[index] = note.copyWith(content: content);
+      _notes[index] = note.copyWith(content: content, currentRevisionId: null);
     }
     await _persistStorageV2NotesData();
     await _queueSaveNotes();
@@ -745,15 +766,32 @@ class FeatureProvider extends ChangeNotifier {
     pages[index] = StorageV2NotePage(
       id: page.id,
       noteId: page.noteId,
-      title: title.isEmpty ? page.title : title,
+      title: title,
       fileName: page.fileName,
       relativePath: page.relativePath,
+      currentRevisionId: page.currentRevisionId,
       sortOrder: page.sortOrder,
       createdAt: page.createdAt,
       updatedAt: DateTime.now(),
     );
     await _persistStorageV2NotesData();
     notifyListeners();
+  }
+
+  Future<bool> moveNotePage(String noteId, String pageId, int delta) async {
+    if (!_usingStorageV2 || delta == 0) return false;
+    final pages = _storageV2PagesByNoteId[noteId];
+    if (pages == null) return false;
+    final index = pages.indexWhere((page) => page.id == pageId);
+    if (index == -1) return false;
+    final target = (index + delta).clamp(0, pages.length - 1);
+    if (target == index) return false;
+    final page = pages.removeAt(index);
+    pages.insert(target, page);
+    _renumberNotePages(pages);
+    await _persistStorageV2NotesData();
+    notifyListeners();
+    return true;
   }
 
   Future<bool> deleteNotePage(String noteId, String pageId) async {
@@ -763,30 +801,36 @@ class FeatureProvider extends ChangeNotifier {
     final index = pages.indexWhere((page) => page.id == pageId);
     if (index == -1) return false;
     final removed = pages.removeAt(index);
-    for (var i = 0; i < pages.length; i++) {
-      final page = pages[i];
-      pages[i] = StorageV2NotePage(
-        id: page.id,
-        noteId: page.noteId,
-        title: page.title,
-        fileName: page.fileName,
-        relativePath: page.relativePath,
-        sortOrder: i,
-        createdAt: page.createdAt,
-        updatedAt: page.updatedAt,
-      );
-    }
+    _renumberNotePages(pages);
     if (_activeStorageV2PageIds[noteId] == pageId) {
-      _activeStorageV2PageIds[noteId] = pages.first.id;
+      final nextIndex = index >= pages.length ? pages.length - 1 : index;
+      final nextPage = pages[nextIndex];
+      _activeStorageV2PageIds[noteId] = nextPage.id;
       final noteIndex = _notes.indexWhere((note) => note.id == noteId);
       if (noteIndex != -1) {
         _notes[noteIndex] = _notes[noteIndex].copyWith(
-          content: await _storageV2.readNotePage(pages.first),
+          content: await _storageV2.readNotePage(nextPage),
+          currentRevisionId: nextPage.currentRevisionId,
           preserveUpdatedAt: true,
         );
       }
+      _clearNoteTimelineCache(noteId);
     }
-    _noteEditProposals.remove(noteId);
+    _noteEditProposals.remove(_noteEditProposalKey(noteId, removed.id));
+    final removedRevisionIds = _noteRevisions
+        .where(
+          (revision) =>
+              revision.noteId == noteId && revision.pageId == removed.id,
+        )
+        .map((revision) => revision.id)
+        .toSet();
+    _noteRevisions.removeWhere(
+      (revision) => removedRevisionIds.contains(revision.id),
+    );
+    _noteRevisionContentCache.removeWhere(
+      (revisionId, _) => removedRevisionIds.contains(revisionId),
+    );
+    _clearNoteTimelineCache(noteId);
     try {
       await _storageV2.deleteFile(removed.relativePath);
     } catch (_) {}
@@ -797,9 +841,27 @@ class FeatureProvider extends ChangeNotifier {
     return true;
   }
 
+  void _renumberNotePages(List<StorageV2NotePage> pages) {
+    for (var i = 0; i < pages.length; i++) {
+      final page = pages[i];
+      pages[i] = StorageV2NotePage(
+        id: page.id,
+        noteId: page.noteId,
+        title: page.title,
+        fileName: page.fileName,
+        relativePath: page.relativePath,
+        currentRevisionId: page.currentRevisionId,
+        sortOrder: i,
+        createdAt: page.createdAt,
+        updatedAt: page.updatedAt,
+      );
+    }
+  }
+
   Future<void> _persistStorageV2CurrentPageContent(
     String noteId,
     String content,
+    String? currentRevisionId,
   ) async {
     if (!_usingStorageV2) return;
     final page = activeNotePage(noteId);
@@ -815,6 +877,7 @@ class FeatureProvider extends ChangeNotifier {
       title: page.title,
       fileName: page.fileName,
       relativePath: page.relativePath,
+      currentRevisionId: currentRevisionId,
       sortOrder: page.sortOrder,
       createdAt: page.createdAt,
       updatedAt: DateTime.now(),
@@ -836,12 +899,14 @@ class FeatureProvider extends ChangeNotifier {
         final now = DateTime.now();
         final fileName =
             '${safeExportFileName(note.title, fallback: 'note')}.md';
+        final noteDirectoryName = safeStorageSegment(note.id, fallback: 'note');
         page = StorageV2NotePage(
           id: '${note.id}_page_0',
           noteId: note.id,
           title: note.title.isEmpty ? '未命名分页' : note.title,
           fileName: fileName,
-          relativePath: 'notes/${note.id}/$fileName',
+          relativePath: 'notes/$noteDirectoryName/$fileName',
+          currentRevisionId: note.currentRevisionId,
           sortOrder: 0,
           createdAt: note.createdAt,
           updatedAt: now,
@@ -867,7 +932,7 @@ class FeatureProvider extends ChangeNotifier {
       proposalRows.add({
         'id': proposal.id,
         'noteId': proposal.noteId,
-        'pageId': _activeStorageV2PageIds[proposal.noteId],
+        if (proposal.pageId != null) 'pageId': proposal.pageId,
         if (proposal.baseRevisionId != null)
           'baseRevisionId': proposal.baseRevisionId,
         'baseContentHash': proposal.baseContentHash,
@@ -887,8 +952,11 @@ class FeatureProvider extends ChangeNotifier {
       }
     }
     final data = <String, dynamic>{
-      'folders': _noteFolders.map((folder) => folder.toJson()).toList(),
-      'notes': _notes.map((note) {
+      'folders': _noteFolders.indexed.map((entry) {
+        return {...entry.$2.toJson(), 'sortOrder': entry.$1};
+      }).toList(),
+      'notes': _notes.indexed.map((entry) {
+        final note = entry.$2;
         return {
           'id': note.id,
           'title': note.title,
@@ -899,6 +967,7 @@ class FeatureProvider extends ChangeNotifier {
           'createdAt': note.createdAt.toIso8601String(),
           'updatedAt': note.updatedAt.toIso8601String(),
           'wrap': note.wrap,
+          'sortOrder': entry.$1,
         };
       }).toList(),
       'pages': _storageV2PagesByNoteId.values
@@ -909,7 +978,7 @@ class FeatureProvider extends ChangeNotifier {
         return {
           'id': revision.id,
           'noteId': revision.noteId,
-          'pageId': _activeStorageV2PageIds[revision.noteId],
+          if (revision.pageId != null) 'pageId': revision.pageId,
           if (revision.parentRevisionId != null)
             'parentRevisionId': revision.parentRevisionId,
           'savedAt': revision.savedAt.toIso8601String(),
@@ -1057,6 +1126,7 @@ class FeatureProvider extends ChangeNotifier {
         NoteRevision(
           id: initialRevision.id,
           noteId: note.id,
+          pageId: _usingStorageV2 ? '${note.id}_page_0' : null,
           parentRevisionId: null,
           savedAt: now,
           delta: initialRevision.delta,
@@ -1068,12 +1138,14 @@ class FeatureProvider extends ChangeNotifier {
     if (_usingStorageV2) {
       final pageId = '${note.id}_page_0';
       final fileName = '${safeExportFileName(title, fallback: 'note')}.md';
+      final noteDirectoryName = safeStorageSegment(note.id, fallback: 'note');
       final page = StorageV2NotePage(
         id: pageId,
         noteId: note.id,
         title: title.isEmpty ? '未命名分页' : title,
         fileName: fileName,
-        relativePath: 'notes/${note.id}/$fileName',
+        relativePath: 'notes/$noteDirectoryName/$fileName',
+        currentRevisionId: note.currentRevisionId,
         sortOrder: 0,
         createdAt: now,
         updatedAt: now,
@@ -1109,7 +1181,7 @@ class FeatureProvider extends ChangeNotifier {
     final cached = _noteTimelineCache[noteId];
     if (cached != null) return List.unmodifiable(cached);
     final revisions = _noteRevisions
-        .where((revision) => revision.noteId == noteId)
+        .where((revision) => _isRevisionVisibleForActivePage(noteId, revision))
         .toList();
     revisions.sort((a, b) => b.savedAt.compareTo(a.savedAt));
     _noteTimelineCache[noteId] = List.unmodifiable(revisions);
@@ -1118,7 +1190,10 @@ class FeatureProvider extends ChangeNotifier {
 
   Set<String> getNoteCurrentRevisionPath(String noteId) {
     final note = getNote(noteId);
-    final currentRevisionId = note?.currentRevisionId;
+    return _noteRevisionPath(noteId, note?.currentRevisionId);
+  }
+
+  Set<String> _noteRevisionPath(String noteId, String? currentRevisionId) {
     if (currentRevisionId == null) return const <String>{};
     final path = <String>{};
     String? revisionId = currentRevisionId;
@@ -1128,6 +1203,21 @@ class FeatureProvider extends ChangeNotifier {
       revisionId = revision.parentRevisionId;
     }
     return path;
+  }
+
+  Set<String> _allProtectedNoteRevisionIds(String noteId) {
+    final protected = <String>{...getNoteCurrentRevisionPath(noteId)};
+    for (final page in _storageV2PagesByNoteId[noteId] ?? const []) {
+      protected.addAll(_noteRevisionPath(noteId, page.currentRevisionId));
+    }
+    return protected;
+  }
+
+  bool _isRevisionVisibleForActivePage(String noteId, NoteRevision revision) {
+    if (revision.noteId != noteId) return false;
+    if (!_usingStorageV2) return true;
+    final activePageId = _activeStorageV2PageIds[noteId];
+    return revision.pageId == null || revision.pageId == activePageId;
   }
 
   String getNoteContentAtRevision(String noteId, String? revisionId) {
@@ -1190,21 +1280,53 @@ class FeatureProvider extends ChangeNotifier {
     _noteRevisions = _noteRevisions
         .where((revision) => hasValidChain(revision.id, <String>{}))
         .toList();
-    final validRevisionIds = _noteRevisions
-        .map((revision) => revision.id)
-        .toSet();
     _notes = _notes.map((note) {
       final currentRevisionId = note.currentRevisionId;
+      final activePageId = _usingStorageV2
+          ? _activeStorageV2PageIds[note.id]
+          : null;
       if (currentRevisionId == null ||
-          validRevisionIds.contains(currentRevisionId)) {
+          _revisionBelongsToPage(note.id, currentRevisionId, activePageId)) {
         return note;
       }
       notesChanged = true;
       return note.copyWith(currentRevisionId: null, preserveUpdatedAt: true);
     }).toList();
+    _storageV2PagesByNoteId.updateAll((_, pages) {
+      return pages.map((page) {
+        final currentRevisionId = page.currentRevisionId;
+        if (currentRevisionId == null ||
+            _revisionBelongsToPage(page.noteId, currentRevisionId, page.id)) {
+          return page;
+        }
+        notesChanged = true;
+        return StorageV2NotePage(
+          id: page.id,
+          noteId: page.noteId,
+          title: page.title,
+          fileName: page.fileName,
+          relativePath: page.relativePath,
+          currentRevisionId: null,
+          sortOrder: page.sortOrder,
+          createdAt: page.createdAt,
+          updatedAt: page.updatedAt,
+        );
+      }).toList();
+    });
     _noteRevisionContentCache.clear();
     _noteTimelineCache.clear();
     return _noteRevisions.length != previousRevisionCount || notesChanged;
+  }
+
+  bool _revisionBelongsToPage(
+    String noteId,
+    String revisionId,
+    String? pageId,
+  ) {
+    final revision = getNoteRevision(revisionId);
+    if (revision == null || revision.noteId != noteId) return false;
+    if (!_usingStorageV2) return true;
+    return revision.pageId == null || revision.pageId == pageId;
   }
 
   void _clearNoteTimelineCache(String noteId) {
@@ -1219,14 +1341,23 @@ class FeatureProvider extends ChangeNotifier {
     final index = _notes.indexWhere((note) => note.id == noteId);
     if (index == -1) return null;
     final note = _notes[index];
-    final requestedParentRevisionId = baseRevisionId ?? note.currentRevisionId;
+    final currentParentRevision = note.currentRevisionId == null
+        ? null
+        : getNoteRevision(note.currentRevisionId!);
+    final currentParentRevisionId =
+        currentParentRevision != null &&
+            _isRevisionVisibleForActivePage(noteId, currentParentRevision)
+        ? note.currentRevisionId
+        : null;
+    final requestedParentRevisionId = baseRevisionId ?? currentParentRevisionId;
     final requestedParent = requestedParentRevisionId == null
         ? null
         : getNoteRevision(requestedParentRevisionId);
     var parentRevisionId =
-        requestedParent != null && requestedParent.noteId == noteId
+        requestedParent != null &&
+            _isRevisionVisibleForActivePage(noteId, requestedParent)
         ? requestedParentRevisionId
-        : note.currentRevisionId;
+        : currentParentRevisionId;
     var baseContent = parentRevisionId == null
         ? note.content
         : getNoteContentAtRevision(noteId, parentRevisionId);
@@ -1234,9 +1365,13 @@ class FeatureProvider extends ChangeNotifier {
 
     if (parentRevisionId == null && note.content.isNotEmpty) {
       final now = DateTime.now();
+      final activePageId = _usingStorageV2
+          ? _activeStorageV2PageIds[note.id]
+          : null;
       final rootRevision = NoteRevision(
         id: _uuid.v4(),
         noteId: note.id,
+        pageId: activePageId,
         parentRevisionId: null,
         savedAt: now,
         delta: NoteTextDelta.between('', note.content),
@@ -1256,6 +1391,11 @@ class FeatureProvider extends ChangeNotifier {
     final currentRevisionId = _notes[index].currentRevisionId;
     if (baseRevisionId == currentRevisionId && note.content == content) {
       if (bootstrappedRoot != null) {
+        await _persistStorageV2CurrentPageContent(
+          note.id,
+          note.content,
+          bootstrappedRoot.id,
+        );
         await _persistStorageV2NotesData();
         await _queueSaveNoteRevisions();
         await _queueSaveNotes();
@@ -1274,6 +1414,11 @@ class FeatureProvider extends ChangeNotifier {
         currentRevisionId != null &&
         baseContent == content) {
       if (bootstrappedRoot != null) {
+        await _persistStorageV2CurrentPageContent(
+          note.id,
+          note.content,
+          bootstrappedRoot.id,
+        );
         await _persistStorageV2NotesData();
         await _queueSaveNoteRevisions();
         await _queueSaveNotes();
@@ -1286,6 +1431,7 @@ class FeatureProvider extends ChangeNotifier {
     final revision = NoteRevision(
       id: _uuid.v4(),
       noteId: note.id,
+      pageId: _usingStorageV2 ? _activeStorageV2PageIds[note.id] : null,
       parentRevisionId: parentRevisionId,
       savedAt: now,
       delta: NoteTextDelta.between(baseContent, content),
@@ -1293,12 +1439,13 @@ class FeatureProvider extends ChangeNotifier {
     _noteRevisions.insert(0, revision);
     _noteRevisionContentCache[revision.id] = content;
     _clearNoteTimelineCache(note.id);
-    final removedProposal = _noteEditProposals.remove(note.id) != null;
+    final removedProposal =
+        _noteEditProposals.remove(_noteEditProposalKey(note.id)) != null;
     _notes[index] = note.copyWith(
       content: content,
       currentRevisionId: revision.id,
     );
-    await _persistStorageV2CurrentPageContent(note.id, content);
+    await _persistStorageV2CurrentPageContent(note.id, content, revision.id);
     await _persistStorageV2NotesData();
     await _queueSaveNoteRevisions();
     await _queueSaveNotes();
@@ -1312,10 +1459,15 @@ class FeatureProvider extends ChangeNotifier {
     if (index == -1) return;
     final contentChanged = _notes[index].content != note.content;
     final removedProposal =
-        contentChanged && _noteEditProposals.remove(note.id) != null;
+        contentChanged &&
+        _noteEditProposals.remove(_noteEditProposalKey(note.id)) != null;
     _notes[index] = note;
     if (contentChanged) {
-      await _persistStorageV2CurrentPageContent(note.id, note.content);
+      await _persistStorageV2CurrentPageContent(
+        note.id,
+        note.content,
+        note.currentRevisionId,
+      );
     }
     await _persistStorageV2NotesData();
     await _queueSaveNotes();
@@ -1356,12 +1508,21 @@ class FeatureProvider extends ChangeNotifier {
         .toSet();
     _noteRevisions.removeWhere((revision) => revision.noteId == id);
     _clearNoteTimelineCache(id);
-    final removedProposal = _noteEditProposals.remove(id) != null;
+    final beforeProposalCount = _noteEditProposals.length;
+    _noteEditProposals.removeWhere((_, proposal) => proposal.noteId == id);
+    final removedProposal = _noteEditProposals.length != beforeProposalCount;
     _noteRevisionContentCache.removeWhere(
       (revisionId, _) => deletedRevisionIds.contains(revisionId),
     );
-    _storageV2PagesByNoteId.remove(id);
+    final removedPages = _storageV2PagesByNoteId.remove(id) ?? const [];
     _activeStorageV2PageIds.remove(id);
+    for (final page in removedPages) {
+      try {
+        await _storageV2.deleteFile(page.relativePath);
+      } catch (e) {
+        debugPrint('删除笔记分页文件失败: $e');
+      }
+    }
     await _persistStorageV2NotesData();
     await _queueSaveNotes();
     await _queueSaveNoteRevisions();
@@ -1382,12 +1543,12 @@ class FeatureProvider extends ChangeNotifier {
   Future<bool> deleteNoteRevision(String noteId, String revisionId) async {
     final revision = getNoteRevision(revisionId);
     if (revision == null || revision.noteId != noteId) return false;
-    if (getNoteCurrentRevisionPath(noteId).contains(revisionId)) return false;
+    if (_allProtectedNoteRevisionIds(noteId).contains(revisionId)) return false;
     return _deleteNoteRevisionSet(noteId, {revisionId});
   }
 
   int countNoteBranchRevisions(String noteId, String parentRevisionId) {
-    final currentPath = getNoteCurrentRevisionPath(noteId);
+    final currentPath = _allProtectedNoteRevisionIds(noteId);
     final branchRoots = _noteRevisions
         .where(
           (revision) =>
@@ -1407,7 +1568,7 @@ class FeatureProvider extends ChangeNotifier {
   ) async {
     final parent = getNoteRevision(parentRevisionId);
     if (parent == null || parent.noteId != noteId) return 0;
-    final currentPath = getNoteCurrentRevisionPath(noteId);
+    final currentPath = _allProtectedNoteRevisionIds(noteId);
     final branchRoots = _noteRevisions
         .where(
           (revision) =>
@@ -1446,7 +1607,7 @@ class FeatureProvider extends ChangeNotifier {
     Set<String> revisionIds,
   ) async {
     if (revisionIds.isEmpty) return false;
-    final currentPath = getNoteCurrentRevisionPath(noteId);
+    final currentPath = _allProtectedNoteRevisionIds(noteId);
     if (revisionIds.any(currentPath.contains)) return false;
     final descendants = _collectRevisionDescendants(noteId, revisionIds);
     if (descendants.any(currentPath.contains)) return false;
@@ -1460,14 +1621,15 @@ class FeatureProvider extends ChangeNotifier {
   }
 
   Future<void> setNoteEditProposal(NoteEditProposal proposal) async {
-    _noteEditProposals[proposal.noteId] = proposal;
+    _noteEditProposals[_noteEditProposalKey(proposal.noteId, proposal.pageId)] =
+        proposal;
     await _persistStorageV2NotesData();
     await _queueSaveNoteEditProposals();
     notifyListeners();
   }
 
   Future<void> removeNoteEditProposal(String noteId) async {
-    if (_noteEditProposals.remove(noteId) == null) return;
+    if (_noteEditProposals.remove(_noteEditProposalKey(noteId)) == null) return;
     await _persistStorageV2NotesData();
     await _queueSaveNoteEditProposals();
     notifyListeners();

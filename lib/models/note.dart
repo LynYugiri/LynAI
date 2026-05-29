@@ -153,6 +153,7 @@ class NoteTextDelta {
 class NoteRevision {
   final String id;
   final String noteId;
+  final String? pageId;
   final String? parentRevisionId;
   final DateTime savedAt;
   final NoteTextDelta delta;
@@ -160,6 +161,7 @@ class NoteRevision {
   const NoteRevision({
     required this.id,
     required this.noteId,
+    this.pageId,
     required this.parentRevisionId,
     required this.savedAt,
     required this.delta,
@@ -169,6 +171,7 @@ class NoteRevision {
     return NoteRevision(
       id: json['id'] as String,
       noteId: json['noteId'] as String,
+      pageId: json['pageId'] as String?,
       parentRevisionId: json['parentRevisionId'] as String?,
       savedAt: DateTime.parse(json['savedAt'] as String),
       delta: NoteTextDelta.fromJson(json['delta'] as Map<String, dynamic>),
@@ -179,6 +182,7 @@ class NoteRevision {
     return {
       'id': id,
       'noteId': noteId,
+      if (pageId != null) 'pageId': pageId,
       if (parentRevisionId != null) 'parentRevisionId': parentRevisionId,
       'savedAt': savedAt.toIso8601String(),
       'delta': delta.toJson(),
@@ -188,6 +192,7 @@ class NoteRevision {
   NoteRevision copyWith({
     String? id,
     String? noteId,
+    Object? pageId = _sentinel,
     Object? parentRevisionId = _sentinel,
     DateTime? savedAt,
     NoteTextDelta? delta,
@@ -195,6 +200,7 @@ class NoteRevision {
     return NoteRevision(
       id: id ?? this.id,
       noteId: noteId ?? this.noteId,
+      pageId: pageId == _sentinel ? this.pageId : pageId as String?,
       parentRevisionId: parentRevisionId == _sentinel
           ? this.parentRevisionId
           : parentRevisionId as String?,
@@ -207,6 +213,7 @@ class NoteRevision {
 class NoteEditProposal {
   final String id;
   final String noteId;
+  final String? pageId;
   final String? baseRevisionId;
   final String baseContentHash;
   final DateTime createdAt;
@@ -215,6 +222,7 @@ class NoteEditProposal {
   const NoteEditProposal({
     required this.id,
     required this.noteId,
+    this.pageId,
     required this.baseRevisionId,
     required this.baseContentHash,
     required this.createdAt,
@@ -225,6 +233,7 @@ class NoteEditProposal {
     return NoteEditProposal(
       id: json['id'] as String,
       noteId: json['noteId'] as String,
+      pageId: json['pageId'] as String?,
       baseRevisionId: json['baseRevisionId'] as String?,
       baseContentHash: json['baseContentHash'] as String? ?? '',
       createdAt: DateTime.parse(json['createdAt'] as String),
@@ -235,6 +244,7 @@ class NoteEditProposal {
   }
 
   NoteEditProposal copyWith({
+    Object? pageId = _sentinel,
     Object? baseRevisionId = _sentinel,
     String? baseContentHash,
     DateTime? createdAt,
@@ -243,6 +253,7 @@ class NoteEditProposal {
     return NoteEditProposal(
       id: id,
       noteId: noteId,
+      pageId: pageId == _sentinel ? this.pageId : pageId as String?,
       baseRevisionId: baseRevisionId == _sentinel
           ? this.baseRevisionId
           : baseRevisionId as String?,
@@ -256,6 +267,7 @@ class NoteEditProposal {
     return {
       'id': id,
       'noteId': noteId,
+      if (pageId != null) 'pageId': pageId,
       if (baseRevisionId != null) 'baseRevisionId': baseRevisionId,
       'baseContentHash': baseContentHash,
       'createdAt': createdAt.toIso8601String(),

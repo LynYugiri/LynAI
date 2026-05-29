@@ -207,15 +207,12 @@ class _NotesPageState extends State<_NotesPage> {
   }) {
     final scheme = Theme.of(context).colorScheme;
     final expanded = query.isNotEmpty || _expandedFolderIds.contains(folder.id);
-    final notes = context
-        .watch<FeatureProvider>()
-        .notes
-        .where(
-          (note) =>
-              note.folderId == folder.id &&
-              _matchesNote(note, _SearchMatcher.fromSearchSyntax(query)),
-        )
-        .toList();
+    final matcher = _SearchMatcher.fromSearchSyntax(query);
+    final folderMatches = query.isNotEmpty && matcher.matches(folder.title);
+    final notes = context.watch<FeatureProvider>().notes.where((note) {
+      if (note.folderId != folder.id) return false;
+      return folderMatches || _matchesNote(note, matcher);
+    }).toList();
     return Card(
       key: ValueKey('folder-${folder.id}'),
       margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 5),

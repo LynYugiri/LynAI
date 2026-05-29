@@ -88,7 +88,8 @@ class MessageRows extends Table {
   TextColumn get thinkingContent =>
       text().named('thinking_content').nullable()();
   TextColumn get timestamp => text()();
-  IntColumn get sortOrder => integer().named('sort_order')();
+  IntColumn get sortOrder =>
+      integer().named('sort_order').withDefault(const Constant(0))();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -104,7 +105,8 @@ class MessageAttachmentRows extends Table {
   TextColumn get displayName => text().named('display_name')();
   TextColumn get mimeType => text().named('mime_type')();
   IntColumn get size => integer()();
-  IntColumn get sortOrder => integer().named('sort_order')();
+  IntColumn get sortOrder =>
+      integer().named('sort_order').withDefault(const Constant(0))();
   TextColumn get legacyPath => text().named('legacy_path').nullable()();
 
   @override
@@ -119,6 +121,7 @@ class NoteFolderRows extends Table {
   TextColumn get title => text()();
   TextColumn get createdAt => text().named('created_at')();
   TextColumn get updatedAt => text().named('updated_at')();
+  IntColumn get sortOrder => integer().named('sort_order')();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -137,6 +140,7 @@ class NoteRows extends Table {
   TextColumn get createdAt => text().named('created_at')();
   TextColumn get updatedAt => text().named('updated_at')();
   IntColumn get wrap => integer()();
+  IntColumn get sortOrder => integer().named('sort_order')();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -151,6 +155,8 @@ class NotePageRows extends Table {
   TextColumn get title => text()();
   TextColumn get fileName => text().named('file_name')();
   TextColumn get relativePath => text().named('relative_path')();
+  TextColumn get currentRevisionId =>
+      text().named('current_revision_id').nullable()();
   IntColumn get sortOrder => integer().named('sort_order')();
   TextColumn get createdAt => text().named('created_at')();
   TextColumn get updatedAt => text().named('updated_at')();
@@ -279,8 +285,47 @@ class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
     return NativeDatabase(file);
   }
 
+  /// Version of app.db's internal SQLite schema.
+  ///
+  /// This is separate from StorageMigrationService.currentSchemaVersion, which
+  /// describes the storage_v2 directory layout written by migration/export.
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 3;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+    onUpgrade: (m, from, to) async {
+      if (from < 2) {
+        await m.addColumn(notePageRows, notePageRows.currentRevisionId);
+      }
+      if (from < 3) {
+        await _addColumnIfMissing(
+          'note_folders',
+          'sort_order',
+          'INTEGER NOT NULL DEFAULT 0',
+        );
+        await _addColumnIfMissing(
+          'notes',
+          'sort_order',
+          'INTEGER NOT NULL DEFAULT 0',
+        );
+      }
+    },
+  );
+
+  Future<void> _addColumnIfMissing(
+    String table,
+    String column,
+    String definition,
+  ) async {
+    final existing = await customSelect('PRAGMA table_info($table)').get();
+    final hasColumn = existing.any((row) => row.data['name'] == column);
+    if (!hasColumn) {
+      await customStatement(
+        'ALTER TABLE $table ADD COLUMN $column $definition',
+      );
+    }
+  }
 }
 
 class StorageV2Database {
@@ -476,7 +521,8 @@ CREATE TABLE IF NOT EXISTS note_folders (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS notes (
   id TEXT PRIMARY KEY,
@@ -486,7 +532,8 @@ CREATE TABLE IF NOT EXISTS notes (
   current_page_id TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  wrap INTEGER NOT NULL
+  wrap INTEGER NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS note_pages (
   id TEXT PRIMARY KEY,
@@ -660,20 +707,21 @@ CREATE INDEX IF NOT EXISTS idx_resources_hash_size ON resources(sha256, size);
     final folders =
         (await (db.select(
               db.noteFolderRows,
-            )..orderBy([(table) => OrderingTerm.asc(table.createdAt)])).get())
+            )..orderBy([(table) => OrderingTerm.asc(table.sortOrder)])).get())
             .map(
               (row) => {
                 'id': row.id,
                 'title': row.title,
                 'createdAt': row.createdAt,
                 'updatedAt': row.updatedAt,
+                'sortOrder': row.sortOrder,
               },
             )
             .toList();
     final notes =
         (await (db.select(
               db.noteRows,
-            )..orderBy([(table) => OrderingTerm.desc(table.updatedAt)])).get())
+            )..orderBy([(table) => OrderingTerm.asc(table.sortOrder)])).get())
             .map(
               (row) => {
                 'id': row.id,
@@ -686,6 +734,7 @@ CREATE INDEX IF NOT EXISTS idx_resources_hash_size ON resources(sha256, size);
                 'createdAt': row.createdAt,
                 'updatedAt': row.updatedAt,
                 'wrap': row.wrap != 0,
+                'sortOrder': row.sortOrder,
               },
             )
             .toList();
@@ -702,6 +751,8 @@ CREATE INDEX IF NOT EXISTS idx_resources_hash_size ON resources(sha256, size);
                 'title': row.title,
                 'fileName': row.fileName,
                 'relativePath': row.relativePath,
+                if (row.currentRevisionId != null)
+                  'currentRevisionId': row.currentRevisionId,
                 'sortOrder': row.sortOrder,
                 'createdAt': row.createdAt,
                 'updatedAt': row.updatedAt,
@@ -968,7 +1019,7 @@ CREATE INDEX IF NOT EXISTS idx_resources_hash_size ON resources(sha256, size);
               content: json['content'] as String? ?? '',
               thinkingContent: Value(json['thinkingContent'] as String?),
               timestamp: json['timestamp'] as String? ?? '',
-              sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
+              sortOrder: Value((json['sortOrder'] as num?)?.toInt() ?? 0),
             ),
           );
       messageIds.add(id);
@@ -1004,7 +1055,7 @@ CREATE INDEX IF NOT EXISTS idx_resources_hash_size ON resources(sha256, size);
               mimeType:
                   json['mimeType'] as String? ?? 'application/octet-stream',
               size: (json['size'] as num?)?.toInt() ?? 0,
-              sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
+              sortOrder: Value((json['sortOrder'] as num?)?.toInt() ?? 0),
               legacyPath: Value(json['path'] as String?),
             ),
           );
@@ -1023,6 +1074,7 @@ CREATE INDEX IF NOT EXISTS idx_resources_hash_size ON resources(sha256, size);
     await db.delete(db.noteFolderRows).go();
     final noteIds = <String>{};
     final proposalIds = <String>{};
+    var folderOrder = 0;
     for (final item in data['folders'] as List<dynamic>? ?? const []) {
       if (item is! Map) continue;
       final json = Map<String, dynamic>.from(item);
@@ -1036,9 +1088,12 @@ CREATE INDEX IF NOT EXISTS idx_resources_hash_size ON resources(sha256, size);
               title: json['title'] as String? ?? '',
               createdAt: json['createdAt'] as String? ?? '',
               updatedAt: json['updatedAt'] as String? ?? '',
+              sortOrder: (json['sortOrder'] as num?)?.toInt() ?? folderOrder,
             ),
           );
+      folderOrder++;
     }
+    var noteOrder = 0;
     for (final item in data['notes'] as List<dynamic>? ?? const []) {
       if (item is! Map) continue;
       final json = Map<String, dynamic>.from(item);
@@ -1056,9 +1111,11 @@ CREATE INDEX IF NOT EXISTS idx_resources_hash_size ON resources(sha256, size);
               createdAt: json['createdAt'] as String? ?? '',
               updatedAt: json['updatedAt'] as String? ?? '',
               wrap: json['wrap'] == false ? 0 : 1,
+              sortOrder: (json['sortOrder'] as num?)?.toInt() ?? noteOrder,
             ),
           );
       noteIds.add(id);
+      noteOrder++;
     }
     for (final item in data['pages'] as List<dynamic>? ?? const []) {
       if (item is! Map) continue;
@@ -1080,6 +1137,7 @@ CREATE INDEX IF NOT EXISTS idx_resources_hash_size ON resources(sha256, size);
               title: json['title'] as String? ?? '',
               fileName: json['fileName'] as String? ?? '',
               relativePath: json['relativePath'] as String? ?? '',
+              currentRevisionId: Value(json['currentRevisionId'] as String?),
               sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
               createdAt: json['createdAt'] as String? ?? '',
               updatedAt: json['updatedAt'] as String? ?? '',

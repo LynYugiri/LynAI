@@ -10,7 +10,7 @@ import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/file_name_utils.dart';
-import 'storage_v2_service.dart';
+import 'storage_v2_database.dart';
 
 /// One-shot migration from the legacy SharedPreferences JSON store into a
 /// durable v2 layout: structured table snapshots plus note/resource files.
@@ -26,9 +26,15 @@ class StorageMigrationService {
     required this.featureProvider,
     Directory? rootDirectory,
     SharedPreferences? preferences,
+    Future<void> Function()? afterActivateStorageForTest,
   }) : _rootDirectory = rootDirectory,
-       _preferences = preferences;
+       _preferences = preferences,
+       _afterActivateStorageForTest = afterActivateStorageForTest;
 
+  /// Version of the app-level storage_v2 directory layout.
+  ///
+  /// This is separate from the internal Drift database schema version in
+  /// [StorageV2DriftDatabase].
   static const currentSchemaVersion = 2;
   static const _schemaVersionKey = 'storage_schema_version';
   static const _statusKey = 'storage_migration_status';
@@ -42,6 +48,7 @@ class StorageMigrationService {
   final FeatureProvider featureProvider;
   final Directory? _rootDirectory;
   final SharedPreferences? _preferences;
+  final Future<void> Function()? _afterActivateStorageForTest;
 
   Future<StorageMigrationState> loadState() async {
     final prefs = await _prefs();
@@ -167,7 +174,8 @@ class StorageMigrationService {
           'md',
           const <String>{},
         );
-        final noteDir = Directory('${notesDir.path}/${note.id}');
+        final noteDirectoryName = safeStorageSegment(note.id, fallback: 'note');
+        final noteDir = Directory('${notesDir.path}/$noteDirectoryName');
         await noteDir.create(recursive: true);
         await File(
           '${noteDir.path}/$fileName',
@@ -188,7 +196,9 @@ class StorageMigrationService {
           'noteId': note.id,
           'title': note.title.isEmpty ? '未命名分页' : note.title,
           'fileName': fileName,
-          'relativePath': 'notes/${note.id}/$fileName',
+          'relativePath': 'notes/$noteDirectoryName/$fileName',
+          if (note.currentRevisionId != null)
+            'currentRevisionId': note.currentRevisionId,
           'sortOrder': 0,
           'createdAt': note.createdAt.toIso8601String(),
           'updatedAt': note.updatedAt.toIso8601String(),
@@ -325,17 +335,43 @@ class StorageMigrationService {
         'report': report.toJson(),
       });
 
-      if (await target.exists()) await target.delete(recursive: true);
-      await staging.rename(target.path);
-      await StorageV2Service(
-        rootDirectory: root,
-      ).importDataFilesToDatabase(overwrite: true);
-      await prefs.setInt(_schemaVersionKey, currentSchemaVersion);
-      await prefs.setString(_statusKey, 'completed');
-      await prefs.setString(_completedAtKey, completedAt.toIso8601String());
-      await prefs.setString(_reportKey, jsonEncode(report.toJson()));
-      await _removeLegacyLargeData(prefs);
-      return report;
+      final stagingDatabase = StorageV2Database(staging);
+      try {
+        await stagingDatabase.importDataFiles(overwrite: true);
+      } finally {
+        await stagingDatabase.close();
+      }
+
+      final backup = Directory(
+        '${root.path}/storage_v2_backup_${DateTime.now().microsecondsSinceEpoch}',
+      );
+      var targetMovedToBackup = false;
+      var stagingMovedToTarget = false;
+      try {
+        if (await target.exists()) {
+          await target.rename(backup.path);
+          targetMovedToBackup = true;
+        }
+        await staging.rename(target.path);
+        stagingMovedToTarget = true;
+        await _afterActivateStorageForTest?.call();
+
+        await prefs.setInt(_schemaVersionKey, currentSchemaVersion);
+        await prefs.setString(_statusKey, 'completed');
+        await prefs.setString(_completedAtKey, completedAt.toIso8601String());
+        await prefs.setString(_reportKey, jsonEncode(report.toJson()));
+        await _removeLegacyLargeData(prefs);
+        if (await backup.exists()) await backup.delete(recursive: true);
+        return report;
+      } catch (_) {
+        if (stagingMovedToTarget && await target.exists()) {
+          await target.delete(recursive: true);
+        }
+        if (targetMovedToBackup && await backup.exists()) {
+          await backup.rename(target.path);
+        }
+        rethrow;
+      }
     } catch (e) {
       await prefs.setString(_statusKey, 'failed');
       if (await staging.exists()) await staging.delete(recursive: true);

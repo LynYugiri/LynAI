@@ -1,6 +1,18 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
+
 String safeStorageFileName(String name, {String fallback = 'file'}) {
   final safe = name.replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_').trim();
-  return safe.isEmpty ? fallback : safe;
+  if (safe.isEmpty || safe == '.' || safe == '..') return fallback;
+  return safe;
+}
+
+String safeStorageSegment(String value, {String fallback = 'item'}) {
+  final hash = sha256.convert(utf8.encode(value)).toString().substring(0, 8);
+  final safe = value.replaceAll(RegExp(r'[^A-Za-z0-9_-]+'), '_').trim();
+  final segment = safe.isEmpty || safe == '_' ? fallback : safe;
+  return '${segment}_$hash';
 }
 
 String safeExportFileName(String name, {String fallback = 'export'}) {

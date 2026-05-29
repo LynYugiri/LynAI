@@ -10,6 +10,7 @@ import '../models/note.dart';
 import '../models/schedule_item.dart';
 import '../models/todo_list.dart';
 import '../providers/feature_provider.dart';
+import 'storage_v2_service.dart';
 
 /// 模型请求执行本地工具的标准化描述。
 ///
@@ -88,6 +89,14 @@ class _ParsedNoteEdit {
     : note = null,
       edits = const [],
       baseRevisionId = null;
+}
+
+class _SelectedNote {
+  final Note? note;
+  final String? error;
+
+  const _SelectedNote({required this.note}) : error = null;
+  const _SelectedNote.error(this.error) : note = null;
 }
 
 class _AppliedLineEdits {
@@ -182,7 +191,7 @@ class ToolCallService {
 {"tool_calls":[{"name":"工具名","arguments":{...}}]}
 收到工具结果后，再用自然语言给用户最终回复。
 创建或修改数据前，应从用户输入中提取明确字段；缺少关键字段时先追问。
-需要查看笔记内容时，先用 list_notes 查找笔记 id，再用 read_note 读取完整内容；如果用户给出明确标题，也可以直接用 read_note 按标题搜索。小范围修改笔记时，先 read_note，再用 propose_note_edit 按行提交 edits 让用户逐行确认；用户明确要求直接修改时才用 edit_note。创建、追加或整篇替换时用 save_note。笔记可通过 list_note_folders/save_note_folder 管理文件夹，save_note 可用 folderId 移动笔记。
+需要查看笔记内容时，先用 list_notes 查找笔记 id，再用 read_note 读取完整内容；多分页笔记先用 list_note_pages 查看分页，read_note/save_note/edit_note/propose_note_edit 可用 pageId 或 pageTitle 指定分页。小范围修改笔记时，先 read_note，再用 propose_note_edit 按行提交 edits 让用户逐行确认；用户明确要求直接修改时才用 edit_note。创建、追加或整篇替换时用 save_note。笔记可通过 list_note_folders/save_note_folder 管理文件夹，通过 save_note_page 创建、重命名、删除或上移/下移分页。
 需要查看待办清单内容时，先用 list_todo_lists 查找清单 id，再用 read_todo_list 读取完整内容；创建或修改待办项用 save_todo_item，完成/未完成待办项时设置 done。
 日程时间使用带时区偏移的 ISO-8601 字符串；用户说“今天/明天”时必须先结合 get_current_time 的 iso 与 timezoneOffsetMinutes 换算成本地日期时间。
 ''';
@@ -192,7 +201,7 @@ class ToolCallService {
 需要调用工具时使用接口提供的 tool_calls；不需要工具时直接正常回答，不要提及工具。
 收到工具结果后，再用自然语言给用户最终回复。
 创建或修改数据前，应从用户输入中提取明确字段；缺少关键字段时先追问。
-需要查看笔记内容时，先用 list_notes 查找笔记 id，再用 read_note 读取完整内容；如果用户给出明确标题，也可以直接用 read_note 按标题搜索。小范围修改笔记时，先 read_note，再用 propose_note_edit 按行提交 edits 让用户逐行确认；用户明确要求直接修改时才用 edit_note。创建、追加或整篇替换时用 save_note。笔记可通过 list_note_folders/save_note_folder 管理文件夹，save_note 可用 folderId 移动笔记。
+需要查看笔记内容时，先用 list_notes 查找笔记 id，再用 read_note 读取完整内容；多分页笔记先用 list_note_pages 查看分页，read_note/save_note/edit_note/propose_note_edit 可用 pageId 或 pageTitle 指定分页。小范围修改笔记时，先 read_note，再用 propose_note_edit 按行提交 edits 让用户逐行确认；用户明确要求直接修改时才用 edit_note。创建、追加或整篇替换时用 save_note。笔记可通过 list_note_folders/save_note_folder 管理文件夹，通过 save_note_page 创建、重命名、删除或上移/下移分页。
 需要查看待办清单内容时，先用 list_todo_lists 查找清单 id，再用 read_todo_list 读取完整内容；创建或修改待办项用 save_todo_item，完成/未完成待办项时设置 done。
 日程时间使用带时区偏移的 ISO-8601 字符串；用户说“今天/明天”时必须先结合 get_current_time 的 iso 与 timezoneOffsetMinutes 换算成本地日期时间。
 ''';
@@ -220,6 +229,8 @@ class ToolCallService {
           'type': 'object',
           'properties': {
             'id': {'type': 'string', 'description': '已有笔记 id'},
+            'pageId': {'type': 'string', 'description': '可选，目标分页 id'},
+            'pageTitle': {'type': 'string', 'description': '可选，目标分页标题'},
             'baseRevisionId': {
               'type': 'string',
               'description': 'read_note 返回的 currentRevisionId，可选',
@@ -361,6 +372,8 @@ class ToolCallService {
             'id': {'type': 'string', 'description': '笔记 id'},
             'title': {'type': 'string', 'description': '笔记标题'},
             'query': {'type': 'string', 'description': '标题或正文搜索关键字'},
+            'pageId': {'type': 'string', 'description': '可选，指定分页 id'},
+            'pageTitle': {'type': 'string', 'description': '可选，指定分页标题'},
           },
         },
       },
@@ -377,6 +390,8 @@ class ToolCallService {
             'id': {'type': 'string', 'description': '已有笔记 id；为空则创建'},
             'title': {'type': 'string'},
             'content': {'type': 'string'},
+            'pageId': {'type': 'string', 'description': '可选，目标分页 id'},
+            'pageTitle': {'type': 'string', 'description': '可选，目标分页标题'},
             'folderId': {
               'type': 'string',
               'description': '目标笔记文件夹 id；传空字符串表示移出文件夹',
@@ -396,6 +411,8 @@ class ToolCallService {
           'type': 'object',
           'properties': {
             'id': {'type': 'string', 'description': '已有笔记 id'},
+            'pageId': {'type': 'string', 'description': '可选，目标分页 id'},
+            'pageTitle': {'type': 'string', 'description': '可选，目标分页标题'},
             'baseRevisionId': {
               'type': 'string',
               'description': 'read_note 返回的 currentRevisionId，可选',
@@ -437,6 +454,42 @@ class ToolCallService {
         'name': 'list_note_folders',
         'description': '查看笔记文件夹及每个文件夹的笔记数量。',
         'parameters': {'type': 'object', 'properties': <String, dynamic>{}},
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'list_note_pages',
+        'description': '列出某篇笔记的分页，并返回当前激活分页 id。',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'id': {'type': 'string', 'description': '笔记 id'},
+          },
+          'required': ['id'],
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'save_note_page',
+        'description': '创建、重命名、删除或移动笔记分页。传 delete=true 时删除分页；move=up/down 时上移/下移分页；至少保留一个分页。',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'id': {'type': 'string', 'description': '笔记 id'},
+            'pageId': {'type': 'string', 'description': '已有分页 id；为空则创建'},
+            'title': {'type': 'string', 'description': '分页标题'},
+            'delete': {'type': 'boolean'},
+            'move': {
+              'type': 'string',
+              'description': '可选，up 表示上移分页，down 表示下移分页',
+              'enum': ['up', 'down'],
+            },
+          },
+          'required': ['id'],
+        },
       },
     },
     {
@@ -629,13 +682,17 @@ class ToolCallService {
         case 'list_notes':
           return _listNotes(call.arguments);
         case 'read_note':
-          return _readNote(call.arguments);
+          return await _readNote(call.arguments);
         case 'save_note':
           return await _saveNote(call.arguments);
         case 'edit_note':
           return await _editNote(call.arguments);
         case 'propose_note_edit':
           return await _proposeNoteEdit(call.arguments);
+        case 'list_note_pages':
+          return _listNotePages(call.arguments);
+        case 'save_note_page':
+          return await _saveNotePage(call.arguments);
         case 'list_note_folders':
           return _listNoteFolders();
         case 'save_note_folder':
@@ -789,10 +846,19 @@ class ToolCallService {
     };
   }
 
-  Map<String, dynamic> _readNote(Map<String, dynamic> args) {
+  Future<Map<String, dynamic>> _readNote(Map<String, dynamic> args) async {
+    final selected = await _selectNoteForTool(args);
+    if (selected.error != null) return _error(selected.error!);
+    final note = selected.note!;
+    return _noteReadResult(note);
+  }
+
+  Future<_SelectedNote> _selectNoteForTool(Map<String, dynamic> args) async {
     final id = (args['id'] as String? ?? '').trim();
     final title = (args['title'] as String? ?? '').trim().toLowerCase();
     final query = (args['query'] as String? ?? '').trim();
+    final pageId = (args['pageId'] as String? ?? '').trim();
+    final pageTitle = (args['pageTitle'] as String? ?? '').trim();
     final matcher = _TextMatcher(query);
 
     Note? note;
@@ -811,19 +877,41 @@ class ToolCallService {
       );
     }
     if (note == null) {
-      return _error('未找到匹配的笔记，请先调用 list_notes 查看可用笔记');
+      return const _SelectedNote.error('未找到匹配的笔记，请先调用 list_notes 查看可用笔记');
     }
+    if (pageId.isNotEmpty || pageTitle.isNotEmpty) {
+      final page = _findNotePage(note.id, pageId: pageId, pageTitle: pageTitle);
+      if (page == null) {
+        return _SelectedNote.error(
+          '未找到笔记分页: ${pageId.isNotEmpty ? pageId : pageTitle}',
+        );
+      }
+      await _features.selectNotePage(note.id, page.id);
+      note = _features.getNote(note.id);
+      if (note == null) return const _SelectedNote.error('切换分页后未找到笔记');
+    }
+    return _SelectedNote(note: note);
+  }
+
+  Map<String, dynamic> _noteReadResult(Note note) {
+    final activePage = _features.activeNotePage(note.id);
+    final pages = _features.notePages(note.id);
     return {
       'ok': true,
       'note': {
         'id': note.id,
         'title': note.title,
         'content': note.content,
+        if (activePage != null) 'pageId': activePage.id,
+        if (activePage != null) 'pageTitle': activePage.title,
         if (note.folderId != null) 'folderId': note.folderId,
         'createdAt': note.createdAt.toIso8601String(),
         'updatedAt': note.updatedAt.toIso8601String(),
         'wrap': note.wrap,
       },
+      if (activePage != null) 'activePage': _notePageJson(activePage),
+      if (pages.isNotEmpty) 'pages': pages.map(_notePageJson).toList(),
+      'outline': _noteOutline(note.content),
       'contentHash': _contentHash(note.content),
       'currentRevisionId': note.currentRevisionId,
       'lineCount': _splitNoteLines(note.content).length,
@@ -833,6 +921,35 @@ class ToolCallService {
           'edit_note/propose_note_edit 的 startLine 从 1 开始，对应 numberedLines.line；替换/删除时建议带 expectedLines 校验原文；startLine=lineCount+1 且 deleteCount=0 表示追加到末尾。',
       'numberedLines': _numberedNoteLines(note.content),
     };
+  }
+
+  StorageV2NotePage? _findNotePage(
+    String noteId, {
+    required String pageId,
+    required String pageTitle,
+  }) {
+    final pages = _features.notePages(noteId);
+    if (pages.isEmpty) return null;
+    if (pageId.isNotEmpty) {
+      for (final page in pages) {
+        if (page.id == pageId) return page;
+      }
+      return null;
+    }
+    final normalized = pageTitle.toLowerCase();
+    for (final page in pages) {
+      if (page.title.toLowerCase() == normalized ||
+          page.fileName.toLowerCase() == normalized) {
+        return page;
+      }
+    }
+    for (final page in pages) {
+      if (page.title.toLowerCase().contains(normalized) ||
+          page.fileName.toLowerCase().contains(normalized)) {
+        return page;
+      }
+    }
+    return null;
   }
 
   Note? _findNote(int Function(Note note) score) {
@@ -915,8 +1032,9 @@ class ToolCallService {
         'lineDiffSummary': _lineDiffSummary('', note.content),
       };
     }
-    final note = _features.getNote(id);
-    if (note == null) return _error('未找到笔记: $id');
+    final selected = await _selectNoteForTool(args);
+    if (selected.error != null) return _error(selected.error!);
+    final note = selected.note!;
     if (title.isEmpty && !hasContent && !hasFolderId) {
       return _error('修改笔记需要 title、content 或 folderId');
     }
@@ -935,8 +1053,10 @@ class ToolCallService {
       await _features.updateNote(updated);
     }
     NoteRevision? revision;
-    if (hasContent) revision = await _features.saveNoteContent(id, nextContent);
-    final savedNote = _features.getNote(id) ?? updated;
+    if (hasContent) {
+      revision = await _features.saveNoteContent(note.id, nextContent);
+    }
+    final savedNote = _features.getNote(note.id) ?? updated;
     final contentChanged = hasContent && note.content != savedNote.content;
     return {
       'ok': true,
@@ -956,7 +1076,10 @@ class ToolCallService {
   }
 
   Future<Map<String, dynamic>> _editNote(Map<String, dynamic> args) async {
-    final parsed = _parseNoteEditArgs(args, emptyMessage: 'edit_note 需要 edits');
+    final parsed = await _parseNoteEditArgs(
+      args,
+      emptyMessage: 'edit_note 需要 edits',
+    );
     if (parsed.error != null) return _error(parsed.error!);
     final note = parsed.note!;
     final edits = parsed.edits;
@@ -990,7 +1113,7 @@ class ToolCallService {
   Future<Map<String, dynamic>> _proposeNoteEdit(
     Map<String, dynamic> args,
   ) async {
-    final parsed = _parseNoteEditArgs(
+    final parsed = await _parseNoteEditArgs(
       args,
       emptyMessage: 'propose_note_edit 需要 edits',
     );
@@ -1002,6 +1125,7 @@ class ToolCallService {
     if (nextContent == note.content) return _error('修改建议没有产生内容变化');
     final proposal = _proposalFromEdits(
       note: note,
+      pageId: _features.activeNotePage(note.id)?.id,
       edits: parsed.edits,
       baseRevisionId: parsed.baseRevisionId,
     );
@@ -1021,14 +1145,76 @@ class ToolCallService {
     };
   }
 
-  _ParsedNoteEdit _parseNoteEditArgs(
+  Map<String, dynamic> _listNotePages(Map<String, dynamic> args) {
+    final id = (args['id'] as String? ?? '').trim();
+    final note = _features.getNote(id);
+    if (note == null) return _error('未找到笔记: $id');
+    final activePage = _features.activeNotePage(id);
+    return {
+      'ok': true,
+      'noteId': id,
+      'activePageId': activePage?.id,
+      'pages': _features.notePages(id).map(_notePageJson).toList(),
+    };
+  }
+
+  Future<Map<String, dynamic>> _saveNotePage(Map<String, dynamic> args) async {
+    final noteId = (args['id'] as String? ?? '').trim();
+    final note = _features.getNote(noteId);
+    if (note == null) return _error('未找到笔记: $noteId');
+    final pageId = (args['pageId'] as String? ?? '').trim();
+    final title = (args['title'] as String? ?? '').trim();
+    final delete = args['delete'] == true;
+    if (delete) {
+      if (pageId.isEmpty) return _error('删除分页需要 pageId');
+      final deleted = await _features.deleteNotePage(noteId, pageId);
+      if (!deleted) return _error('删除分页失败，至少保留一个分页');
+      return _listNotePages({'id': noteId});
+    }
+    if (pageId.isEmpty) {
+      final newPageId = await _features.addNotePage(noteId, title);
+      if (newPageId == null) return _error('当前存储不支持分页');
+      return _noteReadResult(_features.getNote(noteId) ?? note);
+    }
+    if (title.isEmpty) return _error('重命名分页需要 title');
+    await _features.renameNotePage(noteId, pageId, title);
+    final page = _findNotePage(noteId, pageId: pageId, pageTitle: '');
+    return {'ok': true, 'page': page == null ? null : _notePageJson(page)};
+  }
+
+  Map<String, dynamic> _notePageJson(StorageV2NotePage page) {
+    return {
+      'id': page.id,
+      'noteId': page.noteId,
+      'title': page.title,
+      'fileName': page.fileName,
+      'currentRevisionId': page.currentRevisionId,
+      'updatedAt': page.updatedAt.toIso8601String(),
+    };
+  }
+
+  List<Map<String, dynamic>> _noteOutline(String content) {
+    final headings = <Map<String, dynamic>>[];
+    final lines = content.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      final match = RegExp(r'^(#{1,6})\s+(.+?)\s*$').firstMatch(lines[i]);
+      if (match == null) continue;
+      headings.add({
+        'line': i + 1,
+        'level': match.group(1)!.length,
+        'title': match.group(2)!,
+      });
+    }
+    return headings;
+  }
+
+  Future<_ParsedNoteEdit> _parseNoteEditArgs(
     Map<String, dynamic> args, {
     required String emptyMessage,
-  }) {
-    final id = (args['id'] as String? ?? '').trim();
-    if (id.isEmpty) return _ParsedNoteEdit.error('缺少笔记 id');
-    final note = _features.getNote(id);
-    if (note == null) return _ParsedNoteEdit.error('未找到笔记: $id');
+  }) async {
+    final selected = await _selectNoteForTool(args);
+    if (selected.error != null) return _ParsedNoteEdit.error(selected.error!);
+    final note = selected.note!;
     final expectedHash = (args['expectedContentHash'] as String? ?? '').trim();
     final currentHash = _contentHash(note.content);
     if (expectedHash.isNotEmpty && expectedHash != currentHash) {
@@ -1322,6 +1508,7 @@ class ToolCallService {
 
   static NoteEditProposal _proposalFromEdits({
     required Note note,
+    required String? pageId,
     required List<_NoteLineEdit> edits,
     required String? baseRevisionId,
   }) {
@@ -1329,6 +1516,7 @@ class ToolCallService {
     return NoteEditProposal(
       id: _uuid.v4(),
       noteId: note.id,
+      pageId: pageId,
       baseRevisionId: baseRevisionId,
       baseContentHash: _contentHash(note.content),
       createdAt: DateTime.now(),
