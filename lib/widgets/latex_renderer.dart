@@ -406,6 +406,7 @@ class MarkdownWithLatex extends StatelessWidget {
       styleSheet: styleSheet,
       builders: builders,
       extensionSet: _extensionSet(withInlineLatex: withInlineLatex),
+      softLineBreak: true,
     );
   }
 
