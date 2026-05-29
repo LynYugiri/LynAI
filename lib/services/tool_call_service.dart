@@ -541,11 +541,14 @@ class ToolCallService {
       if (rawCalls is! List) return const [];
       return rawCalls
           .whereType<Map<String, dynamic>>()
-          .map((call) {
+          .indexed
+          .map((entry) {
+            final index = entry.$1;
+            final call = entry.$2;
             final name = call['name'] as String? ?? '';
             final args = _decodeArguments(call['arguments']);
             return ChatToolCall(
-              id: 'fallback_${DateTime.now().microsecondsSinceEpoch}_$name',
+              id: 'fallback_${DateTime.now().microsecondsSinceEpoch}_${index}_$name',
               name: name,
               arguments: args,
             );
@@ -759,6 +762,9 @@ class ToolCallService {
     final matcher = _TextMatcher(query);
     final folderId = (args['folderId'] as String? ?? '').trim();
     final includeContent = args['includeContent'] as bool? ?? false;
+    if (includeContent && query.isEmpty) {
+      return _error('includeContent 需要提供 query，避免一次读取全部笔记正文');
+    }
     final notes = _features.notes.where((note) {
       if (folderId.isNotEmpty && note.folderId != folderId) return false;
       if (matcher.isEmpty) return true;
@@ -809,7 +815,15 @@ class ToolCallService {
     }
     return {
       'ok': true,
-      'note': note.toJson(),
+      'note': {
+        'id': note.id,
+        'title': note.title,
+        'content': note.content,
+        if (note.folderId != null) 'folderId': note.folderId,
+        'createdAt': note.createdAt.toIso8601String(),
+        'updatedAt': note.updatedAt.toIso8601String(),
+        'wrap': note.wrap,
+      },
       'contentHash': _contentHash(note.content),
       'currentRevisionId': note.currentRevisionId,
       'lineCount': _splitNoteLines(note.content).length,

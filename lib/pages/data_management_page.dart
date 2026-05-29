@@ -58,7 +58,10 @@ class _DataManagementPageState extends State<DataManagementPage> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadMigrationState());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _loadMigrationState();
+    });
   }
 
   BackupSelection _currentExportSelection(BuildContext context) {
@@ -147,6 +150,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
 
   Future<void> _loadMigrationState() async {
     try {
+      if (!mounted) return;
       final state = await _migrationService(context).loadState();
       if (!mounted) return;
       setState(() => _migrationState = state);
@@ -182,6 +186,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
         ],
       ),
     );
+    if (!mounted) return;
     if (confirmed == true) await _migrateStorage();
   }
 

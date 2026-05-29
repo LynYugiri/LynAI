@@ -498,6 +498,7 @@ class _FeaturePageState extends State<FeaturePage> {
       title,
       folderId: folderId,
     );
+    if (!mounted) return;
     setState(() {
       _selectedNoteId = id;
       _noteEditing = true;
@@ -532,6 +533,7 @@ class _FeaturePageState extends State<FeaturePage> {
     ctrl.dispose();
     if (!mounted || title == null || title.isEmpty) return;
     await context.read<FeatureProvider>().addNoteFolder(title);
+    if (!mounted) return;
     _clearSearch();
   }
 
@@ -553,6 +555,7 @@ class _FeaturePageState extends State<FeaturePage> {
       final content = utf8.decode(bytes, allowMalformed: true);
       final title = _noteTitleFromFileName(file.name);
       final id = await features.addNoteWithContent(title, content);
+      if (!mounted) return;
       setState(() {
         _selectedNoteId = id;
         _noteEditing = false;
@@ -599,6 +602,7 @@ class _FeaturePageState extends State<FeaturePage> {
     ctrl.dispose();
     if (!mounted || title == null || title.isEmpty) return;
     await context.read<FeatureProvider>().addTodoList(title);
+    if (!mounted) return;
     _clearSearch();
   }
 
@@ -620,6 +624,7 @@ class _FeaturePageState extends State<FeaturePage> {
       final content = utf8.decode(bytes, allowMalformed: true);
       final title = _todoTitleFromFileName(file.name);
       await features.addTodoListWithItems(title, _parseTodoItems(content));
+      if (!mounted) return;
       _clearSearch();
       messenger.showSnackBar(SnackBar(content: Text('已导入 $title')));
     } catch (e) {

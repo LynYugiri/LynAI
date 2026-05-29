@@ -713,7 +713,6 @@ class _ChatPageState extends State<ChatPage> {
       return {
         'role': 'tool',
         'tool_call_id': result.toolCallId,
-        'name': result.name,
         'content': content,
       };
     }

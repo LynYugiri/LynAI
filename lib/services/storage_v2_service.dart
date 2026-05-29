@@ -204,7 +204,17 @@ class StorageV2Service {
   Future<File> _file(String relativePath) async {
     final root = await _storageRoot();
     final normalized = relativePath.replaceAll('\\', '/');
-    return File('${root.path}/$normalized');
+    final parts = normalized.split('/');
+    if (normalized.startsWith('/') || parts.any((part) => part == '..')) {
+      throw ArgumentError('Unsafe storage path: $relativePath');
+    }
+    final file = File('${root.path}/$normalized');
+    final rootPath = _normalizePath(root.absolute.path);
+    final filePath = _normalizePath(file.absolute.path);
+    if (filePath != rootPath && !filePath.startsWith('$rootPath/')) {
+      throw ArgumentError('Storage path escapes root: $relativePath');
+    }
+    return file;
   }
 
   Future<StorageV2Resource> _importExistingResource(

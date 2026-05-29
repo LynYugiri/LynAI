@@ -786,7 +786,6 @@ class FeatureProvider extends ChangeNotifier {
         );
       }
     }
-    _noteRevisions.removeWhere((revision) => revision.noteId == noteId);
     _noteEditProposals.remove(noteId);
     try {
       await _storageV2.deleteFile(removed.relativePath);

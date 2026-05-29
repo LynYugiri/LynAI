@@ -33,6 +33,8 @@
 	</dict>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>LynAI 需要访问麦克风，用于录制语音并转换为文字。</string>
+	<key>NSCameraUsageDescription</key>
+	<string>LynAI 需要访问相机，用于拍照并添加到对话附件。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>LynAI 需要访问照片图库，用于选择背景图片或给对话附加图片。</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
