@@ -489,8 +489,9 @@ class ConversationProvider extends ChangeNotifier {
   void updateMessageContent(
     String conversationId,
     String messageId,
-    String content,
-  ) {
+    String content, {
+    Object? thinkingContent = _sentinel,
+  }) {
     final index = _conversations.indexWhere((c) => c.id == conversationId);
     if (index == -1) return;
     final messages = List<Message>.from(_conversations[index].messages);
@@ -502,7 +503,9 @@ class ConversationProvider extends ChangeNotifier {
       role: old.role,
       content: content,
       images: old.images,
-      thinkingContent: old.thinkingContent,
+      thinkingContent: identical(thinkingContent, _sentinel)
+          ? old.thinkingContent
+          : thinkingContent as String?,
       timestamp: old.timestamp,
     );
     _conversations[index] = Conversation(

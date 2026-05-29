@@ -16,7 +16,7 @@ const _endpointPresets = [
   },
   {
     'name': 'Google AI',
-    'url': 'https://generativelanguage.googleapis.com/v1beta',
+    'url': 'https://generativelanguage.googleapis.com/v1beta/openai',
     'type': 'openai',
   },
   {'name': 'Ollama (本地)', 'url': 'http://localhost:11434', 'type': 'ollama'},
@@ -74,7 +74,7 @@ const _imageEndpointPresets = [
   {
     'name': 'vivo 图片生成',
     'url': 'https://api-ai.vivo.com.cn/api/v1/image_generation',
-    'type': 'openai_image',
+    'type': 'vivo_image',
   },
   {
     'name': 'OpenAI Images',

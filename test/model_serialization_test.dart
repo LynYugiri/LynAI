@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -62,6 +63,53 @@ void main() {
     expect(restored.thinkingContent, 'reasoning trace');
   });
 
+  test(
+    'ConversationProvider can replace and clear message thinking content',
+    () {
+      SharedPreferences.setMockInitialValues({});
+      final provider = ConversationProvider();
+      final conversationId = provider.createConversation(
+        ConversationSettings(modelId: 'm1'),
+      );
+      provider.addMessage(
+        conversationId,
+        'assistant',
+        'first',
+        thinkingContent: 'old thinking',
+      );
+      final messageId = provider
+          .getConversation(conversationId)!
+          .messages
+          .single
+          .id;
+
+      provider.updateMessageContent(
+        conversationId,
+        messageId,
+        'second',
+        thinkingContent: 'new thinking',
+      );
+      expect(
+        provider
+            .getConversation(conversationId)!
+            .messages
+            .single
+            .thinkingContent,
+        'new thinking',
+      );
+
+      provider.updateMessageContent(
+        conversationId,
+        messageId,
+        'third',
+        thinkingContent: null,
+      );
+      final message = provider.getConversation(conversationId)!.messages.single;
+      expect(message.content, 'third');
+      expect(message.thinkingContent, isNull);
+    },
+  );
+
   test('ConversationSettings reads legacy imagePrompt key', () {
     final settings = ConversationSettings.fromJson({
       'modelId': 'chat-1',
@@ -91,6 +139,113 @@ void main() {
     expect(messages.first['reasoning_content'], '先判断是否需要调用工具');
     expect(messages.first.containsKey('tool_calls'), isTrue);
     expect(messages.first.containsKey('reasoningContent'), isFalse);
+  });
+
+  test('OpenAI response accepts structured content parts', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    Map<String, dynamic>? requestBody;
+    unawaited(
+      server.first.then((request) async {
+        expect(request.uri.path, '/chat/completions');
+        requestBody =
+            jsonDecode(await utf8.decoder.bind(request).join())
+                as Map<String, dynamic>;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({
+            'choices': [
+              {
+                'message': {
+                  'role': 'assistant',
+                  'content': [
+                    {'type': 'text', 'text': '你好'},
+                    {'type': 'text', 'text': '，世界'},
+                  ],
+                  'reasoning_content': '结构化正文也要保留推理',
+                },
+              },
+            ],
+          }),
+        );
+        await request.response.close();
+      }),
+    );
+
+    try {
+      final response = await ApiService().sendChatRequest(
+        ModelConfig(
+          id: 'm1',
+          name: 'Local',
+          endpoint: 'http://${server.address.host}:${server.port}',
+          apiKey: '',
+          modelName: 'model-a',
+          apiType: 'openai',
+          priority: 0,
+        ),
+        const [
+          {'role': 'user', 'content': 'hello'},
+        ],
+      );
+
+      expect(response.content, '你好，世界');
+      expect(response.reasoning, '结构化正文也要保留推理');
+      expect(requestBody?['thinking'], {'type': 'disabled'});
+    } finally {
+      await server.close(force: true);
+    }
+  });
+
+  test('Anthropic request sends thinking config when enabled', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    Map<String, dynamic>? requestBody;
+    unawaited(
+      server.first.then((request) async {
+        requestBody =
+            jsonDecode(await utf8.decoder.bind(request).join())
+                as Map<String, dynamic>;
+        expect(request.uri.path, '/messages');
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({
+            'content': [
+              {'type': 'thinking', 'thinking': '先思考'},
+              {'type': 'text', 'text': '再回答'},
+            ],
+          }),
+        );
+        await request.response.close();
+      }),
+    );
+
+    try {
+      final response = await ApiService().sendChatRequest(
+        ModelConfig(
+          id: 'm1',
+          name: 'Claude',
+          endpoint: 'http://${server.address.host}:${server.port}',
+          apiKey: 'key',
+          modelName: 'claude-test',
+          apiType: 'anthropic',
+          priority: 0,
+          maxTokens: 128,
+        ),
+        const [
+          {'role': 'system', 'content': 'system'},
+          {'role': 'user', 'content': 'hello'},
+        ],
+        thinking: true,
+      );
+
+      expect(response.content, '再回答');
+      expect(response.reasoning, '先思考');
+      expect(requestBody?['thinking'], {
+        'type': 'enabled',
+        'budget_tokens': 127,
+      });
+      expect(requestBody?['system'], 'system');
+    } finally {
+      await server.close(force: true);
+    }
   });
 
   test('ModelConfig defaults category and enabled model entry', () {

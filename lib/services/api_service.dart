@@ -309,7 +309,7 @@ class ApiService {
       final content = message['content'];
       if (content is! List) return message;
       return {
-        ...message,
+        'role': message['role'],
         'content': content.map((part) {
           if (part is! Map || part['type'] != 'input_file') return part;
           final mimeType =
@@ -693,7 +693,6 @@ class ApiService {
       if (config.effectiveTemperature != null)
         'temperature': config.effectiveTemperature,
       if (config.effectiveTopP != null) 'top_p': config.effectiveTopP,
-      // 显式发送 disabled 标记；部分已配置后端依赖这个字段，不能省略。
       'thinking': {'type': thinking ? 'enabled' : 'disabled'},
       if (tools.isNotEmpty) 'tools': tools,
       if (tools.isNotEmpty) 'tool_choice': toolChoice ?? 'auto',
@@ -729,7 +728,7 @@ class ApiService {
       if (message == null) {
         throw Exception('API 返回的 choice 缺少 message');
       }
-      final content = message['content'] as String? ?? '';
+      final content = _messageContentText(message['content']);
       final reasoning = _extractReasoning(message);
       return ChatResponse(
         content: content,
@@ -759,7 +758,6 @@ class ApiService {
       if (config.effectiveTemperature != null)
         'temperature': config.effectiveTemperature,
       if (config.effectiveTopP != null) 'top_p': config.effectiveTopP,
-      // 显式发送 disabled 标记；部分已配置后端依赖这个字段，不能省略。
       'thinking': {'type': thinking ? 'enabled' : 'disabled'},
       if (tools.isNotEmpty) 'tools': tools,
       if (tools.isNotEmpty) 'tool_choice': toolChoice ?? 'auto',
@@ -815,7 +813,7 @@ class ApiService {
             final choice = json['choices']?[0];
             if (choice != null) {
               final delta = choice['delta'];
-              final content = delta?['content'] as String?;
+              final content = _streamContentText(delta?['content']);
               final reasoning = _extractReasoning(delta);
               _accumulateOpenAIToolCalls(delta, toolCallParts);
               if (content != null || reasoning != null) {
@@ -1153,16 +1151,22 @@ class ApiService {
       }
     }
 
+    final maxTokens = config.effectiveMaxTokens ?? 4096;
     final body = <String, dynamic>{
       'model': config.modelName,
       'messages': anthropicMessages,
-      'max_tokens': config.effectiveMaxTokens ?? 4096,
+      'max_tokens': maxTokens,
       'stream': true,
       // ignore: use_null_aware_elements
       if (systemPrompt != null) 'system': systemPrompt,
       if (config.effectiveTemperature != null)
         'temperature': config.effectiveTemperature,
       if (config.effectiveTopP != null) 'top_p': config.effectiveTopP,
+      if (thinking && !config.extraParams.containsKey('thinking'))
+        'thinking': {
+          'type': 'enabled',
+          'budget_tokens': _anthropicThinkingBudget(config, maxTokens),
+        },
     };
     for (final entry in config.extraParams.entries) {
       if (!body.containsKey(entry.key)) {
@@ -1253,16 +1257,22 @@ class ApiService {
       }
     }
 
+    final maxTokens = config.effectiveMaxTokens ?? 4096;
     final body = <String, dynamic>{
       'model': config.modelName,
       'messages': anthropicMessages,
-      'max_tokens': config.effectiveMaxTokens ?? 4096,
+      'max_tokens': maxTokens,
       'stream': false,
       // ignore: use_null_aware_elements
       if (systemPrompt != null) 'system': systemPrompt,
       if (config.effectiveTemperature != null)
         'temperature': config.effectiveTemperature,
       if (config.effectiveTopP != null) 'top_p': config.effectiveTopP,
+      if (thinking && !config.extraParams.containsKey('thinking'))
+        'thinking': {
+          'type': 'enabled',
+          'budget_tokens': _anthropicThinkingBudget(config, maxTokens),
+        },
     };
     for (final entry in config.extraParams.entries) {
       if (!body.containsKey(entry.key)) {
@@ -1403,6 +1413,39 @@ class ApiService {
     visit(message);
     if (parts.isEmpty) return null;
     return parts.toSet().join('\n\n');
+  }
+
+  String _messageContentText(Object? content) {
+    final text = _streamContentText(content);
+    return text ?? '';
+  }
+
+  String? _streamContentText(Object? content) {
+    if (content == null) return null;
+    if (content is String) return content;
+    if (content is List) {
+      final text = content
+          .map(_messageContentText)
+          .where((part) => part.isNotEmpty)
+          .join('');
+      return text.isEmpty ? null : text;
+    }
+    if (content is Map) {
+      for (final key in const ['text', 'content', 'value']) {
+        final text = _streamContentText(content[key]);
+        if (text != null && text.isNotEmpty) return text;
+      }
+      return null;
+    }
+    return content.toString();
+  }
+
+  int _anthropicThinkingBudget(ModelConfig config, int maxTokens) {
+    final configured = config.extraParams['thinkingBudgetTokens'];
+    if (configured is num && configured > 0) {
+      return math.min(configured.toInt(), math.max(1, maxTokens - 1));
+    }
+    return math.min(1024, math.max(1, maxTokens - 1));
   }
 
   String _formatApiError(Object? error) {

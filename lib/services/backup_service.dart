@@ -579,7 +579,7 @@ class BackupService {
           items[index] = incoming;
           replaced++;
         } else if (action == ImportConflictAction.keepBoth) {
-          items.add(incoming.copyWith(id: _uuid.v4()));
+          items.add(_copyConversationWithNewIds(incoming));
           added++;
         } else {
           skipped++;
@@ -824,7 +824,7 @@ class BackupService {
           items[index] = incoming;
           replaced++;
         } else if (action == ImportConflictAction.keepBoth) {
-          items.add(incoming.copyWith(id: _uuid.v4()));
+          items.add(_copyTodoListWithNewIds(incoming));
           added++;
         } else {
           skipped++;
@@ -1195,6 +1195,33 @@ class BackupService {
       modelId: idMap.modelIds[conversation.modelId] ?? conversation.modelId,
       settings: settings,
       roleId: idMap.roleIds[conversation.roleId] ?? conversation.roleId,
+    );
+  }
+
+  Conversation _copyConversationWithNewIds(Conversation conversation) {
+    return conversation.copyWith(
+      id: _uuid.v4(),
+      messages: conversation.messages
+          .map(
+            (message) => Message(
+              id: _uuid.v4(),
+              role: message.role,
+              content: message.content,
+              images: message.images,
+              thinkingContent: message.thinkingContent,
+              timestamp: message.timestamp,
+            ),
+          )
+          .toList(growable: false),
+    );
+  }
+
+  TodoList _copyTodoListWithNewIds(TodoList list) {
+    return list.copyWith(
+      id: _uuid.v4(),
+      items: list.items
+          .map((item) => item.copyWith(id: _uuid.v4()))
+          .toList(growable: false),
     );
   }
 

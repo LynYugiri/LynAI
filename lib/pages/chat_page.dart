@@ -605,6 +605,7 @@ class _ChatPageState extends State<ChatPage> {
         lastUser.images,
         lastAssistant.last.id,
         lastAssistant.last.content,
+        lastAssistant.last.thinkingContent,
       );
     }
 
@@ -987,6 +988,7 @@ class _ChatPageState extends State<ChatPage> {
         lastUser.images,
         lastAssistant.id,
         lastAssistant.content,
+        lastAssistant.thinkingContent,
       );
     }
 
@@ -1060,19 +1062,21 @@ class _ChatPageState extends State<ChatPage> {
     List<MessageImage> userImages,
     String assistantId,
     String assistantContent,
+    String? assistantThinkingContent,
   ) {
+    final thinkingContent =
+        _thinkingTxt ?? _thinkMap[assistantId] ?? assistantThinkingContent;
     if (_retryHistory.isEmpty) {
       final oldEntry = _RetryEntry(userContent, userImages);
       oldEntry.assistantId = assistantId;
       oldEntry.assistantContent = assistantContent;
-      oldEntry.thinkingContent = _thinkingTxt ?? _thinkMap[assistantId];
+      oldEntry.thinkingContent = thinkingContent;
       _retryHistory.add(oldEntry);
     } else if (_retryIdx < _retryHistory.length) {
       _retryHistory[_retryIdx].userImages = userImages;
       _retryHistory[_retryIdx].assistantId = assistantId;
       _retryHistory[_retryIdx].assistantContent = assistantContent;
-      _retryHistory[_retryIdx].thinkingContent =
-          _thinkingTxt ?? _thinkMap[assistantId];
+      _retryHistory[_retryIdx].thinkingContent = thinkingContent;
     }
   }
 
@@ -1436,29 +1440,7 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _handlePasteShortcut() async {
     if (_streaming) return;
-    final pastedImage = await _pasteClipboardImage();
-    if (pastedImage) return;
-
-    final clipboard = SystemClipboard.instance;
-    if (clipboard == null) return;
-    try {
-      final reader = await clipboard.read();
-      if (!reader.canProvide(Formats.plainText)) return;
-      final text = await reader.readValue(Formats.plainText);
-      if (!mounted || text == null || text.isEmpty) return;
-
-      final value = _msgCtrl.value;
-      final selection = value.selection;
-      final start = selection.start >= 0 ? selection.start : value.text.length;
-      final end = selection.end >= 0 ? selection.end : value.text.length;
-      final newText = value.text.replaceRange(start, end, text);
-      _msgCtrl.value = value.copyWith(
-        text: newText,
-        selection: TextSelection.collapsed(offset: start + text.length),
-        composing: TextRange.empty,
-      );
-      setState(() {});
-    } catch (_) {}
+    await _pasteClipboardImage();
   }
 
   Future<bool> _pasteClipboardImage() async {
@@ -2668,6 +2650,7 @@ class _ChatPageState extends State<ChatPage> {
           _convId!,
           lastAssistant.last.id,
           entry.assistantContent!,
+          thinkingContent: entry.thinkingContent,
         );
         if (entry.thinkingContent != null) {
           _thinkMap[lastAssistant.last.id] = entry.thinkingContent;
@@ -2685,7 +2668,12 @@ class _ChatPageState extends State<ChatPage> {
       _thinkingTxt = entry.thinkingContent;
     } else {
       if (lastAssistant.isNotEmpty) {
-        cp.updateMessageContent(_convId!, lastAssistant.last.id, '');
+        cp.updateMessageContent(
+          _convId!,
+          lastAssistant.last.id,
+          '',
+          thinkingContent: null,
+        );
         _thinkMap.remove(lastAssistant.last.id);
       }
       _thinkingTxt = null;
@@ -2830,7 +2818,7 @@ class _ChatPageState extends State<ChatPage> {
                                   HardwareKeyboard.instance.isMetaPressed);
                           if (isPaste) {
                             unawaited(_handlePasteShortcut());
-                            return KeyEventResult.handled;
+                            return KeyEventResult.ignored;
                           }
                           return KeyEventResult.ignored;
                         },
