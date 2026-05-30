@@ -449,6 +449,7 @@ class StorageV2Database {
     final db = StorageV2DriftDatabase(file);
     await db.customStatement('PRAGMA foreign_keys = ON');
     await _createSchema(db);
+    await db._addColumnIfMissing('note_pages', 'current_revision_id', 'TEXT');
     _openDatabases[path] = db;
     _db = db;
     return db;
@@ -541,6 +542,7 @@ CREATE TABLE IF NOT EXISTS note_pages (
   title TEXT NOT NULL,
   file_name TEXT NOT NULL,
   relative_path TEXT NOT NULL,
+  current_revision_id TEXT,
   sort_order INTEGER NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
@@ -923,6 +925,7 @@ CREATE INDEX IF NOT EXISTS idx_resources_hash_size ON resources(sha256, size);
     StorageV2DriftDatabase db,
     Map<String, dynamic> data,
   ) async {
+    await db.delete(db.resourceRows).go();
     for (final item in data['resources'] as List<dynamic>? ?? const []) {
       if (item is! Map) continue;
       final json = Map<String, dynamic>.from(item);
@@ -941,28 +944,7 @@ CREATE INDEX IF NOT EXISTS idx_resources_hash_size ON resources(sha256, size);
         missing: json['missing'] == true ? 1 : 0,
         createdAt: DateTime.now().toIso8601String(),
       );
-      final existing = await (db.select(
-        db.resourceRows,
-      )..where((table) => table.id.equals(id))).getSingleOrNull();
-      if (existing == null) {
-        await db.into(db.resourceRows).insert(row);
-      } else {
-        await (db.update(
-          db.resourceRows,
-        )..where((table) => table.id.equals(id))).write(
-          ResourceRowsCompanion(
-            kind: row.kind,
-            role: row.role,
-            originalPath: row.originalPath,
-            originalName: row.originalName,
-            relativePath: row.relativePath,
-            mimeType: row.mimeType,
-            size: row.size,
-            sha256: row.sha256,
-            missing: row.missing,
-          ),
-        );
-      }
+      await db.into(db.resourceRows).insert(row);
     }
   }
 

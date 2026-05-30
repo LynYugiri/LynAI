@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../utils/file_name_utils.dart';
@@ -18,12 +19,42 @@ class StorageV2Service {
   StorageV2Database? _database;
 
   Future<bool> exists() async {
+    return (await probe()).ready;
+  }
+
+  Future<StorageV2ProbeResult> probe() async {
     final root = await _storageRoot();
     final manifest = File('${root.path}/manifest.json');
-    final database = File('${root.path}/app.db');
-    if (!await manifest.exists()) return false;
-    if (await database.exists()) return true;
-    return Directory('${root.path}/data').exists();
+    if (!await manifest.exists()) {
+      return const StorageV2ProbeResult(StorageV2ProbeStatus.missing);
+    }
+    try {
+      final json = jsonDecode(await manifest.readAsString());
+      if (json is! Map) {
+        return const StorageV2ProbeResult(StorageV2ProbeStatus.invalidManifest);
+      }
+      final type = json['type'];
+      if (type != 'lynai.storage_v2') {
+        return const StorageV2ProbeResult(StorageV2ProbeStatus.invalidManifest);
+      }
+      final version = (json['schemaVersion'] as num?)?.toInt();
+      if (version == null || version > 2) {
+        return const StorageV2ProbeResult(
+          StorageV2ProbeStatus.incompatibleVersion,
+        );
+      }
+      final database = File('${root.path}/app.db');
+      final dataDir = Directory('${root.path}/data');
+      if (!await database.exists() && !await dataDir.exists()) {
+        return const StorageV2ProbeResult(StorageV2ProbeStatus.incomplete);
+      }
+      return StorageV2ProbeResult(StorageV2ProbeStatus.ready, version: version);
+    } catch (e) {
+      return StorageV2ProbeResult(
+        StorageV2ProbeStatus.invalidManifest,
+        message: '$e',
+      );
+    }
   }
 
   Future<Map<String, dynamic>> loadManifest() async {
@@ -61,8 +92,9 @@ class StorageV2Service {
     await database.writeDataFile(fileName, data);
     try {
       await _writeMap('data/$fileName', data);
-    } catch (_) {
+    } catch (e) {
       // `data/*.json` is only a legacy/debug mirror; app.db is authoritative.
+      debugPrint('storage_v2 JSON mirror write failed for $fileName: $e');
     }
   }
 
@@ -117,6 +149,13 @@ class StorageV2Service {
       final file = await resourceFile(resource);
       if (file == null) continue;
       if (_normalizePath(file.absolute.path) == normalizedPath) return resource;
+    }
+    return null;
+  }
+
+  Future<StorageV2Resource?> findResourceById(String id) async {
+    for (final resource in await loadResources()) {
+      if (resource.id == id) return resource;
     }
     return null;
   }
@@ -297,6 +336,24 @@ class StorageV2Service {
   }
 
   static String _normalizePath(String path) => path.replaceAll('\\', '/');
+}
+
+enum StorageV2ProbeStatus {
+  missing,
+  invalidManifest,
+  incompatibleVersion,
+  incomplete,
+  ready,
+}
+
+class StorageV2ProbeResult {
+  final StorageV2ProbeStatus status;
+  final int? version;
+  final String? message;
+
+  const StorageV2ProbeResult(this.status, {this.version, this.message});
+
+  bool get ready => status == StorageV2ProbeStatus.ready;
 }
 
 class StorageV2NotesSnapshot {

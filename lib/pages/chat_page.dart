@@ -399,6 +399,7 @@ class _ChatPageState extends State<ChatPage> {
     _streamGen++;
     unawaited(_sub?.cancel());
     _sub = null;
+    if (!mounted) return;
     setState(() => _setStreaming(false));
     if (cid == null) return;
     final cp = context.read<ConversationProvider>();
@@ -422,7 +423,9 @@ class _ChatPageState extends State<ChatPage> {
       if (conv != null) {
         try {
           return chatModels.firstWhere((m) => m.id == conv.modelId);
-        } catch (_) {}
+        } catch (e) {
+          debugPrint('自动标题生成失败: $e');
+        }
       }
     }
     if (_pendingModelId != null) {
@@ -811,7 +814,7 @@ class _ChatPageState extends State<ChatPage> {
     }
 
     Future<void> finalizeStream(List<ChatToolCall> toolCalls) async {
-      if (finalized) return;
+      if (finalized || !mounted) return;
       finalized = true;
       clearWaitTimeout();
       final currentThink = thinkBuf.isNotEmpty ? thinkBuf : null;

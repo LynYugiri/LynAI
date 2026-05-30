@@ -1,13 +1,11 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/app_settings.dart';
 import '../models/chat_role.dart';
 import '../models/conversation.dart';
 import '../models/model_config.dart';
 import '../models/system_prompt.dart';
-import '../services/storage_migration_service.dart';
+import '../repositories/settings_repository.dart';
 import '../services/storage_v2_service.dart';
 
 /// 管理应用级设置、角色、系统提示词和最近使用模型。
@@ -16,13 +14,14 @@ import '../services/storage_v2_service.dart';
 /// 串行保存队列；这样快速切换主题、角色或模型时不会出现旧设置覆盖新设置。
 class SettingsProvider extends ChangeNotifier {
   AppSettings _settings = AppSettings.defaults();
-  static const _storageKey = 'app_settings';
   Future<void> _saveQueue = Future.value();
-  final StorageV2Service _storageV2;
+  final SettingsRepository _repository;
   bool _usingStorageV2 = false;
 
-  SettingsProvider({StorageV2Service? storageV2})
-    : _storageV2 = storageV2 ?? StorageV2Service();
+  SettingsProvider({
+    StorageV2Service? storageV2,
+    SettingsRepository? repository,
+  }) : _repository = repository ?? SettingsRepository(storageV2: storageV2);
 
   AppSettings get settings => _settings;
   bool get usingStorageV2 => _usingStorageV2;
@@ -41,29 +40,16 @@ class SettingsProvider extends ChangeNotifier {
     );
   }
 
-  /// 从 SharedPreferences 加载设置。
+  /// 从本地 repository 加载设置。
   ///
   /// 角色和提示词的单条坏数据由 [AppSettings.fromJson] 跳过；顶层结构损坏
   /// 时回退默认设置，保证应用仍可启动。
   Future<void> loadSettings() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      if ((prefs.getInt('storage_schema_version') ?? 1) >=
-              StorageMigrationService.currentSchemaVersion &&
-          await _storageV2.exists()) {
-        final json = await _storageV2.loadDataFile('app_settings.json');
-        if (json.isNotEmpty) _settings = AppSettings.fromJson(json);
-        _usingStorageV2 = true;
-        notifyListeners();
-        return;
-      }
-      final jsonString = prefs.getString(_storageKey);
-      if (jsonString != null) {
-        final Map<String, dynamic> json =
-            jsonDecode(jsonString) as Map<String, dynamic>;
-        _settings = AppSettings.fromJson(json);
-        notifyListeners();
-      }
+      final result = await _repository.load(_settings);
+      _settings = result.settings;
+      _usingStorageV2 = result.usingStorageV2;
+      notifyListeners();
     } catch (e) {
       debugPrint('加载设置失败: $e');
       _settings = AppSettings.defaults();
@@ -116,7 +102,7 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 将设置保存到 SharedPreferences
+  /// 将设置快照排入保存队列。
   void _queueSaveSettings() {
     final snapshot = _settings;
     _saveQueue = _saveQueue.then((_) => _saveSettingsSnapshot(snapshot));
@@ -124,17 +110,7 @@ class SettingsProvider extends ChangeNotifier {
 
   Future<void> _saveSettingsSnapshot(AppSettings snapshot) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      if (_usingStorageV2 ||
-          ((prefs.getInt('storage_schema_version') ?? 1) >=
-                  StorageMigrationService.currentSchemaVersion &&
-              await _storageV2.exists())) {
-        _usingStorageV2 = true;
-        await _storageV2.writeDataFile('app_settings.json', snapshot.toJson());
-        return;
-      }
-      final jsonString = jsonEncode(snapshot.toJson());
-      await prefs.setString(_storageKey, jsonString);
+      await _repository.save(snapshot, usingStorageV2: _usingStorageV2);
     } catch (e) {
       debugPrint('保存设置失败: $e');
     }

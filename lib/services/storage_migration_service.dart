@@ -272,7 +272,7 @@ class StorageMigrationService {
       }
 
       final settingsJson = settings.toJson()
-        ..['storageV2'] = {'backgroundResourceId': ?backgroundResourceId};
+        ..['storageV2'] = {'backgroundResourceId': backgroundResourceId};
       await _writeJson(dataDir, 'app_settings.json', settingsJson);
       await _writeJson(dataDir, 'model_configs.json', {
         'models': modelConfigProvider.models.map((e) => e.toJson()).toList(),

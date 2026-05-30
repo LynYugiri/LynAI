@@ -177,7 +177,7 @@ class ModelConfig {
   factory ModelConfig.fromJson(Map<String, dynamic> json) {
     List<ModelEntry> entries = [];
     if (json['models'] != null) {
-      entries = (json['models'] as List)
+      entries = (json['models'] as List<dynamic>? ?? const [])
           .map((m) => ModelEntry.fromJson(m as Map<String, dynamic>))
           .toList();
     } else if (json['modelName'] != null) {
@@ -220,8 +220,8 @@ class ModelConfig {
       maxTokens: maxTokens,
       temperature: temperature,
       topP: topP,
-      extraParams: json['extraParams'] != null
-          ? Map<String, dynamic>.from(json['extraParams'] as Map)
+      extraParams: json['extraParams'] is Map
+          ? Map<String, dynamic>.from(json['extraParams'])
           : {},
       models: entries,
     );

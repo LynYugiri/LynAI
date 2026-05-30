@@ -1,10 +1,8 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/conversation.dart';
 import '../models/message.dart';
-import '../services/storage_migration_service.dart';
+import '../repositories/conversation_repository.dart';
 import '../services/storage_v2_service.dart';
 
 /// 管理对话历史、消息流式更新和对话持久化。
@@ -14,14 +12,15 @@ import '../services/storage_v2_service.dart';
 class ConversationProvider extends ChangeNotifier {
   List<Conversation> _conversations = [];
   final _uuid = const Uuid();
-  static const _storageKey = 'conversations';
   Future<void> _saveQueue = Future.value();
   static const _sentinel = Object();
-  final StorageV2Service _storageV2;
+  final ConversationRepository _repository;
   bool _usingStorageV2 = false;
 
-  ConversationProvider({StorageV2Service? storageV2})
-    : _storageV2 = storageV2 ?? StorageV2Service();
+  ConversationProvider({
+    StorageV2Service? storageV2,
+    ConversationRepository? repository,
+  }) : _repository = repository ?? ConversationRepository(storageV2: storageV2);
 
   void _touchConversation(int index, Conversation conversation) {
     _conversations[index] = conversation;
@@ -41,36 +40,15 @@ class ConversationProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 从 SharedPreferences 加载对话。
+  /// 从本地 repository 加载对话。
   ///
   /// 单条损坏对话会被跳过；单条损坏消息由 [Conversation.fromJson] 跳过。
   Future<void> loadConversations() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      if ((prefs.getInt('storage_schema_version') ?? 1) >=
-              StorageMigrationService.currentSchemaVersion &&
-          await _storageV2.exists()) {
-        await _loadStorageV2Conversations();
-        notifyListeners();
-        return;
-      }
-      final jsonString = prefs.getString(_storageKey);
-      if (jsonString != null) {
-        final List<dynamic> jsonList = jsonDecode(jsonString);
-        final conversations = <Conversation>[];
-        for (final item in jsonList) {
-          try {
-            conversations.add(
-              Conversation.fromJson(item as Map<String, dynamic>),
-            );
-          } catch (e) {
-            debugPrint('跳过损坏的对话记录: $e');
-          }
-        }
-        _conversations = conversations;
-        _conversations.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-        notifyListeners();
-      }
+      final result = await _repository.load();
+      _conversations = List<Conversation>.from(result.conversations);
+      _usingStorageV2 = result.usingStorageV2;
+      notifyListeners();
     } catch (e) {
       debugPrint('加载对话失败: $e');
       _conversations = [];
@@ -86,170 +64,10 @@ class ConversationProvider extends ChangeNotifier {
 
   Future<void> _saveConversationsSnapshot(List<Conversation> snapshot) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      if (_usingStorageV2 ||
-          ((prefs.getInt('storage_schema_version') ?? 1) >=
-                  StorageMigrationService.currentSchemaVersion &&
-              await _storageV2.exists())) {
-        _usingStorageV2 = true;
-        await _saveStorageV2Conversations(snapshot);
-        return;
-      }
-      final jsonString = jsonEncode(snapshot.map((c) => c.toJson()).toList());
-      await prefs.setString(_storageKey, jsonString);
+      await _repository.save(snapshot, usingStorageV2: _usingStorageV2);
     } catch (e) {
       debugPrint('保存对话失败: $e');
     }
-  }
-
-  Future<void> _loadStorageV2Conversations() async {
-    final json = await _storageV2.loadDataFile('conversations.json');
-    final resources = {
-      for (final item in await _storageV2.loadResources()) item.id: item,
-    };
-    final attachmentsByMessageId = <String, List<MessageImage>>{};
-    for (final item
-        in json['messageAttachments'] as List<dynamic>? ?? const []) {
-      if (item is! Map) continue;
-      final raw = Map<String, dynamic>.from(item);
-      final messageId = raw['messageId'] as String?;
-      if (messageId == null) continue;
-      var path = raw['path'] as String? ?? '';
-      final resourceId = raw['resourceId'] as String?;
-      final resource = resourceId == null ? null : resources[resourceId];
-      if (resource != null) {
-        path = await _storageV2.resourcePath(resource) ?? '';
-      }
-      (attachmentsByMessageId[messageId] ??= []).add(
-        MessageImage(
-          path: path,
-          name:
-              raw['displayName'] as String? ?? raw['name'] as String? ?? 'file',
-          size: raw['size'] as int? ?? 0,
-          mimeType: raw['mimeType'] as String? ?? 'application/octet-stream',
-        ),
-      );
-    }
-    final messagesByConversationId = <String, List<_StorageV2MessageRow>>{};
-    for (final item in json['messages'] as List<dynamic>? ?? const []) {
-      if (item is! Map) continue;
-      try {
-        final raw = Map<String, dynamic>.from(item);
-        final conversationId = raw['conversationId'] as String?;
-        if (conversationId == null) continue;
-        final messageId = raw['id'] as String;
-        final timestamp = DateTime.tryParse(raw['timestamp'] as String? ?? '');
-        if (timestamp == null) throw const FormatException('Invalid timestamp');
-        (messagesByConversationId[conversationId] ??= []).add(
-          _StorageV2MessageRow(
-            message: Message(
-              id: messageId,
-              role: raw['role'] as String,
-              content: raw['content'] as String? ?? '',
-              images: attachmentsByMessageId[messageId] ?? const [],
-              thinkingContent: raw['thinkingContent'] as String?,
-              timestamp: timestamp,
-            ),
-            sortOrder: (raw['sortOrder'] as num?)?.toInt(),
-          ),
-        );
-      } catch (e) {
-        debugPrint('跳过损坏的新版消息记录: $e');
-      }
-    }
-    final conversations = <Conversation>[];
-    for (final item in json['conversations'] as List<dynamic>? ?? const []) {
-      if (item is! Map) continue;
-      final raw = Map<String, dynamic>.from(item);
-      final id = raw['id'] as String;
-      final messageRows = List<_StorageV2MessageRow>.from(
-        messagesByConversationId[id] ?? const [],
-      );
-      messageRows.sort((a, b) {
-        final orderA = a.sortOrder;
-        final orderB = b.sortOrder;
-        if (orderA != null && orderB != null) return orderA.compareTo(orderB);
-        if (orderA != null) return -1;
-        if (orderB != null) return 1;
-        return a.message.timestamp.compareTo(b.message.timestamp);
-      });
-      final messages = messageRows.map((row) => row.message).toList();
-      conversations.add(
-        Conversation(
-          id: id,
-          title: raw['title'] as String? ?? '',
-          messages: messages,
-          modelId: raw['modelId'] as String? ?? '',
-          settings: raw['settings'] is Map
-              ? ConversationSettings.fromJson(
-                  Map<String, dynamic>.from(raw['settings'] as Map),
-                  fallbackModelId: raw['modelId'] as String? ?? '',
-                )
-              : null,
-          roleId: raw['roleId'] as String? ?? 'default',
-          createdAt: DateTime.parse(raw['createdAt'] as String),
-          updatedAt: DateTime.parse(raw['updatedAt'] as String),
-        ),
-      );
-    }
-    _usingStorageV2 = true;
-    _conversations = conversations
-      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-  }
-
-  Future<void> _saveStorageV2Conversations(List<Conversation> snapshot) async {
-    final conversations = <Map<String, dynamic>>[];
-    final messages = <Map<String, dynamic>>[];
-    final attachments = <Map<String, dynamic>>[];
-    for (final conversation in snapshot) {
-      conversations.add({
-        'id': conversation.id,
-        'title': conversation.title,
-        'modelId': conversation.modelId,
-        'settings': conversation.settings.toJson(),
-        'roleId': conversation.roleId,
-        'createdAt': conversation.createdAt.toIso8601String(),
-        'updatedAt': conversation.updatedAt.toIso8601String(),
-      });
-      for (var i = 0; i < conversation.messages.length; i++) {
-        final message = conversation.messages[i];
-        messages.add({
-          'id': message.id,
-          'conversationId': conversation.id,
-          'role': message.role,
-          'content': message.content,
-          if (message.thinkingContent != null &&
-              message.thinkingContent!.isNotEmpty)
-            'thinkingContent': message.thinkingContent,
-          'timestamp': message.timestamp.toIso8601String(),
-          'sortOrder': i,
-        });
-        for (var j = 0; j < message.images.length; j++) {
-          final image = message.images[j];
-          final role = image.isImage ? 'message_image' : 'message_attachment';
-          final resource = await _storageV2.importResourceFile(
-            image.path,
-            originalName: image.name,
-            mimeType: image.mimeType,
-            role: role,
-          );
-          attachments.add({
-            'id': '${message.id}_attachment_$j',
-            'messageId': message.id,
-            'resourceId': resource.id,
-            'displayName': image.name,
-            'mimeType': image.mimeType,
-            'size': image.size,
-            'sortOrder': j,
-          });
-        }
-      }
-    }
-    await _storageV2.writeDataFile('conversations.json', {
-      'conversations': conversations,
-      'messages': messages,
-      'messageAttachments': attachments,
-    });
   }
 
   /// 创建新对话并返回对话 ID。
@@ -611,11 +429,4 @@ class ConversationProvider extends ChangeNotifier {
         )
         .toList();
   }
-}
-
-class _StorageV2MessageRow {
-  final Message message;
-  final int? sortOrder;
-
-  const _StorageV2MessageRow({required this.message, required this.sortOrder});
 }

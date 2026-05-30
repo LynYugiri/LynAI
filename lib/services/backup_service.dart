@@ -19,6 +19,7 @@ import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/settings_provider.dart';
+import 'storage_v2_service.dart';
 import '../utils/file_name_utils.dart';
 
 /// 负责 LynAI ZIP 备份的导出、读取、预览和导入。
@@ -32,15 +33,20 @@ class BackupService {
     required this.modelConfigProvider,
     required this.conversationProvider,
     required this.featureProvider,
-  });
+    Directory? temporaryDirectory,
+    Future<String> Function()? appVersionLoader,
+  }) : _temporaryDirectory = temporaryDirectory,
+       _appVersionLoader = appVersionLoader;
 
   final SettingsProvider settingsProvider;
   final ModelConfigProvider modelConfigProvider;
   final ConversationProvider conversationProvider;
   final FeatureProvider featureProvider;
+  final Directory? _temporaryDirectory;
+  final Future<String> Function()? _appVersionLoader;
   final _uuid = const Uuid();
 
-  static const currentSchemaVersion = 1;
+  static const currentSchemaVersion = 2;
   static const _backupType = 'lynai.backup';
 
   static Set<BackupSettingsPart> settingsPartsFromManifest(
@@ -76,13 +82,15 @@ class BackupService {
   }
 
   Future<File> exportZip(BackupSelection selection) async {
-    final package = await PackageInfo.fromPlatform();
+    final appVersion = _appVersionLoader == null
+        ? (await PackageInfo.fromPlatform()).version
+        : await _appVersionLoader();
     final createdAt = DateTime.now();
     final archive = Archive();
     final sections = <String, dynamic>{};
     final assetRecords = <Map<String, dynamic>>[];
     final archivedAssetPaths = <String, String>{};
-    final privateRoots = await _privateStorageRoots();
+    List<Directory>? privateRoots;
 
     void addJson(String path, Object value) {
       final bytes = utf8.encode(
@@ -100,7 +108,8 @@ class BackupService {
       if (archivedAssetPaths.containsKey(originalPath)) return;
       final file = File(originalPath);
       if (!await file.exists()) return;
-      if (!_isInPrivateStorage(file, privateRoots)) return;
+      privateRoots ??= await _privateStorageRoots();
+      if (!_isInPrivateStorage(file, privateRoots!)) return;
       final safeName = safeStorageFileName(
         name ?? file.uri.pathSegments.last,
         fallback: 'asset',
@@ -182,30 +191,52 @@ class BackupService {
       final revisions = featureProvider.noteRevisions
           .where((item) => noteIds.contains(item.noteId))
           .toList();
+      final proposals = featureProvider.noteEditProposals
+          .where((item) => noteIds.contains(item.noteId))
+          .toList();
       addJson('notes/folders.json', {
         'folders': folders.map((item) => item.toJson()).toList(),
       });
       final exportedNotes = <Map<String, dynamic>>[];
       for (final note in notes) {
-        exportedNotes.add({
-          ...note.toJson(),
-          if (featureProvider.usingStorageV2)
-            'content': await featureProvider.noteExportContent(note.id),
-        });
+        exportedNotes.add(note.toJson());
       }
       addJson('notes/notes.json', {'notes': exportedNotes});
+      final noteFiles = [
+        'notes/folders.json',
+        'notes/notes.json',
+        'notes/revisions.json',
+      ];
+      var pageCount = 0;
+      if (featureProvider.usingStorageV2) {
+        final pages = <Map<String, dynamic>>[];
+        for (final note in notes) {
+          for (final page in featureProvider.notePages(note.id)) {
+            final contentPath = _notePageContentPath(page.id);
+            final bytes = utf8.encode(
+              await featureProvider.readNotePageContent(page),
+            );
+            archive.addFile(ArchiveFile(contentPath, bytes.length, bytes));
+            pages.add({...page.toJson(), 'contentPath': contentPath});
+            pageCount++;
+          }
+        }
+        addJson('notes/pages.json', {'pages': pages});
+        addJson('notes/edit_proposals.json', {
+          'proposals': proposals.map((item) => item.toJson()).toList(),
+        });
+        noteFiles.addAll(['notes/pages.json', 'notes/edit_proposals.json']);
+      }
       addJson('notes/revisions.json', {
         'revisions': revisions.map((item) => item.toJson()).toList(),
       });
       sections[BackupSection.notes.key] = {
         'enabled': true,
-        'files': [
-          'notes/folders.json',
-          'notes/notes.json',
-          'notes/revisions.json',
-        ],
+        'files': noteFiles,
+        if (featureProvider.usingStorageV2) 'storage': 'storage_v2',
         'folderCount': folders.length,
         'noteCount': notes.length,
+        if (featureProvider.usingStorageV2) 'pageCount': pageCount,
         'revisionCount': revisions.length,
       };
     }
@@ -239,14 +270,14 @@ class BackupService {
     addJson('manifest.json', {
       'type': _backupType,
       'schemaVersion': currentSchemaVersion,
-      'appVersion': package.version,
+      'appVersion': appVersion,
       'createdAt': createdAt.toUtc().toIso8601String(),
       'format': 'zip',
       'sections': sections,
       if (assetRecords.isNotEmpty) 'assets': assetRecords,
     });
 
-    final dir = await getTemporaryDirectory();
+    final dir = _temporaryDirectory ?? await getTemporaryDirectory();
     final name = 'lynai-${_formatFileDate(createdAt)}.zip';
     final file = File('${dir.path}/$name');
     await file.writeAsBytes(ZipEncoder().encode(archive), flush: true);
@@ -255,9 +286,15 @@ class BackupService {
 
   Future<BackupArchiveData> readZip(File file) async {
     final decoded = ZipDecoder().decodeBytes(await file.readAsBytes());
-    final files = {for (final file in decoded.files) file.name: file};
+    final files = <String, ArchiveFile>{};
     final assetFiles = <String, List<int>>{};
     for (final entry in decoded.files) {
+      _validateArchiveEntryPath(entry.name);
+      if (entry.name.endsWith('/')) continue;
+      if (files.containsKey(entry.name)) {
+        throw FormatException('备份包包含重复文件：${entry.name}');
+      }
+      files[entry.name] = entry;
       final content = entry.content;
       if (entry.name.startsWith('assets/')) {
         assetFiles[entry.name] = List<int>.from(content);
@@ -286,15 +323,41 @@ class BackupService {
     if (schemaVersion == null || schemaVersion > currentSchemaVersion) {
       throw const FormatException('备份版本过高，当前应用无法导入');
     }
+    if (schemaVersion < currentSchemaVersion) {
+      throw const FormatException('备份版本过旧，当前应用不支持该格式的导入');
+    }
 
     final settingsJson = readMap('settings.json');
     final modelsJson = readMap('model_configs.json');
     final conversationsJson = readMap('conversations.json');
     final foldersJson = readMap('notes/folders.json');
     final notesJson = readMap('notes/notes.json');
+    final pagesJson = readMap('notes/pages.json');
     final revisionsJson = readMap('notes/revisions.json');
+    final proposalsJson = readMap('notes/edit_proposals.json');
     final schedulesJson = readMap('schedules.json');
     final todoListsJson = readMap('todo_lists.json');
+    final notePages = _parseRawMapList(pagesJson?['pages'], warnings, '笔记分页');
+    final pageContents = <String, String>{};
+    for (final page in notePages ?? const <Map<String, dynamic>>[]) {
+      final id = page['id'] as String?;
+      final path = page['contentPath'] as String?;
+      if (path != null && !_isSafeArchivePath(path)) {
+        warnings.add('笔记分页正文路径不安全：$path');
+        continue;
+      }
+      final entry = path == null ? null : files[path];
+      if (id == null || id.isEmpty || path == null) continue;
+      if (entry == null) {
+        warnings.add('笔记分页正文缺失：$path');
+        continue;
+      }
+      try {
+        pageContents[id] = utf8.decode(entry.content as List<int>);
+      } catch (e) {
+        warnings.add('笔记分页正文解析失败：$path，$e');
+      }
+    }
 
     return BackupArchiveData(
       manifest: manifest,
@@ -325,11 +388,19 @@ class BackupService {
           '笔记文件夹',
         ),
         notes: _parseList(notesJson?['notes'], Note.fromJson, warnings, '笔记'),
+        notePages: notePages,
+        notePageContents: pageContents.isEmpty ? null : pageContents,
         noteRevisions: _parseList(
           revisionsJson?['revisions'],
           NoteRevision.fromJson,
           warnings,
           '笔记修订',
+        ),
+        noteEditProposals: _parseList(
+          proposalsJson?['proposals'],
+          NoteEditProposal.fromJson,
+          warnings,
+          '笔记修改建议',
         ),
         schedules: _parseList(
           schedulesJson?['schedules'],
@@ -595,6 +666,12 @@ class BackupService {
     ImportPlan plan,
     _ImportIdMap idMap,
   ) async {
+    if (featureProvider.usingStorageV2 && data.notePages != null) {
+      return _applyStorageV2Notes(data, plan, idMap);
+    }
+    if (data.notePages != null || data.noteEditProposals != null) {
+      throw StateError('备份包含新版分页和修改建议，但当前存储模式不支持导入。请先执行存储迁移。');
+    }
     final incomingFolders = data.noteFolders ?? const <NoteFolder>[];
     final incomingNotes = data.notes ?? const <Note>[];
     final incomingRevisions = data.noteRevisions ?? const <NoteRevision>[];
@@ -739,6 +816,182 @@ class BackupService {
       noteFolders: folders,
       notes: notes,
       noteRevisions: revisions,
+    );
+    return ImportResult(added: added, replaced: replaced, skipped: skipped);
+  }
+
+  Future<ImportResult> _applyStorageV2Notes(
+    BackupData data,
+    ImportPlan plan,
+    _ImportIdMap idMap,
+  ) async {
+    final incomingFolders = data.noteFolders ?? const <NoteFolder>[];
+    final incomingNotes = data.notes ?? const <Note>[];
+    final incomingRevisions = data.noteRevisions ?? const <NoteRevision>[];
+    final incomingProposals =
+        data.noteEditProposals ?? const <NoteEditProposal>[];
+    final incomingPages = (data.notePages ?? const <Map<String, dynamic>>[])
+        .map(StorageV2NotePage.fromJson)
+        .toList();
+    final incomingPageContents =
+        data.notePageContents ?? const <String, String>{};
+    var added = 0;
+    var replaced = 0;
+    var skipped = 0;
+    final replacingSection = plan.mode == ImportMode.replaceSection;
+    final folders = replacingSection
+        ? <NoteFolder>[]
+        : List<NoteFolder>.from(featureProvider.noteFolders);
+    final notes = replacingSection
+        ? <Note>[]
+        : List<Note>.from(featureProvider.notes);
+    final revisions = replacingSection
+        ? <NoteRevision>[]
+        : List<NoteRevision>.from(featureProvider.noteRevisions);
+    final proposals = replacingSection
+        ? <NoteEditProposal>[]
+        : List<NoteEditProposal>.from(featureProvider.noteEditProposals);
+    final pages = <StorageV2NotePage>[];
+    final pageContents = <String, String>{};
+    final acceptedOriginalNoteIds = <String>{};
+    final usedRelativePaths = <String>{};
+
+    if (!replacingSection) {
+      for (final note in featureProvider.notes) {
+        for (final page in featureProvider.notePages(note.id)) {
+          pages.add(page);
+          usedRelativePaths.add(page.relativePath);
+          pageContents[page.id] = await featureProvider.readNotePageContent(
+            page,
+          );
+        }
+      }
+    }
+
+    for (final incoming in incomingFolders) {
+      final index = folders.indexWhere((item) => item.id == incoming.id);
+      if (index == -1) {
+        folders.add(incoming);
+        idMap.noteFolderIds[incoming.id] = incoming.id;
+      } else if (plan.mode != ImportMode.addOnly) {
+        final action = plan.actionFor(
+          _conflictId(BackupSection.notes, 'folder:${incoming.id}'),
+        );
+        if (action == ImportConflictAction.keepBoth) {
+          final nextId = _uuid.v4();
+          idMap.noteFolderIds[incoming.id] = nextId;
+          folders.add(incoming.copyWith(id: nextId));
+        } else if (action == ImportConflictAction.replaceLocal ||
+            replacingSection) {
+          folders[index] = incoming;
+          idMap.noteFolderIds[incoming.id] = incoming.id;
+        }
+      }
+    }
+
+    for (final incoming in incomingNotes) {
+      final index = notes.indexWhere((item) => item.id == incoming.id);
+      if (index == -1) {
+        idMap.noteIds[incoming.id] = incoming.id;
+        notes.add(_remapNote(incoming, idMap));
+        acceptedOriginalNoteIds.add(incoming.id);
+        added++;
+      } else if (!replacingSection && _sameJson(notes[index], incoming)) {
+        skipped++;
+      } else if (plan.mode == ImportMode.addOnly) {
+        skipped++;
+      } else {
+        final action = replacingSection
+            ? ImportConflictAction.replaceLocal
+            : plan.actionFor(
+                _conflictId(BackupSection.notes, 'note:${incoming.id}'),
+              );
+        if (action == ImportConflictAction.replaceLocal) {
+          idMap.noteIds[incoming.id] = incoming.id;
+          notes[index] = _remapNote(incoming, idMap);
+          acceptedOriginalNoteIds.add(incoming.id);
+          replaced++;
+        } else if (action == ImportConflictAction.keepBoth) {
+          idMap.noteIds[incoming.id] = _uuid.v4();
+          notes.add(_remapNote(incoming, idMap));
+          acceptedOriginalNoteIds.add(incoming.id);
+          added++;
+        } else {
+          skipped++;
+        }
+      }
+    }
+
+    for (final revision in incomingRevisions.where(
+      (item) => acceptedOriginalNoteIds.contains(item.noteId),
+    )) {
+      idMap.noteRevisionIds.putIfAbsent(revision.id, () {
+        final remappedNoteId = idMap.noteIds[revision.noteId];
+        return remappedNoteId == revision.noteId ? revision.id : _uuid.v4();
+      });
+    }
+    for (final page in incomingPages.where(
+      (item) => acceptedOriginalNoteIds.contains(item.noteId),
+    )) {
+      idMap.notePageIds.putIfAbsent(page.id, () {
+        final remappedNoteId = idMap.noteIds[page.noteId];
+        return remappedNoteId == page.noteId ? page.id : _uuid.v4();
+      });
+    }
+
+    for (final incoming in incomingNotes.where(
+      (item) => acceptedOriginalNoteIds.contains(item.id),
+    )) {
+      final remapped = _remapNote(incoming, idMap);
+      final index = notes.indexWhere((item) => item.id == remapped.id);
+      if (index != -1) notes[index] = remapped;
+    }
+
+    final acceptedNoteIds = acceptedOriginalNoteIds
+        .map((id) => idMap.noteIds[id])
+        .whereType<String>()
+        .toSet();
+    final removedPages = pages
+        .where((item) => acceptedNoteIds.contains(item.noteId))
+        .toList();
+    for (final page in removedPages) {
+      usedRelativePaths.remove(page.relativePath);
+    }
+    revisions.removeWhere((item) => acceptedNoteIds.contains(item.noteId));
+    revisions.addAll(
+      incomingRevisions
+          .where((item) => acceptedOriginalNoteIds.contains(item.noteId))
+          .map((item) => _remapStorageV2Revision(item, idMap)),
+    );
+    proposals.removeWhere((item) => acceptedNoteIds.contains(item.noteId));
+    proposals.addAll(
+      incomingProposals
+          .where((item) => acceptedOriginalNoteIds.contains(item.noteId))
+          .map((item) => _remapStorageV2Proposal(item, idMap)),
+    );
+    pages.removeWhere((item) => acceptedNoteIds.contains(item.noteId));
+    pageContents.removeWhere(
+      (pageId, _) => pages.every((page) => page.id != pageId),
+    );
+    for (final page in incomingPages.where(
+      (item) => acceptedOriginalNoteIds.contains(item.noteId),
+    )) {
+      final content = incomingPageContents[page.id];
+      if (content == null) {
+        throw FormatException('笔记分页正文缺失：${page.title} (${page.id})');
+      }
+      final nextPage = _remapStorageV2Page(page, idMap, usedRelativePaths);
+      pages.add(nextPage);
+      pageContents[nextPage.id] = content;
+    }
+
+    await featureProvider.replaceStorageV2NotesData(
+      noteFolders: folders,
+      notes: notes,
+      pages: pages,
+      pageContents: pageContents,
+      noteRevisions: revisions,
+      noteEditProposals: proposals,
     );
     return ImportResult(added: added, replaced: replaced, skipped: skipped);
   }
@@ -1248,6 +1501,124 @@ class BackupService {
     );
   }
 
+  NoteRevision _remapStorageV2Revision(
+    NoteRevision revision,
+    _ImportIdMap idMap,
+  ) {
+    return revision.copyWith(
+      id: idMap.noteRevisionIds[revision.id],
+      noteId: idMap.noteIds[revision.noteId] ?? revision.noteId,
+      pageId: _remapNullable(revision.pageId, idMap.notePageIds),
+      parentRevisionId: _remapNullable(
+        revision.parentRevisionId,
+        idMap.noteRevisionIds,
+      ),
+    );
+  }
+
+  NoteEditProposal _remapStorageV2Proposal(
+    NoteEditProposal proposal,
+    _ImportIdMap idMap,
+  ) {
+    final nextProposalId = idMap.noteProposalIds.putIfAbsent(
+      proposal.id,
+      () => _uuid.v4(),
+    );
+    return NoteEditProposal(
+      id: nextProposalId,
+      noteId: idMap.noteIds[proposal.noteId] ?? proposal.noteId,
+      pageId: _remapNullable(proposal.pageId, idMap.notePageIds),
+      baseRevisionId: _remapNullable(
+        proposal.baseRevisionId,
+        idMap.noteRevisionIds,
+      ),
+      baseContentHash: proposal.baseContentHash,
+      createdAt: proposal.createdAt,
+      blocks: proposal.blocks
+          .map((block) {
+            return NoteEditBlock(
+              id: idMap.noteEditBlockIds.putIfAbsent(block.id, _uuid.v4),
+              startLine: block.startLine,
+              deleteCount: block.deleteCount,
+              deletedLines: block.deletedLines,
+              insertLines: block.insertLines,
+            );
+          })
+          .toList(growable: false),
+    );
+  }
+
+  StorageV2NotePage _remapStorageV2Page(
+    StorageV2NotePage page,
+    _ImportIdMap idMap,
+    Set<String> usedRelativePaths,
+  ) {
+    final noteId = idMap.noteIds[page.noteId] ?? page.noteId;
+    final pageId = idMap.notePageIds[page.id] ?? page.id;
+    final fileName = _uniqueStorageV2PageFileName(page, usedRelativePaths);
+    final relativePath = _uniqueStorageV2PagePath(
+      noteId,
+      fileName,
+      usedRelativePaths,
+    );
+    return StorageV2NotePage(
+      id: pageId,
+      noteId: noteId,
+      title: page.title,
+      fileName: relativePath.split('/').last,
+      relativePath: relativePath,
+      currentRevisionId: _remapNullable(
+        page.currentRevisionId,
+        idMap.noteRevisionIds,
+      ),
+      sortOrder: page.sortOrder,
+      createdAt: page.createdAt,
+      updatedAt: page.updatedAt,
+    );
+  }
+
+  static String _uniqueStorageV2PageFileName(
+    StorageV2NotePage page,
+    Set<String> usedRelativePaths,
+  ) {
+    final rawName = page.fileName.isEmpty
+        ? '${safeExportFileName(page.title, fallback: 'page')}.md'
+        : safeStorageFileName(page.fileName, fallback: 'page.md');
+    final hasExtension = rawName.split('/').last.contains('.');
+    final name = hasExtension ? rawName : '$rawName.md';
+    if (!usedRelativePaths.any((path) => path.endsWith('/$name'))) return name;
+    final dot = name.lastIndexOf('.');
+    final base = dot <= 0 ? name : name.substring(0, dot);
+    final extension = dot <= 0 ? '.md' : name.substring(dot);
+    var suffix = 1;
+    var next = '${base}_$suffix$extension';
+    while (usedRelativePaths.any((path) => path.endsWith('/$next'))) {
+      suffix++;
+      next = '${base}_$suffix$extension';
+    }
+    return next;
+  }
+
+  static String _uniqueStorageV2PagePath(
+    String noteId,
+    String fileName,
+    Set<String> usedRelativePaths,
+  ) {
+    final noteDirectoryName = safeStorageSegment(noteId, fallback: 'note');
+    final safeName = safeStorageFileName(fileName, fallback: 'page.md');
+    final dot = safeName.lastIndexOf('.');
+    final base = dot <= 0 ? safeName : safeName.substring(0, dot);
+    final extension = dot <= 0 ? '.md' : safeName.substring(dot);
+    var path = 'notes/$noteDirectoryName/$safeName';
+    var suffix = 1;
+    while (usedRelativePaths.contains(path)) {
+      path = 'notes/$noteDirectoryName/${base}_$suffix$extension';
+      suffix++;
+    }
+    usedRelativePaths.add(path);
+    return path;
+  }
+
   static String? _remapNullable(String? id, Map<String, String> map) {
     if (id == null) return null;
     return map[id] ?? id;
@@ -1372,7 +1743,10 @@ class BackupService {
           .toList(),
       noteFolders: data.noteFolders,
       notes: data.notes,
+      notePages: data.notePages,
+      notePageContents: data.notePageContents,
       noteRevisions: data.noteRevisions,
+      noteEditProposals: data.noteEditProposals,
       schedules: data.schedules,
       todoLists: data.todoLists,
     );
@@ -1435,6 +1809,27 @@ class BackupService {
 
   static String _normalizePath(String path) => path.replaceAll('\\', '/');
 
+  static void _validateArchiveEntryPath(String path) {
+    if (!_isSafeArchivePath(path, allowDirectory: true)) {
+      throw FormatException('备份包包含不安全路径：$path');
+    }
+  }
+
+  static bool _isSafeArchivePath(String path, {bool allowDirectory = false}) {
+    if (path.isEmpty || path.contains('\\') || path.startsWith('/')) {
+      return false;
+    }
+    if (RegExp(r'^[A-Za-z]:').hasMatch(path)) return false;
+    final normalized = allowDirectory && path.endsWith('/')
+        ? path.substring(0, path.length - 1)
+        : path;
+    if (normalized.isEmpty) return false;
+    final parts = normalized.split('/');
+    return parts.every(
+      (part) => part.isNotEmpty && part != '.' && part != '..',
+    );
+  }
+
   static String _extensionFromPath(String? path) {
     if (path == null || path.isEmpty) return '';
     final name = path.replaceAll('\\', '/').split('/').last;
@@ -1451,6 +1846,9 @@ class BackupService {
     final folderIds =
         notes?.map((item) => item.folderId).whereType<String>().toSet() ??
         const <String>{};
+    final filteredPages = data.notePages
+        ?.where((item) => noteIds.contains(item['noteId']))
+        .toList();
     return BackupData(
       appSettings: data.appSettings,
       modelConfigs: data.modelConfigs,
@@ -1461,7 +1859,20 @@ class BackupService {
           ?.where((item) => folderIds.contains(item.id))
           .toList(),
       notes: notes,
+      notePages: filteredPages,
+      notePageContents: data.notePageContents == null
+          ? null
+          : Map.fromEntries(
+              data.notePageContents!.entries.where(
+                (entry) =>
+                    filteredPages?.any((page) => page['id'] == entry.key) ??
+                    false,
+              ),
+            ),
       noteRevisions: data.noteRevisions
+          ?.where((item) => noteIds.contains(item.noteId))
+          .toList(),
+      noteEditProposals: data.noteEditProposals
           ?.where((item) => noteIds.contains(item.noteId))
           .toList(),
       schedules: data.schedules
@@ -1543,7 +1954,9 @@ class BackupService {
       case BackupSection.conversations:
         return '${data.conversations?.length ?? 0} 条对话';
       case BackupSection.notes:
-        return '${data.notes?.length ?? 0} 篇笔记，${data.noteFolders?.length ?? 0} 个文件夹';
+        final pageCount = data.notePages?.length;
+        final pageDetail = pageCount == null ? '' : '，$pageCount 个分页';
+        return '${data.notes?.length ?? 0} 篇笔记$pageDetail，${data.noteFolders?.length ?? 0} 个文件夹';
       case BackupSection.schedules:
         return '${data.schedules?.length ?? 0} 条日程';
       case BackupSection.todoLists:
@@ -1612,6 +2025,31 @@ class BackupService {
     }
     return items;
   }
+
+  static List<Map<String, dynamic>>? _parseRawMapList(
+    Object? value,
+    List<String> warnings,
+    String label,
+  ) {
+    if (value == null) return null;
+    if (value is! List) {
+      warnings.add('$label 格式不是列表');
+      return const [];
+    }
+    final items = <Map<String, dynamic>>[];
+    for (final item in value) {
+      try {
+        if (item is Map) items.add(Map<String, dynamic>.from(item));
+      } catch (e) {
+        warnings.add('$label 解析失败：$e');
+      }
+    }
+    return items;
+  }
+
+  static String _notePageContentPath(String pageId) {
+    return 'notes/page_contents/${safeStorageSegment(pageId, fallback: 'page')}.md';
+  }
 }
 
 class _ImportIdMap {
@@ -1620,5 +2058,8 @@ class _ImportIdMap {
   final systemPromptIds = <String, String>{};
   final noteFolderIds = <String, String>{};
   final noteIds = <String, String>{};
+  final notePageIds = <String, String>{};
   final noteRevisionIds = <String, String>{};
+  final noteProposalIds = <String, String>{};
+  final noteEditBlockIds = <String, String>{};
 }

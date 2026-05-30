@@ -1,13 +1,11 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/note.dart';
 import '../models/schedule_item.dart';
 import '../models/todo_list.dart';
-import '../services/storage_migration_service.dart';
+import '../repositories/feature_repository.dart';
 import '../services/storage_v2_service.dart';
 import '../utils/file_name_utils.dart';
 
@@ -16,12 +14,6 @@ import '../utils/file_name_utils.dart';
 /// 这些数据共享一个 Provider，是因为工具调用和备份导入经常需要跨功能区
 /// 读写。每个分区仍然使用独立存储键和独立保存队列，避免无关更新互相阻塞。
 class FeatureProvider extends ChangeNotifier {
-  static const _scheduleKey = 'schedule_items';
-  static const _notesKey = 'notes';
-  static const _noteRevisionsKey = 'note_revisions';
-  static const _noteFoldersKey = 'note_folders';
-  static const _noteEditProposalsKey = 'note_edit_proposals';
-  static const _todoListsKey = 'todo_lists';
   static const _scheduleWidgetChannel = MethodChannel('lynai/schedule_widget');
   final _uuid = const Uuid();
   Future<void> _scheduleSaveQueue = Future.value();
@@ -40,18 +32,20 @@ class FeatureProvider extends ChangeNotifier {
   final Map<String, String> _noteRevisionContentCache = {};
   final Map<String, List<NoteRevision>> _noteTimelineCache = {};
   bool _usingStorageV2 = false;
-  final StorageV2Service _storageV2;
+  final FeatureRepository _repository;
   Map<String, List<StorageV2NotePage>> _storageV2PagesByNoteId = {};
   Map<String, String> _activeStorageV2PageIds = {};
 
-  FeatureProvider({StorageV2Service? storageV2})
-    : _storageV2 = storageV2 ?? StorageV2Service();
+  FeatureProvider({StorageV2Service? storageV2, FeatureRepository? repository})
+    : _repository = repository ?? FeatureRepository(storageV2: storageV2);
 
   List<ScheduleItem> get schedules => List.unmodifiable(_schedules);
   List<Note> get notes => List.unmodifiable(_notes);
   List<NoteRevision> get noteRevisions => List.unmodifiable(_noteRevisions);
   List<NoteFolder> get noteFolders => List.unmodifiable(_noteFolders);
   List<TodoList> get todoLists => List.unmodifiable(_todoLists);
+  List<NoteEditProposal> get noteEditProposals =>
+      List.unmodifiable(_noteEditProposals.values);
   bool get usingStorageV2 => _usingStorageV2;
 
   List<StorageV2NotePage> notePages(String noteId) {
@@ -84,7 +78,7 @@ class FeatureProvider extends ChangeNotifier {
       final page = pages[i];
       if (i > 0) buffer.writeln('\n\n---\n');
       buffer.writeln('<!-- page: ${page.title} -->\n');
-      buffer.write(await _storageV2.readNotePage(page));
+      buffer.write(await _repository.readNotePage(page));
     }
     return buffer.toString();
   }
@@ -121,11 +115,101 @@ class FeatureProvider extends ChangeNotifier {
         StorageV2PageExport(
           fileName: fileName,
           title: page.title,
-          content: await _storageV2.readNotePage(page),
+          content: await _repository.readNotePage(page),
         ),
       );
     }
     return exports;
+  }
+
+  Future<String> readNotePageContent(StorageV2NotePage page) {
+    return _repository.readNotePage(page);
+  }
+
+  Future<void> replaceStorageV2NotesData({
+    required List<NoteFolder> noteFolders,
+    required List<Note> notes,
+    required List<StorageV2NotePage> pages,
+    required Map<String, String> pageContents,
+    required List<NoteRevision> noteRevisions,
+    required List<NoteEditProposal> noteEditProposals,
+  }) async {
+    if (!_usingStorageV2) {
+      await replaceFeatureData(
+        noteFolders: noteFolders,
+        notes: notes,
+        noteRevisions: noteRevisions,
+      );
+      return;
+    }
+
+    final previousPagePaths = _storageV2PagesByNoteId.values
+        .expand((item) => item)
+        .map((page) => page.relativePath)
+        .toSet();
+    _noteFolders = List<NoteFolder>.from(noteFolders);
+    _notes = List<Note>.from(notes);
+    _noteRevisions = List<NoteRevision>.from(noteRevisions);
+    _storageV2PagesByNoteId = {};
+    for (final page in pages) {
+      (_storageV2PagesByNoteId[page.noteId] ??= []).add(page);
+    }
+    for (final entry in _storageV2PagesByNoteId.entries) {
+      entry.value.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+    }
+    _activeStorageV2PageIds = {};
+    for (var i = 0; i < _notes.length; i++) {
+      final note = _notes[i];
+      final notePages = _storageV2PagesByNoteId[note.id] ?? const [];
+      if (notePages.isEmpty) continue;
+      final activePage = notePages.firstWhere(
+        (page) =>
+            note.currentRevisionId != null &&
+            page.currentRevisionId == note.currentRevisionId,
+        orElse: () => notePages.first,
+      );
+      _activeStorageV2PageIds[note.id] = activePage.id;
+      final content = pageContents[activePage.id] ?? note.content;
+      _notes[i] = note.copyWith(content: content, preserveUpdatedAt: true);
+    }
+    _noteEditProposals
+      ..clear()
+      ..addEntries(
+        noteEditProposals.map(
+          (proposal) => MapEntry(
+            _noteEditProposalKey(proposal.noteId, proposal.pageId),
+            proposal,
+          ),
+        ),
+      );
+    _noteRevisionContentCache.clear();
+    _noteTimelineCache.clear();
+    _normalizeNoteRevisionState();
+    _removeMissingNoteFolderReferences();
+
+    for (final page in _storageV2PagesByNoteId.values.expand((item) => item)) {
+      final content = pageContents[page.id];
+      if (content == null) {
+        throw StateError('Missing content for storage_v2 note page ${page.id}');
+      }
+      await _repository.writeNotePage(page, content);
+    }
+    final retainedPagePaths = _storageV2PagesByNoteId.values
+        .expand((item) => item)
+        .map((page) => page.relativePath)
+        .toSet();
+    for (final path in previousPagePaths.difference(retainedPagePaths)) {
+      try {
+        await _repository.deleteFile(path);
+      } catch (e) {
+        debugPrint('删除未引用笔记分页文件失败: $e');
+      }
+    }
+    await _persistStorageV2NotesData();
+    await _queueSaveNotes();
+    await _queueSaveNoteRevisions();
+    await _queueSaveNoteEditProposals();
+    notifyListeners();
   }
 
   /// 批量替换一个或多个功能分区。
@@ -139,8 +223,7 @@ class FeatureProvider extends ChangeNotifier {
     List<NoteRevision>? noteRevisions,
     List<TodoList>? todoLists,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
-    final storageV2Active = await _storageV2ActiveForSave(prefs);
+    final storageV2Active = await _storageV2ActiveForSave();
     final saveTasks = <Future<void>>[];
     if (schedules != null) {
       _schedules = List<ScheduleItem>.from(schedules)
@@ -165,9 +248,9 @@ class FeatureProvider extends ChangeNotifier {
       _todoLists = List<TodoList>.from(todoLists);
       saveTasks.add(_queueSaveTodoLists());
     }
-    if (storageV2Active &&
+    if (_usingStorageV2 &&
+        storageV2Active &&
         (noteFolders != null || notes != null || noteRevisions != null)) {
-      _usingStorageV2 = true;
       await _syncStorageV2NoteFilesWithNotes();
       saveTasks.add(_persistStorageV2NotesData());
     }
@@ -181,61 +264,34 @@ class FeatureProvider extends ChangeNotifier {
 
   Future<void> load() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final scheduleJson = prefs.getString(_scheduleKey);
-      if (scheduleJson != null) {
-        final items = jsonDecode(scheduleJson) as List<dynamic>;
-        final schedules = <ScheduleItem>[];
-        for (final item in items) {
-          try {
-            schedules.add(ScheduleItem.fromJson(item as Map<String, dynamic>));
-          } catch (e) {
-            debugPrint('跳过损坏的日程记录: $e');
-          }
-        }
-        _schedules = schedules..sort((a, b) => a.start.compareTo(b.start));
-      }
+      final result = await _repository.load();
+      _schedules = List<ScheduleItem>.from(result.schedules);
+      _notes = List<Note>.from(result.notes);
+      _noteFolders = List<NoteFolder>.from(result.noteFolders);
+      _noteRevisions = List<NoteRevision>.from(result.noteRevisions);
+      _todoLists = List<TodoList>.from(result.todoLists);
+      _usingStorageV2 = result.usingStorageV2;
+      _storageV2PagesByNoteId = Map.fromEntries(
+        result.pagesByNoteId.entries.map(
+          (entry) =>
+              MapEntry(entry.key, List<StorageV2NotePage>.from(entry.value)),
+        ),
+      );
+      _activeStorageV2PageIds = Map<String, String>.from(result.activePageIds);
+      _noteEditProposals
+        ..clear()
+        ..addEntries(
+          result.noteEditProposals
+              .where(_isUsableNoteEditProposal)
+              .map(
+                (proposal) => MapEntry(
+                  _noteEditProposalKey(proposal.noteId, proposal.pageId),
+                  proposal,
+                ),
+              ),
+        );
       await _refreshScheduleWidget();
       await _rescheduleScheduleNotifications();
-      final notesJson = prefs.getString(_notesKey);
-      if (notesJson != null) {
-        final items = jsonDecode(notesJson) as List<dynamic>;
-        final notes = <Note>[];
-        for (final item in items) {
-          try {
-            notes.add(Note.fromJson(item as Map<String, dynamic>));
-          } catch (e) {
-            debugPrint('跳过损坏的笔记记录: $e');
-          }
-        }
-        _notes = notes;
-      }
-      final noteFoldersJson = prefs.getString(_noteFoldersKey);
-      if (noteFoldersJson != null) {
-        final items = jsonDecode(noteFoldersJson) as List<dynamic>;
-        final folders = <NoteFolder>[];
-        for (final item in items) {
-          try {
-            folders.add(NoteFolder.fromJson(item as Map<String, dynamic>));
-          } catch (e) {
-            debugPrint('跳过损坏的笔记文件夹记录: $e');
-          }
-        }
-        _noteFolders = folders;
-      }
-      final noteRevisionsJson = prefs.getString(_noteRevisionsKey);
-      if (noteRevisionsJson != null) {
-        final items = jsonDecode(noteRevisionsJson) as List<dynamic>;
-        final revisions = <NoteRevision>[];
-        for (final item in items) {
-          try {
-            revisions.add(NoteRevision.fromJson(item as Map<String, dynamic>));
-          } catch (e) {
-            debugPrint('跳过损坏的笔记时间线记录: $e');
-          }
-        }
-        _noteRevisions = revisions;
-      }
       final normalizedRevisions = _normalizeNoteRevisionState();
       final cleanedFolderRefs = _removeMissingNoteFolderReferences();
       if (normalizedRevisions) {
@@ -243,46 +299,6 @@ class FeatureProvider extends ChangeNotifier {
       }
       if (normalizedRevisions || cleanedFolderRefs) {
         await _queueSaveNotes();
-      }
-      final noteEditProposalsJson = prefs.getString(_noteEditProposalsKey);
-      if (noteEditProposalsJson != null) {
-        final items = jsonDecode(noteEditProposalsJson) as List<dynamic>;
-        _noteEditProposals.clear();
-        for (final item in items) {
-          try {
-            final proposal = NoteEditProposal.fromJson(
-              item as Map<String, dynamic>,
-            );
-            if (_isUsableNoteEditProposal(proposal)) {
-              _noteEditProposals[_noteEditProposalKey(proposal.noteId)] =
-                  proposal;
-            }
-          } catch (e) {
-            debugPrint('跳过损坏的笔记修改建议记录: $e');
-          }
-        }
-      }
-      final todoListsJson = prefs.getString(_todoListsKey);
-      if (todoListsJson != null) {
-        final items = jsonDecode(todoListsJson) as List<dynamic>;
-        final todoLists = <TodoList>[];
-        for (final item in items) {
-          try {
-            todoLists.add(TodoList.fromJson(item as Map<String, dynamic>));
-          } catch (e) {
-            debugPrint('跳过损坏的待办清单记录: $e');
-          }
-        }
-        _todoLists = todoLists;
-      }
-      if ((prefs.getInt('storage_schema_version') ?? 1) >=
-          StorageMigrationService.currentSchemaVersion) {
-        try {
-          await _loadStorageV2FeatureData();
-          await _loadStorageV2Notes();
-        } catch (e) {
-          debugPrint('加载新版笔记存储失败，保留旧版笔记数据: $e');
-        }
       }
       notifyListeners();
     } catch (e) {
@@ -307,21 +323,15 @@ class FeatureProvider extends ChangeNotifier {
 
   Future<void> _saveSchedulesSnapshot(List<ScheduleItem> snapshot) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final storageV2Active = await _storageV2ActiveForSave(prefs);
+      final storageV2Active = await _storageV2ActiveForSave();
       if (_usingStorageV2 || storageV2Active) {
         _usingStorageV2 = _usingStorageV2 || storageV2Active;
-        await _storageV2.writeDataFile('schedules.json', {
-          'schedules': snapshot.map((e) => e.toJson()).toList(),
-        });
+        await _repository.saveSchedules(snapshot, usingStorageV2: true);
         await _refreshScheduleWidget();
         await _rescheduleScheduleNotifications();
         return;
       }
-      await prefs.setString(
-        _scheduleKey,
-        jsonEncode(snapshot.map((e) => e.toJson()).toList()),
-      );
+      await _repository.saveSchedules(snapshot, usingStorageV2: false);
       await _refreshScheduleWidget();
       await _rescheduleScheduleNotifications();
     } catch (e) {
@@ -349,11 +359,7 @@ class FeatureProvider extends ChangeNotifier {
     }
   }
 
-  Future<bool> _storageV2ActiveForSave(SharedPreferences prefs) async {
-    return (prefs.getInt('storage_schema_version') ?? 1) >=
-            StorageMigrationService.currentSchemaVersion &&
-        await _storageV2.exists();
-  }
+  Future<bool> _storageV2ActiveForSave() => _repository.isStorageV2Active();
 
   Future<void> _queueSaveNotes() {
     final snapshot = List<Note>.from(_notes);
@@ -387,12 +393,7 @@ class FeatureProvider extends ChangeNotifier {
 
   Future<void> _saveNoteFoldersSnapshot(List<NoteFolder> snapshot) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      if (await _storageV2ActiveForSave(prefs)) return;
-      await prefs.setString(
-        _noteFoldersKey,
-        jsonEncode(snapshot.map((e) => e.toJson()).toList()),
-      );
+      await _repository.saveLegacyNoteFolders(snapshot);
     } catch (e) {
       debugPrint('保存笔记文件夹失败: $e');
     }
@@ -400,12 +401,7 @@ class FeatureProvider extends ChangeNotifier {
 
   Future<void> _saveNoteRevisionsSnapshot(List<NoteRevision> snapshot) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      if (await _storageV2ActiveForSave(prefs)) return;
-      await prefs.setString(
-        _noteRevisionsKey,
-        jsonEncode(snapshot.map((e) => e.toJson()).toList()),
-      );
+      await _repository.saveLegacyNoteRevisions(snapshot);
     } catch (e) {
       debugPrint('保存笔记时间线失败: $e');
     }
@@ -413,12 +409,7 @@ class FeatureProvider extends ChangeNotifier {
 
   Future<void> _saveNotesSnapshot(List<Note> snapshot) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      if (await _storageV2ActiveForSave(prefs)) return;
-      await prefs.setString(
-        _notesKey,
-        jsonEncode(snapshot.map((e) => e.toJson()).toList()),
-      );
+      await _repository.saveLegacyNotes(snapshot);
     } catch (e) {
       debugPrint('保存笔记失败: $e');
     }
@@ -428,12 +419,7 @@ class FeatureProvider extends ChangeNotifier {
     List<NoteEditProposal> snapshot,
   ) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      if (await _storageV2ActiveForSave(prefs)) return;
-      await prefs.setString(
-        _noteEditProposalsKey,
-        jsonEncode(snapshot.map((e) => e.toJson()).toList()),
-      );
+      await _repository.saveLegacyNoteEditProposals(snapshot);
     } catch (e) {
       debugPrint('保存笔记修改建议失败: $e');
     }
@@ -469,225 +455,6 @@ class FeatureProvider extends ChangeNotifier {
     return changed;
   }
 
-  Future<void> _loadStorageV2FeatureData() async {
-    if (!await _storageV2.exists()) return;
-    try {
-      final schedulesJson = await _storageV2.loadDataFile('schedules.json');
-      final schedules = <ScheduleItem>[];
-      for (final item
-          in schedulesJson['schedules'] as List<dynamic>? ?? const []) {
-        try {
-          if (item is Map) {
-            schedules.add(
-              ScheduleItem.fromJson(Map<String, dynamic>.from(item)),
-            );
-          }
-        } catch (e) {
-          debugPrint('跳过损坏的新版日程记录: $e');
-        }
-      }
-      _schedules = schedules..sort((a, b) => a.start.compareTo(b.start));
-    } catch (e) {
-      debugPrint('加载新版日程失败: $e');
-    }
-
-    try {
-      final todoJson = await _storageV2.loadDataFile('todo_lists.json');
-      final itemsByListId = <String, List<TodoItem>>{};
-      for (final item in todoJson['todoItems'] as List<dynamic>? ?? const []) {
-        try {
-          if (item is! Map) continue;
-          final json = Map<String, dynamic>.from(item);
-          final listId = json['listId'] as String;
-          (itemsByListId[listId] ??= []).add(
-            TodoItem(
-              id: json['id'] as String,
-              text: json['text'] as String? ?? '',
-              done: json['done'] as bool? ?? false,
-            ),
-          );
-        } catch (e) {
-          debugPrint('跳过损坏的新版待办项记录: $e');
-        }
-      }
-      final lists = <TodoList>[];
-      for (final item in todoJson['todoLists'] as List<dynamic>? ?? const []) {
-        try {
-          if (item is! Map) continue;
-          final json = Map<String, dynamic>.from(item);
-          final id = json['id'] as String;
-          lists.add(
-            TodoList(
-              id: id,
-              title: json['title'] as String? ?? '',
-              items: itemsByListId[id] ?? const [],
-              createdAt: DateTime.parse(json['createdAt'] as String),
-              updatedAt: DateTime.parse(json['updatedAt'] as String),
-            ),
-          );
-        } catch (e) {
-          debugPrint('跳过损坏的新版待办清单记录: $e');
-        }
-      }
-      _todoLists = lists;
-    } catch (e) {
-      debugPrint('加载新版待办清单失败: $e');
-    }
-  }
-
-  Future<void> _loadStorageV2Notes() async {
-    if (!await _storageV2.exists()) return;
-    final data = await _storageV2.loadNotesData();
-    final folders = <NoteFolder>[];
-    for (final item in data['folders'] as List<dynamic>? ?? const []) {
-      try {
-        if (item is Map) {
-          folders.add(NoteFolder.fromJson(Map<String, dynamic>.from(item)));
-        }
-      } catch (e) {
-        debugPrint('跳过损坏的新版笔记文件夹记录: $e');
-      }
-    }
-
-    final pages = <StorageV2NotePage>[];
-    for (final item in data['pages'] as List<dynamic>? ?? const []) {
-      try {
-        if (item is Map) {
-          pages.add(
-            StorageV2NotePage.fromJson(Map<String, dynamic>.from(item)),
-          );
-        }
-      } catch (e) {
-        debugPrint('跳过损坏的新版分页记录: $e');
-      }
-    }
-    pages.sort((a, b) {
-      final noteCompare = a.noteId.compareTo(b.noteId);
-      if (noteCompare != 0) return noteCompare;
-      return a.sortOrder.compareTo(b.sortOrder);
-    });
-    _storageV2PagesByNoteId = {};
-    for (final page in pages) {
-      (_storageV2PagesByNoteId[page.noteId] ??= []).add(page);
-    }
-
-    final notes = <Note>[];
-    _activeStorageV2PageIds = {};
-    for (final item in data['notes'] as List<dynamic>? ?? const []) {
-      try {
-        if (item is! Map) continue;
-        final json = Map<String, dynamic>.from(item);
-        final id = json['id'] as String;
-        final notePages = _storageV2PagesByNoteId[id] ?? const [];
-        final currentPageId = json['currentPageId'] as String?;
-        final page = notePages.firstWhere(
-          (page) => page.id == currentPageId,
-          orElse: () => notePages.isEmpty
-              ? throw const FormatException('note has no pages')
-              : notePages.first,
-        );
-        _activeStorageV2PageIds[id] = page.id;
-        notes.add(
-          Note(
-            id: id,
-            title: json['title'] as String? ?? '',
-            content: await _storageV2.readNotePage(page),
-            currentRevisionId:
-                page.currentRevisionId ?? json['currentRevisionId'] as String?,
-            folderId: json['folderId'] as String?,
-            createdAt: DateTime.parse(json['createdAt'] as String),
-            updatedAt: DateTime.parse(json['updatedAt'] as String),
-            wrap: json['wrap'] as bool? ?? true,
-          ),
-        );
-      } catch (e) {
-        debugPrint('跳过损坏的新版笔记记录: $e');
-      }
-    }
-
-    final revisions = <NoteRevision>[];
-    for (final item in data['revisions'] as List<dynamic>? ?? const []) {
-      try {
-        if (item is! Map) continue;
-        final json = Map<String, dynamic>.from(item);
-        revisions.add(
-          NoteRevision(
-            id: json['id'] as String,
-            noteId: json['noteId'] as String,
-            pageId: json['pageId'] as String?,
-            parentRevisionId: json['parentRevisionId'] as String?,
-            savedAt: DateTime.parse(json['savedAt'] as String),
-            delta: NoteTextDelta(
-              start: json['deltaStart'] as int? ?? 0,
-              deletedText: json['deletedText'] as String? ?? '',
-              insertedText: json['insertedText'] as String? ?? '',
-            ),
-          ),
-        );
-      } catch (e) {
-        debugPrint('跳过损坏的新版笔记时间线记录: $e');
-      }
-    }
-
-    _usingStorageV2 = true;
-    final proposals = <String, NoteEditProposal>{};
-    final blocksByProposal = <String, List<NoteEditBlock>>{};
-    for (final item in data['editBlocks'] as List<dynamic>? ?? const []) {
-      try {
-        if (item is! Map) continue;
-        final json = Map<String, dynamic>.from(item);
-        final proposalId = json['proposalId'] as String;
-        (blocksByProposal[proposalId] ??= []).add(
-          NoteEditBlock(
-            id: json['id'] as String,
-            startLine: json['startLine'] as int? ?? 1,
-            deleteCount: json['deleteCount'] as int? ?? 0,
-            deletedLines: (json['deletedLines'] as List<dynamic>? ?? const [])
-                .whereType<String>()
-                .toList(),
-            insertLines: (json['insertLines'] as List<dynamic>? ?? const [])
-                .whereType<String>()
-                .toList(),
-          ),
-        );
-      } catch (e) {
-        debugPrint('跳过损坏的新版笔记建议块记录: $e');
-      }
-    }
-    for (final item in data['editProposals'] as List<dynamic>? ?? const []) {
-      try {
-        if (item is! Map) continue;
-        final json = Map<String, dynamic>.from(item);
-        final proposal = NoteEditProposal(
-          id: json['id'] as String,
-          noteId: json['noteId'] as String,
-          pageId: json['pageId'] as String?,
-          baseRevisionId: json['baseRevisionId'] as String?,
-          baseContentHash: json['baseContentHash'] as String? ?? '',
-          createdAt: DateTime.parse(json['createdAt'] as String),
-          blocks: blocksByProposal[json['id'] as String] ?? const [],
-        );
-        if (proposal.blocks.isNotEmpty && proposal.baseContentHash.isNotEmpty) {
-          proposals[_noteEditProposalKey(proposal.noteId, proposal.pageId)] =
-              proposal;
-        }
-      } catch (e) {
-        debugPrint('跳过损坏的新版笔记建议记录: $e');
-      }
-    }
-
-    _noteFolders = folders;
-    _notes = notes;
-    _noteRevisions = revisions;
-    _noteEditProposals
-      ..clear()
-      ..addAll(proposals);
-    _noteRevisionContentCache.clear();
-    _noteTimelineCache.clear();
-    _normalizeNoteRevisionState();
-    _removeMissingNoteFolderReferences();
-  }
-
   Future<void> selectNotePage(String noteId, String pageId) async {
     if (!_usingStorageV2) return;
     final pages = _storageV2PagesByNoteId[noteId] ?? const [];
@@ -696,7 +463,7 @@ class FeatureProvider extends ChangeNotifier {
     final page = pages[pageIndex];
     final index = _notes.indexWhere((note) => note.id == noteId);
     if (index == -1) return;
-    final content = await _storageV2.readNotePage(page);
+    final content = await _repository.readNotePage(page);
     _activeStorageV2PageIds[noteId] = page.id;
     _notes[index] = _notes[index].copyWith(
       content: content,
@@ -741,7 +508,7 @@ class FeatureProvider extends ChangeNotifier {
     _renumberNotePages(pages);
     _activeStorageV2PageIds[noteId] = page.id;
     final content = page.title.isEmpty ? '' : '# ${page.title}\n';
-    await _storageV2.writeNotePage(page, content);
+    await _repository.writeNotePage(page, content);
     final index = _notes.indexWhere((item) => item.id == noteId);
     if (index != -1) {
       _notes[index] = note.copyWith(content: content, currentRevisionId: null);
@@ -809,7 +576,7 @@ class FeatureProvider extends ChangeNotifier {
       final noteIndex = _notes.indexWhere((note) => note.id == noteId);
       if (noteIndex != -1) {
         _notes[noteIndex] = _notes[noteIndex].copyWith(
-          content: await _storageV2.readNotePage(nextPage),
+          content: await _repository.readNotePage(nextPage),
           currentRevisionId: nextPage.currentRevisionId,
           preserveUpdatedAt: true,
         );
@@ -832,7 +599,7 @@ class FeatureProvider extends ChangeNotifier {
     );
     _clearNoteTimelineCache(noteId);
     try {
-      await _storageV2.deleteFile(removed.relativePath);
+      await _repository.deleteFile(removed.relativePath);
     } catch (_) {}
     await _persistStorageV2NotesData();
     await _queueSaveNotes();
@@ -866,7 +633,7 @@ class FeatureProvider extends ChangeNotifier {
     if (!_usingStorageV2) return;
     final page = activeNotePage(noteId);
     if (page == null) return;
-    await _storageV2.writeNotePage(page, content);
+    await _repository.writeNotePage(page, content);
     final pages = _storageV2PagesByNoteId[noteId];
     if (pages == null) return;
     final index = pages.indexWhere((item) => item.id == page.id);
@@ -920,7 +687,7 @@ class FeatureProvider extends ChangeNotifier {
         );
       }
       _activeStorageV2PageIds[note.id] = page.id;
-      await _storageV2.writeNotePage(page, note.content);
+      await _repository.writeNotePage(page, note.content);
     }
   }
 
@@ -990,7 +757,7 @@ class FeatureProvider extends ChangeNotifier {
       'editProposals': proposalRows,
       'editBlocks': proposalBlockRows,
     };
-    await _storageV2.writeNotesData(data);
+    await _repository.saveStorageV2NotesData(data);
   }
 
   Future<void> _queueSaveTodoLists() {
@@ -1003,39 +770,11 @@ class FeatureProvider extends ChangeNotifier {
 
   Future<void> _saveTodoListsSnapshot(List<TodoList> snapshot) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final storageV2Active = await _storageV2ActiveForSave(prefs);
-      if (_usingStorageV2 || storageV2Active) {
-        _usingStorageV2 = _usingStorageV2 || storageV2Active;
-        final todoLists = <Map<String, dynamic>>[];
-        final todoItems = <Map<String, dynamic>>[];
-        for (final list in snapshot) {
-          todoLists.add({
-            'id': list.id,
-            'title': list.title,
-            'createdAt': list.createdAt.toIso8601String(),
-            'updatedAt': list.updatedAt.toIso8601String(),
-          });
-          for (var i = 0; i < list.items.length; i++) {
-            final item = list.items[i];
-            todoItems.add({
-              'id': item.id,
-              'listId': list.id,
-              'text': item.text,
-              'done': item.done,
-              'sortOrder': i,
-            });
-          }
-        }
-        await _storageV2.writeDataFile('todo_lists.json', {
-          'todoLists': todoLists,
-          'todoItems': todoItems,
-        });
-        return;
-      }
-      await prefs.setString(
-        _todoListsKey,
-        jsonEncode(snapshot.map((e) => e.toJson()).toList()),
+      final storageV2Active = await _storageV2ActiveForSave();
+      _usingStorageV2 = _usingStorageV2 || storageV2Active;
+      await _repository.saveTodoLists(
+        snapshot,
+        usingStorageV2: _usingStorageV2,
       );
     } catch (e) {
       debugPrint('保存待办清单失败: $e');
@@ -1152,7 +891,7 @@ class FeatureProvider extends ChangeNotifier {
       );
       _storageV2PagesByNoteId[note.id] = [page];
       _activeStorageV2PageIds[note.id] = pageId;
-      await _storageV2.writeNotePage(page, content);
+      await _repository.writeNotePage(page, content);
       await _persistStorageV2NotesData();
     }
     await _queueSaveNotes();
@@ -1518,7 +1257,7 @@ class FeatureProvider extends ChangeNotifier {
     _activeStorageV2PageIds.remove(id);
     for (final page in removedPages) {
       try {
-        await _storageV2.deleteFile(page.relativePath);
+        await _repository.deleteFile(page.relativePath);
       } catch (e) {
         debugPrint('删除笔记分页文件失败: $e');
       }

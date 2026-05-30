@@ -16,12 +16,13 @@
 
 ## 一句话架构
 
-LynAI 是一个 Flutter 本地应用：页面层处理交互，Provider 保存本地状态，Service 处理外部协议和数据搬运，Model 定义可序列化的数据契约。
+LynAI 是一个 Flutter 本地应用：页面层处理交互，Provider 保存 UI 状态，Repository 负责本地持久化，Service 处理外部协议和数据搬运，Model 定义可序列化的数据契约。
 
 ```text
 Page
   → Provider
-  → SharedPreferences / 私有文件目录
+  → Repository
+  → storage_v2 / SharedPreferences / 私有文件目录
 
 Page
   → Service

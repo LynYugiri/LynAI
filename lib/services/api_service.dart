@@ -960,7 +960,7 @@ class ApiService {
 
     if (response.statusCode == 200) {
       final data = jsonDecode(utf8.decode(response.bodyBytes));
-      final rawContent = data['message']['content'] as String? ?? '';
+      final rawContent = data['message']?['content'] as String? ?? '';
       final thinkMatch = RegExp(
         r'<think[^>]*>(.*?)</think>',
         dotAll: true,

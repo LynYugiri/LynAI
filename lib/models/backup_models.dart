@@ -164,7 +164,10 @@ class BackupData {
   final List<Conversation>? conversations;
   final List<NoteFolder>? noteFolders;
   final List<Note>? notes;
+  final List<Map<String, dynamic>>? notePages;
+  final Map<String, String>? notePageContents;
   final List<NoteRevision>? noteRevisions;
+  final List<NoteEditProposal>? noteEditProposals;
   final List<ScheduleItem>? schedules;
   final List<TodoList>? todoLists;
 
@@ -174,7 +177,10 @@ class BackupData {
     this.conversations,
     this.noteFolders,
     this.notes,
+    this.notePages,
+    this.notePageContents,
     this.noteRevisions,
+    this.noteEditProposals,
     this.schedules,
     this.todoLists,
   });
@@ -186,7 +192,11 @@ class BackupData {
       case BackupSection.conversations:
         return conversations != null;
       case BackupSection.notes:
-        return noteFolders != null || notes != null || noteRevisions != null;
+        return noteFolders != null ||
+            notes != null ||
+            notePages != null ||
+            noteRevisions != null ||
+            noteEditProposals != null;
       case BackupSection.schedules:
         return schedules != null;
       case BackupSection.todoLists:

@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:lynai/models/app_settings.dart';
+import 'package:lynai/models/backup_models.dart';
 import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/message.dart';
 import 'package:lynai/models/model_config.dart';
@@ -17,6 +19,7 @@ import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/services/api_service.dart';
+import 'package:lynai/services/backup_service.dart';
 import 'package:lynai/services/storage_migration_service.dart';
 import 'package:lynai/services/storage_v2_service.dart';
 import 'package:lynai/services/tool_call_service.dart';
@@ -1616,6 +1619,278 @@ void main() {
       contains(firstPageRevisionId),
     );
     await root.delete(recursive: true);
+  });
+
+  test('BackupService round-trips storage v2 note pages', () async {
+    SharedPreferences.setMockInitialValues({});
+    final sourceSettings = SettingsProvider();
+    final sourceModels = ModelConfigProvider();
+    final sourceConversations = ConversationProvider();
+    final sourceFeatures = FeatureProvider();
+    await sourceSettings.loadSettings();
+    await sourceModels.loadModels();
+    await sourceConversations.loadConversations();
+    await sourceFeatures.load();
+
+    final sourceRoot = await Directory.systemTemp.createTemp(
+      'lynai_backup_v2_source_',
+    );
+    final targetRoot = await Directory.systemTemp.createTemp(
+      'lynai_backup_v2_target_',
+    );
+    try {
+      await StorageMigrationService(
+        settingsProvider: sourceSettings,
+        modelConfigProvider: sourceModels,
+        conversationProvider: sourceConversations,
+        featureProvider: sourceFeatures,
+        rootDirectory: sourceRoot,
+      ).migrate();
+
+      final source = FeatureProvider(
+        storageV2: StorageV2Service(rootDirectory: sourceRoot),
+      );
+      await source.load();
+      final noteId = await source.addNoteWithContent('book', 'first page');
+      final firstPageId = source.activeNotePage(noteId)!.id;
+      final secondPageId = await source.addNotePage(noteId, 'chapter');
+      expect(secondPageId, isNotNull);
+      final secondRevision = await source.saveNoteContent(
+        noteId,
+        'second page',
+      );
+      expect(secondRevision, isNotNull);
+
+      final archiveFile = await BackupService(
+        settingsProvider: sourceSettings,
+        modelConfigProvider: sourceModels,
+        conversationProvider: sourceConversations,
+        featureProvider: source,
+        temporaryDirectory: sourceRoot,
+        appVersionLoader: () async => '0.0.0-test',
+      ).exportZip(BackupSelection({BackupSection.notes}, noteIds: {noteId}));
+
+      SharedPreferences.setMockInitialValues({});
+      final targetSettings = SettingsProvider();
+      final targetModels = ModelConfigProvider();
+      final targetConversations = ConversationProvider();
+      final targetFeatures = FeatureProvider();
+      await targetSettings.loadSettings();
+      await targetModels.loadModels();
+      await targetConversations.loadConversations();
+      await targetFeatures.load();
+      await StorageMigrationService(
+        settingsProvider: targetSettings,
+        modelConfigProvider: targetModels,
+        conversationProvider: targetConversations,
+        featureProvider: targetFeatures,
+        rootDirectory: targetRoot,
+      ).migrate();
+
+      final target = FeatureProvider(
+        storageV2: StorageV2Service(rootDirectory: targetRoot),
+      );
+      await target.load();
+      final service = BackupService(
+        settingsProvider: targetSettings,
+        modelConfigProvider: targetModels,
+        conversationProvider: targetConversations,
+        featureProvider: target,
+      );
+      final archive = await service.readZip(archiveFile);
+      await service.importArchive(
+        archive,
+        ImportPlan(
+          selection: BackupSelection.fromData(archive.data),
+          mode: ImportMode.merge,
+        ),
+      );
+
+      final reloaded = FeatureProvider(
+        storageV2: StorageV2Service(rootDirectory: targetRoot),
+      );
+      await reloaded.load();
+      expect(reloaded.notePages(noteId), hasLength(2));
+      expect(reloaded.activeNotePage(noteId)!.id, secondPageId);
+      expect(reloaded.getNote(noteId)!.content, 'second page');
+      await reloaded.selectNotePage(noteId, firstPageId);
+      expect(reloaded.getNote(noteId)!.content, 'first page');
+      expect(
+        reloaded.noteRevisions.map((revision) => revision.pageId).toSet(),
+        contains(secondPageId),
+      );
+    } finally {
+      await sourceRoot.delete(recursive: true);
+      await targetRoot.delete(recursive: true);
+    }
+  });
+
+  test('BackupService handles storage v2 note conflicts', () async {
+    SharedPreferences.setMockInitialValues({});
+    final sourceSettings = SettingsProvider();
+    final sourceModels = ModelConfigProvider();
+    final sourceConversations = ConversationProvider();
+    final sourceFeatures = FeatureProvider();
+    await sourceSettings.loadSettings();
+    await sourceModels.loadModels();
+    await sourceConversations.loadConversations();
+    await sourceFeatures.load();
+
+    final sourceRoot = await Directory.systemTemp.createTemp(
+      'lynai_backup_conflict_source_',
+    );
+    final targetRoot = await Directory.systemTemp.createTemp(
+      'lynai_backup_conflict_target_',
+    );
+    try {
+      await StorageMigrationService(
+        settingsProvider: sourceSettings,
+        modelConfigProvider: sourceModels,
+        conversationProvider: sourceConversations,
+        featureProvider: sourceFeatures,
+        rootDirectory: sourceRoot,
+      ).migrate();
+
+      final source = FeatureProvider(
+        storageV2: StorageV2Service(rootDirectory: sourceRoot),
+      );
+      await source.load();
+      final noteId = await source.addNoteWithContent('conflict', 'first page');
+      final firstPageId = source.activeNotePage(noteId)!.id;
+      final secondPageId = await source.addNotePage(noteId, 'second');
+      expect(secondPageId, isNotNull);
+      await source.saveNoteContent(noteId, 'imported second page');
+
+      final archiveFile = await BackupService(
+        settingsProvider: sourceSettings,
+        modelConfigProvider: sourceModels,
+        conversationProvider: sourceConversations,
+        featureProvider: source,
+        temporaryDirectory: sourceRoot,
+        appVersionLoader: () async => '0.0.0-test',
+      ).exportZip(BackupSelection({BackupSection.notes}, noteIds: {noteId}));
+
+      SharedPreferences.setMockInitialValues({});
+      final targetSettings = SettingsProvider();
+      final targetModels = ModelConfigProvider();
+      final targetConversations = ConversationProvider();
+      final targetFeatures = FeatureProvider();
+      await targetSettings.loadSettings();
+      await targetModels.loadModels();
+      await targetConversations.loadConversations();
+      await targetFeatures.load();
+      await StorageMigrationService(
+        settingsProvider: targetSettings,
+        modelConfigProvider: targetModels,
+        conversationProvider: targetConversations,
+        featureProvider: targetFeatures,
+        rootDirectory: targetRoot,
+      ).migrate();
+
+      final target = FeatureProvider(
+        storageV2: StorageV2Service(rootDirectory: targetRoot),
+      );
+      await target.load();
+      final service = BackupService(
+        settingsProvider: targetSettings,
+        modelConfigProvider: targetModels,
+        conversationProvider: targetConversations,
+        featureProvider: target,
+      );
+      final archive = await service.readZip(archiveFile);
+      final selection = BackupSelection.fromData(archive.data);
+
+      await service.importArchive(
+        archive,
+        ImportPlan(selection: selection, mode: ImportMode.merge),
+      );
+      await target.selectNotePage(noteId, firstPageId);
+      await target.saveNoteContent(noteId, 'local first page');
+
+      await service.importArchive(
+        archive,
+        ImportPlan(
+          selection: selection,
+          mode: ImportMode.merge,
+          conflictActions: {
+            'notes:note:$noteId': ImportConflictAction.keepBoth,
+          },
+        ),
+      );
+
+      var reloaded = FeatureProvider(
+        storageV2: StorageV2Service(rootDirectory: targetRoot),
+      );
+      await reloaded.load();
+      expect(reloaded.notes, hasLength(2));
+      expect(reloaded.getNote(noteId)!.content, 'local first page');
+      final importedCopy = reloaded.notes.firstWhere(
+        (note) => note.id != noteId && note.title == 'conflict',
+      );
+      expect(reloaded.notePages(importedCopy.id), hasLength(2));
+      expect(
+        reloaded.getNote(importedCopy.id)!.content,
+        'imported second page',
+      );
+      await reloaded.selectNotePage(
+        importedCopy.id,
+        reloaded.notePages(importedCopy.id).first.id,
+      );
+      expect(reloaded.getNote(importedCopy.id)!.content, 'first page');
+
+      await service.importArchive(
+        archive,
+        ImportPlan(selection: selection, mode: ImportMode.replaceSection),
+      );
+      reloaded = FeatureProvider(
+        storageV2: StorageV2Service(rootDirectory: targetRoot),
+      );
+      await reloaded.load();
+      expect(reloaded.notes.map((note) => note.id), [noteId]);
+      expect(reloaded.notePages(noteId), hasLength(2));
+      expect(reloaded.getNote(noteId)!.content, 'imported second page');
+    } finally {
+      await sourceRoot.delete(recursive: true);
+      await targetRoot.delete(recursive: true);
+    }
+  });
+
+  test('BackupService rejects unsafe archive entries', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_backup_unsafe_zip_test_',
+    );
+    final service = BackupService(
+      settingsProvider: SettingsProvider(),
+      modelConfigProvider: ModelConfigProvider(),
+      conversationProvider: ConversationProvider(),
+      featureProvider: FeatureProvider(),
+    );
+    try {
+      for (final path in const [
+        '../manifest.json',
+        '/manifest.json',
+        r'notes\manifest.json',
+        'C:/manifest.json',
+      ]) {
+        final archive = Archive()
+          ..addFile(ArchiveFile(path, 2, utf8.encode('{}')))
+          ..addFile(
+            ArchiveFile(
+              'manifest.json',
+              73,
+              utf8.encode(
+                '{"type":"lynai.backup","schemaVersion":2,"sections":{}}',
+              ),
+            ),
+          );
+        final file = File('${root.path}/${path.hashCode}.zip');
+        await file.writeAsBytes(ZipEncoder().encode(archive), flush: true);
+
+        expect(service.readZip(file), throwsA(isA<FormatException>()));
+      }
+    } finally {
+      await root.delete(recursive: true);
+    }
   });
 
   test('Storage v2 note pages protect inactive page revisions', () async {
