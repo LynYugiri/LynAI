@@ -229,6 +229,7 @@ class _NoteDetailState extends State<_NoteDetail> {
                       child: MarkdownWithLatex(
                         content: _ctrl.text,
                         onEditLatexBlock: _editLatexBlockFromPreview,
+                        onEditMermaidBlock: _editMermaidBlockFromPreview,
                       ),
                     ),
                   );
@@ -865,6 +866,7 @@ class _NoteDetailState extends State<_NoteDetail> {
               child: MarkdownWithLatex(
                 content: _ctrl.text,
                 onEditLatexBlock: _editLatexBlockFromPreview,
+                onEditMermaidBlock: _editMermaidBlockFromPreview,
               ),
             ),
           ),
@@ -3012,6 +3014,98 @@ class _NoteDetailState extends State<_NoteDetail> {
     _replaceRange(start, end, _wrapLatexFormula(edited, source));
   }
 
+  Future<void> _editMermaidBlockFromPreview(
+    String source,
+    int start,
+    int end,
+  ) async {
+    final edited = await _openMermaidEditor(_stripMermaidFence(source));
+    if (edited == null) return;
+    _replaceRange(start, end, _wrapMermaidFence(edited));
+  }
+
+  Future<String?> _openMermaidEditor(String initialSource) async {
+    final ctrl = TextEditingController(text: initialSource.trim());
+    try {
+      return await showDialog<String>(
+        context: context,
+        builder: (ctx) {
+          return StatefulBuilder(
+            builder: (ctx, setDialogState) {
+              final size = MediaQuery.sizeOf(ctx);
+              final wide = size.width >= 760;
+              final preview = DecoratedBox(
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: Theme.of(ctx).colorScheme.outlineVariant,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: MarkdownWithLatex(
+                    content: _wrapMermaidFence(ctrl.text),
+                    selectable: false,
+                    wrapCodeBlocks: true,
+                  ),
+                ),
+              );
+              final editor = TextField(
+                controller: ctrl,
+                autofocus: true,
+                minLines: wide ? 18 : 10,
+                maxLines: wide ? 18 : 10,
+                style: const TextStyle(fontFamily: 'Hurmit Nerd Font'),
+                decoration: const InputDecoration(
+                  labelText: 'Mermaid 源码',
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (_) => setDialogState(() {}),
+              );
+              return AlertDialog(
+                title: const Text('编辑 Mermaid'),
+                content: SizedBox(
+                  width: math.min(size.width * 0.9, 980),
+                  child: wide
+                      ? Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(child: editor),
+                            const SizedBox(width: 14),
+                            Expanded(child: preview),
+                          ],
+                        )
+                      : SingleChildScrollView(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              editor,
+                              const SizedBox(height: 14),
+                              preview,
+                            ],
+                          ),
+                        ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('取消'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(ctx, ctrl.text),
+                    child: const Text('完成'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      ctrl.dispose();
+    }
+  }
+
   int _matchIndexAtCursor() {
     final offset = _ctrl.selection.baseOffset;
     final exactIndex = _matches.indexWhere(
@@ -3056,6 +3150,25 @@ class _NoteDetailState extends State<_NoteDetail> {
       return trimmed.substring(1, trimmed.length - 1).trim();
     }
     return trimmed;
+  }
+
+  String _stripMermaidFence(String text) {
+    final lines = text.trim().split('\n');
+    if (lines.length >= 2 && lines.first.trimLeft().startsWith('```')) {
+      var end = lines.length;
+      if (lines.last.trim().startsWith('```')) end--;
+      return lines.sublist(1, end).join('\n').trim();
+    }
+    if (lines.length >= 2 && lines.first.trimLeft().startsWith('~~~')) {
+      var end = lines.length;
+      if (lines.last.trim().startsWith('~~~')) end--;
+      return lines.sublist(1, end).join('\n').trim();
+    }
+    return text.trim();
+  }
+
+  String _wrapMermaidFence(String source) {
+    return '```mermaid\n${source.trim()}\n```';
   }
 
   Future<void> _menu(String value, Note note) async {
@@ -3573,6 +3686,7 @@ class _NoteShareImage extends StatelessWidget {
                 content: content,
                 selectable: false,
                 wrapCodeBlocks: true,
+                renderMermaid: false,
               ),
             ),
             const SizedBox(height: 18),

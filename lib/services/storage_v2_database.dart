@@ -282,7 +282,7 @@ class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
 
   static QueryExecutor _open(File file) {
     driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
-    return NativeDatabase(file);
+    return NativeDatabase.createInBackground(file);
   }
 
   /// Version of app.db's internal SQLite schema.
@@ -294,6 +294,10 @@ class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
+    beforeOpen: (details) async {
+      await customStatement('PRAGMA journal_mode = WAL');
+      await customStatement('PRAGMA busy_timeout = 5000');
+    },
     onUpgrade: (m, from, to) async {
       if (from < 2) {
         await m.addColumn(notePageRows, notePageRows.currentRevisionId);
@@ -332,6 +336,7 @@ class StorageV2Database {
   StorageV2Database(this.storageRoot);
 
   static final Map<String, StorageV2DriftDatabase> _openDatabases = {};
+  static final Map<String, Future<StorageV2DriftDatabase>> _pendingOpens = {};
 
   final Directory storageRoot;
   StorageV2DriftDatabase? _db;
@@ -446,11 +451,25 @@ class StorageV2Database {
       _db = shared;
       return shared;
     }
-    final db = StorageV2DriftDatabase(file);
-    await db.customStatement('PRAGMA foreign_keys = ON');
-    await _createSchema(db);
-    await db._addColumnIfMissing('note_pages', 'current_revision_id', 'TEXT');
-    _openDatabases[path] = db;
+    final pending = _pendingOpens[path];
+    if (pending != null) {
+      final db = await pending;
+      _db = db;
+      return db;
+    }
+    Future<StorageV2DriftDatabase> init() async {
+      final db = StorageV2DriftDatabase(file);
+      await db.customStatement('PRAGMA foreign_keys = ON');
+      await _createSchema(db);
+      await db._addColumnIfMissing('note_pages', 'current_revision_id', 'TEXT');
+      _openDatabases[path] = db;
+      _pendingOpens.remove(path);
+      return db;
+    }
+
+    final future = init();
+    _pendingOpens[path] = future;
+    final db = await future;
     _db = db;
     return db;
   }

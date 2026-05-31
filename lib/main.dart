@@ -73,6 +73,7 @@ class _LynAIAppState extends State<LynAIApp> {
       ]);
 
       settingsProvider.repairMediaModelSelections(modelProvider.models);
+      conversationProvider.repairModelReferences(modelProvider.models);
 
       if (mounted) {
         setState(() {

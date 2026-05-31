@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import '../models/model_config.dart';
+import '../providers/conversation_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/settings_provider.dart';
 
@@ -428,9 +429,25 @@ class _EditModelPageState extends State<EditModelPage> {
       return false;
     }
     final enabled = entries.where((m) => m.enabled).toList();
-    final activeModelName = enabled.isNotEmpty
-        ? enabled.first.name
-        : entries.first.name;
+    if (hasChatStyleOptions && enabled.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请至少启用一个模型')));
+      return false;
+    }
+    final previousModelName = widget.model?.modelName;
+    String? preservedActive;
+    if (previousModelName != null) {
+      for (final entry in enabled) {
+        if (entry.name == previousModelName) {
+          preservedActive = entry.name;
+          break;
+        }
+      }
+    }
+    final activeModelName =
+        preservedActive ??
+        (enabled.isNotEmpty ? enabled.first.name : entries.first.name);
     final config = ModelConfig(
       id: widget.model?.id ?? widget.provider.generateId(),
       name: _nameController.text.trim(),
@@ -454,10 +471,13 @@ class _EditModelPageState extends State<EditModelPage> {
       widget.provider.updateModel(config);
     } else {
       widget.provider.addModel(config);
-      context.read<SettingsProvider>().repairMediaModelSelections(
-        widget.provider.models,
-      );
     }
+    context.read<SettingsProvider>().repairMediaModelSelections(
+      widget.provider.models,
+    );
+    context.read<ConversationProvider>().repairModelReferences(
+      widget.provider.models,
+    );
     _saved = true;
     _closeNow();
     return true;
@@ -1127,6 +1147,9 @@ class _EditModelPageState extends State<EditModelPage> {
             onPressed: () {
               widget.provider.deleteModel(widget.model!.id);
               context.read<SettingsProvider>().repairMediaModelSelections(
+                widget.provider.models,
+              );
+              context.read<ConversationProvider>().repairModelReferences(
                 widget.provider.models,
               );
               Navigator.pop(ctx);

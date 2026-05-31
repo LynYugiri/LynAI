@@ -66,6 +66,14 @@ class ApiService {
   static const _streamTimeout = Duration(minutes: 30);
   static const _speechSliceSize = 5 * 1024 * 1024;
 
+  http.Client? _client;
+  http.Client get client => _client ??= http.Client();
+
+  void dispose() {
+    _client?.close();
+    _client = null;
+  }
+
   Uri _endpointUri(ModelConfig config, String path) {
     final endpoint = config.endpoint.trim().replaceAll(RegExp(r'/+$'), '');
     if (endpoint.isEmpty) {
@@ -777,7 +785,6 @@ class ApiService {
     request.headers.addAll(headers);
     request.body = jsonEncode(body);
 
-    final client = http.Client();
     try {
       final streamedResponse = await client.send(request).timeout(_timeout);
 
@@ -844,7 +851,6 @@ class ApiService {
         );
       }
     } finally {
-      client.close();
     }
   }
 
@@ -1011,7 +1017,6 @@ class ApiService {
     request.headers.addAll({'Content-Type': 'application/json'});
     request.body = jsonEncode(body);
 
-    final client = http.Client();
     try {
       final streamedResponse = await client.send(request).timeout(_timeout);
 
@@ -1129,7 +1134,6 @@ class ApiService {
         yield StreamChunk(isDone: true);
       }
     } finally {
-      client.close();
     }
   }
 
@@ -1182,7 +1186,6 @@ class ApiService {
     });
     request.body = jsonEncode(body);
 
-    final client = http.Client();
     try {
       final streamedResponse = await client.send(request).timeout(_timeout);
 
@@ -1235,7 +1238,6 @@ class ApiService {
         yield StreamChunk(isDone: true);
       }
     } finally {
-      client.close();
     }
   }
 

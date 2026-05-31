@@ -1,15 +1,21 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:highlight/highlight.dart' as hl;
 import 'package:markdown/markdown.dart' as md;
 import 'package:path_provider/path_provider.dart';
 import 'package:screenshot/screenshot.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:super_clipboard/super_clipboard.dart';
+import 'package:webview_all/webview_all.dart';
 
 import '../utils/snackbar_utils.dart';
 
@@ -350,7 +356,9 @@ class MarkdownWithLatex extends StatelessWidget {
   final TextStyle? textStyle;
   final bool selectable;
   final bool wrapCodeBlocks;
+  final bool renderMermaid;
   final void Function(String source, int start, int end)? onEditLatexBlock;
+  final void Function(String source, int start, int end)? onEditMermaidBlock;
 
   const MarkdownWithLatex({
     super.key,
@@ -358,7 +366,9 @@ class MarkdownWithLatex extends StatelessWidget {
     this.textStyle,
     this.selectable = true,
     this.wrapCodeBlocks = false,
+    this.renderMermaid = true,
     this.onEditLatexBlock,
+    this.onEditMermaidBlock,
   });
 
   static final _inlineRegExp = RegExp(r'\$(.+?)\$');
@@ -375,9 +385,12 @@ class MarkdownWithLatex extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (content.isEmpty) return const SizedBox.shrink();
-    final child =
-        LatexRenderer.hasLatexContent(_contentOutsideFencedCodeBlocks(content))
-        ? _buildLatexContent(context)
+    final hasLatex = LatexRenderer.hasLatexContent(
+      _contentOutsideFencedCodeBlocks(content),
+    );
+    final hasMermaid = renderMermaid && _hasMermaidFencedCode(content);
+    final child = hasLatex || hasMermaid
+        ? _buildRichContent(context)
         : _buildMarkdown(context, content);
     return selectable ? SelectionArea(child: child) : child;
   }
@@ -536,14 +549,32 @@ class MarkdownWithLatex extends StatelessWidget {
     );
   }
 
-  Widget _buildLatexContent(BuildContext context) {
+  Widget _buildRichContent(BuildContext context) {
     final segments = _splitFencedCodeBlocks(content);
     final blockRegExp = RegExp(r'\$\$(.+?)\$\$|\\\[(.+?)\\\]', dotAll: true);
     final widgets = <Widget>[];
 
     for (final segment in segments) {
       if (segment.isFencedCodeBlock) {
-        widgets.add(_buildMarkdown(context, segment.text));
+        final mermaid = renderMermaid ? _mermaidFence(segment.text) : null;
+        if (mermaid == null) {
+          widgets.add(_buildMarkdown(context, segment.text));
+        } else {
+          widgets.add(
+            _MermaidBlock(
+              code: mermaid.code,
+              source: segment.text,
+              selectable: selectable,
+              onEdit: onEditMermaidBlock == null
+                  ? null
+                  : () => onEditMermaidBlock!(
+                      segment.text,
+                      segment.startOffset,
+                      segment.startOffset + segment.text.length,
+                    ),
+            ),
+          );
+        }
         continue;
       }
 
@@ -592,6 +623,34 @@ class MarkdownWithLatex extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: widgets,
     );
+  }
+
+  static bool _hasMermaidFencedCode(String text) {
+    return _splitFencedCodeBlocks(text).any(
+      (segment) =>
+          segment.isFencedCodeBlock && _mermaidFence(segment.text) != null,
+    );
+  }
+
+  static _MermaidFence? _mermaidFence(String text) {
+    final lines = text.split('\n');
+    if (lines.length < 2) return null;
+    final openMatch = RegExp(
+      r'^[ \t]{0,3}(`{3,}|~{3,})([^`~]*)$',
+    ).firstMatch(lines.first);
+    if (openMatch == null) return null;
+    final info = openMatch.group(2)!.trim();
+    final language = info.isEmpty
+        ? ''
+        : info.split(RegExp(r'\s+')).first.trim().toLowerCase();
+    if (language != 'mermaid' && language != 'mmd') return null;
+
+    var end = lines.length;
+    final closeMatch = RegExp(r'^[ \t]{0,3}(`{3,}|~{3,})[ \t]*$');
+    if (lines.length > 1 && closeMatch.hasMatch(lines.last)) end--;
+    final code = lines.sublist(1, end).join('\n').trimRight();
+    if (code.trim().isEmpty) return null;
+    return _MermaidFence(code);
   }
 
   static String _contentOutsideFencedCodeBlocks(String text) {
@@ -651,6 +710,302 @@ class MarkdownWithLatex extends StatelessWidget {
 
     flush(isFence: inFence);
     return segments;
+  }
+}
+
+const _mermaidRendererAssetKey = 'assets/mermaid/renderer.html';
+
+class _MermaidFence {
+  final String code;
+
+  const _MermaidFence(this.code);
+}
+
+class _MermaidBlock extends StatefulWidget {
+  final String code;
+  final String source;
+  final bool selectable;
+  final VoidCallback? onEdit;
+
+  const _MermaidBlock({
+    required this.code,
+    required this.source,
+    required this.selectable,
+    this.onEdit,
+  });
+
+  @override
+  State<_MermaidBlock> createState() => _MermaidBlockState();
+}
+
+class _MermaidBlockState extends State<_MermaidBlock> {
+  WebViewController? _controller;
+  var _ready = false;
+  var _renderId = 0;
+  var _height = 220.0;
+  var _width = 420.0;
+  String? _svg;
+  String? _error;
+  Brightness? _lastBrightness;
+
+  bool get _supportsEmbeddedWebView {
+    if (kIsWeb) return true;
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.android ||
+      TargetPlatform.iOS ||
+      TargetPlatform.linux ||
+      TargetPlatform.macOS ||
+      TargetPlatform.windows => true,
+      _ => false,
+    };
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    if (!_supportsEmbeddedWebView) return;
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(const Color(0x00000000))
+      ..addJavaScriptChannel(
+        'MermaidBridge',
+        onMessageReceived: (message) => _handleBridgeMessage(message.message),
+      )
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageFinished: (_) {
+            _ready = true;
+            unawaited(_renderMermaid());
+          },
+        ),
+      )
+      ..loadFlutterAsset(_mermaidRendererAssetKey);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final brightness = Theme.of(context).brightness;
+    if (_lastBrightness == brightness) return;
+    _lastBrightness = brightness;
+    if (_ready) {
+      setState(() {
+        _svg = null;
+        _error = null;
+      });
+      unawaited(_renderMermaid());
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _MermaidBlock oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.code != widget.code && _ready) {
+      setState(() {
+        _svg = null;
+        _error = null;
+      });
+      unawaited(_renderMermaid());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final decoration = BoxDecoration(
+      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(
+        color: theme.colorScheme.primary.withValues(alpha: 0.16),
+      ),
+    );
+    return _ExportableBlock(
+      label: _label,
+      source: widget.source,
+      includeActions: widget.selectable,
+      onEdit: widget.onEdit,
+      decoration: decoration,
+      exportChildBuilder: (_) => _exportBody(),
+      child: _body(theme),
+    );
+  }
+
+  String get _label {
+    final first = widget.code
+        .split('\n')
+        .map((line) => line.trim())
+        .firstWhere((line) => line.isNotEmpty, orElse: () => '');
+    return first == 'mindmap' ? 'Mermaid Mindmap' : 'Mermaid';
+  }
+
+  Widget _body(ThemeData theme) {
+    if (!_supportsEmbeddedWebView || _controller == null) {
+      return _sourceFallback(theme, '当前平台暂不支持 Mermaid 预览');
+    }
+    if (_error != null) return _errorBody(theme);
+    if (_svg != null) return _svgBody();
+    return SizedBox(
+      height: _height,
+      child: Stack(
+        children: [
+          Positioned.fill(child: WebViewWidget(controller: _controller!)),
+          Positioned.fill(
+            child: ColoredBox(
+              color: theme.colorScheme.surfaceContainerHighest.withValues(
+                alpha: 0.68,
+              ),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'Mermaid 渲染中...',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _svgBody() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = math.max(_width, constraints.maxWidth);
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: width,
+            height: _height,
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: SvgPicture.string(_svg!, fit: BoxFit.contain),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _exportBody() {
+    final svg = _svg;
+    if (svg == null) {
+      return Padding(
+        padding: const EdgeInsets.all(16),
+        child: Text(
+          widget.source,
+          style: const TextStyle(fontFamily: 'monospace'),
+        ),
+      );
+    }
+    return SizedBox(
+      width: math.max(_width, 640),
+      height: math.max(_height, 220),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: SvgPicture.string(svg, fit: BoxFit.contain),
+      ),
+    );
+  }
+
+  Widget _errorBody(ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.all(14),
+      child: Text(
+        'Mermaid 渲染失败\n$_error',
+        style: TextStyle(
+          fontFamily: 'monospace',
+          fontSize: 13,
+          color: theme.colorScheme.error,
+        ),
+      ),
+    );
+  }
+
+  Widget _sourceFallback(ThemeData theme, String notice) {
+    return Padding(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            notice,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            widget.code,
+            style: TextStyle(
+              fontFamily: _codeFontFamily,
+              fontSize: 13,
+              color: theme.colorScheme.onSurface,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _renderMermaid() async {
+    final controller = _controller;
+    if (!_ready || controller == null || !mounted) return;
+    final renderId = ++_renderId;
+    final payload = jsonEncode({
+      'renderId': renderId,
+      'code': widget.code,
+      'theme': Theme.of(context).brightness == Brightness.dark
+          ? 'dark'
+          : 'light',
+    });
+    try {
+      await controller.runJavaScript('window.renderMermaid($payload);');
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    }
+  }
+
+  void _handleBridgeMessage(String message) {
+    try {
+      final data = jsonDecode(message) as Map<String, dynamic>;
+      if (!mounted) return;
+      if (data['renderId'] != _renderId) return;
+      setState(() {
+        _width = ((data['width'] as num?)?.toDouble() ?? _width).clamp(
+          220.0,
+          2400.0,
+        );
+        _height = ((data['height'] as num?)?.toDouble() ?? _height).clamp(
+          160.0,
+          720.0,
+        );
+        if (data['ok'] == true) {
+          _svg = (data['svg'] as String?)?.trim();
+          _error = null;
+        } else {
+          _error = (data['error'] as String?) ?? '未知错误';
+        }
+      });
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    }
   }
 }
 

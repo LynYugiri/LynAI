@@ -31,7 +31,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
   }
 
   void _updateSettings(ConversationSettings settings) {
-    _settings = settings;
+    setState(() => _settings = settings);
     widget.onChanged(settings);
   }
 
@@ -74,7 +74,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: Colors.grey[700],
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
               const SizedBox(height: 8),
@@ -90,7 +90,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                           ? Theme.of(
                               context,
                             ).colorScheme.primary.withValues(alpha: 0.3)
-                          : Colors.grey.withValues(alpha: 0.3),
+                          : Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.3),
                     ),
                     borderRadius: BorderRadius.circular(8),
                     color: _showRoleList
@@ -122,7 +122,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: Colors.grey[700],
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
               const SizedBox(height: 8),
@@ -140,7 +140,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                           ? Theme.of(
                               context,
                             ).colorScheme.primary.withValues(alpha: 0.3)
-                          : Colors.grey.withValues(alpha: 0.3),
+                          : Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.3),
                     ),
                     borderRadius: BorderRadius.circular(8),
                     color: _showSystemPromptList
@@ -156,7 +156,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                           _currentSystemPromptLabel(set),
                           style: TextStyle(
                             fontSize: 13,
-                            color: Colors.grey[600],
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -167,7 +167,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                             ? Icons.expand_less
                             : Icons.expand_more,
                         size: 18,
-                        color: Colors.grey[400],
+                        color: Theme.of(context).colorScheme.outline,
                       ),
                     ],
                   ),
@@ -184,7 +184,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: Colors.grey[700],
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
               const SizedBox(height: 8),
@@ -236,7 +236,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: Colors.grey[700],
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
               const SizedBox(height: 8),
@@ -288,7 +288,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: Colors.grey[700],
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
               const SizedBox(height: 8),
@@ -343,7 +343,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: Colors.grey[700],
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
               const SizedBox(height: 8),
@@ -364,13 +364,13 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     border: Border.all(
-                      color: Colors.grey.withValues(alpha: 0.3),
+                      color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.3),
                     ),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
                     _settings.imageRecognitionPrompt,
-                    style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                    style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant),
                   ),
                 ),
               ),
@@ -476,7 +476,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                     ? Theme.of(
                         context,
                       ).colorScheme.primary.withValues(alpha: 0.3)
-                    : Colors.grey.withValues(alpha: 0.3),
+                    : Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.3),
               ),
               color: showList
                   ? Theme.of(
@@ -493,7 +493,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                       ? Theme.of(context).colorScheme.primary
                       : (currentModel != null
                             ? Theme.of(context).colorScheme.primary
-                            : Colors.grey[400]),
+                            : Theme.of(context).colorScheme.outline),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -503,14 +503,14 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 13,
-                      color: currentModel != null ? null : Colors.grey[500],
+                      color: currentModel != null ? null : Theme.of(context).colorScheme.outline,
                     ),
                   ),
                 ),
                 Icon(
                   showList ? Icons.expand_less : Icons.expand_more,
                   size: 18,
-                  color: Colors.grey[400],
+                  color: Theme.of(context).colorScheme.outline,
                 ),
               ],
             ),
@@ -587,14 +587,14 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                       : m.modelName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                  style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.outline),
                 ),
                 leading: Icon(
                   isSelected ? Icons.check_circle : Icons.circle_outlined,
                   size: 18,
                   color: isSelected
                       ? Theme.of(context).colorScheme.primary
-                      : Colors.grey[400],
+                      : Theme.of(context).colorScheme.outline,
                 ),
                 trailing: m.hasMultipleModels
                     ? const Icon(Icons.chevron_right, size: 16)
@@ -622,7 +622,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                           size: 14,
                           color: e.name == m.modelName
                               ? Theme.of(context).colorScheme.primary
-                              : Colors.grey,
+                              : Theme.of(context).colorScheme.outline,
                         ),
                         title: Text(
                           e.name,
@@ -713,7 +713,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                 size: 18,
                 color: sel
                     ? Theme.of(context).colorScheme.primary
-                    : Colors.grey,
+                    : Theme.of(context).colorScheme.outline,
               ),
               title: const Text('默认', style: TextStyle(fontSize: 14)),
               subtitle: const Text(
@@ -761,7 +761,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
             leading: Icon(
               sel ? Icons.check_circle : Icons.circle_outlined,
               size: 18,
-              color: sel ? Theme.of(context).colorScheme.primary : Colors.grey,
+              color: sel ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outline,
             ),
             title: Text(p.title, style: const TextStyle(fontSize: 14)),
             subtitle: Text(
@@ -830,7 +830,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
               size: 18,
               color: selected
                   ? Theme.of(context).colorScheme.primary
-                  : Colors.grey,
+                  : Theme.of(context).colorScheme.outline,
             ),
             title: Text(role.name),
             subtitle: Text(

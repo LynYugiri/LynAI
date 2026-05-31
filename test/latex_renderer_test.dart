@@ -67,4 +67,25 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.textContaining('='), findsWidgets);
   });
+
+  testWidgets('MarkdownWithLatex can leave Mermaid as code when disabled', (
+    WidgetTester tester,
+  ) async {
+    const content = '''```mermaid
+mindmap
+  root((LynAI))
+```''';
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: MarkdownWithLatex(content: content, renderMermaid: false),
+        ),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(find.textContaining('mindmap'), findsWidgets);
+    expect(find.textContaining('root((LynAI))'), findsWidgets);
+  });
 }

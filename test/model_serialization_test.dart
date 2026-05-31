@@ -18,6 +18,7 @@ import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
+import 'package:lynai/repositories/settings_repository.dart';
 import 'package:lynai/services/api_service.dart';
 import 'package:lynai/services/backup_service.dart';
 import 'package:lynai/services/storage_migration_service.dart';
@@ -1499,6 +1500,38 @@ void main() {
       await root.delete(recursive: true);
     },
   );
+
+  test('SettingsRepository preserves storage v2 metadata on save', () async {
+    SharedPreferences.setMockInitialValues({'storage_schema_version': 2});
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_settings_storage_v2_metadata_test_',
+    );
+    final storageRoot = Directory('${root.path}/storage_v2');
+    final dataDir = Directory('${storageRoot.path}/data');
+    await dataDir.create(recursive: true);
+    await File('${storageRoot.path}/manifest.json').writeAsString(
+      jsonEncode({'type': 'lynai.storage_v2', 'schemaVersion': 2}),
+      flush: true,
+    );
+    await File('${dataDir.path}/app_settings.json').writeAsString(
+      jsonEncode({
+        ...AppSettings.defaults().toJson(),
+        'storageV2': {'backgroundResourceId': 'res_bg'},
+      }),
+      flush: true,
+    );
+
+    final storage = StorageV2Service(rootDirectory: root);
+    final repository = SettingsRepository(storageV2: storage);
+    await repository.save(
+      AppSettings.defaults().copyWith(backgroundImagePath: '/tmp/bg.png'),
+      usingStorageV2: true,
+    );
+
+    final saved = await storage.loadDataFile('app_settings.json');
+    expect(saved['storageV2'], {'backgroundResourceId': 'res_bg'});
+    await root.delete(recursive: true);
+  });
 
   test('FeatureProvider uses storage v2 notes after migration', () async {
     SharedPreferences.setMockInitialValues({});

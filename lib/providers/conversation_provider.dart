@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import '../models/conversation.dart';
 import '../models/message.dart';
+import '../models/model_config.dart';
 import '../repositories/conversation_repository.dart';
 import '../services/storage_v2_service.dart';
 
@@ -190,6 +191,41 @@ class ConversationProvider extends ChangeNotifier {
       updatedAt: DateTime.now(),
     );
     _touchConversation(index, _conversations[index]);
+    _queueSaveConversations();
+    notifyListeners();
+  }
+
+  /// 修复已删除模型留下的对话引用。
+  void repairModelReferences(List<ModelConfig> models) {
+    final chatModels = models
+        .where((model) => model.category == ModelConfig.categoryChat)
+        .toList(growable: false);
+    if (chatModels.isEmpty) return;
+
+    final validIds = chatModels.map((model) => model.id).toSet();
+    final fallbackId = chatModels.first.id;
+    var changed = false;
+
+    _conversations = _conversations.map((conversation) {
+      final nextModelId = validIds.contains(conversation.modelId)
+          ? conversation.modelId
+          : fallbackId;
+      final nextSettingsModelId =
+          validIds.contains(conversation.settings.modelId)
+          ? conversation.settings.modelId
+          : nextModelId;
+      if (nextModelId == conversation.modelId &&
+          nextSettingsModelId == conversation.settings.modelId) {
+        return conversation;
+      }
+      changed = true;
+      return conversation.copyWith(
+        modelId: nextModelId,
+        settings: conversation.settings.copyWith(modelId: nextSettingsModelId),
+      );
+    }).toList();
+
+    if (!changed) return;
     _queueSaveConversations();
     notifyListeners();
   }

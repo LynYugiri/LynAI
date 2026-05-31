@@ -154,7 +154,7 @@ class _RoleEditDialogState extends State<_RoleEditDialog> {
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey.withValues(alpha: 0.35)),
+                border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.35)),
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Wrap(

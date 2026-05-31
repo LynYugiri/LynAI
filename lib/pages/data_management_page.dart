@@ -198,6 +198,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       await Future.wait([
         context.read<ConversationProvider>().loadConversations(),
         context.read<ModelConfigProvider>().loadModels(),
+        context.read<SettingsProvider>().loadSettings(),
         context.read<FeatureProvider>().load(),
       ]);
       await _loadMigrationState();

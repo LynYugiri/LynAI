@@ -105,7 +105,9 @@ class _HistoryDrawerState extends State<_HistoryDrawer> {
               ? Center(
                   child: Text(
                     _q.isEmpty ? '暂无历史对话' : '无匹配结果',
-                    style: TextStyle(color: Colors.grey[500]),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
                   ),
                 )
               : ListView(

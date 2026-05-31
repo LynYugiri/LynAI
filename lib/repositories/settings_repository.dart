@@ -62,7 +62,17 @@ class SettingsRepository {
     required bool usingStorageV2,
   }) async {
     if (usingStorageV2 || await _storageState.isStorageV2Active()) {
-      await _storageV2.writeDataFile('app_settings.json', settings.toJson());
+      final next = settings.toJson();
+      try {
+        final current = await _storageV2.loadDataFile('app_settings.json');
+        final storage = current['storageV2'];
+        if (storage is Map && storage.isNotEmpty) {
+          next['storageV2'] = Map<String, dynamic>.from(storage);
+        }
+      } catch (_) {
+        // A missing or corrupt existing settings file should not block saving.
+      }
+      await _storageV2.writeDataFile('app_settings.json', next);
       return;
     }
     final prefs = await SharedPreferences.getInstance();

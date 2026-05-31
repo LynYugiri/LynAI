@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=4.0">
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: transparent;
+      --text: #1f2937;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      overflow: hidden;
+    }
+    #diagram {
+      box-sizing: border-box;
+      min-width: 100%;
+      padding: 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #diagram svg {
+      max-width: none;
+      height: auto;
+    }
+    #error {
+      display: none;
+      box-sizing: border-box;
+      padding: 14px 16px;
+      white-space: pre-wrap;
+      color: #b91c1c;
+      font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+  </style>
+  <script src="mermaid.min.js"></script>
+</head>
+<body>
+  <div id="diagram"></div>
+  <pre id="error"></pre>
+  <script>
+    let renderCount = 0;
+
+    function post(payload) {
+      if (window.MermaidBridge && MermaidBridge.postMessage) {
+        MermaidBridge.postMessage(JSON.stringify(payload));
+      }
+    }
+
+    function sizePayload(renderId, ok, error, svg) {
+      const body = document.body;
+      const html = document.documentElement;
+      return {
+        renderId,
+        ok,
+        error: error || '',
+        svg: svg || '',
+        width: Math.ceil(Math.max(body.scrollWidth, html.scrollWidth, 1)),
+        height: Math.ceil(Math.max(body.scrollHeight, html.scrollHeight, 1))
+      };
+    }
+
+    window.renderMermaid = async function(payload) {
+      const data = typeof payload === 'string' ? JSON.parse(payload) : payload;
+      const diagram = document.getElementById('diagram');
+      const errorBox = document.getElementById('error');
+      const dark = data.theme === 'dark';
+      document.documentElement.style.setProperty('--text', dark ? '#e5e7eb' : '#1f2937');
+      diagram.style.display = 'inline-flex';
+      errorBox.style.display = 'none';
+      diagram.innerHTML = '';
+      errorBox.textContent = '';
+
+      try {
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: 'strict',
+          theme: dark ? 'dark' : 'default',
+          fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+        });
+        const id = 'lynai_mermaid_' + (++renderCount);
+        const result = await mermaid.render(id, data.code || '');
+        diagram.innerHTML = result.svg;
+        if (result.bindFunctions) result.bindFunctions(diagram);
+        requestAnimationFrame(() => post(sizePayload(data.renderId || 0, true, '', result.svg)));
+      } catch (error) {
+        diagram.style.display = 'none';
+        errorBox.style.display = 'block';
+        errorBox.textContent = String(error && (error.message || error.str || error) || 'Mermaid render failed');
+        requestAnimationFrame(() => post(sizePayload(data.renderId || 0, false, errorBox.textContent)));
+      }
+    };
+  </script>
+</body>
+</html>

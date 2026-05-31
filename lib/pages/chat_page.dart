@@ -245,6 +245,7 @@ class _ChatPageState extends State<ChatPage> {
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
     _focusNode.dispose();
+    _api.dispose();
     super.dispose();
   }
 
@@ -423,8 +424,7 @@ class _ChatPageState extends State<ChatPage> {
       if (conv != null) {
         try {
           return chatModels.firstWhere((m) => m.id == conv.modelId);
-        } catch (e) {
-          debugPrint('自动标题生成失败: $e');
+        } catch (_) {
         }
       }
     }
@@ -557,6 +557,7 @@ class _ChatPageState extends State<ChatPage> {
     });
     _scrollEnd(force: true);
     cp.addMessage(_convId!, 'assistant', '');
+    await Future.microtask(() {});
     _doSend(
       model,
       lastUserContentOverride: apiUserContent,
@@ -625,6 +626,7 @@ class _ChatPageState extends State<ChatPage> {
       _beginStreaming(_convId!);
       _thinkingTxt = null;
     });
+    await Future.microtask(() {});
     _doSend(model, lastUserContentOverride: apiUserContent);
   }
 
@@ -1006,6 +1008,7 @@ class _ChatPageState extends State<ChatPage> {
     });
     final retryModel = _getModel(context.read<ModelConfigProvider>());
     if (retryModel != null) {
+      await Future.microtask(() {});
       _doSend(retryModel, lastUserContentOverride: apiUserContent);
     } else {
       setState(() => _setStreaming(false));
@@ -1053,6 +1056,7 @@ class _ChatPageState extends State<ChatPage> {
         _beginStreaming(_convId!);
         _thinkingTxt = null;
       });
+      await Future.microtask(() {});
       _doSend(retryModel, lastUserContentOverride: apiUserContent);
     } else {
       setState(() => _setStreaming(false));
@@ -1133,7 +1137,10 @@ class _ChatPageState extends State<ChatPage> {
     try {
       setState(() => _sharingImage = true);
       final images = await _captureShareImages();
-      if (images.isEmpty) return;
+      if (images.isEmpty) {
+        if (mounted) _showShareImageSnack('生成长图失败，请重试');
+        return;
+      }
       if (mounted) {
         if (isDesktopPlatform) {
           final clipboard = SystemClipboard.instance;
@@ -1185,7 +1192,10 @@ class _ChatPageState extends State<ChatPage> {
     try {
       setState(() => _sharingImage = true);
       final images = await _captureShareImages();
-      if (images.isEmpty) return;
+      if (images.isEmpty) {
+        if (mounted) _showShareImageSnack('生成长图失败，请重试');
+        return;
+      }
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       if (Platform.isAndroid || Platform.isIOS) {
         for (var i = 0; i < images.length; i++) {
@@ -1751,7 +1761,8 @@ class _ChatPageState extends State<ChatPage> {
           requestGen != _recordingRequestGen ||
           _recordingStartCancelled) {
         await _audioRecorder.stop();
-        File(path).delete().catchError((_) => File(path));
+        // ignore: invalid_return_type_for_catch_error
+        unawaited(File(path).delete().catchError((_) => null));
         return;
       }
       setState(() {
@@ -1864,7 +1875,8 @@ class _ChatPageState extends State<ChatPage> {
       ).showSnackBar(SnackBar(content: Text('语音转文字失败: $e')));
     } finally {
       if (mounted) setState(() => _transcribingSpeech = false);
-      File(path).delete().catchError((_) => File(path));
+      // ignore: invalid_return_type_for_catch_error
+      unawaited(File(path).delete().catchError((_) => null));
     }
   }
 
@@ -2097,20 +2109,27 @@ class _ChatPageState extends State<ChatPage> {
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(Icons.chat_bubble_outline, size: 80, color: Colors.grey[300]),
+        Icon(
+          Icons.chat_bubble_outline,
+          size: 80,
+          color: Theme.of(context).colorScheme.outlineVariant,
+        ),
         const SizedBox(height: 16),
         Text(
           '开始新对话',
           style: TextStyle(
             fontSize: 20,
-            color: Colors.grey[500],
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
             fontWeight: FontWeight.w300,
           ),
         ),
         const SizedBox(height: 8),
         Text(
           '在下方输入你的问题',
-          style: TextStyle(fontSize: 14, color: Colors.grey[400]),
+          style: TextStyle(
+            fontSize: 14,
+            color: Theme.of(context).colorScheme.outline,
+          ),
         ),
       ],
     ),
@@ -2145,7 +2164,7 @@ class _ChatPageState extends State<ChatPage> {
                 size: 20,
                 color: selected
                     ? Theme.of(context).colorScheme.primary
-                    : Colors.grey[400],
+                    : Theme.of(context).colorScheme.outline,
               ),
             ),
             Expanded(child: bubble),
@@ -2214,11 +2233,11 @@ class _ChatPageState extends State<ChatPage> {
                     borderRadius: BorderRadius.circular(12),
                     child: Padding(
                       padding: const EdgeInsets.all(4),
-                      child: Icon(
-                        Icons.edit_outlined,
-                        size: 16,
-                        color: Colors.grey[400],
-                      ),
+                        child: Icon(
+                          Icons.edit_outlined,
+                          size: 16,
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
                     ),
                   ),
               ],
@@ -2414,12 +2433,15 @@ class _ChatPageState extends State<ChatPage> {
                   Icon(
                     _thinkExpanded ? Icons.expand_less : Icons.expand_more,
                     size: 14,
-                    color: Colors.grey[500],
+                    color: Theme.of(context).colorScheme.outline,
                   ),
                   const SizedBox(width: 4),
                   Text(
                     '思考过程',
-                    style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
                   ),
                 ],
               ),
@@ -2432,7 +2454,7 @@ class _ChatPageState extends State<ChatPage> {
                 content,
                 style: TextStyle(
                   fontSize: 13,
-                  color: Colors.grey[500],
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                   fontStyle: FontStyle.italic,
                   height: 1.4,
                 ),
@@ -2503,12 +2525,15 @@ class _ChatPageState extends State<ChatPage> {
                     Icon(
                       expanded ? Icons.expand_less : Icons.expand_more,
                       size: 14,
-                      color: Colors.grey[500],
+                      color: Theme.of(context).colorScheme.outline,
                     ),
                     const SizedBox(width: 4),
                     Text(
                       '思考过程',
-                      style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
                     ),
                   ],
                 ),
@@ -2521,7 +2546,7 @@ class _ChatPageState extends State<ChatPage> {
                   think,
                   style: TextStyle(
                     fontSize: 13,
-                    color: Colors.grey[500],
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                     fontStyle: FontStyle.italic,
                     height: 1.4,
                   ),
@@ -2573,7 +2598,11 @@ class _ChatPageState extends State<ChatPage> {
     borderRadius: BorderRadius.circular(12),
     child: Padding(
       padding: const EdgeInsets.all(4),
-      child: Icon(i, size: 16, color: Colors.grey[400]),
+      child: Icon(
+        i,
+        size: 16,
+        color: Theme.of(context).colorScheme.outline,
+      ),
     ),
   );
 
@@ -2593,13 +2622,13 @@ class _ChatPageState extends State<ChatPage> {
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               child: Text(
                 '<',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  color: current > 0
-                      ? Theme.of(context).colorScheme.primary
-                      : Colors.grey[300],
-                ),
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: current > 0
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.15),
+                  ),
               ),
             ),
           ),
@@ -2607,7 +2636,7 @@ class _ChatPageState extends State<ChatPage> {
             '${current + 1}/$total',
             style: TextStyle(
               fontSize: 11,
-              color: Colors.grey[500],
+              color: Theme.of(context).colorScheme.outline,
               fontFamily: 'monospace',
             ),
           ),
@@ -2618,13 +2647,13 @@ class _ChatPageState extends State<ChatPage> {
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               child: Text(
                 '>',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  color: current < total - 1
-                      ? Theme.of(context).colorScheme.primary
-                      : Colors.grey[300],
-                ),
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: current < total - 1
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.15),
+                  ),
               ),
             ),
           ),
@@ -2769,6 +2798,7 @@ class _ChatPageState extends State<ChatPage> {
     });
     _scrollEnd();
     cp.addMessage(newConvId, 'assistant', '');
+    await Future.microtask(() {});
     _doSend(editModel, lastUserContentOverride: apiUserContent);
   }
 
@@ -2811,7 +2841,7 @@ class _ChatPageState extends State<ChatPage> {
                           if (event is KeyDownEvent &&
                               event.logicalKey == LogicalKeyboardKey.enter &&
                               !HardwareKeyboard.instance.isShiftPressed) {
-                            _send();
+                            unawaited(_send());
                             return KeyEventResult.handled;
                           }
                           final isPaste =
@@ -2903,7 +2933,7 @@ class _ChatPageState extends State<ChatPage> {
                         size: 18,
                         color: sel
                             ? Theme.of(context).colorScheme.primary
-                            : Colors.grey,
+                            : Theme.of(context).colorScheme.outline,
                       ),
                       title: Text(
                         m.name,
@@ -2945,7 +2975,7 @@ class _ChatPageState extends State<ChatPage> {
                                 size: 14,
                                 color: e.name == m.modelName
                                     ? Theme.of(context).colorScheme.primary
-                                    : Colors.grey,
+                                    : Theme.of(context).colorScheme.outline,
                               ),
                               title: Text(
                                 e.name,
@@ -3002,7 +3032,7 @@ class _ChatPageState extends State<ChatPage> {
                   size: 14,
                   color: settings?.imageRecognitionModelId == m.id
                       ? Theme.of(context).colorScheme.primary
-                      : Colors.grey,
+                      : Theme.of(context).colorScheme.outline,
                 ),
                 title: Text(
                   m.name,
@@ -3078,9 +3108,15 @@ class _ChatPageState extends State<ChatPage> {
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
         ),
-        child: const Icon(Icons.smart_toy, size: 18, color: Colors.grey),
+        child: Icon(
+          Icons.smart_toy,
+          size: 18,
+          color: Theme.of(context).colorScheme.outline,
+        ),
       );
     }
     if (_showModelMenu) {
@@ -3177,10 +3213,10 @@ class _ChatPageState extends State<ChatPage> {
     final scheme = Theme.of(context).colorScheme;
     final enabled = onPressed != null;
     final foreground = !enabled
-        ? Colors.grey[300]
+        ? scheme.onSurface.withValues(alpha: 0.15)
         : selected
         ? scheme.primary
-        : Colors.grey[500];
+        : scheme.outline;
     final child = AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOut,
@@ -3189,7 +3225,7 @@ class _ChatPageState extends State<ChatPage> {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: selected ? scheme.primary : Colors.grey.withValues(alpha: 0.3),
+          color: selected ? scheme.primary : scheme.outlineVariant.withValues(alpha: 0.3),
         ),
         color: selected ? scheme.primary.withValues(alpha: 0.1) : null,
       ),
@@ -3319,7 +3355,7 @@ class _ChatPageState extends State<ChatPage> {
         size: 22,
         color: _showAttach
             ? Theme.of(context).colorScheme.primary
-            : Colors.grey[500],
+            : Theme.of(context).colorScheme.outline,
       ),
     ),
   );
@@ -3361,9 +3397,19 @@ class _ChatPageState extends State<ChatPage> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(i, size: 16, color: Colors.grey[600]),
+          Icon(
+            i,
+            size: 16,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
           const SizedBox(width: 4),
-          Text(l, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+          Text(
+            l,
+            style: TextStyle(
+              fontSize: 12,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
         ],
       ),
     ),
@@ -3524,16 +3570,27 @@ class _ChatPageState extends State<ChatPage> {
         constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
       );
     }
-    return GestureDetector(
-      onLongPressStart: (_) => _voice(),
-      onLongPressEnd: (_) => _stopVoice(),
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: Icon(
-          hasSpeech ? Icons.mic_none : Icons.mic_none_outlined,
-          size: 22,
-          color: Colors.grey[500],
-        ),
+    return Tooltip(
+      message: hasSpeech ? '长按语音输入' : '长按使用系统语音',
+      child: GestureDetector(
+        onTap: () {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('长按按钮开始录音，松开自动转文字'),
+              duration: Duration(seconds: 1),
+            ),
+          );
+        },
+        onLongPressStart: (_) => _voice(),
+        onLongPressEnd: (_) => _stopVoice(),
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Icon(
+            hasSpeech ? Icons.mic_none : Icons.mic_none_outlined,
+            size: 22,
+            color: Theme.of(context).colorScheme.outline,
+          ),
+      ),
       ),
     );
   }
