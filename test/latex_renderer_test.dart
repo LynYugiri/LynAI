@@ -88,4 +88,28 @@ mindmap
     expect(find.textContaining('mindmap'), findsWidgets);
     expect(find.textContaining('root((LynAI))'), findsWidgets);
   });
+
+  testWidgets('mermaid fence extraction excludes closing fence', (
+    WidgetTester tester,
+  ) async {
+    const content = '''```mermaid
+graph TD
+    A --> B
+```
+后文''';
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: MarkdownWithLatex(content: content, renderMermaid: false),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(find.textContaining('graph TD'), findsOneWidget);
+    expect(find.textContaining('A --> B'), findsOneWidget);
+    expect(find.textContaining('后文'), findsOneWidget);
+  });
 }

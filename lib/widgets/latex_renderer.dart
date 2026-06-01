@@ -647,7 +647,10 @@ class MarkdownWithLatex extends StatelessWidget {
 
     var end = lines.length;
     final closeMatch = RegExp(r'^[ \t]{0,3}(`{3,}|~{3,})[ \t]*$');
-    if (lines.length > 1 && closeMatch.hasMatch(lines.last)) end--;
+    while (end > 1 && lines[end - 1].trim().isEmpty) {
+      end--;
+    }
+    if (end > 1 && closeMatch.hasMatch(lines[end - 1])) end--;
     final code = lines.sublist(1, end).join('\n').trimRight();
     if (code.trim().isEmpty) return null;
     return _MermaidFence(code);
@@ -997,7 +1000,8 @@ class _MermaidBlockState extends State<_MermaidBlock> {
           720.0,
         );
         if (data['ok'] == true) {
-          _svg = (data['svg'] as String?)?.trim();
+          final svg = (data['svg'] as String?)?.trim();
+          _svg = (svg == null || svg.isEmpty) ? null : svg;
           _error = null;
         } else {
           _error = (data['error'] as String?) ?? '未知错误';

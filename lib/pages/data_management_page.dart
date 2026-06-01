@@ -297,6 +297,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       final currentState = _migrationState;
       if (currentState != null && !currentState.completed) {
         await _migrationService(context).migrate();
+        if (!mounted) return;
         await Future.wait([
           context.read<ConversationProvider>().loadConversations(),
           context.read<ModelConfigProvider>().loadModels(),
