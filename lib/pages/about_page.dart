@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
+import 'changelog_page.dart';
 
 /// 关于页面
 ///
@@ -95,6 +96,20 @@ class _AboutPageState extends State<AboutPage> {
                     const SizedBox(height: 8),
                     _buildInfoRow('平台', _currentPlatform()),
                   ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const ChangelogPage(),
+                    ),
+                  ),
+                  icon: const Icon(Icons.auto_awesome, size: 18),
+                  label: const Text('更新日志'),
                 ),
               ),
             ],

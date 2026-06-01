@@ -27,6 +27,7 @@ class AppSettings {
   final List<ChatRole> roles;
   final String currentRoleId;
   final String lastFeature;
+  final String? lastSeenChangelogVersion;
 
   AppSettings({
     required this.themeColor,
@@ -48,6 +49,7 @@ class AppSettings {
     List<ChatRole>? roles,
     this.currentRoleId = ChatRole.defaultId,
     this.lastFeature = 'history',
+    this.lastSeenChangelogVersion,
   }) : roles = roles ?? [ChatRole.defaultRole()];
 
   factory AppSettings.defaults() {
@@ -76,6 +78,7 @@ class AppSettings {
     List<ChatRole>? roles,
     String? currentRoleId,
     String? lastFeature,
+    Object? lastSeenChangelogVersion = _sentinel,
   }) {
     return AppSettings(
       themeColor: themeColor ?? this.themeColor,
@@ -111,6 +114,9 @@ class AppSettings {
       roles: roles ?? this.roles,
       currentRoleId: currentRoleId ?? this.currentRoleId,
       lastFeature: lastFeature ?? this.lastFeature,
+      lastSeenChangelogVersion: identical(lastSeenChangelogVersion, _sentinel)
+          ? this.lastSeenChangelogVersion
+          : lastSeenChangelogVersion as String?,
     );
   }
 
@@ -178,6 +184,7 @@ class AppSettings {
           ? currentRoleId
           : ChatRole.defaultId,
       lastFeature: json['lastFeature'] as String? ?? 'history',
+      lastSeenChangelogVersion: json['lastSeenChangelogVersion'] as String?,
     );
   }
 
@@ -204,6 +211,8 @@ class AppSettings {
       'roles': roles.map((e) => e.toJson()).toList(),
       'currentRoleId': currentRoleId,
       'lastFeature': lastFeature,
+      if (lastSeenChangelogVersion != null)
+        'lastSeenChangelogVersion': lastSeenChangelogVersion,
     };
   }
 }

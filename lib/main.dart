@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'providers/conversation_provider.dart';
 import 'providers/feature_provider.dart';
@@ -6,6 +7,8 @@ import 'providers/model_config_provider.dart';
 import 'providers/settings_provider.dart';
 import 'pages/home_page.dart';
 import 'services/storage_migration_service.dart';
+import 'utils/changelog_parser.dart';
+import 'widgets/changelog_dialog.dart';
 
 /// LynAI 的应用入口。
 ///
@@ -89,6 +92,10 @@ class _LynAIAppState extends State<LynAIApp> {
           _hasError = false;
         });
       }
+
+      if (mounted) {
+        _checkNewChangelog();
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -98,6 +105,30 @@ class _LynAIAppState extends State<LynAIApp> {
         });
       }
     }
+  }
+
+  Future<void> _checkNewChangelog() async {
+    try {
+      final settingsProvider = context.read<SettingsProvider>();
+      final lastSeen = settingsProvider.settings.lastSeenChangelogVersion;
+
+      final packageInfo = await PackageInfo.fromPlatform();
+      final currentVersion = packageInfo.version;
+
+      if (lastSeen == currentVersion) return;
+
+      final parser = ChangelogParser();
+      final entry = await parser.loadVersion(currentVersion);
+      if (entry == null) return;
+
+      if (!mounted) return;
+      await showChangelogDialog(context, entry);
+
+      final updatedSettings = settingsProvider.settings.copyWith(
+        lastSeenChangelogVersion: currentVersion,
+      );
+      await settingsProvider.replaceSettings(updatedSettings);
+    } catch (_) {}
   }
 
   @override
