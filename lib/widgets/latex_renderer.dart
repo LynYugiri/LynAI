@@ -385,12 +385,18 @@ class MarkdownWithLatex extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (content.isEmpty) return const SizedBox.shrink();
-    final hasLatex = LatexRenderer.hasLatexContent(
-      _contentOutsideFencedCodeBlocks(content),
-    );
-    final hasMermaid = renderMermaid && _hasMermaidFencedCode(content);
+    final segments = _splitFencedCodeBlocks(content);
+    final nonFenced = segments
+        .where((s) => !s.isFencedCodeBlock)
+        .map((s) => s.text)
+        .join('\n');
+    final hasLatex = LatexRenderer.hasLatexContent(nonFenced);
+    final hasMermaid = renderMermaid &&
+        segments.any(
+          (s) => s.isFencedCodeBlock && _mermaidFence(s.text) != null,
+        );
     final child = hasLatex || hasMermaid
-        ? _buildRichContent(context)
+        ? _buildRichContent(context, segments)
         : _buildMarkdown(context, content);
     return selectable ? SelectionArea(child: child) : child;
   }
@@ -549,8 +555,10 @@ class MarkdownWithLatex extends StatelessWidget {
     );
   }
 
-  Widget _buildRichContent(BuildContext context) {
-    final segments = _splitFencedCodeBlocks(content);
+  Widget _buildRichContent(
+    BuildContext context,
+    List<_MarkdownSegment> segments,
+  ) {
     final blockRegExp = RegExp(r'\$\$(.+?)\$\$|\\\[(.+?)\\\]', dotAll: true);
     final widgets = <Widget>[];
 
@@ -625,11 +633,20 @@ class MarkdownWithLatex extends StatelessWidget {
     );
   }
 
-  static bool _hasMermaidFencedCode(String text) {
-    return _splitFencedCodeBlocks(text).any(
-      (segment) =>
-          segment.isFencedCodeBlock && _mermaidFence(segment.text) != null,
-    );
+  @visibleForTesting
+  static String? debugMermaidBody(String text) {
+    return _mermaidFence(text)?.code;
+  }
+
+  @visibleForTesting
+  static List<Map<String, Object?>> debugSegments(String text) {
+    return _splitFencedCodeBlocks(text)
+        .map((s) => <String, Object?>{
+              'text': s.text,
+              'isFencedCodeBlock': s.isFencedCodeBlock,
+              'startOffset': s.startOffset,
+            })
+        .toList();
   }
 
   static _MermaidFence? _mermaidFence(String text) {
@@ -654,13 +671,6 @@ class MarkdownWithLatex extends StatelessWidget {
     final code = lines.sublist(1, end).join('\n').trimRight();
     if (code.trim().isEmpty) return null;
     return _MermaidFence(code);
-  }
-
-  static String _contentOutsideFencedCodeBlocks(String text) {
-    return _splitFencedCodeBlocks(text)
-        .where((segment) => !segment.isFencedCodeBlock)
-        .map((segment) => segment.text)
-        .join('\n');
   }
 
   static List<_MarkdownSegment> _splitFencedCodeBlocks(String text) {
@@ -689,6 +699,7 @@ class MarkdownWithLatex extends StatelessWidget {
       final wasInFence = inFence;
       if (!wasInFence && openMatch != null) {
         flush(isFence: false);
+        bufferStart = currentOffset;
         inFence = true;
         fenceMarker = openMatch.group(1)![0];
         fenceLength = openMatch.group(1)!.length;
@@ -793,7 +804,6 @@ class _MermaidBlockState extends State<_MermaidBlock> {
     _lastBrightness = brightness;
     if (_ready) {
       setState(() {
-        _svg = null;
         _error = null;
       });
       unawaited(_renderMermaid());
@@ -846,7 +856,7 @@ class _MermaidBlockState extends State<_MermaidBlock> {
       return _sourceFallback(theme, '当前平台暂不支持 Mermaid 预览');
     }
     if (_error != null) return _errorBody(theme);
-    if (_svg != null) return _svgBody();
+    if (_svg != null) return _svgBody(theme);
     return SizedBox(
       height: _height,
       child: Stack(
@@ -886,7 +896,7 @@ class _MermaidBlockState extends State<_MermaidBlock> {
     );
   }
 
-  Widget _svgBody() {
+  Widget _svgBody(ThemeData theme) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = math.max(_width, constraints.maxWidth);
@@ -897,12 +907,20 @@ class _MermaidBlockState extends State<_MermaidBlock> {
             height: _height,
             child: Padding(
               padding: const EdgeInsets.all(8),
-              child: SvgPicture.string(_svg!, fit: BoxFit.contain),
+              child: _safeSvg(theme),
             ),
           ),
         );
       },
     );
+  }
+
+  Widget _safeSvg(ThemeData theme) {
+    try {
+      return SvgPicture.string(_svg!, fit: BoxFit.contain);
+    } catch (_) {
+      return _sourceFallback(theme, 'SVG 解析失败，显示源码');
+    }
   }
 
   Widget _exportBody() {
