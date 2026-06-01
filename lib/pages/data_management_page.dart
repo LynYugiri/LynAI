@@ -15,6 +15,7 @@ import '../providers/model_config_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/backup_service.dart';
 import '../services/storage_migration_service.dart';
+import '../services/storage_v2_service.dart';
 
 /// 数据管理页面。
 ///
@@ -43,6 +44,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       modelConfigProvider: context.read<ModelConfigProvider>(),
       conversationProvider: context.read<ConversationProvider>(),
       featureProvider: context.read<FeatureProvider>(),
+      storageV2: StorageV2Service(),
     );
   }
 

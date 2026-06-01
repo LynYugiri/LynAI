@@ -168,13 +168,23 @@ class NoteRevision {
   });
 
   factory NoteRevision.fromJson(Map<String, dynamic> json) {
+    final delta = json['delta'];
+    final hasFlatDelta = json['deltaStart'] != null;
     return NoteRevision(
       id: json['id'] as String,
       noteId: json['noteId'] as String,
       pageId: json['pageId'] as String?,
       parentRevisionId: json['parentRevisionId'] as String?,
       savedAt: DateTime.parse(json['savedAt'] as String),
-      delta: NoteTextDelta.fromJson(json['delta'] as Map<String, dynamic>),
+      delta: delta is Map
+          ? NoteTextDelta.fromJson(Map<String, dynamic>.from(delta))
+          : hasFlatDelta
+          ? NoteTextDelta(
+              start: json['deltaStart'] as int? ?? 0,
+              deletedText: json['deletedText'] as String? ?? '',
+              insertedText: json['insertedText'] as String? ?? '',
+            )
+          : const NoteTextDelta(start: 0, deletedText: '', insertedText: ''),
     );
   }
 

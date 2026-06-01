@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
+import 'package:crypto/crypto.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
@@ -33,6 +34,7 @@ class BackupService {
     required this.modelConfigProvider,
     required this.conversationProvider,
     required this.featureProvider,
+    this.storageV2,
     Directory? temporaryDirectory,
     Future<String> Function()? appVersionLoader,
   }) : _temporaryDirectory = temporaryDirectory,
@@ -42,11 +44,12 @@ class BackupService {
   final ModelConfigProvider modelConfigProvider;
   final ConversationProvider conversationProvider;
   final FeatureProvider featureProvider;
+  final StorageV2Service? storageV2;
   final Directory? _temporaryDirectory;
   final Future<String> Function()? _appVersionLoader;
   final _uuid = const Uuid();
 
-  static const currentSchemaVersion = 2;
+  static const currentSchemaVersion = 3;
   static const _backupType = 'lynai.backup';
 
   static Set<BackupSettingsPart> settingsPartsFromManifest(
@@ -132,8 +135,18 @@ class BackupService {
           selection.settingsParts.contains(BackupSettingsPart.apiConfigs)
           ? modelConfigProvider.models
           : const <ModelConfig>[];
+      final settingsJson = _settingsToJson(settings, selection.settingsParts);
+      if (settingsProvider.usingStorageV2 && storageV2 != null) {
+        try {
+          final current = await storageV2!.loadDataFile('app_settings.json');
+          final storageSub = current['storageV2'];
+          if (storageSub is Map && storageSub.isNotEmpty) {
+            settingsJson['storageV2'] = Map<String, dynamic>.from(storageSub);
+          }
+        } catch (_) {}
+      }
       addJson('settings.json', {
-        'appSettings': _settingsToJson(settings, selection.settingsParts),
+        'appSettings': settingsJson,
       });
       if (selection.settingsParts.contains(BackupSettingsPart.appearance)) {
         await addPrivateAsset(
@@ -156,6 +169,7 @@ class BackupService {
       final conversations = conversationProvider.conversations
           .where((item) => selection.conversationIds.contains(item.id))
           .toList();
+      final usingV2 = conversationProvider.usingStorageV2;
       for (final conversation in conversations) {
         for (final message in conversation.messages) {
           for (final image in message.images) {
@@ -167,12 +181,63 @@ class BackupService {
           }
         }
       }
-      addJson('conversations.json', {
-        'conversations': conversations.map((item) => item.toJson()).toList(),
-      });
+      if (usingV2) {
+        final convRows = <Map<String, dynamic>>[];
+        final msgRows = <Map<String, dynamic>>[];
+        final attRows = <Map<String, dynamic>>[];
+        for (final conversation in conversations) {
+          convRows.add({
+            'id': conversation.id,
+            'title': conversation.title,
+            'modelId': conversation.modelId,
+            'settings': conversation.settings.toJson(),
+            'roleId': conversation.roleId,
+            'createdAt': conversation.createdAt.toIso8601String(),
+            'updatedAt': conversation.updatedAt.toIso8601String(),
+          });
+          for (var i = 0; i < conversation.messages.length; i++) {
+            final message = conversation.messages[i];
+            msgRows.add({
+              'id': message.id,
+              'conversationId': conversation.id,
+              'role': message.role,
+              'content': message.content,
+              if (message.thinkingContent != null &&
+                  message.thinkingContent!.isNotEmpty)
+                'thinkingContent': message.thinkingContent,
+              'timestamp': message.timestamp.toIso8601String(),
+              'sortOrder': i,
+            });
+            for (var j = 0; j < message.images.length; j++) {
+              final image = message.images[j];
+              attRows.add({
+                'id': '${message.id}_attachment_$j',
+                'messageId': message.id,
+                'displayName': image.name,
+                'name': image.name,
+                'mimeType': image.mimeType,
+                'size': image.size,
+                'path': image.path,
+                'legacyPath': image.path,
+                'sortOrder': j,
+              });
+            }
+          }
+        }
+        addJson('conversations.json', {
+          'conversations': convRows,
+          'messages': msgRows,
+          'messageAttachments': attRows,
+        });
+      } else {
+        addJson('conversations.json', {
+          'conversations': conversations.map((item) => item.toJson()).toList(),
+        });
+      }
       sections[BackupSection.conversations.key] = {
         'enabled': true,
         'files': ['conversations.json'],
+        if (usingV2) 'format': 'storage_v2',
         'count': conversations.length,
       };
     }
@@ -222,14 +287,63 @@ class BackupService {
           }
         }
         addJson('notes/pages.json', {'pages': pages});
+        final proposalRows = <Map<String, dynamic>>[];
+        final blockRows = <Map<String, dynamic>>[];
+        for (final proposal in proposals) {
+          proposalRows.add({
+            'id': proposal.id,
+            'noteId': proposal.noteId,
+            if (proposal.pageId != null) 'pageId': proposal.pageId,
+            if (proposal.baseRevisionId != null)
+              'baseRevisionId': proposal.baseRevisionId,
+            'baseContentHash': proposal.baseContentHash,
+            'createdAt': proposal.createdAt.toIso8601String(),
+          });
+          for (var i = 0; i < proposal.blocks.length; i++) {
+            final block = proposal.blocks[i];
+            blockRows.add({
+              'id': block.id,
+              'proposalId': proposal.id,
+              'startLine': block.startLine,
+              'deleteCount': block.deleteCount,
+              'deletedLines': block.deletedLines,
+              'insertLines': block.insertLines,
+              'sortOrder': i,
+            });
+          }
+        }
         addJson('notes/edit_proposals.json', {
-          'proposals': proposals.map((item) => item.toJson()).toList(),
+          'proposals': proposalRows,
         });
-        noteFiles.addAll(['notes/pages.json', 'notes/edit_proposals.json']);
+        addJson('notes/edit_blocks.json', {
+          'blocks': blockRows,
+        });
+        noteFiles.addAll([
+          'notes/pages.json',
+          'notes/edit_proposals.json',
+          'notes/edit_blocks.json',
+        ]);
       }
-      addJson('notes/revisions.json', {
-        'revisions': revisions.map((item) => item.toJson()).toList(),
-      });
+      if (featureProvider.usingStorageV2) {
+        final flatRevisions = revisions.map((revision) {
+          return {
+            'id': revision.id,
+            'noteId': revision.noteId,
+            if (revision.pageId != null) 'pageId': revision.pageId,
+            if (revision.parentRevisionId != null)
+              'parentRevisionId': revision.parentRevisionId,
+            'savedAt': revision.savedAt.toIso8601String(),
+            'deltaStart': revision.delta.start,
+            'deletedText': revision.delta.deletedText,
+            'insertedText': revision.delta.insertedText,
+          };
+        }).toList();
+        addJson('notes/revisions.json', {'revisions': flatRevisions});
+      } else {
+        addJson('notes/revisions.json', {
+          'revisions': revisions.map((item) => item.toJson()).toList(),
+        });
+      }
       sections[BackupSection.notes.key] = {
         'enabled': true,
         'files': noteFiles,
@@ -257,14 +371,52 @@ class BackupService {
       final todoLists = featureProvider.todoLists
           .where((item) => selection.todoListIds.contains(item.id))
           .toList();
-      addJson('todo_lists.json', {
-        'todoLists': todoLists.map((item) => item.toJson()).toList(),
-      });
+      final usingV2 = featureProvider.usingStorageV2;
+      if (usingV2) {
+        final listRows = <Map<String, dynamic>>[];
+        final itemRows = <Map<String, dynamic>>[];
+        for (final list in todoLists) {
+          listRows.add({
+            'id': list.id,
+            'title': list.title,
+            'createdAt': list.createdAt.toIso8601String(),
+            'updatedAt': list.updatedAt.toIso8601String(),
+          });
+          for (var i = 0; i < list.items.length; i++) {
+            final item = list.items[i];
+            itemRows.add({
+              'id': item.id,
+              'listId': list.id,
+              'text': item.text,
+              'done': item.done,
+              'sortOrder': i,
+            });
+          }
+        }
+        addJson('todo_lists.json', {
+          'todoLists': listRows,
+          'todoItems': itemRows,
+        });
+      } else {
+        addJson('todo_lists.json', {
+          'todoLists': todoLists.map((item) => item.toJson()).toList(),
+        });
+      }
       sections[BackupSection.todoLists.key] = {
         'enabled': true,
         'files': ['todo_lists.json'],
+        if (usingV2) 'format': 'storage_v2',
         'count': todoLists.length,
       };
+    }
+
+    final exportedResources = await _collectExportResources(
+      selection,
+      archivedAssetPaths,
+      assetRecords,
+    );
+    if (exportedResources.isNotEmpty) {
+      addJson('resources.json', {'resources': exportedResources});
     }
 
     addJson('manifest.json', {
@@ -275,6 +427,7 @@ class BackupService {
       'format': 'zip',
       'sections': sections,
       if (assetRecords.isNotEmpty) 'assets': assetRecords,
+      if (exportedResources.isNotEmpty) 'resourcesFile': 'resources.json',
     });
 
     final dir = _temporaryDirectory ?? await getTemporaryDirectory();
@@ -332,8 +485,19 @@ class BackupService {
     final pagesJson = readMap('notes/pages.json');
     final revisionsJson = readMap('notes/revisions.json');
     final proposalsJson = readMap('notes/edit_proposals.json');
+    final blocksJson = readMap('notes/edit_blocks.json');
     final schedulesJson = readMap('schedules.json');
     final todoListsJson = readMap('todo_lists.json');
+    final resourcesJson = readMap('resources.json');
+
+    final conversations = _parseConversations(conversationsJson, schemaVersion, warnings);
+    final todoLists = _parseTodoLists(todoListsJson, schemaVersion, warnings);
+    final noteEditProposals = _parseNoteEditProposals(
+      proposalsJson,
+      blocksJson,
+      schemaVersion,
+      warnings,
+    );
     final notePages = _parseRawMapList(pagesJson?['pages'], warnings, '笔记分页');
     final pageContents = <String, String>{};
     for (final page in notePages ?? const <Map<String, dynamic>>[]) {
@@ -372,12 +536,7 @@ class BackupService {
           warnings,
           '模型配置',
         ),
-        conversations: _parseList(
-          conversationsJson?['conversations'],
-          Conversation.fromJson,
-          warnings,
-          '对话记录',
-        ),
+        conversations: conversations,
         noteFolders: _parseList(
           foldersJson?['folders'],
           NoteFolder.fromJson,
@@ -393,27 +552,264 @@ class BackupService {
           warnings,
           '笔记修订',
         ),
-        noteEditProposals: _parseList(
-          proposalsJson?['proposals'],
-          NoteEditProposal.fromJson,
-          warnings,
-          '笔记修改建议',
-        ),
+        noteEditProposals: noteEditProposals,
         schedules: _parseList(
           schedulesJson?['schedules'],
           ScheduleItem.fromJson,
           warnings,
           '日程',
         ),
-        todoLists: _parseList(
-          todoListsJson?['todoLists'],
-          TodoList.fromJson,
-          warnings,
-          '待办清单',
-        ),
+        todoLists: todoLists,
       ),
       assetFiles: assetFiles,
+      resources: _parseRawMapList(
+        resourcesJson?['resources'],
+        warnings,
+        '资源',
+      ),
     );
+  }
+
+  static List<Conversation>? _parseConversations(
+    Map<String, dynamic>? json,
+    int schemaVersion,
+    List<String> warnings,
+  ) {
+    if (json == null) return null;
+    if (json['messages'] is List && json['conversations'] is List) {
+      return _parseConversationsFlat(json, warnings);
+    }
+    return _parseList(
+      json['conversations'],
+      Conversation.fromJson,
+      warnings,
+      '对话记录',
+    );
+  }
+
+  static List<Conversation>? _parseConversationsFlat(
+    Map<String, dynamic> json,
+    List<String> warnings,
+  ) {
+    final attachmentsByMessageId = <String, List<MessageImage>>{};
+    for (final item in json['messageAttachments'] as List<dynamic>? ?? const []) {
+      if (item is! Map) continue;
+      try {
+        final raw = Map<String, dynamic>.from(item);
+        final messageId = raw['messageId'] as String?;
+        if (messageId == null) continue;
+        (attachmentsByMessageId[messageId] ??= []).add(
+          MessageImage(
+            path: raw['path'] as String? ?? raw['legacyPath'] as String? ?? '',
+            name: raw['displayName'] as String? ?? raw['name'] as String? ?? 'file',
+            size: raw['size'] as int? ?? 0,
+            mimeType: raw['mimeType'] as String? ?? 'application/octet-stream',
+          ),
+        );
+      } catch (e) {
+        warnings.add('跳过损坏的附件记录: $e');
+      }
+    }
+
+    final messagesByConvId = <String, List<_FlatMessageRow>>{};
+    for (final item in json['messages'] as List<dynamic>? ?? const []) {
+      if (item is! Map) continue;
+      try {
+        final raw = Map<String, dynamic>.from(item);
+        final convId = raw['conversationId'] as String?;
+        if (convId == null) continue;
+        final msgId = raw['id'] as String;
+        final timestamp = DateTime.tryParse(raw['timestamp'] as String? ?? '');
+        if (timestamp == null) throw const FormatException('Invalid timestamp');
+        (messagesByConvId[convId] ??= []).add(
+          _FlatMessageRow(
+            message: Message(
+              id: msgId,
+              role: raw['role'] as String,
+              content: raw['content'] as String? ?? '',
+              images: attachmentsByMessageId[msgId] ?? const [],
+              thinkingContent: raw['thinkingContent'] as String?,
+              timestamp: timestamp,
+            ),
+            sortOrder: (raw['sortOrder'] as num?)?.toInt(),
+          ),
+        );
+      } catch (e) {
+        warnings.add('跳过损坏的扁平消息记录: $e');
+      }
+    }
+
+    final conversations = <Conversation>[];
+    for (final item in json['conversations'] as List<dynamic>? ?? const []) {
+      if (item is! Map) continue;
+      try {
+        final raw = Map<String, dynamic>.from(item);
+        final id = raw['id'] as String;
+        final rows = List<_FlatMessageRow>.from(
+          messagesByConvId[id] ?? const [],
+        );
+        rows.sort((a, b) {
+          final oa = a.sortOrder;
+          final ob = b.sortOrder;
+          if (oa != null && ob != null) return oa.compareTo(ob);
+          if (oa != null) return -1;
+          if (ob != null) return 1;
+          return a.message.timestamp.compareTo(b.message.timestamp);
+        });
+        conversations.add(
+          Conversation(
+            id: id,
+            title: raw['title'] as String? ?? '',
+            messages: rows.map((r) => r.message).toList(),
+            modelId: raw['modelId'] as String? ?? '',
+            settings: raw['settings'] is Map
+                ? ConversationSettings.fromJson(
+                    Map<String, dynamic>.from(raw['settings'] as Map),
+                    fallbackModelId: raw['modelId'] as String? ?? '',
+                  )
+                : null,
+            roleId: raw['roleId'] as String? ?? 'default',
+            createdAt: DateTime.parse(raw['createdAt'] as String),
+            updatedAt: DateTime.parse(raw['updatedAt'] as String),
+          ),
+        );
+      } catch (e) {
+        warnings.add('跳过损坏的扁平对话记录: $e');
+      }
+    }
+    return conversations;
+  }
+
+  static List<TodoList>? _parseTodoLists(
+    Map<String, dynamic>? json,
+    int schemaVersion,
+    List<String> warnings,
+  ) {
+    if (json == null) return null;
+    if (json['todoItems'] is List && json['todoLists'] is List) {
+      return _parseTodoListsFlat(json, warnings);
+    }
+    return _parseList(
+      json['todoLists'],
+      TodoList.fromJson,
+      warnings,
+      '待办清单',
+    );
+  }
+
+  static List<TodoList>? _parseTodoListsFlat(
+    Map<String, dynamic> json,
+    List<String> warnings,
+  ) {
+    final itemsByListId = <String, List<TodoItem>>{};
+    for (final item in json['todoItems'] as List<dynamic>? ?? const []) {
+      if (item is! Map) continue;
+      try {
+        final raw = Map<String, dynamic>.from(item);
+        final listId = raw['listId'] as String;
+        (itemsByListId[listId] ??= []).add(
+          TodoItem(
+            id: raw['id'] as String,
+            text: raw['text'] as String? ?? '',
+            done: raw['done'] as bool? ?? false,
+          ),
+        );
+      } catch (e) {
+        warnings.add('跳过损坏的扁平待办项: $e');
+      }
+    }
+    final lists = <TodoList>[];
+    for (final item in json['todoLists'] as List<dynamic>? ?? const []) {
+      if (item is! Map) continue;
+      try {
+        final raw = Map<String, dynamic>.from(item);
+        final id = raw['id'] as String;
+        lists.add(
+          TodoList(
+            id: id,
+            title: raw['title'] as String? ?? '',
+            items: List<TodoItem>.from(itemsByListId[id] ?? const []),
+            createdAt: DateTime.parse(raw['createdAt'] as String),
+            updatedAt: DateTime.parse(raw['updatedAt'] as String),
+          ),
+        );
+      } catch (e) {
+        warnings.add('跳过损坏的扁平待办清单: $e');
+      }
+    }
+    return lists;
+  }
+
+  static List<NoteEditProposal>? _parseNoteEditProposals(
+    Map<String, dynamic>? proposalsJson,
+    Map<String, dynamic>? blocksJson,
+    int schemaVersion,
+    List<String> warnings,
+  ) {
+    if (proposalsJson == null) return null;
+    if (blocksJson?['blocks'] is List) {
+      return _parseNoteEditProposalsFlat(proposalsJson, blocksJson!, warnings);
+    }
+    return _parseList(
+      proposalsJson['proposals'],
+      NoteEditProposal.fromJson,
+      warnings,
+      '笔记修改建议',
+    );
+  }
+
+  static List<NoteEditProposal>? _parseNoteEditProposalsFlat(
+    Map<String, dynamic> proposalsJson,
+    Map<String, dynamic> blocksJson,
+    List<String> warnings,
+  ) {
+    final blocksByProposal = <String, List<NoteEditBlock>>{};
+    for (final item in blocksJson['blocks'] as List<dynamic>? ?? const []) {
+      if (item is! Map) continue;
+      try {
+        final raw = Map<String, dynamic>.from(item);
+        final proposalId = raw['proposalId'] as String;
+        (blocksByProposal[proposalId] ??= []).add(
+          NoteEditBlock(
+            id: raw['id'] as String,
+            startLine: raw['startLine'] as int? ?? 1,
+            deleteCount: raw['deleteCount'] as int? ?? 0,
+            deletedLines:
+                (raw['deletedLines'] as List<dynamic>? ?? const [])
+                    .whereType<String>()
+                    .toList(),
+            insertLines:
+                (raw['insertLines'] as List<dynamic>? ?? const [])
+                    .whereType<String>()
+                    .toList(),
+          ),
+        );
+      } catch (e) {
+        warnings.add('跳过损坏的扁平编辑块: $e');
+      }
+    }
+    final proposals = <NoteEditProposal>[];
+    for (final item
+        in proposalsJson['proposals'] as List<dynamic>? ?? const []) {
+      if (item is! Map) continue;
+      try {
+        final raw = Map<String, dynamic>.from(item);
+        proposals.add(
+          NoteEditProposal(
+            id: raw['id'] as String,
+            noteId: raw['noteId'] as String,
+            pageId: raw['pageId'] as String?,
+            baseRevisionId: raw['baseRevisionId'] as String?,
+            baseContentHash: raw['baseContentHash'] as String? ?? '',
+            createdAt: DateTime.parse(raw['createdAt'] as String),
+            blocks: blocksByProposal[raw['id'] as String] ?? const [],
+          ),
+        );
+      } catch (e) {
+        warnings.add('跳过损坏的扁平编辑建议: $e');
+      }
+    }
+    return proposals;
   }
 
   BackupPreview preview(BackupArchiveData archive, BackupSelection selection) {
@@ -448,6 +844,7 @@ class BackupService {
       _referencedAssetPaths(filteredData, plan.selection.settingsParts),
     );
     final data = _remapBackupAssetPaths(filteredData, restoredAssetPaths);
+    await _mergeBackupResources(archive, restoredAssetPaths);
     var added = 0;
     var replaced = 0;
     var skipped = 0;
@@ -1681,6 +2078,39 @@ class BackupService {
     return restored;
   }
 
+  Future<void> _mergeBackupResources(
+    BackupArchiveData archive,
+    Map<String, String> restoredAssetPaths,
+  ) async {
+    if (storageV2 == null) return;
+    if (!featureProvider.usingStorageV2) return;
+    final resources = archive.resources;
+    if (resources == null || resources.isEmpty) return;
+    List<StorageV2Resource> existing;
+    try {
+      existing = await storageV2!.loadResources();
+    } catch (_) {
+      return;
+    }
+    var changed = false;
+    for (final raw in resources) {
+      try {
+        final resource = StorageV2Resource.fromJson(raw);
+        if (existing.any((r) => r.id == resource.id)) continue;
+        existing.add(resource);
+        changed = true;
+      } catch (_) {}
+    }
+    if (!changed) return;
+    try {
+      await storageV2!.writeDataFile('resources.json', {
+        'resources': existing.map((r) => r.toJson()).toList(),
+      });
+    } catch (e) {
+      archive.warnings.add('合并资源列表失败: $e');
+    }
+  }
+
   Future<void> _deleteUnreferencedRestoredAssets(
     Iterable<String> restoredPaths,
     List<String> warnings,
@@ -2064,6 +2494,88 @@ class BackupService {
   static String _notePageContentPath(String pageId) {
     return 'notes/page_contents/${safeStorageSegment(pageId, fallback: 'page')}.md';
   }
+
+  Future<List<Map<String, dynamic>>> _collectExportResources(
+    BackupSelection selection,
+    Map<String, String> archivedAssetPaths,
+    List<Map<String, dynamic>> assetRecords,
+  ) async {
+    if (storageV2 == null) return [];
+    if (!featureProvider.usingStorageV2) return [];
+    List<StorageV2Resource> existing;
+    try {
+      existing = await storageV2!.loadResources();
+    } catch (_) {
+      return [];
+    }
+    final items = <Map<String, dynamic>>[];
+    final seenIds = <String>{};
+    for (final record in assetRecords) {
+      final originalPath = record['originalPath'] as String? ?? '';
+      if (originalPath.isEmpty) continue;
+      final matched = existing.where((res) =>
+          !res.missing &&
+          _normalizePath(res.originalPath) == _normalizePath(originalPath));
+      if (matched.isNotEmpty) {
+        final resource = matched.first;
+        if (seenIds.add(resource.id)) {
+          items.add(resource.toJson());
+        }
+        record['resourceId'] = resource.id;
+        record['sha256'] = resource.sha256Hash;
+      } else {
+        try {
+          final file = File(originalPath);
+          if (await file.exists()) {
+            final bytes = await file.readAsBytes();
+            final hash = sha256.convert(bytes).toString();
+            final dup = existing.where((res) =>
+                !res.missing && res.sha256Hash == hash);
+            if (dup.isNotEmpty) {
+              record['resourceId'] = dup.first.id;
+              record['sha256'] = hash;
+              if (seenIds.add(dup.first.id)) {
+                items.add(dup.first.toJson());
+              }
+            } else {
+              final safeName = safeStorageFileName(
+                record['name'] as String? ?? 'asset',
+                fallback: 'asset',
+              );
+              final kind = record['kind'] as String? ?? 'unknown';
+              final prefix = hash.substring(0, 2);
+              final relativePath = 'assets/$kind/$prefix/${hash}_$safeName';
+              final resource = StorageV2Resource(
+                id: 'res_${hash.substring(0, 32)}',
+                kind: kind,
+                role: record['kind'] as String? ?? 'unknown',
+                originalPath: originalPath,
+                originalName: safeName,
+                relativePath: relativePath,
+                mimeType: record['mimeType'] as String? ?? '',
+                size: bytes.length,
+                sha256Hash: hash,
+                missing: false,
+              );
+              record['resourceId'] = resource.id;
+              record['sha256'] = hash;
+              if (seenIds.add(resource.id)) {
+                items.add(resource.toJson());
+              }
+            }
+          }
+        } catch (_) {}
+      }
+    }
+    return items;
+  }
+}
+
+class _FlatMessageRow {
+  const _FlatMessageRow({required this.message, required this.sortOrder});
+
+  final Message message;
+  final int? sortOrder;
 }
 
 class _ImportIdMap {

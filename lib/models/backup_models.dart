@@ -213,12 +213,14 @@ class BackupArchiveData {
   final BackupData data;
   final List<String> warnings;
   final Map<String, List<int>> assetFiles;
+  final List<Map<String, dynamic>>? resources;
 
   const BackupArchiveData({
     required this.manifest,
     required this.data,
     this.warnings = const [],
     this.assetFiles = const {},
+    this.resources,
   });
 
   Set<BackupSection> get availableSections => data.availableSections;

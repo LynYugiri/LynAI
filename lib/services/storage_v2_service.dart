@@ -270,6 +270,7 @@ class StorageV2Service {
       if (!resource.missing &&
           resource.sha256Hash == hash &&
           resource.size == bytes.length) {
+        await _ensureResourceFile(resource, bytes);
         return resource;
       }
     }
@@ -299,6 +300,19 @@ class StorageV2Service {
       sha256Hash: hash,
       missing: false,
     );
+  }
+
+  Future<void> _ensureResourceFile(
+    StorageV2Resource resource,
+    List<int> bytes,
+  ) async {
+    final path = resource.relativePath;
+    if (path == null || resource.missing) return;
+    final target = await _file(path);
+    if (await target.exists()) return;
+    final parent = target.parent;
+    if (!await parent.exists()) await parent.create(recursive: true);
+    await target.writeAsBytes(bytes, flush: true);
   }
 
   StorageV2Resource _missingResource(
