@@ -11,6 +11,7 @@ import '../providers/model_config_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/file_name_utils.dart';
 import 'storage_v2_database.dart';
+import 'storage_v2_service.dart';
 
 /// One-shot migration from the legacy SharedPreferences JSON store into a
 /// durable v2 layout: structured table snapshots plus note/resource files.
@@ -52,17 +53,55 @@ class StorageMigrationService {
 
   Future<StorageMigrationState> loadState() async {
     final prefs = await _prefs();
-    final schemaVersion = prefs.getInt(_schemaVersionKey) ?? 1;
-    final status = prefs.getString(_statusKey) ?? 'notStarted';
+    return StorageMigrationState(
+      schemaVersion: prefs.getInt(_schemaVersionKey) ?? 1,
+      status: prefs.getString(_statusKey) ?? 'notStarted',
+      completedAt: prefs.getString(_completedAtKey),
+      report: null,
+    );
+  }
+
+  Future<StorageMigrationReport?> loadReport() async {
+    final prefs = await _prefs();
     final reportJson = prefs.getString(_reportKey);
-    StorageMigrationReport? report;
-    if (reportJson != null) {
-      try {
-        report = StorageMigrationReport.fromJson(
-          jsonDecode(reportJson) as Map<String, dynamic>,
-        );
-      } catch (_) {}
+    if (reportJson == null) return null;
+    try {
+      return StorageMigrationReport.fromJson(
+        jsonDecode(reportJson) as Map<String, dynamic>,
+      );
+    } catch (_) {
+      return null;
     }
+  }
+
+  Future<StorageMigrationState> loadFullState() async {
+    final prefs = await _prefs();
+    final report = await loadReport();
+    return StorageMigrationState(
+      schemaVersion: prefs.getInt(_schemaVersionKey) ?? 1,
+      status: prefs.getString(_statusKey) ?? 'notStarted',
+      completedAt: prefs.getString(_completedAtKey),
+      report: report,
+    );
+  }
+
+  Future<StorageMigrationState> ensureMigrationReady() async {
+    final prefs = await _prefs();
+    var schemaVersion = prefs.getInt(_schemaVersionKey) ?? 1;
+    var status = prefs.getString(_statusKey) ?? 'notStarted';
+    if (schemaVersion < currentSchemaVersion && status != 'running') {
+      final storageReady = await _storageV2Ready();
+      if (storageReady || !await _hasLegacyUserData(prefs)) {
+        if (!storageReady) await migrate(force: true);
+        final completedAt = DateTime.now().toIso8601String();
+        await prefs.setInt(_schemaVersionKey, currentSchemaVersion);
+        await prefs.setString(_statusKey, 'completed');
+        await prefs.setString(_completedAtKey, completedAt);
+        schemaVersion = currentSchemaVersion;
+        status = 'completed';
+      }
+    }
+    final report = await loadReport();
     return StorageMigrationState(
       schemaVersion: schemaVersion,
       status: status,
@@ -393,6 +432,25 @@ class StorageMigrationService {
     for (final key in legacyKeys) {
       await prefs.remove(key);
     }
+  }
+
+  Future<bool> _hasLegacyUserData(SharedPreferences prefs) async {
+    const legacyUserDataKeys = [
+      'conversations',
+      'model_configs',
+      'schedule_items',
+      'notes',
+      'note_revisions',
+      'note_folders',
+      'note_edit_proposals',
+      'todo_lists',
+    ];
+    return legacyUserDataKeys.any(prefs.containsKey);
+  }
+
+  Future<bool> _storageV2Ready() async {
+    final root = _rootDirectory ?? await getApplicationDocumentsDirectory();
+    return await StorageV2Service(rootDirectory: root).exists();
   }
 
   Future<Directory> _root() async {

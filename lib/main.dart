@@ -5,6 +5,7 @@ import 'providers/feature_provider.dart';
 import 'providers/model_config_provider.dart';
 import 'providers/settings_provider.dart';
 import 'pages/home_page.dart';
+import 'services/storage_migration_service.dart';
 
 /// LynAI 的应用入口。
 ///
@@ -64,6 +65,13 @@ class _LynAIAppState extends State<LynAIApp> {
       final modelProvider = context.read<ModelConfigProvider>();
       final settingsProvider = context.read<SettingsProvider>();
       final featureProvider = context.read<FeatureProvider>();
+
+      await StorageMigrationService(
+        settingsProvider: settingsProvider,
+        modelConfigProvider: modelProvider,
+        conversationProvider: conversationProvider,
+        featureProvider: featureProvider,
+      ).ensureMigrationReady();
 
       await Future.wait([
         conversationProvider.loadConversations(),

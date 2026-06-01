@@ -1879,7 +1879,11 @@ void main() {
         storageV2: StorageV2Service(rootDirectory: targetRoot),
       );
       await reloaded.load();
-      expect(reloaded.notes.map((note) => note.id), [noteId]);
+      expect(reloaded.notes, hasLength(2));
+      expect(
+        reloaded.notes.map((note) => note.id).toSet(),
+        {noteId, importedCopy.id},
+      );
       expect(reloaded.notePages(noteId), hasLength(2));
       expect(reloaded.getNote(noteId)!.content, 'imported second page');
     } finally {
@@ -1925,6 +1929,96 @@ void main() {
       await root.delete(recursive: true);
     }
   });
+
+  test('BackupService reads legacy schema 1 backups', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_backup_schema1_test_',
+    );
+    final service = BackupService(
+      settingsProvider: SettingsProvider(),
+      modelConfigProvider: ModelConfigProvider(),
+      conversationProvider: ConversationProvider(),
+      featureProvider: FeatureProvider(),
+    );
+    try {
+      final manifest = jsonEncode({
+        'type': 'lynai.backup',
+        'schemaVersion': 1,
+        'sections': {
+          'conversations': {
+            'enabled': true,
+            'files': ['conversations.json'],
+          },
+        },
+      });
+      final conversations = jsonEncode({
+        'conversations': [
+          Conversation(
+            id: 'legacy-conv',
+            title: 'legacy',
+            messages: const [],
+            modelId: 'm1',
+            settings: ConversationSettings(modelId: 'm1'),
+            createdAt: DateTime(2024),
+            updatedAt: DateTime(2024),
+          ).toJson(),
+        ],
+      });
+      final archive = Archive()
+        ..addFile(
+          ArchiveFile(
+            'manifest.json',
+            utf8.encode(manifest).length,
+            utf8.encode(manifest),
+          ),
+        )
+        ..addFile(
+          ArchiveFile(
+            'conversations.json',
+            utf8.encode(conversations).length,
+            utf8.encode(conversations),
+          ),
+        );
+      final file = File('${root.path}/legacy.zip');
+      await file.writeAsBytes(ZipEncoder().encode(archive), flush: true);
+
+      final data = await service.readZip(file);
+
+      expect(data.data.conversations, hasLength(1));
+      expect(data.data.conversations!.single.id, 'legacy-conv');
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test(
+    'Storage migration initializes empty storage v2 when no legacy data',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final root = await Directory.systemTemp.createTemp(
+        'lynai_empty_storage_v2_test_',
+      );
+      try {
+        final service = StorageMigrationService(
+          settingsProvider: SettingsProvider(),
+          modelConfigProvider: ModelConfigProvider(),
+          conversationProvider: ConversationProvider(),
+          featureProvider: FeatureProvider(),
+          rootDirectory: root,
+        );
+
+        final state = await service.ensureMigrationReady();
+
+        expect(state.completed, isTrue);
+        expect(
+          await File('${root.path}/storage_v2/manifest.json').exists(),
+          isTrue,
+        );
+      } finally {
+        await root.delete(recursive: true);
+      }
+    },
+  );
 
   test('Storage v2 note pages protect inactive page revisions', () async {
     SharedPreferences.setMockInitialValues({});

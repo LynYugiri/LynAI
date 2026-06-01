@@ -319,12 +319,9 @@ class BackupService {
     if (manifest['type'] != _backupType) {
       throw const FormatException('这不是 LynAI 备份文件');
     }
-    final schemaVersion = (manifest['schemaVersion'] as num?)?.toInt();
-    if (schemaVersion == null || schemaVersion > currentSchemaVersion) {
+    final schemaVersion = (manifest['schemaVersion'] as num?)?.toInt() ?? 1;
+    if (schemaVersion > currentSchemaVersion) {
       throw const FormatException('备份版本过高，当前应用无法导入');
-    }
-    if (schemaVersion < currentSchemaVersion) {
-      throw const FormatException('备份版本过旧，当前应用不支持该格式的导入');
     }
 
     final settingsJson = readMap('settings.json');
@@ -839,33 +836,50 @@ class BackupService {
     var replaced = 0;
     var skipped = 0;
     final replacingSection = plan.mode == ImportMode.replaceSection;
-    final folders = replacingSection
-        ? <NoteFolder>[]
-        : List<NoteFolder>.from(featureProvider.noteFolders);
-    final notes = replacingSection
-        ? <Note>[]
-        : List<Note>.from(featureProvider.notes);
-    final revisions = replacingSection
-        ? <NoteRevision>[]
-        : List<NoteRevision>.from(featureProvider.noteRevisions);
-    final proposals = replacingSection
-        ? <NoteEditProposal>[]
-        : List<NoteEditProposal>.from(featureProvider.noteEditProposals);
+    final folders = List<NoteFolder>.from(featureProvider.noteFolders);
+    final notes = List<Note>.from(featureProvider.notes);
+    final revisions = List<NoteRevision>.from(featureProvider.noteRevisions);
+    final proposals = List<NoteEditProposal>.from(
+      featureProvider.noteEditProposals,
+    );
     final pages = <StorageV2NotePage>[];
     final pageContents = <String, String>{};
     final acceptedOriginalNoteIds = <String>{};
     final usedRelativePaths = <String>{};
 
-    if (!replacingSection) {
-      for (final note in featureProvider.notes) {
-        for (final page in featureProvider.notePages(note.id)) {
-          pages.add(page);
-          usedRelativePaths.add(page.relativePath);
-          pageContents[page.id] = await featureProvider.readNotePageContent(
-            page,
-          );
-        }
+    for (final note in featureProvider.notes) {
+      for (final page in featureProvider.notePages(note.id)) {
+        pages.add(page);
+        usedRelativePaths.add(page.relativePath);
+        pageContents[page.id] = await featureProvider.readNotePageContent(page);
       }
+    }
+
+    if (replacingSection) {
+      final incomingFolderIds = incomingFolders.map((item) => item.id).toSet();
+      final incomingNoteIds = incomingNotes.map((item) => item.id).toSet();
+      final incomingRevisionIds = incomingRevisions
+          .map((item) => item.id)
+          .toSet();
+      final incomingProposalIds = incomingProposals
+          .map((item) => item.id)
+          .toSet();
+      folders.removeWhere((item) => incomingFolderIds.contains(item.id));
+      notes.removeWhere((item) => incomingNoteIds.contains(item.id));
+      revisions.removeWhere(
+        (item) =>
+            incomingNoteIds.contains(item.noteId) ||
+            incomingRevisionIds.contains(item.id),
+      );
+      proposals.removeWhere((item) => incomingProposalIds.contains(item.id));
+      final removedPages = pages
+          .where((item) => incomingNoteIds.contains(item.noteId))
+          .toList();
+      for (final page in removedPages) {
+        usedRelativePaths.remove(page.relativePath);
+        pageContents.remove(page.id);
+      }
+      pages.removeWhere((item) => incomingNoteIds.contains(item.noteId));
     }
 
     for (final incoming in incomingFolders) {

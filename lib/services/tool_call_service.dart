@@ -474,7 +474,8 @@ class ToolCallService {
       'type': 'function',
       'function': {
         'name': 'save_note_page',
-        'description': '创建、重命名、删除或移动笔记分页。传 delete=true 时删除分页；move=up/down 时上移/下移分页；至少保留一个分页。',
+        'description':
+            '创建、重命名、删除或移动笔记分页。传 delete=true 时删除分页；move=up/down 时上移/下移分页；至少保留一个分页。',
         'parameters': {
           'type': 'object',
           'properties': {
@@ -708,7 +709,7 @@ class ToolCallService {
         default:
           return _error('未知工具: ${call.name}');
       }
-    } catch (e, st) {
+    } on Exception catch (e, st) {
       debugPrint('工具调用失败 ${call.name}: $e\n$st');
       return _error(e.toString());
     }
@@ -1165,10 +1166,23 @@ class ToolCallService {
     final pageId = (args['pageId'] as String? ?? '').trim();
     final title = (args['title'] as String? ?? '').trim();
     final delete = args['delete'] == true;
+    final move = (args['move'] as String? ?? '').trim().toLowerCase();
     if (delete) {
       if (pageId.isEmpty) return _error('删除分页需要 pageId');
       final deleted = await _features.deleteNotePage(noteId, pageId);
       if (!deleted) return _error('删除分页失败，至少保留一个分页');
+      return _listNotePages({'id': noteId});
+    }
+    if (move.isNotEmpty) {
+      if (pageId.isEmpty) return _error('移动分页需要 pageId');
+      final delta = switch (move) {
+        'up' => -1,
+        'down' => 1,
+        _ => 0,
+      };
+      if (delta == 0) return _error('move 只支持 up 或 down');
+      final moved = await _features.moveNotePage(noteId, pageId, delta);
+      if (!moved) return _error('分页无法继续移动');
       return _listNotePages({'id': noteId});
     }
     if (pageId.isEmpty) {

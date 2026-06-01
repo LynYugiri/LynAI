@@ -151,7 +151,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
   Future<void> _loadMigrationState() async {
     try {
       if (!mounted) return;
-      final state = await _migrationService(context).loadState();
+      final state = await _migrationService(context).loadFullState();
       if (!mounted) return;
       setState(() => _migrationState = state);
     } catch (e) {
@@ -204,6 +204,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       await _loadMigrationState();
       _showSnack('迁移完成：${report.summary}');
     } catch (e) {
+      if (!mounted) return;
       _showSnack('迁移失败：$e');
       await _loadMigrationState();
     } finally {
@@ -282,6 +283,28 @@ class _DataManagementPageState extends State<DataManagementPage> {
         ),
       );
       if (!mounted) return;
+      if (_importSelection!.settingsParts.contains(
+        BackupSettingsPart.apiConfigs,
+      )) {
+        final modelProvider = context.read<ModelConfigProvider>();
+        context.read<SettingsProvider>().repairMediaModelSelections(
+          modelProvider.models,
+        );
+        context.read<ConversationProvider>().repairModelReferences(
+          modelProvider.models,
+        );
+      }
+      final currentState = _migrationState;
+      if (currentState != null && !currentState.completed) {
+        await _migrationService(context).migrate();
+        await Future.wait([
+          context.read<ConversationProvider>().loadConversations(),
+          context.read<ModelConfigProvider>().loadModels(),
+          context.read<SettingsProvider>().loadSettings(),
+          context.read<FeatureProvider>().load(),
+        ]);
+        await _loadMigrationState();
+      }
       setState(() {
         _archive = null;
         _preview = null;
@@ -661,6 +684,7 @@ class _SelectionTree extends StatelessWidget {
           enabled: availableSections.contains(BackupSection.conversations),
           items: conversations,
           selectedIds: selection.conversationIds,
+          idFor: (item) => item.id,
           titleFor: (item) => item.title,
           subtitleFor: (item) => '${item.messages.length} 条消息',
           copyWithIds: (ids, sections) =>
@@ -674,6 +698,7 @@ class _SelectionTree extends StatelessWidget {
           enabled: availableSections.contains(BackupSection.notes),
           items: notes,
           selectedIds: selection.noteIds,
+          idFor: (item) => item.id,
           titleFor: (item) => item.title.isEmpty ? '未命名笔记' : item.title,
           subtitleFor: (item) => _formatDate(item.updatedAt),
           copyWithIds: (ids, sections) =>
@@ -687,6 +712,7 @@ class _SelectionTree extends StatelessWidget {
           enabled: availableSections.contains(BackupSection.schedules),
           items: schedules,
           selectedIds: selection.scheduleIds,
+          idFor: (item) => item.id,
           titleFor: (item) => item.title,
           subtitleFor: (item) => _formatDate(item.start),
           copyWithIds: (ids, sections) =>
@@ -700,6 +726,7 @@ class _SelectionTree extends StatelessWidget {
           enabled: availableSections.contains(BackupSection.todoLists),
           items: todoLists,
           selectedIds: selection.todoListIds,
+          idFor: (item) => item.id,
           titleFor: (item) => item.title,
           subtitleFor: (item) => '${item.items.length} 项',
           copyWithIds: (ids, sections) =>
@@ -796,6 +823,7 @@ class _ItemSelectionTile<T> extends StatelessWidget {
     required this.selectedIds,
     required this.titleFor,
     required this.subtitleFor,
+    required this.idFor,
     required this.copyWithIds,
     required this.busy,
     required this.onChanged,
@@ -808,6 +836,7 @@ class _ItemSelectionTile<T> extends StatelessWidget {
   final Set<String> selectedIds;
   final String Function(T item) titleFor;
   final String Function(T item) subtitleFor;
+  final String Function(T item) idFor;
   final BackupSelection Function(Set<String> ids, Set<BackupSection> sections)
   copyWithIds;
   final bool busy;
@@ -815,7 +844,7 @@ class _ItemSelectionTile<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final itemIds = items.map((item) => _idOf(item as Object)).toSet();
+    final itemIds = items.map((item) => idFor(item)).toSet();
     final selectedCount = selectedIds.intersection(itemIds).length;
     final value = _triStateValue(selectedCount, itemIds.length);
     return _SectionShell(
@@ -833,7 +862,7 @@ class _ItemSelectionTile<T> extends StatelessWidget {
         ),
         subtitle: Text('$selectedCount / ${itemIds.length} 项'),
         children: items.map((item) {
-          final id = _idOf(item as Object);
+          final id = idFor(item);
           return _ChildSelectionRow(
             value: selectedIds.contains(id),
             title: titleFor(item),
@@ -1034,8 +1063,6 @@ bool? _triStateValue(int selectedCount, int total) {
   if (selectedCount == total) return true;
   return null;
 }
-
-String _idOf(Object item) => (item as dynamic).id as String;
 
 String _formatDate(DateTime value) {
   String two(int n) => n.toString().padLeft(2, '0');

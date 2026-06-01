@@ -1,7 +1,13 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
+import 'package:lynai/providers/model_config_provider.dart';
+import 'package:lynai/providers/settings_provider.dart';
+import 'package:lynai/services/storage_migration_service.dart';
+import 'package:lynai/services/storage_v2_service.dart';
 import 'package:lynai/services/tool_call_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -77,4 +83,64 @@ void main() {
       expect(allowed['notes'].single['content'], 'private body');
     },
   );
+
+  test('save_note_page moves note pages', () async {
+    SharedPreferences.setMockInitialValues({});
+    final settingsProvider = SettingsProvider();
+    final modelProvider = ModelConfigProvider();
+    final conversationProvider = ConversationProvider();
+    final featureProvider = FeatureProvider();
+    await settingsProvider.loadSettings();
+    await modelProvider.loadModels();
+    await conversationProvider.loadConversations();
+    await featureProvider.load();
+    final noteId = await featureProvider.addNoteWithContent('note', 'body');
+
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_tool_page_move_test_',
+    );
+    try {
+      await StorageMigrationService(
+        settingsProvider: settingsProvider,
+        modelConfigProvider: modelProvider,
+        conversationProvider: conversationProvider,
+        featureProvider: featureProvider,
+        rootDirectory: root,
+      ).migrate();
+
+      final features = FeatureProvider(
+        storageV2: StorageV2Service(rootDirectory: root),
+      );
+      await features.load();
+      final service = ToolCallService(features);
+      final secondPage = await features.addNotePage(noteId, 'second');
+      expect(secondPage, isNotNull);
+      final initialPageIds = features
+          .notePages(noteId)
+          .map((page) => page.id)
+          .toList();
+      expect(initialPageIds, hasLength(2));
+      expect(initialPageIds.first, isNot(secondPage));
+      expect(initialPageIds.last, secondPage);
+
+      final result = await service.execute(
+        ChatToolCall(
+          id: 'move-page',
+          name: 'save_note_page',
+          arguments: {'id': noteId, 'pageId': secondPage, 'move': 'up'},
+        ),
+        const [],
+      );
+
+      expect(result['ok'], isTrue);
+      final movedPageIds = (result['pages'] as List)
+          .map((page) => page['id'] as String)
+          .toList();
+      expect(movedPageIds, hasLength(2));
+      expect(movedPageIds.first, secondPage);
+      expect(movedPageIds.last, isNot(secondPage));
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
 }

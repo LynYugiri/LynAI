@@ -22,7 +22,7 @@ class SettingsPage extends StatelessWidget {
           _buildItem(
             context,
             Icons.info_outline,
-            'About',
+            '关于',
             '关于 LynAI',
             Colors.blue,
             () => Navigator.push(
@@ -33,7 +33,7 @@ class SettingsPage extends StatelessWidget {
           _buildItem(
             context,
             Icons.wallpaper,
-            'Background',
+            '背景',
             settings.backgroundImagePath != null ? '已设置背景图片' : '自定义背景图片',
             Colors.purple,
             () => Navigator.push(
@@ -44,7 +44,7 @@ class SettingsPage extends StatelessWidget {
           _buildItem(
             context,
             Icons.api,
-            'API',
+            '模型与接口',
             '管理模型与接口',
             Colors.orange,
             () => Navigator.push(
@@ -55,7 +55,7 @@ class SettingsPage extends StatelessWidget {
           _buildItem(
             context,
             Icons.palette,
-            'Theme',
+            '主题',
             '自定义主题颜色',
             Colors.green,
             () => Navigator.push(

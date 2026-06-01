@@ -60,7 +60,7 @@ class _BackgroundPageState extends State<BackgroundPage> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Background'), centerTitle: true),
+      appBar: AppBar(title: const Text('背景'), centerTitle: true),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -131,7 +131,7 @@ class _BackgroundPageState extends State<BackgroundPage> {
                             ? (isDark ? Colors.black : Colors.white).withValues(
                                 alpha: 0.6,
                               )
-                            : (isDark ? Colors.grey[800]! : Colors.white),
+                            : (isDark ? Colors.grey.shade800 : Colors.white),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Row(
@@ -321,7 +321,7 @@ class _BackgroundPageState extends State<BackgroundPage> {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Colors.grey[300]!, Colors.grey[200]!],
+          colors: [Colors.grey.shade300, Colors.grey.shade200],
         ),
       ),
       child: Center(

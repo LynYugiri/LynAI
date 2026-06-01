@@ -37,8 +37,8 @@ class ScheduleItem {
     return {
       'id': id,
       'title': title,
-      'start': start.toLocal().toIso8601String(),
-      'end': end.toLocal().toIso8601String(),
+      'start': start.toIso8601String(),
+      'end': end.toIso8601String(),
       if (note != null) 'note': note,
       if (kind != kindSchedule) 'kind': kind,
     };

@@ -644,18 +644,17 @@ class _EditModelPageState extends State<EditModelPage> {
       final newEntries = fetched
           .where((e) => !existingNames.contains(e.name))
           .toList();
+      if (!mounted) return;
       setState(() => _modelEntries.addAll(newEntries));
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              newEntries.isNotEmpty
-                  ? '新增 ${newEntries.length} 个模型'
-                  : '没有新模型，已全部存在',
-            ),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            newEntries.isNotEmpty
+                ? '新增 ${newEntries.length} 个模型'
+                : '没有新模型，已全部存在',
           ),
-        );
-      }
+        ),
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(

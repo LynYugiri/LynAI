@@ -126,7 +126,9 @@ class ModelConfig {
     for (final entry in models) {
       if (entry.name == modelName) return entry;
     }
-    return models.isEmpty ? null : models.first;
+    if (models.isEmpty) return null;
+    final enabled = models.where((m) => m.enabled);
+    return enabled.isNotEmpty ? enabled.first : models.first;
   }
 
   int? get effectiveMaxTokens => activeEntry?.maxTokens ?? maxTokens;

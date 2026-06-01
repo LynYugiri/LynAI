@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -76,15 +77,16 @@ class ConversationRepository {
     List<Conversation> conversations, {
     required bool usingStorageV2,
   }) async {
-    if (usingStorageV2 || await _storageState.isStorageV2Active()) {
+    if (usingStorageV2 || await _isStorageV2Active()) {
       await _saveStorageV2Conversations(conversations);
       return;
     }
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _storageKey,
-      jsonEncode(conversations.map((item) => item.toJson()).toList()),
-    );
+    final payload = conversations.map((item) => item.toJson()).toList();
+    final encoded = kIsWeb
+        ? _encodeJson(payload)
+        : await Isolate.run(() => _encodeJson(payload));
+    await prefs.setString(_storageKey, encoded);
   }
 
   Future<List<Conversation>> _loadStorageV2Conversations() async {
@@ -181,6 +183,14 @@ class ConversationRepository {
     return conversations;
   }
 
+  Future<bool> _isStorageV2Active() async {
+    try {
+      return await _storageState.isStorageV2Active();
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _saveStorageV2Conversations(List<Conversation> snapshot) async {
     final conversations = <Map<String, dynamic>>[];
     final messages = <Map<String, dynamic>>[];
@@ -235,6 +245,8 @@ class ConversationRepository {
     });
   }
 }
+
+String _encodeJson(Object? value) => jsonEncode(value);
 
 class _StorageV2MessageRow {
   const _StorageV2MessageRow({required this.message, required this.sortOrder});

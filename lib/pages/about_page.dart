@@ -22,7 +22,7 @@ class _AboutPageState extends State<AboutPage> {
     final settings = context.watch<SettingsProvider>().settings;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('About'), centerTitle: true),
+      appBar: AppBar(title: const Text('关于'), centerTitle: true),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(32.0),

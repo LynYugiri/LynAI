@@ -9,14 +9,46 @@ class _HistoryDrawer extends StatefulWidget {
   State<_HistoryDrawer> createState() => _HistoryDrawerState();
 }
 
+sealed class _HistoryListItem {}
+
+class _HistoryRoleHeaderItem extends _HistoryListItem {
+  final String name;
+  final Color? color;
+  final String? roleId;
+
+  _HistoryRoleHeaderItem(this.name, this.color, {this.roleId});
+}
+
+class _HistoryEmptyItem extends _HistoryListItem {
+  final String text;
+
+  _HistoryEmptyItem(this.text);
+}
+
+class _HistoryConversationItem extends _HistoryListItem {
+  final Conversation conversation;
+  final Color? roleColor;
+
+  _HistoryConversationItem(this.conversation, this.roleColor);
+}
+
 class _HistoryDrawerState extends State<_HistoryDrawer> {
   final _searchCtrl = TextEditingController();
+  Timer? _searchDebounce;
   String _q = '';
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (mounted) setState(() => _q = value);
+    });
   }
 
   @override
@@ -44,6 +76,45 @@ class _HistoryDrawerState extends State<_HistoryDrawer> {
         .map((r) => (r['conversation'] as Conversation).roleId)
         .toSet()
         .toList();
+    final items = <_HistoryListItem>[
+      _HistoryRoleHeaderItem(currentRole.name, currentRole.themeColor),
+      if (currentResults.isEmpty)
+        _HistoryEmptyItem(_q.isEmpty ? '当前角色暂无对话' : '未找到匹配的对话'),
+      for (final result in currentResults)
+        _HistoryConversationItem(
+          result['conversation'] as Conversation,
+          currentRole.themeColor,
+        ),
+      for (final roleId in otherRoleIds) ...[
+        _HistoryRoleHeaderItem(
+          roles
+              .firstWhere(
+                (role) => role.id == roleId,
+                orElse: () => ChatRole.defaultRole().copyWith(name: roleId),
+              )
+              .name,
+          roles
+              .firstWhere(
+                (role) => role.id == roleId,
+                orElse: () => ChatRole.defaultRole().copyWith(name: roleId),
+              )
+              .themeColor,
+          roleId: roleId,
+        ),
+        for (final result in otherResults.where(
+          (r) => (r['conversation'] as Conversation).roleId == roleId,
+        ))
+          _HistoryConversationItem(
+            result['conversation'] as Conversation,
+            roles
+                .firstWhere(
+                  (role) => role.id == roleId,
+                  orElse: () => ChatRole.defaultRole().copyWith(name: roleId),
+                )
+                .themeColor,
+          ),
+      ],
+    ];
     return Column(
       children: [
         Container(
@@ -77,6 +148,7 @@ class _HistoryDrawerState extends State<_HistoryDrawer> {
                       ? IconButton(
                           icon: const Icon(Icons.clear, size: 20),
                           onPressed: () {
+                            _searchDebounce?.cancel();
                             _searchCtrl.clear();
                             setState(() => _q = '');
                           },
@@ -95,7 +167,7 @@ class _HistoryDrawerState extends State<_HistoryDrawer> {
                     vertical: 8,
                   ),
                 ),
-                onChanged: (v) => setState(() => _q = v),
+                onChanged: _onSearchChanged,
               ),
             ],
           ),
@@ -110,63 +182,35 @@ class _HistoryDrawerState extends State<_HistoryDrawer> {
                     ),
                   ),
                 )
-              : ListView(
-                  children: [
-                    _roleHeader(
-                      context,
-                      currentRole.name,
-                      currentRole.themeColor,
-                    ),
-                    if (currentResults.isEmpty)
-                      ListTile(
-                        leading: const Icon(Icons.chat_bubble_outline),
-                        title: Text(_q.isEmpty ? '当前角色暂无对话' : '未找到匹配的对话'),
-                      ),
-                    for (final result in currentResults)
-                      _conversationTile(
+              : ListView.builder(
+                  itemCount: items.length,
+                  itemBuilder: (context, index) {
+                    final item = items[index];
+                    if (item is _HistoryRoleHeaderItem) {
+                      final header = _roleHeader(
                         context,
-                        result['conversation'] as Conversation,
-                        currentRole.themeColor,
-                      ),
-                    for (final roleId in otherRoleIds) ...[
-                      Builder(
-                        builder: (context) {
-                          final role = roles.firstWhere(
-                            (role) => role.id == roleId,
-                            orElse: () =>
-                                ChatRole.defaultRole().copyWith(name: roleId),
-                          );
-                          final list = otherResults
-                              .where(
-                                (r) =>
-                                    (r['conversation'] as Conversation)
-                                        .roleId ==
-                                    roleId,
-                              )
-                              .toList();
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              InkWell(
-                                onTap: () => sp.selectRole(role.id),
-                                child: _roleHeader(
-                                  context,
-                                  role.name,
-                                  role.themeColor,
-                                ),
-                              ),
-                              for (final result in list)
-                                _conversationTile(
-                                  context,
-                                  result['conversation'] as Conversation,
-                                  role.themeColor,
-                                ),
-                            ],
-                          );
-                        },
-                      ),
-                    ],
-                  ],
+                        item.name,
+                        item.color,
+                      );
+                      if (item.roleId == null) return header;
+                      return InkWell(
+                        onTap: () => sp.selectRole(item.roleId!),
+                        child: header,
+                      );
+                    }
+                    if (item is _HistoryEmptyItem) {
+                      return ListTile(
+                        leading: const Icon(Icons.chat_bubble_outline),
+                        title: Text(item.text),
+                      );
+                    }
+                    final conversationItem = item as _HistoryConversationItem;
+                    return _conversationTile(
+                      context,
+                      conversationItem.conversation,
+                      conversationItem.roleColor,
+                    );
+                  },
                 ),
         ),
       ],

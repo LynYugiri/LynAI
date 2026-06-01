@@ -50,7 +50,7 @@ class ThemePage extends StatelessWidget {
     final settings = provider.settings;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Theme'), centerTitle: true),
+      appBar: AppBar(title: const Text('主题'), centerTitle: true),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(

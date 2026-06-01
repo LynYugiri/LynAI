@@ -82,6 +82,11 @@ class ApiService {
     return Uri.parse('$endpoint$path');
   }
 
+  static String _truncateErrorBody(String body) {
+    if (body.length <= 200) return body;
+    return '${body.substring(0, 200)}...';
+  }
+
   static List<Map<String, dynamic>> chatContentWithFiles(
     String text,
     List<ChatFileInput> files,
@@ -744,7 +749,9 @@ class ApiService {
         toolCalls: _parseOpenAIToolCalls(message),
       );
     } else {
-      throw Exception('API 请求失败: ${response.statusCode} ${response.body}');
+      throw Exception(
+        'API 请求失败: ${response.statusCode} ${_truncateErrorBody(response.body)}',
+      );
     }
   }
 
@@ -790,7 +797,9 @@ class ApiService {
 
       if (streamedResponse.statusCode != 200) {
         final errorBody = await streamedResponse.stream.bytesToString();
-        throw Exception('流式请求失败: ${streamedResponse.statusCode} $errorBody');
+        throw Exception(
+          '流式请求失败: ${streamedResponse.statusCode} ${_truncateErrorBody(errorBody)}',
+        );
       }
 
       final toolCallParts = <int, _OpenAIStreamToolCallAccumulator>{};
@@ -850,8 +859,7 @@ class ApiService {
           isDone: true,
         );
       }
-    } finally {
-    }
+    } finally {}
   }
 
   void _accumulateOpenAIToolCalls(
@@ -1133,8 +1141,7 @@ class ApiService {
         }
         yield StreamChunk(isDone: true);
       }
-    } finally {
-    }
+    } finally {}
   }
 
   Stream<StreamChunk> _sendAnthropicStreamRequest(
@@ -1237,8 +1244,7 @@ class ApiService {
       if (!doneEmitted) {
         yield StreamChunk(isDone: true);
       }
-    } finally {
-    }
+    } finally {}
   }
 
   Future<ChatResponse> _sendAnthropicRequest(

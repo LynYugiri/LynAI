@@ -61,7 +61,7 @@ class SettingsRepository {
     AppSettings settings, {
     required bool usingStorageV2,
   }) async {
-    if (usingStorageV2 || await _storageState.isStorageV2Active()) {
+    if (usingStorageV2 || await _isStorageV2Active()) {
       final next = settings.toJson();
       try {
         final current = await _storageV2.loadDataFile('app_settings.json');
@@ -96,5 +96,13 @@ class SettingsRepository {
         : await _storageV2.resourcePath(resource);
     if (path == null || path.isEmpty) return settings;
     return settings.copyWith(backgroundImagePath: path);
+  }
+
+  Future<bool> _isStorageV2Active() async {
+    try {
+      return await _storageState.isStorageV2Active();
+    } catch (_) {
+      return false;
+    }
   }
 }

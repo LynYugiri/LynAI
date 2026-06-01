@@ -60,7 +60,7 @@ class ModelConfigRepository {
     List<ModelConfig> models, {
     required bool usingStorageV2,
   }) async {
-    if (usingStorageV2 || await _storageState.isStorageV2Active()) {
+    if (usingStorageV2 || await _isStorageV2Active()) {
       await _storageV2.writeDataFile('model_configs.json', {
         'models': models.map((model) => model.toJson()).toList(),
       });
@@ -71,6 +71,14 @@ class ModelConfigRepository {
       _storageKey,
       jsonEncode(models.map((model) => model.toJson()).toList()),
     );
+  }
+
+  Future<bool> _isStorageV2Active() async {
+    try {
+      return await _storageState.isStorageV2Active();
+    } catch (_) {
+      return false;
+    }
   }
 
   static List<ModelConfig> _parseModels(Object? raw) {

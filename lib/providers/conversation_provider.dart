@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import '../models/conversation.dart';
@@ -14,7 +16,11 @@ class ConversationProvider extends ChangeNotifier {
   List<Conversation> _conversations = [];
   final _uuid = const Uuid();
   Future<void> _saveQueue = Future.value();
+  Timer? _saveDebounce;
+  List<Conversation>? _pendingSaveSnapshot;
+  Completer<void>? _pendingSaveCompleter;
   static const _sentinel = Object();
+  static const _saveDebounceDuration = Duration(milliseconds: 500);
   final ConversationRepository _repository;
   bool _usingStorageV2 = false;
 
@@ -23,8 +29,7 @@ class ConversationProvider extends ChangeNotifier {
     ConversationRepository? repository,
   }) : _repository = repository ?? ConversationRepository(storageV2: storageV2);
 
-  void _touchConversation(int index, Conversation conversation) {
-    _conversations[index] = conversation;
+  void _touchConversation(int index) {
     final updated = _conversations.removeAt(index);
     _conversations.insert(0, updated);
   }
@@ -36,8 +41,8 @@ class ConversationProvider extends ChangeNotifier {
   Future<void> replaceConversations(List<Conversation> conversations) async {
     _conversations = List<Conversation>.from(conversations)
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-    _queueSaveConversations();
-    await _saveQueue;
+    _queueSaveConversations(immediate: true);
+    await flushPendingSaves();
     notifyListeners();
   }
 
@@ -58,9 +63,35 @@ class ConversationProvider extends ChangeNotifier {
   }
 
   /// 把当前对话快照排入保存队列。
-  void _queueSaveConversations() {
-    final snapshot = List<Conversation>.from(_conversations);
-    _saveQueue = _saveQueue.then((_) => _saveConversationsSnapshot(snapshot));
+  void _queueSaveConversations({bool immediate = false}) {
+    _pendingSaveSnapshot = List<Conversation>.from(_conversations);
+    _pendingSaveCompleter ??= Completer<void>();
+    if (immediate) {
+      _enqueuePendingSave();
+      return;
+    }
+    _saveDebounce?.cancel();
+    _saveDebounce = Timer(_saveDebounceDuration, _enqueuePendingSave);
+  }
+
+  void _enqueuePendingSave() {
+    _saveDebounce?.cancel();
+    _saveDebounce = null;
+    final snapshot = _pendingSaveSnapshot;
+    final completer = _pendingSaveCompleter;
+    if (snapshot == null || completer == null) return;
+    _pendingSaveSnapshot = null;
+    _pendingSaveCompleter = null;
+    _saveQueue = _saveQueue
+        .then((_) => _saveConversationsSnapshot(snapshot))
+        .whenComplete(() {
+          if (!completer.isCompleted) completer.complete();
+        });
+  }
+
+  Future<void> flushPendingSaves() {
+    _enqueuePendingSave();
+    return _saveQueue;
   }
 
   Future<void> _saveConversationsSnapshot(List<Conversation> snapshot) async {
@@ -69,6 +100,13 @@ class ConversationProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('保存对话失败: $e');
     }
+  }
+
+  @override
+  void dispose() {
+    _enqueuePendingSave();
+    _saveDebounce?.cancel();
+    super.dispose();
   }
 
   /// 创建新对话并返回对话 ID。
@@ -98,6 +136,67 @@ class ConversationProvider extends ChangeNotifier {
     }
   }
 
+  String createConversationWithMessages(
+    ConversationSettings settings, {
+    String roleId = 'default',
+    required List<({String role, String content, List<MessageImage> images})>
+    messages,
+  }) {
+    try {
+      final now = DateTime.now();
+      final initialMessages = messages
+          .map(
+            (item) => Message(
+              id: _uuid.v4(),
+              role: item.role,
+              content: item.content,
+              images: item.images,
+              timestamp: now,
+            ),
+          )
+          .toList(growable: false);
+      Message? firstUser;
+      for (final message in initialMessages) {
+        if (message.role == 'user') {
+          firstUser = message;
+          break;
+        }
+      }
+      final title = firstUser == null
+          ? '新对话 ${_conversations.length + 1}'
+          : _titleFromFirstUser(firstUser);
+      final conversation = Conversation(
+        id: _uuid.v4(),
+        title: title,
+        messages: initialMessages,
+        modelId: settings.modelId,
+        settings: settings,
+        roleId: roleId,
+        createdAt: now,
+        updatedAt: now,
+      );
+      _conversations.insert(0, conversation);
+      _queueSaveConversations();
+      notifyListeners();
+      return conversation.id;
+    } catch (e) {
+      debugPrint('创建对话失败: $e');
+      rethrow;
+    }
+  }
+
+  String _titleFromFirstUser(Message message) {
+    final clean = message.content.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
+    final titleSource = clean.isNotEmpty
+        ? clean
+        : (message.images.isNotEmpty
+              ? '[附件] ${message.images.first.name}'
+              : '新对话');
+    return titleSource.length > 20
+        ? '${titleSource.substring(0, 20)}...'
+        : titleSource;
+  }
+
   /// 向指定对话添加一条消息。
   void addMessage(
     String conversationId,
@@ -105,6 +204,7 @@ class ConversationProvider extends ChangeNotifier {
     String content, {
     List<MessageImage> images = const [],
     String? thinkingContent,
+    bool save = true,
   }) {
     try {
       final index = _conversations.indexWhere((c) => c.id == conversationId);
@@ -125,14 +225,7 @@ class ConversationProvider extends ChangeNotifier {
 
       String title = _conversations[index].title;
       if (_conversations[index].messages.isEmpty && role == 'user') {
-        // 附带附件但没有文字时，用附件名兜底，避免历史列表出现空标题。
-        final clean = content.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
-        final titleSource = clean.isNotEmpty
-            ? clean
-            : (images.isNotEmpty ? '[附件] ${images.first.name}' : '新对话');
-        title = titleSource.length > 20
-            ? '${titleSource.substring(0, 20)}...'
-            : titleSource;
+        title = _titleFromFirstUser(message);
       }
 
       _conversations[index] = Conversation(
@@ -150,7 +243,7 @@ class ConversationProvider extends ChangeNotifier {
       final conv = _conversations.removeAt(index);
       _conversations.insert(0, conv);
 
-      _queueSaveConversations();
+      if (save) _queueSaveConversations();
       notifyListeners();
     } catch (e) {
       debugPrint('添加消息失败: $e');
@@ -171,7 +264,7 @@ class ConversationProvider extends ChangeNotifier {
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );
-    _touchConversation(index, _conversations[index]);
+    _touchConversation(index);
     _queueSaveConversations();
     notifyListeners();
   }
@@ -190,7 +283,7 @@ class ConversationProvider extends ChangeNotifier {
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );
-    _touchConversation(index, _conversations[index]);
+    _touchConversation(index);
     _queueSaveConversations();
     notifyListeners();
   }
@@ -294,7 +387,7 @@ class ConversationProvider extends ChangeNotifier {
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );
-    _touchConversation(index, _conversations[index]);
+    _touchConversation(index);
     _queueSaveConversations();
     notifyListeners();
   }
@@ -334,7 +427,7 @@ class ConversationProvider extends ChangeNotifier {
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );
-    _touchConversation(index, _conversations[index]);
+    _touchConversation(index);
     _queueSaveConversations();
     notifyListeners();
   }
@@ -408,7 +501,7 @@ class ConversationProvider extends ChangeNotifier {
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
     );
-    _touchConversation(index, _conversations[index]);
+    _touchConversation(index);
     _queueSaveConversations();
     notifyListeners();
   }

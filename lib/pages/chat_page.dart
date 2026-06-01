@@ -61,6 +61,14 @@ class _PendingImage {
       MessageImage(path: path, name: name, size: size, mimeType: mimeType);
 }
 
+class _StreamDraft {
+  final String content;
+  final String? thinking;
+  final String? status;
+
+  const _StreamDraft({this.content = '', this.thinking, this.status});
+}
+
 /// 主对话页面。
 ///
 /// 负责输入、附件、语音、流式请求、工具调用、重试分支和对话分享。实际数据
@@ -98,18 +106,23 @@ class _ChatPageState extends State<ChatPage> {
   final _screenshotCtrl = ScreenshotController();
   final _audioRecorder = AudioRecorder();
   final _api = ApiService();
+  final _streamDraft = ValueNotifier<_StreamDraft>(const _StreamDraft());
+  final _inputRevision = ValueNotifier<int>(0);
 
   String? _convId;
   String? _pendingModelId;
   bool _thinking = true;
   ConversationSettings? _draftSettings;
   bool _streaming = false;
+  bool _preparingSend = false;
   bool _showAttach = false;
   bool _showModelMenu = false;
   bool _recording = false;
   bool _transcribingSpeech = false;
   bool _autoScrollToBottom = true;
   bool _showScrollToBottom = false;
+  bool _scrollEndScheduled = false;
+  DateTime? _lastAutoScrollAt;
   int _scrollGen = 0;
   String? _thinkingTxt;
   bool _thinkExpanded = false;
@@ -120,6 +133,7 @@ class _ChatPageState extends State<ChatPage> {
   bool _shareSelecting = false;
   bool _sharingImage = false;
   final Set<String> _selectedShareMessageIds = {};
+  final Map<String, bool> _attachmentExistsCache = {};
   String? _expandedInputAction;
   Timer? _inputActionCollapseTimer;
 
@@ -242,6 +256,8 @@ class _ChatPageState extends State<ChatPage> {
     unawaited(_speech.stop());
     unawaited(_audioRecorder.stop());
     _audioRecorder.dispose();
+    _streamDraft.dispose();
+    _inputRevision.dispose();
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
     _focusNode.dispose();
@@ -254,6 +270,7 @@ class _ChatPageState extends State<ChatPage> {
     if (!value) {
       _streamingConvId = null;
       _lastStreamUiUpdate = null;
+      _updateStreamDraft(const _StreamDraft());
     }
     _streaming = value;
     _setBackgroundGenerationActive(value);
@@ -262,7 +279,18 @@ class _ChatPageState extends State<ChatPage> {
   void _beginStreaming(String conversationId) {
     _streamingConvId = conversationId;
     _lastStreamUiUpdate = null;
+    _updateStreamDraft(const _StreamDraft());
     _setStreaming(true);
+  }
+
+  void _updateStreamDraft(_StreamDraft draft) {
+    final current = _streamDraft.value;
+    if (current.content == draft.content &&
+        current.thinking == draft.thinking &&
+        current.status == draft.status) {
+      return;
+    }
+    _streamDraft.value = draft;
   }
 
   bool _shouldUpdateStreamUi({bool force = false}) {
@@ -297,6 +325,7 @@ class _ChatPageState extends State<ChatPage> {
     _pendingModelId = null;
     _draftSettings = null;
     _thinkingTxt = null;
+    _updateStreamDraft(const _StreamDraft());
     _thinkExpanded = false;
     _expandedThinkIds.clear();
     _thinkMap.clear();
@@ -354,7 +383,18 @@ class _ChatPageState extends State<ChatPage> {
 
   void _scrollEnd({bool force = false}) {
     if (!force && !_autoScrollToBottom) return;
+    if (!force) {
+      final now = DateTime.now();
+      final last = _lastAutoScrollAt;
+      if (_scrollEndScheduled ||
+          (last != null && now.difference(last).inMilliseconds < 120)) {
+        return;
+      }
+      _lastAutoScrollAt = now;
+    }
+    _scrollEndScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollEndScheduled = false;
       if (_scrollCtrl.hasClients) {
         if (!force && !_autoScrollToBottom) return;
         final target = _scrollCtrl.position.maxScrollExtent;
@@ -424,8 +464,7 @@ class _ChatPageState extends State<ChatPage> {
       if (conv != null) {
         try {
           return chatModels.firstWhere((m) => m.id == conv.modelId);
-        } catch (_) {
-        }
+        } catch (_) {}
       }
     }
     if (_pendingModelId != null) {
@@ -520,7 +559,11 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _send() async {
     final text = _msgCtrl.text.trim();
-    if ((text.isEmpty && _pendingImages.isEmpty) || _streaming) return;
+    if ((text.isEmpty && _pendingImages.isEmpty) ||
+        _streaming ||
+        _preparingSend) {
+      return;
+    }
     final cp = context.read<ConversationProvider>();
     final mp = context.read<ModelConfigProvider>();
     if (mp.modelsByCategory(ModelConfig.categoryChat).isEmpty) {
@@ -535,33 +578,46 @@ class _ChatPageState extends State<ChatPage> {
     final images = _pendingImages.map((e) => e.toMessageImage()).toList();
     final conversationSettings = _currentConversationSettings(model);
     final roleId = context.read<SettingsProvider>().settings.currentRoleId;
+    setState(() => _preparingSend = true);
     final apiUserContent = await _prepareUserContent(text, images);
     if (!mounted) return;
     if (apiUserContent == null) {
+      setState(() => _preparingSend = false);
       _setBackgroundGenerationActive(false);
       return;
     }
 
-    _convId ??= cp.createConversation(conversationSettings, roleId: roleId);
+    final isNewConversation = _convId == null;
+    if (isNewConversation) {
+      _convId = cp.createConversationWithMessages(
+        conversationSettings,
+        roleId: roleId,
+        messages: [
+          (role: 'user', content: text, images: images),
+          (role: 'assistant', content: '', images: const <MessageImage>[]),
+        ],
+      );
+    } else {
+      cp.addMessage(_convId!, 'user', text, images: images);
+      cp.addMessage(_convId!, 'assistant', '', save: false);
+    }
     _pendingModelId = null;
     _clearRetryState();
-    final isFirstUserMessage =
-        _convId != null &&
-        (cp.getConversation(_convId!)?.messages.isEmpty ?? false);
-    cp.addMessage(_convId!, 'user', text, images: images);
     _msgCtrl.clear();
+    _inputRevision.value++;
     setState(() {
+      _preparingSend = false;
       _pendingImages.clear();
       _beginStreaming(_convId!);
       _thinkingTxt = null;
     });
     _scrollEnd(force: true);
-    cp.addMessage(_convId!, 'assistant', '');
-    await Future.microtask(() {});
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || !_streaming || _convId == null) return;
     _doSend(
       model,
       lastUserContentOverride: apiUserContent,
-      createTitle: isFirstUserMessage,
+      createTitle: isNewConversation,
     );
   }
 
@@ -583,7 +639,7 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Future<void> _sendRetry(String text) async {
-    if (_streaming || _convId == null) return;
+    if (_streaming || _preparingSend || _convId == null) return;
     final cp = context.read<ConversationProvider>();
     final mp = context.read<ModelConfigProvider>();
     final model = _getModel(mp);
@@ -592,10 +648,16 @@ class _ChatPageState extends State<ChatPage> {
     if (conv == null) return;
     final lastUser = conv.messages.where((m) => m.role == 'user').last;
     Object? apiUserContent;
+    setState(() => _preparingSend = true);
     try {
       apiUserContent = await _prepareUserContent(text, lastUser.images);
-      if (!mounted || apiUserContent == null) return;
+      if (!mounted) return;
+      if (apiUserContent == null) {
+        setState(() => _preparingSend = false);
+        return;
+      }
     } catch (_) {
+      if (mounted) setState(() => _preparingSend = false);
       return;
     }
     _retryMsgId = lastUser.id;
@@ -621,12 +683,14 @@ class _ChatPageState extends State<ChatPage> {
       cp.deleteMessage(_convId!, lastAssistant.last.id);
     }
     _scrollEnd(force: true);
-    cp.addMessage(_convId!, 'assistant', '');
+    cp.addMessage(_convId!, 'assistant', '', save: false);
     setState(() {
+      _preparingSend = false;
       _beginStreaming(_convId!);
       _thinkingTxt = null;
     });
-    await Future.microtask(() {});
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || !_streaming || _convId == null) return;
     _doSend(model, lastUserContentOverride: apiUserContent);
   }
 
@@ -801,12 +865,24 @@ class _ChatPageState extends State<ChatPage> {
     String buf = '', thinkBuf = '';
     var finalized = false;
     var timeoutDisplayed = false;
+
+    void emitDraft({String? status}) {
+      _updateStreamDraft(
+        _StreamDraft(
+          content: buf,
+          thinking: thinkBuf.isEmpty ? null : thinkBuf,
+          status: status,
+        ),
+      );
+      _scrollEnd();
+    }
+
     void armWaitTimeout() {
       _streamWaitTimer?.cancel();
       _streamWaitTimer = Timer(_streamWaitTimeout, () {
         if (!mounted || gen != _streamGen || finalized || !_streaming) return;
         timeoutDisplayed = true;
-        cp.updateLastMessage(cid, '请求等待已超过 5 分钟，仍在继续接收模型返回。', save: true);
+        emitDraft(status: '请求等待已超过 5 分钟，仍在继续接收模型返回。');
       });
     }
 
@@ -881,23 +957,9 @@ class _ChatPageState extends State<ChatPage> {
         } else {
           if (timeoutDisplayed && (buf.isNotEmpty || thinkBuf.isNotEmpty)) {
             timeoutDisplayed = false;
-            cp.updateLastMessage(
-              cid,
-              buf,
-              thinkingContent: thinkBuf.isEmpty ? null : thinkBuf,
-              save: false,
-            );
-            if (thinkBuf.isNotEmpty) setState(() => _thinkingTxt = thinkBuf);
-            _scrollEnd();
+            emitDraft();
           } else if (_shouldUpdateStreamUi()) {
-            cp.updateLastMessage(
-              cid,
-              buf,
-              thinkingContent: thinkBuf.isEmpty ? null : thinkBuf,
-              save: false,
-            );
-            if (thinkBuf.isNotEmpty) setState(() => _thinkingTxt = thinkBuf);
-            _scrollEnd();
+            emitDraft();
           }
         }
       },
@@ -963,7 +1025,7 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Future<void> _retry() async {
-    if (_convId == null || _streaming) return;
+    if (_convId == null || _streaming || _preparingSend) return;
     final cp = context.read<ConversationProvider>();
     final conv = cp.getConversation(_convId!);
     if (conv == null) return;
@@ -975,13 +1037,19 @@ class _ChatPageState extends State<ChatPage> {
     if (assistantMessages.isEmpty) return;
     final lastUser = um.last;
     Object? apiUserContent;
+    setState(() => _preparingSend = true);
     try {
       apiUserContent = await _prepareUserContent(
         lastUser.content,
         lastUser.images,
       );
-      if (!mounted || apiUserContent == null) return;
+      if (!mounted) return;
+      if (apiUserContent == null) {
+        setState(() => _preparingSend = false);
+        return;
+      }
     } catch (_) {
+      if (mounted) setState(() => _preparingSend = false);
       return;
     }
     _retryMsgId = lastUser.id;
@@ -1001,23 +1069,28 @@ class _ChatPageState extends State<ChatPage> {
     _retryIdx = _retryHistory.length - 1;
     _thinkMap.remove(lastAssistant.id);
     cp.deleteMessage(_convId!, lastAssistant.id);
-    cp.addMessage(_convId!, 'assistant', '');
+    cp.addMessage(_convId!, 'assistant', '', save: false);
     setState(() {
+      _preparingSend = false;
       _beginStreaming(_convId!);
       _thinkingTxt = null;
     });
     final retryModel = _getModel(context.read<ModelConfigProvider>());
     if (retryModel != null) {
-      await Future.microtask(() {});
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted || !_streaming || _convId == null) return;
       _doSend(retryModel, lastUserContentOverride: apiUserContent);
     } else {
-      setState(() => _setStreaming(false));
+      setState(() {
+        _preparingSend = false;
+        _setStreaming(false);
+      });
       _showMissingChatModelTip();
     }
   }
 
   Future<void> _retryWithoutHistory() async {
-    if (_convId == null || _streaming) return;
+    if (_convId == null || _streaming || _preparingSend) return;
     final cp = context.read<ConversationProvider>();
     final conv = cp.getConversation(_convId!);
     if (conv == null) return;
@@ -1036,6 +1109,7 @@ class _ChatPageState extends State<ChatPage> {
           ? null
           : userMessages.last;
       Object? apiUserContent;
+      setState(() => _preparingSend = true);
       if (lastUser != null) {
         try {
           apiUserContent = await _prepareUserContent(
@@ -1043,23 +1117,32 @@ class _ChatPageState extends State<ChatPage> {
             lastUser.images,
           );
           if (!mounted) return;
-          if (apiUserContent == null) return;
+          if (apiUserContent == null) {
+            setState(() => _preparingSend = false);
+            return;
+          }
         } catch (e) {
           if (!mounted) return;
+          setState(() => _preparingSend = false);
           return;
         }
       }
       _thinkMap.remove(lastAssistant.id);
       cp.deleteMessage(_convId!, lastAssistant.id);
-      cp.addMessage(_convId!, 'assistant', '');
+      cp.addMessage(_convId!, 'assistant', '', save: false);
       setState(() {
+        _preparingSend = false;
         _beginStreaming(_convId!);
         _thinkingTxt = null;
       });
-      await Future.microtask(() {});
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted || !_streaming || _convId == null) return;
       _doSend(retryModel, lastUserContentOverride: apiUserContent);
     } else {
-      setState(() => _setStreaming(false));
+      setState(() {
+        _preparingSend = false;
+        _setStreaming(false);
+      });
       _showMissingChatModelTip();
     }
   }
@@ -1121,6 +1204,7 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   void _toggleShareMessage(Message msg) {
+    if (_sharingImage) return;
     setState(() {
       if (_selectedShareMessageIds.contains(msg.id)) {
         _selectedShareMessageIds.remove(msg.id);
@@ -1215,6 +1299,7 @@ class _ChatPageState extends State<ChatPage> {
         }
         if (!mounted) return;
         _showShareImageSnack(pluralImageDoneText('长图已保存到图库', images.length));
+        _cancelShareSelection();
         return;
       }
       Directory? dir;
@@ -1234,6 +1319,7 @@ class _ChatPageState extends State<ChatPage> {
       }
       if (!mounted) return;
       _showShareImageSnack(_savedShareImagePathText(files));
+      _cancelShareSelection();
     } catch (e) {
       if (!mounted) return;
       _showShareImageSnack('保存失败: $e');
@@ -1473,9 +1559,12 @@ class _ChatPageState extends State<ChatPage> {
       if (fileFormat == null) return false;
 
       bool pasted = false;
+      var timedOut = false;
       final completer = Completer<void>();
       final progress = reader.getFile(fileFormat, (file) async {
+        if (timedOut) return;
         final bytes = await file.readAll();
+        if (timedOut) return;
         final ext = _clipboardImageExtension(file.fileName, fileFormat);
         final name = _clipboardImageName(file.fileName, ext);
         await _addClipboardImage(bytes, name);
@@ -1483,7 +1572,12 @@ class _ChatPageState extends State<ChatPage> {
         if (!completer.isCompleted) completer.complete();
       });
       if (progress != null) {
-        await completer.future.timeout(const Duration(seconds: 2));
+        await completer.future.timeout(
+          const Duration(seconds: 2),
+          onTimeout: () {
+            timedOut = true;
+          },
+        );
       }
       return pasted;
     } catch (_) {
@@ -1782,6 +1876,8 @@ class _ChatPageState extends State<ChatPage> {
   ///
   /// 这样用户可以在发送前修正识别错误，也和自定义语音转文字接口保持一致。
   Future<void> _startSystemSpeechRecognition() async {
+    final requestGen = ++_recordingRequestGen;
+    _recordingStartCancelled = false;
     final ok = await _speech.initialize(
       onStatus: (s) {
         if (!mounted) return;
@@ -1794,20 +1890,29 @@ class _ChatPageState extends State<ChatPage> {
         setState(() => _recording = false);
       },
     );
-    if (!mounted) return;
+    if (!mounted ||
+        requestGen != _recordingRequestGen ||
+        _recordingStartCancelled) {
+      return;
+    }
     final locale = Localizations.localeOf(context);
     final localeId =
         '${locale.languageCode}_${locale.countryCode ?? locale.languageCode.toUpperCase()}';
     if (ok) {
       setState(() => _recording = true);
       try {
+        if (requestGen != _recordingRequestGen || _recordingStartCancelled) {
+          setState(() => _recording = false);
+          return;
+        }
         _speech.listen(
           onResult: (r) {
-            if (!mounted) return;
+            if (!mounted || requestGen != _recordingRequestGen) return;
             _msgCtrl.text = r.recognizedWords;
             _msgCtrl.selection = TextSelection.collapsed(
               offset: _msgCtrl.text.length,
             );
+            _inputRevision.value++;
             if (r.finalResult) {
               setState(() => _recording = false);
             } else {
@@ -1840,7 +1945,7 @@ class _ChatPageState extends State<ChatPage> {
     _msgCtrl.text = current.isEmpty ? text : '$current\n$text';
     _msgCtrl.selection = TextSelection.collapsed(offset: _msgCtrl.text.length);
     _focusNode.requestFocus();
-    setState(() {});
+    _inputRevision.value++;
   }
 
   Future<void> _processRecordedSpeech(String path) async {
@@ -2024,10 +2129,7 @@ class _ChatPageState extends State<ChatPage> {
           ],
         ),
         drawer: _shareSelecting ? null : _drawer(context),
-        body: Screenshot(
-          controller: _screenshotCtrl,
-          child: _body(conv, model, mp),
-        ),
+        body: _body(conv, model, mp),
       ),
     );
   }
@@ -2233,11 +2335,11 @@ class _ChatPageState extends State<ChatPage> {
                     borderRadius: BorderRadius.circular(12),
                     child: Padding(
                       padding: const EdgeInsets.all(4),
-                        child: Icon(
-                          Icons.edit_outlined,
-                          size: 16,
-                          color: Theme.of(context).colorScheme.outline,
-                        ),
+                      child: Icon(
+                        Icons.edit_outlined,
+                        size: 16,
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
                     ),
                   ),
               ],
@@ -2251,10 +2353,25 @@ class _ChatPageState extends State<ChatPage> {
         ),
       );
     }
+    if (isLastAi && _streaming) {
+      return ValueListenableBuilder<_StreamDraft>(
+        valueListenable: _streamDraft,
+        builder: (context, draft, _) => _assistantBubble(msg, true, draft),
+      );
+    }
+    return _assistantBubble(msg, isLastAi, null);
+  }
+
+  Widget _assistantBubble(Message msg, bool isLastAi, _StreamDraft? draft) {
+    final streaming = draft != null;
+    final displayContent = streaming ? draft.content : msg.content;
+    final draftThink = draft?.thinking;
     final thinkForMsg = isLastAi
-        ? (_thinkingTxt != null && _thinkingTxt!.isNotEmpty
-              ? _thinkingTxt
-              : _thinkForMessage(msg))
+        ? (draftThink != null && draftThink.isNotEmpty
+              ? draftThink
+              : (_thinkingTxt != null && _thinkingTxt!.isNotEmpty
+                    ? _thinkingTxt
+                    : _thinkForMessage(msg)))
         : _thinkForMessage(msg);
     final missingThinkNotice = _missingThinkNotice(msg, isLastAi);
     return Column(
@@ -2264,6 +2381,7 @@ class _ChatPageState extends State<ChatPage> {
           _thinkSection(thinkForMsg),
         if (isLastAi && thinkForMsg == null && missingThinkNotice != null)
           _thinkSection(missingThinkNotice),
+        if (isLastAi && draft?.status != null) _streamStatus(draft!.status!),
         if (!isLastAi) ..._buildPerMsgThinkSection(msg),
         Container(
           margin: const EdgeInsets.symmetric(vertical: 4),
@@ -2286,15 +2404,15 @@ class _ChatPageState extends State<ChatPage> {
               ),
             ],
           ),
-          child: msg.content.isEmpty && _streaming
+          child: displayContent.isEmpty && streaming
               ? const SizedBox(
                   width: 24,
                   height: 24,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : MarkdownWithLatex(content: msg.content),
+              : MarkdownWithLatex(content: displayContent),
         ),
-        if (!_streaming && !_shareSelecting) _bubbleActions(msg, isLastAi),
+        if (!streaming && !_shareSelecting) _bubbleActions(msg, isLastAi),
       ],
     );
   }
@@ -2304,7 +2422,7 @@ class _ChatPageState extends State<ChatPage> {
       spacing: 6,
       runSpacing: 6,
       children: images.map((image) {
-        final exists = File(image.path).existsSync();
+        final exists = _attachmentExists(image.path);
         if (!image.isImage) {
           return _fileChip(image, exists: exists);
         }
@@ -2319,6 +2437,8 @@ class _ChatPageState extends State<ChatPage> {
                     File(image.path),
                     width: 120,
                     height: 120,
+                    cacheWidth: _imageCacheExtent(120),
+                    cacheHeight: _imageCacheExtent(120),
                     fit: BoxFit.cover,
                   )
                 : Container(
@@ -2332,6 +2452,16 @@ class _ChatPageState extends State<ChatPage> {
         );
       }).toList(),
     );
+  }
+
+  bool _attachmentExists(String path) {
+    return _attachmentExistsCache.putIfAbsent(path, () {
+      return path.isNotEmpty && File(path).existsSync();
+    });
+  }
+
+  int _imageCacheExtent(double logicalSize) {
+    return (logicalSize * MediaQuery.devicePixelRatioOf(context)).round();
   }
 
   Widget _fileChip(MessageImage file, {required bool exists}) {
@@ -2461,6 +2591,17 @@ class _ChatPageState extends State<ChatPage> {
               ),
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _streamStatus(String text) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(left: 8, top: 2, bottom: 2),
+      child: Text(
+        text,
+        style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
       ),
     );
   }
@@ -2598,11 +2739,7 @@ class _ChatPageState extends State<ChatPage> {
     borderRadius: BorderRadius.circular(12),
     child: Padding(
       padding: const EdgeInsets.all(4),
-      child: Icon(
-        i,
-        size: 16,
-        color: Theme.of(context).colorScheme.outline,
-      ),
+      child: Icon(i, size: 16, color: Theme.of(context).colorScheme.outline),
     ),
   );
 
@@ -2622,13 +2759,15 @@ class _ChatPageState extends State<ChatPage> {
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               child: Text(
                 '<',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    color: current > 0
-                        ? Theme.of(context).colorScheme.primary
-                        : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.15),
-                  ),
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: current > 0
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(
+                          context,
+                        ).colorScheme.onSurface.withValues(alpha: 0.15),
+                ),
               ),
             ),
           ),
@@ -2647,13 +2786,15 @@ class _ChatPageState extends State<ChatPage> {
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               child: Text(
                 '>',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    color: current < total - 1
-                        ? Theme.of(context).colorScheme.primary
-                        : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.15),
-                  ),
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: current < total - 1
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(
+                          context,
+                        ).colorScheme.onSurface.withValues(alpha: 0.15),
+                ),
               ),
             ),
           ),
@@ -2797,8 +2938,9 @@ class _ChatPageState extends State<ChatPage> {
       _beginStreaming(newConvId);
     });
     _scrollEnd();
-    cp.addMessage(newConvId, 'assistant', '');
-    await Future.microtask(() {});
+    cp.addMessage(newConvId, 'assistant', '', save: false);
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || !_streaming || _convId == null) return;
     _doSend(editModel, lastUserContentOverride: apiUserContent);
   }
 
@@ -2870,7 +3012,7 @@ class _ChatPageState extends State<ChatPage> {
                           maxLines: 5,
                           minLines: 1,
                           textInputAction: TextInputAction.newline,
-                          onChanged: (_) => setState(() {}),
+                          onChanged: (_) => _inputRevision.value++,
                         ),
                       ),
               ),
@@ -2891,7 +3033,10 @@ class _ChatPageState extends State<ChatPage> {
               const Spacer(),
               _attachBtn(),
               const SizedBox(width: 4),
-              _voiceOrSendBtn(hasSpeech),
+              ValueListenableBuilder<int>(
+                valueListenable: _inputRevision,
+                builder: (context, _, _) => _voiceOrSendBtn(hasSpeech),
+              ),
             ],
           ),
           if (_showAttach) _attachMenu(),
@@ -3225,7 +3370,9 @@ class _ChatPageState extends State<ChatPage> {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: selected ? scheme.primary : scheme.outlineVariant.withValues(alpha: 0.3),
+          color: selected
+              ? scheme.primary
+              : scheme.outlineVariant.withValues(alpha: 0.3),
         ),
         color: selected ? scheme.primary.withValues(alpha: 0.1) : null,
       ),
@@ -3467,6 +3614,8 @@ class _ChatPageState extends State<ChatPage> {
           File(file.path),
           width: 76,
           height: 76,
+          cacheWidth: _imageCacheExtent(76),
+          cacheHeight: _imageCacheExtent(76),
           fit: BoxFit.cover,
         ),
       );
@@ -3524,7 +3673,8 @@ class _ChatPageState extends State<ChatPage> {
       );
     }
     final canSend =
-        _msgCtrl.text.trim().isNotEmpty || _pendingImages.isNotEmpty;
+        !_preparingSend &&
+        (_msgCtrl.text.trim().isNotEmpty || _pendingImages.isNotEmpty);
     if (_transcribingSpeech) {
       return const Padding(
         padding: EdgeInsets.all(8),
@@ -3536,8 +3686,9 @@ class _ChatPageState extends State<ChatPage> {
       );
     }
     if (_recording) {
-      return GestureDetector(
-        onLongPressEnd: (_) => _stopVoice(),
+      return InkWell(
+        onTap: _stopVoice,
+        borderRadius: BorderRadius.circular(20),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(
@@ -3550,11 +3701,21 @@ class _ChatPageState extends State<ChatPage> {
               Icon(Icons.stop, size: 16, color: Colors.white),
               SizedBox(width: 4),
               Text(
-                '松开转文字',
+                '点击转文字',
                 style: TextStyle(fontSize: 12, color: Colors.white),
               ),
             ],
           ),
+        ),
+      );
+    }
+    if (_preparingSend) {
+      return const Padding(
+        padding: EdgeInsets.all(8),
+        child: SizedBox(
+          width: 18,
+          height: 18,
+          child: CircularProgressIndicator(strokeWidth: 2),
         ),
       );
     }
@@ -3590,7 +3751,7 @@ class _ChatPageState extends State<ChatPage> {
             size: 22,
             color: Theme.of(context).colorScheme.outline,
           ),
-      ),
+        ),
       ),
     );
   }
@@ -3626,25 +3787,22 @@ class _ChatPageState extends State<ChatPage> {
     ),
   );
 
-  Widget _recOverlay() => GestureDetector(
-    onLongPressEnd: (_) => _stopVoice(),
-    child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.red.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.mic, size: 20, color: Colors.red[400]),
-          const SizedBox(width: 8),
-          Text(
-            _speech.isListening ? '正在聆听...' : '正在录音，松开转文字',
-            style: TextStyle(color: Colors.red[400], fontSize: 14),
-          ),
-        ],
-      ),
+  Widget _recOverlay() => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+    decoration: BoxDecoration(
+      color: Colors.red.withValues(alpha: 0.1),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+    ),
+    child: Row(
+      children: [
+        Icon(Icons.mic, size: 20, color: Colors.red[400]),
+        const SizedBox(width: 8),
+        Text(
+          _speech.isListening ? '正在聆听...' : '正在录音，点击右侧按钮转文字',
+          style: TextStyle(color: Colors.red[400], fontSize: 14),
+        ),
+      ],
     ),
   );
 }

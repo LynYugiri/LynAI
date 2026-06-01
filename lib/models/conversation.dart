@@ -170,9 +170,12 @@ class Conversation {
         id.isEmpty ||
         title == null ||
         modelId == null ||
+        modelId.isEmpty ||
         createdAt == null ||
         updatedAt == null) {
-      throw const FormatException('Malformed conversation');
+      throw FormatException(
+        'Malformed conversation${id != null && id.isNotEmpty ? ' $id' : ''}',
+      );
     }
     final messages = <Message>[];
     for (final item in json['messages'] as List<dynamic>? ?? const []) {

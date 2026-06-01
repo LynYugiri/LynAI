@@ -84,11 +84,26 @@ class SettingsProvider extends ChangeNotifier {
       _settings.lastChatModelId,
       chatModels,
     );
+    final validChatIds = chatModels.map((model) => model.id).toSet();
+    var rolesChanged = false;
+    final nextRoles = _settings.roles
+        .map((role) {
+          final modelId = role.modelId;
+          if (modelId == null ||
+              modelId.isEmpty ||
+              validChatIds.contains(modelId)) {
+            return role;
+          }
+          rolesChanged = true;
+          return role.copyWith(modelId: null);
+        })
+        .toList(growable: false);
 
     if (nextSpeechId == _settings.speechModelId &&
         nextOcrId == _settings.imageModelId &&
         nextImageRecognitionId == _settings.imageRecognitionModelId &&
-        nextLastChatId == _settings.lastChatModelId) {
+        nextLastChatId == _settings.lastChatModelId &&
+        !rolesChanged) {
       return;
     }
 
@@ -97,6 +112,7 @@ class SettingsProvider extends ChangeNotifier {
       imageModelId: nextOcrId,
       imageRecognitionModelId: nextImageRecognitionId,
       lastChatModelId: nextLastChatId,
+      roles: nextRoles,
     );
     _queueSaveSettings();
     notifyListeners();

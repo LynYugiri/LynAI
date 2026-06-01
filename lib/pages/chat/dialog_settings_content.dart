@@ -90,7 +90,9 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                           ? Theme.of(
                               context,
                             ).colorScheme.primary.withValues(alpha: 0.3)
-                          : Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.3),
+                          : Theme.of(
+                              context,
+                            ).colorScheme.outlineVariant.withValues(alpha: 0.3),
                     ),
                     borderRadius: BorderRadius.circular(8),
                     color: _showRoleList
@@ -140,7 +142,9 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                           ? Theme.of(
                               context,
                             ).colorScheme.primary.withValues(alpha: 0.3)
-                          : Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.3),
+                          : Theme.of(
+                              context,
+                            ).colorScheme.outlineVariant.withValues(alpha: 0.3),
                     ),
                     borderRadius: BorderRadius.circular(8),
                     color: _showSystemPromptList
@@ -156,7 +160,9 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                           _currentSystemPromptLabel(set),
                           style: TextStyle(
                             fontSize: 13,
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -364,13 +370,18 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     border: Border.all(
-                      color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.3),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.outlineVariant.withValues(alpha: 0.3),
                     ),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
                     _settings.imageRecognitionPrompt,
-                    style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ),
               ),
@@ -476,7 +487,9 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                     ? Theme.of(
                         context,
                       ).colorScheme.primary.withValues(alpha: 0.3)
-                    : Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.3),
+                    : Theme.of(
+                        context,
+                      ).colorScheme.outlineVariant.withValues(alpha: 0.3),
               ),
               color: showList
                   ? Theme.of(
@@ -503,7 +516,9 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 13,
-                      color: currentModel != null ? null : Theme.of(context).colorScheme.outline,
+                      color: currentModel != null
+                          ? null
+                          : Theme.of(context).colorScheme.outline,
                     ),
                   ),
                 ),
@@ -587,7 +602,10 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                       : m.modelName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.outline),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
                 ),
                 leading: Icon(
                   isSelected ? Icons.check_circle : Icons.circle_outlined,
@@ -643,9 +661,12 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
     );
   }
 
-  Future<String?> _showPromptDialog(BuildContext context, String current) {
+  Future<String?> _showPromptDialog(
+    BuildContext context,
+    String current,
+  ) async {
     final ctrl = TextEditingController(text: current);
-    return showDialog<String>(
+    final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('自定义提示词'),
@@ -672,6 +693,8 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
         ],
       ),
     );
+    ctrl.dispose();
+    return result;
   }
 
   String _currentSystemPromptLabel(AppSettings set) {
@@ -761,7 +784,9 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
             leading: Icon(
               sel ? Icons.check_circle : Icons.circle_outlined,
               size: 18,
-              color: sel ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outline,
+              color: sel
+                  ? Theme.of(context).colorScheme.primary
+                  : Theme.of(context).colorScheme.outline,
             ),
             title: Text(p.title, style: const TextStyle(fontSize: 14)),
             subtitle: Text(
