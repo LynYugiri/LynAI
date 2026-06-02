@@ -109,7 +109,6 @@ class _HistoryList extends StatelessWidget {
                 initialValue: currentRoleId,
                 onSelected: (id) {
                   sp.selectRole(id);
-                  onRoleChanged();
                 },
                 itemBuilder: (_) => roles
                     .map((r) => PopupMenuItem(value: r.id, child: Text(r.name)))
@@ -150,7 +149,6 @@ class _HistoryList extends StatelessWidget {
                         InkWell(
                           onTap: () {
                             sp.selectRole(role.id);
-                            onRoleChanged();
                           },
                           child: _sectionTitle(
                             context,
