@@ -12,6 +12,7 @@ import '../models/todo_list.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
+import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/backup_service.dart';
 import '../services/storage_migration_service.dart';
@@ -44,6 +45,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       modelConfigProvider: context.read<ModelConfigProvider>(),
       conversationProvider: context.read<ConversationProvider>(),
       featureProvider: context.read<FeatureProvider>(),
+      roleplayProvider: context.read<RoleplayProvider>(),
       storageV2: StorageV2Service(),
     );
   }
@@ -75,6 +77,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
   BackupSelection _selectionForLocalData(BuildContext context) {
     final conversations = context.read<ConversationProvider>().conversations;
     final features = context.read<FeatureProvider>();
+    final roleplays = context.read<RoleplayProvider>().sessions;
     return BackupSelection(
       Set.of(BackupSection.values),
       settingsParts: Set.of(BackupSettingsPart.values),
@@ -82,6 +85,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       noteIds: features.notes.map((item) => item.id).toSet(),
       scheduleIds: features.schedules.map((item) => item.id).toSet(),
       todoListIds: features.todoLists.map((item) => item.id).toSet(),
+      roleplaySessionIds: roleplays.map((item) => item.id).toSet(),
     );
   }
 

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'providers/conversation_provider.dart';
 import 'providers/feature_provider.dart';
 import 'providers/model_config_provider.dart';
+import 'providers/roleplay_provider.dart';
 import 'providers/settings_provider.dart';
 import 'pages/home_page.dart';
 import 'services/storage_migration_service.dart';
@@ -23,6 +24,7 @@ void main() {
         ChangeNotifierProvider(create: (_) => ConversationProvider()),
         ChangeNotifierProvider(create: (_) => FeatureProvider()),
         ChangeNotifierProvider(create: (_) => ModelConfigProvider()),
+        ChangeNotifierProvider(create: (_) => RoleplayProvider()),
         ChangeNotifierProvider(create: (_) => SettingsProvider()),
       ],
       child: const LynAIApp(),
@@ -68,6 +70,7 @@ class _LynAIAppState extends State<LynAIApp> {
       final modelProvider = context.read<ModelConfigProvider>();
       final settingsProvider = context.read<SettingsProvider>();
       final featureProvider = context.read<FeatureProvider>();
+      final roleplayProvider = context.read<RoleplayProvider>();
 
       await StorageMigrationService(
         settingsProvider: settingsProvider,
@@ -79,12 +82,14 @@ class _LynAIAppState extends State<LynAIApp> {
       await Future.wait([
         conversationProvider.loadConversations(),
         featureProvider.load(),
+        roleplayProvider.loadSessions(),
         modelProvider.loadModels(),
         settingsProvider.loadSettings(),
       ]);
 
       settingsProvider.repairMediaModelSelections(modelProvider.models);
       conversationProvider.repairModelReferences(modelProvider.models);
+      roleplayProvider.repairModelReferences(modelProvider.models);
 
       if (mounted) {
         setState(() {
@@ -236,37 +241,39 @@ class _ErrorScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(
-        child: Padding(
+      body: SafeArea(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.error_outline,
-                size: 64,
-                color: Theme.of(context).colorScheme.error,
-              ),
-              const SizedBox(height: 16),
-              Text('加载失败', style: Theme.of(context).textTheme.headlineSmall),
-              const SizedBox(height: 8),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  size: 64,
+                  color: Theme.of(context).colorScheme.error,
                 ),
-              ),
-              const SizedBox(height: 24),
-              FilledButton(
-                onPressed: () {
-                  final state = context
-                      .findAncestorStateOfType<_LynAIAppState>();
-                  state?._loadData();
-                },
-                child: const Text('重试'),
-              ),
-            ],
+                const SizedBox(height: 16),
+                Text('加载失败', style: Theme.of(context).textTheme.headlineSmall),
+                const SizedBox(height: 8),
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                FilledButton(
+                  onPressed: () {
+                    final state = context
+                        .findAncestorStateOfType<_LynAIAppState>();
+                    state?._loadData();
+                  },
+                  child: const Text('重试'),
+                ),
+              ],
+            ),
           ),
         ),
       ),

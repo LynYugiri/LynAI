@@ -30,6 +30,12 @@ class _FeatureDashboard extends StatelessWidget {
       title: '待办清单',
       subtitle: '任务勾选与导入导出',
     ),
+    _FeatureDashboardItem(
+      value: 'roleplay',
+      icon: Icons.theater_comedy_outlined,
+      title: '情景演绎',
+      subtitle: '设定场景，多角色共演',
+    ),
   ];
 
   @override

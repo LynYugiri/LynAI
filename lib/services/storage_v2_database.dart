@@ -369,7 +369,7 @@ class StorageV2Database {
       'schedules.json' => await _loadSchedules(db),
       'todo_lists.json' => await _loadTodoLists(db),
       'resources.json' => await _loadResources(db),
-      _ => null,
+      _ => await _loadGenericDataFile(db, fileName),
     };
   }
 
@@ -391,6 +391,8 @@ class StorageV2Database {
           await _replaceTodoLists(db, data);
         case 'resources.json':
           await _replaceResources(db, data);
+        default:
+          await _replaceGenericDataFile(db, fileName, data);
       }
       await _setMeta(
         db,
@@ -411,6 +413,7 @@ class StorageV2Database {
       'notes.json',
       'schedules.json',
       'todo_lists.json',
+      'roleplay_sessions.json',
     ];
     await db.transaction(() async {
       if (overwrite) await _clearAllData(db);
@@ -434,6 +437,8 @@ class StorageV2Database {
             await _replaceSchedules(db, data);
           case 'todo_lists.json':
             await _replaceTodoLists(db, data);
+          default:
+            await _replaceGenericDataFile(db, fileName, data);
         }
       }
       await _setMeta(db, 'json_imported', 'true');
@@ -895,6 +900,16 @@ CREATE INDEX IF NOT EXISTS idx_resources_hash_size ON resources(sha256, size);
     return {'todoLists': todoLists, 'todoItems': todoItems};
   }
 
+  Future<Map<String, dynamic>?> _loadGenericDataFile(
+    StorageV2DriftDatabase db,
+    String fileName,
+  ) async {
+    final raw = await _meta(db, 'datafile.$fileName');
+    if (raw == null || raw.isEmpty) return null;
+    final decoded = jsonDecode(raw);
+    return decoded is Map ? Map<String, dynamic>.from(decoded) : null;
+  }
+
   Future<void> _replaceAppSettings(
     StorageV2DriftDatabase db,
     Map<String, dynamic> data,
@@ -1297,6 +1312,14 @@ CREATE INDEX IF NOT EXISTS idx_resources_hash_size ON resources(sha256, size);
     }
   }
 
+  Future<void> _replaceGenericDataFile(
+    StorageV2DriftDatabase db,
+    String fileName,
+    Map<String, dynamic> data,
+  ) {
+    return _setMeta(db, 'datafile.$fileName', jsonEncode(data));
+  }
+
   Map<String, dynamic> _resourceRow(ResourceRow row) => {
     'id': row.id,
     'kind': row.kind,
@@ -1341,5 +1364,8 @@ CREATE INDEX IF NOT EXISTS idx_resources_hash_size ON resources(sha256, size);
     await db.delete(db.modelConfigRows).go();
     await db.delete(db.appSettingsRows).go();
     await db.delete(db.resourceRows).go();
+    await (db.delete(
+      db.storageMeta,
+    )..where((table) => table.key.like('datafile.%'))).go();
   }
 }

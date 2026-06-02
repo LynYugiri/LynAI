@@ -76,3 +76,60 @@ class ChatRole {
 
   static const _sentinel = Object();
 }
+
+class ChatRoleGroup {
+  final String id;
+  final String name;
+  final List<String> roleIds;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  const ChatRoleGroup({
+    required this.id,
+    required this.name,
+    this.roleIds = const [],
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  factory ChatRoleGroup.fromJson(Map<String, dynamic> json) {
+    final now = DateTime.now();
+    return ChatRoleGroup(
+      id: json['id'] as String,
+      name: json['name'] as String? ?? '',
+      roleIds: (json['roleIds'] as List<dynamic>? ?? const [])
+          .whereType<String>()
+          .where((id) => id.isNotEmpty)
+          .toSet()
+          .toList(),
+      createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? now,
+      updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ?? now,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'roleIds': roleIds,
+      'createdAt': createdAt.toIso8601String(),
+      'updatedAt': updatedAt.toIso8601String(),
+    };
+  }
+
+  ChatRoleGroup copyWith({
+    String? id,
+    String? name,
+    List<String>? roleIds,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return ChatRoleGroup(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      roleIds: roleIds ?? this.roleIds,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+}

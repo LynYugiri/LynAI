@@ -26,6 +26,7 @@ class _RoleEditDialog extends StatefulWidget {
     String systemPrompt,
     String? modelId,
     Color? themeColor,
+    List<String> groupIds,
   )
   onSave;
   final VoidCallback? onDelete;
@@ -52,6 +53,8 @@ class _RoleEditDialogState extends State<_RoleEditDialog> {
   );
   late String? _modelId = widget.initialRole?.modelId;
   late Color? _themeColor = widget.initialRole?.themeColor;
+  final Set<String> _groupIds = {};
+  bool _groupIdsInitialized = false;
 
   static const _colors = [
     Colors.blue,
@@ -67,6 +70,22 @@ class _RoleEditDialogState extends State<_RoleEditDialog> {
     Color(0xFFE17055),
     Color(0xFF355C7D),
   ];
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_groupIdsInitialized) return;
+    final role = widget.initialRole;
+    if (role != null) {
+      _groupIds.addAll(
+        context
+            .read<SettingsProvider>()
+            .groupsForRole(role.id)
+            .map((e) => e.id),
+      );
+    }
+    _groupIdsInitialized = true;
+  }
 
   @override
   void dispose() {
@@ -141,6 +160,8 @@ class _RoleEditDialogState extends State<_RoleEditDialog> {
               ],
               onChanged: (v) => setState(() => _modelId = v),
             ),
+            const SizedBox(height: 12),
+            _roleGroupSection(context),
             const SizedBox(height: 14),
             Align(
               alignment: Alignment.centerLeft,
@@ -154,7 +175,11 @@ class _RoleEditDialogState extends State<_RoleEditDialog> {
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.35)),
+                border: Border.all(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.outlineVariant.withValues(alpha: 0.35),
+                ),
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Wrap(
@@ -214,7 +239,14 @@ class _RoleEditDialogState extends State<_RoleEditDialog> {
             final prompt = _promptCtrl.text.trim();
             if (name.isEmpty || prompt.isEmpty) return;
             Navigator.pop(context);
-            widget.onSave(name, description, prompt, _modelId, _themeColor);
+            widget.onSave(
+              name,
+              description,
+              prompt,
+              _modelId,
+              _themeColor,
+              _groupIds.toList(),
+            );
           },
           child: const Text('保存'),
         ),
@@ -228,6 +260,100 @@ class _RoleEditDialogState extends State<_RoleEditDialog> {
           ),
       ],
     );
+  }
+
+  Widget _roleGroupSection(BuildContext context) {
+    final groups = context.watch<SettingsProvider>().settings.roleGroups;
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        border: Border.all(
+          color: scheme.outlineVariant.withValues(alpha: 0.35),
+        ),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '分组',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ),
+              TextButton.icon(
+                onPressed: _createGroup,
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('新建'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          if (groups.isEmpty)
+            Text(
+              '暂无分组，可新建后勾选。',
+              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
+            )
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                for (final group in groups)
+                  FilterChip(
+                    label: Text(group.name),
+                    selected: _groupIds.contains(group.id),
+                    onSelected: (selected) {
+                      setState(() {
+                        if (selected) {
+                          _groupIds.add(group.id);
+                        } else {
+                          _groupIds.remove(group.id);
+                        }
+                      });
+                    },
+                  ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _createGroup() async {
+    final ctrl = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('新建角色分组'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          textInputAction: TextInputAction.done,
+          decoration: const InputDecoration(labelText: '分组名称'),
+          onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('创建'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (!mounted || name == null || name.trim().isEmpty) return;
+    final id = context.read<SettingsProvider>().addRoleGroup(name);
+    if (id.isEmpty) return;
+    setState(() => _groupIds.add(id));
   }
 }
 

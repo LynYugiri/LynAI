@@ -2,10 +2,18 @@ import 'app_settings.dart';
 import 'conversation.dart';
 import 'model_config.dart';
 import 'note.dart';
+import 'roleplay.dart';
 import 'schedule_item.dart';
 import 'todo_list.dart';
 
-enum BackupSection { settings, conversations, notes, schedules, todoLists }
+enum BackupSection {
+  settings,
+  conversations,
+  notes,
+  schedules,
+  todoLists,
+  roleplay,
+}
 
 enum BackupSettingsPart {
   apiConfigs,
@@ -42,6 +50,8 @@ extension BackupSectionInfo on BackupSection {
         return 'schedules';
       case BackupSection.todoLists:
         return 'todoLists';
+      case BackupSection.roleplay:
+        return 'roleplay';
     }
   }
 
@@ -57,6 +67,8 @@ extension BackupSectionInfo on BackupSection {
         return '日程';
       case BackupSection.todoLists:
         return '待办清单';
+      case BackupSection.roleplay:
+        return '情景演绎';
     }
   }
 }
@@ -68,6 +80,7 @@ class BackupSelection {
   final Set<String> noteIds;
   final Set<String> scheduleIds;
   final Set<String> todoListIds;
+  final Set<String> roleplaySessionIds;
 
   const BackupSelection(
     this.sections, {
@@ -76,6 +89,7 @@ class BackupSelection {
     this.noteIds = const {},
     this.scheduleIds = const {},
     this.todoListIds = const {},
+    this.roleplaySessionIds = const {},
   });
 
   factory BackupSelection.all() =>
@@ -104,6 +118,8 @@ class BackupSelection {
       noteIds: data.notes?.map((item) => item.id).toSet() ?? const {},
       scheduleIds: data.schedules?.map((item) => item.id).toSet() ?? const {},
       todoListIds: data.todoLists?.map((item) => item.id).toSet() ?? const {},
+      roleplaySessionIds:
+          data.roleplaySessions?.map((item) => item.id).toSet() ?? const {},
     );
   }
 
@@ -116,6 +132,7 @@ class BackupSelection {
     Set<String>? noteIds,
     Set<String>? scheduleIds,
     Set<String>? todoListIds,
+    Set<String>? roleplaySessionIds,
   }) {
     return BackupSelection(
       sections ?? this.sections,
@@ -124,6 +141,7 @@ class BackupSelection {
       noteIds: noteIds ?? this.noteIds,
       scheduleIds: scheduleIds ?? this.scheduleIds,
       todoListIds: todoListIds ?? this.todoListIds,
+      roleplaySessionIds: roleplaySessionIds ?? this.roleplaySessionIds,
     );
   }
 }
@@ -170,6 +188,7 @@ class BackupData {
   final List<NoteEditProposal>? noteEditProposals;
   final List<ScheduleItem>? schedules;
   final List<TodoList>? todoLists;
+  final List<RoleplaySession>? roleplaySessions;
 
   const BackupData({
     this.appSettings,
@@ -183,6 +202,7 @@ class BackupData {
     this.noteEditProposals,
     this.schedules,
     this.todoLists,
+    this.roleplaySessions,
   });
 
   bool hasSection(BackupSection section) {
@@ -201,6 +221,8 @@ class BackupData {
         return schedules != null;
       case BackupSection.todoLists:
         return todoLists != null;
+      case BackupSection.roleplay:
+        return roleplaySessions != null;
     }
   }
 

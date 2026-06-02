@@ -25,6 +25,7 @@ class AppSettings {
   final String? selectedSystemPromptId;
   final String themeMode;
   final List<ChatRole> roles;
+  final List<ChatRoleGroup> roleGroups;
   final String currentRoleId;
   final String lastFeature;
   final String? lastSeenChangelogVersion;
@@ -47,6 +48,7 @@ class AppSettings {
     this.selectedSystemPromptId,
     this.themeMode = 'system',
     List<ChatRole>? roles,
+    this.roleGroups = const [],
     this.currentRoleId = ChatRole.defaultId,
     this.lastFeature = 'dashboard',
     this.lastSeenChangelogVersion,
@@ -76,6 +78,7 @@ class AppSettings {
     Object? selectedSystemPromptId = _sentinel,
     String? themeMode,
     List<ChatRole>? roles,
+    List<ChatRoleGroup>? roleGroups,
     String? currentRoleId,
     String? lastFeature,
     Object? lastSeenChangelogVersion = _sentinel,
@@ -112,6 +115,7 @@ class AppSettings {
           : selectedSystemPromptId as String?,
       themeMode: themeMode ?? this.themeMode,
       roles: roles ?? this.roles,
+      roleGroups: roleGroups ?? this.roleGroups,
       currentRoleId: currentRoleId ?? this.currentRoleId,
       lastFeature: lastFeature ?? this.lastFeature,
       lastSeenChangelogVersion: identical(lastSeenChangelogVersion, _sentinel)
@@ -148,6 +152,30 @@ class AppSettings {
       roles = [ChatRole.defaultRole(), ...roles];
     }
     if (roles.isEmpty) roles = [ChatRole.defaultRole()];
+    final validRoleIds = roles.map((role) => role.id).toSet();
+    final groupsJson = json['roleGroups'] as List<dynamic>?;
+    final roleGroups = <ChatRoleGroup>[];
+    final usedGroupIds = <String>{};
+    for (final item in groupsJson ?? const <dynamic>[]) {
+      try {
+        if (item is Map) {
+          final group = ChatRoleGroup.fromJson(Map<String, dynamic>.from(item));
+          if (group.id.isEmpty || group.name.trim().isEmpty) continue;
+          if (!usedGroupIds.add(group.id)) continue;
+          roleGroups.add(
+            group.copyWith(
+              name: group.name.trim(),
+              roleIds: group.roleIds
+                  .where(validRoleIds.contains)
+                  .toSet()
+                  .toList(),
+            ),
+          );
+        }
+      } catch (e) {
+        debugPrint('跳过损坏的角色分组配置: $e');
+      }
+    }
     final currentRoleId =
         json['currentRoleId'] as String? ?? ChatRole.defaultId;
     Color defaultColor = Color(Colors.blue.toARGB32());
@@ -180,6 +208,7 @@ class AppSettings {
       selectedSystemPromptId: selectedId,
       themeMode: json['themeMode'] as String? ?? 'system',
       roles: roles,
+      roleGroups: roleGroups,
       currentRoleId: roles.any((r) => r.id == currentRoleId)
           ? currentRoleId
           : ChatRole.defaultId,
@@ -209,6 +238,7 @@ class AppSettings {
         'selectedSystemPromptId': selectedSystemPromptId,
       'themeMode': themeMode,
       'roles': roles.map((e) => e.toJson()).toList(),
+      'roleGroups': roleGroups.map((e) => e.toJson()).toList(),
       'currentRoleId': currentRoleId,
       'lastFeature': lastFeature,
       if (lastSeenChangelogVersion != null)

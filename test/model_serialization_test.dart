@@ -8,19 +8,23 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:lynai/models/app_settings.dart';
 import 'package:lynai/models/backup_models.dart';
+import 'package:lynai/models/chat_role.dart';
 import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/message.dart';
 import 'package:lynai/models/model_config.dart';
 import 'package:lynai/models/note.dart';
+import 'package:lynai/models/roleplay.dart';
 import 'package:lynai/models/schedule_item.dart';
 import 'package:lynai/models/todo_list.dart';
 import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
+import 'package:lynai/providers/roleplay_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/repositories/settings_repository.dart';
 import 'package:lynai/services/api_service.dart';
 import 'package:lynai/services/backup_service.dart';
+import 'package:lynai/services/roleplay_service.dart';
 import 'package:lynai/services/storage_migration_service.dart';
 import 'package:lynai/services/storage_v2_service.dart';
 import 'package:lynai/services/tool_call_service.dart';
@@ -46,6 +50,222 @@ void main() {
       isNull,
     );
     expect(settings.copyWith(lastChatModelId: null).lastChatModelId, isNull);
+  });
+
+  test('AppSettings serializes role groups', () {
+    final now = DateTime.utc(2026, 1, 2);
+    final settings = AppSettings(
+      themeColor: Colors.purple,
+      baseThemeColor: Colors.purple,
+      roles: [
+        ChatRole.defaultRole(),
+        const ChatRole(id: 'role-1', name: '侦探', systemPrompt: '你是侦探。'),
+      ],
+      roleGroups: [
+        ChatRoleGroup(
+          id: 'group-1',
+          name: '悬疑',
+          roleIds: const ['role-1', 'missing'],
+          createdAt: now,
+          updatedAt: now,
+        ),
+      ],
+    );
+
+    final restored = AppSettings.fromJson(settings.toJson());
+
+    expect(restored.roleGroups, hasLength(1));
+    expect(restored.roleGroups.single.name, '悬疑');
+    expect(restored.roleGroups.single.roleIds, ['role-1']);
+  });
+
+  test('SettingsProvider maintains role group membership', () {
+    SharedPreferences.setMockInitialValues({});
+    final provider = SettingsProvider();
+    final groupId = provider.addRoleGroup('剧情');
+    final roleId = provider.addRole(
+      name: '角色',
+      systemPrompt: '扮演角色。',
+      groupIds: [groupId],
+    );
+
+    expect(provider.groupsForRole(roleId).single.id, groupId);
+    expect(provider.rolesInGroup(groupId).single.id, roleId);
+
+    provider.updateRole(
+      id: roleId,
+      name: '角色',
+      systemPrompt: '扮演角色。',
+      groupIds: const [],
+    );
+
+    expect(provider.groupsForRole(roleId), isEmpty);
+    expect(provider.ungroupedRoles().map((role) => role.id), contains(roleId));
+  });
+
+  test('Roleplay decision parser accepts fenced json', () {
+    final decision = RoleplayService.parseDecision(
+      '```json\n{"action":"speak","speakerId":"r1","reason":"回应"}\n```',
+      {'r1'},
+    );
+
+    expect(decision.action, 'speak');
+    expect(decision.speakerId, 'r1');
+  });
+
+  test('RoleplaySession serializes participants and messages', () {
+    final now = DateTime.utc(2026, 1, 2);
+    final session = RoleplaySession(
+      id: 's1',
+      title: '咖啡馆',
+      scenario: '雨夜咖啡馆',
+      director: const RoleplayDirector(modelId: 'm1'),
+      participants: const [
+        RoleplayParticipant(
+          id: 'p1',
+          name: '我',
+          systemPrompt: '用户',
+          isPlayer: true,
+        ),
+        RoleplayParticipant(
+          id: 'r1',
+          sourceRoleId: 'role-1',
+          name: '侦探',
+          systemPrompt: '你是侦探。',
+          modelId: 'm2',
+        ),
+      ],
+      playerParticipantId: 'p1',
+      messages: [
+        RoleplayMessage(
+          id: 'msg-1',
+          speakerId: 'r1',
+          speakerName: '侦探',
+          content: '别动。',
+          kind: RoleplayMessageKind.character,
+          timestamp: now,
+        ),
+      ],
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    final restored = RoleplaySession.fromJson(session.toJson());
+
+    expect(restored.director.modelId, 'm1');
+    expect(restored.participants, hasLength(2));
+    expect(restored.messages.single.content, '别动。');
+  });
+
+  test('RoleplayProvider keeps pending messages per session', () {
+    SharedPreferences.setMockInitialValues({});
+    final provider = RoleplayProvider();
+    final participant = RoleplayParticipant(
+      id: 'p1',
+      name: '我',
+      systemPrompt: '用户',
+      isPlayer: true,
+    );
+    final first = provider.createSession(
+      title: 'one',
+      scenario: 'one',
+      director: const RoleplayDirector(),
+      participants: [participant],
+      playerParticipantId: 'p1',
+    );
+    final second = provider.createSession(
+      title: 'two',
+      scenario: 'two',
+      director: const RoleplayDirector(),
+      participants: [participant],
+      playerParticipantId: 'p1',
+    );
+
+    provider.queuePlayerMessage(first, 'first pending');
+    provider.queuePlayerMessage(second, 'second pending');
+
+    expect(provider.drainPendingPlayerMessages(first), ['first pending']);
+    expect(provider.drainPendingPlayerMessages(second), ['second pending']);
+  });
+
+  test('BackupService exports and imports roleplay sessions', () async {
+    SharedPreferences.setMockInitialValues({});
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_roleplay_backup_test_',
+    );
+    final sourceRoleplays = RoleplayProvider();
+    final sessionId = sourceRoleplays.createSession(
+      title: '雨夜咖啡馆',
+      scenario: '雨夜咖啡馆里有人在对峙。',
+      director: const RoleplayDirector(modelId: 'director-model'),
+      participants: const [
+        RoleplayParticipant(
+          id: 'player',
+          name: '我',
+          systemPrompt: '用户',
+          isPlayer: true,
+        ),
+        RoleplayParticipant(id: 'detective', name: '侦探', systemPrompt: '你是侦探。'),
+      ],
+      playerParticipantId: 'player',
+    );
+    sourceRoleplays.appendCharacterMessage(
+      sessionId,
+      sourceRoleplays.getSession(sessionId)!.characters.single,
+      '别动。',
+    );
+    final sourceService = BackupService(
+      settingsProvider: SettingsProvider(),
+      modelConfigProvider: ModelConfigProvider(),
+      conversationProvider: ConversationProvider(),
+      featureProvider: FeatureProvider(),
+      roleplayProvider: sourceRoleplays,
+      temporaryDirectory: root,
+      appVersionLoader: () async => '0.0.0-test',
+    );
+
+    try {
+      final archiveFile = await sourceService.exportZip(
+        BackupSelection(
+          {BackupSection.roleplay},
+          roleplaySessionIds: {sessionId},
+        ),
+      );
+      final targetRoleplays = RoleplayProvider();
+      final targetService = BackupService(
+        settingsProvider: SettingsProvider(),
+        modelConfigProvider: ModelConfigProvider(),
+        conversationProvider: ConversationProvider(),
+        featureProvider: FeatureProvider(),
+        roleplayProvider: targetRoleplays,
+      );
+      final archive = await targetService.readZip(archiveFile);
+      expect(archive.data.roleplaySessions, hasLength(1));
+
+      await targetService.importArchive(
+        archive,
+        ImportPlan(
+          selection: BackupSelection.fromData(archive.data),
+          mode: ImportMode.merge,
+        ),
+      );
+
+      expect(targetRoleplays.sessions, hasLength(1));
+      expect(targetRoleplays.sessions.single.messages.single.content, '别动。');
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('Roleplay decision parser supports narrate action', () {
+    final decision = RoleplayService.parseDecision(
+      '{"action":"narrate","content":"雨声渐渐大起来，房间里陷入沉默。","reason":"转场"}',
+      {'r1'},
+    );
+
+    expect(decision.action, 'narrate');
+    expect(decision.isNarrator, isTrue);
+    expect(decision.content, '雨声渐渐大起来，房间里陷入沉默。');
   });
 
   test('Message serializes image attachments and thinking content', () {
@@ -1660,6 +1880,7 @@ void main() {
     final sourceModels = ModelConfigProvider();
     final sourceConversations = ConversationProvider();
     final sourceFeatures = FeatureProvider();
+    final sourceRoleplays = RoleplayProvider();
     await sourceSettings.loadSettings();
     await sourceModels.loadModels();
     await sourceConversations.loadConversations();
@@ -1699,6 +1920,7 @@ void main() {
         modelConfigProvider: sourceModels,
         conversationProvider: sourceConversations,
         featureProvider: source,
+        roleplayProvider: sourceRoleplays,
         temporaryDirectory: sourceRoot,
         appVersionLoader: () async => '0.0.0-test',
       ).exportZip(BackupSelection({BackupSection.notes}, noteIds: {noteId}));
@@ -1708,6 +1930,7 @@ void main() {
       final targetModels = ModelConfigProvider();
       final targetConversations = ConversationProvider();
       final targetFeatures = FeatureProvider();
+      final targetRoleplays = RoleplayProvider();
       await targetSettings.loadSettings();
       await targetModels.loadModels();
       await targetConversations.loadConversations();
@@ -1729,6 +1952,7 @@ void main() {
         modelConfigProvider: targetModels,
         conversationProvider: targetConversations,
         featureProvider: target,
+        roleplayProvider: targetRoleplays,
       );
       final archive = await service.readZip(archiveFile);
       await service.importArchive(
@@ -1764,6 +1988,7 @@ void main() {
     final sourceModels = ModelConfigProvider();
     final sourceConversations = ConversationProvider();
     final sourceFeatures = FeatureProvider();
+    final sourceRoleplays = RoleplayProvider();
     await sourceSettings.loadSettings();
     await sourceModels.loadModels();
     await sourceConversations.loadConversations();
@@ -1799,6 +2024,7 @@ void main() {
         modelConfigProvider: sourceModels,
         conversationProvider: sourceConversations,
         featureProvider: source,
+        roleplayProvider: sourceRoleplays,
         temporaryDirectory: sourceRoot,
         appVersionLoader: () async => '0.0.0-test',
       ).exportZip(BackupSelection({BackupSection.notes}, noteIds: {noteId}));
@@ -1808,6 +2034,7 @@ void main() {
       final targetModels = ModelConfigProvider();
       final targetConversations = ConversationProvider();
       final targetFeatures = FeatureProvider();
+      final targetRoleplays = RoleplayProvider();
       await targetSettings.loadSettings();
       await targetModels.loadModels();
       await targetConversations.loadConversations();
@@ -1829,6 +2056,7 @@ void main() {
         modelConfigProvider: targetModels,
         conversationProvider: targetConversations,
         featureProvider: target,
+        roleplayProvider: targetRoleplays,
       );
       final archive = await service.readZip(archiveFile);
       final selection = BackupSelection.fromData(archive.data);
@@ -1880,10 +2108,10 @@ void main() {
       );
       await reloaded.load();
       expect(reloaded.notes, hasLength(2));
-      expect(
-        reloaded.notes.map((note) => note.id).toSet(),
-        {noteId, importedCopy.id},
-      );
+      expect(reloaded.notes.map((note) => note.id).toSet(), {
+        noteId,
+        importedCopy.id,
+      });
       expect(reloaded.notePages(noteId), hasLength(2));
       expect(reloaded.getNote(noteId)!.content, 'imported second page');
     } finally {
@@ -1901,6 +2129,7 @@ void main() {
       modelConfigProvider: ModelConfigProvider(),
       conversationProvider: ConversationProvider(),
       featureProvider: FeatureProvider(),
+      roleplayProvider: RoleplayProvider(),
     );
     try {
       for (final path in const [
@@ -1939,6 +2168,7 @@ void main() {
       modelConfigProvider: ModelConfigProvider(),
       conversationProvider: ConversationProvider(),
       featureProvider: FeatureProvider(),
+      roleplayProvider: RoleplayProvider(),
     );
     try {
       final manifest = jsonEncode({

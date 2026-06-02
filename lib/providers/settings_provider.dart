@@ -151,6 +151,7 @@ class SettingsProvider extends ChangeNotifier {
     required String systemPrompt,
     String? modelId,
     Color? themeColor,
+    List<String> groupIds = const [],
   }) {
     final id = const Uuid().v4();
     final role = ChatRole(
@@ -162,8 +163,14 @@ class SettingsProvider extends ChangeNotifier {
       themeColor: themeColor,
     );
     final prompt = SystemPrompt(id: id, title: name, content: systemPrompt);
+    final groups = _roleGroupsWithMembership(
+      _settings.roleGroups,
+      id,
+      groupIds,
+    );
     _settings = _settings.copyWith(
       roles: [..._settings.roles, role],
+      roleGroups: groups,
       systemPrompts: [..._settings.systemPrompts, prompt],
     );
     _queueSaveSettings();
@@ -178,6 +185,7 @@ class SettingsProvider extends ChangeNotifier {
     required String systemPrompt,
     String? modelId,
     Color? themeColor,
+    List<String>? groupIds,
   }) {
     final roles = _settings.roles.map((role) {
       return role.id == id
@@ -196,7 +204,13 @@ class SettingsProvider extends ChangeNotifier {
           : prompt;
     }).toList();
     final isCurrent = _settings.currentRoleId == id;
-    var nextSettings = _settings.copyWith(roles: roles, systemPrompts: prompts);
+    var nextSettings = _settings.copyWith(
+      roles: roles,
+      systemPrompts: prompts,
+      roleGroups: groupIds == null
+          ? _settings.roleGroups
+          : _roleGroupsWithMembership(_settings.roleGroups, id, groupIds),
+    );
     if (isCurrent) {
       nextSettings = nextSettings.copyWith(
         systemPrompt: systemPrompt,
@@ -212,6 +226,14 @@ class SettingsProvider extends ChangeNotifier {
   void deleteRole(String id) {
     if (id == ChatRole.defaultId) return;
     final roles = _settings.roles.where((role) => role.id != id).toList();
+    final now = DateTime.now();
+    final groups = _settings.roleGroups.map((group) {
+      if (!group.roleIds.contains(id)) return group;
+      return group.copyWith(
+        roleIds: group.roleIds.where((roleId) => roleId != id).toList(),
+        updatedAt: now,
+      );
+    }).toList();
     final prompts = _settings.systemPrompts
         .where((prompt) => prompt.id != id)
         .toList();
@@ -219,6 +241,7 @@ class SettingsProvider extends ChangeNotifier {
     final defaultRole = ChatRole.defaultRole();
     var nextSettings = _settings.copyWith(
       roles: roles.isEmpty ? [ChatRole.defaultRole()] : roles,
+      roleGroups: groups,
       systemPrompts: prompts,
       currentRoleId: deletingCurrent
           ? ChatRole.defaultId
@@ -252,6 +275,121 @@ class SettingsProvider extends ChangeNotifier {
     );
     _queueSaveSettings();
     notifyListeners();
+  }
+
+  String addRoleGroup(String name) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return '';
+    final now = DateTime.now();
+    final id = const Uuid().v4();
+    final group = ChatRoleGroup(
+      id: id,
+      name: trimmed,
+      createdAt: now,
+      updatedAt: now,
+    );
+    _settings = _settings.copyWith(
+      roleGroups: [..._settings.roleGroups, group],
+    );
+    _queueSaveSettings();
+    notifyListeners();
+    return id;
+  }
+
+  void updateRoleGroup(String id, String name) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    var changed = false;
+    final now = DateTime.now();
+    final groups = _settings.roleGroups.map((group) {
+      if (group.id != id) return group;
+      changed = true;
+      return group.copyWith(name: trimmed, updatedAt: now);
+    }).toList();
+    if (!changed) return;
+    _settings = _settings.copyWith(roleGroups: groups);
+    _queueSaveSettings();
+    notifyListeners();
+  }
+
+  void deleteRoleGroup(String id) {
+    final groups = _settings.roleGroups
+        .where((group) => group.id != id)
+        .toList();
+    if (groups.length == _settings.roleGroups.length) return;
+    _settings = _settings.copyWith(roleGroups: groups);
+    _queueSaveSettings();
+    notifyListeners();
+  }
+
+  void setRoleGroups(String roleId, List<String> groupIds) {
+    if (!_settings.roles.any((role) => role.id == roleId)) return;
+    _settings = _settings.copyWith(
+      roleGroups: _roleGroupsWithMembership(
+        _settings.roleGroups,
+        roleId,
+        groupIds,
+      ),
+    );
+    _queueSaveSettings();
+    notifyListeners();
+  }
+
+  List<ChatRoleGroup> groupsForRole(String roleId) {
+    return _settings.roleGroups
+        .where((group) => group.roleIds.contains(roleId))
+        .toList(growable: false);
+  }
+
+  List<ChatRole> rolesInGroup(String groupId) {
+    final group = _settings.roleGroups.firstWhere(
+      (group) => group.id == groupId,
+      orElse: () => ChatRoleGroup(
+        id: '',
+        name: '',
+        createdAt: DateTime.fromMillisecondsSinceEpoch(0),
+        updatedAt: DateTime.fromMillisecondsSinceEpoch(0),
+      ),
+    );
+    if (group.id.isEmpty) return const [];
+    final roleById = {for (final role in _settings.roles) role.id: role};
+    return group.roleIds
+        .map((id) => roleById[id])
+        .whereType<ChatRole>()
+        .toList(growable: false);
+  }
+
+  List<ChatRole> ungroupedRoles() {
+    final grouped = _settings.roleGroups
+        .expand((group) => group.roleIds)
+        .toSet();
+    return _settings.roles
+        .where((role) => !grouped.contains(role.id))
+        .toList(growable: false);
+  }
+
+  List<ChatRoleGroup> _roleGroupsWithMembership(
+    List<ChatRoleGroup> groups,
+    String roleId,
+    List<String> groupIds,
+  ) {
+    final selected = groupIds.toSet();
+    final now = DateTime.now();
+    return groups.map((group) {
+      final ids = group.roleIds.toSet();
+      final before = ids.contains(roleId);
+      if (selected.contains(group.id)) {
+        ids.add(roleId);
+      } else {
+        ids.remove(roleId);
+      }
+      final next = ids.toList();
+      if (before == ids.contains(roleId) &&
+          next.length == group.roleIds.length) {
+        return group;
+      }
+      return group.copyWith(roleIds: next, updatedAt: now);
+    }).toList();
   }
 
   /// 设置背景图片路径

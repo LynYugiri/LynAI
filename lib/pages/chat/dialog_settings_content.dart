@@ -813,72 +813,123 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
 
   Widget _roleList(AppSettings set) {
     final roles = set.roles;
+    final roleById = {for (final role in roles) role.id: role};
+    final groupedIds = set.roleGroups.expand((group) => group.roleIds).toSet();
+    final ungrouped = roles
+        .where((role) => !groupedIds.contains(role.id))
+        .toList(growable: false);
+    final selectedGroups = set.roleGroups
+        .where((group) => group.roleIds.contains(set.currentRoleId))
+        .toList(growable: false);
+    final expandedGroupId = selectedGroups.isEmpty
+        ? '__ungrouped__'
+        : selectedGroups.first.id;
     return Container(
       constraints: const BoxConstraints(maxHeight: 240),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(10),
       ),
-      child: ListView.builder(
+      child: ListView(
         shrinkWrap: true,
-        itemCount: roles.length + 1,
-        itemBuilder: (_, i) {
-          if (i == roles.length) {
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Divider(height: 1),
-                ListTile(
-                  dense: true,
-                  leading: Icon(
-                    Icons.add,
-                    size: 18,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                  title: Text(
-                    '添加角色',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                  onTap: _addRole,
-                ),
-              ],
-            );
-          }
-          final role = roles[i];
-          final selected = role.id == set.currentRoleId;
-          return ListTile(
+        children: [
+          _roleGroupTile(
+            id: '__ungrouped__',
+            title: '未分组',
+            roles: ungrouped,
+            currentRoleId: set.currentRoleId,
+            initiallyExpanded: expandedGroupId == '__ungrouped__',
+          ),
+          for (final group in set.roleGroups)
+            _roleGroupTile(
+              id: group.id,
+              title: group.name,
+              roles: group.roleIds
+                  .map((id) => roleById[id])
+                  .whereType<ChatRole>()
+                  .toList(growable: false),
+              currentRoleId: set.currentRoleId,
+              initiallyExpanded: expandedGroupId == group.id,
+            ),
+          const Divider(height: 1),
+          ListTile(
             dense: true,
             leading: Icon(
-              selected ? Icons.check_circle : Icons.circle_outlined,
+              Icons.add,
               size: 18,
-              color: selected
-                  ? Theme.of(context).colorScheme.primary
-                  : Theme.of(context).colorScheme.outline,
+              color: Theme.of(context).colorScheme.primary,
             ),
-            title: Text(role.name),
-            subtitle: Text(
-              role.description.isNotEmpty
-                  ? role.description
-                  : role.systemPrompt,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            title: Text(
+              '添加角色',
+              style: TextStyle(color: Theme.of(context).colorScheme.primary),
             ),
-            trailing: role.id == ChatRole.defaultId
-                ? null
-                : IconButton(
-                    icon: const Icon(Icons.edit, size: 18),
-                    onPressed: () => _editRole(role),
-                  ),
-            onTap: () {
-              context.read<SettingsProvider>().selectRole(role.id);
-              _updateSettings(_roleConversationSettings(role));
-              setState(() => _showRoleList = false);
-            },
-          );
-        },
+            onTap: _addRole,
+          ),
+        ],
       ),
+    );
+  }
+
+  Widget _roleGroupTile({
+    required String id,
+    required String title,
+    required List<ChatRole> roles,
+    required String currentRoleId,
+    required bool initiallyExpanded,
+  }) {
+    return ExpansionTile(
+      key: ValueKey('role-group-$id'),
+      initiallyExpanded: initiallyExpanded,
+      dense: true,
+      title: Text(
+        '$title · ${roles.length}',
+        style: const TextStyle(fontSize: 14),
+      ),
+      children: roles.isEmpty
+          ? [
+              ListTile(
+                dense: true,
+                title: Text(
+                  '暂无角色',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ]
+          : roles.map((role) => _roleItem(role, currentRoleId)).toList(),
+    );
+  }
+
+  Widget _roleItem(ChatRole role, String currentRoleId) {
+    final selected = role.id == currentRoleId;
+    return ListTile(
+      dense: true,
+      leading: Icon(
+        selected ? Icons.check_circle : Icons.circle_outlined,
+        size: 18,
+        color: selected
+            ? Theme.of(context).colorScheme.primary
+            : Theme.of(context).colorScheme.outline,
+      ),
+      title: Text(role.name),
+      subtitle: Text(
+        role.description.isNotEmpty ? role.description : role.systemPrompt,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: role.id == ChatRole.defaultId
+          ? null
+          : IconButton(
+              icon: const Icon(Icons.edit, size: 18),
+              onPressed: () => _editRole(role),
+            ),
+      onTap: () {
+        context.read<SettingsProvider>().selectRole(role.id);
+        _updateSettings(_roleConversationSettings(role));
+        setState(() => _showRoleList = false);
+      },
     );
   }
 
@@ -894,13 +945,14 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
     showDialog(
       context: context,
       builder: (ctx) => _RoleEditDialog(
-        onSave: (name, description, prompt, modelId, themeColor) {
+        onSave: (name, description, prompt, modelId, themeColor, groupIds) {
           context.read<SettingsProvider>().addRole(
             name: name,
             description: description,
             systemPrompt: prompt,
             modelId: modelId,
             themeColor: themeColor,
+            groupIds: groupIds,
           );
         },
       ),
@@ -913,7 +965,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
       context: context,
       builder: (ctx) => _RoleEditDialog(
         initialRole: role,
-        onSave: (name, description, prompt, modelId, themeColor) {
+        onSave: (name, description, prompt, modelId, themeColor, groupIds) {
           sp.updateRole(
             id: role.id,
             name: name,
@@ -921,6 +973,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
             systemPrompt: prompt,
             modelId: modelId,
             themeColor: themeColor,
+            groupIds: groupIds,
           );
           if (role.id == sp.settings.currentRoleId) {
             _updateSettings(_roleConversationSettings(sp.currentRole));

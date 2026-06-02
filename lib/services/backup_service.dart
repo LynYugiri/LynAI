@@ -14,11 +14,13 @@ import '../models/conversation.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
 import '../models/note.dart';
+import '../models/roleplay.dart';
 import '../models/schedule_item.dart';
 import '../models/todo_list.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
+import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
 import 'storage_v2_service.dart';
 import '../utils/file_name_utils.dart';
@@ -34,6 +36,7 @@ class BackupService {
     required this.modelConfigProvider,
     required this.conversationProvider,
     required this.featureProvider,
+    required this.roleplayProvider,
     this.storageV2,
     Directory? temporaryDirectory,
     Future<String> Function()? appVersionLoader,
@@ -44,6 +47,7 @@ class BackupService {
   final ModelConfigProvider modelConfigProvider;
   final ConversationProvider conversationProvider;
   final FeatureProvider featureProvider;
+  final RoleplayProvider roleplayProvider;
   final StorageV2Service? storageV2;
   final Directory? _temporaryDirectory;
   final Future<String> Function()? _appVersionLoader;
@@ -145,9 +149,7 @@ class BackupService {
           }
         } catch (_) {}
       }
-      addJson('settings.json', {
-        'appSettings': settingsJson,
-      });
+      addJson('settings.json', {'appSettings': settingsJson});
       if (selection.settingsParts.contains(BackupSettingsPart.appearance)) {
         await addPrivateAsset(
           settings.backgroundImagePath,
@@ -312,12 +314,8 @@ class BackupService {
             });
           }
         }
-        addJson('notes/edit_proposals.json', {
-          'proposals': proposalRows,
-        });
-        addJson('notes/edit_blocks.json', {
-          'blocks': blockRows,
-        });
+        addJson('notes/edit_proposals.json', {'proposals': proposalRows});
+        addJson('notes/edit_blocks.json', {'blocks': blockRows});
         noteFiles.addAll([
           'notes/pages.json',
           'notes/edit_proposals.json',
@@ -409,6 +407,19 @@ class BackupService {
         'count': todoLists.length,
       };
     }
+    if (selection.contains(BackupSection.roleplay)) {
+      final sessions = roleplayProvider.sessions
+          .where((item) => selection.roleplaySessionIds.contains(item.id))
+          .toList();
+      addJson('roleplay_sessions.json', {
+        'sessions': sessions.map((item) => item.toJson()).toList(),
+      });
+      sections[BackupSection.roleplay.key] = {
+        'enabled': true,
+        'files': ['roleplay_sessions.json'],
+        'count': sessions.length,
+      };
+    }
 
     final exportedResources = await _collectExportResources(
       selection,
@@ -488,9 +499,14 @@ class BackupService {
     final blocksJson = readMap('notes/edit_blocks.json');
     final schedulesJson = readMap('schedules.json');
     final todoListsJson = readMap('todo_lists.json');
+    final roleplayJson = readMap('roleplay_sessions.json');
     final resourcesJson = readMap('resources.json');
 
-    final conversations = _parseConversations(conversationsJson, schemaVersion, warnings);
+    final conversations = _parseConversations(
+      conversationsJson,
+      schemaVersion,
+      warnings,
+    );
     final todoLists = _parseTodoLists(todoListsJson, schemaVersion, warnings);
     final noteEditProposals = _parseNoteEditProposals(
       proposalsJson,
@@ -560,13 +576,15 @@ class BackupService {
           '日程',
         ),
         todoLists: todoLists,
+        roleplaySessions: _parseList(
+          roleplayJson?['sessions'],
+          RoleplaySession.fromJson,
+          warnings,
+          '情景演绎',
+        ),
       ),
       assetFiles: assetFiles,
-      resources: _parseRawMapList(
-        resourcesJson?['resources'],
-        warnings,
-        '资源',
-      ),
+      resources: _parseRawMapList(resourcesJson?['resources'], warnings, '资源'),
     );
   }
 
@@ -592,7 +610,8 @@ class BackupService {
     List<String> warnings,
   ) {
     final attachmentsByMessageId = <String, List<MessageImage>>{};
-    for (final item in json['messageAttachments'] as List<dynamic>? ?? const []) {
+    for (final item
+        in json['messageAttachments'] as List<dynamic>? ?? const []) {
       if (item is! Map) continue;
       try {
         final raw = Map<String, dynamic>.from(item);
@@ -601,7 +620,10 @@ class BackupService {
         (attachmentsByMessageId[messageId] ??= []).add(
           MessageImage(
             path: raw['path'] as String? ?? raw['legacyPath'] as String? ?? '',
-            name: raw['displayName'] as String? ?? raw['name'] as String? ?? 'file',
+            name:
+                raw['displayName'] as String? ??
+                raw['name'] as String? ??
+                'file',
             size: raw['size'] as int? ?? 0,
             mimeType: raw['mimeType'] as String? ?? 'application/octet-stream',
           ),
@@ -689,12 +711,7 @@ class BackupService {
     if (json['todoItems'] is List && json['todoLists'] is List) {
       return _parseTodoListsFlat(json, warnings);
     }
-    return _parseList(
-      json['todoLists'],
-      TodoList.fromJson,
-      warnings,
-      '待办清单',
-    );
+    return _parseList(json['todoLists'], TodoList.fromJson, warnings, '待办清单');
   }
 
   static List<TodoList>? _parseTodoListsFlat(
@@ -774,14 +791,12 @@ class BackupService {
             id: raw['id'] as String,
             startLine: raw['startLine'] as int? ?? 1,
             deleteCount: raw['deleteCount'] as int? ?? 0,
-            deletedLines:
-                (raw['deletedLines'] as List<dynamic>? ?? const [])
-                    .whereType<String>()
-                    .toList(),
-            insertLines:
-                (raw['insertLines'] as List<dynamic>? ?? const [])
-                    .whereType<String>()
-                    .toList(),
+            deletedLines: (raw['deletedLines'] as List<dynamic>? ?? const [])
+                .whereType<String>()
+                .toList(),
+            insertLines: (raw['insertLines'] as List<dynamic>? ?? const [])
+                .whereType<String>()
+                .toList(),
           ),
         );
       } catch (e) {
@@ -877,6 +892,12 @@ class BackupService {
       }
       if (plan.sections.contains(BackupSection.todoLists)) {
         final result = await _applyTodoLists(data, plan);
+        added += result.added;
+        replaced += result.replaced;
+        skipped += result.skipped;
+      }
+      if (plan.sections.contains(BackupSection.roleplay)) {
+        final result = await _applyRoleplay(data, plan, idMap);
         added += result.added;
         replaced += result.replaced;
         skipped += result.skipped;
@@ -1499,6 +1520,58 @@ class BackupService {
     return ImportResult(added: added, replaced: replaced, skipped: skipped);
   }
 
+  Future<ImportResult> _applyRoleplay(
+    BackupData data,
+    ImportPlan plan,
+    _ImportIdMap idMap,
+  ) async {
+    final incomingItems = data.roleplaySessions;
+    if (incomingItems == null) {
+      return const ImportResult(added: 0, replaced: 0, skipped: 0);
+    }
+    if (plan.mode == ImportMode.replaceSection) {
+      final incomingIds = incomingItems.map((item) => item.id).toSet();
+      final items = roleplayProvider.sessions
+          .where((item) => !incomingIds.contains(item.id))
+          .toList();
+      items.addAll(
+        incomingItems.map((item) => _remapRoleplaySession(item, idMap)),
+      );
+      await roleplayProvider.replaceSessions(items);
+      return ImportResult(added: 0, replaced: incomingItems.length, skipped: 0);
+    }
+    var added = 0;
+    var replaced = 0;
+    var skipped = 0;
+    final items = List<RoleplaySession>.from(roleplayProvider.sessions);
+    for (final incoming in incomingItems) {
+      final index = items.indexWhere((item) => item.id == incoming.id);
+      if (index == -1) {
+        items.add(_remapRoleplaySession(incoming, idMap));
+        added++;
+      } else if (_sameJson(items[index], incoming)) {
+        skipped++;
+      } else if (plan.mode == ImportMode.addOnly) {
+        skipped++;
+      } else {
+        final action = plan.actionFor(
+          _conflictId(BackupSection.roleplay, incoming.id),
+        );
+        if (action == ImportConflictAction.replaceLocal) {
+          items[index] = _remapRoleplaySession(incoming, idMap);
+          replaced++;
+        } else if (action == ImportConflictAction.keepBoth) {
+          items.add(_copyRoleplaySessionWithNewIds(incoming));
+          added++;
+        } else {
+          skipped++;
+        }
+      }
+    }
+    await roleplayProvider.replaceSessions(items);
+    return ImportResult(added: added, replaced: replaced, skipped: skipped);
+  }
+
   List<ImportConflict> _findConflicts(
     BackupData data,
     BackupSelection selection,
@@ -1645,6 +1718,23 @@ class BackupService {
         }
       }
     }
+    if (sections.contains(BackupSection.roleplay)) {
+      for (final incoming
+          in data.roleplaySessions ?? const <RoleplaySession>[]) {
+        final local = _findById(roleplayProvider.sessions, incoming.id);
+        if (local != null && !_sameJson(local, incoming)) {
+          conflicts.add(
+            ImportConflict(
+              id: _conflictId(BackupSection.roleplay, incoming.id),
+              section: BackupSection.roleplay,
+              title: incoming.title,
+              localSummary: _formatUpdated(local.updatedAt),
+              incomingSummary: _formatUpdated(incoming.updatedAt),
+            ),
+          );
+        }
+      }
+    }
     return conflicts;
   }
 
@@ -1676,7 +1766,16 @@ class BackupService {
       prompts.add(next);
       usedPromptIds.add(next.id);
     }
-    return local.copyWith(roles: roles, systemPrompts: prompts);
+    final groups = _mergeRoleGroups(
+      local.roleGroups,
+      incoming.roleGroups,
+      idMap,
+    );
+    return local.copyWith(
+      roles: roles,
+      roleGroups: groups,
+      systemPrompts: prompts,
+    );
   }
 
   AppSettings _mergeSettingsWithImportedParts(
@@ -1718,7 +1817,16 @@ class BackupService {
       prompts.add(prompt.copyWith(id: nextId));
       promptIds.add(nextId);
     }
-    return local.copyWith(roles: roles, systemPrompts: prompts);
+    final groups = _appendMissingRoleGroups(
+      local.roleGroups,
+      incoming.roleGroups,
+      idMap,
+    );
+    return local.copyWith(
+      roles: roles,
+      roleGroups: groups,
+      systemPrompts: prompts,
+    );
   }
 
   AppSettings _mergeSettingsParts(
@@ -1754,6 +1862,7 @@ class BackupService {
     if (parts.contains(BackupSettingsPart.rolesAndPrompts)) {
       next = next.copyWith(
         roles: incoming.roles,
+        roleGroups: incoming.roleGroups,
         currentRoleId: incoming.currentRoleId,
         systemPrompts: incoming.systemPrompts,
         selectedSystemPromptId: incoming.selectedSystemPromptId,
@@ -1771,8 +1880,17 @@ class BackupService {
         id: idMap.systemPromptIds[prompt.id] ?? idMap.roleIds[prompt.id],
       );
     }).toList();
+    final groups = settings.roleGroups.map((group) {
+      return group.copyWith(
+        roleIds: group.roleIds
+            .map((id) => idMap.roleIds[id] ?? id)
+            .toSet()
+            .toList(),
+      );
+    }).toList();
     return settings.copyWith(
       roles: roles,
+      roleGroups: groups,
       systemPrompts: prompts,
       currentRoleId:
           idMap.roleIds[settings.currentRoleId] ?? settings.currentRoleId,
@@ -1795,6 +1913,11 @@ class BackupService {
     final modelIds = modelConfigProvider.models.map((item) => item.id).toSet();
     final roleIds = settings.roles.map((item) => item.id).toSet();
     final promptIds = settings.systemPrompts.map((item) => item.id).toSet();
+    final repairedGroups = settings.roleGroups.map((group) {
+      return group.copyWith(
+        roleIds: group.roleIds.where(roleIds.contains).toSet().toList(),
+      );
+    }).toList();
     return settings.copyWith(
       speechModelId: _keepExistingId(settings.speechModelId, modelIds),
       imageModelId: _keepExistingId(settings.imageModelId, modelIds),
@@ -1810,6 +1933,64 @@ class BackupService {
         settings.selectedSystemPromptId,
         promptIds,
       ),
+      roleGroups: repairedGroups,
+    );
+  }
+
+  List<ChatRoleGroup> _mergeRoleGroups(
+    List<ChatRoleGroup> local,
+    List<ChatRoleGroup> incoming,
+    _ImportIdMap idMap,
+  ) {
+    final usedIds = local.map((item) => item.id).toSet();
+    final groups = [...local];
+    for (final group in incoming) {
+      final next = usedIds.contains(group.id)
+          ? group.copyWith(id: _newUniqueId(usedIds))
+          : group;
+      usedIds.add(next.id);
+      groups.add(_remapRoleGroup(next, idMap));
+    }
+    return groups;
+  }
+
+  List<ChatRoleGroup> _appendMissingRoleGroups(
+    List<ChatRoleGroup> local,
+    List<ChatRoleGroup> incoming,
+    _ImportIdMap idMap,
+  ) {
+    final usedIds = local.map((item) => item.id).toSet();
+    final groups = [...local];
+    for (final group in incoming) {
+      if (usedIds.contains(group.id)) {
+        final index = groups.indexWhere((item) => item.id == group.id);
+        if (index != -1) {
+          final localGroup = groups[index];
+          final roleIds = {
+            ...localGroup.roleIds,
+            ..._remapRoleGroup(group, idMap).roleIds,
+          }.toList();
+          if (roleIds.length != localGroup.roleIds.length) {
+            groups[index] = localGroup.copyWith(
+              roleIds: roleIds,
+              updatedAt: DateTime.now(),
+            );
+          }
+        }
+        continue;
+      }
+      usedIds.add(group.id);
+      groups.add(_remapRoleGroup(group, idMap));
+    }
+    return groups;
+  }
+
+  ChatRoleGroup _remapRoleGroup(ChatRoleGroup group, _ImportIdMap idMap) {
+    return group.copyWith(
+      roleIds: group.roleIds
+          .map((id) => idMap.roleIds[id] ?? id)
+          .toSet()
+          .toList(),
     );
   }
 
@@ -1886,6 +2067,75 @@ class BackupService {
       items: list.items
           .map((item) => item.copyWith(id: _uuid.v4()))
           .toList(growable: false),
+    );
+  }
+
+  RoleplaySession _copyRoleplaySessionWithNewIds(RoleplaySession session) {
+    final participantIdMap = <String, String>{};
+    final participants = session.participants.map((participant) {
+      final id = _uuid.v4();
+      participantIdMap[participant.id] = id;
+      return RoleplayParticipant(
+        id: id,
+        sourceRoleId: participant.sourceRoleId,
+        name: participant.name,
+        description: participant.description,
+        systemPrompt: participant.systemPrompt,
+        modelId: participant.modelId,
+        themeColor: participant.themeColor,
+        isPlayer: participant.isPlayer,
+      );
+    }).toList();
+    return RoleplaySession(
+      id: _uuid.v4(),
+      title: session.title,
+      scenario: session.scenario,
+      director: session.director,
+      participants: participants,
+      playerParticipantId:
+          participantIdMap[session.playerParticipantId] ??
+          session.playerParticipantId,
+      messages: session.messages.map((message) {
+        return RoleplayMessage(
+          id: _uuid.v4(),
+          speakerId: participantIdMap[message.speakerId] ?? message.speakerId,
+          speakerName: message.speakerName,
+          content: message.content,
+          kind: message.kind,
+          timestamp: message.timestamp,
+        );
+      }).toList(),
+      maxAutoTurns: session.maxAutoTurns,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+    );
+  }
+
+  RoleplaySession _remapRoleplaySession(
+    RoleplaySession session,
+    _ImportIdMap idMap,
+  ) {
+    return session.copyWith(
+      director: RoleplayDirector(
+        name: session.director.name,
+        systemPrompt: session.director.systemPrompt,
+        modelId: _remapNullable(session.director.modelId, idMap.modelIds),
+      ),
+      participants: session.participants.map((participant) {
+        final sourceRoleId = participant.sourceRoleId;
+        return RoleplayParticipant(
+          id: participant.id,
+          sourceRoleId: sourceRoleId == null
+              ? null
+              : idMap.roleIds[sourceRoleId] ?? sourceRoleId,
+          name: participant.name,
+          description: participant.description,
+          systemPrompt: participant.systemPrompt,
+          modelId: _remapNullable(participant.modelId, idMap.modelIds),
+          themeColor: participant.themeColor,
+          isPlayer: participant.isPlayer,
+        );
+      }).toList(),
     );
   }
 
@@ -2325,6 +2575,9 @@ class BackupService {
       todoLists: data.todoLists
           ?.where((item) => selection.todoListIds.contains(item.id))
           .toList(),
+      roleplaySessions: data.roleplaySessions
+          ?.where((item) => selection.roleplaySessionIds.contains(item.id))
+          .toList(),
     );
   }
 
@@ -2365,6 +2618,7 @@ class BackupService {
     if (parts.contains(BackupSettingsPart.rolesAndPrompts)) {
       json.addAll({
         'roles': settings.roles.map((item) => item.toJson()).toList(),
+        'roleGroups': settings.roleGroups.map((item) => item.toJson()).toList(),
         'currentRoleId': settings.currentRoleId,
         'systemPrompts': settings.systemPrompts
             .map((item) => item.toJson())
@@ -2405,6 +2659,8 @@ class BackupService {
         return '${data.schedules?.length ?? 0} 条日程';
       case BackupSection.todoLists:
         return '${data.todoLists?.length ?? 0} 个清单';
+      case BackupSection.roleplay:
+        return '${data.roleplaySessions?.length ?? 0} 个演绎会话';
     }
   }
 
@@ -2513,9 +2769,11 @@ class BackupService {
     for (final record in assetRecords) {
       final originalPath = record['originalPath'] as String? ?? '';
       if (originalPath.isEmpty) continue;
-      final matched = existing.where((res) =>
-          !res.missing &&
-          _normalizePath(res.originalPath) == _normalizePath(originalPath));
+      final matched = existing.where(
+        (res) =>
+            !res.missing &&
+            _normalizePath(res.originalPath) == _normalizePath(originalPath),
+      );
       if (matched.isNotEmpty) {
         final resource = matched.first;
         if (seenIds.add(resource.id)) {
@@ -2529,8 +2787,9 @@ class BackupService {
           if (await file.exists()) {
             final bytes = await file.readAsBytes();
             final hash = sha256.convert(bytes).toString();
-            final dup = existing.where((res) =>
-                !res.missing && res.sha256Hash == hash);
+            final dup = existing.where(
+              (res) => !res.missing && res.sha256Hash == hash,
+            );
             if (dup.isNotEmpty) {
               record['resourceId'] = dup.first.id;
               record['sha256'] = hash;

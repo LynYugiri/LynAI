@@ -15,13 +15,19 @@ import 'package:share_plus/share_plus.dart';
 import 'package:uuid/uuid.dart';
 import 'latex_formula_editor_page.dart';
 import '../models/chat_role.dart';
+import '../models/app_settings.dart';
 import '../models/conversation.dart';
+import '../models/model_config.dart';
 import '../models/note.dart';
+import '../models/roleplay.dart';
 import '../models/schedule_item.dart';
 import '../models/todo_list.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
+import '../providers/model_config_provider.dart';
+import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
+import '../services/roleplay_service.dart';
 import '../utils/file_share_utils.dart';
 import '../utils/file_name_utils.dart';
 import '../utils/share_image_utils.dart';
@@ -35,6 +41,7 @@ part 'features/schedule_page.dart';
 part 'features/notes_page.dart';
 part 'features/todo_lists_page.dart';
 part 'features/note_detail_page.dart';
+part 'features/roleplay_page.dart';
 
 const _exportImagePixelRatio = 2.5;
 const _exportTextChunkLength = 2800;
@@ -220,7 +227,13 @@ class FeaturePage extends StatefulWidget {
 
 class _FeaturePageState extends State<FeaturePage> {
   static const _dashboardFeature = 'dashboard';
-  static const _featureValues = {'history', 'schedule', 'notes', 'todos'};
+  static const _featureValues = {
+    'history',
+    'schedule',
+    'notes',
+    'todos',
+    'roleplay',
+  };
 
   final _searchController = TextEditingController();
   final _noteDetailKey = GlobalKey<_NoteDetailState>();
@@ -339,6 +352,7 @@ class _FeaturePageState extends State<FeaturePage> {
           onConversationTap: widget.onConversationTap,
           onRoleChanged: widget.onRoleChanged,
         ),
+        'roleplay' => const _RoleplayPage(),
         _ => _FeatureDashboard(onFeatureSelected: _selectFeature),
       },
     );
@@ -355,6 +369,7 @@ class _FeaturePageState extends State<FeaturePage> {
       'notes' => '笔记',
       'todos' => '待办清单',
       'history' => '对话历史',
+      'roleplay' => '情景演绎',
       _ => '功能',
     };
   }
