@@ -1209,19 +1209,33 @@ class _RoleplayPageState extends State<_RoleplayPage> {
   Future<void> _exportImage(RoleplayThread thread) async {
     if (_exporting) return;
     setState(() => _exporting = true);
+    final scheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     try {
-      final widget = _RoleplayShareImage(
-        thread: thread,
-        seedColor: Theme.of(context).colorScheme.primary,
-        isDark: Theme.of(context).brightness == Brightness.dark,
-      );
-      final image = await _screenshotCtrl.captureFromLongWidget(
-        widget,
-        pixelRatio: 2.5,
-      );
+      final pages = _splitImagePages(thread.messages, maxWeight: 3200);
+      final images = <Uint8List>[];
+      for (var i = 0; i < pages.length; i++) {
+        final widget = RepaintBoundary(
+          child: _RoleplayShareImage(
+            thread: thread,
+            messages: pages[i],
+            seedColor: scheme.primary,
+            isDark: isDark,
+            pageNumber: pages.length > 1 ? i + 1 : null,
+            pageCount: pages.length > 1 ? pages.length : null,
+          ),
+        );
+        images.add(await _captureSharePageImage(widget));
+      }
+      if (!mounted) return;
+      if (images.isEmpty) {
+        showShortSnackBar(context, '生成长图失败，请重试');
+        return;
+      }
+      final prefix = safeExportFileName(thread.title, fallback: 'roleplay');
       await shareOrSavePngImages(
-        images: [image],
-        filePrefix: safeExportFileName(thread.title, fallback: 'roleplay'),
+        images: images,
+        filePrefix: prefix.length > 40 ? prefix.substring(0, 40) : prefix,
         nativeTools: const MethodChannel('lynai/native_tools'),
         clipboardMessage: '长图已复制到剪贴板',
         galleryMessage: '长图已保存到图库',
@@ -1231,6 +1245,67 @@ class _RoleplayPageState extends State<_RoleplayPage> {
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
+  }
+
+  Future<Uint8List> _captureSharePageImage(Widget shareWidget) async {
+    try {
+      return await _screenshotCtrl.captureFromLongWidget(
+        shareWidget,
+        pixelRatio: 2.5,
+        context: context,
+        constraints: const BoxConstraints(maxWidth: 720),
+      );
+    } catch (_) {
+      return _screenshotCtrl.captureFromWidget(
+        shareWidget,
+        pixelRatio: 2.5,
+        context: context,
+      );
+    }
+  }
+
+  List<List<RoleplayMessage>> _splitImagePages(
+    List<RoleplayMessage> messages, {
+    required int maxWeight,
+  }) {
+    final pages = <List<RoleplayMessage>>[];
+    var current = <RoleplayMessage>[];
+    var currentWeight = 0;
+    for (final message in messages) {
+      final chunks = _splitLongMessage(message);
+      for (final chunk in chunks) {
+        final weight = chunk.content.length + 300;
+        if (current.isNotEmpty && currentWeight + weight > maxWeight) {
+          pages.add(current);
+          current = [];
+          currentWeight = 0;
+        }
+        current.add(chunk);
+        currentWeight += weight;
+      }
+    }
+    if (current.isNotEmpty) pages.add(current);
+    return pages;
+  }
+
+  List<RoleplayMessage> _splitLongMessage(RoleplayMessage message) {
+    final content = message.content.trim();
+    if (content.length <= 2800) return [message];
+    final chunks = splitTextForExport(content, maxLength: 2800);
+    final result = <RoleplayMessage>[];
+    for (var i = 0; i < chunks.length; i++) {
+      result.add(
+        RoleplayMessage(
+          id: i == 0 ? message.id : '${message.id}_chunk_$i',
+          speakerId: message.speakerId,
+          speakerName: message.speakerName,
+          content: chunks[i],
+          kind: message.kind,
+          timestamp: message.timestamp,
+        ),
+      );
+    }
+    return result;
   }
 }
 
@@ -2626,82 +2701,312 @@ class _RoleplayModelSelectorState extends State<_RoleplayModelSelector> {
 
 class _RoleplayShareImage extends StatelessWidget {
   final RoleplayThread thread;
+  final List<RoleplayMessage> messages;
   final Color seedColor;
   final bool isDark;
+  final int? pageNumber;
+  final int? pageCount;
 
   const _RoleplayShareImage({
     required this.thread,
+    required this.messages,
     required this.seedColor,
     required this.isDark,
+    this.pageNumber,
+    this.pageCount,
   });
 
   @override
   Widget build(BuildContext context) {
+    final brightness = isDark ? Brightness.dark : Brightness.light;
     final scheme = ColorScheme.fromSeed(
       seedColor: seedColor,
-      brightness: isDark ? Brightness.dark : Brightness.light,
+      brightness: brightness,
     );
+    final mutedColor = isDark
+        ? const Color(0xFF94A3B8)
+        : const Color(0xFF64748B);
+    final bgColor = Color.lerp(
+      scheme.surface,
+      scheme.primary,
+      isDark ? 0.06 : 0.025,
+    )!;
+    final cardBg = scheme.surface;
+    final shadowColor = isDark ? Colors.black : scheme.shadow;
+    final player = thread.participants.firstWhere(
+      (item) => item.isPlayer,
+      orElse: () => thread.participants.first,
+    );
+    final characters = thread.participants
+        .where((item) => !item.isPlayer)
+        .toList(growable: false);
+
     return Material(
       color: Colors.transparent,
       child: Container(
         width: 720,
         padding: const EdgeInsets.all(28),
-        color: scheme.surface,
+        decoration: BoxDecoration(color: bgColor),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              thread.title,
-              style: TextStyle(
-                color: scheme.onSurface,
-                fontSize: 28,
-                fontWeight: FontWeight.w800,
-              ),
+            _ExportHeader(
+              title: thread.title,
+              scenario: thread.scenario,
+              playerName: player.name,
+              characters: characters,
+              scheme: scheme,
+              mutedColor: mutedColor,
             ),
-            const SizedBox(height: 6),
-            Text(
-              thread.scenario,
-              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 16),
-            ),
-            const SizedBox(height: 22),
-            for (final message in thread.messages) ...[
-              Text(
-                message.kind == RoleplayMessageKind.narrator
-                    ? '旁白'
-                    : message.speakerName,
-                style: TextStyle(
-                  color: scheme.primary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              decoration: BoxDecoration(
+                color: cardBg,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(
+                  color: scheme.outlineVariant.withValues(alpha: 0.5),
                 ),
-              ),
-              const SizedBox(height: 4),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: scheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Text(
-                  message.content,
-                  style: TextStyle(
-                    color: scheme.onSurface,
-                    fontSize: 18,
-                    height: 1.45,
+                boxShadow: [
+                  BoxShadow(
+                    color: shadowColor.withValues(alpha: isDark ? 0.18 : 0.06),
+                    blurRadius: 18,
+                    offset: const Offset(0, 6),
                   ),
-                ),
+                ],
               ),
-              const SizedBox(height: 12),
-            ],
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (var i = 0; i < messages.length; i++) ...[
+                    _ExportBubble(messages[i], scheme, isDark, mutedColor),
+                    if (i != messages.length - 1) const SizedBox(height: 10),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              decoration: BoxDecoration(
+                color: cardBg,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(
+                  color: scheme.outlineVariant.withValues(alpha: 0.5),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: shadowColor.withValues(alpha: isDark ? 0.18 : 0.06),
+                    blurRadius: 18,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (var i = 0; i < messages.length; i++) ...[
+                    _ExportBubble(messages[i], scheme, isDark, mutedColor),
+                    if (i != messages.length - 1) const SizedBox(height: 10),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
             Text(
-              'Shared from LynAI',
-              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 16),
+              pageNumber == null || pageCount == null
+                  ? 'Shared from LynAI'
+                  : 'Shared from LynAI · $pageNumber/$pageCount',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: mutedColor,
+                fontSize: 14,
+                letterSpacing: 0.3,
+              ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _ExportHeader extends StatelessWidget {
+  final String title;
+  final String scenario;
+  final String playerName;
+  final List<RoleplayParticipant> characters;
+  final ColorScheme scheme;
+  final Color mutedColor;
+
+  const _ExportHeader({
+    required this.title,
+    required this.scenario,
+    required this.playerName,
+    required this.characters,
+    required this.scheme,
+    required this.mutedColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                color: scheme.primary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Icon(
+                Icons.theater_comedy_outlined,
+                color: scheme.primary,
+                size: 28,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title.isNotEmpty ? title : '情景演绎',
+                    style: TextStyle(
+                      color: scheme.onSurface,
+                      fontSize: 26,
+                      fontWeight: FontWeight.w800,
+                      height: 1.15,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    scenario,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: mutedColor,
+                      fontSize: 14,
+                      height: 1.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          children: [
+            _exportChip('我：$playerName', scheme.primary, scheme),
+            for (final role in characters)
+              _exportChip(role.name, scheme.secondary, scheme),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _exportChip(String text, Color color, ColorScheme scheme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+class _ExportBubble extends StatelessWidget {
+  final RoleplayMessage message;
+  final ColorScheme scheme;
+  final bool isDark;
+  final Color mutedColor;
+
+  const _ExportBubble(this.message, this.scheme, this.isDark, this.mutedColor);
+
+  @override
+  Widget build(BuildContext context) {
+    final isPlayer = message.kind == RoleplayMessageKind.player;
+    final isNarrator = message.kind == RoleplayMessageKind.narrator;
+
+    if (isNarrator) {
+      return Container(
+        width: double.infinity,
+        margin: const EdgeInsets.symmetric(vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        decoration: BoxDecoration(
+          color: mutedColor.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: MarkdownWithLatex(
+          content: message.content,
+          selectable: false,
+          wrapCodeBlocks: true,
+          renderMermaid: false,
+          textStyle: TextStyle(
+            fontStyle: FontStyle.italic,
+            color: mutedColor,
+            fontSize: 16,
+            height: 1.5,
+          ),
+        ),
+      );
+    }
+
+    final bubbleColor = isPlayer
+        ? scheme.primaryContainer.withValues(alpha: 0.55)
+        : scheme.surfaceContainerHighest;
+    final textColor = isPlayer ? scheme.onPrimaryContainer : scheme.onSurface;
+    final speakerColor = isPlayer ? scheme.primary : scheme.secondary;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          message.speakerName,
+          style: TextStyle(
+            color: speakerColor,
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Container(
+          constraints: const BoxConstraints(maxWidth: 580),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: bubbleColor,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: MarkdownWithLatex(
+            content: message.content,
+            selectable: false,
+            wrapCodeBlocks: true,
+            renderMermaid: false,
+            textStyle: TextStyle(fontSize: 17, height: 1.5, color: textColor),
+          ),
+        ),
+      ],
     );
   }
 }

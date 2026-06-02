@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import '../models/changelog_entry.dart';
+import '../pages/changelog_page.dart';
 
 Future<void> showChangelogDialog(BuildContext context, ChangelogEntry entry) {
   return showDialog<void>(
     context: context,
+    barrierDismissible: false,
     builder: (_) => _ChangelogDialog(entry: entry),
   );
 }
@@ -19,63 +21,128 @@ class _ChangelogDialog extends StatelessWidget {
     final colorScheme = theme.colorScheme;
 
     return AlertDialog(
-      title: Row(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.new_releases, color: colorScheme.primary),
-          const SizedBox(width: 8),
-          Text('更新日志 v${entry.version}'),
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: colorScheme.primary.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(Icons.auto_awesome, color: colorScheme.primary),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '更新日志',
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: colorScheme.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  'v${entry.version}',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: colorScheme.primary,
+                  ),
+                ),
+              ),
+              if (entry.date.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                Text(
+                  entry.date,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ],
+          ),
         ],
       ),
       content: SizedBox(
         width: double.maxFinite,
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (entry.date.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Text(
-                    entry.date,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-              for (final section in entry.sections) ...[
-                Padding(
-                  padding: const EdgeInsets.only(top: 12, bottom: 4),
-                  child: Text(
-                    section.title,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: colorScheme.primary,
-                    ),
-                  ),
-                ),
-                for (final item in section.items)
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 400),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Divider(height: 24),
+                for (final section in entry.sections) ...[
                   Padding(
-                    padding: const EdgeInsets.only(left: 8, bottom: 4),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '・',
-                          style: TextStyle(color: colorScheme.onSurfaceVariant),
+                    padding: const EdgeInsets.only(top: 8, bottom: 6),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: colorScheme.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        section.title,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          color: colorScheme.primary,
                         ),
-                        const SizedBox(width: 4),
-                        Expanded(child: Text(item)),
-                      ],
+                      ),
                     ),
                   ),
+                  for (final item in section.items)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4, top: 2, bottom: 2),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Icon(
+                              Icons.circle,
+                              size: 6,
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(item, style: const TextStyle(fontSize: 14)),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
       actions: [
-        TextButton(
+        OutlinedButton(
+          onPressed: () {
+            Navigator.of(context).pop();
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ChangelogPage()),
+            );
+          },
+          child: const Text('查看全部'),
+        ),
+        FilledButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('知道了'),
         ),

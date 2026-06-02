@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart' show AssetManifest, rootBundle;
 import '../models/changelog_entry.dart';
 
@@ -13,9 +14,13 @@ class ChangelogParser {
 
     final entries = <ChangelogEntry>[];
     for (final filePath in changelogFiles) {
-      final content = await rootBundle.loadString(filePath);
-      final entry = _parseFile(content, filePath);
-      if (entry != null) entries.add(entry);
+      try {
+        final content = await rootBundle.loadString(filePath);
+        final entry = _parseFile(content, filePath);
+        if (entry != null) entries.add(entry);
+      } catch (e) {
+        debugPrint('解析更新日志文件 $filePath 失败: $e');
+      }
     }
 
     entries.sort((a, b) => _compareVersionsDesc(a.version, b.version));
@@ -27,7 +32,8 @@ class ChangelogParser {
     try {
       final content = await rootBundle.loadString(filename);
       return _parseFile(content, filename);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('加载更新日志 v$version 失败: $e');
       return null;
     }
   }

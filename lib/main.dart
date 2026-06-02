@@ -133,7 +133,9 @@ class _LynAIAppState extends State<LynAIApp> {
         lastSeenChangelogVersion: currentVersion,
       );
       await settingsProvider.replaceSettings(updatedSettings);
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('检查更新日志失败: $e');
+    }
   }
 
   @override
