@@ -113,28 +113,41 @@ void main() {
     expect(decision.speakerId, 'r1');
   });
 
-  test('RoleplaySession serializes participants and messages', () {
+  test('RoleplayScenario and thread serialize participants and messages', () {
     final now = DateTime.utc(2026, 1, 2);
-    final session = RoleplaySession(
+    final scenario = RoleplayScenario(
       id: 's1',
       title: '咖啡馆',
       scenario: '雨夜咖啡馆',
-      director: const RoleplayDirector(modelId: 'm1'),
-      participants: const [
-        RoleplayParticipant(
-          id: 'p1',
-          name: '我',
-          systemPrompt: '用户',
-          isPlayer: true,
-        ),
+      director: const RoleplayDirector(
+        model: RoleplayModelSelection(modelId: 'm1'),
+      ),
+      defaultPlayer: const RoleplayParticipant(
+        id: 'p1',
+        name: '我',
+        systemPrompt: '用户',
+        isPlayer: true,
+      ),
+      defaultParticipants: const [
         RoleplayParticipant(
           id: 'r1',
           sourceRoleId: 'role-1',
           name: '侦探',
           systemPrompt: '你是侦探。',
-          modelId: 'm2',
+          model: RoleplayModelSelection(modelId: 'm2'),
         ),
       ],
+      createdAt: now,
+      updatedAt: now,
+    );
+    final thread = RoleplayThread(
+      id: 't1',
+      scenarioId: 's1',
+      title: '咖啡馆 #1',
+      scenarioTitle: '咖啡馆',
+      scenario: '雨夜咖啡馆',
+      director: scenario.director,
+      participants: [scenario.defaultPlayer, ...scenario.defaultParticipants],
       playerParticipantId: 'p1',
       messages: [
         RoleplayMessage(
@@ -150,14 +163,16 @@ void main() {
       updatedAt: now,
     );
 
-    final restored = RoleplaySession.fromJson(session.toJson());
+    final restoredScenario = RoleplayScenario.fromJson(scenario.toJson());
+    final restoredThread = RoleplayThread.fromJson(thread.toJson());
 
-    expect(restored.director.modelId, 'm1');
-    expect(restored.participants, hasLength(2));
-    expect(restored.messages.single.content, '别动。');
+    expect(restoredScenario.director.model.modelId, 'm1');
+    expect(restoredScenario.defaultParticipants.single.model.modelId, 'm2');
+    expect(restoredThread.participants, hasLength(2));
+    expect(restoredThread.messages.single.content, '别动。');
   });
 
-  test('RoleplayProvider keeps pending messages per session', () {
+  test('RoleplayProvider keeps and merges pending messages per thread', () {
     SharedPreferences.setMockInitialValues({});
     final provider = RoleplayProvider();
     final participant = RoleplayParticipant(
@@ -166,52 +181,56 @@ void main() {
       systemPrompt: '用户',
       isPlayer: true,
     );
-    final first = provider.createSession(
+    final scenarioId = provider.createScenario(
       title: 'one',
       scenario: 'one',
       director: const RoleplayDirector(),
-      participants: [participant],
-      playerParticipantId: 'p1',
+      defaultPlayer: participant,
+      defaultParticipants: const [],
     );
-    final second = provider.createSession(
-      title: 'two',
-      scenario: 'two',
-      director: const RoleplayDirector(),
-      participants: [participant],
-      playerParticipantId: 'p1',
-    );
+    final first = provider.createThread(scenarioId);
+    final second = provider.createThread(scenarioId);
 
     provider.queuePlayerMessage(first, 'first pending');
-    provider.queuePlayerMessage(second, 'second pending');
+    provider.queuePlayerMessage(first, 'second pending');
+    provider.queuePlayerMessage(second, 'third pending');
 
-    expect(provider.drainPendingPlayerMessages(first), ['first pending']);
-    expect(provider.drainPendingPlayerMessages(second), ['second pending']);
+    expect(
+      provider.drainMergedPendingPlayerMessage(first)!.content,
+      'first pending\n\nsecond pending',
+    );
+    expect(
+      provider.drainMergedPendingPlayerMessage(second)!.content,
+      'third pending',
+    );
   });
 
-  test('BackupService exports and imports roleplay sessions', () async {
+  test('BackupService exports and imports roleplay data', () async {
     SharedPreferences.setMockInitialValues({});
     final root = await Directory.systemTemp.createTemp(
       'lynai_roleplay_backup_test_',
     );
     final sourceRoleplays = RoleplayProvider();
-    final sessionId = sourceRoleplays.createSession(
+    final scenarioId = sourceRoleplays.createScenario(
       title: '雨夜咖啡馆',
       scenario: '雨夜咖啡馆里有人在对峙。',
-      director: const RoleplayDirector(modelId: 'director-model'),
-      participants: const [
-        RoleplayParticipant(
-          id: 'player',
-          name: '我',
-          systemPrompt: '用户',
-          isPlayer: true,
-        ),
+      director: const RoleplayDirector(
+        model: RoleplayModelSelection(modelId: 'director-model'),
+      ),
+      defaultPlayer: const RoleplayParticipant(
+        id: 'player',
+        name: '我',
+        systemPrompt: '用户',
+        isPlayer: true,
+      ),
+      defaultParticipants: const [
         RoleplayParticipant(id: 'detective', name: '侦探', systemPrompt: '你是侦探。'),
       ],
-      playerParticipantId: 'player',
     );
+    final threadId = sourceRoleplays.createThread(scenarioId);
     sourceRoleplays.appendCharacterMessage(
-      sessionId,
-      sourceRoleplays.getSession(sessionId)!.characters.single,
+      threadId,
+      sourceRoleplays.getThread(threadId)!.characters.single,
       '别动。',
     );
     final sourceService = BackupService(
@@ -228,7 +247,7 @@ void main() {
       final archiveFile = await sourceService.exportZip(
         BackupSelection(
           {BackupSection.roleplay},
-          roleplaySessionIds: {sessionId},
+          roleplaySessionIds: {scenarioId},
         ),
       );
       final targetRoleplays = RoleplayProvider();
@@ -241,6 +260,7 @@ void main() {
       );
       final archive = await targetService.readZip(archiveFile);
       expect(archive.data.roleplaySessions, hasLength(1));
+      expect(archive.data.roleplayThreads, hasLength(1));
 
       await targetService.importArchive(
         archive,
@@ -250,8 +270,8 @@ void main() {
         ),
       );
 
-      expect(targetRoleplays.sessions, hasLength(1));
-      expect(targetRoleplays.sessions.single.messages.single.content, '别动。');
+      expect(targetRoleplays.scenarios, hasLength(1));
+      expect(targetRoleplays.threads.single.messages.single.content, '别动。');
     } finally {
       await root.delete(recursive: true);
     }

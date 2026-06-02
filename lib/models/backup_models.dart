@@ -188,7 +188,8 @@ class BackupData {
   final List<NoteEditProposal>? noteEditProposals;
   final List<ScheduleItem>? schedules;
   final List<TodoList>? todoLists;
-  final List<RoleplaySession>? roleplaySessions;
+  final List<RoleplayScenario>? roleplaySessions;
+  final List<RoleplayThread>? roleplayThreads;
 
   const BackupData({
     this.appSettings,
@@ -203,6 +204,7 @@ class BackupData {
     this.schedules,
     this.todoLists,
     this.roleplaySessions,
+    this.roleplayThreads,
   });
 
   bool hasSection(BackupSection section) {
@@ -222,7 +224,7 @@ class BackupData {
       case BackupSection.todoLists:
         return todoLists != null;
       case BackupSection.roleplay:
-        return roleplaySessions != null;
+        return roleplaySessions != null || roleplayThreads != null;
     }
   }
 

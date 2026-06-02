@@ -77,7 +77,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
   BackupSelection _selectionForLocalData(BuildContext context) {
     final conversations = context.read<ConversationProvider>().conversations;
     final features = context.read<FeatureProvider>();
-    final roleplays = context.read<RoleplayProvider>().sessions;
+    final roleplays = context.read<RoleplayProvider>().scenarios;
     return BackupSelection(
       Set.of(BackupSection.values),
       settingsParts: Set.of(BackupSettingsPart.values),

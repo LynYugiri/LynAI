@@ -337,8 +337,67 @@ class StorageV2Service {
   }
 
   Future<Directory> _storageRoot() async {
-    final root = _rootDirectory ?? await getApplicationDocumentsDirectory();
-    return Directory('${root.path}/storage_v2');
+    final injectedRoot = _rootDirectory;
+    if (injectedRoot != null) {
+      return Directory('${injectedRoot.path}/storage_v2');
+    }
+
+    final supportRoot = Directory(
+      '${(await defaultBaseDirectory()).path}/storage_v2',
+    );
+    if (await supportRoot.exists()) return supportRoot;
+
+    final documentsRoot = Directory(
+      '${(await getApplicationDocumentsDirectory()).path}/storage_v2',
+    );
+    if (!await documentsRoot.exists()) return supportRoot;
+
+    return _moveLegacyDocumentsStorage(documentsRoot, supportRoot);
+  }
+
+  static Future<Directory> defaultBaseDirectory() async {
+    try {
+      final support = await getApplicationSupportDirectory();
+      if (!await support.exists()) await support.create(recursive: true);
+      return support;
+    } catch (_) {
+      final documents = await getApplicationDocumentsDirectory();
+      if (!await documents.exists()) await documents.create(recursive: true);
+      return documents;
+    }
+  }
+
+  Future<Directory> _moveLegacyDocumentsStorage(
+    Directory from,
+    Directory to,
+  ) async {
+    if (!await to.parent.exists()) await to.parent.create(recursive: true);
+    try {
+      return await from.rename(to.path);
+    } catch (e) {
+      try {
+        await _copyDirectory(from, to);
+        await from.delete(recursive: true);
+        return to;
+      } catch (copyError) {
+        debugPrint(
+          'storage_v2 move to support directory failed: $e; $copyError',
+        );
+        return from;
+      }
+    }
+  }
+
+  Future<void> _copyDirectory(Directory from, Directory to) async {
+    if (!await to.exists()) await to.create(recursive: true);
+    await for (final entity in from.list(recursive: false)) {
+      final name = entity.uri.pathSegments.last;
+      if (entity is Directory) {
+        await _copyDirectory(entity, Directory('${to.path}/$name'));
+      } else if (entity is File) {
+        await entity.copy('${to.path}/$name');
+      }
+    }
   }
 
   Future<StorageV2Database> _storageDatabase() async {

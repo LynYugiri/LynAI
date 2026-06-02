@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../models/message.dart';
 import '../models/model_config.dart';
 import '../models/roleplay.dart';
 import 'api_service.dart';
@@ -29,40 +30,61 @@ class RoleplayService {
   void dispose() => _api.dispose();
 
   Future<RoleplayDecision> decideNext({
-    required RoleplaySession session,
+    required RoleplayThread thread,
     required ModelConfig model,
   }) async {
     final response = await _api.sendChatRequest(model, [
-      {'role': 'system', 'content': _directorSystemPrompt(session)},
-      {'role': 'user', 'content': _directorUserPrompt(session)},
+      {'role': 'system', 'content': _directorSystemPrompt(thread)},
+      {'role': 'user', 'content': _directorUserPrompt(thread)},
     ], thinking: false);
     return parseDecision(
       response.content,
-      session.characters.map((e) => e.id).toSet(),
+      thread.characters.map((e) => e.id).toSet(),
     );
   }
 
   Future<String> speak({
-    required RoleplaySession session,
+    required RoleplayThread thread,
     required RoleplayParticipant participant,
     required ModelConfig model,
   }) async {
     final response = await _api.sendChatRequest(model, [
-      {'role': 'system', 'content': _speakerSystemPrompt(session, participant)},
-      {'role': 'user', 'content': _speakerUserPrompt(session, participant)},
+      {'role': 'system', 'content': _speakerSystemPrompt(thread, participant)},
+      {'role': 'user', 'content': _speakerUserPrompt(thread, participant)},
     ]);
     return response.content.trim();
   }
 
   Stream<StreamChunk> speakStream({
-    required RoleplaySession session,
+    required RoleplayThread thread,
     required RoleplayParticipant participant,
     required ModelConfig model,
   }) {
     return _api.sendStreamRequest(model, [
-      {'role': 'system', 'content': _speakerSystemPrompt(session, participant)},
-      {'role': 'user', 'content': _speakerUserPrompt(session, participant)},
+      {'role': 'system', 'content': _speakerSystemPrompt(thread, participant)},
+      {'role': 'user', 'content': _speakerUserPrompt(thread, participant)},
     ]);
+  }
+
+  static ModelConfig? resolveModel(
+    RoleplayModelSelection selection,
+    List<ModelConfig> models,
+  ) {
+    ModelConfig? selected;
+    final id = selection.modelId;
+    if (id != null && id.isNotEmpty) {
+      for (final model in models) {
+        if (model.id == id) {
+          selected = model;
+          break;
+        }
+      }
+    }
+    selected ??= models.isEmpty ? null : models.first;
+    if (selected == null) return null;
+    final modelName = selection.modelName;
+    if (modelName == null || modelName.isEmpty) return selected;
+    return selected.copyWith(modelName: modelName);
   }
 
   static RoleplayDecision parseDecision(
@@ -108,8 +130,8 @@ class RoleplayService {
     return source.substring(start, end + 1);
   }
 
-  String _directorSystemPrompt(RoleplaySession session) {
-    return '''${session.director.systemPrompt}
+  String _directorSystemPrompt(RoleplayThread thread) {
+    return '''${thread.director.systemPrompt}
 
 返回格式只能是 JSON：
 {"action":"speak","speakerId":"角色 id","reason":"简短原因"}
@@ -119,19 +141,19 @@ class RoleplayService {
 {"action":"narrate","content":"一段旁白、环境描写或场景推进","reason":"简短原因"}''';
   }
 
-  String _directorUserPrompt(RoleplaySession session) {
+  String _directorUserPrompt(RoleplayThread thread) {
     return '''场景：
-${session.scenario}
+${thread.scenario}
 
 用户扮演：
-${session.player?.name ?? '我'}
-${session.player?.description ?? ''}
+${thread.player?.name ?? '我'}
+${thread.player?.description ?? ''}
 
 可选 AI 角色：
-${session.characters.map((role) => '- id: ${role.id}\n  name: ${role.name}\n  description: ${role.description}').join('\n')}
+${thread.characters.map((role) => '- id: ${role.id}\n  name: ${role.name}\n  description: ${role.description}').join('\n')}
 
 最近历史：
-${_history(session)}
+${_history(thread)}
 
 规则：
 1. 不要替用户发言。
@@ -143,7 +165,7 @@ ${_history(session)}
   }
 
   String _speakerSystemPrompt(
-    RoleplaySession session,
+    RoleplayThread thread,
     RoleplayParticipant participant,
   ) {
     return '''你正在参与一个多角色情景演绎。
@@ -162,32 +184,47 @@ ${participant.systemPrompt}
   }
 
   String _speakerUserPrompt(
-    RoleplaySession session,
+    RoleplayThread thread,
     RoleplayParticipant participant,
   ) {
-    final others = session.participants
+    final others = thread.participants
         .where((role) => role.id != participant.id)
         .map((role) => '- ${role.name}: ${role.description}')
         .join('\n');
     return '''场景：
-${session.scenario}
+${thread.scenario}
 
 其他角色：
 $others
 
 最近历史：
-${_history(session)}
+${_history(thread)}
 
 现在轮到你发言。只输出 ${participant.name} 的内容。''';
   }
 
-  String _history(RoleplaySession session) {
-    final messages = session.messages.length <= 24
-        ? session.messages
-        : session.messages.sublist(session.messages.length - 24);
+  String _history(RoleplayThread thread) {
+    final messages = thread.messages.length <= 28
+        ? thread.messages
+        : thread.messages.sublist(thread.messages.length - 28);
     if (messages.isEmpty) return '（暂无）';
     return messages
-        .map((message) => '${message.speakerName}: ${message.content}')
+        .map((message) {
+          final attachments = _attachmentSummary(message.attachments);
+          final content = message.content.trim();
+          if (attachments.isEmpty) return '${message.speakerName}: $content';
+          if (content.isEmpty) return '${message.speakerName}: $attachments';
+          return '${message.speakerName}: $content\n$attachments';
+        })
+        .join('\n');
+  }
+
+  String _attachmentSummary(List<MessageImage> attachments) {
+    if (attachments.isEmpty) return '';
+    return attachments
+        .map(
+          (item) => '[附件: ${item.name} (${item.mimeType}, ${item.size} bytes)]',
+        )
         .join('\n');
   }
 }

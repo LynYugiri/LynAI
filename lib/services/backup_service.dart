@@ -408,16 +408,23 @@ class BackupService {
       };
     }
     if (selection.contains(BackupSection.roleplay)) {
-      final sessions = roleplayProvider.sessions
+      final scenarios = roleplayProvider.scenarios
           .where((item) => selection.roleplaySessionIds.contains(item.id))
           .toList();
-      addJson('roleplay_sessions.json', {
-        'sessions': sessions.map((item) => item.toJson()).toList(),
+      final scenarioIds = scenarios.map((item) => item.id).toSet();
+      final threads = roleplayProvider.threads
+          .where((item) => scenarioIds.contains(item.scenarioId))
+          .toList();
+      addJson('roleplay_scenarios.json', {
+        'scenarios': scenarios.map((item) => item.toJson()).toList(),
+      });
+      addJson('roleplay_threads.json', {
+        'threads': threads.map((item) => item.toJson()).toList(),
       });
       sections[BackupSection.roleplay.key] = {
         'enabled': true,
-        'files': ['roleplay_sessions.json'],
-        'count': sessions.length,
+        'files': ['roleplay_scenarios.json', 'roleplay_threads.json'],
+        'count': scenarios.length,
       };
     }
 
@@ -499,7 +506,8 @@ class BackupService {
     final blocksJson = readMap('notes/edit_blocks.json');
     final schedulesJson = readMap('schedules.json');
     final todoListsJson = readMap('todo_lists.json');
-    final roleplayJson = readMap('roleplay_sessions.json');
+    final roleplayJson = readMap('roleplay_scenarios.json');
+    final roleplayThreadsJson = readMap('roleplay_threads.json');
     final resourcesJson = readMap('resources.json');
 
     final conversations = _parseConversations(
@@ -577,10 +585,16 @@ class BackupService {
         ),
         todoLists: todoLists,
         roleplaySessions: _parseList(
-          roleplayJson?['sessions'],
-          RoleplaySession.fromJson,
+          roleplayJson?['scenarios'],
+          RoleplayScenario.fromJson,
           warnings,
           '情景演绎',
+        ),
+        roleplayThreads: _parseList(
+          roleplayThreadsJson?['threads'],
+          RoleplayThread.fromJson,
+          warnings,
+          '演绎对话',
         ),
       ),
       assetFiles: assetFiles,
@@ -1525,31 +1539,46 @@ class BackupService {
     ImportPlan plan,
     _ImportIdMap idMap,
   ) async {
-    final incomingItems = data.roleplaySessions;
-    if (incomingItems == null) {
+    final incomingScenarios = data.roleplaySessions;
+    final incomingThreads = data.roleplayThreads;
+    if (incomingScenarios == null && incomingThreads == null) {
       return const ImportResult(added: 0, replaced: 0, skipped: 0);
     }
+    final scenarios = incomingScenarios ?? const <RoleplayScenario>[];
+    final threads = incomingThreads ?? const <RoleplayThread>[];
     if (plan.mode == ImportMode.replaceSection) {
-      final incomingIds = incomingItems.map((item) => item.id).toSet();
-      final items = roleplayProvider.sessions
+      final incomingIds = scenarios.map((item) => item.id).toSet();
+      final nextScenarios = roleplayProvider.scenarios
           .where((item) => !incomingIds.contains(item.id))
           .toList();
-      items.addAll(
-        incomingItems.map((item) => _remapRoleplaySession(item, idMap)),
+      final nextThreads = roleplayProvider.threads
+          .where((item) => !incomingIds.contains(item.scenarioId))
+          .toList();
+      nextScenarios.addAll(
+        scenarios.map((item) => _remapRoleplayScenario(item, idMap)),
       );
-      await roleplayProvider.replaceSessions(items);
-      return ImportResult(added: 0, replaced: incomingItems.length, skipped: 0);
+      nextThreads.addAll(
+        threads.map((item) => _remapRoleplayThread(item, idMap)),
+      );
+      await roleplayProvider.replaceData(
+        scenarios: nextScenarios,
+        threads: nextThreads,
+      );
+      return ImportResult(added: 0, replaced: scenarios.length, skipped: 0);
     }
     var added = 0;
     var replaced = 0;
     var skipped = 0;
-    final items = List<RoleplaySession>.from(roleplayProvider.sessions);
-    for (final incoming in incomingItems) {
-      final index = items.indexWhere((item) => item.id == incoming.id);
+    final nextScenarios = List<RoleplayScenario>.from(
+      roleplayProvider.scenarios,
+    );
+    final nextThreads = List<RoleplayThread>.from(roleplayProvider.threads);
+    for (final incoming in scenarios) {
+      final index = nextScenarios.indexWhere((item) => item.id == incoming.id);
       if (index == -1) {
-        items.add(_remapRoleplaySession(incoming, idMap));
+        nextScenarios.add(_remapRoleplayScenario(incoming, idMap));
         added++;
-      } else if (_sameJson(items[index], incoming)) {
+      } else if (_sameJson(nextScenarios[index], incoming)) {
         skipped++;
       } else if (plan.mode == ImportMode.addOnly) {
         skipped++;
@@ -1558,17 +1587,25 @@ class BackupService {
           _conflictId(BackupSection.roleplay, incoming.id),
         );
         if (action == ImportConflictAction.replaceLocal) {
-          items[index] = _remapRoleplaySession(incoming, idMap);
+          nextScenarios[index] = _remapRoleplayScenario(incoming, idMap);
           replaced++;
         } else if (action == ImportConflictAction.keepBoth) {
-          items.add(_copyRoleplaySessionWithNewIds(incoming));
+          nextScenarios.add(_copyRoleplayScenarioWithNewIds(incoming));
           added++;
         } else {
           skipped++;
         }
       }
     }
-    await roleplayProvider.replaceSessions(items);
+    for (final incoming in threads) {
+      if (!nextThreads.any((item) => item.id == incoming.id)) {
+        nextThreads.add(_remapRoleplayThread(incoming, idMap));
+      }
+    }
+    await roleplayProvider.replaceData(
+      scenarios: nextScenarios,
+      threads: nextThreads,
+    );
     return ImportResult(added: added, replaced: replaced, skipped: skipped);
   }
 
@@ -1720,8 +1757,8 @@ class BackupService {
     }
     if (sections.contains(BackupSection.roleplay)) {
       for (final incoming
-          in data.roleplaySessions ?? const <RoleplaySession>[]) {
-        final local = _findById(roleplayProvider.sessions, incoming.id);
+          in data.roleplaySessions ?? const <RoleplayScenario>[]) {
+        final local = _findById(roleplayProvider.scenarios, incoming.id);
         if (local != null && !_sameJson(local, incoming)) {
           conflicts.add(
             ImportConflict(
@@ -2070,72 +2107,83 @@ class BackupService {
     );
   }
 
-  RoleplaySession _copyRoleplaySessionWithNewIds(RoleplaySession session) {
-    final participantIdMap = <String, String>{};
-    final participants = session.participants.map((participant) {
-      final id = _uuid.v4();
-      participantIdMap[participant.id] = id;
-      return RoleplayParticipant(
-        id: id,
-        sourceRoleId: participant.sourceRoleId,
-        name: participant.name,
-        description: participant.description,
-        systemPrompt: participant.systemPrompt,
-        modelId: participant.modelId,
-        themeColor: participant.themeColor,
-        isPlayer: participant.isPlayer,
-      );
-    }).toList();
-    return RoleplaySession(
+  RoleplayScenario _copyRoleplayScenarioWithNewIds(RoleplayScenario scenario) {
+    final now = DateTime.now();
+    return RoleplayScenario(
       id: _uuid.v4(),
-      title: session.title,
-      scenario: session.scenario,
-      director: session.director,
-      participants: participants,
-      playerParticipantId:
-          participantIdMap[session.playerParticipantId] ??
-          session.playerParticipantId,
-      messages: session.messages.map((message) {
-        return RoleplayMessage(
-          id: _uuid.v4(),
-          speakerId: participantIdMap[message.speakerId] ?? message.speakerId,
-          speakerName: message.speakerName,
-          content: message.content,
-          kind: message.kind,
-          timestamp: message.timestamp,
-        );
-      }).toList(),
-      maxAutoTurns: session.maxAutoTurns,
-      createdAt: session.createdAt,
-      updatedAt: session.updatedAt,
+      title: scenario.title,
+      description: scenario.description,
+      scenario: scenario.scenario,
+      director: scenario.director,
+      defaultPlayer: scenario.defaultPlayer.copyWith(id: _uuid.v4()),
+      defaultParticipants: scenario.defaultParticipants
+          .map((item) => item.copyWith(id: _uuid.v4()))
+          .toList(),
+      defaultGroups: scenario.defaultGroups
+          .map(
+            (item) => RoleplayParticipantGroup(
+              id: _uuid.v4(),
+              name: item.name,
+              createdAt: now,
+              updatedAt: now,
+            ),
+          )
+          .toList(),
+      maxAutoTurns: scenario.maxAutoTurns,
+      pinned: false,
+      createdAt: now,
+      updatedAt: now,
     );
   }
 
-  RoleplaySession _remapRoleplaySession(
-    RoleplaySession session,
+  RoleplayScenario _remapRoleplayScenario(
+    RoleplayScenario scenario,
     _ImportIdMap idMap,
   ) {
-    return session.copyWith(
-      director: RoleplayDirector(
-        name: session.director.name,
-        systemPrompt: session.director.systemPrompt,
-        modelId: _remapNullable(session.director.modelId, idMap.modelIds),
+    return scenario.copyWith(
+      director: _remapRoleplayDirector(scenario.director, idMap),
+      defaultPlayer: _remapRoleplayParticipant(scenario.defaultPlayer, idMap),
+      defaultParticipants: scenario.defaultParticipants
+          .map((item) => _remapRoleplayParticipant(item, idMap))
+          .toList(),
+    );
+  }
+
+  RoleplayThread _remapRoleplayThread(
+    RoleplayThread thread,
+    _ImportIdMap idMap,
+  ) {
+    return thread.copyWith(
+      director: _remapRoleplayDirector(thread.director, idMap),
+      participants: thread.participants
+          .map((item) => _remapRoleplayParticipant(item, idMap))
+          .toList(),
+    );
+  }
+
+  RoleplayDirector _remapRoleplayDirector(
+    RoleplayDirector director,
+    _ImportIdMap idMap,
+  ) {
+    return director.copyWith(
+      model: director.model.copyWith(
+        modelId: _remapNullable(director.model.modelId, idMap.modelIds),
       ),
-      participants: session.participants.map((participant) {
-        final sourceRoleId = participant.sourceRoleId;
-        return RoleplayParticipant(
-          id: participant.id,
-          sourceRoleId: sourceRoleId == null
-              ? null
-              : idMap.roleIds[sourceRoleId] ?? sourceRoleId,
-          name: participant.name,
-          description: participant.description,
-          systemPrompt: participant.systemPrompt,
-          modelId: _remapNullable(participant.modelId, idMap.modelIds),
-          themeColor: participant.themeColor,
-          isPlayer: participant.isPlayer,
-        );
-      }).toList(),
+    );
+  }
+
+  RoleplayParticipant _remapRoleplayParticipant(
+    RoleplayParticipant participant,
+    _ImportIdMap idMap,
+  ) {
+    final sourceRoleId = participant.sourceRoleId;
+    return participant.copyWith(
+      sourceRoleId: sourceRoleId == null
+          ? null
+          : idMap.roleIds[sourceRoleId] ?? sourceRoleId,
+      model: participant.model.copyWith(
+        modelId: _remapNullable(participant.model.modelId, idMap.modelIds),
+      ),
     );
   }
 
@@ -2578,6 +2626,11 @@ class BackupService {
       roleplaySessions: data.roleplaySessions
           ?.where((item) => selection.roleplaySessionIds.contains(item.id))
           .toList(),
+      roleplayThreads: data.roleplayThreads
+          ?.where(
+            (item) => selection.roleplaySessionIds.contains(item.scenarioId),
+          )
+          .toList(),
     );
   }
 
@@ -2660,7 +2713,7 @@ class BackupService {
       case BackupSection.todoLists:
         return '${data.todoLists?.length ?? 0} 个清单';
       case BackupSection.roleplay:
-        return '${data.roleplaySessions?.length ?? 0} 个演绎会话';
+        return '${data.roleplaySessions?.length ?? 0} 个情景，${data.roleplayThreads?.length ?? 0} 次演绎';
     }
   }
 

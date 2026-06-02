@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../providers/conversation_provider.dart';
@@ -449,12 +448,14 @@ class StorageMigrationService {
   }
 
   Future<bool> _storageV2Ready() async {
-    final root = _rootDirectory ?? await getApplicationDocumentsDirectory();
+    final root =
+        _rootDirectory ?? await StorageV2Service.defaultBaseDirectory();
     return await StorageV2Service(rootDirectory: root).exists();
   }
 
   Future<Directory> _root() async {
-    final root = _rootDirectory ?? await getApplicationDocumentsDirectory();
+    final root =
+        _rootDirectory ?? await StorageV2Service.defaultBaseDirectory();
     if (!await root.exists()) await root.create(recursive: true);
     return root;
   }
