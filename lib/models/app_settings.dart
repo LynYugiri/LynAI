@@ -48,7 +48,7 @@ class AppSettings {
     this.themeMode = 'system',
     List<ChatRole>? roles,
     this.currentRoleId = ChatRole.defaultId,
-    this.lastFeature = 'history',
+    this.lastFeature = 'dashboard',
     this.lastSeenChangelogVersion,
   }) : roles = roles ?? [ChatRole.defaultRole()];
 
@@ -183,7 +183,7 @@ class AppSettings {
       currentRoleId: roles.any((r) => r.id == currentRoleId)
           ? currentRoleId
           : ChatRole.defaultId,
-      lastFeature: json['lastFeature'] as String? ?? 'history',
+      lastFeature: json['lastFeature'] as String? ?? 'dashboard',
       lastSeenChangelogVersion: json['lastSeenChangelogVersion'] as String?,
     );
   }

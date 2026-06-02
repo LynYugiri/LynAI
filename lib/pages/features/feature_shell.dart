@@ -1,32 +1,5 @@
 part of '../feature_page.dart';
 
-class _FeatureIcon extends StatelessWidget {
-  final String feature;
-
-  const _FeatureIcon({required this.feature});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final icon = switch (feature) {
-      'schedule' => Icons.calendar_month,
-      'notes' => Icons.sticky_note_2_outlined,
-      'todos' => Icons.checklist,
-      _ => Icons.widgets_outlined,
-    };
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: scheme.primaryContainer.withValues(alpha: 0.7),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: scheme.primary.withValues(alpha: 0.16)),
-      ),
-      child: Icon(icon, color: scheme.primary),
-    );
-  }
-}
-
 class _AddMenuItem {
   final String value;
   final IconData icon;

@@ -30,6 +30,7 @@ import '../widgets/latex_renderer.dart';
 import '../services/storage_v2_service.dart';
 part 'features/shared.dart';
 part 'features/feature_shell.dart';
+part 'features/dashboard.dart';
 part 'features/schedule_page.dart';
 part 'features/notes_page.dart';
 part 'features/todo_lists_page.dart';
@@ -218,6 +219,9 @@ class FeaturePage extends StatefulWidget {
 }
 
 class _FeaturePageState extends State<FeaturePage> {
+  static const _dashboardFeature = 'dashboard';
+  static const _featureValues = {'history', 'schedule', 'notes', 'todos'};
+
   final _searchController = TextEditingController();
   final _noteDetailKey = GlobalKey<_NoteDetailState>();
   String _searchQuery = '';
@@ -242,7 +246,24 @@ class _FeaturePageState extends State<FeaturePage> {
       _closeSelectedNote();
       return true;
     }
+    final feature = context.read<SettingsProvider>().settings.lastFeature;
+    if (_featureValues.contains(feature)) {
+      _goToDashboard();
+      return true;
+    }
     return false;
+  }
+
+  Future<void> _goToDashboard() async {
+    if (!await _canLeaveSelectedNote()) return;
+    if (!mounted) return;
+    setState(() {
+      _selectedNoteId = null;
+      _noteEditing = false;
+      _searchQuery = '';
+      _searchController.clear();
+    });
+    context.read<SettingsProvider>().setLastFeature(_dashboardFeature);
   }
 
   Future<void> _closeSelectedNote() async {
@@ -264,10 +285,17 @@ class _FeaturePageState extends State<FeaturePage> {
     final settings = context.watch<SettingsProvider>().settings;
     final features = context.watch<FeatureProvider>();
     final feature = settings.lastFeature;
+    final isDashboard = !_featureValues.contains(feature);
     return Scaffold(
       appBar: AppBar(
-        leading: _selectedNoteId == null
-            ? _featureSwitcher(feature)
+        leading: isDashboard
+            ? null
+            : _selectedNoteId == null
+            ? IconButton(
+                tooltip: '返回功能总览',
+                icon: const Icon(Icons.arrow_back),
+                onPressed: _goToDashboard,
+              )
             : IconButton(
                 tooltip: '笔记列表',
                 icon: const Icon(Icons.menu),
@@ -304,13 +332,14 @@ class _FeaturePageState extends State<FeaturePage> {
           searchQuery: _searchQuery,
           onSearchChanged: (v) => setState(() => _searchQuery = v),
         ),
-        _ => _HistoryList(
+        'history' => _HistoryList(
           searchController: _searchController,
           searchQuery: _searchQuery,
           onSearchChanged: (v) => setState(() => _searchQuery = v),
           onConversationTap: widget.onConversationTap,
           onRoleChanged: widget.onRoleChanged,
         ),
+        _ => _FeatureDashboard(onFeatureSelected: _selectFeature),
       },
     );
   }
@@ -325,74 +354,9 @@ class _FeaturePageState extends State<FeaturePage> {
       'schedule' => '日程表',
       'notes' => '笔记',
       'todos' => '待办清单',
-      _ => '功能页',
+      'history' => '对话历史',
+      _ => '功能',
     };
-  }
-
-  Widget _featureSwitcher(String feature) {
-    return PopupMenuButton<String>(
-      tooltip: '切换功能',
-      initialValue: feature,
-      onSelected: _selectFeature,
-      itemBuilder: (_) => _featureItems(feature),
-      child: Padding(
-        padding: const EdgeInsets.only(left: 12),
-        child: _FeatureIcon(feature: feature),
-      ),
-    );
-  }
-
-  List<PopupMenuEntry<String>> _featureItems(String feature) {
-    return [
-      _featureMenuItem(
-        value: 'history',
-        selected: feature == 'history',
-        icon: Icons.history,
-        title: '对话历史',
-        subtitle: '按角色查看与搜索历史对话',
-      ),
-      _featureMenuItem(
-        value: 'schedule',
-        selected: feature == 'schedule',
-        icon: Icons.calendar_month,
-        title: '日程表',
-        subtitle: '月历、周视图与全年日程总览',
-      ),
-      _featureMenuItem(
-        value: 'notes',
-        selected: feature == 'notes',
-        icon: Icons.sticky_note_2_outlined,
-        title: '笔记',
-        subtitle: 'Markdown/LaTeX 记录与导出',
-      ),
-      _featureMenuItem(
-        value: 'todos',
-        selected: feature == 'todos',
-        icon: Icons.checklist,
-        title: '待办清单',
-        subtitle: '任务勾选、导入、导出与图片分享',
-      ),
-    ];
-  }
-
-  PopupMenuItem<String> _featureMenuItem({
-    required String value,
-    required bool selected,
-    required IconData icon,
-    required String title,
-    required String subtitle,
-  }) {
-    return PopupMenuItem(
-      value: value,
-      child: ListTile(
-        dense: true,
-        contentPadding: EdgeInsets.zero,
-        leading: Icon(icon),
-        title: Text(title),
-        subtitle: Text(subtitle),
-        trailing: selected ? const Icon(Icons.check, size: 18) : null,
-      ),
-    );
   }
 
   Future<void> _selectFeature(String value) async {
