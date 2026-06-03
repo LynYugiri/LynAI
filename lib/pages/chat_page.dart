@@ -1681,13 +1681,19 @@ class _ChatPageState extends State<ChatPage> {
   ) async {
     final set = _imageRecognitionSettings();
     final imageFiles = files.where((file) => file.isImage).toList();
-    final otherFiles = files.where((file) => !file.isImage).toList();
+    final textFiles = files.where(_isReadableTextAttachment).toList();
+    final otherFiles = files
+        .where((file) => !file.isImage && !_isReadableTextAttachment(file))
+        .toList();
     final recognized = <String>[];
     final directFiles = <MessageImage>[
       if (!set.imageOcrEnabled) ...imageFiles,
       if (!set.imageRecognitionEnabled) ...otherFiles,
     ];
 
+    if (textFiles.isNotEmpty) {
+      recognized.add(await _readTextAttachments(textFiles));
+    }
     if (set.imageOcrEnabled && imageFiles.isNotEmpty) {
       recognized.add(await _recognizeImagesWithOcr(imageFiles, set));
     }
@@ -1712,6 +1718,24 @@ class _ChatPageState extends State<ChatPage> {
     }
 
     return _directModelContent(buffer.toString().trim(), directFiles);
+  }
+
+  bool _isReadableTextAttachment(MessageImage file) {
+    final mime = file.mimeType.toLowerCase();
+    return mime.startsWith('text/') ||
+        mime == 'application/json' ||
+        mime == 'application/xml';
+  }
+
+  Future<String> _readTextAttachments(List<MessageImage> files) async {
+    final parts = <String>[];
+    for (final file in files) {
+      final bytes = await File(file.path).readAsBytes();
+      final content = utf8.decode(bytes, allowMalformed: true).trim();
+      if (content.isEmpty) continue;
+      parts.add('[文件内容: ${file.name}]\n$content');
+    }
+    return parts.join('\n\n');
   }
 
   ConversationSettings _settingsToConversationSettings() {
@@ -2436,7 +2460,10 @@ class _ChatPageState extends State<ChatPage> {
                   height: 24,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : MarkdownWithLatex(content: displayContent),
+              : MarkdownWithLatex(
+                  content: displayContent,
+                  renderMermaid: !streaming,
+                ),
         ),
         if (!streaming && !_shareSelecting) _bubbleActions(msg, isLastAi),
       ],

@@ -79,10 +79,50 @@
       errorBox.textContent = '';
 
       try {
+        const themeVariables = dark ? {
+          background: 'transparent',
+          mainBkg: '#111827',
+          primaryColor: '#1f2937',
+          primaryTextColor: '#f9fafb',
+          primaryBorderColor: '#60a5fa',
+          secondaryColor: '#374151',
+          secondaryTextColor: '#f9fafb',
+          secondaryBorderColor: '#93c5fd',
+          tertiaryColor: '#0f172a',
+          tertiaryTextColor: '#f9fafb',
+          tertiaryBorderColor: '#64748b',
+          lineColor: '#93c5fd',
+          textColor: '#f9fafb',
+          nodeTextColor: '#f9fafb',
+          clusterBkg: '#111827',
+          clusterBorder: '#64748b',
+          edgeLabelBackground: '#111827'
+        } : {
+          background: 'transparent',
+          mainBkg: '#ffffff',
+          primaryColor: '#eff6ff',
+          primaryTextColor: '#111827',
+          primaryBorderColor: '#2563eb',
+          secondaryColor: '#f8fafc',
+          secondaryTextColor: '#111827',
+          secondaryBorderColor: '#60a5fa',
+          tertiaryColor: '#f1f5f9',
+          tertiaryTextColor: '#111827',
+          tertiaryBorderColor: '#94a3b8',
+          lineColor: '#2563eb',
+          textColor: '#111827',
+          nodeTextColor: '#111827',
+          clusterBkg: '#f8fafc',
+          clusterBorder: '#94a3b8',
+          edgeLabelBackground: '#ffffff'
+        };
+
         mermaid.initialize({
           startOnLoad: false,
-          securityLevel: 'strict',
+          securityLevel: 'loose',
           theme: dark ? 'dark' : 'default',
+          themeVariables,
+          flowchart: { htmlLabels: false },
           fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
         });
         const id = 'lynai_mermaid_' + (++renderCount);

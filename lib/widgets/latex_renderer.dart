@@ -758,12 +758,14 @@ class _MermaidBlock extends StatefulWidget {
 class _MermaidBlockState extends State<_MermaidBlock> {
   WebViewController? _controller;
   var _ready = false;
+  var _rendered = false;
   var _renderId = 0;
   var _height = 220.0;
   var _width = 420.0;
   String? _svg;
   String? _error;
   Brightness? _lastBrightness;
+  Timer? _renderTimeout;
 
   bool get _supportsEmbeddedWebView {
     if (kIsWeb) return true;
@@ -807,6 +809,7 @@ class _MermaidBlockState extends State<_MermaidBlock> {
     _lastBrightness = brightness;
     if (_ready) {
       setState(() {
+        _rendered = false;
         _error = null;
       });
       unawaited(_renderMermaid());
@@ -818,11 +821,18 @@ class _MermaidBlockState extends State<_MermaidBlock> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.code != widget.code && _ready) {
       setState(() {
+        _rendered = false;
         _svg = null;
         _error = null;
       });
       unawaited(_renderMermaid());
     }
+  }
+
+  @override
+  void dispose() {
+    _renderTimeout?.cancel();
+    super.dispose();
   }
 
   @override
@@ -859,7 +869,7 @@ class _MermaidBlockState extends State<_MermaidBlock> {
       return _sourceFallback(theme, '当前平台暂不支持 Mermaid 预览');
     }
     if (_error != null) return _errorBody(theme);
-    if (_svg != null) return _svgBody(theme);
+    if (_rendered) return _webViewBody();
     return SizedBox(
       height: _height,
       child: Stack(
@@ -899,7 +909,7 @@ class _MermaidBlockState extends State<_MermaidBlock> {
     );
   }
 
-  Widget _svgBody(ThemeData theme) {
+  Widget _webViewBody() {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = math.max(_width, constraints.maxWidth);
@@ -908,22 +918,11 @@ class _MermaidBlockState extends State<_MermaidBlock> {
           child: SizedBox(
             width: width,
             height: _height,
-            child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: _safeSvg(theme),
-            ),
+            child: WebViewWidget(controller: _controller!),
           ),
         );
       },
     );
-  }
-
-  Widget _safeSvg(ThemeData theme) {
-    try {
-      return SvgPicture.string(_svg!, fit: BoxFit.contain);
-    } catch (_) {
-      return _sourceFallback(theme, 'SVG 解析失败，显示源码');
-    }
   }
 
   Widget _exportBody() {
@@ -950,13 +949,28 @@ class _MermaidBlockState extends State<_MermaidBlock> {
   Widget _errorBody(ThemeData theme) {
     return Padding(
       padding: const EdgeInsets.all(14),
-      child: Text(
-        'Mermaid 渲染失败\n$_error',
-        style: TextStyle(
-          fontFamily: 'monospace',
-          fontSize: 13,
-          color: theme.colorScheme.error,
-        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Mermaid 渲染失败\n$_error',
+            style: TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 13,
+              color: theme.colorScheme.error,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            widget.code,
+            style: TextStyle(
+              fontFamily: _codeFontFamily,
+              fontSize: 13,
+              color: theme.colorScheme.onSurface,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -992,6 +1006,13 @@ class _MermaidBlockState extends State<_MermaidBlock> {
     final controller = _controller;
     if (!_ready || controller == null || !mounted) return;
     final renderId = ++_renderId;
+    _renderTimeout?.cancel();
+    _renderTimeout = Timer(const Duration(seconds: 8), () {
+      if (!mounted || renderId != _renderId || _rendered || _error != null) {
+        return;
+      }
+      setState(() => _error = '渲染超时，显示源码');
+    });
     final payload = jsonEncode({
       'renderId': renderId,
       'code': widget.code,
@@ -1002,6 +1023,7 @@ class _MermaidBlockState extends State<_MermaidBlock> {
     try {
       await controller.runJavaScript('window.renderMermaid($payload);');
     } catch (e) {
+      _renderTimeout?.cancel();
       if (mounted) setState(() => _error = e.toString());
     }
   }
@@ -1011,6 +1033,7 @@ class _MermaidBlockState extends State<_MermaidBlock> {
       final data = jsonDecode(message) as Map<String, dynamic>;
       if (!mounted) return;
       if (data['renderId'] != _renderId) return;
+      _renderTimeout?.cancel();
       setState(() {
         _width = ((data['width'] as num?)?.toDouble() ?? _width).clamp(
           220.0,
@@ -1022,13 +1045,22 @@ class _MermaidBlockState extends State<_MermaidBlock> {
         );
         if (data['ok'] == true) {
           final svg = (data['svg'] as String?)?.trim();
-          _svg = (svg == null || svg.isEmpty) ? null : svg;
-          _error = null;
+          if (svg == null || svg.isEmpty) {
+            _rendered = false;
+            _svg = null;
+            _error = 'Mermaid 返回空 SVG';
+          } else {
+            _rendered = true;
+            _svg = svg;
+            _error = null;
+          }
         } else {
+          _rendered = false;
           _error = (data['error'] as String?) ?? '未知错误';
         }
       });
     } catch (e) {
+      _renderTimeout?.cancel();
       if (mounted) setState(() => _error = e.toString());
     }
   }
