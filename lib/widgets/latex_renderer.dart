@@ -391,7 +391,8 @@ class MarkdownWithLatex extends StatelessWidget {
         .map((s) => s.text)
         .join('\n');
     final hasLatex = LatexRenderer.hasLatexContent(nonFenced);
-    final hasMermaid = renderMermaid &&
+    final hasMermaid =
+        renderMermaid &&
         segments.any(
           (s) => s.isFencedCodeBlock && _mermaidFence(s.text) != null,
         );
@@ -641,11 +642,13 @@ class MarkdownWithLatex extends StatelessWidget {
   @visibleForTesting
   static List<Map<String, Object?>> debugSegments(String text) {
     return _splitFencedCodeBlocks(text)
-        .map((s) => <String, Object?>{
-              'text': s.text,
-              'isFencedCodeBlock': s.isFencedCodeBlock,
-              'startOffset': s.startOffset,
-            })
+        .map(
+          (s) => <String, Object?>{
+            'text': s.text,
+            'isFencedCodeBlock': s.isFencedCodeBlock,
+            'startOffset': s.startOffset,
+          },
+        )
         .toList();
   }
 

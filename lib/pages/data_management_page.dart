@@ -224,7 +224,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       final file = await _service(context).exportZip(selection);
       final bytes = await file.readAsBytes();
       final fileName = file.uri.pathSegments.last;
-      final path = await FilePicker.platform.saveFile(
+      final path = await FilePicker.saveFile(
         dialogTitle: '导出备份',
         fileName: fileName,
         type: FileType.custom,
@@ -248,7 +248,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
     setState(() => _busy = true);
     try {
       final service = _service(context);
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['zip'],
       );

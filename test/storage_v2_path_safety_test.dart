@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lynai/services/storage_v2_database.dart';
 import 'package:lynai/services/storage_v2_service.dart';
 
 void main() {
@@ -159,6 +160,83 @@ void main() {
       final resources = await storage.loadResources();
 
       expect(resources.map((resource) => resource.id), ['r2']);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('StorageV2Service preserves concurrent resource imports', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_storage_resource_concurrent_test_',
+    );
+    final source = await Directory.systemTemp.createTemp(
+      'lynai_storage_resource_source_test_',
+    );
+    try {
+      final first = File('${source.path}/first.txt');
+      final second = File('${source.path}/second.txt');
+      await first.writeAsString('first', flush: true);
+      await second.writeAsString('second', flush: true);
+
+      final storage = StorageV2Service(rootDirectory: root);
+      await Future.wait([
+        storage.importResourceFile(
+          first.path,
+          originalName: 'first.txt',
+          mimeType: 'text/plain',
+          role: 'message_attachment',
+        ),
+        storage.importResourceFile(
+          second.path,
+          originalName: 'second.txt',
+          mimeType: 'text/plain',
+          role: 'message_attachment',
+        ),
+      ]);
+
+      final resources = await storage.loadResources();
+
+      expect(resources.map((resource) => resource.originalName).toSet(), {
+        'first.txt',
+        'second.txt',
+      });
+    } finally {
+      await root.delete(recursive: true);
+      await source.delete(recursive: true);
+    }
+  });
+
+  test('StorageV2Database shared close keeps other handles usable', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_storage_db_shared_close_test_',
+    );
+    try {
+      final storageRoot = Directory('${root.path}/storage_v2');
+      final first = StorageV2Database(storageRoot);
+      final second = StorageV2Database(storageRoot);
+      await first.writeDataFile('resources.json', {'resources': []});
+      await second.loadDataFile('resources.json');
+
+      await first.close();
+      await second.writeDataFile('resources.json', {
+        'resources': [
+          {
+            'id': 'r1',
+            'kind': 'documents',
+            'role': 'message_attachment',
+            'originalPath': '/tmp/a.txt',
+            'originalName': 'a.txt',
+            'relativePath': 'assets/documents/a.txt',
+            'mimeType': 'text/plain',
+            'size': 1,
+            'missing': false,
+          },
+        ],
+      });
+
+      final data = await second.loadDataFile('resources.json');
+      expect(data!['resources'], hasLength(1));
+      await second.close();
     } finally {
       await root.delete(recursive: true);
     }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
@@ -45,16 +47,51 @@ class LynAIApp extends StatefulWidget {
   State<LynAIApp> createState() => _LynAIAppState();
 }
 
-class _LynAIAppState extends State<LynAIApp> {
+class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   bool _isLoading = true;
   bool _hasError = false;
   String _errorMessage = '';
+  ConversationProvider? _conversationProvider;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Provider 已在父级注册；延后到 microtask 后再读取 context。
     Future.microtask(() => _loadData());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _conversationProvider ??= context.read<ConversationProvider>();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state
+        case AppLifecycleState.inactive ||
+            AppLifecycleState.paused ||
+            AppLifecycleState.detached) {
+      unawaited(_flushCriticalSaves());
+    }
+  }
+
+  Future<void> _flushCriticalSaves() async {
+    try {
+      // Conversation saves are debounced during streaming; lifecycle changes
+      // should push the last snapshot to disk before the process is suspended.
+      await _conversationProvider?.flushPendingSaves();
+    } catch (e) {
+      debugPrint('后台保存对话失败: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(_flushCriticalSaves());
+    super.dispose();
   }
 
   /// 并行加载所有本地数据分区。

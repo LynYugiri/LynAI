@@ -1224,8 +1224,7 @@ class FeatureProvider extends ChangeNotifier {
       if (_notes[i].folderId == folderId) indexes.add(i);
     }
     if (oldIndex < 0 || oldIndex >= indexes.length) return;
-    if (newIndex < 0 || newIndex > indexes.length) return;
-    if (newIndex > oldIndex) newIndex -= 1;
+    if (newIndex < 0 || newIndex >= indexes.length) return;
     final folderNotes = indexes.map((i) => _notes[i]).toList();
     final note = folderNotes.removeAt(oldIndex);
     folderNotes.insert(newIndex, note);
@@ -1255,6 +1254,10 @@ class FeatureProvider extends ChangeNotifier {
     );
     final removedPages = _storageV2PagesByNoteId.remove(id) ?? const [];
     _activeStorageV2PageIds.remove(id);
+    await _persistStorageV2NotesData();
+    await _queueSaveNotes();
+    await _queueSaveNoteRevisions();
+    if (removedProposal) await _queueSaveNoteEditProposals();
     for (final page in removedPages) {
       try {
         await _repository.deleteFile(page.relativePath);
@@ -1262,10 +1265,6 @@ class FeatureProvider extends ChangeNotifier {
         debugPrint('删除笔记分页文件失败: $e');
       }
     }
-    await _persistStorageV2NotesData();
-    await _queueSaveNotes();
-    await _queueSaveNoteRevisions();
-    if (removedProposal) await _queueSaveNoteEditProposals();
     notifyListeners();
   }
 
@@ -1408,8 +1407,7 @@ class FeatureProvider extends ChangeNotifier {
 
   Future<void> reorderNoteFolders(int oldIndex, int newIndex) async {
     if (oldIndex < 0 || oldIndex >= _noteFolders.length) return;
-    if (newIndex < 0 || newIndex > _noteFolders.length) return;
-    if (newIndex > oldIndex) newIndex -= 1;
+    if (newIndex < 0 || newIndex >= _noteFolders.length) return;
     final folder = _noteFolders.removeAt(oldIndex);
     _noteFolders.insert(newIndex, folder);
     await _persistStorageV2NotesData();
@@ -1472,8 +1470,7 @@ class FeatureProvider extends ChangeNotifier {
 
   Future<void> reorderTodoLists(int oldIndex, int newIndex) async {
     if (oldIndex < 0 || oldIndex >= _todoLists.length) return;
-    if (newIndex < 0 || newIndex > _todoLists.length) return;
-    if (newIndex > oldIndex) newIndex -= 1;
+    if (newIndex < 0 || newIndex >= _todoLists.length) return;
     final item = _todoLists.removeAt(oldIndex);
     _todoLists.insert(newIndex, item);
     await _queueSaveTodoLists();

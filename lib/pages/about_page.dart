@@ -104,9 +104,7 @@ class _AboutPageState extends State<AboutPage> {
                 child: OutlinedButton.icon(
                   onPressed: () => Navigator.push(
                     context,
-                    MaterialPageRoute(
-                      builder: (_) => const ChangelogPage(),
-                    ),
+                    MaterialPageRoute(builder: (_) => const ChangelogPage()),
                   ),
                   icon: const Icon(Icons.auto_awesome, size: 18),
                   label: const Text('更新日志'),

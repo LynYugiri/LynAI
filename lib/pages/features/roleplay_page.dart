@@ -759,7 +759,7 @@ class _RoleplayPageState extends State<_RoleplayPage> {
 
   Future<void> _pickFiles() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         allowMultiple: true,
         withData: false,
       );

@@ -122,7 +122,7 @@ class _NotesPageState extends State<_NotesPage> {
                   padding: const EdgeInsets.fromLTRB(8, 6, 8, 88),
                   itemCount: entries.length,
                   buildDefaultDragHandles: false,
-                  onReorder: (oldIndex, newIndex) =>
+                  onReorderItem: (oldIndex, newIndex) =>
                       _reorderTopLevel(entries, oldIndex, newIndex),
                   itemBuilder: (context, index) => _entryCard(
                     entries[index],
@@ -278,7 +278,7 @@ class _NotesPageState extends State<_NotesPage> {
                 physics: const NeverScrollableScrollPhysics(),
                 buildDefaultDragHandles: false,
                 itemCount: notes.length,
-                onReorder: (oldIndex, newIndex) => _features
+                onReorderItem: (oldIndex, newIndex) => _features
                     .reorderNotesInFolder(folder.id, oldIndex, newIndex),
                 itemBuilder: (context, noteIndex) => _noteTile(
                   notes[noteIndex],
@@ -356,7 +356,7 @@ class _NotesPageState extends State<_NotesPage> {
     if (newIndex < 0 || newIndex > entries.length) return;
     final oldEntry = entries[oldIndex];
     final remainingEntries = [...entries]..removeAt(oldIndex);
-    final insertionIndex = newIndex > oldIndex ? newIndex - 1 : newIndex;
+    final insertionIndex = newIndex;
     if (insertionIndex < 0 || insertionIndex > remainingEntries.length) return;
     final remainingFolderCount = remainingEntries
         .where((entry) => entry.isFolder)
@@ -370,21 +370,15 @@ class _NotesPageState extends State<_NotesPage> {
     final sameTypeEntries = entries
         .where((entry) => entry.isFolder == oldEntry.isFolder)
         .toList();
-    final oldSameTypeIndex = sameTypeEntries.indexWhere(
-      (entry) => entry.id == oldEntry.id,
-    );
     final newSameTypeIndex = remainingEntries
         .take(insertionIndex)
         .where((entry) => entry.isFolder == oldEntry.isFolder)
         .length;
-    final providerNewIndex = newSameTypeIndex > oldSameTypeIndex
-        ? newSameTypeIndex + 1
-        : newSameTypeIndex;
     if (oldEntry.isFolder) {
       final oldFolderIndex = sameTypeEntries.indexWhere(
         (e) => e.folder!.id == oldEntry.folder!.id,
       );
-      await _features.reorderNoteFolders(oldFolderIndex, providerNewIndex);
+      await _features.reorderNoteFolders(oldFolderIndex, newSameTypeIndex);
     } else {
       final oldNoteIndex = sameTypeEntries.indexWhere(
         (e) => e.note!.id == oldEntry.note!.id,
@@ -392,7 +386,7 @@ class _NotesPageState extends State<_NotesPage> {
       await _features.reorderNotesInFolder(
         null,
         oldNoteIndex,
-        providerNewIndex,
+        newSameTypeIndex,
       );
     }
   }
@@ -478,7 +472,7 @@ class _NotesPageState extends State<_NotesPage> {
     final fileName = '${safeExportFileName(note.title, fallback: 'note')}.md';
     try {
       final bytes = Uint8List.fromList(utf8.encode(note.content));
-      final path = await FilePicker.platform.saveFile(
+      final path = await FilePicker.saveFile(
         dialogTitle: '导出笔记',
         fileName: fileName,
         bytes: bytes,
@@ -509,7 +503,7 @@ class _NotesPageState extends State<_NotesPage> {
         archive.addFile(ArchiveFile(page.fileName, bytes.length, bytes));
       }
       final bytes = Uint8List.fromList(ZipEncoder().encode(archive));
-      final path = await FilePicker.platform.saveFile(
+      final path = await FilePicker.saveFile(
         dialogTitle: '按分页导出笔记',
         fileName: fileName,
         type: FileType.custom,

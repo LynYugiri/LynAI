@@ -526,7 +526,7 @@ class _FeaturePageState extends State<FeaturePage> {
     final features = context.read<FeatureProvider>();
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['md', 'markdown', 'txt'],
         withData: true,
@@ -595,7 +595,7 @@ class _FeaturePageState extends State<FeaturePage> {
     final features = context.read<FeatureProvider>();
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['md', 'markdown', 'txt'],
         withData: true,

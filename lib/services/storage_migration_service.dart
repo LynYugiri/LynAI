@@ -88,6 +88,25 @@ class StorageMigrationService {
     final prefs = await _prefs();
     var schemaVersion = prefs.getInt(_schemaVersionKey) ?? 1;
     var status = prefs.getString(_statusKey) ?? 'notStarted';
+    if (schemaVersion < currentSchemaVersion && status == 'running') {
+      // A process kill can leave the status at `running`; startup must decide
+      // whether the activated storage is usable or the staging tree is stale.
+      final storageReady = await _storageV2Ready();
+      if (storageReady) {
+        final completedAt = DateTime.now().toIso8601String();
+        await prefs.setInt(_schemaVersionKey, currentSchemaVersion);
+        await prefs.setString(_statusKey, 'completed');
+        await prefs.setString(_completedAtKey, completedAt);
+        schemaVersion = currentSchemaVersion;
+        status = 'completed';
+      } else {
+        final root = await _root();
+        final staging = Directory('${root.path}/storage_v2_staging');
+        if (await staging.exists()) await staging.delete(recursive: true);
+        await prefs.setString(_statusKey, 'failed');
+        status = 'failed';
+      }
+    }
     if (schemaVersion < currentSchemaVersion && status != 'running') {
       final storageReady = await _storageV2Ready();
       if (storageReady || !await _hasLegacyUserData(prefs)) {

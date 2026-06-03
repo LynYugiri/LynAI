@@ -17,6 +17,7 @@ class StorageV2Service {
 
   final Directory? _rootDirectory;
   StorageV2Database? _database;
+  Future<void> _resourceMutationQueue = Future.value();
 
   Future<bool> exists() async {
     return (await probe()).ready;
@@ -125,7 +126,16 @@ class StorageV2Service {
     final file = await _file(page.relativePath);
     final parent = file.parent;
     if (!await parent.exists()) await parent.create(recursive: true);
-    await file.writeAsString(content, flush: true);
+    final tmp = File(
+      '${file.path}.tmp.${DateTime.now().microsecondsSinceEpoch}',
+    );
+    try {
+      await tmp.writeAsString(content, flush: true);
+      await tmp.rename(file.path);
+    } catch (_) {
+      if (await tmp.exists()) await tmp.delete();
+      rethrow;
+    }
   }
 
   Future<void> deleteFile(String relativePath) async {
@@ -166,36 +176,49 @@ class StorageV2Service {
     required String mimeType,
     required String role,
   }) async {
-    final existingByPath = await findResourceByPath(path);
-    if (existingByPath != null) return existingByPath;
+    return _runResourceMutation(() async {
+      final existingByPath = await findResourceByPath(path);
+      if (existingByPath != null) return existingByPath;
 
-    final resources = await loadResources();
-    final file = File(path);
-    final exists = path.isNotEmpty && await file.exists();
-    if (!exists) {
-      for (final resource in resources) {
-        if (resource.missing &&
-            resource.originalPath == path &&
-            resource.originalName == originalName &&
-            resource.role == role) {
-          return resource;
+      final resources = await loadResources();
+      final file = File(path);
+      final exists = path.isNotEmpty && await file.exists();
+      if (!exists) {
+        for (final resource in resources) {
+          if (resource.missing &&
+              resource.originalPath == path &&
+              resource.originalName == originalName &&
+              resource.role == role) {
+            return resource;
+          }
         }
       }
-    }
-    final resource = exists
-        ? await _importExistingResource(
-            file,
-            resources,
-            originalName,
-            mimeType,
-            role,
-          )
-        : _missingResource(path, originalName, mimeType, role);
-    if (resources.any((item) => item.id == resource.id)) return resource;
-    await writeDataFile('resources.json', {
-      'resources': [...resources.map((e) => e.toJson()), resource.toJson()],
+      final resource = exists
+          ? await _importExistingResource(
+              file,
+              resources,
+              originalName,
+              mimeType,
+              role,
+            )
+          : _missingResource(path, originalName, mimeType, role);
+      if (resources.any((item) => item.id == resource.id)) return resource;
+      await writeDataFile('resources.json', {
+        'resources': [...resources.map((e) => e.toJson()), resource.toJson()],
+      });
+      return resource;
     });
-    return resource;
+  }
+
+  Future<T> _runResourceMutation<T>(Future<T> Function() action) {
+    // Resource imports append to a read-modify-write snapshot, so keep one
+    // mutation active per service instance to avoid dropping concurrent rows.
+    late T result;
+    final run = _resourceMutationQueue
+        .catchError((_) {})
+        .then((_) async => result = await action());
+    _resourceMutationQueue = run.then<void>((_) {});
+    return run.then((_) => result);
   }
 
   Future<File?> resourceFile(StorageV2Resource resource) async {

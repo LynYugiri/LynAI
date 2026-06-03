@@ -81,7 +81,7 @@ class _TodoListsPageState extends State<_TodoListsPage> {
                   padding: const EdgeInsets.fromLTRB(8, 6, 8, 20),
                   itemCount: visibleLists.length,
                   buildDefaultDragHandles: false,
-                  onReorder: provider.reorderTodoLists,
+                  onReorderItem: provider.reorderTodoLists,
                   itemBuilder: (context, index) => _listCard(
                     visibleLists[index],
                     index: index,
@@ -185,7 +185,7 @@ class _TodoListsPageState extends State<_TodoListsPage> {
                 physics: const NeverScrollableScrollPhysics(),
                 buildDefaultDragHandles: false,
                 itemCount: list.items.length,
-                onReorder: (oldIndex, newIndex) =>
+                onReorderItem: (oldIndex, newIndex) =>
                     _reorderItems(list, oldIndex, newIndex),
                 itemBuilder: (context, index) =>
                     _todoItemTile(list, list.items[index], index),
@@ -295,7 +295,6 @@ class _TodoListsPageState extends State<_TodoListsPage> {
 
   Future<void> _reorderItems(TodoList list, int oldIndex, int newIndex) async {
     final items = List<TodoItem>.from(list.items);
-    if (newIndex > oldIndex) newIndex -= 1;
     final item = items.removeAt(oldIndex);
     items.insert(newIndex, item);
     await _features.updateTodoList(list.copyWith(items: items));
@@ -378,7 +377,7 @@ class _TodoListsPageState extends State<_TodoListsPage> {
   Future<void> _export(TodoList list) async {
     final fileName = '${safeExportFileName(list.title, fallback: 'todo')}.md';
     final bytes = Uint8List.fromList(utf8.encode(_todoMarkdown(list)));
-    final path = await FilePicker.platform.saveFile(
+    final path = await FilePicker.saveFile(
       dialogTitle: '导出待办清单',
       fileName: fileName,
       bytes: bytes,

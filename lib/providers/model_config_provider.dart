@@ -108,9 +108,8 @@ class ModelConfigProvider extends ChangeNotifier {
   /// 调整模型优先级（上移或下移）
   void reorderModel(int oldIndex, int newIndex) {
     if (oldIndex < 0 || oldIndex >= _models.length) return;
-    if (newIndex < 0 || newIndex > _models.length) return;
+    if (newIndex < 0 || newIndex >= _models.length) return;
     if (oldIndex == newIndex) return;
-    if (oldIndex < newIndex) newIndex--;
     final item = _models.removeAt(oldIndex);
     _models.insert(newIndex, item);
     // 更新所有模型的 priority
@@ -126,9 +125,8 @@ class ModelConfigProvider extends ChangeNotifier {
         .where((m) => m.category == category)
         .toList();
     if (oldIndex < 0 || oldIndex >= categoryModels.length) return;
-    if (newIndex < 0 || newIndex > categoryModels.length) return;
+    if (newIndex < 0 || newIndex >= categoryModels.length) return;
     if (oldIndex == newIndex) return;
-    if (oldIndex < newIndex) newIndex--;
     final item = categoryModels.removeAt(oldIndex);
     categoryModels.insert(newIndex, item);
 

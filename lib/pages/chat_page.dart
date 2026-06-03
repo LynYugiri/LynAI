@@ -1476,7 +1476,7 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _pickFiles() async {
     if (_streaming) return;
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         allowMultiple: true,
         withData: false,
       );
@@ -1920,7 +1920,7 @@ class _ChatPageState extends State<ChatPage> {
               setState(() {});
             }
           },
-          localeId: localeId,
+          listenOptions: stt.SpeechListenOptions(localeId: localeId),
         );
       } catch (_) {
         setState(() => _recording = false);

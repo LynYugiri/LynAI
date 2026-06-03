@@ -238,7 +238,10 @@ graph TD
   test('debugMermaidBody returns null for non-mermaid language', () {
     expect(MarkdownWithLatex.debugMermaidBody('```python\ncode\n```'), isNull);
     expect(MarkdownWithLatex.debugMermaidBody('```\ncode\n```'), isNull);
-    expect(MarkdownWithLatex.debugMermaidBody('```markdown\ncode\n```'), isNull);
+    expect(
+      MarkdownWithLatex.debugMermaidBody('```markdown\ncode\n```'),
+      isNull,
+    );
   });
 
   test('debugMermaidBody returns null for empty body', () {
@@ -292,25 +295,27 @@ graph LR
     expect(find.textContaining('A --> B'), findsOneWidget);
   });
 
-  testWidgets('mermaid renders as code block when renderMermaid is false even with LaTeX in document', (
-    WidgetTester tester,
-  ) async {
-    const content = '前文 \$x^2\$\n\n'
-        '```mermaid\n'
-        'graph TD\n'
-        '    A --> B\n'
-        '```';
+  testWidgets(
+    'mermaid renders as code block when renderMermaid is false even with LaTeX in document',
+    (WidgetTester tester) async {
+      const content =
+          '前文 \$x^2\$\n\n'
+          '```mermaid\n'
+          'graph TD\n'
+          '    A --> B\n'
+          '```';
 
-    await tester.pumpWidget(
-      const MaterialApp(
-        home: Scaffold(
-          body: MarkdownWithLatex(content: content, renderMermaid: false),
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: MarkdownWithLatex(content: content, renderMermaid: false),
+          ),
         ),
-      ),
-    );
+      );
 
-    expect(tester.takeException(), isNull);
-    expect(find.textContaining('graph TD'), findsOneWidget);
-    expect(find.textContaining('A --> B'), findsOneWidget);
-  });
+      expect(tester.takeException(), isNull);
+      expect(find.textContaining('graph TD'), findsOneWidget);
+      expect(find.textContaining('A --> B'), findsOneWidget);
+    },
+  );
 }

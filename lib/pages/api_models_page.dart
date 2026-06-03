@@ -181,7 +181,7 @@ class ApiCategoryPage extends StatelessWidget {
           : ReorderableListView.builder(
               padding: const EdgeInsets.symmetric(vertical: 8),
               itemCount: models.length,
-              onReorder: (oldIndex, newIndex) => provider
+              onReorderItem: (oldIndex, newIndex) => provider
                   .reorderModelsInCategory(category.id, oldIndex, newIndex),
               buildDefaultDragHandles: false,
               itemBuilder: (context, index) => _buildModelItem(
@@ -616,8 +616,11 @@ class _EditModelPageState extends State<EditModelPage> {
     setState(() => _isFetchingModels = true);
     try {
       List<ModelEntry> fetched = [];
+      final normalizedEndpoint = _normalizeEndpoint(endpoint);
       if (_apiType == 'ollama') {
-        final resp = await http.get(Uri.parse('$endpoint/api/tags'));
+        final resp = await http
+            .get(Uri.parse('$normalizedEndpoint/api/tags'))
+            .timeout(const Duration(seconds: 20));
         if (resp.statusCode != 200) throw Exception('${resp.statusCode}');
         final models = jsonDecode(resp.body)['models'] as List;
         fetched = models.map((m) {
@@ -630,10 +633,9 @@ class _EditModelPageState extends State<EditModelPage> {
       } else {
         final headers = <String, String>{};
         if (apiKey.isNotEmpty) headers['Authorization'] = 'Bearer $apiKey';
-        final resp = await http.get(
-          Uri.parse('$endpoint/models'),
-          headers: headers,
-        );
+        final resp = await http
+            .get(Uri.parse('$normalizedEndpoint/models'), headers: headers)
+            .timeout(const Duration(seconds: 20));
         if (resp.statusCode != 200) throw Exception('${resp.statusCode}');
         final models = jsonDecode(resp.body)['data'] as List? ?? [];
         fetched = models
@@ -664,6 +666,12 @@ class _EditModelPageState extends State<EditModelPage> {
     } finally {
       if (mounted) setState(() => _isFetchingModels = false);
     }
+  }
+
+  String _normalizeEndpoint(String endpoint) {
+    return endpoint.endsWith('/')
+        ? endpoint.substring(0, endpoint.length - 1)
+        : endpoint;
   }
 
   @override

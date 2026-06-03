@@ -336,6 +336,9 @@ class StorageV2Database {
   StorageV2Database(this.storageRoot);
 
   static final Map<String, StorageV2DriftDatabase> _openDatabases = {};
+  // Multiple repository facades can point at the same app.db during startup.
+  // Reference counts prevent one facade from closing another facade's handle.
+  static final Map<String, int> _openReferenceCounts = {};
   static final Map<String, Future<StorageV2DriftDatabase>> _pendingOpens = {};
 
   final Directory storageRoot;
@@ -348,8 +351,15 @@ class StorageV2Database {
   Future<void> close() async {
     final existing = _db;
     if (existing != null) {
-      _openDatabases.remove(file.absolute.path);
-      await existing.close();
+      final path = file.absolute.path;
+      final references = _openReferenceCounts[path] ?? 1;
+      if (references <= 1) {
+        _openReferenceCounts.remove(path);
+        _openDatabases.remove(path);
+        await existing.close();
+      } else {
+        _openReferenceCounts[path] = references - 1;
+      }
     }
     _db = null;
   }
@@ -453,12 +463,14 @@ class StorageV2Database {
     final path = file.absolute.path;
     final shared = _openDatabases[path];
     if (shared != null) {
+      _openReferenceCounts[path] = (_openReferenceCounts[path] ?? 0) + 1;
       _db = shared;
       return shared;
     }
     final pending = _pendingOpens[path];
     if (pending != null) {
       final db = await pending;
+      _openReferenceCounts[path] = (_openReferenceCounts[path] ?? 0) + 1;
       _db = db;
       return db;
     }
@@ -468,6 +480,7 @@ class StorageV2Database {
       await _createSchema(db);
       await db._addColumnIfMissing('note_pages', 'current_revision_id', 'TEXT');
       _openDatabases[path] = db;
+      _openReferenceCounts[path] = 1;
       _pendingOpens.remove(path);
       return db;
     }

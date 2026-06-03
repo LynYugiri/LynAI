@@ -1343,7 +1343,7 @@ void main() {
         1,
       );
     } finally {
-      database.dispose();
+      database.close();
     }
     final notesJson =
         jsonDecode(
@@ -1771,6 +1771,76 @@ void main() {
     final saved = await storage.loadDataFile('app_settings.json');
     expect(saved['storageV2'], {'backgroundResourceId': 'res_bg'});
     await root.delete(recursive: true);
+  });
+
+  test(
+    'Storage migration recovers completed storage from running status',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        'storage_schema_version': 1,
+        'storage_migration_status': 'running',
+      });
+      final root = await Directory.systemTemp.createTemp(
+        'lynai_migration_running_ready_test_',
+      );
+      try {
+        final storageRoot = Directory('${root.path}/storage_v2');
+        await Directory('${storageRoot.path}/data').create(recursive: true);
+        await File('${storageRoot.path}/manifest.json').writeAsString(
+          jsonEncode({'type': 'lynai.storage_v2', 'schemaVersion': 2}),
+          flush: true,
+        );
+        final service = StorageMigrationService(
+          settingsProvider: SettingsProvider(),
+          modelConfigProvider: ModelConfigProvider(),
+          conversationProvider: ConversationProvider(),
+          featureProvider: FeatureProvider(),
+          rootDirectory: root,
+        );
+
+        final state = await service.ensureMigrationReady();
+
+        expect(state.completed, isTrue);
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getString('storage_migration_status'), 'completed');
+        expect(prefs.getInt('storage_schema_version'), 2);
+      } finally {
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test('Storage migration marks stale running status as failed', () async {
+    SharedPreferences.setMockInitialValues({
+      'storage_schema_version': 1,
+      'storage_migration_status': 'running',
+      'conversations': '[]',
+    });
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_migration_running_stale_test_',
+    );
+    try {
+      await Directory(
+        '${root.path}/storage_v2_staging',
+      ).create(recursive: true);
+      final service = StorageMigrationService(
+        settingsProvider: SettingsProvider(),
+        modelConfigProvider: ModelConfigProvider(),
+        conversationProvider: ConversationProvider(),
+        featureProvider: FeatureProvider(),
+        rootDirectory: root,
+      );
+
+      final state = await service.ensureMigrationReady();
+
+      expect(state.status, 'failed');
+      expect(
+        await Directory('${root.path}/storage_v2_staging').exists(),
+        isFalse,
+      );
+    } finally {
+      await root.delete(recursive: true);
+    }
   });
 
   test('FeatureProvider uses storage v2 notes after migration', () async {
@@ -2543,7 +2613,7 @@ CREATE TABLE notes (
 PRAGMA user_version = 2;
 ''');
       } finally {
-        db.dispose();
+        db.close();
       }
 
       final storage = StorageV2Service(rootDirectory: root);
@@ -2591,7 +2661,7 @@ CREATE TABLE notes (
 PRAGMA user_version = 2;
 ''');
       } finally {
-        db.dispose();
+        db.close();
       }
 
       final storage = StorageV2Service(rootDirectory: root);
