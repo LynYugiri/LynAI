@@ -646,9 +646,10 @@ class _RoleplayPageState extends State<_RoleplayPage> {
           );
           return;
         }
-        final model =
-            RoleplayService.resolveModel(participant.model, models) ??
-            directorModel;
+        final model = participant.model.isEmpty
+            ? directorModel
+            : RoleplayService.resolveModel(participant.model, models) ??
+                  directorModel;
         provider.setRunState(
           RoleplayRunState.speaking,
           threadId: threadId,
@@ -1702,6 +1703,7 @@ class _RoleplayScenarioDialogState extends State<_RoleplayScenarioDialog> {
   );
   late RoleplayModelSelection _directorModel =
       widget.initial?.director.model ?? const RoleplayModelSelection();
+  late String? _playerSourceRoleId = widget.initial?.defaultPlayer.sourceRoleId;
   final Set<String> _selectedRoleIds = {};
 
   @override
@@ -1804,6 +1806,8 @@ class _RoleplayScenarioDialogState extends State<_RoleplayScenarioDialog> {
                 ),
               ),
               const SizedBox(height: 10),
+              _playerRoleSelector(settings),
+              const SizedBox(height: 10),
               _RoleplayModelSelector(
                 value: _directorModel,
                 onChanged: (value) => setState(() => _directorModel = value),
@@ -1825,9 +1829,50 @@ class _RoleplayScenarioDialogState extends State<_RoleplayScenarioDialog> {
     );
   }
 
+  Widget _playerRoleSelector(AppSettings settings) {
+    final roles = settings.roles
+        .where((role) => role.id != ChatRole.defaultId)
+        .toList(growable: false);
+    final hasSelected = roles.any((role) => role.id == _playerSourceRoleId);
+    return DropdownButtonFormField<String?>(
+      initialValue: hasSelected ? _playerSourceRoleId : null,
+      decoration: const InputDecoration(
+        labelText: '我的角色来源',
+        border: OutlineInputBorder(),
+        helperText: '默认自定义；选择全局角色会带入名称和描述',
+      ),
+      isExpanded: true,
+      items: [
+        const DropdownMenuItem<String?>(value: null, child: Text('自定义')),
+        ...roles.map(
+          (role) =>
+              DropdownMenuItem<String?>(value: role.id, child: Text(role.name)),
+        ),
+      ],
+      onChanged: (id) {
+        final role = roles.where((role) => role.id == id).firstOrNull;
+        setState(() {
+          _playerSourceRoleId = id;
+          if (id != null) _selectedRoleIds.remove(id);
+          if (role != null) {
+            _playerNameCtrl.text = role.name;
+            _playerDescCtrl.text = role.description;
+          }
+        });
+      },
+    );
+  }
+
   Widget _roleSelector(AppSettings settings) {
     final roles = settings.roles
         .where((role) => role.id != ChatRole.defaultId)
+        .toList(growable: false);
+    final roleById = {for (final role in roles) role.id: role};
+    final groupedIds = settings.roleGroups
+        .expand((group) => group.roleIds)
+        .toSet();
+    final ungrouped = roles
+        .where((role) => !groupedIds.contains(role.id))
         .toList(growable: false);
     return Container(
       decoration: BoxDecoration(
@@ -1840,32 +1885,71 @@ class _RoleplayScenarioDialogState extends State<_RoleplayScenarioDialog> {
             dense: true,
             title: Text('默认 AI 角色 · ${_selectedRoleIds.length}'),
             subtitle: const Text('新开演绎时复制为当前演绎角色'),
+            trailing: TextButton(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const RoleManagementPage()),
+              ),
+              child: const Text('管理'),
+            ),
           ),
           const Divider(height: 1),
-          for (final role in roles)
-            CheckboxListTile(
-              dense: true,
-              value: _selectedRoleIds.contains(role.id),
-              title: Text(role.name),
-              subtitle: Text(
-                role.description.isNotEmpty
-                    ? role.description
-                    : role.systemPrompt,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+          if (roles.isEmpty)
+            const ListTile(dense: true, title: Text('暂无全局角色'))
+          else ...[
+            _chatRoleGroupTile('未分组', ungrouped),
+            for (final group in settings.roleGroups)
+              _chatRoleGroupTile(
+                group.name,
+                group.roleIds
+                    .map((id) => roleById[id])
+                    .whereType<ChatRole>()
+                    .toList(growable: false),
               ),
-              onChanged: (selected) {
-                setState(() {
-                  if (selected == true) {
-                    _selectedRoleIds.add(role.id);
-                  } else {
-                    _selectedRoleIds.remove(role.id);
-                  }
-                });
-              },
-            ),
+          ],
         ],
       ),
+    );
+  }
+
+  Widget _chatRoleGroupTile(String title, List<ChatRole> roles) {
+    return ExpansionTile(
+      dense: true,
+      initiallyExpanded: roles.any(
+        (role) => _selectedRoleIds.contains(role.id),
+      ),
+      title: Text('$title · ${roles.length}'),
+      children: roles.isEmpty
+          ? [const ListTile(dense: true, title: Text('暂无角色'))]
+          : roles.map(_chatRoleCheckbox).toList(),
+    );
+  }
+
+  Widget _chatRoleCheckbox(ChatRole role) {
+    final selectedAsPlayer = role.id == _playerSourceRoleId;
+    return CheckboxListTile(
+      dense: true,
+      value: selectedAsPlayer || _selectedRoleIds.contains(role.id),
+      enabled: !selectedAsPlayer,
+      title: Text(role.name),
+      subtitle: Text(
+        selectedAsPlayer
+            ? '已选为“我”'
+            : role.description.isNotEmpty
+            ? role.description
+            : role.systemPrompt,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      onChanged: (selected) {
+        setState(() {
+          if (selected == true) {
+            _selectedRoleIds.add(role.id);
+          } else {
+            _selectedRoleIds.remove(role.id);
+          }
+        });
+      },
     );
   }
 
@@ -1876,12 +1960,26 @@ class _RoleplayScenarioDialogState extends State<_RoleplayScenarioDialog> {
     final roles = settings.roles.where(
       (role) => _selectedRoleIds.contains(role.id),
     );
-    final player = provider.customParticipant(
-      name: _playerNameCtrl.text,
-      description: _playerDescCtrl.text,
-      isPlayer: true,
-    );
+    final playerRole = settings.roles
+        .where((role) => role.id == _playerSourceRoleId)
+        .firstOrNull;
+    final playerDescription = _playerDescCtrl.text.trim();
+    final player = playerRole == null
+        ? provider.customParticipant(
+            name: _playerNameCtrl.text,
+            description: playerDescription,
+            isPlayer: true,
+          )
+        : provider
+              .participantFromChatRole(playerRole, isPlayer: true)
+              .copyWith(
+                name: _playerNameCtrl.text.trim().isEmpty
+                    ? playerRole.name
+                    : _playerNameCtrl.text.trim(),
+                description: playerDescription,
+              );
     final participants = roles
+        .where((role) => role.id != _playerSourceRoleId)
         .map((role) => provider.participantFromChatRole(role))
         .toList();
     Navigator.pop(
@@ -2174,6 +2272,12 @@ class _RoleplayRolesDialogState extends State<_RoleplayRolesDialog> {
                   icon: const Icon(Icons.person),
                   label: const Text('设为我'),
                 ),
+              if (role.sourceRoleId != null)
+                TextButton.icon(
+                  onPressed: () => _refreshFromGlobalRole(role),
+                  icon: const Icon(Icons.sync, size: 18),
+                  label: const Text('刷新'),
+                ),
               IconButton(
                 icon: const Icon(Icons.edit),
                 onPressed: () => _editRole(role),
@@ -2216,10 +2320,12 @@ class _RoleplayRolesDialogState extends State<_RoleplayRolesDialog> {
       position: const RelativeRect.fromLTRB(100, 100, 24, 24),
       items: const [
         PopupMenuItem(value: 'role', child: Text('添加角色')),
+        PopupMenuItem(value: 'global', child: Text('从全局角色导入')),
         PopupMenuItem(value: 'group', child: Text('添加分组')),
       ],
     );
     if (value == 'role') _addRole();
+    if (value == 'global') _importGlobalRoles();
     if (value == 'group') _addGroup();
   }
 
@@ -2232,6 +2338,31 @@ class _RoleplayRolesDialogState extends State<_RoleplayRolesDialog> {
     setState(() {
       _participants.add(role);
       _selectedRoleId = role.id;
+    });
+  }
+
+  Future<void> _importGlobalRoles() async {
+    final settings = context.read<SettingsProvider>().settings;
+    final importedSourceIds = _participants
+        .map((role) => role.sourceRoleId)
+        .whereType<String>()
+        .toSet();
+    final selected = await showDialog<Set<String>>(
+      context: context,
+      builder: (_) => _RoleplayGlobalRolePickerDialog(
+        settings: settings,
+        disabledRoleIds: importedSourceIds,
+      ),
+    );
+    if (selected == null || selected.isEmpty) return;
+    if (!mounted) return;
+    final provider = context.read<RoleplayProvider>();
+    final roles = settings.roles.where((role) => selected.contains(role.id));
+    setState(() {
+      for (final role in roles) {
+        _participants.add(provider.participantFromChatRole(role));
+      }
+      _selectedRoleId = _participants.lastOrNull?.id;
     });
   }
 
@@ -2326,6 +2457,136 @@ class _RoleplayRolesDialogState extends State<_RoleplayRolesDialog> {
         _participants[index] = role.copyWith(groupIds: ids.toList());
       }
     });
+  }
+
+  void _refreshFromGlobalRole(RoleplayParticipant role) {
+    final sourceId = role.sourceRoleId;
+    if (sourceId == null) return;
+    final settings = context.read<SettingsProvider>().settings;
+    final source = settings.roles
+        .where((item) => item.id == sourceId)
+        .firstOrNull;
+    if (source == null) return;
+    setState(() {
+      final index = _participants.indexWhere((item) => item.id == role.id);
+      if (index == -1) return;
+      _participants[index] = role.copyWith(
+        name: source.name,
+        description: source.description,
+        systemPrompt: source.systemPrompt,
+        model: RoleplayModelSelection(
+          modelId: source.modelId,
+          modelName: source.modelName,
+        ),
+        themeColor: source.themeColor?.toARGB32(),
+      );
+    });
+  }
+}
+
+class _RoleplayGlobalRolePickerDialog extends StatefulWidget {
+  final AppSettings settings;
+  final Set<String> disabledRoleIds;
+
+  const _RoleplayGlobalRolePickerDialog({
+    required this.settings,
+    required this.disabledRoleIds,
+  });
+
+  @override
+  State<_RoleplayGlobalRolePickerDialog> createState() =>
+      _RoleplayGlobalRolePickerDialogState();
+}
+
+class _RoleplayGlobalRolePickerDialogState
+    extends State<_RoleplayGlobalRolePickerDialog> {
+  final Set<String> _selectedIds = {};
+
+  @override
+  Widget build(BuildContext context) {
+    final roles = widget.settings.roles
+        .where((role) => role.id != ChatRole.defaultId)
+        .toList(growable: false);
+    final roleById = {for (final role in roles) role.id: role};
+    final groupedIds = widget.settings.roleGroups
+        .expand((group) => group.roleIds)
+        .toSet();
+    final ungrouped = roles
+        .where((role) => !groupedIds.contains(role.id))
+        .toList(growable: false);
+    return AlertDialog(
+      title: const Text('从全局角色导入'),
+      content: SizedBox(
+        width: 520,
+        height: 460,
+        child: roles.isEmpty
+            ? const Center(child: Text('暂无全局角色'))
+            : ListView(
+                children: [
+                  _groupTile('未分组', ungrouped),
+                  for (final group in widget.settings.roleGroups)
+                    _groupTile(
+                      group.name,
+                      group.roleIds
+                          .map((id) => roleById[id])
+                          .whereType<ChatRole>()
+                          .toList(growable: false),
+                    ),
+                ],
+              ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: _selectedIds.isEmpty
+              ? null
+              : () => Navigator.pop(context, Set<String>.from(_selectedIds)),
+          child: const Text('导入'),
+        ),
+      ],
+    );
+  }
+
+  Widget _groupTile(String title, List<ChatRole> roles) {
+    return ExpansionTile(
+      dense: true,
+      initiallyExpanded: roles.any((role) => _selectedIds.contains(role.id)),
+      title: Text('$title · ${roles.length}'),
+      children: roles.isEmpty
+          ? [const ListTile(dense: true, title: Text('暂无角色'))]
+          : roles.map(_roleTile).toList(),
+    );
+  }
+
+  Widget _roleTile(ChatRole role) {
+    final disabled = widget.disabledRoleIds.contains(role.id);
+    return CheckboxListTile(
+      dense: true,
+      value: disabled ? true : _selectedIds.contains(role.id),
+      enabled: !disabled,
+      title: Text(role.name),
+      subtitle: Text(
+        disabled
+            ? '已在当前演绎中'
+            : role.description.isNotEmpty
+            ? role.description
+            : role.systemPrompt,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      onChanged: (selected) {
+        setState(() {
+          if (selected == true) {
+            _selectedIds.add(role.id);
+          } else {
+            _selectedIds.remove(role.id);
+          }
+        });
+      },
+    );
   }
 }
 
@@ -2557,36 +2818,37 @@ class _RoleplayModelSelectorState extends State<_RoleplayModelSelector> {
         ),
         if (_expanded) ...[
           const SizedBox(height: 4),
-          Container(
-            constraints: const BoxConstraints(maxHeight: 240),
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: ListView(
-              shrinkWrap: true,
-              children: [
-                if (widget.showNoneOption) ...[
-                  _modelRadioTile(
-                    title: widget.noneLabel,
-                    subtitle: '使用导演的模型',
-                    selected: widget.value.modelId == null,
-                    onTap: () {
-                      widget.onChanged(const RoleplayModelSelection());
-                      setState(() => _expanded = false);
-                    },
-                  ),
-                  const Divider(height: 1),
+          Material(
+            color: scheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(10),
+            clipBehavior: Clip.antiAlias,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 240),
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  if (widget.showNoneOption) ...[
+                    _modelRadioTile(
+                      title: widget.noneLabel,
+                      subtitle: '使用导演的模型',
+                      selected: widget.value.modelId == null,
+                      onTap: () {
+                        widget.onChanged(const RoleplayModelSelection());
+                        setState(() => _expanded = false);
+                      },
+                    ),
+                    const Divider(height: 1),
+                  ],
+                  for (final model in models) ...[
+                    _modelTile(model),
+                    if (model.hasMultipleModels &&
+                        widget.value.modelId == model.id &&
+                        model.models.any((entry) => entry.enabled))
+                      for (final entry in model.models)
+                        if (entry.enabled) _subModelTile(model, entry),
+                  ],
                 ],
-                for (final model in models) ...[
-                  _modelTile(model),
-                  if (model.hasMultipleModels &&
-                      widget.value.modelId == model.id &&
-                      model.models.any((entry) => entry.enabled))
-                    for (final entry in model.models)
-                      if (entry.enabled) _subModelTile(model, entry),
-                ],
-              ],
+              ),
             ),
           ),
         ],

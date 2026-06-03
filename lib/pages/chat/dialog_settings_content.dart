@@ -572,91 +572,92 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
           return filter == null || filter(model);
         })
         .toList(growable: false);
-    return Container(
-      constraints: const BoxConstraints(maxHeight: 300),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: ListView.builder(
-        shrinkWrap: true,
-        itemCount: models.length,
-        itemBuilder: (_, i) {
-          final m = models[i];
-          final isSelected = selectedId != null && m.id == selectedId;
-          final isExpanded = expandedId != null && m.id == expandedId;
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                dense: true,
-                title: Text(
-                  m.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 14),
-                ),
-                subtitle: Text(
-                  m.hasMultipleModels
-                      ? '${m.enabledModelNames.length} 个模型'
-                      : m.modelName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Theme.of(context).colorScheme.outline,
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(10),
+      clipBehavior: Clip.antiAlias,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 300),
+        child: ListView.builder(
+          shrinkWrap: true,
+          itemCount: models.length,
+          itemBuilder: (_, i) {
+            final m = models[i];
+            final isSelected = selectedId != null && m.id == selectedId;
+            final isExpanded = expandedId != null && m.id == expandedId;
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  dense: true,
+                  title: Text(
+                    m.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 14),
                   ),
-                ),
-                leading: Icon(
-                  isSelected ? Icons.check_circle : Icons.circle_outlined,
-                  size: 18,
-                  color: isSelected
-                      ? Theme.of(context).colorScheme.primary
-                      : Theme.of(context).colorScheme.outline,
-                ),
-                trailing: m.hasMultipleModels
-                    ? const Icon(Icons.chevron_right, size: 16)
-                    : null,
-                onTap: () {
-                  if (m.hasMultipleModels) {
-                    onExpandToggle(m.id);
-                  } else {
-                    onSelect(m.id);
-                  }
-                },
-              ),
-              if (isExpanded && m.hasMultipleModels)
-                ...m.models
-                    .where((e) => e.enabled)
-                    .where((e) => entryFilter == null || entryFilter(e))
-                    .map(
-                      (e) => ListTile(
-                        dense: true,
-                        contentPadding: const EdgeInsets.only(left: 56),
-                        leading: Icon(
-                          e.name == m.modelName
-                              ? Icons.radio_button_checked
-                              : Icons.radio_button_off,
-                          size: 14,
-                          color: e.name == m.modelName
-                              ? Theme.of(context).colorScheme.primary
-                              : Theme.of(context).colorScheme.outline,
-                        ),
-                        title: Text(
-                          e.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                        onTap: () => onSelectSub(m, e.name),
-                      ),
+                  subtitle: Text(
+                    m.hasMultipleModels
+                        ? '${m.enabledModelNames.length} 个模型'
+                        : m.modelName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Theme.of(context).colorScheme.outline,
                     ),
-            ],
-          );
-        },
+                  ),
+                  leading: Icon(
+                    isSelected ? Icons.check_circle : Icons.circle_outlined,
+                    size: 18,
+                    color: isSelected
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context).colorScheme.outline,
+                  ),
+                  trailing: m.hasMultipleModels
+                      ? const Icon(Icons.chevron_right, size: 16)
+                      : null,
+                  onTap: () {
+                    if (m.hasMultipleModels) {
+                      onExpandToggle(m.id);
+                    } else {
+                      onSelect(m.id);
+                    }
+                  },
+                ),
+                if (isExpanded && m.hasMultipleModels)
+                  ...m.models
+                      .where((e) => e.enabled)
+                      .where((e) => entryFilter == null || entryFilter(e))
+                      .map(
+                        (e) => ListTile(
+                          dense: true,
+                          contentPadding: const EdgeInsets.only(left: 56),
+                          leading: Icon(
+                            e.name == m.modelName
+                                ? Icons.radio_button_checked
+                                : Icons.radio_button_off,
+                            size: 14,
+                            color: e.name == m.modelName
+                                ? Theme.of(context).colorScheme.primary
+                                : Theme.of(context).colorScheme.outline,
+                          ),
+                          title: Text(
+                            e.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                          onTap: () => onSelectSub(m, e.name),
+                        ),
+                      ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -716,19 +717,69 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
   Widget _systemPromptList(AppSettings set) {
     final prompts = set.systemPrompts;
     final selectedId = _settings.selectedSystemPromptId;
-    return Container(
-      constraints: const BoxConstraints(maxHeight: 220),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: ListView.builder(
-        key: ValueKey('sysprompt_${selectedId ?? 'none'}_${prompts.length}'),
-        shrinkWrap: true,
-        itemCount: 1 + prompts.length + 1,
-        itemBuilder: (_, i) {
-          if (i == 0) {
-            final sel = selectedId == null;
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(10),
+      clipBehavior: Clip.antiAlias,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 220),
+        child: ListView.builder(
+          key: ValueKey('sysprompt_${selectedId ?? 'none'}_${prompts.length}'),
+          shrinkWrap: true,
+          itemCount: 1 + prompts.length + 1,
+          itemBuilder: (_, i) {
+            if (i == 0) {
+              final sel = selectedId == null;
+              return ListTile(
+                dense: true,
+                leading: Icon(
+                  sel ? Icons.check_circle : Icons.circle_outlined,
+                  size: 18,
+                  color: sel
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).colorScheme.outline,
+                ),
+                title: const Text('默认', style: TextStyle(fontSize: 14)),
+                subtitle: const Text(
+                  'You are a helpful assistant.',
+                  style: TextStyle(fontSize: 11),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                onTap: () {
+                  _updateSettings(
+                    _settings.copyWith(selectedSystemPromptId: null),
+                  );
+                  _closeSystemPromptList();
+                },
+              );
+            }
+            if (i == 1 + prompts.length) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Divider(height: 1),
+                  ListTile(
+                    dense: true,
+                    leading: Icon(
+                      Icons.add,
+                      size: 18,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    title: Text(
+                      '添加系统提示词',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                    onTap: () => _addSystemPrompt(),
+                  ),
+                ],
+              );
+            }
+            final p = prompts[i - 1];
+            final sel = p.id == selectedId;
             return ListTile(
               dense: true,
               leading: Icon(
@@ -738,75 +789,28 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                     ? Theme.of(context).colorScheme.primary
                     : Theme.of(context).colorScheme.outline,
               ),
-              title: const Text('默认', style: TextStyle(fontSize: 14)),
-              subtitle: const Text(
-                'You are a helpful assistant.',
-                style: TextStyle(fontSize: 11),
+              title: Text(p.title, style: const TextStyle(fontSize: 14)),
+              subtitle: Text(
+                p.content.length > 40
+                    ? '${p.content.substring(0, 40)}...'
+                    : p.content,
+                style: const TextStyle(fontSize: 11),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
+              trailing: IconButton(
+                icon: const Icon(Icons.edit, size: 18),
+                onPressed: () => _editSystemPrompt(p),
+              ),
               onTap: () {
                 _updateSettings(
-                  _settings.copyWith(selectedSystemPromptId: null),
+                  _settings.copyWith(selectedSystemPromptId: p.id),
                 );
                 _closeSystemPromptList();
               },
             );
-          }
-          if (i == 1 + prompts.length) {
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Divider(height: 1),
-                ListTile(
-                  dense: true,
-                  leading: Icon(
-                    Icons.add,
-                    size: 18,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                  title: Text(
-                    '添加系统提示词',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                  onTap: () => _addSystemPrompt(),
-                ),
-              ],
-            );
-          }
-          final p = prompts[i - 1];
-          final sel = p.id == selectedId;
-          return ListTile(
-            dense: true,
-            leading: Icon(
-              sel ? Icons.check_circle : Icons.circle_outlined,
-              size: 18,
-              color: sel
-                  ? Theme.of(context).colorScheme.primary
-                  : Theme.of(context).colorScheme.outline,
-            ),
-            title: Text(p.title, style: const TextStyle(fontSize: 14)),
-            subtitle: Text(
-              p.content.length > 40
-                  ? '${p.content.substring(0, 40)}...'
-                  : p.content,
-              style: const TextStyle(fontSize: 11),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            trailing: IconButton(
-              icon: const Icon(Icons.edit, size: 18),
-              onPressed: () => _editSystemPrompt(p),
-            ),
-            onTap: () {
-              _updateSettings(_settings.copyWith(selectedSystemPromptId: p.id));
-              _closeSystemPromptList();
-            },
-          );
-        },
+          },
+        ),
       ),
     );
   }
@@ -824,48 +828,55 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
     final expandedGroupId = selectedGroups.isEmpty
         ? '__ungrouped__'
         : selectedGroups.first.id;
-    return Container(
-      constraints: const BoxConstraints(maxHeight: 240),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: ListView(
-        shrinkWrap: true,
-        children: [
-          _roleGroupTile(
-            id: '__ungrouped__',
-            title: '未分组',
-            roles: ungrouped,
-            currentRoleId: set.currentRoleId,
-            initiallyExpanded: expandedGroupId == '__ungrouped__',
-          ),
-          for (final group in set.roleGroups)
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(10),
+      clipBehavior: Clip.antiAlias,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 240),
+        child: ListView(
+          shrinkWrap: true,
+          children: [
             _roleGroupTile(
-              id: group.id,
-              title: group.name,
-              roles: group.roleIds
-                  .map((id) => roleById[id])
-                  .whereType<ChatRole>()
-                  .toList(growable: false),
+              id: '__ungrouped__',
+              title: '未分组',
+              roles: ungrouped,
               currentRoleId: set.currentRoleId,
-              initiallyExpanded: expandedGroupId == group.id,
+              initiallyExpanded: expandedGroupId == '__ungrouped__',
             ),
-          const Divider(height: 1),
-          ListTile(
-            dense: true,
-            leading: Icon(
-              Icons.add,
-              size: 18,
-              color: Theme.of(context).colorScheme.primary,
+            for (final group in set.roleGroups)
+              _roleGroupTile(
+                id: group.id,
+                title: group.name,
+                roles: group.roleIds
+                    .map((id) => roleById[id])
+                    .whereType<ChatRole>()
+                    .toList(growable: false),
+                currentRoleId: set.currentRoleId,
+                initiallyExpanded: expandedGroupId == group.id,
+              ),
+            const Divider(height: 1),
+            ListTile(
+              dense: true,
+              leading: Icon(
+                Icons.add,
+                size: 18,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              title: Text(
+                '添加角色',
+                style: TextStyle(color: Theme.of(context).colorScheme.primary),
+              ),
+              onTap: _addRole,
             ),
-            title: Text(
-              '添加角色',
-              style: TextStyle(color: Theme.of(context).colorScheme.primary),
+            ListTile(
+              dense: true,
+              leading: const Icon(Icons.manage_accounts_outlined, size: 18),
+              title: const Text('完整角色管理'),
+              onTap: _openRoleManagement,
             ),
-            onTap: _addRole,
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -936,6 +947,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
   ConversationSettings _roleConversationSettings(ChatRole role) {
     return _settings.copyWith(
       modelId: role.modelId ?? _settings.modelId,
+      modelName: role.modelName ?? _settings.modelName,
       selectedSystemPromptId: role.id == ChatRole.defaultId ? null : role.id,
       systemPrompt: role.systemPrompt,
     );
@@ -944,17 +956,27 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
   void _addRole() {
     showDialog(
       context: context,
-      builder: (ctx) => _RoleEditDialog(
-        onSave: (name, description, prompt, modelId, themeColor, groupIds) {
-          context.read<SettingsProvider>().addRole(
-            name: name,
-            description: description,
-            systemPrompt: prompt,
-            modelId: modelId,
-            themeColor: themeColor,
-            groupIds: groupIds,
-          );
-        },
+      builder: (ctx) => ChatRoleEditDialog(
+        onSave:
+            (
+              name,
+              description,
+              prompt,
+              modelId,
+              modelName,
+              themeColor,
+              groupIds,
+            ) {
+              context.read<SettingsProvider>().addRole(
+                name: name,
+                description: description,
+                systemPrompt: prompt,
+                modelId: modelId,
+                modelName: modelName,
+                themeColor: themeColor,
+                groupIds: groupIds,
+              );
+            },
       ),
     );
   }
@@ -963,24 +985,42 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
     final sp = context.read<SettingsProvider>();
     showDialog(
       context: context,
-      builder: (ctx) => _RoleEditDialog(
+      builder: (ctx) => ChatRoleEditDialog(
         initialRole: role,
-        onSave: (name, description, prompt, modelId, themeColor, groupIds) {
-          sp.updateRole(
-            id: role.id,
-            name: name,
-            description: description,
-            systemPrompt: prompt,
-            modelId: modelId,
-            themeColor: themeColor,
-            groupIds: groupIds,
-          );
-          if (role.id == sp.settings.currentRoleId) {
-            _updateSettings(_roleConversationSettings(sp.currentRole));
-          }
-        },
+        onSave:
+            (
+              name,
+              description,
+              prompt,
+              modelId,
+              modelName,
+              themeColor,
+              groupIds,
+            ) {
+              sp.updateRole(
+                id: role.id,
+                name: name,
+                description: description,
+                systemPrompt: prompt,
+                modelId: modelId,
+                modelName: modelName,
+                themeColor: themeColor,
+                groupIds: groupIds,
+              );
+              if (role.id == sp.settings.currentRoleId) {
+                _updateSettings(_roleConversationSettings(sp.currentRole));
+              }
+            },
         onDelete: () => sp.deleteRole(role.id),
       ),
+    );
+  }
+
+  void _openRoleManagement() {
+    setState(() => _showRoleList = false);
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const RoleManagementPage()),
     );
   }
 

@@ -5,6 +5,7 @@ import 'about_page.dart';
 import 'background_page.dart';
 import 'api_models_page.dart';
 import 'data_management_page.dart';
+import 'role_management_page.dart';
 import 'theme_page.dart';
 
 class SettingsPage extends StatelessWidget {
@@ -50,6 +51,17 @@ class SettingsPage extends StatelessWidget {
             () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const ApiModelsPage()),
+            ),
+          ),
+          _buildItem(
+            context,
+            Icons.person_pin_circle_outlined,
+            '角色管理',
+            '${settings.roles.length} 个角色 · ${settings.roleGroups.length} 个分组',
+            Colors.indigo,
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const RoleManagementPage()),
             ),
           ),
           _buildItem(

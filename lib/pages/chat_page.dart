@@ -30,6 +30,8 @@ import '../utils/file_name_utils.dart';
 import '../utils/share_image_utils.dart';
 import '../utils/snackbar_utils.dart';
 import '../widgets/latex_renderer.dart';
+import '../widgets/chat_role_edit_dialog.dart';
+import 'role_management_page.dart';
 part 'chat/share_conversation_image.dart';
 part 'chat/dialog_settings_content.dart';
 part 'chat/prompt_role_dialogs.dart';
@@ -209,6 +211,7 @@ class _ChatPageState extends State<ChatPage> {
     final role = sp.currentRole;
     return ConversationSettings(
       modelId: role.modelId ?? model.id,
+      modelName: role.modelName ?? model.modelName,
       thinking: _thinking,
       selectedSystemPromptId: role.id == ChatRole.defaultId ? null : role.id,
       systemPrompt: role.systemPrompt,
@@ -464,7 +467,11 @@ class _ChatPageState extends State<ChatPage> {
       );
       if (conv != null) {
         try {
-          return chatModels.firstWhere((m) => m.id == conv.modelId);
+          final model = chatModels.firstWhere((m) => m.id == conv.modelId);
+          final modelName = conv.settings.modelName;
+          return modelName == null || modelName.isEmpty
+              ? model
+              : model.copyWith(modelName: modelName);
         } catch (_) {}
       }
     }
@@ -473,16 +480,25 @@ class _ChatPageState extends State<ChatPage> {
         return chatModels.firstWhere((m) => m.id == _pendingModelId);
       } catch (_) {}
     }
-    final roleModelId = context.read<SettingsProvider>().currentRole.modelId;
+    final role = context.read<SettingsProvider>().currentRole;
+    final roleModelId = role.modelId;
     if (_convId == null && roleModelId != null && roleModelId.isNotEmpty) {
       try {
-        return chatModels.firstWhere((m) => m.id == roleModelId);
+        final model = chatModels.firstWhere((m) => m.id == roleModelId);
+        final modelName = role.modelName;
+        return modelName == null || modelName.isEmpty
+            ? model
+            : model.copyWith(modelName: modelName);
       } catch (_) {}
     }
     final settings = _draftSettings;
     if (settings != null) {
       try {
-        return chatModels.firstWhere((m) => m.id == settings.modelId);
+        final model = chatModels.firstWhere((m) => m.id == settings.modelId);
+        final modelName = settings.modelName;
+        return modelName == null || modelName.isEmpty
+            ? model
+            : model.copyWith(modelName: modelName);
       } catch (_) {}
     }
     final lastChatModelId = context
@@ -505,15 +521,23 @@ class _ChatPageState extends State<ChatPage> {
       if (conv != null) return conv.settings.copyWith(thinking: _thinking);
     }
     if (_draftSettings != null) {
-      return _draftSettings!.copyWith(modelId: model.id, thinking: _thinking);
+      return _draftSettings!.copyWith(
+        modelId: model.id,
+        modelName: model.modelName,
+        thinking: _thinking,
+      );
     }
     final role = context.read<SettingsProvider>().currentRole;
     if (role.id != ChatRole.defaultId || role.modelId != null) {
-      return _roleSettings(model).copyWith(modelId: role.modelId ?? model.id);
+      return _roleSettings(model).copyWith(
+        modelId: role.modelId ?? model.id,
+        modelName: role.modelName ?? model.modelName,
+      );
     }
     final set = context.read<SettingsProvider>().settings;
     return ConversationSettings(
       modelId: model.id,
+      modelName: model.modelName,
       thinking: _thinking,
       selectedSystemPromptId: set.selectedSystemPromptId,
       systemPrompt: set.systemPrompt,
@@ -1695,6 +1719,7 @@ class _ChatPageState extends State<ChatPage> {
     final model = _getModel(context.read<ModelConfigProvider>());
     return ConversationSettings(
       modelId: model?.id ?? settings.lastChatModelId ?? '',
+      modelName: model?.modelName,
       thinking: _thinking,
       selectedSystemPromptId: settings.selectedSystemPromptId,
       systemPrompt: settings.systemPrompt,
@@ -3050,163 +3075,160 @@ class _ChatPageState extends State<ChatPage> {
     final cur = _getModel(mp);
     final models = mp.modelsByCategory(ModelConfig.categoryChat);
     final settings = _activeSettings();
-    return Container(
-      margin: EdgeInsets.zero,
-      constraints: const BoxConstraints(maxHeight: 260),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: Theme.of(
-            context,
-          ).colorScheme.outlineVariant.withValues(alpha: 0.8),
-        ),
-      ),
-      child: ListView(
-        shrinkWrap: true,
-        children: [
-          for (final m in models) ...[
-            Builder(
-              builder: (_) {
-                final sel = cur != null && m.id == cur.id;
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    ListTile(
-                      dense: true,
-                      leading: Icon(
-                        sel ? Icons.check_circle : Icons.circle_outlined,
-                        size: 18,
-                        color: sel
-                            ? Theme.of(context).colorScheme.primary
-                            : Theme.of(context).colorScheme.outline,
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(10),
+      clipBehavior: Clip.antiAlias,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 260),
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            for (final m in models) ...[
+              Builder(
+                builder: (_) {
+                  final sel = cur != null && m.id == cur.id;
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ListTile(
+                        dense: true,
+                        leading: Icon(
+                          sel ? Icons.check_circle : Icons.circle_outlined,
+                          size: 18,
+                          color: sel
+                              ? Theme.of(context).colorScheme.primary
+                              : Theme.of(context).colorScheme.outline,
+                        ),
+                        title: Text(
+                          m.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 14),
+                        ),
+                        subtitle: Text(
+                          m.hasMultipleModels
+                              ? '${m.enabledModelNames.length} 个模型'
+                              : m.modelName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                        trailing: m.hasMultipleModels
+                            ? const Icon(Icons.chevron_right, size: 16)
+                            : null,
+                        onTap: () {
+                          if (m.hasMultipleModels) {
+                            _switchModel(m);
+                          } else {
+                            _switchModel(m);
+                            setState(() => _showModelMenu = false);
+                          }
+                        },
                       ),
-                      title: Text(
-                        m.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 14),
-                      ),
-                      subtitle: Text(
-                        m.hasMultipleModels
-                            ? '${m.enabledModelNames.length} 个模型'
-                            : m.modelName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 11),
-                      ),
-                      trailing: m.hasMultipleModels
-                          ? const Icon(Icons.chevron_right, size: 16)
-                          : null,
-                      onTap: () {
-                        if (m.hasMultipleModels) {
-                          _switchModel(m);
-                        } else {
-                          _switchModel(m);
-                          setState(() => _showModelMenu = false);
-                        }
-                      },
-                    ),
-                    if (sel && m.hasMultipleModels)
-                      ...m.models
-                          .where((e) => e.enabled)
-                          .map(
-                            (e) => ListTile(
-                              dense: true,
-                              contentPadding: const EdgeInsets.only(left: 56),
-                              leading: Icon(
-                                e.name == m.modelName
-                                    ? Icons.radio_button_checked
-                                    : Icons.radio_button_off,
-                                size: 14,
-                                color: e.name == m.modelName
-                                    ? Theme.of(context).colorScheme.primary
-                                    : Theme.of(context).colorScheme.outline,
-                              ),
-                              title: Text(
-                                e.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontFamily: 'monospace',
+                      if (sel && m.hasMultipleModels)
+                        ...m.models
+                            .where((e) => e.enabled)
+                            .map(
+                              (e) => ListTile(
+                                dense: true,
+                                contentPadding: const EdgeInsets.only(left: 56),
+                                leading: Icon(
+                                  e.name == m.modelName
+                                      ? Icons.radio_button_checked
+                                      : Icons.radio_button_off,
+                                  size: 14,
+                                  color: e.name == m.modelName
+                                      ? Theme.of(context).colorScheme.primary
+                                      : Theme.of(context).colorScheme.outline,
                                 ),
+                                title: Text(
+                                  e.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontFamily: 'monospace',
+                                  ),
+                                ),
+                                onTap: () {
+                                  _setSubModel(m, e.name);
+                                  setState(() => _showModelMenu = false);
+                                },
                               ),
-                              onTap: () {
-                                _setSubModel(m, e.name);
-                                setState(() => _showModelMenu = false);
-                              },
                             ),
-                          ),
-                  ],
-                );
-              },
-            ),
-          ],
-          const Divider(height: 1),
-          ListTile(
-            dense: true,
-            leading: Icon(
-              Icons.file_present_outlined,
-              size: 18,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            title: const Text('文件识别', style: TextStyle(fontSize: 14)),
-            subtitle: const Text(
-              '选择聊天模型作为文件识别模型',
-              style: TextStyle(fontSize: 11),
-            ),
-            trailing: Icon(
-              _showImageRecognitionList ? Icons.expand_less : Icons.expand_more,
-              size: 16,
-            ),
-            onTap: () {
-              setState(() {
-                _showImageRecognitionList = !_showImageRecognitionList;
-              });
-            },
-          ),
-          if (_showImageRecognitionList)
-            for (final m in models.where(_hasVisionModel))
-              ListTile(
-                dense: true,
-                contentPadding: const EdgeInsets.only(left: 56),
-                leading: Icon(
-                  settings?.imageRecognitionModelId == m.id
-                      ? Icons.radio_button_checked
-                      : Icons.radio_button_off,
-                  size: 14,
-                  color: settings?.imageRecognitionModelId == m.id
-                      ? Theme.of(context).colorScheme.primary
-                      : Theme.of(context).colorScheme.outline,
-                ),
-                title: Text(
-                  m.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 13),
-                ),
-                subtitle: Text(
-                  m.hasMultipleModels
-                      ? '${_enabledVisionEntries(m).length} 个视觉模型'
-                      : m.modelName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 11),
-                ),
-                onTap: () {
-                  final next = _ensureVisionModel(m);
-                  final base = _currentConversationSettings(cur ?? m);
-                  _saveConversationSettings(
-                    base.copyWith(imageRecognitionModelId: next.id),
+                    ],
                   );
-                  if (next.modelName != m.modelName) {
-                    context.read<ModelConfigProvider>().updateModel(next);
-                  }
-                  setState(() => _showImageRecognitionList = false);
                 },
               ),
-        ],
+            ],
+            const Divider(height: 1),
+            ListTile(
+              dense: true,
+              leading: Icon(
+                Icons.file_present_outlined,
+                size: 18,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              title: const Text('文件识别', style: TextStyle(fontSize: 14)),
+              subtitle: const Text(
+                '选择聊天模型作为文件识别模型',
+                style: TextStyle(fontSize: 11),
+              ),
+              trailing: Icon(
+                _showImageRecognitionList
+                    ? Icons.expand_less
+                    : Icons.expand_more,
+                size: 16,
+              ),
+              onTap: () {
+                setState(() {
+                  _showImageRecognitionList = !_showImageRecognitionList;
+                });
+              },
+            ),
+            if (_showImageRecognitionList)
+              for (final m in models.where(_hasVisionModel))
+                ListTile(
+                  dense: true,
+                  contentPadding: const EdgeInsets.only(left: 56),
+                  leading: Icon(
+                    settings?.imageRecognitionModelId == m.id
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_off,
+                    size: 14,
+                    color: settings?.imageRecognitionModelId == m.id
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context).colorScheme.outline,
+                  ),
+                  title: Text(
+                    m.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                  subtitle: Text(
+                    m.hasMultipleModels
+                        ? '${_enabledVisionEntries(m).length} 个视觉模型'
+                        : m.modelName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                  onTap: () {
+                    final next = _ensureVisionModel(m);
+                    final base = _currentConversationSettings(cur ?? m);
+                    _saveConversationSettings(
+                      base.copyWith(imageRecognitionModelId: next.id),
+                    );
+                    if (next.modelName != m.modelName) {
+                      context.read<ModelConfigProvider>().updateModel(next);
+                    }
+                    setState(() => _showImageRecognitionList = false);
+                  },
+                ),
+          ],
+        ),
       ),
     );
   }

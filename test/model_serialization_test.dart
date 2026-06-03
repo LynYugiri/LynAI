@@ -79,6 +79,30 @@ void main() {
     expect(restored.roleGroups.single.roleIds, ['role-1']);
   });
 
+  test('role and conversation settings serialize sub model names', () {
+    const role = ChatRole(
+      id: 'role-1',
+      name: '角色',
+      systemPrompt: '扮演角色。',
+      modelId: 'model-1',
+      modelName: 'sub-model',
+    );
+    final restoredRole = ChatRole.fromJson(role.toJson());
+
+    expect(restoredRole.modelId, 'model-1');
+    expect(restoredRole.modelName, 'sub-model');
+
+    final settings = ConversationSettings(
+      modelId: 'model-1',
+      modelName: 'sub-model',
+    );
+    final restoredSettings = ConversationSettings.fromJson(settings.toJson());
+
+    expect(restoredSettings.modelId, 'model-1');
+    expect(restoredSettings.modelName, 'sub-model');
+    expect(settings.copyWith(modelName: null).modelName, isNull);
+  });
+
   test('SettingsProvider maintains role group membership', () {
     SharedPreferences.setMockInitialValues({});
     final provider = SettingsProvider();

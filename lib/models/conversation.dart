@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 /// 旧对话的上下文会被悄悄改变。这个模型把发送所需的设置固定在对话上。
 class ConversationSettings {
   final String modelId;
+  final String? modelName;
   final bool thinking;
   final String? selectedSystemPromptId;
   final String systemPrompt;
@@ -19,6 +20,7 @@ class ConversationSettings {
 
   ConversationSettings({
     required this.modelId,
+    this.modelName,
     this.thinking = true,
     this.selectedSystemPromptId,
     this.systemPrompt = 'You are a helpful assistant.',
@@ -34,6 +36,7 @@ class ConversationSettings {
 
   ConversationSettings copyWith({
     String? modelId,
+    Object? modelName = _sentinel,
     bool? thinking,
     Object? selectedSystemPromptId = _sentinel,
     String? systemPrompt,
@@ -46,6 +49,9 @@ class ConversationSettings {
   }) {
     return ConversationSettings(
       modelId: modelId ?? this.modelId,
+      modelName: identical(modelName, _sentinel)
+          ? this.modelName
+          : modelName as String?,
       thinking: thinking ?? this.thinking,
       selectedSystemPromptId: identical(selectedSystemPromptId, _sentinel)
           ? this.selectedSystemPromptId
@@ -74,6 +80,7 @@ class ConversationSettings {
   }) {
     return ConversationSettings(
       modelId: json['modelId'] as String? ?? fallbackModelId,
+      modelName: json['modelName'] as String?,
       thinking: json['thinking'] as bool? ?? true,
       selectedSystemPromptId: json['selectedSystemPromptId'] as String?,
       systemPrompt:
@@ -94,6 +101,7 @@ class ConversationSettings {
   Map<String, dynamic> toJson() {
     return {
       'modelId': modelId,
+      if (modelName != null && modelName!.isNotEmpty) 'modelName': modelName,
       'thinking': thinking,
       if (selectedSystemPromptId != null)
         'selectedSystemPromptId': selectedSystemPromptId,

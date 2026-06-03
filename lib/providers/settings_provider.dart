@@ -95,7 +95,7 @@ class SettingsProvider extends ChangeNotifier {
             return role;
           }
           rolesChanged = true;
-          return role.copyWith(modelId: null);
+          return role.copyWith(modelId: null, modelName: null);
         })
         .toList(growable: false);
 
@@ -150,6 +150,7 @@ class SettingsProvider extends ChangeNotifier {
     String description = '',
     required String systemPrompt,
     String? modelId,
+    String? modelName,
     Color? themeColor,
     List<String> groupIds = const [],
   }) {
@@ -160,6 +161,7 @@ class SettingsProvider extends ChangeNotifier {
       description: description,
       systemPrompt: systemPrompt,
       modelId: modelId,
+      modelName: modelName,
       themeColor: themeColor,
     );
     final prompt = SystemPrompt(id: id, title: name, content: systemPrompt);
@@ -184,6 +186,7 @@ class SettingsProvider extends ChangeNotifier {
     String description = '',
     required String systemPrompt,
     String? modelId,
+    String? modelName,
     Color? themeColor,
     List<String>? groupIds,
   }) {
@@ -194,6 +197,7 @@ class SettingsProvider extends ChangeNotifier {
               description: description,
               systemPrompt: systemPrompt,
               modelId: modelId,
+              modelName: modelName,
               themeColor: themeColor,
             )
           : role;

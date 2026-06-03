@@ -17,6 +17,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:super_clipboard/super_clipboard.dart';
 import 'package:uuid/uuid.dart';
 import 'latex_formula_editor_page.dart';
+import 'role_management_page.dart';
 import '../models/chat_role.dart';
 import '../models/app_settings.dart';
 import '../models/conversation.dart';

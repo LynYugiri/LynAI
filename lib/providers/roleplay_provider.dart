@@ -527,7 +527,10 @@ class RoleplayProvider extends ChangeNotifier {
       name: role.name,
       description: role.description,
       systemPrompt: role.systemPrompt,
-      model: RoleplayModelSelection(modelId: role.modelId),
+      model: RoleplayModelSelection(
+        modelId: role.modelId,
+        modelName: role.modelName,
+      ),
       themeColor: role.themeColor?.toARGB32(),
       isPlayer: isPlayer,
       groupIds: groupIds,

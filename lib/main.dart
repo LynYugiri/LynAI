@@ -52,6 +52,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   bool _hasError = false;
   String _errorMessage = '';
   ConversationProvider? _conversationProvider;
+  final _navigatorKey = GlobalKey<NavigatorState>();
 
   @override
   void initState() {
@@ -143,7 +144,9 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       }
 
       if (mounted) {
-        _checkNewChangelog();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) unawaited(_checkNewChangelog());
+        });
       }
     } catch (e) {
       if (mounted) {
@@ -170,8 +173,9 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       final entry = await parser.loadVersion(currentVersion);
       if (entry == null) return;
 
-      if (!mounted) return;
-      final action = await showChangelogDialog(context, entry);
+      final dialogContext = _navigatorKey.currentContext;
+      if (!mounted || dialogContext == null || !dialogContext.mounted) return;
+      final action = await showChangelogDialog(dialogContext, entry);
 
       final updatedSettings = settingsProvider.settings.copyWith(
         lastSeenChangelogVersion: currentVersion,
@@ -179,9 +183,9 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       await settingsProvider.replaceSettings(updatedSettings);
 
       if (!mounted || action != ChangelogDialogAction.viewAll) return;
-      Navigator.of(
-        context,
-      ).push(MaterialPageRoute(builder: (_) => const ChangelogPage()));
+      _navigatorKey.currentState?.push(
+        MaterialPageRoute(builder: (_) => const ChangelogPage()),
+      );
     } catch (e) {
       debugPrint('检查更新日志失败: $e');
     }
@@ -193,6 +197,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
 
     final settingsProvider = context.read<SettingsProvider>();
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       title: 'LynAI',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(

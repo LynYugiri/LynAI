@@ -278,7 +278,10 @@ class ConversationProvider extends ChangeNotifier {
       title: _conversations[index].title,
       messages: _conversations[index].messages,
       modelId: modelId,
-      settings: _conversations[index].settings.copyWith(modelId: modelId),
+      settings: _conversations[index].settings.copyWith(
+        modelId: modelId,
+        modelName: null,
+      ),
       roleId: _conversations[index].roleId,
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
@@ -314,7 +317,12 @@ class ConversationProvider extends ChangeNotifier {
       changed = true;
       return conversation.copyWith(
         modelId: nextModelId,
-        settings: conversation.settings.copyWith(modelId: nextSettingsModelId),
+        settings: conversation.settings.copyWith(
+          modelId: nextSettingsModelId,
+          modelName: nextSettingsModelId == conversation.settings.modelId
+              ? conversation.settings.modelName
+              : null,
+        ),
       );
     }).toList();
 

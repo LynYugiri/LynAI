@@ -8,6 +8,7 @@ class ChatRole {
   final String description;
   final String systemPrompt;
   final String? modelId;
+  final String? modelName;
   final Color? themeColor;
 
   const ChatRole({
@@ -16,6 +17,7 @@ class ChatRole {
     this.description = '',
     required this.systemPrompt,
     this.modelId,
+    this.modelName,
     this.themeColor,
   });
 
@@ -37,6 +39,7 @@ class ChatRole {
       systemPrompt:
           json['systemPrompt'] as String? ?? 'You are a helpful assistant.',
       modelId: json['modelId'] as String?,
+      modelName: json['modelName'] as String?,
       themeColor: colorValue == null ? null : Color(colorValue),
     );
   }
@@ -48,6 +51,7 @@ class ChatRole {
       if (description.isNotEmpty) 'description': description,
       'systemPrompt': systemPrompt,
       if (modelId != null) 'modelId': modelId,
+      if (modelName != null && modelName!.isNotEmpty) 'modelName': modelName,
       if (themeColor != null) 'themeColor': themeColor!.toARGB32(),
     };
   }
@@ -58,6 +62,7 @@ class ChatRole {
     String? description,
     String? systemPrompt,
     Object? modelId = _sentinel,
+    Object? modelName = _sentinel,
     Object? themeColor = _sentinel,
   }) {
     return ChatRole(
@@ -68,6 +73,9 @@ class ChatRole {
       modelId: identical(modelId, _sentinel)
           ? this.modelId
           : modelId as String?,
+      modelName: identical(modelName, _sentinel)
+          ? this.modelName
+          : modelName as String?,
       themeColor: identical(themeColor, _sentinel)
           ? this.themeColor
           : themeColor as Color?,
