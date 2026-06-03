@@ -7,6 +7,8 @@ import 'providers/model_config_provider.dart';
 import 'providers/roleplay_provider.dart';
 import 'providers/settings_provider.dart';
 import 'pages/home_page.dart';
+import 'pages/changelog_page.dart';
+import 'services/legacy_resource_migration_service.dart';
 import 'services/storage_migration_service.dart';
 import 'utils/changelog_parser.dart';
 import 'widgets/changelog_dialog.dart';
@@ -90,6 +92,11 @@ class _LynAIAppState extends State<LynAIApp> {
       settingsProvider.repairMediaModelSelections(modelProvider.models);
       conversationProvider.repairModelReferences(modelProvider.models);
       roleplayProvider.repairModelReferences(modelProvider.models);
+      await LegacyResourceMigrationService().migrate(
+        settingsProvider: settingsProvider,
+        conversationProvider: conversationProvider,
+        roleplayProvider: roleplayProvider,
+      );
 
       if (mounted) {
         setState(() {
@@ -127,12 +134,17 @@ class _LynAIAppState extends State<LynAIApp> {
       if (entry == null) return;
 
       if (!mounted) return;
-      await showChangelogDialog(context, entry);
+      final action = await showChangelogDialog(context, entry);
 
       final updatedSettings = settingsProvider.settings.copyWith(
         lastSeenChangelogVersion: currentVersion,
       );
       await settingsProvider.replaceSettings(updatedSettings);
+
+      if (!mounted || action != ChangelogDialogAction.viewAll) return;
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const ChangelogPage()));
     } catch (e) {
       debugPrint('检查更新日志失败: $e');
     }

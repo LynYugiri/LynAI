@@ -1,51 +1,58 @@
 # 架构说明
 
-LynAI 的架构目标是让页面、状态、存储、协议和数据模型各做各的事。项目功能很多，但核心边界保持稳定：页面收集用户意图，Provider 维护本地状态，Repository 负责本地持久化，Service 和外部世界打交道，Model 只定义数据。
+LynAI 的架构目标是让页面、状态、存储、协议和数据模型各做各的事。功能可以增加，但边界不应该模糊：Page 处理交互，Provider 维护状态，Repository 读写本地数据，Service 处理外部能力，Model 只描述数据。
 
 ## 分层
 
 ```text
 用户操作
-  → Page：展示界面、收集输入、处理生命周期
-  → Provider：更新内存状态、通知 UI、排队保存快照
-  → Repository：读取/写入 storage_v2 或 legacy JSON
-  → Model：不可变数据和 JSON 契约
+  -> Page：展示界面、收集输入、处理生命周期
+  -> Provider：更新内存状态、通知 UI、排队保存快照
+  -> Repository：读写 storage_v2 或 legacy SharedPreferences
+  -> Model：不可变数据和 JSON 契约
 
 外部能力
-  → Service：API 协议、工具调用、备份文件、平台通道
+  -> Service：模型 API、工具调用、备份、平台通道、迁移
 ```
 
-| 层 | 典型文件 | 不能做什么 |
-|----|----------|------------|
-| Page | `chat_page.dart`, `feature_page.dart` | 不直接写 SharedPreferences，不把 API 协议散落到 UI。 |
-| Provider | `providers/*.dart` | 不展示 UI，不直接读写 SharedPreferences 或 storage_v2。 |
+| 层 | 典型文件 | 禁止事项 |
+|----|----------|----------|
+| Page | `chat_page.dart`, `feature_page.dart`, `settings_page.dart` | 不直接写持久化，不把 API 协议散落到 UI。 |
+| Provider | `providers/*.dart` | 不展示 UI，不直接关心 storage_v2 与 legacy 差异。 |
 | Repository | `repositories/*.dart` | 不通知 UI，不持有页面状态。 |
-| Service | `api_service.dart`, `tool_call_service.dart`, `backup_service.dart` | 不持有页面状态，不依赖 BuildContext。 |
-| Model | `models/*.dart` | 不做网络请求，不读写本地存储。 |
+| Service | `api_service.dart`, `backup_service.dart`, `tool_call_service.dart` | 不依赖 `BuildContext`，不保存页面生命周期状态。 |
+| Model | `models/*.dart` | 不做网络请求，不读写文件或数据库。 |
 
 ## 启动流程
 
 ```text
 main()
-  → MultiProvider 注册四个 Provider
-  → LynAIApp.initState()
-  → 并行加载本地数据
-  → 修复设置中的悬空模型引用
-  → 构建 MaterialApp
-  → HomePage
+  -> 注册 ConversationProvider
+  -> 注册 FeatureProvider
+  -> 注册 ModelConfigProvider
+  -> 注册 RoleplayProvider
+  -> 注册 SettingsProvider
+  -> StorageMigrationService.ensureMigrationReady()
+  -> 并行加载对话、功能数据、情景演绎、模型、设置
+  -> 修复悬空模型引用
+  -> LegacyResourceMigrationService 迁移旧私有资源路径
+  -> 构建 MaterialApp / HomePage
+  -> 检查更新日志
 ```
 
-启动加载由 `LynAIApp` 控制。加载中显示启动页，失败显示可重试错误页。Provider 会尽量跳过单条损坏数据，让应用仍然可进入主界面。
+启动加载由 `LynAIApp` 控制。加载中显示启动页；失败显示可重试错误页。Provider 会尽量跳过单条损坏数据，让应用仍可进入主界面。
 
 ## 主界面结构
 
 ```text
 HomePage
 ├── FeaturePage
+│   ├── Dashboard
 │   ├── History
 │   ├── Schedule
 │   ├── Notes
-│   └── Todo Lists
+│   ├── Todo Lists
+│   └── Roleplay
 ├── ChatPage
 └── SettingsPage
     ├── AboutPage
@@ -55,110 +62,139 @@ HomePage
     └── DataManagementPage
 ```
 
-`HomePage` 使用 `IndexedStack` 保留三个主 Tab 的状态。对话页正在生成、功能页打开笔记详情或设置页切换回来时，页面状态不会因为 Tab 切换被销毁。
+`HomePage` 使用 `IndexedStack` 保留三个主 Tab 状态。对话生成中、功能页打开笔记详情、或设置页返回时，不会因为 Tab 切换销毁状态。
 
 ## 对话链路
 
 一次普通发送大致经过这些步骤：
 
-1. `ChatPage` 读取输入框、附件、当前角色、当前对话设置和模型配置。
-2. 附件复制到应用私有目录，并转换成 `MessageImage` 元数据。
-3. 如果还没有对话，`ConversationProvider.createConversation()` 创建对话。
-4. 添加 user 消息，再添加一个空 assistant 消息作为流式占位。
+1. `ChatPage` 读取输入框、附件、当前角色、对话设置和模型配置。
+2. 附件复制到应用私有目录，形成 `MessageImage` 元数据。
+3. 如果没有当前对话，`ConversationProvider.createConversation()` 创建对话并保存设置快照。
+4. 添加 user 消息，再添加空 assistant 消息作为流式占位。
 5. `ApiService.sendStreamRequest()` 发起请求。
-6. 每个 `StreamChunk` 到达时，`ConversationProvider.updateLastMessage(save:false)` 刷新 UI。
-7. 流结束后，如果存在工具调用，进入工具调用循环。
-8. 最终正文、思考内容和工具结果保存到最后一条 assistant 消息。
+6. 每个 `StreamChunk` 到达时刷新最后一条 assistant 消息。
+7. 如有工具调用，进入 `ToolCallService` 循环。
+8. 保存最终正文、思考内容、工具结果或失败状态。
 
 ```text
 Input + Attachments
-  → ChatPage
-  → ConversationProvider
-  → ApiService Stream<StreamChunk>
-  → ConversationProvider.updateLastMessage()
-  → ToolCallService（可选）
-  → 保存最终消息
+  -> ChatPage
+  -> ConversationProvider
+  -> ApiService Stream<StreamChunk>
+  -> ConversationProvider.updateLastMessage()
+  -> ToolCallService（可选）
+  -> 保存最终消息
 ```
 
-## 模型选择优先级
+历史对话保存自己的 `ConversationSettings`。全局设置变化不会悄悄改变旧对话的模型、提示词或文件识别上下文。
 
-聊天模型来源可能有多个。实际发送时按下面顺序选择：
+## 情景演绎链路
 
-1. 当前历史对话绑定的模型。
-2. 新对话创建前暂存的 pending model。
-3. 对话设置面板中的模型。
-4. `AppSettings.lastChatModelId`。
-5. Chat 分类中第一个可用模型。
-
-历史对话保存自己的 `ConversationSettings`，避免用户后来切换全局设置后改变旧对话上下文。
-
-## 附件策略
-
-附件进入模型前会先复制到应用私有目录。这样做有三个原因：
-
-1. 系统 picker 返回的临时路径可能随时被清理。
-2. 历史消息需要在重启后继续显示附件。
-3. 备份服务只归档应用私有目录内被引用的文件，避免把任意外部路径打进备份。
+情景演绎把一个可复用情景和多条演绎对话分开管理。
 
 ```text
-文件 / 图片 / 拍照 / 剪贴板
-  → 应用私有目录
-  → MessageImage(path, name, size, mimeType)
-  → ChatFileInput(bytes, mimeType, name)
-  → 多模态内容或文本上下文
+RoleplayScenario
+  -> RoleplayThread
+  -> Director 判断下一步
+  -> Character 生成台词 / Narrator 旁白 / WaitUser 等待用户
+  -> RoleplayProvider 保存线程消息
 ```
 
-如果模型不支持视觉，图片和文件会退化为文件名、MIME、大小、文本或 base64 摘要上下文。
+| 组件 | 责任 |
+|------|------|
+| `RoleplayScenario` | 情景模板、默认导演、默认玩家、默认角色和分组。 |
+| `RoleplayThread` | 某次演绎的角色快照、消息、设置和更新时间。 |
+| `RoleplayService` | 调用导演模型和角色模型，解析下一步动作。 |
+| `RoleplayProvider` | 情景/线程状态、运行状态、玩家排队消息和落盘。 |
+
+玩家在 AI 运行中继续发送的消息会进入线程级队列，避免并发写入破坏演绎顺序。
+
+## 附件和资源
+
+长期资源必须先复制到应用私有目录，再把路径写入模型。
+
+```text
+Picker / Camera / Clipboard / Backup Restore
+  -> StorageV2Service.defaultBaseDirectory()
+  -> background / message_images / message_attachments / roleplay_attachments
+  -> MessageImage 或 AppSettings.backgroundImagePath
+```
+
+旧 Documents 路径由 `LegacyResourceMigrationService` 在启动后迁移。迁移只复制文件并更新路径，不删除旧文件，避免迁移失败导致资源丢失。
+
+storage_v2 中的资源注册表使用 content-addressed 文件路径。对话附件保存时，Repository 会通过 `StorageV2Service.importResourceFile()` 写入资源表并在消息附件表中保存资源 ID。
 
 ## 工具调用链路
 
-工具调用让模型访问受控的本地能力。OpenAI 兼容协议可以使用原生 `tools`，其他协议可以使用 JSON fallback。
+工具调用让模型访问受控的本地能力。OpenAI 兼容协议可以走原生 `tools`，其他协议可走 JSON fallback。
 
 ```text
-模型返回 toolCalls
-  → ToolCallService.execute()
-  → FeatureProvider / 平台通道
-  → 工具结果回传模型
-  → 模型生成最终自然语言回复
+模型返回 tool calls
+  -> ToolCallService.execute()
+  -> FeatureProvider / 平台通道
+  -> 工具结果回传模型
+  -> 模型生成最终回复
 ```
 
-工具调用有副作用，例如创建日程、更新日程或保存笔记。只有在可信模型和可信对话中才应该开启工具能力。
+工具可读取或修改日程、笔记、待办，也可以调用 Android 平台能力。工具能力应只在可信模型和可信对话中启用。
 
 ## 持久化策略
 
-Provider 的共同策略是“先更新 UI，再排队保存快照”。这样用户操作会立即反馈，而连续操作不会因为异步保存乱序覆盖新状态。
+Provider 的共同策略是“先更新 UI，再保存快照”。
 
 ```text
 Provider mutation
-  → 修改内存中的不可变模型列表
-  → notifyListeners()
-  → 保存当前快照进入 Future 队列
-  → storage_v2 或 SharedPreferences(JSON)
+  -> 修改内存中的不可变模型列表
+  -> notifyListeners()
+  -> 保存快照进入 Future 队列
+  -> Repository
+  -> storage_v2 或 legacy SharedPreferences
 ```
 
-旧数据仍可从 SharedPreferences(JSON) 读取；完成新版存储迁移后，`storage_v2` 是权威源：`app.db` 保存结构化数据，`notes/*.md` 保存笔记分页正文，`assets/*` 保存资源文件，`data/*.json` 只是诊断和兼容镜像。Provider 是 UI 缓存，不是迁移和备份的最终真相源。
+这样用户操作立即反馈，连续操作也不会因为异步保存乱序覆盖新状态。保存失败通常记录到 `debugPrint`，不回滚已经显示给用户的内存状态。
 
-`FeatureProvider` 因为管理多个分区，所以日程、笔记、修订、文件夹、修改建议和待办各有独立保存队列。storage_v2 激活后，笔记当前编辑页会同步到对应 Markdown 分页文件，分页元数据和修订链写入数据库。
+## storage_v2
+
+storage_v2 是新版持久化布局，由 `StorageV2Service` 和 Drift 数据库驱动。
+
+```text
+storage_v2/
+├── manifest.json
+├── app.db
+├── data/*.json          # 兼容/诊断镜像
+├── notes/...            # 笔记分页正文
+└── assets/...           # 资源文件
+```
+
+| 部分 | 说明 |
+|------|------|
+| `app.db` | 结构化数据权威源。 |
+| `data/*.json` | legacy/debug 镜像和导入来源，不是最终权威源。 |
+| `notes/*.md` | 笔记分页正文文件。 |
+| `assets/*` | 背景、图片、文档、音视频等资源。 |
+
+Repository 会根据 `AppStorageStateRepository.isStorageV2Active()` 决定读取 storage_v2 还是 legacy SharedPreferences。
 
 ## 笔记时间线
 
-笔记当前内容保存在 `Note.content`。历史版本不保存整篇正文，而是保存 `NoteRevision` 和 `NoteTextDelta`。
+笔记支持修订树。当前内容与历史版本通过 delta 关联。
 
 ```text
 Note.currentRevisionId
-  → NoteRevision
-  → parentRevisionId
-  → ...
+  -> NoteRevision
+  -> parentRevisionId
+  -> ...
 ```
 
-修订是树，不是单链表。用户可以从历史版本另开分支。Provider 会缓存修订内容和时间线，避免每次渲染都从头重放 delta。
+storage_v2 下笔记正文按分页保存为 Markdown 文件；分页元数据、修订、AI 修改建议和行级编辑块保存到数据库。旧单正文笔记仍通过兼容路径读取。
 
 ## 备份架构
 
-备份是 ZIP 文件，内部包含 manifest、分区 JSON、storage_v2 笔记分页正文和私有附件。
+备份是 ZIP 文件，由 manifest、分区 JSON、笔记分页正文、资源表和私有附件组成。
 
 ```text
-lynai-YYYYMMDD-HHMMSS.zip
+backup.zip
 ├── manifest.json
 ├── settings.json
 ├── model_configs.json
@@ -169,13 +205,21 @@ lynai-YYYYMMDD-HHMMSS.zip
 │   ├── pages.json
 │   ├── revisions.json
 │   ├── edit_proposals.json
+│   ├── edit_blocks.json
 │   └── page_contents/
 ├── schedules.json
 ├── todo_lists.json
+├── roleplay_scenarios.json
+├── roleplay_threads.json
+├── resources.json
 └── assets/
 ```
 
-导入时先读取 ZIP，生成预览和冲突列表。用户确认导入计划后，服务会恢复附件、重映射路径、处理 ID 冲突，再调用 Provider 替换或合并数据。storage_v2 笔记导入会恢复分页元数据、分页 Markdown 正文、修订的 `pageId` 和 AI 修改建议，避免多分页笔记退化成单个 `content` 字段。
+导入时先读取 ZIP，生成预览和冲突列表。用户确认导入计划后，服务恢复附件、重映射路径、处理 ID 冲突，再调用 Provider 替换或合并数据。
+
+## 更新日志
+
+更新日志文件位于 `changelogs/`，由 `ChangelogParser` 读取 asset manifest 后解析 Markdown。启动时会比较 `AppSettings.lastSeenChangelogVersion` 和 `PackageInfo.version`，需要展示时打开弹窗。弹窗只返回用户操作，页面跳转由外层有效 context 执行。
 
 ## 容错原则
 
@@ -183,17 +227,18 @@ lynai-YYYYMMDD-HHMMSS.zip
 |------|------|
 | 单条持久化数据损坏 | 跳过坏项，保留其他数据。 |
 | 顶层 JSON 损坏 | 对应分区回退为空或默认值，保证应用可启动。 |
-| 模型 ID 指向已删除配置 | 自动回填同分类第一个可用模型或清空。 |
+| 模型 ID 指向已删除配置 | 自动回填同类第一个可用模型或清空。 |
 | 流式 chunk 格式异常 | 跳过坏 chunk，不中断已收到正文。 |
-| 工具参数异常 | 工具返回结构化错误，不让异常直接破坏对话。 |
+| 工具参数异常 | 工具返回结构化错误，不破坏对话。 |
+| 旧资源迁移失败 | 跳过单个资源，不阻断启动。 |
 | 页面销毁后的异步回调 | 检查 `mounted` 后再更新 UI。 |
 
-## 需要谨慎维护的行为
+## 维护底线
 
 | 行为 | 原因 |
 |------|------|
-| OpenAI 兼容请求总是发送 `thinking: {type: enabled|disabled}` | 部分已配置后端依赖显式 disabled 标记，不能自动删掉。 |
-| `Message.images` 实际表示附件列表 | 字段名为兼容旧数据保留。 |
-| 备份 API 配置会包含 API Key | 这是完整恢复所需行为，但备份文件必须按敏感文件处理。 |
-| 工具调用可修改本地数据 | 工具能力应由用户在可信上下文中开启。 |
-| storage_v2 是新版权威源 | `app.db`、Markdown 分页文件和资源文件必须作为一个整体维护；`data/*.json` 只是可再生成镜像。 |
+| `Message.images` 仍表示附件列表 | 字段名为兼容旧数据保留。 |
+| OpenAI 兼容请求显式发送 thinking 开关 | 部分后端依赖 disabled 标记。 |
+| 备份 API 配置会包含 API Key | 完整恢复需要，但备份文件必须按敏感文件处理。 |
+| storage_v2 路径必须通过安全检查 | 避免相对路径逃逸到应用目录外。 |
+| `data/*.json` 不能当作唯一权威源 | storage_v2 下 `app.db` 和文件资源共同组成真相源。 |

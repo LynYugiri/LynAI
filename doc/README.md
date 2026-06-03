@@ -1,35 +1,33 @@
 # LynAI 文档
 
-这份文档写给两类人：想把 LynAI 用明白的人，以及需要继续维护这套代码的人。它不假设读者已经读过源码，会先解释功能和数据流，再指向具体文件。
+这组文档写给使用者和维护者。它解释项目的功能边界、数据流、存储策略和代码组织方式，不记录发布版本号或临时 release 状态。
 
-当前版本：`v2.3.2`
+## 阅读路线
 
-## 从哪里开始读
-
-| 你想了解 | 推荐文档 |
-|----------|----------|
-| 项目整体怎么分层、数据怎么流动 | [架构说明](architecture.md) |
-| 每个页面能做什么、用户路径是什么 | [页面与使用路径](pages.md) |
-| JSON 数据长什么样、哪些字段需要兼容旧版本 | [数据模型](models.md) |
-| Provider 如何加载、保存、容错和通知 UI | [状态管理](providers.md) |
-| API 请求、工具调用、备份导入导出如何工作 | [服务层、API 与工具调用](services.md) |
+| 想了解 | 阅读 |
+|--------|------|
+| 项目怎么分层、启动怎么跑、数据怎么落盘 | [架构说明](architecture.md) |
+| 每个页面在哪里、用户路径是什么 | [页面与使用路径](pages.md) |
+| 模型字段、JSON 契约和兼容旧数据 | [数据模型](models.md) |
+| Provider 如何加载、通知、保存和容错 | [状态管理](providers.md) |
+| API、工具调用、备份、存储迁移和平台能力 | [服务层](services.md) |
 
 ## 一句话架构
 
-LynAI 是一个 Flutter 本地应用：页面层处理交互，Provider 保存 UI 状态，Repository 负责本地持久化，Service 处理外部协议和数据搬运，Model 定义可序列化的数据契约。
+LynAI 是一个 Flutter 本地应用：页面层处理交互，Provider 维护内存状态，Repository 选择本地存储，Service 处理外部协议和数据搬运，Model 定义可序列化契约。
 
 ```text
 Page
-  → Provider
-  → Repository
-  → storage_v2 / SharedPreferences / 私有文件目录
+  -> Provider
+  -> Repository
+  -> storage_v2 / legacy SharedPreferences
 
 Page
-  → Service
-  → 外部 API / 平台通道 / ZIP 文件
+  -> Service
+  -> 模型 API / 平台通道 / ZIP / 文件系统
 ```
 
-这个边界很重要。页面不应该直接写本地存储，Service 不应该直接持有 UI 状态，Model 不应该混入业务流程。
+这个边界要保持清楚。页面不直接写持久化，Service 不持有页面状态，Model 不做网络请求或文件读写。
 
 ## 代码目录
 
@@ -37,84 +35,64 @@ Page
 lib/
 ├── main.dart
 ├── models/
-│   ├── app_settings.dart
-│   ├── backup_models.dart
-│   ├── chat_role.dart
-│   ├── conversation.dart
-│   ├── message.dart
-│   ├── model_config.dart
-│   ├── note.dart
-│   ├── schedule_item.dart
-│   ├── system_prompt.dart
-│   └── todo_list.dart
 ├── providers/
-│   ├── conversation_provider.dart
-│   ├── feature_provider.dart
-│   ├── model_config_provider.dart
-│   └── settings_provider.dart
+├── repositories/
 ├── services/
-│   ├── api_service.dart
-│   ├── backup_service.dart
-│   └── tool_call_service.dart
 ├── pages/
-│   ├── chat_page.dart
-│   ├── feature_page.dart
-│   ├── settings_page.dart
-│   ├── data_management_page.dart
-│   ├── api_models_page.dart
 │   ├── chat/
 │   └── features/
 ├── utils/
 └── widgets/
-    └── latex_renderer.dart
 ```
+
+| 目录 | 责任 |
+|------|------|
+| `models/` | 数据模型、JSON 读写、旧字段兼容。 |
+| `providers/` | UI 状态、业务操作入口、保存队列、容错加载。 |
+| `repositories/` | 本地持久化，屏蔽 storage_v2 与旧 SharedPreferences 差异。 |
+| `services/` | API、工具调用、备份、迁移、storage_v2、平台能力。 |
+| `pages/` | 页面交互、导航、输入处理、渲染组合。 |
+| `utils/` | 文件名、分享、提示、更新日志解析等无状态工具。 |
+| `widgets/` | 可复用 UI，尤其 Markdown/LaTeX 渲染。 |
 
 ## 运行时模块
 
-| 模块 | 文件 | 责任 |
-|------|------|------|
-| 应用入口 | `lib/main.dart` | 注册 Provider、加载持久化数据、修复悬空模型引用、构建主题。 |
-| 主导航 | `lib/pages/home_page.dart` | 三个 Tab、返回键协调、背景图和毛玻璃遮罩。 |
-| 对话页 | `lib/pages/chat_page.dart` | 输入、附件、语音、流式请求、工具调用、重试、分享。 |
-| 功能页 | `lib/pages/feature_page.dart` | 历史、日程、笔记、待办四个入口。 |
-| 设置页 | `lib/pages/settings_page.dart` | About、Background、API、Theme、Data Management 入口。 |
-| API 管理 | `lib/pages/api_models_page.dart` | Provider 配置、子模型、Endpoint 预设、高级参数。 |
-| 数据管理 | `lib/pages/data_management_page.dart` | ZIP 备份导出、读取预览、导入选择和冲突处理。 |
+| 模块 | 入口文件 | 责任 |
+|------|----------|------|
+| 应用入口 | `lib/main.dart` | 注册 Provider、执行存储迁移、加载数据、修复引用、检查更新日志。 |
+| 主导航 | `lib/pages/home_page.dart` | 三个主 Tab、返回键协调、背景图和状态保活。 |
+| 对话 | `lib/pages/chat_page.dart` | 输入、附件、语音、流式请求、工具调用、重试、分享。 |
+| 功能页 | `lib/pages/feature_page.dart` | Dashboard、历史、日程、笔记、待办、情景演绎。 |
+| 设置 | `lib/pages/settings_page.dart` | 关于、背景、API、主题、数据管理入口。 |
+| 数据管理 | `lib/pages/data_management_page.dart` | storage_v2 迁移、ZIP 备份、预览、导入和冲突处理。 |
 | API 服务 | `lib/services/api_service.dart` | Chat/OCR/Speech/Image 请求、流式解析、附件转换。 |
-| 工具调用 | `lib/services/tool_call_service.dart` | 工具 schema、fallback JSON、日程/笔记/平台工具执行。 |
-| 备份服务 | `lib/services/backup_service.dart` | manifest、分区 JSON、私有附件归档和恢复、ID 冲突处理。 |
-| Markdown/LaTeX | `lib/widgets/latex_renderer.dart` | Markdown、LaTeX、代码高亮、代码/公式块复制和图片导出。 |
+| 工具调用 | `lib/services/tool_call_service.dart` | 工具 schema、fallback JSON、日程/笔记/待办/平台工具执行。 |
+| 备份服务 | `lib/services/backup_service.dart` | manifest、分区 JSON、私有附件归档和恢复。 |
+| 存储服务 | `lib/services/storage_v2_service.dart` | storage_v2 根目录、数据库、数据文件、资源文件和安全路径。 |
 
 ## 本地数据分区
 
-| 数据 | Provider | 存储键 |
-|------|----------|--------|
-| 对话 | `ConversationProvider` | `conversations` |
-| 模型 | `ModelConfigProvider` | `model_configs` |
-| 设置 | `SettingsProvider` | `app_settings` |
-| 日程 | `FeatureProvider` | `schedule_items` |
-| 笔记 | `FeatureProvider` | `notes`, `note_folders`, `note_revisions`, `note_edit_proposals` |
-| 待办 | `FeatureProvider` | `todo_lists` |
+| 数据 | Provider | Repository / Service |
+|------|----------|----------------------|
+| 对话 | `ConversationProvider` | `ConversationRepository` |
+| 模型 | `ModelConfigProvider` | `ModelConfigRepository` |
+| 设置、角色、提示词 | `SettingsProvider` | `SettingsRepository` |
+| 日程、笔记、待办 | `FeatureProvider` | `FeatureRepository` |
+| 情景演绎 | `RoleplayProvider` | `RoleplayRepository` |
+| storage_v2 | 多个 Repository 共用 | `StorageV2Service`、`StorageV2Database` |
+| 备份 | 多个 Provider 协作 | `BackupService` |
 
-附件不嵌入 JSON。页面会先把用户选择的图片、文件、拍照结果或剪贴板图片复制到应用私有目录，再把路径和元数据放进 `Message.images`。
+## 文档维护规则
 
-## 注释与文档约定
-
-代码注释统一遵循三条规则：
-
-1. 公开类、公开方法、稳定数据契约使用 Dart 文档注释 `///`。
-2. 方法内部只用普通 `//` 解释非显然约束，例如兼容旧数据、平台差异、协议特殊字段或必须保留的行为。
-3. 不注释显而易见的赋值、简单 getter、UI 文案拼装；这类注释会比代码更难维护。
-
-文档维护约定：
-
-| 改动 | 需要同步 |
+| 改动 | 同步文档 |
 |------|----------|
-| 修改版本号 | `pubspec.yaml`、根 `README.md`、`doc/README.md`。 |
-| 修改模型字段或存储键 | `doc/models.md`、`doc/providers.md`、备份相关内容。 |
-| 修改聊天链路、附件策略或工具调用 | `doc/architecture.md`、`doc/services.md`。 |
-| 修改页面入口或用户路径 | `doc/pages.md`。 |
-| 修改备份格式或导入策略 | `doc/services.md`、`doc/models.md`。 |
+| 新增页面、入口或用户路径 | `pages.md` |
+| 新增模型字段、旧字段 fallback 或存储分区 | `models.md`、`providers.md` |
+| 修改 Provider 行为、保存队列或容错策略 | `providers.md` |
+| 修改 API 协议、工具调用、备份或迁移 | `services.md`、`architecture.md` |
+| 修改整体分层、启动流程或存储权威源 | `architecture.md`、本文件 |
+
+文档不要复制 `pubspec.yaml` 中的应用版本号，也不要把发布号写进 `doc/`。如果必须提到 schema，优先引用代码常量名称，例如 `BackupService.currentSchemaVersion`。
 
 ## 开发命令
 
@@ -125,11 +103,9 @@ flutter test
 flutter run
 ```
 
-如果依赖已经存在、只想验证代码，可以使用：
+如果依赖已经准备好，可以使用：
 
 ```bash
 flutter analyze --no-pub
 flutter test --no-pub
 ```
-
-平台构建细节由 CI 工作流和 Flutter 官方命令负责；文档只记录项目结构和需要注意的运行时差异。

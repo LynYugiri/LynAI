@@ -2340,7 +2340,7 @@ class BackupService {
     if (neededOriginalPaths.isEmpty) return {};
     final records = archive.manifest['assets'];
     if (records is! List) return {};
-    final dir = await getApplicationDocumentsDirectory();
+    final dir = await StorageV2Service.defaultBaseDirectory();
     final restored = <String, String>{};
     for (final raw in records) {
       if (raw is! Map) continue;

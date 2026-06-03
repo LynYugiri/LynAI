@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
 import '../models/changelog_entry.dart';
-import '../pages/changelog_page.dart';
 
-Future<void> showChangelogDialog(BuildContext context, ChangelogEntry entry) {
-  return showDialog<void>(
-    context: context,
-    barrierDismissible: false,
-    builder: (_) => _ChangelogDialog(entry: entry),
-  );
+enum ChangelogDialogAction { dismiss, viewAll }
+
+Future<ChangelogDialogAction> showChangelogDialog(
+  BuildContext context,
+  ChangelogEntry entry,
+) async {
+  return await showDialog<ChangelogDialogAction>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _ChangelogDialog(entry: entry),
+      ) ??
+      ChangelogDialogAction.dismiss;
 }
 
 class _ChangelogDialog extends StatelessWidget {
@@ -107,7 +112,11 @@ class _ChangelogDialog extends StatelessWidget {
                   ),
                   for (final item in section.items)
                     Padding(
-                      padding: const EdgeInsets.only(left: 4, top: 2, bottom: 2),
+                      padding: const EdgeInsets.only(
+                        left: 4,
+                        top: 2,
+                        bottom: 2,
+                      ),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -121,7 +130,10 @@ class _ChangelogDialog extends StatelessWidget {
                           ),
                           const SizedBox(width: 8),
                           Expanded(
-                            child: Text(item, style: const TextStyle(fontSize: 14)),
+                            child: Text(
+                              item,
+                              style: const TextStyle(fontSize: 14),
+                            ),
                           ),
                         ],
                       ),
@@ -134,16 +146,13 @@ class _ChangelogDialog extends StatelessWidget {
       ),
       actions: [
         OutlinedButton(
-          onPressed: () {
-            Navigator.of(context).pop();
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const ChangelogPage()),
-            );
-          },
+          onPressed: () =>
+              Navigator.of(context).pop(ChangelogDialogAction.viewAll),
           child: const Text('查看全部'),
         ),
         FilledButton(
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () =>
+              Navigator.of(context).pop(ChangelogDialogAction.dismiss),
           child: const Text('知道了'),
         ),
       ],

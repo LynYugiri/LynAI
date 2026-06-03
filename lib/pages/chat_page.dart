@@ -24,6 +24,7 @@ import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/api_service.dart';
+import '../services/storage_v2_service.dart';
 import '../services/tool_call_service.dart';
 import '../utils/file_name_utils.dart';
 import '../utils/share_image_utils.dart';
@@ -1441,7 +1442,7 @@ class _ChatPageState extends State<ChatPage> {
     if (!mounted) return;
     final images = <_PendingImage>[];
     try {
-      final dir = await getApplicationDocumentsDirectory();
+      final dir = await StorageV2Service.defaultBaseDirectory();
       final imageDir = Directory('${dir.path}/message_images');
       if (!await imageDir.exists()) await imageDir.create(recursive: true);
       for (var i = 0; i < picked.length; i++) {
@@ -1521,7 +1522,7 @@ class _ChatPageState extends State<ChatPage> {
     String name, {
     String? mimeType,
   }) async {
-    final dir = await getApplicationDocumentsDirectory();
+    final dir = await StorageV2Service.defaultBaseDirectory();
     final attachmentDir = Directory('${dir.path}/message_attachments');
     if (!await attachmentDir.exists()) {
       await attachmentDir.create(recursive: true);
@@ -1608,7 +1609,7 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _addClipboardImage(Uint8List bytes, String fileName) async {
     if (!mounted) return;
     try {
-      final dir = await getApplicationDocumentsDirectory();
+      final dir = await StorageV2Service.defaultBaseDirectory();
       final imageDir = Directory('${dir.path}/message_images');
       if (!await imageDir.exists()) await imageDir.create(recursive: true);
       final storedFile = File(

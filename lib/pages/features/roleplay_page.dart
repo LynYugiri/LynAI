@@ -831,7 +831,7 @@ class _RoleplayPageState extends State<_RoleplayPage> {
     String name, {
     String? mimeType,
   }) async {
-    final dir = await getApplicationDocumentsDirectory();
+    final dir = await StorageV2Service.defaultBaseDirectory();
     final attachmentDir = Directory('${dir.path}/roleplay_attachments');
     if (!await attachmentDir.exists()) {
       await attachmentDir.create(recursive: true);
@@ -852,7 +852,7 @@ class _RoleplayPageState extends State<_RoleplayPage> {
     String name,
     String mimeType,
   ) async {
-    final dir = await getApplicationDocumentsDirectory();
+    final dir = await StorageV2Service.defaultBaseDirectory();
     final attachmentDir = Directory('${dir.path}/roleplay_attachments');
     if (!await attachmentDir.exists()) {
       await attachmentDir.create(recursive: true);

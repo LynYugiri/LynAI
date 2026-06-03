@@ -13,8 +13,8 @@ class ChangelogPage extends StatefulWidget {
 }
 
 class _ChangelogPageState extends State<ChangelogPage> {
-  late final Future<List<ChangelogEntry>> _entriesFuture =
-      ChangelogParser().loadAll();
+  late final Future<List<ChangelogEntry>> _entriesFuture = ChangelogParser()
+      .loadAll();
 
   @override
   Widget build(BuildContext context) {
@@ -27,6 +27,10 @@ class _ChangelogPageState extends State<ChangelogPage> {
         builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
+          }
+
+          if (snapshot.hasError) {
+            return Center(child: Text('更新日志加载失败: ${snapshot.error}'));
           }
 
           final entries = snapshot.data;
@@ -131,9 +135,7 @@ class _VersionCardState extends State<_VersionCard> {
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: settings.themeColor.withValues(
-                                alpha: 0.1,
-                              ),
+                              color: settings.themeColor.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(
@@ -163,7 +165,12 @@ class _VersionCardState extends State<_VersionCard> {
                                   ),
                                 ),
                                 const SizedBox(width: 6),
-                                Expanded(child: Text(item, style: const TextStyle(fontSize: 14))),
+                                Expanded(
+                                  child: Text(
+                                    item,
+                                    style: const TextStyle(fontSize: 14),
+                                  ),
+                                ),
                               ],
                             ),
                           ),
@@ -171,10 +178,9 @@ class _VersionCardState extends State<_VersionCard> {
                     ],
                   ),
                 ),
-                crossFadeState:
-                    _expanded
-                        ? CrossFadeState.showSecond
-                        : CrossFadeState.showFirst,
+                crossFadeState: _expanded
+                    ? CrossFadeState.showSecond
+                    : CrossFadeState.showFirst,
                 duration: const Duration(milliseconds: 200),
               ),
             ],

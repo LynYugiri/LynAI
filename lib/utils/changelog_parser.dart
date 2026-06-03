@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:flutter/services.dart' show AssetManifest, rootBundle;
 import '../models/changelog_entry.dart';
 
@@ -7,9 +7,7 @@ class ChangelogParser {
     final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
     final changelogFiles = manifest
         .listAssets()
-        .where(
-          (path) => path.startsWith('changelogs/') && path.endsWith('.md'),
-        )
+        .where((path) => path.startsWith('changelogs/') && path.endsWith('.md'))
         .toList();
 
     final entries = <ChangelogEntry>[];
@@ -28,14 +26,39 @@ class ChangelogParser {
   }
 
   Future<ChangelogEntry?> loadVersion(String version) async {
-    final filename = 'changelogs/v$version.md';
-    try {
-      final content = await rootBundle.loadString(filename);
-      return _parseFile(content, filename);
-    } catch (e) {
-      debugPrint('加载更新日志 v$version 失败: $e');
-      return null;
+    for (final candidate in _versionCandidates(version)) {
+      final filename = 'changelogs/v$candidate.md';
+      try {
+        final content = await rootBundle.loadString(filename);
+        return _parseFile(content, filename);
+      } catch (e) {
+        debugPrint('加载更新日志 v$candidate 失败: $e');
+      }
     }
+    return null;
+  }
+
+  List<String> _versionCandidates(String version) {
+    final trimmed = version.trim();
+    if (trimmed.isEmpty) return const [];
+    final stable = trimmed.split(RegExp(r'[+-]')).first;
+    if (stable == trimmed || stable.isEmpty) return [trimmed];
+    return [trimmed, stable];
+  }
+
+  @visibleForTesting
+  ChangelogEntry? parseForTest(String content, String filePath) {
+    return _parseFile(content, filePath);
+  }
+
+  @visibleForTesting
+  int compareVersionsDescForTest(String a, String b) {
+    return _compareVersionsDesc(a, b);
+  }
+
+  @visibleForTesting
+  List<String> versionCandidatesForTest(String version) {
+    return _versionCandidates(version);
   }
 
   ChangelogEntry? _parseFile(String content, String filePath) {
@@ -95,8 +118,9 @@ class ChangelogParser {
   int _compareVersionsDesc(String a, String b) {
     final aParts = a.split('.').map((e) => int.tryParse(e) ?? 0).toList();
     final bParts = b.split('.').map((e) => int.tryParse(e) ?? 0).toList();
-    final length =
-        aParts.length > bParts.length ? aParts.length : bParts.length;
+    final length = aParts.length > bParts.length
+        ? aParts.length
+        : bParts.length;
     while (aParts.length < length) {
       aParts.add(0);
     }
