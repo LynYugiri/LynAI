@@ -1765,37 +1765,53 @@ void main() {
     },
   );
 
-  test('SettingsRepository preserves storage v2 metadata on save', () async {
-    SharedPreferences.setMockInitialValues({'storage_schema_version': 2});
-    final root = await Directory.systemTemp.createTemp(
-      'lynai_settings_storage_v2_metadata_test_',
-    );
-    final storageRoot = Directory('${root.path}/storage_v2');
-    final dataDir = Directory('${storageRoot.path}/data');
-    await dataDir.create(recursive: true);
-    await File('${storageRoot.path}/manifest.json').writeAsString(
-      jsonEncode({'type': 'lynai.storage_v2', 'schemaVersion': 2}),
-      flush: true,
-    );
-    await File('${dataDir.path}/app_settings.json').writeAsString(
-      jsonEncode({
-        ...AppSettings.defaults().toJson(),
-        'storageV2': {'backgroundResourceId': 'res_bg'},
-      }),
-      flush: true,
-    );
+  test(
+    'SettingsRepository syncs storage v2 background metadata on save',
+    () async {
+      SharedPreferences.setMockInitialValues({'storage_schema_version': 2});
+      final root = await Directory.systemTemp.createTemp(
+        'lynai_settings_storage_v2_metadata_test_',
+      );
+      final storageRoot = Directory('${root.path}/storage_v2');
+      final dataDir = Directory('${storageRoot.path}/data');
+      await dataDir.create(recursive: true);
+      await File('${storageRoot.path}/manifest.json').writeAsString(
+        jsonEncode({'type': 'lynai.storage_v2', 'schemaVersion': 2}),
+        flush: true,
+      );
+      await File('${dataDir.path}/app_settings.json').writeAsString(
+        jsonEncode({
+          ...AppSettings.defaults().toJson(),
+          'storageV2': {'backgroundResourceId': 'res_bg'},
+        }),
+        flush: true,
+      );
+      final background = File('${root.path}/new_bg.png');
+      await background.writeAsBytes([1, 2, 3, 4], flush: true);
 
-    final storage = StorageV2Service(rootDirectory: root);
-    final repository = SettingsRepository(storageV2: storage);
-    await repository.save(
-      AppSettings.defaults().copyWith(backgroundImagePath: '/tmp/bg.png'),
-      usingStorageV2: true,
-    );
+      final storage = StorageV2Service(rootDirectory: root);
+      final repository = SettingsRepository(storageV2: storage);
+      await repository.save(
+        AppSettings.defaults().copyWith(backgroundImagePath: background.path),
+        usingStorageV2: true,
+      );
 
-    final saved = await storage.loadDataFile('app_settings.json');
-    expect(saved['storageV2'], {'backgroundResourceId': 'res_bg'});
-    await root.delete(recursive: true);
-  });
+      final saved = await storage.loadDataFile('app_settings.json');
+      final savedStorage = saved['storageV2'] as Map<String, dynamic>;
+      expect(savedStorage['backgroundResourceId'], isNot('res_bg'));
+      final resources = await storage.loadResources();
+      expect(
+        resources.any(
+          (item) => item.id == savedStorage['backgroundResourceId'],
+        ),
+        isTrue,
+      );
+      await repository.save(AppSettings.defaults(), usingStorageV2: true);
+      final cleared = await storage.loadDataFile('app_settings.json');
+      expect(cleared['storageV2'], isNull);
+      await root.delete(recursive: true);
+    },
+  );
 
   test(
     'Storage migration recovers completed storage from running status',

@@ -18,6 +18,7 @@ class StorageV2Service {
   final Directory? _rootDirectory;
   StorageV2Database? _database;
   Future<void> _resourceMutationQueue = Future.value();
+  static Future<void> _dataImportQueue = Future.value();
 
   Future<bool> exists() async {
     return (await probe()).ready;
@@ -90,6 +91,7 @@ class StorageV2Service {
 
   Future<void> writeDataFile(String fileName, Map<String, dynamic> data) async {
     final database = await _storageDatabase();
+    await _ensureDataFilesImported(database);
     await database.writeDataFile(fileName, data);
     try {
       await _writeMap('data/$fileName', data);
@@ -240,14 +242,27 @@ class StorageV2Service {
 
   Future<Map<String, dynamic>> _loadDataFile(String fileName) async {
     final database = await _storageDatabase();
-    if (!await database.hasImportedDataFiles()) {
-      await database.importDataFiles();
-    }
+    await _ensureDataFilesImported(database);
     final data = await database.loadDataFile(fileName);
     if (data != null) return data;
+    final legacyFile = await _file('data/$fileName');
+    if (!await legacyFile.exists()) return const <String, dynamic>{};
     final legacy = await _readMap('data/$fileName');
     await database.writeDataFile(fileName, legacy);
     return legacy;
+  }
+
+  Future<void> _ensureDataFilesImported(StorageV2Database database) {
+    // The first database read may import legacy JSON mirrors. Keep that import
+    // serialized across service instances so it cannot overwrite a concurrent
+    // repository write with stale startup data.
+    final run = _dataImportQueue.catchError((_) {}).then((_) async {
+      if (!await database.hasImportedDataFiles()) {
+        await database.importDataFiles();
+      }
+    });
+    _dataImportQueue = run;
+    return run;
   }
 
   Future<void> _writeMap(

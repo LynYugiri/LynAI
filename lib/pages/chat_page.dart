@@ -146,6 +146,9 @@ class _ChatPageState extends State<ChatPage> {
   String? _streamingConvId;
   DateTime? _lastStreamUiUpdate;
   Timer? _streamWaitTimer;
+  // Cancels slow pre-send work, such as image recognition, when the user starts
+  // a new conversation or withdraws a message before the async work finishes.
+  int _sendGen = 0;
 
   final List<_RetryEntry> _retryHistory = [];
   String? _retryMsgId;
@@ -607,9 +610,14 @@ class _ChatPageState extends State<ChatPage> {
     final images = _pendingImages.map((e) => e.toMessageImage()).toList();
     final conversationSettings = _currentConversationSettings(model);
     final roleId = context.read<SettingsProvider>().settings.currentRoleId;
+    final sendGen = ++_sendGen;
     setState(() => _preparingSend = true);
     final apiUserContent = await _prepareUserContent(text, images);
     if (!mounted) return;
+    if (sendGen != _sendGen) {
+      _setBackgroundGenerationActive(false);
+      return;
+    }
     if (apiUserContent == null) {
       setState(() => _preparingSend = false);
       _setBackgroundGenerationActive(false);
@@ -2086,10 +2094,16 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   void _startNewConversation() {
+    // Bottom-nav double tap and the app-bar action both route here. Keep all
+    // transient chat modes in one place so a new chat cannot inherit selection,
+    // streaming, retry, or pending-send state from the previous conversation.
+    if (_shareSelecting) _cancelShareSelection();
     if (_streaming) _stopStreaming();
+    _sendGen++;
     _clearRetryState();
     _clearPendingState();
     setState(() {
+      _preparingSend = false;
       _convId = null;
     });
   }
@@ -2934,11 +2948,15 @@ class _ChatPageState extends State<ChatPage> {
         ),
         actions: [
           TextButton(
-            onPressed: () {
+            onPressed: () async {
+              if (!isLastUserMsg && !await _confirmWithdrawHistorical(ctx)) {
+                return;
+              }
+              if (!ctx.mounted) return;
               Navigator.pop(ctx);
-              _withdrawMessage(msg);
+              if (mounted) _withdrawMessage(msg);
             },
-            child: const Text('撤回'),
+            child: Text(isLastUserMsg ? '撤回' : '撤回并删除后续'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -2964,12 +2982,37 @@ class _ChatPageState extends State<ChatPage> {
     });
   }
 
+  Future<bool> _confirmWithdrawHistorical(BuildContext dialogContext) async {
+    final result = await showDialog<bool>(
+      context: dialogContext,
+      builder: (ctx) => AlertDialog(
+        title: const Text('撤回历史消息'),
+        content: const Text('撤回这条消息会删除它之后的所有对话内容，并把原消息放回输入框。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('撤回'),
+          ),
+        ],
+      ),
+    );
+    return result == true;
+  }
+
   void _withdrawMessage(Message msg) {
     final cid = _convId;
     if (cid == null) return;
     final conv = context.read<ConversationProvider>().getConversation(cid);
     if (conv == null || !conv.messages.any((m) => m.id == msg.id)) return;
+    // Withdrawal is a branch reset: the selected user message goes back to the
+    // composer and every later message is discarded so the context stays valid.
+    if (_shareSelecting) _cancelShareSelection();
     if (_streaming) _stopStreaming();
+    _sendGen++;
     _clearRetryState();
     _pendingModelId = null;
     _thinkingTxt = null;
@@ -2981,6 +3024,7 @@ class _ChatPageState extends State<ChatPage> {
     _msgCtrl.selection = TextSelection.collapsed(offset: _msgCtrl.text.length);
     _inputRevision.value++;
     setState(() {
+      _preparingSend = false;
       _pendingImages
         ..clear()
         ..addAll(msg.images.map(_pendingImageFromMessageImage));
