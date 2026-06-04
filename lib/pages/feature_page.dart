@@ -219,12 +219,15 @@ class FeaturePage extends StatefulWidget {
   final void Function(String conversationId) onConversationTap;
   final VoidCallback onRoleChanged;
   final void Function(bool Function() handler)? onBackHandlerChanged;
+  final void Function(Future<void> Function() handler)?
+  onDashboardHandlerChanged;
 
   const FeaturePage({
     super.key,
     required this.onConversationTap,
     required this.onRoleChanged,
     this.onBackHandlerChanged,
+    this.onDashboardHandlerChanged,
   });
 
   @override
@@ -250,6 +253,7 @@ class _FeaturePageState extends State<FeaturePage> {
   @override
   void dispose() {
     widget.onBackHandlerChanged?.call(() => false);
+    widget.onDashboardHandlerChanged?.call(() async {});
     _searchController.dispose();
     super.dispose();
   }
@@ -258,6 +262,7 @@ class _FeaturePageState extends State<FeaturePage> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     widget.onBackHandlerChanged?.call(_handleBack);
+    widget.onDashboardHandlerChanged?.call(_goToDashboard);
   }
 
   bool _handleBack() {

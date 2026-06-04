@@ -25,7 +25,12 @@ class _HomePageState extends State<HomePage> {
   bool _cachedImageExists = false;
   bool Function()? _featureBackHandler;
   bool Function()? _chatBackHandler;
+  Future<void> Function()? _featureDashboardHandler;
+  VoidCallback? _chatNewConversationHandler;
   bool _chatCanHandleBack = false;
+  int? _lastTappedIndex;
+  DateTime? _lastTapAt;
+  static const _doubleTapWindow = Duration(milliseconds: 360);
 
   @override
   void initState() {
@@ -67,6 +72,41 @@ class _HomePageState extends State<HomePage> {
   void _setChatBackAvailability(bool canHandleBack) {
     if (_chatCanHandleBack == canHandleBack) return;
     setState(() => _chatCanHandleBack = canHandleBack);
+  }
+
+  void _setFeatureDashboardHandler(Future<void> Function() handler) {
+    _featureDashboardHandler = handler;
+  }
+
+  void _setChatNewConversationHandler(VoidCallback handler) {
+    _chatNewConversationHandler = handler;
+  }
+
+  void _handleNavigationTap(int index) {
+    final now = DateTime.now();
+    final doubleTappedCurrent =
+        index == _currentIndex &&
+        _lastTappedIndex == index &&
+        _lastTapAt != null &&
+        now.difference(_lastTapAt!) <= _doubleTapWindow;
+    _lastTappedIndex = index;
+    _lastTapAt = now;
+
+    if (doubleTappedCurrent) {
+      if (index == 0) {
+        _featureDashboardHandler?.call();
+        return;
+      }
+      if (index == 1) {
+        _chatNewConversationHandler?.call();
+        return;
+      }
+    }
+
+    setState(() {
+      _currentIndex = index;
+      _targetConversationId = null;
+    });
   }
 
   void _handleRootBack(bool didPop) {
@@ -114,12 +154,14 @@ class _HomePageState extends State<HomePage> {
               onConversationTap: _navigateToChat,
               onRoleChanged: _roleChanged,
               onBackHandlerChanged: _setFeatureBackHandler,
+              onDashboardHandlerChanged: _setFeatureDashboardHandler,
             ),
             ChatPage(
               conversationId: _targetConversationId,
               roleChangeSerial: _roleChangeSerial,
               onBackHandlerChanged: _setChatBackHandler,
               onBackAvailabilityChanged: _setChatBackAvailability,
+              onNewConversationHandlerChanged: _setChatNewConversationHandler,
               onConversationLoaded: () {
                 _targetConversationId = null;
               },
@@ -129,12 +171,7 @@ class _HomePageState extends State<HomePage> {
         ),
         bottomNavigationBar: BottomNavigationBar(
           currentIndex: _currentIndex,
-          onTap: (index) {
-            setState(() {
-              _currentIndex = index;
-              _targetConversationId = null;
-            });
-          },
+          onTap: _handleNavigationTap,
           selectedItemColor: settings.themeColor,
           unselectedItemColor: Colors.grey,
           items: const [

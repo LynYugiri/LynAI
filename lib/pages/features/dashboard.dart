@@ -55,6 +55,7 @@ class _FeatureDashboard extends StatelessWidget {
             crossAxisCount: crossAxisCount,
             mainAxisSpacing: 12,
             crossAxisSpacing: 12,
+            childAspectRatio: _childAspectRatio(constraints.maxWidth),
           ),
           itemCount: _items.length,
           itemBuilder: (context, index) {
@@ -70,10 +71,16 @@ class _FeatureDashboard extends StatelessWidget {
   }
 
   int _crossAxisCount(double width) {
-    if (width < 600) return 3;
+    if (width < 600) return 2;
     if (width < 900) return 4;
     if (width < 1280) return 5;
     return 6;
+  }
+
+  double _childAspectRatio(double width) {
+    if (width < 600) return 1.18;
+    if (width < 900) return 1.05;
+    return 1.0;
   }
 }
 
@@ -109,11 +116,11 @@ class _FeatureDashboardCard extends StatelessWidget {
         onTap: onTap,
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final compact = constraints.maxWidth < 128;
-            final iconBoxSize = compact ? 40.0 : 46.0;
-            final iconSize = compact ? 24.0 : 26.0;
+            final compact = constraints.maxWidth < 120;
+            final iconBoxSize = compact ? 42.0 : 50.0;
+            final iconSize = compact ? 24.0 : 28.0;
             return Padding(
-              padding: EdgeInsets.all(compact ? 8 : 10),
+              padding: EdgeInsets.all(compact ? 10 : 12),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -133,7 +140,7 @@ class _FeatureDashboardCard extends StatelessWidget {
                       size: iconSize,
                     ),
                   ),
-                  SizedBox(height: compact ? 8 : 10),
+                  SizedBox(height: compact ? 9 : 12),
                   Text(
                     item.title,
                     textAlign: TextAlign.center,

@@ -400,6 +400,30 @@ class ConversationProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 删除从指定消息开始的后续所有消息。
+  void deleteMessagesFrom(String conversationId, String messageId) {
+    final index = _conversations.indexWhere((c) => c.id == conversationId);
+    if (index == -1) return;
+    final messages = List<Message>.from(_conversations[index].messages);
+    final messageIndex = messages.indexWhere((m) => m.id == messageId);
+    if (messageIndex == -1) return;
+
+    final updatedMessages = messages.take(messageIndex).toList();
+    _conversations[index] = Conversation(
+      id: _conversations[index].id,
+      title: _conversations[index].title,
+      messages: updatedMessages,
+      modelId: _conversations[index].modelId,
+      settings: _conversations[index].settings,
+      roleId: _conversations[index].roleId,
+      createdAt: _conversations[index].createdAt,
+      updatedAt: DateTime.now(),
+    );
+    _touchConversation(index);
+    _queueSaveConversations();
+    notifyListeners();
+  }
+
   /// 删除对话
   void deleteConversation(String conversationId) {
     final before = _conversations.length;

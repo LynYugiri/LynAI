@@ -82,6 +82,7 @@ class ChatPage extends StatefulWidget {
   final VoidCallback? onConversationLoaded;
   final void Function(bool Function() handler)? onBackHandlerChanged;
   final ValueChanged<bool>? onBackAvailabilityChanged;
+  final void Function(VoidCallback handler)? onNewConversationHandlerChanged;
   const ChatPage({
     super.key,
     this.conversationId,
@@ -89,6 +90,7 @@ class ChatPage extends StatefulWidget {
     this.onConversationLoaded,
     this.onBackHandlerChanged,
     this.onBackAvailabilityChanged,
+    this.onNewConversationHandlerChanged,
   });
 
   @override
@@ -174,6 +176,7 @@ class _ChatPageState extends State<ChatPage> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     widget.onBackHandlerChanged?.call(_handleBack);
+    widget.onNewConversationHandlerChanged?.call(_startNewConversation);
   }
 
   bool _handleBack() {
@@ -251,6 +254,7 @@ class _ChatPageState extends State<ChatPage> {
   void dispose() {
     widget.onBackHandlerChanged?.call(() => false);
     widget.onBackAvailabilityChanged?.call(false);
+    widget.onNewConversationHandlerChanged?.call(() {});
     _sub?.cancel();
     _setBackgroundGenerationActive(false);
     _inputActionCollapseTimer?.cancel();
@@ -2081,6 +2085,15 @@ class _ChatPageState extends State<ChatPage> {
     Navigator.pop(context);
   }
 
+  void _startNewConversation() {
+    if (_streaming) _stopStreaming();
+    _clearRetryState();
+    _clearPendingState();
+    setState(() {
+      _convId = null;
+    });
+  }
+
   String _fmtSz(int b) {
     if (b < 1024) return '$b B';
     if (b < 1048576) return '${(b / 1024).toStringAsFixed(1)} KB';
@@ -2167,14 +2180,7 @@ class _ChatPageState extends State<ChatPage> {
               IconButton(
                 icon: const Icon(Icons.add_comment_outlined),
                 tooltip: '新建对话',
-                onPressed: () {
-                  if (_streaming) _stopStreaming();
-                  _clearRetryState();
-                  _clearPendingState();
-                  setState(() {
-                    _convId = null;
-                  });
-                },
+                onPressed: _startNewConversation,
               ),
           ],
         ),
@@ -2928,6 +2934,13 @@ class _ChatPageState extends State<ChatPage> {
         ),
         actions: [
           TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _withdrawMessage(msg);
+            },
+            child: const Text('撤回'),
+          ),
+          TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('取消'),
           ),
@@ -2949,6 +2962,42 @@ class _ChatPageState extends State<ChatPage> {
     ).then((_) {
       WidgetsBinding.instance.addPostFrameCallback((_) => ctrl.dispose());
     });
+  }
+
+  void _withdrawMessage(Message msg) {
+    final cid = _convId;
+    if (cid == null) return;
+    final conv = context.read<ConversationProvider>().getConversation(cid);
+    if (conv == null || !conv.messages.any((m) => m.id == msg.id)) return;
+    if (_streaming) _stopStreaming();
+    _clearRetryState();
+    _pendingModelId = null;
+    _thinkingTxt = null;
+    _thinkExpanded = false;
+    _expandedThinkIds.clear();
+    _thinkMap.clear();
+    _updateStreamDraft(const _StreamDraft());
+    _msgCtrl.text = msg.content;
+    _msgCtrl.selection = TextSelection.collapsed(offset: _msgCtrl.text.length);
+    _inputRevision.value++;
+    setState(() {
+      _pendingImages
+        ..clear()
+        ..addAll(msg.images.map(_pendingImageFromMessageImage));
+    });
+    context.read<ConversationProvider>().deleteMessagesFrom(cid, msg.id);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.requestFocus();
+    });
+  }
+
+  _PendingImage _pendingImageFromMessageImage(MessageImage image) {
+    return _PendingImage(
+      path: image.path,
+      name: image.name,
+      size: image.size,
+      mimeType: image.mimeType,
+    );
   }
 
   Future<void> _editStartNewConversation(

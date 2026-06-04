@@ -32,6 +32,8 @@ class _NoteDetailState extends State<_NoteDetail> {
   final _findCtrl = TextEditingController();
   final _replaceCtrl = TextEditingController();
   late FeatureProvider _features;
+  final Map<String, String> _outlinePageContentCache = {};
+  final Set<String> _loadingOutlinePageIds = {};
   var _showFind = false;
   var _showReplace = false;
   var _showLatexPanel = false;
@@ -78,6 +80,8 @@ class _NoteDetailState extends State<_NoteDetail> {
       _proposalSidebarExpanded = true;
       _proposalBubbleOffset = null;
       _expandedOutlinePageIds.clear();
+      _outlinePageContentCache.clear();
+      _loadingOutlinePageIds.clear();
       _refreshMatches();
     }
   }
@@ -419,7 +423,9 @@ class _NoteDetailState extends State<_NoteDetail> {
                             entry.$1,
                             active?.id == entry.$2.id,
                             _expandedOutlinePageIds.contains(entry.$2.id),
-                            headings,
+                            active?.id == entry.$2.id
+                                ? headings
+                                : _cachedPageHeadings(entry.$2),
                           );
                         }).toList(),
                 ),
@@ -456,6 +462,33 @@ class _NoteDetailState extends State<_NoteDetail> {
     );
   }
 
+  List<_MarkdownHeading> _cachedPageHeadings(StorageV2NotePage page) {
+    final content = _outlinePageContentCache[page.id];
+    if (content == null) return const [];
+    return _markdownHeadings(content);
+  }
+
+  void _ensureOutlinePageContent(StorageV2NotePage page) {
+    if (_outlinePageContentCache.containsKey(page.id) ||
+        _loadingOutlinePageIds.contains(page.id)) {
+      return;
+    }
+    _loadingOutlinePageIds.add(page.id);
+    _features
+        .readNotePageContent(page)
+        .then((content) {
+          if (!mounted) return;
+          setState(() {
+            _loadingOutlinePageIds.remove(page.id);
+            _outlinePageContentCache[page.id] = content;
+          });
+        })
+        .catchError((_) {
+          if (!mounted) return;
+          setState(() => _loadingOutlinePageIds.remove(page.id));
+        });
+  }
+
   Widget _pageOutlineGroup(
     Note note,
     StorageV2NotePage page,
@@ -465,9 +498,12 @@ class _NoteDetailState extends State<_NoteDetail> {
     List<_MarkdownHeading> activeHeadings,
   ) {
     final scheme = Theme.of(context).colorScheme;
-    final headings = selected && expanded
+    if (expanded && !selected) _ensureOutlinePageContent(page);
+    final headings = expanded
         ? _numberedHeadings(activeHeadings)
         : const <_NumberedHeading>[];
+    final loading =
+        expanded && !selected && _loadingOutlinePageIds.contains(page.id);
     return Card(
       elevation: 0,
       color: selected
@@ -479,8 +515,10 @@ class _NoteDetailState extends State<_NoteDetail> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _pageOutlineHeader(note, page, index, selected, expanded),
-          if (selected && expanded)
-            headings.isEmpty
+          if (expanded)
+            loading
+                ? _emptyOutlineMessage('正在加载目录...')
+                : headings.isEmpty
                 ? _emptyOutlineMessage('暂无目录，使用 # 标题创建目录')
                 : Padding(
                     padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
@@ -799,6 +837,8 @@ class _NoteDetailState extends State<_NoteDetail> {
     if (updated != null) {
       setState(() {
         _expandedOutlinePageIds.remove(page.id);
+        _outlinePageContentCache.remove(page.id);
+        _loadingOutlinePageIds.remove(page.id);
         _loadEditorSnapshot(updated.content, revisionId: null);
       });
     }
@@ -1190,6 +1230,10 @@ class _NoteDetailState extends State<_NoteDetail> {
     if (!mounted) return;
     _lastSavedDraft = content;
     _activeRevisionId = null;
+    final activePage = _features.activeNotePage(widget.noteId);
+    if (activePage != null) {
+      _outlinePageContentCache[activePage.id] = content;
+    }
     if (revision != null) {
       ScaffoldMessenger.of(context).showSnackBar(shortSnackBar('已保存到时间线'));
     }
@@ -1205,6 +1249,7 @@ class _NoteDetailState extends State<_NoteDetail> {
     if (updated == null) return false;
     setState(() {
       _expandedOutlinePageIds.add(page.id);
+      _outlinePageContentCache[page.id] = updated.content;
       _loadEditorSnapshot(updated.content, revisionId: null);
     });
     return true;
@@ -1249,6 +1294,7 @@ class _NoteDetailState extends State<_NoteDetail> {
     setState(() {
       _showOutlineDrawer = true;
       _expandedOutlinePageIds.add(pageId);
+      _outlinePageContentCache[pageId] = updated.content;
       _loadEditorSnapshot(updated.content, revisionId: null);
     });
   }
