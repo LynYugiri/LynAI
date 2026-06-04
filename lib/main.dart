@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'providers/conversation_provider.dart';
 import 'providers/feature_provider.dart';
 import 'providers/model_config_provider.dart';
+import 'providers/plugin_provider.dart';
 import 'providers/roleplay_provider.dart';
 import 'providers/settings_provider.dart';
 import 'pages/home_page.dart';
@@ -28,6 +29,7 @@ void main() {
         ChangeNotifierProvider(create: (_) => ConversationProvider()),
         ChangeNotifierProvider(create: (_) => FeatureProvider()),
         ChangeNotifierProvider(create: (_) => ModelConfigProvider()),
+        ChangeNotifierProvider(create: (_) => PluginProvider()),
         ChangeNotifierProvider(create: (_) => RoleplayProvider()),
         ChangeNotifierProvider(create: (_) => SettingsProvider()),
       ],
@@ -110,6 +112,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       final modelProvider = context.read<ModelConfigProvider>();
       final settingsProvider = context.read<SettingsProvider>();
       final featureProvider = context.read<FeatureProvider>();
+      final pluginProvider = context.read<PluginProvider>();
       final roleplayProvider = context.read<RoleplayProvider>();
 
       await StorageMigrationService(
@@ -122,6 +125,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       await Future.wait([
         conversationProvider.loadConversations(),
         featureProvider.load(),
+        pluginProvider.load(),
         roleplayProvider.loadSessions(),
         modelProvider.loadModels(),
         settingsProvider.loadSettings(),

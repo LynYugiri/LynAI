@@ -22,6 +22,7 @@ import '../models/system_prompt.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
+import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/api_service.dart';
 import '../services/storage_v2_service.dart';
@@ -896,7 +897,9 @@ class _ChatPageState extends State<ChatPage> {
       model,
       working,
       thinking: _thinking && _supportsThinking(model),
-      tools: allowTools ? ToolCallService.openAITools() : const [],
+      tools: allowTools
+          ? ToolCallService.openAITools(context.read<PluginProvider>().plugins)
+          : const [],
       toolChoice: depth >= 3 ? 'none' : 'auto',
     );
     String buf = '', thinkBuf = '';
@@ -935,7 +938,12 @@ class _ChatPageState extends State<ChatPage> {
       final currentThink = thinkBuf.isNotEmpty ? thinkBuf : null;
       final think = _joinThinking(priorThink, currentThink);
       if (toolCalls.isNotEmpty && allowTools && depth < 4) {
-        final toolService = ToolCallService(context.read<FeatureProvider>());
+        final toolService = ToolCallService(
+          context.read<FeatureProvider>(),
+          plugins: context.read<PluginProvider>(),
+          modelConfigs: context.read<ModelConfigProvider>(),
+          settings: context.read<SettingsProvider>(),
+        );
         final conv = cp.getConversation(cid);
         final results = await toolService.executeAll(
           toolCalls,

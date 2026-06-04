@@ -5,6 +5,7 @@ import 'about_page.dart';
 import 'background_page.dart';
 import 'api_models_page.dart';
 import 'data_management_page.dart';
+import 'plugin_management_page.dart';
 import 'role_management_page.dart';
 import 'theme_page.dart';
 
@@ -84,6 +85,17 @@ class SettingsPage extends StatelessWidget {
             () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const DataManagementPage()),
+            ),
+          ),
+          _buildItem(
+            context,
+            Icons.extension,
+            '插件',
+            '管理插件、权限和功能页',
+            Colors.deepPurple,
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const PluginManagementPage()),
             ),
           ),
         ],

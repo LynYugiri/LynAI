@@ -40,6 +40,8 @@ class _FeatureDashboard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final pluginItems = _pluginItems(context.watch<PluginProvider>());
+    final items = [..._items, ...pluginItems];
     return LayoutBuilder(
       builder: (context, constraints) {
         final crossAxisCount = _crossAxisCount(constraints.maxWidth);
@@ -57,9 +59,9 @@ class _FeatureDashboard extends StatelessWidget {
             crossAxisSpacing: 12,
             childAspectRatio: _childAspectRatio(constraints.maxWidth),
           ),
-          itemCount: _items.length,
+          itemCount: items.length,
           itemBuilder: (context, index) {
-            final item = _items[index];
+            final item = items[index];
             return _FeatureDashboardCard(
               item: item,
               onTap: () => onFeatureSelected(item.value),
@@ -68,6 +70,28 @@ class _FeatureDashboard extends StatelessWidget {
         );
       },
     );
+  }
+
+  List<_FeatureDashboardItem> _pluginItems(PluginProvider provider) {
+    final items = <_FeatureDashboardItem>[];
+    for (final plugin in provider.plugins) {
+      if (!plugin.enabled || plugin.hasError) continue;
+      for (final page in plugin.manifest.featurePages) {
+        if (!plugin.enabledFeaturePages.contains(page.id)) continue;
+        if (page.entry.trim().isEmpty) continue;
+        items.add(
+          _FeatureDashboardItem.plugin(
+            value: _PluginFeatureRef(plugin.id, page.id).key,
+            title: page.title.isEmpty ? plugin.manifest.name : page.title,
+            subtitle: plugin.manifest.name,
+            pluginPath: plugin.path,
+            iconPath: page.icon,
+            fallbackIconPath: plugin.manifest.icon,
+          ),
+        );
+      }
+    }
+    return items;
   }
 
   int _crossAxisCount(double width) {
@@ -87,6 +111,9 @@ class _FeatureDashboard extends StatelessWidget {
 class _FeatureDashboardItem {
   final String value;
   final IconData icon;
+  final String? pluginPath;
+  final String? iconPath;
+  final String? fallbackIconPath;
   final String title;
   final String subtitle;
 
@@ -95,7 +122,18 @@ class _FeatureDashboardItem {
     required this.icon,
     required this.title,
     required this.subtitle,
-  });
+  }) : pluginPath = null,
+       iconPath = null,
+       fallbackIconPath = null;
+
+  const _FeatureDashboardItem.plugin({
+    required this.value,
+    required this.title,
+    required this.subtitle,
+    required this.pluginPath,
+    required this.iconPath,
+    required this.fallbackIconPath,
+  }) : icon = Icons.extension;
 }
 
 class _FeatureDashboardCard extends StatelessWidget {
@@ -134,11 +172,15 @@ class _FeatureDashboardCard extends StatelessWidget {
                         color: scheme.primary.withValues(alpha: 0.16),
                       ),
                     ),
-                    child: Icon(
-                      item.icon,
-                      color: scheme.primary,
-                      size: iconSize,
-                    ),
+                    child: item.pluginPath == null
+                        ? Icon(item.icon, color: scheme.primary, size: iconSize)
+                        : PluginIcon(
+                            pluginPath: item.pluginPath!,
+                            iconPath: item.iconPath,
+                            fallbackIconPath: item.fallbackIconPath,
+                            size: iconSize,
+                            color: scheme.primary,
+                          ),
                   ),
                   SizedBox(height: compact ? 9 : 12),
                   Text(

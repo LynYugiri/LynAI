@@ -7,9 +7,14 @@ import 'package:uuid/uuid.dart';
 
 import '../models/message.dart';
 import '../models/note.dart';
+import '../models/plugin.dart';
 import '../models/schedule_item.dart';
 import '../models/todo_list.dart';
 import '../providers/feature_provider.dart';
+import '../providers/model_config_provider.dart';
+import '../providers/plugin_provider.dart';
+import '../providers/settings_provider.dart';
+import 'plugin_lua_runtime_service.dart';
 import 'storage_v2_service.dart';
 
 /// 模型请求执行本地工具的标准化描述。
@@ -178,12 +183,22 @@ class ToolExecutionResult {
 /// 工具只通过 Provider 或平台通道访问本地能力。所有结果都返回结构化 JSON，
 /// 让模型可以继续生成自然语言回复，也让失败原因不会被吞掉。
 class ToolCallService {
-  ToolCallService(this._features);
+  ToolCallService(
+    this._features, {
+    PluginProvider? plugins,
+    ModelConfigProvider? modelConfigs,
+    SettingsProvider? settings,
+  }) : _plugins = plugins,
+       _modelConfigs = modelConfigs,
+       _settings = settings;
 
   static const _channel = MethodChannel('lynai/native_tools');
   static const _uuid = Uuid();
 
   final FeatureProvider _features;
+  final PluginProvider? _plugins;
+  final ModelConfigProvider? _modelConfigs;
+  final SettingsProvider? _settings;
 
   static const systemPrompt = '''
 你可以使用本地工具帮助用户管理日程、笔记、待办清单、获取时间/位置、打开安卓应用和创建对话标题。
@@ -211,380 +226,417 @@ class ToolCallService {
     return '当前设备本地时间: ${now.toIso8601String()}，时区: ${now.timeZoneName}，timezoneOffsetMinutes: ${now.timeZoneOffset.inMinutes}。';
   }
 
-  static List<Map<String, dynamic>> openAITools() => [
-    {
-      'type': 'function',
-      'function': {
-        'name': 'get_current_time',
-        'description': '获取设备当前时间、时区和 ISO-8601 时间戳。',
-        'parameters': {'type': 'object', 'properties': <String, dynamic>{}},
+  static List<Map<String, dynamic>> openAITools([
+    Iterable<InstalledPlugin> plugins = const [],
+  ]) {
+    final tools = <Map<String, dynamic>>[
+      {
+        'type': 'function',
+        'function': {
+          'name': 'get_current_time',
+          'description': '获取设备当前时间、时区和 ISO-8601 时间戳。',
+          'parameters': {'type': 'object', 'properties': <String, dynamic>{}},
+        },
       },
-    },
-    {
-      'type': 'function',
-      'function': {
-        'name': 'propose_note_edit',
-        'description': '按行提交笔记修改建议，不直接保存；用户会在笔记页逐行接受或拒绝。调用前必须先 read_note。',
-        'parameters': {
-          'type': 'object',
-          'properties': {
-            'id': {'type': 'string', 'description': '已有笔记 id'},
-            'pageId': {'type': 'string', 'description': '可选，目标分页 id'},
-            'pageTitle': {'type': 'string', 'description': '可选，目标分页标题'},
-            'baseRevisionId': {
-              'type': 'string',
-              'description': 'read_note 返回的 currentRevisionId，可选',
-            },
-            'expectedContentHash': {
-              'type': 'string',
-              'description': 'read_note 返回的 contentHash，用于避免基于过期内容提案',
-            },
-            'edits': {
-              'type': 'array',
-              'description':
-                  '逐行修改建议。行号从 1 开始，使用 read_note 返回的 numberedLines；startLine=lineCount+1 可在末尾追加；多个 edit 不可重叠。强烈建议填写 expectedLines 校验被替换/删除的原文，避免行号偏移误改。',
-              'items': {
-                'type': 'object',
-                'properties': {
-                  'startLine': {'type': 'integer'},
-                  'deleteCount': {'type': 'integer'},
-                  'insertLines': {
-                    'type': 'array',
-                    'items': {'type': 'string'},
+      {
+        'type': 'function',
+        'function': {
+          'name': 'propose_note_edit',
+          'description': '按行提交笔记修改建议，不直接保存；用户会在笔记页逐行接受或拒绝。调用前必须先 read_note。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'id': {'type': 'string', 'description': '已有笔记 id'},
+              'pageId': {'type': 'string', 'description': '可选，目标分页 id'},
+              'pageTitle': {'type': 'string', 'description': '可选，目标分页标题'},
+              'baseRevisionId': {
+                'type': 'string',
+                'description': 'read_note 返回的 currentRevisionId，可选',
+              },
+              'expectedContentHash': {
+                'type': 'string',
+                'description': 'read_note 返回的 contentHash，用于避免基于过期内容提案',
+              },
+              'edits': {
+                'type': 'array',
+                'description':
+                    '逐行修改建议。行号从 1 开始，使用 read_note 返回的 numberedLines；startLine=lineCount+1 可在末尾追加；多个 edit 不可重叠。强烈建议填写 expectedLines 校验被替换/删除的原文，避免行号偏移误改。',
+                'items': {
+                  'type': 'object',
+                  'properties': {
+                    'startLine': {'type': 'integer'},
+                    'deleteCount': {'type': 'integer'},
+                    'insertLines': {
+                      'type': 'array',
+                      'items': {'type': 'string'},
+                    },
+                    'expectedLines': {
+                      'type': 'array',
+                      'description': '可选。预期被 deleteCount 覆盖的原文行；不匹配时拒绝修改。',
+                      'items': {'type': 'string'},
+                    },
                   },
-                  'expectedLines': {
-                    'type': 'array',
-                    'description': '可选。预期被 deleteCount 覆盖的原文行；不匹配时拒绝修改。',
-                    'items': {'type': 'string'},
-                  },
+                  'required': ['startLine', 'deleteCount'],
                 },
-                'required': ['startLine', 'deleteCount'],
               },
             },
-          },
-          'required': ['id', 'edits'],
-        },
-      },
-    },
-    {
-      'type': 'function',
-      'function': {
-        'name': 'get_location',
-        'description': '获取设备当前位置。',
-        'parameters': {'type': 'object', 'properties': <String, dynamic>{}},
-      },
-    },
-    {
-      'type': 'function',
-      'function': {
-        'name': 'open_app',
-        'description': '在安卓端通过包名打开已安装应用。',
-        'parameters': {
-          'type': 'object',
-          'properties': {
-            'packageName': {'type': 'string', 'description': '安卓应用包名'},
-          },
-          'required': ['packageName'],
-        },
-      },
-    },
-    {
-      'type': 'function',
-      'function': {
-        'name': 'list_schedules',
-        'description': '查看用户日程表事项列表，包含日程和只需要开始时间的任务。',
-        'parameters': {
-          'type': 'object',
-          'properties': {
-            'from': {'type': 'string', 'description': '可选起始 ISO 时间'},
-            'to': {'type': 'string', 'description': '可选结束 ISO 时间'},
+            'required': ['id', 'edits'],
           },
         },
       },
-    },
-    {
-      'type': 'function',
-      'function': {
-        'name': 'create_schedule',
-        'description':
-            '创建新的日程或任务。kind=task 表示任务，只需要 title/start；默认 kind=schedule 表示日程，需要 title/start/end。',
-        'parameters': {
-          'type': 'object',
-          'properties': {
-            'title': {'type': 'string'},
-            'kind': {
-              'type': 'string',
-              'description': 'schedule 或 task；task 只需要开始时间',
+      {
+        'type': 'function',
+        'function': {
+          'name': 'get_location',
+          'description': '获取设备当前位置。',
+          'parameters': {'type': 'object', 'properties': <String, dynamic>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'open_app',
+          'description': '在安卓端通过包名打开已安装应用。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'packageName': {'type': 'string', 'description': '安卓应用包名'},
             },
-            'start': {'type': 'string', 'description': 'ISO-8601 开始时间'},
-            'end': {'type': 'string', 'description': 'ISO-8601 结束时间；任务可省略'},
-            'note': {'type': 'string'},
+            'required': ['packageName'],
           },
-          'required': ['title', 'start'],
         },
       },
-    },
-    {
-      'type': 'function',
-      'function': {
-        'name': 'update_schedule',
-        'description': '按 id 修改已有日程或任务。任务只使用 start，忽略 end。',
-        'parameters': {
-          'type': 'object',
-          'properties': {
-            'id': {'type': 'string'},
-            'kind': {'type': 'string', 'description': 'schedule 或 task'},
-            'title': {'type': 'string'},
-            'start': {'type': 'string'},
-            'end': {'type': 'string'},
-            'note': {'type': 'string'},
-          },
-          'required': ['id'],
-        },
-      },
-    },
-    {
-      'type': 'function',
-      'function': {
-        'name': 'list_notes',
-        'description': '查看用户笔记列表，可按标题或内容关键字搜索。默认只返回摘要。',
-        'parameters': {
-          'type': 'object',
-          'properties': {
-            'query': {'type': 'string', 'description': '可选搜索关键字'},
-            'folderId': {'type': 'string', 'description': '可选笔记文件夹 id'},
-            'includeContent': {
-              'type': 'boolean',
-              'description': '是否在列表中返回完整正文；大量笔记时优先使用 read_note',
+      {
+        'type': 'function',
+        'function': {
+          'name': 'list_schedules',
+          'description': '查看用户日程表事项列表，包含日程和只需要开始时间的任务。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'from': {'type': 'string', 'description': '可选起始 ISO 时间'},
+              'to': {'type': 'string', 'description': '可选结束 ISO 时间'},
             },
           },
         },
       },
-    },
-    {
-      'type': 'function',
-      'function': {
-        'name': 'read_note',
-        'description': '读取单篇笔记的完整内容。可按 id 精确读取，或按标题/关键字搜索最匹配的一篇。',
-        'parameters': {
-          'type': 'object',
-          'properties': {
-            'id': {'type': 'string', 'description': '笔记 id'},
-            'title': {'type': 'string', 'description': '笔记标题'},
-            'query': {'type': 'string', 'description': '标题或正文搜索关键字'},
-            'pageId': {'type': 'string', 'description': '可选，指定分页 id'},
-            'pageTitle': {'type': 'string', 'description': '可选，指定分页标题'},
-          },
-        },
-      },
-    },
-    {
-      'type': 'function',
-      'function': {
-        'name': 'save_note',
-        'description':
-            '创建或修改并保存笔记。传 id 时修改已有笔记；不传 id 时创建新笔记。小范围逐行修改优先使用 propose_note_edit 让用户确认。',
-        'parameters': {
-          'type': 'object',
-          'properties': {
-            'id': {'type': 'string', 'description': '已有笔记 id；为空则创建'},
-            'title': {'type': 'string'},
-            'content': {'type': 'string'},
-            'pageId': {'type': 'string', 'description': '可选，目标分页 id'},
-            'pageTitle': {'type': 'string', 'description': '可选，目标分页标题'},
-            'folderId': {
-              'type': 'string',
-              'description': '目标笔记文件夹 id；传空字符串表示移出文件夹',
-            },
-            'append': {'type': 'boolean', 'description': '是否追加到已有内容'},
-          },
-        },
-      },
-    },
-    {
-      'type': 'function',
-      'function': {
-        'name': 'edit_note',
-        'description':
-            '按行修改已有笔记并保存到时间线。调用前必须先 read_note 获取 contentHash/currentRevisionId；edits 使用 read_note 返回内容的行号。',
-        'parameters': {
-          'type': 'object',
-          'properties': {
-            'id': {'type': 'string', 'description': '已有笔记 id'},
-            'pageId': {'type': 'string', 'description': '可选，目标分页 id'},
-            'pageTitle': {'type': 'string', 'description': '可选，目标分页标题'},
-            'baseRevisionId': {
-              'type': 'string',
-              'description': 'read_note 返回的 currentRevisionId，可选',
-            },
-            'expectedContentHash': {
-              'type': 'string',
-              'description': 'read_note 返回的 contentHash，用于避免覆盖用户新改动',
-            },
-            'edits': {
-              'type': 'array',
-              'description':
-                  '逐行修改列表。行号从 1 开始，使用 read_note 返回的 numberedLines；startLine=lineCount+1 可在末尾追加；多个 edit 不可重叠。强烈建议填写 expectedLines 校验被替换/删除的原文，避免行号偏移误改。',
-              'items': {
-                'type': 'object',
-                'properties': {
-                  'startLine': {'type': 'integer'},
-                  'deleteCount': {'type': 'integer'},
-                  'insertLines': {
-                    'type': 'array',
-                    'items': {'type': 'string'},
-                  },
-                  'expectedLines': {
-                    'type': 'array',
-                    'description': '可选。预期被 deleteCount 覆盖的原文行；不匹配时拒绝修改。',
-                    'items': {'type': 'string'},
-                  },
-                },
-                'required': ['startLine', 'deleteCount'],
+      {
+        'type': 'function',
+        'function': {
+          'name': 'create_schedule',
+          'description':
+              '创建新的日程或任务。kind=task 表示任务，只需要 title/start；默认 kind=schedule 表示日程，需要 title/start/end。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'title': {'type': 'string'},
+              'kind': {
+                'type': 'string',
+                'description': 'schedule 或 task；task 只需要开始时间',
               },
+              'start': {'type': 'string', 'description': 'ISO-8601 开始时间'},
+              'end': {'type': 'string', 'description': 'ISO-8601 结束时间；任务可省略'},
+              'note': {'type': 'string'},
             },
+            'required': ['title', 'start'],
           },
-          'required': ['id', 'edits'],
         },
       },
-    },
-    {
-      'type': 'function',
-      'function': {
-        'name': 'list_note_folders',
-        'description': '查看笔记文件夹及每个文件夹的笔记数量。',
-        'parameters': {'type': 'object', 'properties': <String, dynamic>{}},
-      },
-    },
-    {
-      'type': 'function',
-      'function': {
-        'name': 'list_note_pages',
-        'description': '列出某篇笔记的分页，并返回当前激活分页 id。',
-        'parameters': {
-          'type': 'object',
-          'properties': {
-            'id': {'type': 'string', 'description': '笔记 id'},
-          },
-          'required': ['id'],
-        },
-      },
-    },
-    {
-      'type': 'function',
-      'function': {
-        'name': 'save_note_page',
-        'description':
-            '创建、重命名、删除或移动笔记分页。传 delete=true 时删除分页；move=up/down 时上移/下移分页；至少保留一个分页。',
-        'parameters': {
-          'type': 'object',
-          'properties': {
-            'id': {'type': 'string', 'description': '笔记 id'},
-            'pageId': {'type': 'string', 'description': '已有分页 id；为空则创建'},
-            'title': {'type': 'string', 'description': '分页标题'},
-            'delete': {'type': 'boolean'},
-            'move': {
-              'type': 'string',
-              'description': '可选，up 表示上移分页，down 表示下移分页',
-              'enum': ['up', 'down'],
+      {
+        'type': 'function',
+        'function': {
+          'name': 'update_schedule',
+          'description': '按 id 修改已有日程或任务。任务只使用 start，忽略 end。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'id': {'type': 'string'},
+              'kind': {'type': 'string', 'description': 'schedule 或 task'},
+              'title': {'type': 'string'},
+              'start': {'type': 'string'},
+              'end': {'type': 'string'},
+              'note': {'type': 'string'},
             },
-          },
-          'required': ['id'],
-        },
-      },
-    },
-    {
-      'type': 'function',
-      'function': {
-        'name': 'save_note_folder',
-        'description': '创建、重命名或删除笔记文件夹。传 delete=true 时删除文件夹，文件夹内笔记会移出文件夹。',
-        'parameters': {
-          'type': 'object',
-          'properties': {
-            'id': {'type': 'string', 'description': '已有文件夹 id；为空则创建'},
-            'title': {'type': 'string'},
-            'delete': {'type': 'boolean'},
+            'required': ['id'],
           },
         },
       },
-    },
-    {
-      'type': 'function',
-      'function': {
-        'name': 'list_todo_lists',
-        'description': '查看用户待办清单列表，可按标题或待办内容搜索。默认返回清单摘要。',
-        'parameters': {
-          'type': 'object',
-          'properties': {
-            'query': {'type': 'string', 'description': '可选搜索关键字'},
-            'includeItems': {
-              'type': 'boolean',
-              'description': '是否在列表中返回待办项；大量清单时优先使用 read_todo_list',
-            },
-          },
-        },
-      },
-    },
-    {
-      'type': 'function',
-      'function': {
-        'name': 'read_todo_list',
-        'description': '读取单个待办清单的完整内容。可按 id 精确读取，或按标题/关键字搜索最匹配的一份。',
-        'parameters': {
-          'type': 'object',
-          'properties': {
-            'id': {'type': 'string', 'description': '待办清单 id'},
-            'title': {'type': 'string', 'description': '待办清单标题'},
-            'query': {'type': 'string', 'description': '标题或待办内容搜索关键字'},
-          },
-        },
-      },
-    },
-    {
-      'type': 'function',
-      'function': {
-        'name': 'save_todo_list',
-        'description': '创建或修改待办清单。传 id 时修改已有清单；不传 id 时创建新清单。items 会替换整份清单的待办项。',
-        'parameters': {
-          'type': 'object',
-          'properties': {
-            'id': {'type': 'string', 'description': '已有待办清单 id；为空则创建'},
-            'title': {'type': 'string'},
-            'items': {
-              'type': 'array',
-              'items': {
-                'type': 'object',
-                'properties': {
-                  'id': {'type': 'string'},
-                  'text': {'type': 'string'},
-                  'done': {'type': 'boolean'},
-                },
-                'required': ['text'],
+      {
+        'type': 'function',
+        'function': {
+          'name': 'list_notes',
+          'description': '查看用户笔记列表，可按标题或内容关键字搜索。默认只返回摘要。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'query': {'type': 'string', 'description': '可选搜索关键字'},
+              'folderId': {'type': 'string', 'description': '可选笔记文件夹 id'},
+              'includeContent': {
+                'type': 'boolean',
+                'description': '是否在列表中返回完整正文；大量笔记时优先使用 read_note',
               },
             },
           },
         },
       },
-    },
-    {
-      'type': 'function',
-      'function': {
-        'name': 'save_todo_item',
-        'description': '创建、修改、完成或未完成一个待办项。不传 itemId 时创建新待办项；传 delete=true 时删除。',
-        'parameters': {
-          'type': 'object',
-          'properties': {
-            'listId': {'type': 'string', 'description': '待办清单 id'},
-            'itemId': {'type': 'string', 'description': '待办项 id；为空则创建'},
-            'text': {'type': 'string', 'description': '待办内容'},
-            'done': {'type': 'boolean', 'description': 'true 表示完成，false 表示未完成'},
-            'delete': {'type': 'boolean', 'description': '是否删除该待办项'},
+      {
+        'type': 'function',
+        'function': {
+          'name': 'read_note',
+          'description': '读取单篇笔记的完整内容。可按 id 精确读取，或按标题/关键字搜索最匹配的一篇。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'id': {'type': 'string', 'description': '笔记 id'},
+              'title': {'type': 'string', 'description': '笔记标题'},
+              'query': {'type': 'string', 'description': '标题或正文搜索关键字'},
+              'pageId': {'type': 'string', 'description': '可选，指定分页 id'},
+              'pageTitle': {'type': 'string', 'description': '可选，指定分页标题'},
+            },
           },
-          'required': ['listId'],
         },
       },
-    },
-  ];
+      {
+        'type': 'function',
+        'function': {
+          'name': 'save_note',
+          'description':
+              '创建或修改并保存笔记。传 id 时修改已有笔记；不传 id 时创建新笔记。小范围逐行修改优先使用 propose_note_edit 让用户确认。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'id': {'type': 'string', 'description': '已有笔记 id；为空则创建'},
+              'title': {'type': 'string'},
+              'content': {'type': 'string'},
+              'pageId': {'type': 'string', 'description': '可选，目标分页 id'},
+              'pageTitle': {'type': 'string', 'description': '可选，目标分页标题'},
+              'folderId': {
+                'type': 'string',
+                'description': '目标笔记文件夹 id；传空字符串表示移出文件夹',
+              },
+              'append': {'type': 'boolean', 'description': '是否追加到已有内容'},
+            },
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'edit_note',
+          'description':
+              '按行修改已有笔记并保存到时间线。调用前必须先 read_note 获取 contentHash/currentRevisionId；edits 使用 read_note 返回内容的行号。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'id': {'type': 'string', 'description': '已有笔记 id'},
+              'pageId': {'type': 'string', 'description': '可选，目标分页 id'},
+              'pageTitle': {'type': 'string', 'description': '可选，目标分页标题'},
+              'baseRevisionId': {
+                'type': 'string',
+                'description': 'read_note 返回的 currentRevisionId，可选',
+              },
+              'expectedContentHash': {
+                'type': 'string',
+                'description': 'read_note 返回的 contentHash，用于避免覆盖用户新改动',
+              },
+              'edits': {
+                'type': 'array',
+                'description':
+                    '逐行修改列表。行号从 1 开始，使用 read_note 返回的 numberedLines；startLine=lineCount+1 可在末尾追加；多个 edit 不可重叠。强烈建议填写 expectedLines 校验被替换/删除的原文，避免行号偏移误改。',
+                'items': {
+                  'type': 'object',
+                  'properties': {
+                    'startLine': {'type': 'integer'},
+                    'deleteCount': {'type': 'integer'},
+                    'insertLines': {
+                      'type': 'array',
+                      'items': {'type': 'string'},
+                    },
+                    'expectedLines': {
+                      'type': 'array',
+                      'description': '可选。预期被 deleteCount 覆盖的原文行；不匹配时拒绝修改。',
+                      'items': {'type': 'string'},
+                    },
+                  },
+                  'required': ['startLine', 'deleteCount'],
+                },
+              },
+            },
+            'required': ['id', 'edits'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'list_note_folders',
+          'description': '查看笔记文件夹及每个文件夹的笔记数量。',
+          'parameters': {'type': 'object', 'properties': <String, dynamic>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'list_note_pages',
+          'description': '列出某篇笔记的分页，并返回当前激活分页 id。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'id': {'type': 'string', 'description': '笔记 id'},
+            },
+            'required': ['id'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'save_note_page',
+          'description':
+              '创建、重命名、删除或移动笔记分页。传 delete=true 时删除分页；move=up/down 时上移/下移分页；至少保留一个分页。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'id': {'type': 'string', 'description': '笔记 id'},
+              'pageId': {'type': 'string', 'description': '已有分页 id；为空则创建'},
+              'title': {'type': 'string', 'description': '分页标题'},
+              'delete': {'type': 'boolean'},
+              'move': {
+                'type': 'string',
+                'description': '可选，up 表示上移分页，down 表示下移分页',
+                'enum': ['up', 'down'],
+              },
+            },
+            'required': ['id'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'save_note_folder',
+          'description': '创建、重命名或删除笔记文件夹。传 delete=true 时删除文件夹，文件夹内笔记会移出文件夹。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'id': {'type': 'string', 'description': '已有文件夹 id；为空则创建'},
+              'title': {'type': 'string'},
+              'delete': {'type': 'boolean'},
+            },
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'list_todo_lists',
+          'description': '查看用户待办清单列表，可按标题或待办内容搜索。默认返回清单摘要。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'query': {'type': 'string', 'description': '可选搜索关键字'},
+              'includeItems': {
+                'type': 'boolean',
+                'description': '是否在列表中返回待办项；大量清单时优先使用 read_todo_list',
+              },
+            },
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'read_todo_list',
+          'description': '读取单个待办清单的完整内容。可按 id 精确读取，或按标题/关键字搜索最匹配的一份。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'id': {'type': 'string', 'description': '待办清单 id'},
+              'title': {'type': 'string', 'description': '待办清单标题'},
+              'query': {'type': 'string', 'description': '标题或待办内容搜索关键字'},
+            },
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'save_todo_list',
+          'description':
+              '创建或修改待办清单。传 id 时修改已有清单；不传 id 时创建新清单。items 会替换整份清单的待办项。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'id': {'type': 'string', 'description': '已有待办清单 id；为空则创建'},
+              'title': {'type': 'string'},
+              'items': {
+                'type': 'array',
+                'items': {
+                  'type': 'object',
+                  'properties': {
+                    'id': {'type': 'string'},
+                    'text': {'type': 'string'},
+                    'done': {'type': 'boolean'},
+                  },
+                  'required': ['text'],
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'save_todo_item',
+          'description':
+              '创建、修改、完成或未完成一个待办项。不传 itemId 时创建新待办项；传 delete=true 时删除。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'listId': {'type': 'string', 'description': '待办清单 id'},
+              'itemId': {'type': 'string', 'description': '待办项 id；为空则创建'},
+              'text': {'type': 'string', 'description': '待办内容'},
+              'done': {
+                'type': 'boolean',
+                'description': 'true 表示完成，false 表示未完成',
+              },
+              'delete': {'type': 'boolean', 'description': '是否删除该待办项'},
+            },
+            'required': ['listId'],
+          },
+        },
+      },
+    ];
+    final names = tools
+        .map((tool) => tool['function']?['name']?.toString())
+        .whereType<String>()
+        .toSet();
+    for (final plugin in plugins) {
+      if (!plugin.enabled ||
+          plugin.hasError ||
+          !plugin.hasAllPermissionsGranted) {
+        continue;
+      }
+      for (final tool in plugin.manifest.tools) {
+        if (tool.name.isEmpty ||
+            tool.handler.isEmpty ||
+            names.contains(tool.name)) {
+          continue;
+        }
+        names.add(tool.name);
+        tools.add({
+          'type': 'function',
+          'function': {
+            'name': tool.name,
+            'description': tool.description,
+            'parameters': tool.parameters,
+          },
+        });
+      }
+    }
+    return tools;
+  }
 
   static List<ChatToolCall> parseFallbackToolCalls(String content) {
     final trimmed = content.trim();
@@ -707,12 +759,37 @@ class ToolCallService {
         case 'save_todo_item':
           return await _saveTodoItem(call.arguments);
         default:
+          final pluginResult = await _executePluginTool(call);
+          if (pluginResult != null) return pluginResult;
           return _error('未知工具: ${call.name}');
       }
     } on Exception catch (e, st) {
       debugPrint('工具调用失败 ${call.name}: $e\n$st');
       return _error(e.toString());
     }
+  }
+
+  Future<Map<String, dynamic>?> _executePluginTool(ChatToolCall call) async {
+    final plugins = _plugins;
+    if (plugins == null) return null;
+    for (final plugin in plugins.plugins) {
+      if (!plugin.enabled || plugin.hasError) continue;
+      for (final tool in plugin.manifest.tools) {
+        if (tool.name != call.name) continue;
+        if (!plugin.hasAllPermissionsGranted) {
+          return _error('插件 ${plugin.manifest.name} 权限不足，无法执行 ${call.name}');
+        }
+        return PluginLuaRuntimeService().executeTool(
+          plugin: plugin,
+          tool: tool,
+          arguments: call.arguments,
+          features: _features,
+          modelConfigs: _modelConfigs,
+          settings: _settings,
+        );
+      }
+    }
+    return null;
   }
 
   Future<Map<String, dynamic>> _invokeNative(

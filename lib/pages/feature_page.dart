@@ -16,6 +16,7 @@ import 'package:screenshot/screenshot.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:super_clipboard/super_clipboard.dart';
 import 'package:uuid/uuid.dart';
+import 'package:webview_all/webview_all.dart';
 import 'latex_formula_editor_page.dart';
 import 'role_management_page.dart';
 import '../models/chat_role.dart';
@@ -24,21 +25,25 @@ import '../models/conversation.dart';
 import '../models/model_config.dart';
 import '../models/message.dart';
 import '../models/note.dart';
+import '../models/plugin.dart';
 import '../models/roleplay.dart';
 import '../models/schedule_item.dart';
 import '../models/todo_list.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
+import '../providers/plugin_provider.dart';
 import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/api_service.dart';
 import '../services/roleplay_service.dart';
 import '../utils/file_share_utils.dart';
 import '../utils/file_name_utils.dart';
+import '../utils/plugin_path_utils.dart';
 import '../utils/share_image_utils.dart';
 import '../utils/snackbar_utils.dart';
 import '../widgets/latex_renderer.dart';
+import '../widgets/plugin_icon.dart';
 import '../services/storage_v2_service.dart';
 part 'features/shared.dart';
 part 'features/feature_shell.dart';
@@ -48,6 +53,7 @@ part 'features/notes_page.dart';
 part 'features/todo_lists_page.dart';
 part 'features/note_detail_page.dart';
 part 'features/roleplay_page.dart';
+part 'features/plugin_feature_page.dart';
 
 const _exportImagePixelRatio = 2.5;
 const _exportTextChunkLength = 2800;
@@ -236,6 +242,7 @@ class FeaturePage extends StatefulWidget {
 
 class _FeaturePageState extends State<FeaturePage> {
   static const _dashboardFeature = 'dashboard';
+  static const _pluginFeaturePrefix = 'plugin:';
   static const _featureValues = {
     'history',
     'schedule',
@@ -271,7 +278,7 @@ class _FeaturePageState extends State<FeaturePage> {
       return true;
     }
     final feature = context.read<SettingsProvider>().settings.lastFeature;
-    if (_featureValues.contains(feature)) {
+    if (_isContentFeature(feature)) {
       _goToDashboard();
       return true;
     }
@@ -308,8 +315,11 @@ class _FeaturePageState extends State<FeaturePage> {
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>().settings;
     final features = context.watch<FeatureProvider>();
+    final plugins = context.watch<PluginProvider>();
     final feature = settings.lastFeature;
-    final isDashboard = !_featureValues.contains(feature);
+    final pluginFeature = _pluginFeatureFor(feature, plugins);
+    final isDashboard =
+        !_featureValues.contains(feature) && pluginFeature == null;
     return Scaffold(
       appBar: AppBar(
         leading: isDashboard
@@ -326,7 +336,7 @@ class _FeaturePageState extends State<FeaturePage> {
                 onPressed: _closeSelectedNote,
               ),
         title: Text(
-          _title(feature, features),
+          _title(feature, features, plugins),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
@@ -364,12 +374,20 @@ class _FeaturePageState extends State<FeaturePage> {
           onRoleChanged: widget.onRoleChanged,
         ),
         'roleplay' => const _RoleplayPage(),
+        _ when pluginFeature != null => _PluginFeatureWebViewPage(
+          plugin: pluginFeature.plugin,
+          page: pluginFeature.page,
+        ),
         _ => _FeatureDashboard(onFeatureSelected: _selectFeature),
       },
     );
   }
 
-  String _title(String feature, FeatureProvider features) {
+  String _title(
+    String feature,
+    FeatureProvider features,
+    PluginProvider plugins,
+  ) {
     if (_selectedNoteId != null) {
       final title = features.getNote(_selectedNoteId!)?.title.trim();
       if (title != null && title.isNotEmpty) return title;
@@ -381,8 +399,30 @@ class _FeaturePageState extends State<FeaturePage> {
       'todos' => '待办清单',
       'history' => '对话历史',
       'roleplay' => '情景演绎',
-      _ => '功能',
+      _ => _pluginFeatureFor(feature, plugins)?.page.title ?? '功能',
     };
+  }
+
+  bool _isContentFeature(String feature) {
+    return _featureValues.contains(feature) ||
+        _PluginFeatureRef.tryParse(feature) != null;
+  }
+
+  _ResolvedPluginFeature? _pluginFeatureFor(
+    String feature,
+    PluginProvider provider,
+  ) {
+    final ref = _PluginFeatureRef.tryParse(feature);
+    if (ref == null) return null;
+    final plugin = provider.pluginById(ref.pluginId);
+    if (plugin == null || !plugin.enabled || plugin.hasError) return null;
+    if (!plugin.enabledFeaturePages.contains(ref.pageId)) return null;
+    for (final page in plugin.manifest.featurePages) {
+      if (page.id == ref.pageId && page.entry.trim().isNotEmpty) {
+        return _ResolvedPluginFeature(plugin: plugin, page: page);
+      }
+    }
+    return null;
   }
 
   Future<void> _selectFeature(String value) async {
