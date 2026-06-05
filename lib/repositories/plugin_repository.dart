@@ -4,7 +4,11 @@ import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:path_provider/path_provider.dart';
 
-import '../models/plugin.dart';
+import '../models/plugin.dart' show
+    InstalledPlugin,
+    PluginFileEntry,
+    PluginManifest,
+    fileTypeFromPath;
 import '../utils/plugin_path_utils.dart';
 
 /// 插件文件系统仓储。
@@ -16,14 +20,23 @@ class PluginRepository {
   static const _stateFileName = 'installed_plugins.json';
   static const maxTextFileBytes = 512 * 1024;
 
+  static const builtInPluginIds = ['status-dashboard'];
+
   final Directory? _rootOverride;
 
   PluginRepository({Directory? rootOverride}) : _rootOverride = rootOverride;
 
+  /// 加载已安装插件列表，从 JSON 状态文件中读取。
   Future<List<InstalledPlugin>> loadInstalledPlugins() async {
     final file = await _stateFile();
     if (!await file.exists()) return const [];
-    final data = jsonDecode(await file.readAsString());
+    final String raw;
+    try {
+      raw = await file.readAsString();
+    } catch (_) {
+      return const [];
+    }
+    final data = jsonDecode(raw);
     final items = data is Map ? data['plugins'] as List? : null;
     return (items ?? const [])
         .whereType<Map>()
@@ -34,6 +47,7 @@ class PluginRepository {
         .toList(growable: false);
   }
 
+  /// 保存已安装插件列表到 JSON 状态文件。
   Future<void> saveInstalledPlugins(List<InstalledPlugin> plugins) async {
     final file = await _stateFile();
     if (!await file.parent.exists()) await file.parent.create(recursive: true);
@@ -58,6 +72,7 @@ class PluginRepository {
     return _installedPlugin(manifest, target.path);
   }
 
+  /// 从 ZIP 压缩包导入并安装插件。
   Future<InstalledPlugin> importZip(String zipPath) async {
     final file = File(zipPath);
     if (!await file.exists()) throw Exception('插件压缩包不存在');
@@ -79,12 +94,13 @@ class PluginRepository {
       }
       final source = await _findManifestDirectory(root);
       if (source == null) throw Exception('压缩包内未找到 plugin.json');
-      return importDirectory(source.path);
+      return await importDirectory(source.path);
     } finally {
       if (await root.exists()) await root.delete(recursive: true);
     }
   }
 
+  /// 读取并校验插件目录中的 plugin.json 清单文件。
   Future<PluginManifest> readManifest(String pluginPath) async {
     final file = File('$pluginPath/plugin.json');
     if (!await file.exists()) throw Exception('插件缺少 plugin.json');
@@ -96,11 +112,13 @@ class PluginRepository {
     return manifest;
   }
 
+  /// 删除指定插件的安装目录。
   Future<void> deletePluginDirectory(String pluginId) async {
     final dir = await _pluginDirectory(pluginId);
     if (await dir.exists()) await dir.delete(recursive: true);
   }
 
+  /// 加载插件的用户设置 JSON 数据。
   Future<Map<String, dynamic>> loadPluginSettings(String pluginId) async {
     final file = await _pluginSettingsFile(pluginId);
     if (!await file.exists()) return <String, dynamic>{};
@@ -108,6 +126,7 @@ class PluginRepository {
     return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
   }
 
+  /// 保存插件的用户设置 JSON 数据。
   Future<void> savePluginSettings(
     String pluginId,
     Map<String, dynamic> settings,
@@ -120,6 +139,7 @@ class PluginRepository {
     );
   }
 
+  /// 加载插件的私有存储 JSON 数据。
   Future<Map<String, dynamic>> loadPluginStorage(String pluginId) async {
     final file = await _pluginStorageFile(pluginId);
     if (!await file.exists()) return <String, dynamic>{};
@@ -127,6 +147,10 @@ class PluginRepository {
     return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
   }
 
+  /// 列出插件目录内所有文件及目录条目，跳过 defaults/ 目录。
+  ///
+  /// 对有 defaultPath 的可编辑文件，若根目录下不存在，则生成虚拟条目（isDefault:true），
+  /// 代表出厂模板的透明回退。
   Future<List<PluginFileEntry>> listPluginFiles(
     InstalledPlugin plugin, {
     int maxDepth = 8,
@@ -139,36 +163,60 @@ class PluginRepository {
       final relativePath = _relativePath(root.path, entity.path);
       if (relativePath.isEmpty) continue;
       if (relativePath.split('/').length > maxDepth) continue;
+      if (_isDefaultPath(relativePath)) continue;
       final stat = await entity.stat();
       final isDirectory = entity is Directory;
+      final isEditable = !isDirectory && _isEditablePluginFile(plugin, relativePath);
+      final hasDef = !isDirectory && _hasDefaultPath(plugin, relativePath);
       entries.add(
         PluginFileEntry(
           path: relativePath,
           size: isDirectory ? 0 : stat.size,
           isDirectory: isDirectory,
-          isEditable:
-              !isDirectory && _isEditablePluginFile(plugin, relativePath),
-          type: _fileTypeFromPath(relativePath),
+          isEditable: isEditable,
+          hasDefault: hasDef,
+          isDefault: false,
+          type: fileTypeFromPath(relativePath),
         ),
       );
     }
+    for (final file in plugin.manifest.editableFiles) {
+      if (file.defaultPath == null || file.defaultPath!.isEmpty) continue;
+      if (!entryExists(file.path, entries)) {
+        entries.add(
+          PluginFileEntry(
+            path: file.path,
+            size: 0,
+            isDirectory: false,
+            isEditable: true,
+            hasDefault: true,
+            isDefault: true,
+            type: fileTypeFromPath(file.path),
+          ),
+        );
+      }
+    }
     entries.sort((a, b) {
       if (a.isDirectory != b.isDirectory) return a.isDirectory ? -1 : 1;
+      if (a.isDefault != b.isDefault) return a.isDefault ? 1 : -1;
       return a.path.compareTo(b.path);
     });
     return entries;
   }
 
-  /// Reads a text file inside a plugin directory after path and size checks.
+  /// 读取插件文本文件（仅限根目录下的自定义文件）。
   ///
-  /// This is intentionally limited to reasonably small text files because the
-  /// plugin management page and bridge both display the content directly.
+  /// 注意：不会回退读取 defaults/ 出厂模板。若文件不存在，直接抛出异常。
+  /// 出厂模板仅由系统内部模块（Lua 运行时、功能页渲染）自行按需加载。
   Future<String> readPluginTextFile(
     String pluginPath,
     String relativePath, {
     int maxBytes = maxTextFileBytes,
   }) async {
-    final file = await _safeExistingPluginFile(pluginPath, relativePath);
+    final safePath = safePluginFilePath(pluginPath, relativePath);
+    if (safePath == null) throw Exception('插件文件路径不安全: $relativePath');
+    final file = File(safePath);
+    if (!await file.exists()) throw Exception('插件文件不存在: $relativePath');
     final stat = await file.stat();
     if (stat.size > maxBytes) throw Exception('文件过大，无法预览');
     return file.readAsString();
@@ -184,10 +232,9 @@ class PluginRepository {
     return true;
   }
 
-  /// Writes a plugin file only if the manifest declares it editable.
-  ///
-  /// UI editability is treated as a hint only; repository writes repeat the
-  /// manifest and path checks so plugins cannot bypass them through another API.
+  /// Writes a plugin file only if the manifest or files:write permission
+  /// declares it editable. Protected paths (defaults/、plugin.json) are
+  /// always rejected.
   Future<void> writePluginTextFile(
     InstalledPlugin plugin,
     String relativePath,
@@ -196,11 +243,15 @@ class PluginRepository {
     if (!_isEditablePluginFile(plugin, relativePath)) {
       throw Exception('插件文件不可编辑: $relativePath');
     }
+    if (_isProtectedPath(relativePath)) {
+      throw Exception('插件受保护文件不可覆盖: $relativePath');
+    }
     final file = await _safeWritablePluginFile(plugin.path, relativePath);
     if (!await file.parent.exists()) await file.parent.create(recursive: true);
     await file.writeAsString(content, flush: true);
   }
 
+  /// 读取插件目录内的 JSON 文件并解析为 Map。
   Future<Map<String, dynamic>> readPluginJsonFile(
     String pluginPath,
     String relativePath,
@@ -211,6 +262,7 @@ class PluginRepository {
     return Map<String, dynamic>.from(data);
   }
 
+  /// 将 Map 数据以 JSON 格式写入插件文件。
   Future<void> writePluginJsonFile(
     InstalledPlugin plugin,
     String relativePath,
@@ -223,6 +275,45 @@ class PluginRepository {
     );
   }
 
+  /// 删除插件目录内的可编辑文件。
+  Future<void> deletePluginFile(
+    InstalledPlugin plugin,
+    String relativePath,
+  ) async {
+    if (!_isEditablePluginFile(plugin, relativePath)) {
+      throw Exception('插件文件不可删除: $relativePath');
+    }
+    if (_isProtectedPath(relativePath)) {
+      throw Exception('插件受保护文件不可删除: $relativePath');
+    }
+    final file = await _safeExistingPluginFile(plugin.path, relativePath);
+    await file.delete();
+  }
+
+  /// 重命名插件目录内的可编辑文件。
+  Future<void> renamePluginFile(
+    InstalledPlugin plugin,
+    String oldPath,
+    String newPath,
+  ) async {
+    if (!_isEditablePluginFile(plugin, oldPath)) {
+      throw Exception('插件文件不可重命名: $oldPath');
+    }
+    if (_isProtectedPath(oldPath) || _isProtectedPath(newPath)) {
+      throw Exception('插件受保护文件不可重命名');
+    }
+    final oldFile = await _safeExistingPluginFile(plugin.path, oldPath);
+    final newSafe = safePluginFilePath(plugin.path, newPath);
+    if (newSafe == null) throw Exception('目标路径不安全: $newPath');
+    await _ensureInsideRoot(plugin.path, File(newSafe).parent.path,
+        allowMissingLeaf: true);
+    if (!await File(newSafe).parent.exists()) {
+      await File(newSafe).parent.create(recursive: true);
+    }
+    await oldFile.rename(newSafe);
+  }
+
+  /// 保存插件的私有存储 JSON 数据。
   Future<void> savePluginStorage(
     String pluginId,
     Map<String, dynamic> storage,
@@ -235,8 +326,29 @@ class PluginRepository {
     );
   }
 
+  /// 判断插件相对路径对应的文件是否可编辑。
   bool isEditablePluginFile(InstalledPlugin plugin, String relativePath) {
     return _isEditablePluginFile(plugin, relativePath);
+  }
+
+  /// 获取可编辑文件对应的默认模板路径。
+  String? defaultPathFor(InstalledPlugin plugin, String relativePath) {
+    final normalized = _normalizeRelativePath(relativePath);
+    if (normalized == null) return null;
+    for (final file in plugin.manifest.editableFiles) {
+      final fileNorm = _normalizeRelativePath(file.path);
+      if (fileNorm == normalized && file.defaultPath != null) {
+        return file.defaultPath!;
+      }
+    }
+    return null;
+  }
+
+  /// 同步判断插件相对路径对应的文件是否存在。
+  bool pluginFileExistsSync(String pluginPath, String relativePath) {
+    final safePath = safePluginFilePath(pluginPath, relativePath);
+    if (safePath == null) return false;
+    return File(safePath).existsSync();
   }
 
   InstalledPlugin _installedPlugin(PluginManifest manifest, String path) {
@@ -390,9 +502,32 @@ class PluginRepository {
     return directory;
   }
 
+  bool _isProtectedPath(String relativePath) {
+    final normalized = _normalizeRelativePath(relativePath);
+    if (normalized == null) return true;
+    if (normalized == 'plugin.json') return true;
+    if (normalized.startsWith('defaults/')) return true;
+    return false;
+  }
+
+  bool _isDefaultPath(String relativePath) {
+    final normalized = relativePath.replaceAll('\\', '/');
+    return normalized.startsWith('defaults/');
+  }
+
+  /// 判断指定路径对应的非默认文件条目是否已存在于列表中。
+  bool entryExists(String path, List<PluginFileEntry> entries) {
+    final normalized = _normalizeRelativePath(path);
+    if (normalized == null) return false;
+    return entries.any((e) =>
+        !e.isDefault && _normalizeRelativePath(e.path) == normalized);
+  }
+
   bool _isEditablePluginFile(InstalledPlugin plugin, String relativePath) {
     final normalized = _normalizeRelativePath(relativePath);
     if (normalized == null) return false;
+    if (_isProtectedPath(normalized)) return false;
+    if (plugin.grantedPermissions.contains('files:write')) return true;
     if (normalized == _normalizeRelativePath(plugin.manifest.config.path)) {
       return true;
     }
@@ -401,22 +536,20 @@ class PluginRepository {
     );
   }
 
+  bool _hasDefaultPath(InstalledPlugin plugin, String relativePath) {
+    final normalized = _normalizeRelativePath(relativePath);
+    if (normalized == null) return false;
+    return plugin.manifest.editableFiles.any(
+      (file) =>
+          file.defaultPath != null &&
+          file.defaultPath!.isNotEmpty &&
+          normalized == _normalizeRelativePath(file.path),
+    );
+  }
+
   String? _normalizeRelativePath(String path) {
     final safe = safePluginFilePath('/tmp/plugin_root', path);
     if (safe == null) return null;
     return _relativePath('/tmp/plugin_root', safe);
-  }
-
-  String _fileTypeFromPath(String path) {
-    final lower = path.toLowerCase();
-    if (lower.endsWith('.json')) return 'json';
-    if (lower.endsWith('.md') || lower.endsWith('.markdown')) return 'markdown';
-    if (lower.endsWith('.lua')) return 'lua';
-    if (lower.endsWith('.js')) return 'javascript';
-    if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'html';
-    if (lower.endsWith('.css')) return 'css';
-    if (lower.endsWith('.yaml') || lower.endsWith('.yml')) return 'yaml';
-    if (lower.endsWith('.toml')) return 'toml';
-    return 'text';
   }
 }

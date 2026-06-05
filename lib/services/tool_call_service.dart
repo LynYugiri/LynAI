@@ -169,6 +169,10 @@ _ParsedRegexSearch? _parseRegexSearch(String query) {
   return _ParsedRegexSearch(pattern, caseSensitive: !flags.contains('i'));
 }
 
+/// 工具执行后的统一返回格式。
+///
+/// 将工具调用 ID、工具名和执行结果打包，供对话 Provider 拼装
+/// `tool` 角色消息回传给模型。
 class ToolExecutionResult {
   final String toolCallId;
   final String name;
@@ -204,6 +208,12 @@ class ToolCallService {
   final SettingsProvider? _settings;
   final _lynaiFunctions = LynAIFunctionService();
 
+  /// 非原生 tool_calls 接口使用的系统提示词。
+  ///
+  /// 当模型接口不支持 OpenAI 原生 tool_calls 时（如部分兼容接口），
+  /// 系统提示词教模型以 JSON fallback 格式发起工具调用：
+  /// `{"tool_calls":[{"name":"工具名","arguments":{...}}]}`。
+  /// 返回的 JSON 由 [parseFallbackToolCalls] 解析。
   static const systemPrompt = '''
 你可以使用本地工具帮助用户管理日程、笔记、待办清单、获取时间/位置、打开安卓应用和创建对话标题。
 当需要调用工具且当前模型接口不支持原生 tool_calls 时，只返回一个 JSON 对象，不要包含 Markdown：
@@ -215,6 +225,10 @@ class ToolCallService {
 日程时间使用带时区偏移的 ISO-8601 字符串；用户说“今天/明天”时必须先结合 get_current_time 的 iso 与 timezoneOffsetMinutes 换算成本地日期时间。
 ''';
 
+  /// 支持原生 tool_calls 接口使用的系统提示词。
+  ///
+  /// 与 [systemPrompt] 的区别是不包含 JSON fallback 格式说明，
+  /// 因为原生 tool_calls 接口会自行处理工具调用的序列化和反序列化。
   static const nativeSystemPrompt = '''
 你可以使用本地工具帮助用户管理日程、笔记、待办清单、获取时间/位置、打开安卓应用和创建对话标题。
 需要调用工具时使用接口提供的 tool_calls；不需要工具时直接正常回答，不要提及工具。
@@ -225,11 +239,25 @@ class ToolCallService {
 日程时间使用带时区偏移的 ISO-8601 字符串；用户说“今天/明天”时必须先结合 get_current_time 的 iso 与 timezoneOffsetMinutes 换算成本地日期时间。
 ''';
 
+  /// 生成当前设备时间的上下文字符串。
+  ///
+  /// 返回带时区信息的 ISO-8601 时间戳，帮助模型将用户的相对时间表达
+  /// （如"今天""明天"）转换为准确的绝对时间。
   static String currentTimeContext() {
     final now = DateTime.now();
     return '当前设备本地时间: ${now.toIso8601String()}，时区: ${now.timeZoneName}，timezoneOffsetMinutes: ${now.timeZoneOffset.inMinutes}。';
   }
 
+  /// 生成符合 OpenAI function-calling 规范的工具定义列表。
+  ///
+  /// 合并两类工具：
+  /// 1. **内置工具**——get_current_time、get_location、open_app 及所有笔记/待办/日程
+  ///    CRUD 操作。每个工具都有完整的 JSON Schema 供模型精确匹配参数。
+  /// 2. **插件工具**——遍历已启用且权限已满足的插件，将其 [PluginToolDefinition]
+  ///    转换为 OpenAI 工具格式追加到列表末尾。
+  ///
+  /// 去重策略：插件工具名若与内置工具名冲突则跳过该插件工具（内置工具优先）。
+  /// 仅当插件 enabled、无错误且全部权限已授予时，其工具才会暴露给模型。
   static List<Map<String, dynamic>> openAITools([
     Iterable<InstalledPlugin> plugins = const [],
   ]) {
@@ -642,6 +670,13 @@ class ToolCallService {
     return tools;
   }
 
+  /// 解析 JSON fallback 格式的工具调用。
+  ///
+  /// 当模型不支持原生 tool_calls 时，它在 `content` 中返回 JSON 文本：
+  /// `{"tool_calls": [{"name": "...", "arguments": {...}}]}`。
+  /// 此方法从文本中提取并转换为 [ChatToolCall] 列表。
+  /// 支持被 Markdown 代码块包裹的 JSON（即 ```json ... ``` 格式）。
+  /// 解析失败时不抛异常，返回空列表。
   static List<ChatToolCall> parseFallbackToolCalls(String content) {
     final trimmed = content.trim();
     if (trimmed.isEmpty) return const [];
@@ -688,6 +723,10 @@ class ToolCallService {
     return <String, dynamic>{};
   }
 
+  /// 批量执行一组工具调用。
+  ///
+  /// 按顺序逐个执行，每个调用返回一个 [ToolExecutionResult]。
+  /// [conversationMessages] 作为上下文传入，供需要对话历史的工具使用。
   Future<List<ToolExecutionResult>> executeAll(
     List<ChatToolCall> calls,
     List<Message> conversationMessages,
@@ -705,6 +744,15 @@ class ToolCallService {
     return results;
   }
 
+  /// 执行单个工具调用并返回结构化结果。
+  ///
+  /// 工具分发顺序：
+  /// 1. 内置硬编码工具（get_current_time / get_location / open_app）
+  /// 2. [LynAIFunctionService.aiToolAliases] 映射的工具（统一由 LynAI 函数引擎执行）
+  /// 3. 插件 Lua 工具（由 [PluginLuaRuntimeService.executeTool] 在沙箱中运行）
+  ///
+  /// 结果总是返回 `{'ok': true/false, ...}` 结构，
+  /// 确保模型能区分成功和失败并据此生成合适的用户回复。
   Future<Map<String, dynamic>> execute(
     ChatToolCall call,
     List<Message> conversationMessages,
@@ -1315,18 +1363,20 @@ class ToolCallService {
   }
 
   Map<String, dynamic> _listNoteFolders() {
+    final counts = <String, int>{};
+    for (final note in _features.notes) {
+      final fid = note.folderId;
+      if (fid != null) counts[fid] = (counts[fid] ?? 0) + 1;
+    }
     return {
       'ok': true,
       'folders': _features.noteFolders.map((folder) {
-        final count = _features.notes
-            .where((note) => note.folderId == folder.id)
-            .length;
         return {
           'id': folder.id,
           'title': folder.title,
           'createdAt': folder.createdAt.toIso8601String(),
           'updatedAt': folder.updatedAt.toIso8601String(),
-          'noteCount': count,
+          'noteCount': counts[folder.id] ?? 0,
         };
       }).toList(),
     };

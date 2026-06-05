@@ -1,5 +1,9 @@
 part of '../feature_page.dart';
 
+/// 功能总览仪表盘。
+///
+/// 以自适应网格布局展示对话历史、日程、笔记、待办、情景演绎
+/// 及已启用的插件功能页入口。
 class _FeatureDashboard extends StatelessWidget {
   final ValueChanged<String> onFeatureSelected;
 
@@ -79,6 +83,7 @@ class _FeatureDashboard extends StatelessWidget {
       for (final page in plugin.manifest.featurePages) {
         if (!plugin.enabledFeaturePages.contains(page.id)) continue;
         if (page.entry.trim().isEmpty) continue;
+        if (page.showInDashboard == false) continue;
         items.add(
           _FeatureDashboardItem.plugin(
             value: _PluginFeatureRef(plugin.id, page.id).key,

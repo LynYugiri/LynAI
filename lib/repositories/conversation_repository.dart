@@ -9,6 +9,7 @@ import '../models/message.dart';
 import '../services/storage_v2_service.dart';
 import 'app_storage_state.dart';
 
+/// 对话加载结果，包含对话列表与存储版本标识。
 class ConversationLoadResult {
   const ConversationLoadResult({
     required this.conversations,
@@ -19,6 +20,10 @@ class ConversationLoadResult {
   final bool usingStorageV2;
 }
 
+/// 对话数据仓储，负责加载和持久化用户对话记录。
+///
+/// 支持旧版 SharedPreferences 存储与新版存储 V2 两种模式，
+/// 根据当前存储状态自动选择读写路径。
 class ConversationRepository {
   factory ConversationRepository({
     StorageV2Service? storageV2,
@@ -38,6 +43,9 @@ class ConversationRepository {
   final StorageV2Service _storageV2;
   final AppStorageStateRepository _storageState;
 
+  /// 加载所有对话记录，按更新时间降序排列。
+  ///
+  /// 根据当前存储状态选择新版 V2 存储或旧版 SharedPreferences 进行读取。
   Future<ConversationLoadResult> load() async {
     final usingStorageV2 = await _storageState.isStorageV2Active();
     if (usingStorageV2) {
@@ -57,7 +65,16 @@ class ConversationRepository {
         usingStorageV2: false,
       );
     }
-    final items = jsonDecode(jsonString) as List<dynamic>;
+    List<dynamic> items;
+    try {
+      items = jsonDecode(jsonString) as List<dynamic>;
+    } catch (e) {
+      debugPrint('解析对话数据失败: $e');
+      return const ConversationLoadResult(
+        conversations: [],
+        usingStorageV2: false,
+      );
+    }
     final conversations = <Conversation>[];
     for (final item in items) {
       try {
@@ -73,6 +90,7 @@ class ConversationRepository {
     );
   }
 
+  /// 保存对话列表到当前激活的存储后端。
   Future<void> save(
     List<Conversation> conversations, {
     required bool usingStorageV2,

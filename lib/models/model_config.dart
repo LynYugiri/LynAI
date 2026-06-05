@@ -3,15 +3,31 @@
 /// 一个 Provider 可能暴露多个模型名。子模型级参数优先于 Provider 级参数，
 /// 并决定当前请求是否启用视觉、思考和工具能力。
 class ModelEntry {
+  /// 子模型名称。
   final String name;
+
+  /// 该子模型是否启用。
   final bool enabled;
+
+  /// 该子模型是否支持视觉输入。
   final bool supportsVision;
+
+  /// 该子模型是否支持思考过程输出。
   final bool supportsThinking;
+
+  /// 该子模型是否支持工具调用。
   final bool supportsTools;
+
+  /// 该子模型的最大 Token 数，为 null 时继承 Provider 级设置。
   final int? maxTokens;
+
+  /// 该子模型的温度参数，为 null 时继承 Provider 级设置。
   final double? temperature;
+
+  /// 该子模型的 Top-P 采样参数，为 null 时继承 Provider 级设置。
   final double? topP;
 
+  /// 创建一个子模型配置实例。
   ModelEntry({
     required this.name,
     this.enabled = false,
@@ -23,6 +39,7 @@ class ModelEntry {
     this.topP,
   });
 
+  /// 从 JSON 数据创建 [ModelEntry] 实例。
   factory ModelEntry.fromJson(Map<String, dynamic> json) {
     return ModelEntry(
       name: json['name'] as String,
@@ -36,6 +53,7 @@ class ModelEntry {
     );
   }
 
+  /// 将当前实例序列化为 JSON Map。
   Map<String, dynamic> toJson() => {
     'name': name,
     'enabled': enabled,
@@ -47,6 +65,7 @@ class ModelEntry {
     if (topP != null) 'topP': topP,
   };
 
+  /// 创建当前实例的副本，可选择性更新部分字段。
   ModelEntry copyWith({
     String? name,
     bool? enabled,
@@ -81,10 +100,19 @@ class ModelEntry {
 /// `category` 决定配置用途：聊天、OCR、语音转写或图片生成。聊天配置可以
 /// 通过 [models] 维护多个子模型，`modelName` 表示当前激活子模型。
 class ModelConfig {
+  /// 聊天类配置的类别常量。
   static const categoryChat = 'chat';
+
+  /// OCR 类配置的类别常量。
   static const categoryOcr = 'ocr';
+
+  /// 语音转写类配置的类别常量。
   static const categorySpeech = 'speech';
+
+  /// 图片生成类配置的类别常量。
   static const categoryImageGeneration = 'image_generation';
+
+  /// 所有支持的配置类别列表。
   static const supportedCategories = [
     categoryChat,
     categoryOcr,
@@ -92,20 +120,46 @@ class ModelConfig {
     categoryImageGeneration,
   ];
 
+  /// 配置唯一标识符。
   final String id;
+
+  /// 配置显示名称。
   final String name;
+
+  /// 配置类别，决定该配置的使用场景。
   final String category;
+
+  /// API 端点地址。
   final String endpoint;
+
+  /// API 密钥。
   final String apiKey;
-  final String modelName; // default/current model
+
+  /// 当前激活的模型名称。
+  final String modelName;
+
+  /// API 类型标识符，如 'openai'、'anthropic' 等。
   final String apiType;
+
+  /// 配置优先级，数值越大优先级越高。
   final int priority;
-  final List<ModelEntry> models; // all models under this provider
+
+  /// 該提供商下的所有子模型列表。
+  final List<ModelEntry> models;
+
+  /// Provider 级的最大 Token 数，可被子模型覆盖。
   final int? maxTokens;
+
+  /// Provider 级的温度参数，可被子模型覆盖。
   final double? temperature;
+
+  /// Provider 级的 Top-P 采样参数，可被子模型覆盖。
   final double? topP;
+
+  /// 额外的自定义请求参数。
   final Map<String, dynamic> extraParams;
 
+  /// 创建一个模型配置实例。
   ModelConfig({
     required this.id,
     required this.name,
@@ -123,11 +177,14 @@ class ModelConfig {
   }) : extraParams = extraParams ?? {},
        models = models ?? [ModelEntry(name: modelName, enabled: true)];
 
+  /// 所有已启用的子模型名称列表。
   List<String> get enabledModelNames =>
       models.where((m) => m.enabled).map((m) => m.name).toList();
 
+  /// 该提供商是否配置了多个子模型。
   bool get hasMultipleModels => models.length > 1;
 
+  /// 当前激活的子模型配置项。
   ModelEntry? get activeEntry {
     for (final entry in models) {
       if (entry.name == modelName) return entry;
@@ -137,13 +194,25 @@ class ModelConfig {
     return enabled.isNotEmpty ? enabled.first : models.first;
   }
 
+  /// 生效的最大 Token 数，优先使用子模型设置。
   int? get effectiveMaxTokens => activeEntry?.maxTokens ?? maxTokens;
+
+  /// 生效的温度参数，优先使用子模型设置。
   double? get effectiveTemperature => activeEntry?.temperature ?? temperature;
+
+  /// 生效的 Top-P 采样参数，优先使用子模型设置。
   double? get effectiveTopP => activeEntry?.topP ?? topP;
+
+  /// 当前激活模型是否支持视觉输入。
   bool get supportsVision => activeEntry?.supportsVision ?? true;
+
+  /// 当前激活模型是否支持思考过程输出。
   bool get supportsThinking => activeEntry?.supportsThinking ?? true;
+
+  /// 当前激活模型是否支持工具调用。
   bool get supportsTools => activeEntry?.supportsTools ?? true;
 
+  /// 创建当前实例的副本，可选择性更新部分字段。
   ModelConfig copyWith({
     String? id,
     String? name,
@@ -182,6 +251,7 @@ class ModelConfig {
 
   static const _sentinel = Object();
 
+  /// 从 JSON 数据创建 [ModelConfig] 实例。
   factory ModelConfig.fromJson(Map<String, dynamic> json) {
     List<ModelEntry> entries = [];
     if (json['models'] != null) {
@@ -235,6 +305,7 @@ class ModelConfig {
     );
   }
 
+  /// 将当前实例序列化为 JSON Map。
   Map<String, dynamic> toJson() {
     return {
       'id': id,

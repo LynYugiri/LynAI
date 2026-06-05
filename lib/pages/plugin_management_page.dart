@@ -8,9 +8,13 @@ import '../models/plugin.dart';
 import '../models/plugin_config_schema.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
+import '../repositories/plugin_repository.dart';
 import '../widgets/model_config_picker.dart';
 import '../widgets/plugin_icon.dart';
 
+/// 插件管理页面。
+///
+/// 展示已安装的插件列表和未安装的内置插件，支持启用/禁用、导入 ZIP 等操作。
 class PluginManagementPage extends StatelessWidget {
   const PluginManagementPage({super.key});
 
@@ -43,18 +47,28 @@ class PluginManagementPage extends StatelessWidget {
           ),
         ],
       ),
-      body: provider.plugins.isEmpty
-          ? const _EmptyPlugins()
-          : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: provider.plugins.length,
-              itemBuilder: (context, index) {
-                return _PluginCard(plugin: provider.plugins[index]);
-              },
-            ),
+      body: CustomScrollView(
+        slivers: [
+          const _BuiltInPluginsSection(),
+          SliverToBoxAdapter(
+            child: provider.plugins.isEmpty
+                ? const _EmptyPlugins()
+                : ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: provider.plugins.length,
+                    itemBuilder: (context, index) {
+                      return _PluginCard(plugin: provider.plugins[index]);
+                    },
+                  ),
+          ),
+        ],
+      ),
     );
   }
 
+  /// 打开文件选择器选取 ZIP 文件后，调用 [PluginProvider.importZip] 导入插件。
   Future<void> _importPluginZip(BuildContext context) async {
     final result = await FilePicker.pickFiles(
       dialogTitle: '选择插件 ZIP',
@@ -144,6 +158,9 @@ class _PluginCard extends StatelessWidget {
   }
 }
 
+/// 插件详情页面。
+///
+/// 展示插件的权限、工具、函数、功能页、配置文件与文件管理等完整信息。
 class PluginDetailPage extends StatelessWidget {
   const PluginDetailPage({super.key, required this.pluginId});
 
@@ -294,6 +311,7 @@ class PluginDetailPage extends StatelessWidget {
     );
   }
 
+  /// 弹出确认对话框后删除指定插件，删除成功后自动返回上一页。
   Future<void> _confirmDelete(
     BuildContext context,
     InstalledPlugin plugin,
@@ -871,25 +889,63 @@ class _PluginFilesCardState extends State<_PluginFilesCard> {
           }
           final files = snapshot.data!;
           if (files.isEmpty) return const Text('没有文件');
+          final hasFilesWrite = widget.plugin.grantedPermissions
+              .contains('files:write');
           return Column(
-            children: files.map((file) {
-              return ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(
-                  file.isDirectory
-                      ? Icons.folder_outlined
-                      : Icons.insert_drive_file_outlined,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ...files.map((file) {
+                final trailing = Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (file.hasDefault && !file.isDefault)
+                      IconButton(
+                        tooltip: '恢复默认',
+                        icon: const Icon(Icons.restore, size: 18),
+                        onPressed: () => _restoreDefault(file),
+                      ),
+                    Icon(
+                      file.isEditable
+                          ? Icons.edit_outlined
+                          : Icons.visibility_outlined,
+                    ),
+                  ],
+                );
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    file.isDirectory
+                        ? Icons.folder_outlined
+                        : Icons.insert_drive_file_outlined,
+                    color: file.isDefault ? Colors.grey[600] : null,
+                  ),
+                  title: Text(
+                    file.path,
+                    style: TextStyle(
+                      color: file.isDefault ? Colors.grey[500] : null,
+                    ),
+                  ),
+                  subtitle: Text(
+                    file.isDirectory
+                        ? '目录'
+                        : file.isDefault
+                            ? '出厂版本'
+                            : '${file.type} · ${file.size} bytes',
+                  ),
+                  trailing: trailing,
+                  onTap: file.isDirectory ? null : () => _openFile(file),
+                );
+              }),
+              if (hasFilesWrite)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: TextButton.icon(
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('新建文件'),
+                    onPressed: _createFile,
+                  ),
                 ),
-                title: Text(file.path),
-                subtitle: Text(
-                  file.isDirectory ? '目录' : '${file.type} · ${file.size} bytes',
-                ),
-                trailing: file.isEditable
-                    ? const Icon(Icons.edit_outlined)
-                    : const Icon(Icons.visibility_outlined),
-                onTap: file.isDirectory ? null : () => _openFile(file),
-              );
-            }).toList(),
+            ],
           );
         },
       ),
@@ -922,6 +978,10 @@ class _PluginFilesCardState extends State<_PluginFilesCard> {
   Future<String?> _showFileDialog(PluginFileEntry file, String content) async {
     final controller = TextEditingController(text: content);
     String? error;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final editorBg = isDark ? const Color(0xFF1e1e2e) : const Color(0xFFf5f5f5);
+    final editorText =
+        isDark ? const Color(0xFFdcdcdc) : const Color(0xFF1a1a1a);
     final result = await showDialog<String>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -933,11 +993,36 @@ class _PluginFilesCardState extends State<_PluginFilesCard> {
               controller: controller,
               readOnly: !file.isEditable,
               maxLines: 20,
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 13,
+                color: editorText,
+              ),
               decoration: InputDecoration(
-                border: const OutlineInputBorder(),
+                filled: true,
+                fillColor: editorBg,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(
+                    color: isDark
+                        ? const Color(0xFF3a3a50)
+                        : const Color(0xFFdddddd),
+                  ),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(
+                    color: isDark
+                        ? const Color(0xFF3a3a50)
+                        : const Color(0xFFdddddd),
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: Color(0xFF6c5ce7)),
+                ),
                 errorText: error,
               ),
-              style: const TextStyle(fontFamily: 'monospace'),
             ),
           ),
           actions: [
@@ -971,6 +1056,130 @@ class _PluginFilesCardState extends State<_PluginFilesCard> {
     );
     controller.dispose();
     return result;
+  }
+
+  /// 弹出确认对话框后将指定插件文件恢复为出厂默认版本。
+  Future<void> _restoreDefault(PluginFileEntry file) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('恢复默认'),
+            content: Text('将 "${file.path}" 恢复为出厂默认版本，当前修改将被丢弃。'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('恢复默认'),
+              ),
+            ],
+          ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      final provider = context.read<PluginProvider>();
+      await provider.deleteFile(widget.plugin.id, file.path);
+      setState(() => _future = provider.listFiles(widget.plugin.id));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('已恢复默认')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+        );
+      }
+    }
+  }
+
+  /// 弹出对话框让用户在插件目录下创建新文件并写入初始内容。
+  Future<void> _createFile() async {
+    final nameController = TextEditingController();
+    final contentController = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          String? error;
+          return AlertDialog(
+            title: const Text('新建文件'),
+            content: SizedBox(
+              width: 480,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    decoration: InputDecoration(
+                      labelText: '文件名',
+                      hintText: '例如 style.css',
+                      border: const OutlineInputBorder(),
+                      errorText: error,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: contentController,
+                    maxLines: 8,
+                    decoration: const InputDecoration(
+                      labelText: '初始内容 (可选)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final name = nameController.text.trim();
+                  if (name.isEmpty) {
+                    setDialogState(() => error = '文件名不能为空');
+                    return;
+                  }
+                  Navigator.pop(context, name);
+                },
+                child: const Text('创建'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    final resultPath = result;
+    final content = contentController.text;
+    nameController.dispose();
+    contentController.dispose();
+    if (resultPath == null || !mounted) return;
+    try {
+      final provider = context.read<PluginProvider>();
+      await provider.writeEditableFile(
+        widget.plugin.id,
+        resultPath,
+        content,
+      );
+      setState(() => _future = provider.listFiles(widget.plugin.id));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('文件已创建')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))));
+      }
+    }
   }
 }
 
@@ -1083,8 +1292,95 @@ String _permissionLabel(String permission) {
     'webview:bridge' => '使用 WebView Bridge',
     'native:location' => '获取位置',
     'native:open_app' => '打开应用',
+    'files:write' => '插件文件读写',
+    'network:access' => '网络访问',
     _ => permission,
   };
+}
+
+/// 展示尚未安装的内置插件列表，并为每个插件提供一键安装按钮。
+class _BuiltInPluginsSection extends StatelessWidget {
+  const _BuiltInPluginsSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<PluginProvider>();
+    final builtInIds = PluginRepository.builtInPluginIds;
+    final uninstalled = builtInIds
+        .where((id) => !provider.pluginExistsSync(id))
+        .toList();
+
+    if (uninstalled.isEmpty) {
+      return const SliverToBoxAdapter(child: SizedBox.shrink());
+    }
+
+    return SliverToBoxAdapter(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+        child: Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '内置插件',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                const Text('内置插件来自应用自身，安全可信。'),
+                const SizedBox(height: 12),
+                ...uninstalled.map(
+                  (id) => ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const CircleAvatar(
+                      child: Icon(Icons.download, size: 20),
+                    ),
+                    title: Text(_builtInName(id)),
+                    trailing: FilledButton.tonalIcon(
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('安装'),
+                      onPressed: provider.loading
+                          ? null
+                          : () => _installBuiltIn(context, provider, id),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 将内置插件的内部标识符映射为用户可见的中文名称。
+  String _builtInName(String id) {
+    return switch (id) {
+      'status-dashboard' => '状态仪表盘',
+      _ => id,
+    };
+  }
+
+  /// 调用 [PluginProvider.importBuiltIn] 将指定内置插件安装到用户插件目录。
+  Future<void> _installBuiltIn(
+    BuildContext context,
+    PluginProvider provider,
+    String id,
+  ) async {
+    try {
+      final plugin = await provider.importBuiltIn(id);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${plugin.manifest.name} 已安装')),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('安装失败: $e')));
+    }
+  }
 }
 
 Future<void> _runAction(

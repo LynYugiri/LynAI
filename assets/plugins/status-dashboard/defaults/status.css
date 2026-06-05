@@ -1,0 +1,206 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+               'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: linear-gradient(135deg, #0f0c29 0%, #1a1a3e 40%, #24243e 100%);
+  color: #e0e0f0;
+  min-height: 100vh;
+  padding: 24px 16px 48px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.container {
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+header {
+  text-align: center;
+  margin-bottom: 28px;
+  animation: fadeInDown 0.6s ease;
+}
+
+h1 {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  background: linear-gradient(135deg, #a78bfa 0%, #818cf8 50%, #c084fc 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 4px;
+}
+
+.subtitle {
+  font-size: 13px;
+  color: rgba(160, 160, 200, 0.7);
+  letter-spacing: 0.5px;
+}
+
+/* 统计卡片网格 */
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+/* 单个卡片 */
+.stat-card {
+  position: relative;
+  border-radius: 16px;
+  padding: 22px 18px 18px;
+  overflow: hidden;
+  cursor: default;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+  animation: fadeInUp 0.5s ease both;
+}
+.stat-card:active {
+  transform: scale(0.97);
+}
+.card-bg {
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.card-content {
+  position: relative;
+  z-index: 1;
+}
+
+/* 各卡片配色 */
+.stat-card.notes .card-bg {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(139, 92, 246, 0.04));
+  box-shadow: 0 4px 24px rgba(139, 92, 246, 0.12);
+}
+.stat-card.notes .card-icon-wrap { background: rgba(139, 92, 246, 0.18); color: #a78bfa; }
+
+.stat-card.todos .card-bg {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(16, 185, 129, 0.04));
+  box-shadow: 0 4px 24px rgba(16, 185, 129, 0.12);
+}
+.stat-card.todos .card-icon-wrap { background: rgba(16, 185, 129, 0.18); color: #6ee7b7; }
+
+.stat-card.conversations .card-bg {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(59, 130, 246, 0.04));
+  box-shadow: 0 4px 24px rgba(59, 130, 246, 0.12);
+}
+.stat-card.conversations .card-icon-wrap { background: rgba(59, 130, 246, 0.18); color: #93c5fd; }
+
+.stat-card.system .card-bg {
+  background: linear-gradient(135deg, rgba(251, 146, 60, 0.15), rgba(251, 146, 60, 0.04));
+  box-shadow: 0 4px 24px rgba(251, 146, 60, 0.12);
+}
+.stat-card.system .card-icon-wrap { background: rgba(251, 146, 60, 0.18); color: #fdba74; }
+
+.card-icon-wrap {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+.card-svg {
+  width: 22px;
+  height: 22px;
+}
+.card-value {
+  font-size: 30px;
+  font-weight: 800;
+  color: #f5f5ff;
+  line-height: 1.1;
+  margin-bottom: 2px;
+  letter-spacing: -0.5px;
+  font-variant-numeric: tabular-nums;
+}
+.card-label {
+  font-size: 12px;
+  color: rgba(180, 180, 210, 0.75);
+  font-weight: 500;
+}
+.card-sub {
+  font-size: 11px;
+  color: rgba(150, 150, 190, 0.65);
+  margin-top: 4px;
+}
+
+/* 天气卡片 */
+.weather-card {
+  background: rgba(6, 182, 212, 0.08);
+  border: 1px solid rgba(6, 182, 212, 0.12);
+  border-radius: 16px;
+  padding: 18px 20px;
+  margin-bottom: 28px;
+  animation: fadeInUp 0.4s ease 0.3s both;
+}
+.weather-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(34, 211, 238, 0.8);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+.weather-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.weather-temp {
+  font-size: 36px;
+  font-weight: 800;
+  color: #67e8f9;
+  line-height: 1;
+}
+.weather-details {
+  flex: 1;
+}
+#weather-cond {
+  font-size: 15px;
+  color: #cbd5e1;
+  margin-bottom: 4px;
+}
+.weather-meta {
+  font-size: 12px;
+  color: rgba(160, 160, 200, 0.7);
+}
+.weather-sep {
+  margin: 0 6px;
+}
+
+/* 页脚 */
+footer {
+  text-align: center;
+  padding: 20px 0 8px;
+}
+footer p {
+  font-size: 11px;
+  color: rgba(140, 140, 180, 0.5);
+}
+
+/* 动画 */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeInDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.stat-card:nth-child(1) { animation-delay: 0.05s; }
+.stat-card:nth-child(2) { animation-delay: 0.12s; }
+.stat-card:nth-child(3) { animation-delay: 0.19s; }
+.stat-card:nth-child(4) { animation-delay: 0.26s; }
+
+/* 滚动条 */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }

@@ -1,10 +1,18 @@
 /// Lua/WebView 插件清单中的工具定义。
 class PluginToolDefinition {
+  /// 工具名称，用于在 API 调用时标识该工具。
   final String name;
+
+  /// 工具的描述信息，供模型理解工具用途。
   final String description;
+
+  /// 对应的 Lua 全局函数名，用于执行工具逻辑。
   final String handler;
+
+  /// 工具参数的 JSON Schema 定义。
   final Map<String, dynamic> parameters;
 
+  /// 创建一个插件工具定义实例。
   const PluginToolDefinition({
     required this.name,
     required this.description,
@@ -12,6 +20,7 @@ class PluginToolDefinition {
     required this.parameters,
   });
 
+  /// 从 JSON 数据创建 [PluginToolDefinition] 实例。
   factory PluginToolDefinition.fromJson(Map<String, dynamic> json) {
     final name = json['name'] as String? ?? '';
     return PluginToolDefinition(
@@ -25,6 +34,7 @@ class PluginToolDefinition {
     );
   }
 
+  /// 将当前实例序列化为 JSON Map。
   Map<String, dynamic> toJson() => {
     'name': name,
     'description': description,
@@ -32,6 +42,7 @@ class PluginToolDefinition {
     'parameters': parameters,
   };
 
+  /// 校验工具定义的合法性，返回错误信息或 null。
   String? validate() {
     if (!RegExp(r'^[a-zA-Z0-9_-]{1,64}$').hasMatch(name)) {
       return '插件 tool 名称只能包含字母、数字、下划线和横线，且长度不超过 64';
@@ -45,16 +56,23 @@ class PluginToolDefinition {
 
 /// Lua 插件导出的非模型调用函数。
 class PluginFunctionDefinition {
+  /// 函数名称，用于在 UI 中标识该函数。
   final String name;
+
+  /// 函数在界面上显示的标题。
   final String title;
+
+  /// 对应的 Lua 全局函数名，用于执行函数逻辑。
   final String handler;
 
+  /// 创建一个插件函数定义实例。
   const PluginFunctionDefinition({
     required this.name,
     required this.title,
     required this.handler,
   });
 
+  /// 从 JSON 数据创建 [PluginFunctionDefinition] 实例。
   factory PluginFunctionDefinition.fromJson(Map<String, dynamic> json) {
     final name = json['name'] as String? ?? '';
     return PluginFunctionDefinition(
@@ -64,6 +82,7 @@ class PluginFunctionDefinition {
     );
   }
 
+  /// 将当前实例序列化为 JSON Map。
   Map<String, dynamic> toJson() => {
     'name': name,
     'title': title,
@@ -73,34 +92,57 @@ class PluginFunctionDefinition {
 
 /// WebView 插件功能页定义。
 class PluginFeaturePageDefinition {
+  /// 功能页唯一标识符。
   final String id;
+
+  /// 功能页在界面上显示的标题。
   final String title;
+
+  /// 功能页的图标标识符或路径。
   final String icon;
+
+  /// 功能页的入口文件路径（HTML 或 Lua）。
   final String entry;
 
+  /// 是否在设置页面中显示该功能页。
+  final bool showInSettings;
+
+  /// 是否在仪表盘页面中显示该功能页。
+  final bool showInDashboard;
+
+  /// 创建一个插件功能页定义实例。
   const PluginFeaturePageDefinition({
     required this.id,
     required this.title,
     required this.icon,
     required this.entry,
+    this.showInSettings = false,
+    this.showInDashboard = true,
   });
 
+  /// 从 JSON 数据创建 [PluginFeaturePageDefinition] 实例。
   factory PluginFeaturePageDefinition.fromJson(Map<String, dynamic> json) {
     return PluginFeaturePageDefinition(
       id: json['id'] as String? ?? '',
       title: json['title'] as String? ?? '',
       icon: json['icon'] as String? ?? '',
       entry: json['entry'] as String? ?? '',
+      showInSettings: json['showInSettings'] as bool? ?? false,
+      showInDashboard: json['showInDashboard'] as bool? ?? true,
     );
   }
 
+  /// 将当前实例序列化为 JSON Map。
   Map<String, dynamic> toJson() => {
     'id': id,
     'title': title,
     'icon': icon,
     'entry': entry,
+    if (showInSettings) 'showInSettings': true,
+    if (!showInDashboard) 'showInDashboard': false,
   };
 
+  /// 校验功能页定义的合法性，返回错误信息或 null。
   String? validate() {
     if (id.trim().isEmpty) return '插件功能页缺少 id';
     if (!RegExp(r'^[a-zA-Z0-9_.-]+$').hasMatch(id)) {
@@ -113,12 +155,22 @@ class PluginFeaturePageDefinition {
 
 /// 插件自定义设置项定义。
 class PluginSettingDefinition {
+  /// 设置项的键名，用于存储和读取设置值。
   final String key;
+
+  /// 设置项的类型，如 'string'、'boolean'、'select' 等。
   final String type;
+
+  /// 设置项在界面上显示的标题。
   final String title;
+
+  /// 设置项的默认值。
   final Object? defaultValue;
+
+  /// 当 type 为 'select' 时的选项列表。
   final List<Map<String, dynamic>> options;
 
+  /// 创建一个插件设置项定义实例。
   const PluginSettingDefinition({
     required this.key,
     required this.type,
@@ -127,6 +179,7 @@ class PluginSettingDefinition {
     this.options = const [],
   });
 
+  /// 从 JSON 数据创建 [PluginSettingDefinition] 实例。
   factory PluginSettingDefinition.fromJson(Map<String, dynamic> json) {
     return PluginSettingDefinition(
       key: json['key'] as String? ?? '',
@@ -140,6 +193,7 @@ class PluginSettingDefinition {
     );
   }
 
+  /// 将当前实例序列化为 JSON Map。
   Map<String, dynamic> toJson() => {
     'key': key,
     'type': type,
@@ -151,17 +205,25 @@ class PluginSettingDefinition {
 
 /// 插件真实配置文件定义。
 class PluginConfigDefinition {
+  /// 配置文件的默认路径。
   static const defaultPath = 'config.json';
+
+  /// 配置 Schema 的默认路径。
   static const defaultSchemaPath = 'config.schema.json';
 
+  /// 配置文件的相对路径。
   final String path;
+
+  /// 配置 Schema 文件的相对路径。
   final String schema;
 
+  /// 创建一个插件配置文件定义实例。
   const PluginConfigDefinition({
     this.path = defaultPath,
     this.schema = defaultSchemaPath,
   });
 
+  /// 从 JSON 数据创建 [PluginConfigDefinition] 实例。
   factory PluginConfigDefinition.fromJson(Object? value) {
     if (value is! Map) return const PluginConfigDefinition();
     return PluginConfigDefinition(
@@ -170,8 +232,10 @@ class PluginConfigDefinition {
     );
   }
 
+  /// 将当前实例序列化为 JSON Map。
   Map<String, dynamic> toJson() => {'path': path, 'schema': schema};
 
+  /// 校验配置文件路径的安全性，返回错误信息或 null。
   String? validate() {
     if (!_isSafeRelativePluginPath(path)) return '插件 config.path 不安全: $path';
     if (!_isSafeRelativePluginPath(schema)) {
@@ -183,34 +247,55 @@ class PluginConfigDefinition {
 
 /// 用户可在插件管理页直接编辑的插件文件。
 class PluginEditableFileDefinition {
+  /// 可编辑文件的相对路径。
   final String path;
+
+  /// 文件在编辑器中显示的标题。
   final String title;
+
+  /// 文件的类型标识符，用于语法高亮。
   final String type;
 
+  /// 文件内容为空时的默认模板文件路径。
+  final String? defaultPath;
+
+  /// 创建一个可编辑插件文件定义实例。
   const PluginEditableFileDefinition({
     required this.path,
     required this.title,
     required this.type,
+    this.defaultPath,
   });
 
+  /// 从 JSON 数据创建 [PluginEditableFileDefinition] 实例。
   factory PluginEditableFileDefinition.fromJson(Map<String, dynamic> json) {
     final path = json['path'] as String? ?? '';
+    final dp = (json['defaultPath'] as String? ?? '').trim();
     return PluginEditableFileDefinition(
       path: path,
       title: json['title'] as String? ?? path,
-      type: json['type'] as String? ?? _fileTypeFromPath(path),
+      type: json['type'] as String? ?? fileTypeFromPath(path),
+      defaultPath: dp.isEmpty ? null : dp,
     );
   }
 
+  /// 将当前实例序列化为 JSON Map。
   Map<String, dynamic> toJson() => {
     'path': path,
     if (title.isNotEmpty && title != path) 'title': title,
     if (type.isNotEmpty) 'type': type,
+    if (defaultPath != null && defaultPath!.isNotEmpty) 'defaultPath': defaultPath,
   };
 
+  /// 校验可编辑文件路径的安全性，返回错误信息或 null。
   String? validate() {
     if (!_isSafeRelativePluginPath(path)) {
       return '插件 editableFiles 路径不安全: $path';
+    }
+    if (defaultPath != null && defaultPath!.isNotEmpty) {
+      if (!_isSafeRelativePluginPath(defaultPath!)) {
+        return '插件 editableFiles defaultPath 不安全: $defaultPath';
+      }
     }
     return null;
   }
@@ -218,38 +303,84 @@ class PluginEditableFileDefinition {
 
 /// 插件目录中的文件条目。
 class PluginFileEntry {
+  /// 文件的相对路径。
   final String path;
+
+  /// 文件大小（字节）。
   final int size;
+
+  /// 是否为目录。
   final bool isDirectory;
+
+  /// 是否可在应用内编辑。
   final bool isEditable;
+
+  /// 是否有对应的默认模板文件。
+  final bool hasDefault;
+
+  /// 当前是否为默认模板文件内容。
+  final bool isDefault;
+
+  /// 文件类型标识符。
   final String type;
 
+  /// 创建一个插件文件条目实例。
   const PluginFileEntry({
     required this.path,
     required this.size,
     required this.isDirectory,
     required this.isEditable,
     required this.type,
+    this.hasDefault = false,
+    this.isDefault = false,
   });
 }
 
 /// 插件 manifest 的规范化表示。
 class PluginManifest {
+  /// 插件唯一标识符。
   final String id;
+
+  /// 插件显示名称。
   final String name;
+
+  /// 插件版本号，遵循语义化版本规范。
   final String version;
+
+  /// 插件作者名称。
   final String author;
+
+  /// 插件功能描述。
   final String description;
+
+  /// 插件图标路径或标识符。
   final String icon;
+
+  /// 插件入口文件路径（Lua 或 HTML）。
   final String entry;
+
+  /// 插件所需的权限列表。
   final List<String> permissions;
+
+  /// 插件提供的工具定义列表。
   final List<PluginToolDefinition> tools;
+
+  /// 插件导出的非模型调用函数列表。
   final List<PluginFunctionDefinition> functions;
+
+  /// 插件提供的功能页列表。
   final List<PluginFeaturePageDefinition> featurePages;
+
+  /// 插件自定义设置项列表。
   final List<PluginSettingDefinition> settings;
+
+  /// 插件配置文件定义。
   final PluginConfigDefinition config;
+
+  /// 插件可编辑文件列表。
   final List<PluginEditableFileDefinition> editableFiles;
 
+  /// 创建插件清单实例，必填字段为 id、name、version、entry、permissions 等。
   const PluginManifest({
     required this.id,
     required this.name,
@@ -267,6 +398,7 @@ class PluginManifest {
     this.editableFiles = const [],
   });
 
+  /// 从 JSON 数据创建 [PluginManifest] 实例。
   factory PluginManifest.fromJson(Map<String, dynamic> json) {
     final ui = json['ui'] as Map?;
     return PluginManifest(
@@ -319,6 +451,7 @@ class PluginManifest {
     );
   }
 
+  /// 将当前实例序列化为 JSON Map。
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
@@ -340,6 +473,7 @@ class PluginManifest {
       'editableFiles': editableFiles.map((e) => e.toJson()).toList(),
   };
 
+  /// 校验插件清单的完整性，返回错误信息或 null。
   String? validate() {
     if (id.trim().isEmpty) return '插件缺少 id';
     if (!RegExp(r'^[a-zA-Z0-9_.-]+$').hasMatch(id)) {
@@ -365,6 +499,7 @@ class PluginManifest {
   }
 }
 
+/// 验证插件路径是否安全：非空、非绝对路径、非 URL、不包含 ".." 路径穿越。
 bool _isSafeRelativePluginPath(String path) {
   final trimmed = path.trim();
   if (trimmed.isEmpty) return false;
@@ -382,7 +517,8 @@ bool _isSafeRelativePluginPath(String path) {
   return parts.isNotEmpty && !parts.any((part) => part == '..');
 }
 
-String _fileTypeFromPath(String path) {
+/// 根据文件扩展名返回文件类型标识符，供编辑器高亮使用。
+String fileTypeFromPath(String path) {
   final lower = path.toLowerCase();
   if (lower.endsWith('.json')) return 'json';
   if (lower.endsWith('.md') || lower.endsWith('.markdown')) return 'markdown';
@@ -400,13 +536,25 @@ String _fileTypeFromPath(String path) {
 /// [manifest] 来自插件包自身，其他字段来自 LynAI 的本地授权和启用状态。两者
 /// 分开保存，避免插件更新时覆盖用户对权限和功能页显示状态的选择。
 class InstalledPlugin {
+  /// 插件清单的规范化表示。
   final PluginManifest manifest;
+
+  /// 插件在本地文件系统中的路径。
   final String path;
+
+  /// 插件是否已启用。
   final bool enabled;
+
+  /// 用户已授权的权限列表。
   final List<String> grantedPermissions;
+
+  /// 用户已启用的功能页 ID 列表。
   final List<String> enabledFeaturePages;
+
+  /// 插件加载失败时的错误信息。
   final String? loadError;
 
+  /// 创建一个已安装插件实例。
   const InstalledPlugin({
     required this.manifest,
     required this.path,
@@ -416,15 +564,19 @@ class InstalledPlugin {
     this.loadError,
   });
 
+  /// 快捷返回插件 id，等同于 manifest.id。
   String get id => manifest.id;
 
+  /// 插件是否在加载过程中发生了错误。
   bool get hasError => loadError != null && loadError!.isNotEmpty;
 
+  /// 是否已对所有声明的权限授予访问权。
   bool get hasAllPermissionsGranted {
     final granted = grantedPermissions.toSet();
     return manifest.permissions.every(granted.contains);
   }
 
+  /// 创建当前实例的副本，可选择性更新部分字段。
   InstalledPlugin copyWith({
     PluginManifest? manifest,
     String? path,
@@ -445,6 +597,7 @@ class InstalledPlugin {
     );
   }
 
+  /// 将当前实例序列化为 JSON Map。
   Map<String, dynamic> toJson() => {
     'manifest': manifest.toJson(),
     'path': path,
@@ -454,6 +607,7 @@ class InstalledPlugin {
     if (loadError != null) 'loadError': loadError,
   };
 
+  /// 从 JSON 数据创建 [InstalledPlugin] 实例。
   factory InstalledPlugin.fromJson(Map<String, dynamic> json) {
     return InstalledPlugin(
       manifest: PluginManifest.fromJson(

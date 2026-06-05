@@ -1,21 +1,13 @@
-// ignore_for_file: unused_element
-
 import 'dart:io';
 
 import 'package:lua_dardo/lua.dart';
-import 'package:uuid/uuid.dart';
 
-import '../models/model_config.dart';
-import '../models/note.dart';
 import '../models/plugin.dart';
-import '../models/schedule_item.dart';
-import '../models/todo_list.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/plugin_path_utils.dart';
-import 'api_service.dart';
 import 'lynai_function_service.dart';
 
 /// Executes Lua handlers declared by plugins.
@@ -24,8 +16,18 @@ import 'lynai_function_service.dart';
 /// immediately and mutating/model APIs return a command that Dart executes after
 /// the Lua handler finishes.
 class PluginLuaRuntimeService {
-  static const _uuid = Uuid();
 
+  /// 在 Lua 沙箱中执行插件定义的工具 handler。
+  ///
+  /// 完整流程：
+  /// 1. 读取插件入口 Lua 文件（优先用根目录自定义入口，否则回退 defaults/ 出厂模板）
+  /// 2. 初始化受限 Lua 状态机——禁用 os/io/package/require/dofile/loadfile 等危险全局函数
+  /// 3. 注入 `lynai` 全局表（沙箱 API），将同步读操作直接返回、异步写操作包装为延迟命令
+  /// 4. 执行脚本初始化，再调用 tool.handler 命名的全局函数
+  /// 5. 执行结束后处理 Lua 返回的延迟命令（__lynai_function），调用 Dart 端执行实际写操作
+  ///
+  /// 之所以异步分阶段执行而非直接在 Lua 回调中做 I/O，是因为 lua_dardo
+  /// 的 DartFunction 回调必须是同步的，无法在其中 await 异步操作。
   Future<Map<String, dynamic>> executeTool({
     required InstalledPlugin plugin,
     required PluginToolDefinition tool,
@@ -35,12 +37,19 @@ class PluginLuaRuntimeService {
     PluginProvider? plugins,
     SettingsProvider? settings,
   }) async {
-    final entryPath = safePluginFilePath(plugin.path, plugin.manifest.entry);
+    final entryRelPath = plugin.manifest.entry;
+    final entryPath = safePluginFilePath(plugin.path, entryRelPath);
     if (entryPath == null) {
-      return _error('插件入口路径不安全: ${plugin.manifest.entry}');
+      return _error('插件入口路径不安全: $entryRelPath');
     }
-    final entry = File(entryPath);
-    if (!await entry.exists()) return _error('插件入口文件不存在');
+    var entry = File(entryPath);
+    if (!await entry.exists()) {
+      // 如根目录无自定义入口，回退读取 defaults/ 出厂模板
+      final defPath = safePluginFilePath(plugin.path, 'defaults/$entryRelPath');
+      if (defPath == null) return _error('插件入口文件不存在: $entryRelPath');
+      entry = File(defPath);
+      if (!await entry.exists()) return _error('插件入口文件不存在: $entryRelPath');
+    }
 
     final state = LuaState.newState();
     state.openLibs();
@@ -109,6 +118,19 @@ class PluginLuaRuntimeService {
     }
   }
 
+  /// 向 Lua 状态机注入 `lynai` 全局 API 表（沙箱入口）。
+  ///
+  /// 注入策略采用"同步读 / 异步写分离"模式：
+  /// - **读操作**（list/read/info 等）直接在 Lua 回调中同步返回，因为读取无需 I/O 等待
+  /// - **写操作**（save/edit/create/delete 等）返回一个 `__lynai_function` 命令标记，
+  ///   Lua 脚本执行完毕后由 Dart 端统一处理这些延迟命令
+  ///
+  /// 这样设计的原因是 lua_dardo 的 DartFunction 回调签名是同步的（`int Function(LuaState)`），
+  /// 无法在其中使用 `await`。通过命令模式将异步操作推迟到脚本执行之后，
+  /// 既保证了 Lua 脚本的可组合性，又不牺牲 Dart 端对异步 I/O 的支持。
+  ///
+  /// 此外，`plugin.config.read` 调用在此时使用了预加载的配置缓存（preloadedConfig），
+  /// 而不是每次执行脚本都重新读取文件，减少文件 I/O。
   void _installLynAI(
     LuaState state, {
     required InstalledPlugin plugin,
@@ -318,10 +340,6 @@ class PluginLuaRuntimeService {
         : <String, dynamic>{};
   }
 
-  void _pushCommand(LuaState state, String method, Object? args) {
-    _pushFunctionCommand(state, method, args);
-  }
-
   void _pushFunctionCommand(LuaState state, String method, Object? args) {
     _pushJsonValue(state, {
       '__lynai_function': method,
@@ -441,342 +459,6 @@ class PluginLuaRuntimeService {
         plugin: plugin,
       ),
     );
-  }
-
-  Map<String, dynamic> _notesList(
-    FeatureProvider? features,
-    Map<String, dynamic> args,
-  ) {
-    if (features == null) return _error('Lua notes.list 需要 LynAI 上下文');
-    final query = (args['query'] as String? ?? '').trim().toLowerCase();
-    return {
-      'ok': true,
-      'notes': features.notes
-          .where((note) {
-            if (query.isEmpty) return true;
-            return note.title.toLowerCase().contains(query) ||
-                note.content.toLowerCase().contains(query);
-          })
-          .map(
-            (note) =>
-                _noteJson(note, includeContent: args['includeContent'] == true),
-          )
-          .toList(),
-    };
-  }
-
-  Map<String, dynamic> _notesRead(
-    FeatureProvider? features,
-    Map<String, dynamic> args,
-  ) {
-    if (features == null) return _error('Lua notes.read 需要 LynAI 上下文');
-    final id = (args['id'] as String? ?? '').trim();
-    final note = id.isEmpty ? null : features.getNote(id);
-    if (note == null) return _error('未找到笔记: $id');
-    return {'ok': true, 'note': _noteJson(note, includeContent: true)};
-  }
-
-  Map<String, dynamic> _todosList(
-    FeatureProvider? features,
-    Map<String, dynamic> args,
-  ) {
-    if (features == null) return _error('Lua todos.list 需要 LynAI 上下文');
-    return {
-      'ok': true,
-      'todoLists': features.todoLists
-          .map(
-            (list) =>
-                _todoListJson(list, includeItems: args['includeItems'] == true),
-          )
-          .toList(),
-    };
-  }
-
-  Map<String, dynamic> _todosRead(
-    FeatureProvider? features,
-    Map<String, dynamic> args,
-  ) {
-    if (features == null) return _error('Lua todos.read 需要 LynAI 上下文');
-    final id = (args['id'] as String? ?? '').trim();
-    final list = id.isEmpty ? null : features.getTodoList(id);
-    if (list == null) return _error('未找到待办清单: $id');
-    return {'ok': true, 'todoList': _todoListJson(list, includeItems: true)};
-  }
-
-  Map<String, dynamic> _schedulesList(
-    FeatureProvider? features,
-    Map<String, dynamic> args,
-  ) {
-    if (features == null) return _error('Lua schedules.list 需要 LynAI 上下文');
-    final from = _dateArg(args['from']);
-    final to = _dateArg(args['to']);
-    return {
-      'ok': true,
-      'schedules': features.schedules
-          .where((item) {
-            if (from != null && !item.end.isAfter(from)) return false;
-            if (to != null && !item.start.isBefore(to)) return false;
-            return true;
-          })
-          .map(_scheduleJson)
-          .toList(),
-    };
-  }
-
-  Future<Map<String, dynamic>> _notesSave(
-    InstalledPlugin plugin,
-    FeatureProvider? features,
-    Map<String, dynamic> args,
-  ) async {
-    _requirePermission(plugin, 'notes:write');
-    if (features == null) return _error('Lua notes.save 需要 LynAI 上下文');
-    final id = (args['id'] as String? ?? '').trim();
-    final title = (args['title'] as String? ?? '').trim();
-    final content = args['content']?.toString() ?? '';
-    if (id.isEmpty) {
-      if (title.isEmpty) return _error('创建笔记缺少 title');
-      final noteId = await features.addNoteWithContent(title, content);
-      return {
-        'ok': true,
-        'note': _noteJson(features.getNote(noteId)!, includeContent: true),
-      };
-    }
-    final note = features.getNote(id);
-    if (note == null) return _error('未找到笔记: $id');
-    final updated = note.copyWith(
-      title: title.isEmpty ? note.title : title,
-      content: args['append'] == true ? note.content + content : content,
-    );
-    await features.updateNote(updated);
-    return {'ok': true, 'note': _noteJson(updated, includeContent: true)};
-  }
-
-  Future<Map<String, dynamic>> _notesDelete(
-    InstalledPlugin plugin,
-    FeatureProvider? features,
-    Map<String, dynamic> args,
-  ) async {
-    _requirePermission(plugin, 'notes:write');
-    if (features == null) return _error('Lua notes.delete 需要 LynAI 上下文');
-    await features.deleteNote((args['id'] as String? ?? '').trim());
-    return {'ok': true};
-  }
-
-  Future<Map<String, dynamic>> _todosSaveList(
-    InstalledPlugin plugin,
-    FeatureProvider? features,
-    Map<String, dynamic> args,
-  ) async {
-    _requirePermission(plugin, 'todos:write');
-    if (features == null) return _error('Lua todos.saveList 需要 LynAI 上下文');
-    final title = (args['title'] as String? ?? '').trim();
-    if (title.isEmpty) return _error('创建待办清单缺少 title');
-    final id = await features.addTodoListWithItems(title, const []);
-    return {
-      'ok': true,
-      'todoList': _todoListJson(features.getTodoList(id)!, includeItems: true),
-    };
-  }
-
-  Future<Map<String, dynamic>> _todosSaveItem(
-    InstalledPlugin plugin,
-    FeatureProvider? features,
-    Map<String, dynamic> args,
-  ) async {
-    _requirePermission(plugin, 'todos:write');
-    if (features == null) return _error('Lua todos.saveItem 需要 LynAI 上下文');
-    final listId = (args['listId'] as String? ?? '').trim();
-    final list = features.getTodoList(listId);
-    if (list == null) return _error('未找到待办清单: $listId');
-    final text = (args['text'] as String? ?? '').trim();
-    if (text.isEmpty) return _error('待办项缺少 text');
-    final updated = list.copyWith(
-      items: [
-        ...list.items,
-        TodoItem(id: _uuid.v4(), text: text),
-      ],
-    );
-    await features.updateTodoList(updated);
-    return {'ok': true, 'todoList': _todoListJson(updated, includeItems: true)};
-  }
-
-  Future<Map<String, dynamic>> _schedulesCreate(
-    InstalledPlugin plugin,
-    FeatureProvider? features,
-    Map<String, dynamic> args,
-  ) async {
-    _requirePermission(plugin, 'schedules:write');
-    if (features == null) return _error('Lua schedules.create 需要 LynAI 上下文');
-    final title = (args['title'] as String? ?? '').trim();
-    final start = _dateArg(args['start']);
-    final end = _dateArg(args['end']);
-    if (title.isEmpty || start == null || end == null) {
-      return _error('创建日程缺少 title/start/end');
-    }
-    final id = await features.addSchedule(
-      title,
-      start,
-      end,
-      note: args['note']?.toString(),
-    );
-    return {'ok': true, 'schedule': _scheduleJson(features.getSchedule(id)!)};
-  }
-
-  Future<Map<String, dynamic>> _schedulesUpdate(
-    InstalledPlugin plugin,
-    FeatureProvider? features,
-    Map<String, dynamic> args,
-  ) async {
-    _requirePermission(plugin, 'schedules:write');
-    if (features == null) return _error('Lua schedules.update 需要 LynAI 上下文');
-    final id = (args['id'] as String? ?? '').trim();
-    final current = features.getSchedule(id);
-    if (current == null) return _error('未找到日程: $id');
-    final updated = current.copyWith(
-      title: (args['title'] as String?)?.trim(),
-      start: _dateArg(args['start']) ?? current.start,
-      end: _dateArg(args['end']) ?? current.end,
-      note: args.containsKey('note') ? args['note']?.toString() : current.note,
-    );
-    await features.updateSchedule(updated);
-    return {'ok': true, 'schedule': _scheduleJson(updated)};
-  }
-
-  Future<Map<String, dynamic>> _schedulesDelete(
-    InstalledPlugin plugin,
-    FeatureProvider? features,
-    Map<String, dynamic> args,
-  ) async {
-    _requirePermission(plugin, 'schedules:write');
-    if (features == null) return _error('Lua schedules.delete 需要 LynAI 上下文');
-    await features.deleteSchedule((args['id'] as String? ?? '').trim());
-    return {'ok': true};
-  }
-
-  Future<Map<String, dynamic>> _modelChat(
-    InstalledPlugin plugin,
-    ModelConfigProvider? modelConfigs,
-    SettingsProvider? settings,
-    Map<String, dynamic> args,
-  ) async {
-    _requirePermission(plugin, 'model:chat');
-    if (modelConfigs == null) return _error('Lua model.chat 需要模型上下文');
-    final model = _selectModel(
-      modelConfigs,
-      settings,
-      args['modelId'] as String?,
-      args['modelName'] as String?,
-    );
-    final prompt = (args['user'] ?? args['prompt'])?.toString().trim() ?? '';
-    if (prompt.isEmpty) return _error('model.chat 缺少 user/prompt');
-    final messages = [
-      if ((args['system'] as String? ?? '').trim().isNotEmpty)
-        {'role': 'system', 'content': (args['system'] as String).trim()},
-      {'role': 'user', 'content': prompt},
-    ];
-    final api = ApiService();
-    try {
-      final response = await api.sendChatRequest(
-        model,
-        messages,
-        tools: const [],
-        toolChoice: 'none',
-      );
-      return {
-        'ok': true,
-        'content': response.content,
-        if (response.reasoning != null) 'reasoning': response.reasoning,
-      };
-    } finally {
-      api.dispose();
-    }
-  }
-
-  ModelConfig _selectModel(
-    ModelConfigProvider provider,
-    SettingsProvider? settings,
-    String? modelId,
-    String? modelName,
-  ) {
-    final models = provider.modelsByCategory(ModelConfig.categoryChat);
-    if (models.isEmpty) throw Exception('没有可用聊天模型');
-    final id = modelId?.trim();
-    if (id != null && id.isNotEmpty) {
-      return _withRequestedModelName(
-        models.firstWhere((model) => model.id == id),
-        modelName,
-      );
-    }
-    final lastId = settings?.settings.lastChatModelId;
-    if (lastId != null && lastId.isNotEmpty) {
-      for (final model in models) {
-        if (model.id == lastId) {
-          return _withRequestedModelName(model, modelName);
-        }
-      }
-    }
-    return _withRequestedModelName(models.first, modelName);
-  }
-
-  ModelConfig _withRequestedModelName(ModelConfig model, String? rawModelName) {
-    final modelName = rawModelName?.trim();
-    if (modelName == null ||
-        modelName.isEmpty ||
-        modelName == model.modelName) {
-      return model;
-    }
-    for (final entry in model.models) {
-      if (entry.name == modelName) {
-        if (!entry.enabled) throw Exception('子模型未启用: $modelName');
-        return model.copyWith(modelName: modelName);
-      }
-    }
-    throw Exception('未找到子模型: $modelName');
-  }
-
-  Map<String, dynamic> _noteJson(Note note, {required bool includeContent}) {
-    return {
-      'id': note.id,
-      'title': note.title,
-      'updatedAt': note.updatedAt.toIso8601String(),
-      if (includeContent) 'content': note.content,
-    };
-  }
-
-  Map<String, dynamic> _todoListJson(
-    TodoList list, {
-    required bool includeItems,
-  }) {
-    return {
-      'id': list.id,
-      'title': list.title,
-      'totalCount': list.items.length,
-      'doneCount': list.items.where((item) => item.done).length,
-      if (includeItems)
-        'items': list.items.map((item) => item.toJson()).toList(),
-    };
-  }
-
-  Map<String, dynamic> _scheduleJson(ScheduleItem item) {
-    return {
-      'id': item.id,
-      'title': item.title,
-      'kind': item.kind,
-      'start': item.start.toIso8601String(),
-      'end': item.end.toIso8601String(),
-      if (item.note != null) 'note': item.note,
-    };
-  }
-
-  DateTime? _dateArg(Object? value) {
-    if (value is! String || value.trim().isEmpty) return null;
-    return DateTime.tryParse(value.trim())?.toLocal();
-  }
-
-  void _requirePermission(InstalledPlugin plugin, String permission) {
-    if (!plugin.grantedPermissions.contains(permission)) {
-      throw Exception('插件未授权 $permission');
-    }
   }
 
   String _popError(LuaState state, ThreadStatus status) {

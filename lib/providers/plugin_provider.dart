@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../models/plugin.dart';
 import '../models/plugin_config_schema.dart';
@@ -21,10 +24,14 @@ class PluginProvider extends ChangeNotifier {
   final Map<String, PluginConfigSchema?> _schemaCache = {};
   bool _loading = false;
 
+  /// 返回当前已安装的插件列表（不可修改）。
   List<InstalledPlugin> get plugins => List.unmodifiable(_plugins);
+  /// 插件列表是否正在加载中。
   bool get loading => _loading;
+  /// 返回当前已启用插件的数量。
   int get enabledCount => _plugins.where((plugin) => plugin.enabled).length;
 
+  /// 根据插件 ID 查找已安装的插件，未找到则返回 null。
   InstalledPlugin? pluginById(String id) {
     for (final plugin in _plugins) {
       if (plugin.id == id) return plugin;
@@ -32,6 +39,7 @@ class PluginProvider extends ChangeNotifier {
     return null;
   }
 
+  /// 从仓库加载所有已安装插件并刷新其清单。
   Future<void> load() async {
     _loading = true;
     notifyListeners();
@@ -47,7 +55,7 @@ class PluginProvider extends ChangeNotifier {
     }
   }
 
-  /// Installs an unpacked plugin directory.
+  /// 导入解压后的插件目录并安装。
   ///
   /// ZIP import uses this after extraction. The user-facing plugin manager does
   /// not expose directory import, so tests and internal import flows are the only
@@ -57,11 +65,13 @@ class PluginProvider extends ChangeNotifier {
     await _upsert(plugin);
   }
 
+  /// 从 ZIP 文件导入并安装插件。
   Future<void> importZip(String path) async {
     final plugin = await _repository.importZip(path);
     await _upsert(plugin);
   }
 
+  /// 刷新所有插件的清单文件，可选是否持久化保存。
   Future<void> refreshManifests({bool save = false}) async {
     final next = <InstalledPlugin>[];
     for (final plugin in _plugins) {
@@ -91,6 +101,7 @@ class PluginProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 启用或禁用指定插件（有加载错误的插件无法启用）。
   Future<void> setEnabled(String id, bool enabled) async {
     final plugin = pluginById(id);
     if (plugin == null) return;
@@ -98,6 +109,7 @@ class PluginProvider extends ChangeNotifier {
     await _replace(id, plugin.copyWith(enabled: shouldEnable));
   }
 
+  /// 设置插件已授权的权限列表，自动过滤非法权限。
   Future<void> setGrantedPermissions(
     String id,
     List<String> permissions,
@@ -116,6 +128,7 @@ class PluginProvider extends ChangeNotifier {
     );
   }
 
+  /// 启用或禁用插件的指定功能页。
   Future<void> setFeaturePageEnabled(
     String pluginId,
     String pageId,
@@ -135,6 +148,7 @@ class PluginProvider extends ChangeNotifier {
     );
   }
 
+  /// 删除指定插件及其所有缓存数据和文件。
   Future<void> deletePlugin(String id) async {
     _plugins = _plugins.where((plugin) => plugin.id != id).toList();
     _settingsCache.remove(id);
@@ -146,6 +160,7 @@ class PluginProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 加载指定插件的设置数据（带缓存）。
   Future<Map<String, dynamic>> loadSettings(String pluginId) async {
     final cached = _settingsCache[pluginId];
     if (cached != null) return Map<String, dynamic>.from(cached);
@@ -154,6 +169,7 @@ class PluginProvider extends ChangeNotifier {
     return Map<String, dynamic>.from(settings);
   }
 
+  /// 更新插件的单个设置项并持久化保存。
   Future<void> updateSetting(String pluginId, String key, Object? value) async {
     final settings = await loadSettings(pluginId);
     if (value == null) {
@@ -166,6 +182,7 @@ class PluginProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 加载指定插件的私有存储数据（带缓存）。
   Future<Map<String, dynamic>> loadStorage(String pluginId) async {
     final cached = _storageCache[pluginId];
     if (cached != null) return Map<String, dynamic>.from(cached);
@@ -174,11 +191,13 @@ class PluginProvider extends ChangeNotifier {
     return Map<String, dynamic>.from(storage);
   }
 
+  /// 读取插件存储中的单个键值。
   Future<Object?> readStorageValue(String pluginId, String key) async {
     final storage = await loadStorage(pluginId);
     return storage[key];
   }
 
+  /// 写入或删除插件存储中的单个键值。
   Future<void> writeStorageValue(
     String pluginId,
     String key,
@@ -194,18 +213,21 @@ class PluginProvider extends ChangeNotifier {
     await _repository.savePluginStorage(pluginId, storage);
   }
 
+  /// 列出指定插件目录下的所有可编辑文件。
   Future<List<PluginFileEntry>> listFiles(String pluginId) async {
     final plugin = pluginById(pluginId);
     if (plugin == null) throw Exception('插件不存在: $pluginId');
     return _repository.listPluginFiles(plugin);
   }
 
+  /// 读取插件目录中指定路径的文本文件内容。
   Future<String> readFile(String pluginId, String path) async {
     final plugin = pluginById(pluginId);
     if (plugin == null) throw Exception('插件不存在: $pluginId');
     return _repository.readPluginTextFile(plugin.path, path);
   }
 
+  /// 将文本内容写入插件的可编辑文件中。
   Future<void> writeEditableFile(
     String pluginId,
     String path,
@@ -219,12 +241,70 @@ class PluginProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 判断指定路径是否为插件的可编辑文件。
   bool isEditableFile(String pluginId, String path) {
     final plugin = pluginById(pluginId);
     if (plugin == null) return false;
     return _repository.isEditablePluginFile(plugin, path);
   }
 
+  /// 删除插件目录中的指定文件。
+  Future<void> deleteFile(String pluginId, String path) async {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) throw Exception('插件不存在: $pluginId');
+    await _repository.deletePluginFile(plugin, path);
+    if (path == plugin.manifest.config.path) _configCache.remove(pluginId);
+    if (path == plugin.manifest.config.schema) _schemaCache.remove(pluginId);
+    notifyListeners();
+  }
+
+  /// 重命名插件目录中的指定文件。
+  Future<void> renameFile(
+    String pluginId,
+    String oldPath,
+    String newPath,
+  ) async {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) throw Exception('插件不存在: $pluginId');
+    await _repository.renamePluginFile(plugin, oldPath, newPath);
+    notifyListeners();
+  }
+
+  /// 从应用资源包中导入内置插件。
+  Future<InstalledPlugin> importBuiltIn(String pluginId) async {
+    final bytes = await rootBundle.load('assets/plugins/$pluginId.zip');
+    final tempDir = await Directory.systemTemp.createTemp('lynai_builtin_');
+    try {
+      final zipPath = '${tempDir.path}/$pluginId.zip';
+      await File(zipPath).writeAsBytes(bytes.buffer.asUint8List(), flush: true);
+      final plugin = await _repository.importZip(zipPath);
+      await _upsert(plugin);
+      return plugin;
+    } finally {
+      if (await tempDir.exists()) await tempDir.delete(recursive: true);
+    }
+  }
+
+  /// 同步检查指定 ID 的插件是否存在。
+  bool pluginExistsSync(String pluginId) {
+    return _plugins.any((p) => p.id == pluginId);
+  }
+
+  /// 获取插件指定相对路径对应的默认文件路径。
+  String? defaultPathFor(String pluginId, String relativePath) {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) return null;
+    return _repository.defaultPathFor(plugin, relativePath);
+  }
+
+  /// 同步检查插件中指定相对路径的文件是否存在。
+  bool pluginFileExistsSync(String pluginId, String relativePath) {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) return false;
+    return _repository.pluginFileExistsSync(plugin.path, relativePath);
+  }
+
+  /// 加载插件的自定义配置文件内容（带缓存）。
   Future<Map<String, dynamic>> loadConfig(String pluginId) async {
     final cached = _configCache[pluginId];
     if (cached != null) return Map<String, dynamic>.from(cached);
@@ -245,6 +325,7 @@ class PluginProvider extends ChangeNotifier {
     return Map<String, dynamic>.from(config);
   }
 
+  /// 加载插件的配置 Schema 定义（带缓存）。
   Future<PluginConfigSchema?> loadConfigSchema(String pluginId) async {
     if (_schemaCache.containsKey(pluginId)) return _schemaCache[pluginId];
     final plugin = pluginById(pluginId);
@@ -267,12 +348,14 @@ class PluginProvider extends ChangeNotifier {
     return schema;
   }
 
+  /// 加载插件的配置值并应用 Schema 默认值。
   Future<Map<String, dynamic>> loadConfigValues(String pluginId) async {
     final config = await loadConfig(pluginId);
     final schema = await loadConfigSchema(pluginId);
     return schema?.applyDefaults(config) ?? config;
   }
 
+  /// 保存插件的配置文件并刷新缓存。
   Future<void> saveConfig(String pluginId, Map<String, dynamic> values) async {
     final plugin = pluginById(pluginId);
     if (plugin == null) throw Exception('插件不存在: $pluginId');

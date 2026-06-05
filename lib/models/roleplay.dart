@@ -1,15 +1,25 @@
 import 'message.dart';
 
+/// 角色扮演消息的类型。
+///
+/// 区分消息来源：玩家发言、角色发言、系统指令或旁白叙述。
 enum RoleplayMessageKind { player, character, system, narrator }
 
+/// 角色扮演中为某个角色或导演指定的模型选择。
 class RoleplayModelSelection {
+  /// 所选模型的配置 ID。
   final String? modelId;
+
+  /// 所选模型的名称。
   final String? modelName;
 
+  /// 创建一个角色扮演模型选择实例。
   const RoleplayModelSelection({this.modelId, this.modelName});
 
+  /// 是否未指定任何模型。
   bool get isEmpty => modelId == null || modelId!.isEmpty;
 
+  /// 从 JSON 数据创建 [RoleplayModelSelection] 实例。
   factory RoleplayModelSelection.fromJson(Map<String, dynamic> json) {
     return RoleplayModelSelection(
       modelId: json['modelId'] as String?,
@@ -17,11 +27,13 @@ class RoleplayModelSelection {
     );
   }
 
+  /// 将当前实例序列化为 JSON Map。
   Map<String, dynamic> toJson() => {
     if (modelId != null && modelId!.isNotEmpty) 'modelId': modelId,
     if (modelName != null && modelName!.isNotEmpty) 'modelName': modelName,
   };
 
+  /// 创建当前实例的副本，可选择性更新部分字段。
   RoleplayModelSelection copyWith({
     Object? modelId = _sentinel,
     Object? modelName = _sentinel,
@@ -39,20 +51,31 @@ class RoleplayModelSelection {
   static const _sentinel = Object();
 }
 
+/// 角色扮演导演配置。
+///
+/// 导演不扮演任何角色，只负责根据场景和角色设定决定下一步由哪个 AI 角色发言。
 class RoleplayDirector {
+  /// 导演名称。
   final String name;
+
+  /// 导演的系统提示词，定义其决策规则。
   final String systemPrompt;
+
+  /// 导演使用的模型选择。
   final RoleplayModelSelection model;
 
+  /// 创建一个角色扮演导演实例。
   const RoleplayDirector({
     this.name = '系统',
     this.systemPrompt = defaultSystemPrompt,
     this.model = const RoleplayModelSelection(),
   });
 
+  /// 导演的默认系统提示词。
   static const defaultSystemPrompt =
       '你是多角色情景演绎的导演。你不扮演任何角色，不生成台词。你只根据场景、角色设定和历史记录，决定下一步由哪个 AI 角色发言，或是否等待用户。不要替用户发言。不要让不存在的角色发言。只返回 JSON。';
 
+  /// 从 JSON 数据创建 [RoleplayDirector] 实例。
   factory RoleplayDirector.fromJson(Map<String, dynamic> json) {
     return RoleplayDirector(
       name: json['name'] as String? ?? '系统',
@@ -66,12 +89,14 @@ class RoleplayDirector {
     );
   }
 
+  /// 将当前实例序列化为 JSON Map。
   Map<String, dynamic> toJson() => {
     'name': name,
     'systemPrompt': systemPrompt,
     if (!model.isEmpty) 'model': model.toJson(),
   };
 
+  /// 创建当前实例的副本，可选择性更新部分字段。
   RoleplayDirector copyWith({
     String? name,
     String? systemPrompt,
@@ -85,17 +110,36 @@ class RoleplayDirector {
   }
 }
 
+/// 角色扮演中的一个参与者（角色或玩家）。
 class RoleplayParticipant {
+  /// 参与者唯一标识符。
   final String id;
+
+  /// 来源角色 ID，用于跟踪角色模板的来源。
   final String? sourceRoleId;
+
+  /// 参与者名称。
   final String name;
+
+  /// 参与者描述，供 AI 理解角色背景。
   final String description;
+
+  /// 参与者的系统提示词，定义其发言风格和行为规则。
   final String systemPrompt;
+
+  /// 参与者独立使用的模型选择。
   final RoleplayModelSelection model;
+
+  /// 主题颜色值，用于 UI 中区分不同角色。
   final int? themeColor;
+
+  /// 是否为玩家自身。
   final bool isPlayer;
+
+  /// 所属角色分组的 ID 列表。
   final List<String> groupIds;
 
+  /// 创建一个角色扮演参与者实例。
   const RoleplayParticipant({
     required this.id,
     this.sourceRoleId,
@@ -108,6 +152,7 @@ class RoleplayParticipant {
     this.groupIds = const [],
   });
 
+  /// 从 JSON 数据创建 [RoleplayParticipant] 实例。
   factory RoleplayParticipant.fromJson(Map<String, dynamic> json) {
     final id = json['id'] as String? ?? '';
     if (id.isEmpty) {
@@ -135,6 +180,7 @@ class RoleplayParticipant {
     );
   }
 
+  /// 将当前实例序列化为 JSON Map。
   Map<String, dynamic> toJson() => {
     'id': id,
     if (sourceRoleId != null) 'sourceRoleId': sourceRoleId,
@@ -147,6 +193,7 @@ class RoleplayParticipant {
     if (groupIds.isNotEmpty) 'groupIds': groupIds,
   };
 
+  /// 创建当前实例的副本，可选择性更新部分字段。
   RoleplayParticipant copyWith({
     String? id,
     Object? sourceRoleId = _sentinel,
@@ -178,12 +225,23 @@ class RoleplayParticipant {
   static const _sentinel = Object();
 }
 
+/// 角色扮演参与者分组。
+///
+/// 用于将多个角色归类到同一分组中，方便批量管理或按组切换。
 class RoleplayParticipantGroup {
+  /// 分组唯一标识符。
   final String id;
+
+  /// 分组名称。
   final String name;
+
+  /// 分组创建时间。
   final DateTime createdAt;
+
+  /// 分组最后更新时间。
   final DateTime updatedAt;
 
+  /// 创建一个参与者分组实例。
   const RoleplayParticipantGroup({
     required this.id,
     required this.name,
@@ -191,6 +249,7 @@ class RoleplayParticipantGroup {
     required this.updatedAt,
   });
 
+  /// 从 JSON 数据创建 [RoleplayParticipantGroup] 实例。
   factory RoleplayParticipantGroup.fromJson(Map<String, dynamic> json) {
     final now = DateTime.now();
     final id = json['id'] as String? ?? '';
@@ -203,6 +262,7 @@ class RoleplayParticipantGroup {
     );
   }
 
+  /// 将当前实例序列化为 JSON Map。
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
@@ -210,6 +270,7 @@ class RoleplayParticipantGroup {
     'updatedAt': updatedAt.toIso8601String(),
   };
 
+  /// 创建当前实例的副本，可选择性更新部分字段。
   RoleplayParticipantGroup copyWith({String? name, DateTime? updatedAt}) {
     return RoleplayParticipantGroup(
       id: id,
@@ -220,20 +281,48 @@ class RoleplayParticipantGroup {
   }
 }
 
+/// 角色扮演场景模板。
+///
+/// 定义一次情景演绎的完整设定，包括导演、参与者、群组和默认玩家配置。
+/// 从场景模板可以创建多个演绎线程。
 class RoleplayScenario {
+  /// 场景模板唯一标识符。
   final String id;
+
+  /// 场景模板标题。
   final String title;
+
+  /// 场景模板的简要描述。
   final String description;
+
+  /// 场景的详细设定文本。
   final String scenario;
+
+  /// 导演配置。
   final RoleplayDirector director;
+
+  /// 默认玩家参与者配置。
   final RoleplayParticipant defaultPlayer;
+
+  /// 默认 AI 角色参与者列表。
   final List<RoleplayParticipant> defaultParticipants;
+
+  /// 默认角色分组列表。
   final List<RoleplayParticipantGroup> defaultGroups;
+
+  /// AI 角色自动连续发言的最大轮次。
   final int maxAutoTurns;
+
+  /// 是否置顶显示。
   final bool pinned;
+
+  /// 场景模板创建时间。
   final DateTime createdAt;
+
+  /// 场景模板最后更新时间。
   final DateTime updatedAt;
 
+  /// 创建一个角色扮演场景模板实例。
   const RoleplayScenario({
     required this.id,
     required this.title,
@@ -249,6 +338,7 @@ class RoleplayScenario {
     required this.updatedAt,
   });
 
+  /// 从 JSON 数据创建 [RoleplayScenario] 实例。
   factory RoleplayScenario.fromJson(Map<String, dynamic> json) {
     final id = json['id'] as String? ?? '';
     final createdAt = DateTime.tryParse(json['createdAt'] as String? ?? '');
@@ -284,6 +374,7 @@ class RoleplayScenario {
     );
   }
 
+  /// 将当前实例序列化为 JSON Map。
   Map<String, dynamic> toJson() => {
     'id': id,
     'title': title,
@@ -301,6 +392,7 @@ class RoleplayScenario {
     'updatedAt': updatedAt.toIso8601String(),
   };
 
+  /// 创建当前实例的副本，可选择性更新部分字段。
   RoleplayScenario copyWith({
     String? title,
     String? description,
@@ -330,15 +422,30 @@ class RoleplayScenario {
   }
 }
 
+/// 角色扮演中的一条消息记录。
 class RoleplayMessage {
+  /// 消息唯一标识符。
   final String id;
+
+  /// 发言者 ID。
   final String speakerId;
+
+  /// 发言者名称。
   final String speakerName;
+
+  /// 消息文本内容。
   final String content;
+
+  /// 消息类型，区分玩家、角色、系统或旁白。
   final RoleplayMessageKind kind;
+
+  /// 消息附带的图片和文件列表。
   final List<MessageImage> attachments;
+
+  /// 消息时间戳。
   final DateTime timestamp;
 
+  /// 创建一个角色扮演消息实例。
   const RoleplayMessage({
     required this.id,
     required this.speakerId,
@@ -349,6 +456,7 @@ class RoleplayMessage {
     required this.timestamp,
   });
 
+  /// 从 JSON 数据创建 [RoleplayMessage] 实例。
   factory RoleplayMessage.fromJson(Map<String, dynamic> json) {
     final timestamp = DateTime.tryParse(json['timestamp'] as String? ?? '');
     final id = json['id'] as String? ?? '';
@@ -379,6 +487,7 @@ class RoleplayMessage {
     );
   }
 
+  /// 将当前实例序列化为 JSON Map。
   Map<String, dynamic> toJson() => {
     'id': id,
     'speakerId': speakerId,
@@ -390,6 +499,7 @@ class RoleplayMessage {
     'timestamp': timestamp.toIso8601String(),
   };
 
+  /// 创建当前实例的副本，可选择性更新内容字段。
   RoleplayMessage copyWith({String? content}) {
     return RoleplayMessage(
       id: id,
@@ -403,21 +513,51 @@ class RoleplayMessage {
   }
 }
 
+/// 角色扮演的一次演绎会话。
+///
+/// 从场景模板创建，保存实际演绎过程中的参与者、消息和状态。每个线程
+/// 独立的参与者列表允许用户在演绎中临时调整角色配置。
 class RoleplayThread {
+  /// 会话唯一标识符。
   final String id;
+
+  /// 来源场景模板 ID。
   final String scenarioId;
+
+  /// 会话标题。
   final String title;
+
+  /// 来源场景模板的标题。
   final String scenarioTitle;
+
+  /// 场景设定文本。
   final String scenario;
+
+  /// 导演配置。
   final RoleplayDirector director;
+
+  /// 当前会话中的参与者列表。
   final List<RoleplayParticipant> participants;
+
+  /// 当前会话中的角色分组列表。
   final List<RoleplayParticipantGroup> groups;
+
+  /// 玩家参与者的 ID。
   final String playerParticipantId;
+
+  /// 会话中所有消息记录。
   final List<RoleplayMessage> messages;
+
+  /// AI 角色自动连续发言的最大轮次。
   final int maxAutoTurns;
+
+  /// 会话创建时间。
   final DateTime createdAt;
+
+  /// 会话最后更新时间。
   final DateTime updatedAt;
 
+  /// 创建一个角色扮演会话实例。
   const RoleplayThread({
     required this.id,
     required this.scenarioId,
@@ -434,6 +574,7 @@ class RoleplayThread {
     required this.updatedAt,
   });
 
+  /// 获取当前会话中的玩家参与者。
   RoleplayParticipant? get player {
     for (final participant in participants) {
       if (participant.id == playerParticipantId) return participant;
@@ -441,10 +582,12 @@ class RoleplayThread {
     return null;
   }
 
+  /// 获取当前会话中所有 AI 角色参与者列表。
   List<RoleplayParticipant> get characters => participants
       .where((participant) => !participant.isPlayer)
       .toList(growable: false);
 
+  /// 生成会话的预览文本，优先显示最近一条玩家消息。
   String get preview {
     for (final message in messages) {
       if (message.kind == RoleplayMessageKind.player) {
@@ -466,6 +609,7 @@ class RoleplayThread {
     return clean.length > 80 ? '${clean.substring(0, 80)}...' : clean;
   }
 
+  /// 从 JSON 数据创建 [RoleplayThread] 实例。
   factory RoleplayThread.fromJson(Map<String, dynamic> json) {
     final id = json['id'] as String? ?? '';
     final scenarioId = json['scenarioId'] as String? ?? '';
@@ -496,6 +640,7 @@ class RoleplayThread {
     );
   }
 
+  /// 将当前实例序列化为 JSON Map。
   Map<String, dynamic> toJson() => {
     'id': id,
     'scenarioId': scenarioId,
@@ -512,6 +657,7 @@ class RoleplayThread {
     'updatedAt': updatedAt.toIso8601String(),
   };
 
+  /// 创建当前实例的副本，可选择性更新部分字段。
   RoleplayThread copyWith({
     String? title,
     String? scenarioTitle,
@@ -542,6 +688,7 @@ class RoleplayThread {
   }
 }
 
+/// 从 JSON 数据解析参与者列表。
 List<RoleplayParticipant> _participantsFromJson(Object? raw) {
   final participants = <RoleplayParticipant>[];
   for (final item in raw as List<dynamic>? ?? const []) {
@@ -556,6 +703,7 @@ List<RoleplayParticipant> _participantsFromJson(Object? raw) {
   return participants;
 }
 
+/// 从 JSON 数据解析分组列表。
 List<RoleplayParticipantGroup> _groupsFromJson(Object? raw) {
   final groups = <RoleplayParticipantGroup>[];
   for (final item in raw as List<dynamic>? ?? const []) {
@@ -570,6 +718,7 @@ List<RoleplayParticipantGroup> _groupsFromJson(Object? raw) {
   return groups;
 }
 
+/// 从 JSON 数据解析消息列表。
 List<RoleplayMessage> _messagesFromJson(Object? raw) {
   final messages = <RoleplayMessage>[];
   for (final item in raw as List<dynamic>? ?? const []) {

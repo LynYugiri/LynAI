@@ -16,7 +16,6 @@ import 'package:screenshot/screenshot.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:super_clipboard/super_clipboard.dart';
 import 'package:uuid/uuid.dart';
-import 'package:webview_all/webview_all.dart';
 import 'latex_formula_editor_page.dart';
 import 'role_management_page.dart';
 import '../models/chat_role.dart';
@@ -36,14 +35,13 @@ import '../providers/plugin_provider.dart';
 import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/api_service.dart';
-import '../services/lynai_function_service.dart';
 import '../services/roleplay_service.dart';
 import '../utils/file_share_utils.dart';
 import '../utils/file_name_utils.dart';
-import '../utils/plugin_path_utils.dart';
 import '../utils/share_image_utils.dart';
 import '../utils/snackbar_utils.dart';
 import '../widgets/latex_renderer.dart';
+import '../widgets/plugin_feature_webview.dart';
 import '../widgets/plugin_icon.dart';
 import '../services/storage_v2_service.dart';
 part 'features/shared.dart';
@@ -61,6 +59,10 @@ const _exportTextChunkLength = 2800;
 const _exportTodoPageWeight = 3200;
 const _exportTodoItemChunkLength = 1200;
 
+/// 搜索匹配器。
+///
+/// 支持字面搜索、正则搜索（`re:` 前缀或 `/pattern/flags` 语法），
+/// 提供 [matches] 和 [allMatches] 两个查询接口。
 class _SearchMatcher {
   final String query;
   final bool caseSensitive;
@@ -151,6 +153,9 @@ class _SearchMatcher {
   }
 }
 
+/// 解析后的正则搜索参数。
+///
+/// 包含正则模式字符串及大小写敏感性标志。
 class _ParsedRegexSearch {
   final String pattern;
   final bool? caseSensitive;
@@ -375,7 +380,7 @@ class _FeaturePageState extends State<FeaturePage> {
           onRoleChanged: widget.onRoleChanged,
         ),
         'roleplay' => const _RoleplayPage(),
-        _ when pluginFeature != null => _PluginFeatureWebViewPage(
+        _ when pluginFeature != null => PluginFeatureWebView(
           plugin: pluginFeature.plugin,
           page: pluginFeature.page,
         ),

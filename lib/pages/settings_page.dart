@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
+import '../widgets/plugin_feature_webview.dart';
 import 'about_page.dart';
 import 'background_page.dart';
 import 'api_models_page.dart';
@@ -9,12 +11,19 @@ import 'plugin_management_page.dart';
 import 'role_management_page.dart';
 import 'theme_page.dart';
 
-class SettingsPage extends StatelessWidget {
+class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
 
   @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>().settings;
+    final pluginProvider = context.watch<PluginProvider>();
+    final pluginItems = _buildPluginItems(context, pluginProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('设置'), centerTitle: true),
@@ -98,9 +107,55 @@ class SettingsPage extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const PluginManagementPage()),
             ),
           ),
+          ...pluginItems,
         ],
       ),
     );
+  }
+
+  /// 遍历所有已启用插件中标记了 [PluginFeaturePageDefinition.showInSettings] 的功能页，生成对应的设置项列表。
+  List<Widget> _buildPluginItems(
+    BuildContext context,
+    PluginProvider provider,
+  ) {
+    final items = <Widget>[];
+    for (final plugin in provider.plugins) {
+      if (!plugin.enabled || plugin.hasError) continue;
+      for (final page in plugin.manifest.featurePages) {
+        if (!page.showInSettings) continue;
+        if (!plugin.enabledFeaturePages.contains(page.id)) continue;
+        items.add(
+          _buildItem(
+            context,
+            Icons.dashboard_customize,
+            page.title.isNotEmpty ? page.title : plugin.manifest.name,
+            plugin.manifest.name,
+            Colors.deepOrange,
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder:
+                    (_) => Scaffold(
+                      appBar: AppBar(
+                        title: Text(
+                          page.title.isNotEmpty
+                              ? page.title
+                              : plugin.manifest.name,
+                        ),
+                        centerTitle: true,
+                      ),
+                      body: PluginFeatureWebView(
+                        plugin: plugin,
+                        page: page,
+                      ),
+                    ),
+              ),
+            ),
+          ),
+        );
+      }
+    }
+    return items;
   }
 
   Widget _buildItem(

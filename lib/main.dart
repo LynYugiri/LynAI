@@ -9,6 +9,7 @@ import 'providers/model_config_provider.dart';
 import 'providers/plugin_provider.dart';
 import 'providers/roleplay_provider.dart';
 import 'providers/settings_provider.dart';
+import 'repositories/plugin_repository.dart';
 import 'pages/home_page.dart';
 import 'pages/changelog_page.dart';
 import 'services/legacy_resource_migration_service.dart';
@@ -140,6 +141,8 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         roleplayProvider: roleplayProvider,
       );
 
+      await _importBuiltInPlugins(pluginProvider);
+
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -192,6 +195,24 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       );
     } catch (e) {
       debugPrint('检查更新日志失败: $e');
+    }
+  }
+
+  /// 遍历所有内置插件 ID，自动安装并为未安装的插件授予其声明的所有权限。
+  Future<void> _importBuiltInPlugins(PluginProvider provider) async {
+    for (final id in PluginRepository.builtInPluginIds) {
+      if (provider.pluginExistsSync(id)) continue;
+      try {
+        final plugin = await provider.importBuiltIn(id);
+        await provider.setEnabled(plugin.id, true);
+        await provider.setGrantedPermissions(
+          plugin.id,
+          plugin.manifest.permissions.toList(),
+        );
+        debugPrint('内置插件已安装: ${plugin.manifest.name}');
+      } catch (e) {
+        debugPrint('内置插件安装失败 $id: $e');
+      }
     }
   }
 

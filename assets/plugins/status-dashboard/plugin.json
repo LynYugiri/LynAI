@@ -1,0 +1,65 @@
+{
+  "id": "status-dashboard",
+  "name": "状态仪表盘",
+  "version": "1.0.0",
+  "author": "LynAI",
+  "description": "显示笔记、待办、对话、系统状态统计仪表盘",
+  "icon": "icon.svg",
+  "entry": "main.lua",
+  "permissions": [
+    "notes:read",
+    "todos:read",
+    "files:write",
+    "storage:read",
+    "storage:write",
+    "network:access",
+    "webview:bridge"
+  ],
+  "functions": [
+    {"name": "stats",   "title": "统计聚合", "handler": "get_stats"},
+    {"name": "weather", "title": "天气信息", "handler": "get_weather"}
+  ],
+  "tools": [
+    {"name":"status_files",  "description":"列出插件目录内的文件（排除出厂模板）。","handler":"status_files",
+     "parameters":{"type":"object","properties":{}}},
+    {"name":"status_read",   "description":"读取指定文件的内容。","handler":"status_read",
+     "parameters":{"type":"object","properties":{"path":{"type":"string","description":"文件路径"}},"required":["path"]}},
+    {"name":"status_write",  "description":"写入或创建指定文件。","handler":"status_write",
+     "parameters":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}},
+    {"name":"status_delete", "description":"删除指定文件（恢复该文件为出厂默认）。","handler":"status_delete",
+     "parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}},
+    {"name":"status_reset",  "description":"删除所有自定义文件，完全恢复出厂默认。","handler":"status_reset",
+     "parameters":{"type":"object","properties":{}}},
+    {"name":"status_fetch",  "description":"通过 HTTP 代理请求外部 API。","handler":"status_fetch",
+     "parameters":{"type":"object","properties":{"url":{"type":"string"},"method":{"type":"string"},"headers":{"type":"object"},"body":{"type":"string"}},"required":["url"]}}
+  ],
+  "featurePages": [
+    {
+      "id": "status",
+      "title": "状态仪表盘",
+      "entry": "status.html",
+      "showInSettings": true,
+      "showInDashboard": false
+    }
+  ],
+  "editableFiles": [
+    {
+      "path": "status.html",
+      "title": "状态页",
+      "type": "html",
+      "defaultPath": "defaults/status.html"
+    },
+    {
+      "path": "status.css",
+      "title": "状态页样式",
+      "type": "css",
+      "defaultPath": "defaults/status.css"
+    },
+    {
+      "path": "main.lua",
+      "title": "工具脚本",
+      "type": "lua",
+      "defaultPath": "defaults/main.lua"
+    }
+  ]
+}

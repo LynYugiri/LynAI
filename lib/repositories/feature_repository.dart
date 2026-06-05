@@ -9,6 +9,7 @@ import '../models/todo_list.dart';
 import '../services/storage_v2_service.dart';
 import 'app_storage_state.dart';
 
+/// 功能模块加载结果，包含日程、笔记、待办清单等多项数据。
 class FeatureLoadResult {
   const FeatureLoadResult({
     required this.schedules,
@@ -33,6 +34,10 @@ class FeatureLoadResult {
   final bool usingStorageV2;
 }
 
+/// 功能模块数据仓储，负责日程、笔记、待办清单等功能的持久化。
+///
+/// 支持旧版 SharedPreferences 与新版存储 V2 两种模式，
+/// 提供各功能模块的加载与保存接口。
 class FeatureRepository {
   factory FeatureRepository({
     StorageV2Service? storageV2,
@@ -57,15 +62,20 @@ class FeatureRepository {
   final StorageV2Service _storageV2;
   final AppStorageStateRepository _storageState;
 
+  /// 判断当前是否激活了新版存储 V2。
   Future<bool> isStorageV2Active() => _storageState.isStorageV2Active();
 
+  /// 读取指定笔记分页的文本内容。
   Future<String> readNotePage(StorageV2NotePage page) =>
       _storageV2.readNotePage(page);
+  /// 写入指定笔记分页的文本内容。
   Future<void> writeNotePage(StorageV2NotePage page, String content) =>
       _storageV2.writeNotePage(page, content);
+  /// 删除指定相对路径的文件。
   Future<void> deleteFile(String relativePath) =>
       _storageV2.deleteFile(relativePath);
 
+  /// 加载所有功能模块数据，优先使用新版 V2 存储。
   Future<FeatureLoadResult> load() async {
     final legacy = await _loadLegacy();
     if (!await isStorageV2Active()) return legacy;
@@ -78,6 +88,7 @@ class FeatureRepository {
     }
   }
 
+  /// 保存日程列表到当前激活的存储后端。
   Future<void> saveSchedules(
     List<ScheduleItem> schedules, {
     required bool usingStorageV2,
@@ -95,6 +106,7 @@ class FeatureRepository {
     );
   }
 
+  /// 保存待办清单列表到当前激活的存储后端。
   Future<void> saveTodoLists(
     List<TodoList> lists, {
     required bool usingStorageV2,
@@ -133,6 +145,7 @@ class FeatureRepository {
     );
   }
 
+  /// 以旧版 SharedPreferences 格式保存笔记文件夹列表。
   Future<void> saveLegacyNoteFolders(List<NoteFolder> folders) async {
     if (await isStorageV2Active()) return;
     final prefs = await SharedPreferences.getInstance();
@@ -142,6 +155,7 @@ class FeatureRepository {
     );
   }
 
+  /// 以旧版 SharedPreferences 格式保存笔记时间线记录。
   Future<void> saveLegacyNoteRevisions(List<NoteRevision> revisions) async {
     if (await isStorageV2Active()) return;
     final prefs = await SharedPreferences.getInstance();
@@ -151,6 +165,7 @@ class FeatureRepository {
     );
   }
 
+  /// 以旧版 SharedPreferences 格式保存笔记列表。
   Future<void> saveLegacyNotes(List<Note> notes) async {
     if (await isStorageV2Active()) return;
     final prefs = await SharedPreferences.getInstance();
@@ -160,6 +175,7 @@ class FeatureRepository {
     );
   }
 
+  /// 以旧版 SharedPreferences 格式保存笔记修改建议列表。
   Future<void> saveLegacyNoteEditProposals(
     List<NoteEditProposal> proposals,
   ) async {
@@ -171,6 +187,7 @@ class FeatureRepository {
     );
   }
 
+  /// 以新版 V2 存储格式保存笔记数据。
   Future<void> saveStorageV2NotesData(Map<String, dynamic> data) {
     return _storageV2.writeNotesData(data);
   }
@@ -452,7 +469,13 @@ class FeatureRepository {
     String label,
   ) {
     if (jsonString == null) return [];
-    final items = jsonDecode(jsonString) as List<dynamic>;
+    List<dynamic> items;
+    try {
+      items = jsonDecode(jsonString) as List<dynamic>;
+    } catch (e) {
+      debugPrint('解析$label 列表失败: $e');
+      return [];
+    }
     final parsed = <T>[];
     for (final item in items) {
       try {

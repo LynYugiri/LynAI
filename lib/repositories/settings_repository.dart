@@ -1,12 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/app_settings.dart';
 import '../services/storage_v2_service.dart';
 import 'app_storage_state.dart';
 
+/// 设置加载结果，包含应用设置实例与存储版本标识。
 class SettingsLoadResult {
   const SettingsLoadResult({
     required this.settings,
@@ -17,6 +19,10 @@ class SettingsLoadResult {
   final bool usingStorageV2;
 }
 
+/// 应用设置仓储，负责加载和持久化用户偏好设置。
+///
+/// 支持旧版 SharedPreferences 存储与新版存储 V2 两种模式，
+/// 包含背景图片资源同步功能。
 class SettingsRepository {
   factory SettingsRepository({
     StorageV2Service? storageV2,
@@ -36,6 +42,9 @@ class SettingsRepository {
   final StorageV2Service _storageV2;
   final AppStorageStateRepository _storageState;
 
+  /// 加载应用设置，优先从新版 V2 存储读取。
+  ///
+  /// 若存储中无数据则返回传入的默认值 [fallback]。
   Future<SettingsLoadResult> load(AppSettings fallback) async {
     final usingStorageV2 = await _storageState.isStorageV2Active();
     if (usingStorageV2) {
@@ -50,14 +59,22 @@ class SettingsRepository {
     if (jsonString == null) {
       return SettingsLoadResult(settings: fallback, usingStorageV2: false);
     }
-    return SettingsLoadResult(
-      settings: AppSettings.fromJson(
-        jsonDecode(jsonString) as Map<String, dynamic>,
-      ),
-      usingStorageV2: false,
-    );
+    try {
+      return SettingsLoadResult(
+        settings: AppSettings.fromJson(
+          jsonDecode(jsonString) as Map<String, dynamic>,
+        ),
+        usingStorageV2: false,
+      );
+    } catch (e) {
+      debugPrint('解析设置数据失败: $e');
+      return SettingsLoadResult(settings: fallback, usingStorageV2: false);
+    }
   }
 
+  /// 保存应用设置到当前激活的存储后端。
+  ///
+  /// 在新版 V2 存储模式下会同步背景图片资源 ID。
   Future<void> save(
     AppSettings settings, {
     required bool usingStorageV2,

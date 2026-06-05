@@ -82,6 +82,7 @@ flutter:
   assets:
     - assets/mathlive/
     - assets/mermaid/
+    - assets/plugins/
     - changelogs/
 
   # The following line ensures that the Material Icons font is

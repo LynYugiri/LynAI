@@ -6,18 +6,40 @@ import 'package:flutter/foundation.dart';
 /// 历史对话不能只依赖全局设置，否则用户后来切换模型、提示词或 OCR 配置时，
 /// 旧对话的上下文会被悄悄改变。这个模型把发送所需的设置固定在对话上。
 class ConversationSettings {
+  /// 对话使用的模型配置 ID。
   final String modelId;
+
+  /// 对话使用的模型名称。
   final String? modelName;
+
+  /// 是否启用了思考过程输出。
   final bool thinking;
+
+  /// 选中的系统提示词模板 ID。
   final String? selectedSystemPromptId;
+
+  /// 实际使用的系统提示词文本。
   final String systemPrompt;
+
+  /// 语音转写使用的模型 ID。
   final String? speechModelId;
+
+  /// 图片生成使用的模型 ID。
   final String? imageModelId;
+
+  /// 是否启用了图片 OCR 识别。
   final bool imageOcrEnabled;
+
+  /// 图片识别使用的模型 ID。
   final String? imageRecognitionModelId;
+
+  /// 是否启用了图片识别功能。
   final bool imageRecognitionEnabled;
+
+  /// 图片识别时使用的提示词文本。
   final String imageRecognitionPrompt;
 
+  /// 创建一个对话设置快照实例。
   ConversationSettings({
     required this.modelId,
     this.modelName,
@@ -34,6 +56,7 @@ class ConversationSettings {
 
   static const _sentinel = Object();
 
+  /// 创建当前实例的副本，可选择性更新部分字段。
   ConversationSettings copyWith({
     String? modelId,
     Object? modelName = _sentinel,
@@ -74,6 +97,7 @@ class ConversationSettings {
     );
   }
 
+  /// 从 JSON 数据创建 [ConversationSettings] 实例。
   factory ConversationSettings.fromJson(
     Map<String, dynamic> json, {
     String fallbackModelId = '',
@@ -98,6 +122,7 @@ class ConversationSettings {
     );
   }
 
+  /// 将当前实例序列化为 JSON Map。
   Map<String, dynamic> toJson() {
     return {
       'modelId': modelId,
@@ -131,15 +156,31 @@ class ConversationSettings {
 /// [messages] 保存用户和 assistant 消息；[modelId] 与 [settings] 记录创建或
 /// 最近发送时使用的模型上下文；[roleId] 用于历史页按角色分组。
 class Conversation {
+  /// 对话唯一标识符。
   final String id;
+
+  /// 对话摘要标题，用于在历史列表中展示。
   final String title;
+
+  /// 对话中的所有消息列表。
   final List<Message> messages;
+
+  /// 本次对话使用的 AI 模型配置 ID。
   final String modelId;
+
+  /// 对话创建或最近发送时使用的设置快照。
   final ConversationSettings settings;
+
+  /// 对话所属角色 ID，用于历史页按角色分组。
   final String roleId;
+
+  /// 对话创建时间。
   final DateTime createdAt;
+
+  /// 对话最后更新时间。
   final DateTime updatedAt;
 
+  /// 创建一个对话实例。
   Conversation({
     required this.id,
     required this.title,
@@ -226,6 +267,7 @@ class Conversation {
     };
   }
 
+  /// 创建当前实例的副本，可选择性更新部分字段。
   Conversation copyWith({
     String? id,
     String? title,

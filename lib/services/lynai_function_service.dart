@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:crypto/crypto.dart';
+import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
 import '../models/model_config.dart';
@@ -8,6 +10,7 @@ import '../models/note.dart';
 import '../models/plugin.dart';
 import '../models/schedule_item.dart';
 import '../models/todo_list.dart';
+import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
@@ -15,6 +18,7 @@ import '../providers/settings_provider.dart';
 import 'api_service.dart';
 import 'storage_v2_service.dart';
 
+/// AI 函数调用描述。
 class LynAIFunctionCall {
   final String name;
   final Map<String, dynamic> arguments;
@@ -22,11 +26,13 @@ class LynAIFunctionCall {
   const LynAIFunctionCall({required this.name, required this.arguments});
 }
 
+/// AI 函数执行的上下文环境。
 class LynAIFunctionContext {
   final FeatureProvider? features;
   final ModelConfigProvider? modelConfigs;
   final SettingsProvider? settings;
   final PluginProvider? plugins;
+  final ConversationProvider? conversations;
   final InstalledPlugin? plugin;
   final void Function(String message)? showToast;
 
@@ -35,6 +41,7 @@ class LynAIFunctionContext {
     this.modelConfigs,
     this.settings,
     this.plugins,
+    this.conversations,
     this.plugin,
     this.showToast,
   });
@@ -157,6 +164,16 @@ class _ParsedRegexSearch {
   const _ParsedRegexSearch(this.pattern, {required this.caseSensitive});
 }
 
+/// 解析用户输入的正则表示式搜索语法。
+///
+/// 支持两种格式：
+/// - `re:<pattern>` —— 强制正则模式，默认不区分大小写
+/// - `/<pattern>/<flags>` —— 标准正则字面量，`i` flag 表示不区分大小写
+///
+/// 使用 `lastIndexOf('/')` 而非 `indexOf('/')` 来查找结束斜杠，
+/// 是为了支持 pattern 内部包含 `/` 转义字符的场景（如 `/a\/b/i`），
+/// 虽然在这个简单实现中并未完全处理转义，但 `lastIndexOf` 能避免
+/// 把 pattern 中间的 `/` 误判为结束定界符。
 _ParsedRegexSearch? _parseRegexSearch(String query) {
   if (query.startsWith('re:')) {
     final pattern = query.substring(3).trim();
@@ -173,9 +190,17 @@ _ParsedRegexSearch? _parseRegexSearch(String query) {
   return _ParsedRegexSearch(pattern, caseSensitive: !flags.contains('i'));
 }
 
+/// LynAI 内置函数执行引擎。
+///
+/// 负责将模型发出的函数调用（[LynAIFunctionCall]）分发到具体实现，
+/// 包括笔记/待办/日程 CRUD、插件沙箱 API、HTTP 请求、系统状态等。
+/// 每个函数在执行前都会检查插件权限，无权限则拒绝执行。
 class LynAIFunctionService {
   static const _uuid = Uuid();
+  static String? _appVersion;
 
+  /// 工具别名映射表，将 comfyui 风格的短名映射到内部标准化函数名。
+  /// 供 [ToolCallService] 在接收到旧版工具调用名称时进行兼容转换。
   static const aiToolAliases = {
     'list_schedules': 'schedules.list',
     'create_schedule': 'schedules.create',
@@ -195,6 +220,7 @@ class LynAIFunctionService {
     'save_todo_item': 'todos.saveItem',
   };
 
+  /// 异步执行 AI 函数调用。
   Future<Map<String, dynamic>> execute(
     LynAIFunctionCall call,
     LynAIFunctionContext context,
@@ -208,15 +234,36 @@ class LynAIFunctionService {
           context,
           call.arguments,
         ),
-        'plugin.file.list' => await _pluginFileList(context),
+        'plugin.file.list' => await _pluginFileList(
+          context,
+          call.arguments,
+        ),
         'plugin.file.read' => await _pluginFileRead(context, call.arguments),
+        'plugin.file.write' => await _pluginFileWrite(context, call.arguments),
+        'plugin.file.create' => await _pluginFileWrite(
+          context,
+          call.arguments,
+        ),
+        'plugin.file.delete' => await _pluginFileDelete(
+          context,
+          call.arguments,
+        ),
+        'plugin.file.rename' => await _pluginFileRename(
+          context,
+          call.arguments,
+        ),
         'plugin.storage.get' => await _storageGet(context, call.arguments),
         'plugin.storage.set' => await _storageSet(context, call.arguments),
         'plugin.storage.remove' => await _storageRemove(
           context,
           call.arguments,
         ),
+        'plugin.restore' => await _pluginRestore(context),
+        'plugin.func' => await _pluginFunc(context, call.arguments),
         'ui.toast' => _toast(context, call.arguments),
+        'conversations.count' => _conversationCount(context),
+        'system.status' => _systemStatus(context),
+        'http.fetch' => await _httpFetch(context, call.arguments),
         'notes.list' => _listNotes(_features(context), call.arguments),
         'notes.read' => await _readNote(_features(context), call.arguments),
         'notes.save' => await _saveNote(_features(context), call.arguments),
@@ -274,6 +321,7 @@ class LynAIFunctionService {
     }
   }
 
+  /// 同步执行 AI 函数调用。
   Map<String, dynamic> executeSync(
     LynAIFunctionCall call,
     LynAIFunctionContext context,
@@ -293,6 +341,8 @@ class LynAIFunctionService {
         'todos.list' => _listTodoLists(_features(context), call.arguments),
         'todos.read' => _readTodoList(_features(context), call.arguments),
         'schedules.list' => _listSchedules(_features(context), call.arguments),
+        'conversations.count' => _conversationCount(context),
+        'system.status' => _systemStatus(context),
         _ => _error('LynAI function 需要异步执行: ${call.name}'),
       };
     } on Exception catch (e) {
@@ -300,10 +350,17 @@ class LynAIFunctionService {
     }
   }
 
+  /// 根据函数名称返回所需权限标识。
   String? _permissionFor(String name) {
     return switch (name) {
       'plugin.storage.get' => 'storage:read',
       'plugin.storage.set' || 'plugin.storage.remove' => 'storage:write',
+      'plugin.file.write' ||
+      'plugin.file.create' ||
+      'plugin.file.delete' ||
+      'plugin.file.rename' ||
+      'plugin.restore' => 'files:write',
+      'http.fetch' => 'network:access',
       'notes.list' ||
       'notes.read' ||
       'notes.pages.list' ||
@@ -385,6 +442,7 @@ class LynAIFunctionService {
 
   Future<Map<String, dynamic>> _pluginFileList(
     LynAIFunctionContext context,
+    Map<String, dynamic> args,
   ) async {
     final plugins = context.plugins;
     final plugin = context.plugin;
@@ -392,15 +450,20 @@ class LynAIFunctionService {
       return _error('plugin.file.list 需要插件上下文');
     }
     final files = await plugins.listFiles(plugin.id);
+    final hideDefaults = args['hideDefaults'] as bool? ?? false;
+    final filtered = hideDefaults
+        ? files.where((f) => !f.isDefault).toList()
+        : files;
     return {
       'ok': true,
-      'files': files
+      'files': filtered
           .map(
             (file) => {
               'path': file.path,
               'size': file.size,
               'isDirectory': file.isDirectory,
               'isEditable': file.isEditable,
+              'isDefault': file.isDefault,
               'type': file.type,
             },
           )
@@ -421,6 +484,121 @@ class LynAIFunctionService {
     if (path.isEmpty) return _error('plugin.file.read 缺少 path');
     final content = await plugins.readFile(plugin.id, path);
     return {'ok': true, 'path': path, 'content': content};
+  }
+
+  /// 写入插件文件。
+  Future<Map<String, dynamic>> _pluginFileWrite(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) async {
+    final plugins = context.plugins;
+    final plugin = context.plugin;
+    if (plugins == null || plugin == null) {
+      return _error('plugin.file.write 需要插件上下文');
+    }
+    final path = (args['path'] as String? ?? '').trim();
+    if (path.isEmpty) return _error('plugin.file.write 缺少 path');
+    final content = (args['content'] as String? ?? '').toString();
+    await plugins.writeEditableFile(plugin.id, path, content);
+    return {'ok': true, 'path': path};
+  }
+
+  /// 删除插件文件。
+  Future<Map<String, dynamic>> _pluginFileDelete(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) async {
+    final plugins = context.plugins;
+    final plugin = context.plugin;
+    if (plugins == null || plugin == null) {
+      return _error('plugin.file.delete 需要插件上下文');
+    }
+    final path = (args['path'] as String? ?? '').trim();
+    if (path.isEmpty) return _error('plugin.file.delete 缺少 path');
+    await plugins.deleteFile(plugin.id, path);
+    return {'ok': true, 'path': path};
+  }
+
+  /// 重命名插件文件。
+  Future<Map<String, dynamic>> _pluginFileRename(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) async {
+    final plugins = context.plugins;
+    final plugin = context.plugin;
+    if (plugins == null || plugin == null) {
+      return _error('plugin.file.rename 需要插件上下文');
+    }
+    final oldPath = (args['oldPath'] as String? ?? '').trim();
+    final newPath = (args['newPath'] as String? ?? '').trim();
+    if (oldPath.isEmpty || newPath.isEmpty) {
+      return _error('plugin.file.rename 缺少 oldPath 或 newPath');
+    }
+    await plugins.renameFile(plugin.id, oldPath, newPath);
+    return {'ok': true, 'oldPath': oldPath, 'newPath': newPath};
+  }
+
+  /// 获取当前对话总数。
+  Map<String, dynamic> _conversationCount(LynAIFunctionContext context) {
+    final conversations = context.conversations;
+    if (conversations == null) return _error('对话上下文不可用');
+    return {'ok': true, 'total': conversations.conversations.length};
+  }
+
+  /// 获取系统运行状态信息。
+  Map<String, dynamic> _systemStatus(LynAIFunctionContext context) {
+    String plat = 'unknown';
+    try {
+      plat = Platform.operatingSystem;
+    } catch (_) {
+      plat = 'web';
+    }
+    final now = DateTime.now();
+    return {
+      'ok': true,
+      'appName': 'LynAI',
+      'appVersion': _appVersion ?? 'dev',
+      'platform': plat,
+      'timestamp': now.toIso8601String(),
+      'timezone': now.timeZoneName,
+      'timezoneOffsetMinutes': now.timeZoneOffset.inMinutes,
+    };
+  }
+
+  /// 通过 HTTP 请求获取远程资源。
+  Future<Map<String, dynamic>> _httpFetch(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) async {
+    final url = (args['url'] as String? ?? '').trim();
+    if (url.isEmpty) return _error('http.fetch 缺少 url');
+    final method = (args['method'] as String? ?? 'GET').toUpperCase();
+    final rawHeaders = args['headers'] as Map?;
+    final body = args['body'] as String?;
+    final headerMap = <String, String>{};
+    if (rawHeaders != null) {
+      rawHeaders.forEach((k, v) {
+        headerMap[k.toString()] = v.toString();
+      });
+    }
+    try {
+      final uri = Uri.parse(url);
+      final request = http.Request(method, uri);
+      request.headers.addAll(headerMap);
+      if (body != null && body.isNotEmpty) {
+        request.body = body;
+      }
+      final streamed = await request.send();
+      final response = await http.Response.fromStream(streamed);
+      return {
+        'ok': true,
+        'status': response.statusCode,
+        'headers': response.headers,
+        'body': response.body,
+      };
+    } catch (e) {
+      return _error('http.fetch 请求失败: $e');
+    }
   }
 
   Future<Map<String, dynamic>> _storageGet(
@@ -470,6 +648,101 @@ class LynAIFunctionService {
     if (key.isEmpty) return _error('plugin.storage.remove 缺少 key');
     await plugins.writeStorageValue(plugin.id, key, null);
     return {'ok': true};
+  }
+
+  /// 恢复插件至初始状态。
+  Future<Map<String, dynamic>> _pluginRestore(
+    LynAIFunctionContext context,
+  ) async {
+    final plugins = context.plugins;
+    final plugin = context.plugin;
+    if (plugins == null || plugin == null) {
+      return _error('plugin.restore 需要插件上下文');
+    }
+    final files = await plugins.listFiles(plugin.id);
+    var deleted = 0;
+    for (final file in files) {
+      if (file.isDirectory) continue;
+      final norm = file.path.replaceAll('\\', '/');
+      if (norm == 'plugin.json') continue;
+      if (norm.startsWith('defaults/')) continue;
+      try {
+        await plugins.deleteFile(plugin.id, file.path);
+        deleted++;
+      } catch (_) {}
+    }
+    return {'ok': true, 'deleted': deleted};
+  }
+
+  /// 执行插件自定义函数调用。
+  ///
+  /// 根据 name 分发到内置实现（stats / weather）或查找 manifest.functions
+  /// 中的 Lua handler（预留扩展）。
+  Future<Map<String, dynamic>> _pluginFunc(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) async {
+    final plugins = context.plugins;
+    final plugin = context.plugin;
+    if (plugins == null || plugin == null) {
+      return _error('plugin.func 需要插件上下文');
+    }
+    final name = (args['name'] as String? ?? '').trim();
+    if (name.isEmpty) return _error('plugin.func 缺少 name');
+    return switch (name) {
+      'stats' => _funcStats(context),
+      'weather' => await _funcWeather(context),
+      _ => _error('未知插件函数: $name'),
+    };
+  }
+
+  /// 聚合统计：笔记总数、待办完成数/总数、对话数。
+  Map<String, dynamic> _funcStats(LynAIFunctionContext context) {
+    final features = context.features;
+    final conversations = context.conversations;
+    final noteCount = features?.notes.length ?? 0;
+    var done = 0, total = 0;
+    for (final list in features?.todoLists ?? const []) {
+      for (final item in list.items) {
+        total++;
+        if (item.done) done++;
+      }
+    }
+    return {
+      'ok': true,
+      'notes': noteCount,
+      'todos_done': done,
+      'todos_total': total,
+      'conversations': conversations?.conversations.length ?? 0,
+    };
+  }
+
+  /// 通过 wttr.in 获当前位置天气。
+  Future<Map<String, dynamic>> _funcWeather(
+    LynAIFunctionContext context,
+  ) async {
+    try {
+      final response = await http.get(Uri.parse('https://wttr.in?format=j1'));
+      if (response.statusCode != 200) {
+        return _error('天气请求失败: ${response.statusCode}');
+      }
+      final data = jsonDecode(response.body);
+      final current =
+          (data['current_condition'] as List?)?.first as Map<String, dynamic>?;
+      final area =
+          (data['nearest_area'] as List?)?.first as Map<String, dynamic>?;
+      final desc = (current?['weatherDesc'] as List?)?.first;
+      return {
+        'ok': true,
+        'temp': current?['temp_C']?.toString() ?? '--',
+        'condition': desc is Map ? desc['value']?.toString() ?? '--' : '--',
+        'humidity': current?['humidity']?.toString() ?? '--',
+        'location':
+            (area?['areaName'] as List?)?.first?['value']?.toString() ?? '--',
+      };
+    } catch (e) {
+      return _error('天气请求失败: $e');
+    }
   }
 
   Map<String, dynamic> _toast(
@@ -1066,18 +1339,20 @@ class LynAIFunctionService {
   }
 
   Map<String, dynamic> _listNoteFolders(FeatureProvider features) {
+    final counts = <String, int>{};
+    for (final note in features.notes) {
+      final fid = note.folderId;
+      if (fid != null) counts[fid] = (counts[fid] ?? 0) + 1;
+    }
     return {
       'ok': true,
       'folders': features.noteFolders.map((folder) {
-        final count = features.notes
-            .where((note) => note.folderId == folder.id)
-            .length;
         return {
           'id': folder.id,
           'title': folder.title,
           'createdAt': folder.createdAt.toIso8601String(),
           'updatedAt': folder.updatedAt.toIso8601String(),
-          'noteCount': count,
+          'noteCount': counts[folder.id] ?? 0,
         };
       }).toList(),
     };
