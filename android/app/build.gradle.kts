@@ -60,11 +60,6 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        if (targetAbis.isNotEmpty()) {
-            ndk {
-                abiFilters += targetAbis
-            }
-        }
         externalNativeBuild {
             cmake {
                 targets += listOf("lynai_tree_sitter")
