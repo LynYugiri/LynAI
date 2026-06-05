@@ -598,6 +598,7 @@ class _EmptyPlugins extends StatelessWidget {
 String _permissionLabel(String permission) {
   return switch (permission) {
     'notes:read' => '读取笔记',
+    'notes:propose' => '提出笔记修改建议',
     'notes:write' => '修改笔记',
     'todos:read' => '读取待办',
     'todos:write' => '修改待办',

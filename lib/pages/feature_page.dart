@@ -36,6 +36,7 @@ import '../providers/plugin_provider.dart';
 import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/api_service.dart';
+import '../services/lynai_function_service.dart';
 import '../services/roleplay_service.dart';
 import '../utils/file_share_utils.dart';
 import '../utils/file_name_utils.dart';

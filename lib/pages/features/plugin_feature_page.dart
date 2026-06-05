@@ -1,3 +1,5 @@
+// ignore_for_file: unused_element
+
 part of '../feature_page.dart';
 
 class _PluginFeatureRef {
@@ -191,28 +193,28 @@ class _PluginFeatureWebViewPageState extends State<_PluginFeatureWebViewPage> {
     final args = params is Map
         ? Map<String, dynamic>.from(params)
         : <String, dynamic>{};
-    final result = switch (method) {
-      'plugin.info' => _pluginInfo(),
-      'plugin.storage.get' => await _storageGet(args),
-      'plugin.storage.set' => await _storageSet(args),
-      'plugin.storage.remove' => await _storageRemove(args),
-      'ui.toast' => _toast(args),
-      'notes.list' => _notesList(args),
-      'notes.read' => _notesRead(args),
-      'notes.save' => await _notesSave(args),
-      'notes.delete' => await _notesDelete(args),
-      'todos.list' => _todosList(args),
-      'todos.read' => _todosRead(args),
-      'todos.saveList' => await _todosSaveList(args),
-      'todos.saveItem' => await _todosSaveItem(args),
-      'todos.deleteList' => await _todosDeleteList(args),
-      'schedules.list' => _schedulesList(args),
-      'schedules.create' => await _schedulesCreate(args),
-      'schedules.update' => await _schedulesUpdate(args),
-      'schedules.delete' => await _schedulesDelete(args),
-      'model.chat' => await _modelChat(args),
-      _ => throw Exception('未知 Bridge 方法: $method'),
-    };
+    final result = await LynAIFunctionService().execute(
+      LynAIFunctionCall(name: method, arguments: args),
+      LynAIFunctionContext(
+        features: context.read<FeatureProvider>(),
+        modelConfigs: context.read<ModelConfigProvider>(),
+        settings: context.read<SettingsProvider>(),
+        plugins: context.read<PluginProvider>(),
+        plugin: widget.plugin,
+        showToast: (message) {
+          if (mounted) {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(message)));
+          }
+        },
+      ),
+    );
+    if (result['ok'] == false) {
+      throw Exception(
+        result['error']?.toString() ?? 'LynAI bridge call failed',
+      );
+    }
     return _jsonMap(result);
   }
 

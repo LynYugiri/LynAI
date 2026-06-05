@@ -1,3 +1,5 @@
+// ignore_for_file: unused_element
+
 import 'dart:io';
 
 import 'package:lua_dardo/lua.dart';
@@ -13,6 +15,7 @@ import '../providers/model_config_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/plugin_path_utils.dart';
 import 'api_service.dart';
+import 'lynai_function_service.dart';
 
 /// Executes Lua handlers declared by plugins.
 ///
@@ -93,85 +96,152 @@ class PluginLuaRuntimeService {
     required InstalledPlugin plugin,
     required FeatureProvider? features,
   }) {
+    final context = LynAIFunctionContext(features: features, plugin: plugin);
+    final functions = LynAIFunctionService();
     state.newTable();
+    _setFunction(state, -1, 'call', (ls) {
+      final method = ls.checkString(1)?.trim() ?? '';
+      final args = _readJsonValue(ls, 2);
+      final normalizedArgs = args is Map
+          ? args.map((key, item) => MapEntry(key.toString(), item))
+          : <String, dynamic>{};
+      final sync = functions.executeSync(
+        LynAIFunctionCall(name: method, arguments: normalizedArgs),
+        context,
+      );
+      if (sync['ok'] == false &&
+          (sync['error'] as String? ?? '').contains('需要异步执行')) {
+        _pushFunctionCommand(ls, method, normalizedArgs);
+      } else {
+        _pushJsonValue(ls, sync);
+      }
+      return 1;
+    });
     _setFunction(state, -1, 'command', (ls) {
       final method = ls.checkString(1)?.trim() ?? '';
       final args = _readJsonValue(ls, 2);
-      _pushCommand(ls, method, args is Map ? args : const <String, dynamic>{});
+      _pushFunctionCommand(
+        ls,
+        method,
+        args is Map
+            ? args.map((key, item) => MapEntry(key.toString(), item))
+            : const <String, dynamic>{},
+      );
       return 1;
     });
     _setTable(state, -1, 'plugin', {
       'info': (LuaState ls) {
-        _pushJsonValue(ls, {
-          'id': plugin.id,
-          'name': plugin.manifest.name,
-          'version': plugin.manifest.version,
-        });
+        _pushJsonValue(
+          ls,
+          functions.executeSync(
+            const LynAIFunctionCall(
+              name: 'plugin.info',
+              arguments: <String, dynamic>{},
+            ),
+            context,
+          ),
+        );
         return 1;
       },
     });
     _setTable(state, -1, 'model', {
       'chat': (LuaState ls) {
-        _pushCommand(ls, 'model.chat', _readJsonValue(ls, 1));
+        _pushFunctionCommand(ls, 'model.chat', _readJsonValue(ls, 1));
         return 1;
       },
     });
     _setTable(state, -1, 'notes', {
       'list': (LuaState ls) {
-        _requirePermission(plugin, 'notes:read');
-        _pushJsonValue(ls, _notesList(features, _mapArg(ls, 1)));
+        _pushJsonValue(
+          ls,
+          functions.executeSync(
+            LynAIFunctionCall(name: 'notes.list', arguments: _mapArg(ls, 1)),
+            context,
+          ),
+        );
         return 1;
       },
       'read': (LuaState ls) {
-        _requirePermission(plugin, 'notes:read');
-        _pushJsonValue(ls, _notesRead(features, _mapArg(ls, 1)));
+        _pushJsonValue(
+          ls,
+          functions.executeSync(
+            LynAIFunctionCall(name: 'notes.read', arguments: _mapArg(ls, 1)),
+            context,
+          ),
+        );
         return 1;
       },
       'save': (LuaState ls) {
-        _pushCommand(ls, 'notes.save', _readJsonValue(ls, 1));
+        _pushFunctionCommand(ls, 'notes.save', _readJsonValue(ls, 1));
+        return 1;
+      },
+      'proposeEdit': (LuaState ls) {
+        _pushFunctionCommand(ls, 'notes.proposeEdit', _readJsonValue(ls, 1));
+        return 1;
+      },
+      'edit': (LuaState ls) {
+        _pushFunctionCommand(ls, 'notes.edit', _readJsonValue(ls, 1));
         return 1;
       },
       'delete': (LuaState ls) {
-        _pushCommand(ls, 'notes.delete', _readJsonValue(ls, 1));
+        _pushFunctionCommand(ls, 'notes.delete', _readJsonValue(ls, 1));
         return 1;
       },
     });
     _setTable(state, -1, 'todos', {
       'list': (LuaState ls) {
-        _requirePermission(plugin, 'todos:read');
-        _pushJsonValue(ls, _todosList(features, _mapArg(ls, 1)));
+        _pushJsonValue(
+          ls,
+          functions.executeSync(
+            LynAIFunctionCall(name: 'todos.list', arguments: _mapArg(ls, 1)),
+            context,
+          ),
+        );
         return 1;
       },
       'read': (LuaState ls) {
-        _requirePermission(plugin, 'todos:read');
-        _pushJsonValue(ls, _todosRead(features, _mapArg(ls, 1)));
+        _pushJsonValue(
+          ls,
+          functions.executeSync(
+            LynAIFunctionCall(name: 'todos.read', arguments: _mapArg(ls, 1)),
+            context,
+          ),
+        );
         return 1;
       },
       'saveList': (LuaState ls) {
-        _pushCommand(ls, 'todos.saveList', _readJsonValue(ls, 1));
+        _pushFunctionCommand(ls, 'todos.saveList', _readJsonValue(ls, 1));
         return 1;
       },
       'saveItem': (LuaState ls) {
-        _pushCommand(ls, 'todos.saveItem', _readJsonValue(ls, 1));
+        _pushFunctionCommand(ls, 'todos.saveItem', _readJsonValue(ls, 1));
         return 1;
       },
     });
     _setTable(state, -1, 'schedules', {
       'list': (LuaState ls) {
-        _requirePermission(plugin, 'schedules:read');
-        _pushJsonValue(ls, _schedulesList(features, _mapArg(ls, 1)));
+        _pushJsonValue(
+          ls,
+          functions.executeSync(
+            LynAIFunctionCall(
+              name: 'schedules.list',
+              arguments: _mapArg(ls, 1),
+            ),
+            context,
+          ),
+        );
         return 1;
       },
       'create': (LuaState ls) {
-        _pushCommand(ls, 'schedules.create', _readJsonValue(ls, 1));
+        _pushFunctionCommand(ls, 'schedules.create', _readJsonValue(ls, 1));
         return 1;
       },
       'update': (LuaState ls) {
-        _pushCommand(ls, 'schedules.update', _readJsonValue(ls, 1));
+        _pushFunctionCommand(ls, 'schedules.update', _readJsonValue(ls, 1));
         return 1;
       },
       'delete': (LuaState ls) {
-        _pushCommand(ls, 'schedules.delete', _readJsonValue(ls, 1));
+        _pushFunctionCommand(ls, 'schedules.delete', _readJsonValue(ls, 1));
         return 1;
       },
     });
@@ -211,8 +281,12 @@ class PluginLuaRuntimeService {
   }
 
   void _pushCommand(LuaState state, String method, Object? args) {
+    _pushFunctionCommand(state, method, args);
+  }
+
+  void _pushFunctionCommand(LuaState state, String method, Object? args) {
     _pushJsonValue(state, {
-      '__lynai_command': method,
+      '__lynai_function': method,
       'args': args is Map ? args : <String, dynamic>{},
     });
   }
@@ -237,6 +311,7 @@ class PluginLuaRuntimeService {
     } else if (value is Map) {
       state.createTable(0, value.length);
       for (final entry in value.entries) {
+        if (entry.value == null) continue;
         _pushJsonValue(state, entry.value);
         state.setField(-2, entry.key.toString());
       }
@@ -286,27 +361,23 @@ class PluginLuaRuntimeService {
     required ModelConfigProvider? modelConfigs,
     required SettingsProvider? settings,
   }) async {
-    if (value is! Map || value['__lynai_command'] is! String) return null;
-    final method = value['__lynai_command'] as String;
+    if (value is! Map) return null;
+    final rawMethod = value['__lynai_function'] ?? value['__lynai_command'];
+    if (rawMethod is! String) return null;
+    final method = rawMethod;
     final rawArgs = value['args'];
     final args = rawArgs is Map
         ? rawArgs.map((key, item) => MapEntry(key.toString(), item))
         : <String, dynamic>{};
-    try {
-      return switch (method) {
-        'notes.save' => await _notesSave(plugin, features, args),
-        'notes.delete' => await _notesDelete(plugin, features, args),
-        'todos.saveList' => await _todosSaveList(plugin, features, args),
-        'todos.saveItem' => await _todosSaveItem(plugin, features, args),
-        'schedules.create' => await _schedulesCreate(plugin, features, args),
-        'schedules.update' => await _schedulesUpdate(plugin, features, args),
-        'schedules.delete' => await _schedulesDelete(plugin, features, args),
-        'model.chat' => await _modelChat(plugin, modelConfigs, settings, args),
-        _ => _error('未知 Lua command: $method'),
-      };
-    } catch (e) {
-      return _error(e.toString().replaceFirst('Exception: ', ''));
-    }
+    return LynAIFunctionService().execute(
+      LynAIFunctionCall(name: method, arguments: args),
+      LynAIFunctionContext(
+        features: features,
+        modelConfigs: modelConfigs,
+        settings: settings,
+        plugin: plugin,
+      ),
+    );
   }
 
   Map<String, dynamic> _notesList(

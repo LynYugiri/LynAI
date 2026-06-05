@@ -243,4 +243,126 @@ end
       await root.delete(recursive: true);
     }
   });
+
+  test('Lua notes.save updates existing notes through timeline', () async {
+    SharedPreferences.setMockInitialValues({});
+    final features = FeatureProvider();
+    final noteId = await features.addNoteWithContent('Draft', 'old content');
+    final root = await Directory.systemTemp.createTemp('lynai_notes_save_');
+    try {
+      await File('${root.path}/main.lua').writeAsString(r'''
+function save_note(args)
+  return lynai.notes.save({ id = args.id, content = args.content })
+end
+''');
+      final manifest = PluginManifest.fromJson({
+        'id': 'save_notes_plugin',
+        'name': 'Save Notes Plugin',
+        'entry': 'main.lua',
+        'permissions': ['notes:write'],
+        'tools': [
+          {
+            'name': 'save_notes_plugin_save_note',
+            'description': 'Save note',
+            'handler': 'save_note',
+            'parameters': {'type': 'object'},
+          },
+        ],
+      });
+      final plugin = InstalledPlugin(
+        manifest: manifest,
+        path: root.path,
+        enabled: true,
+        grantedPermissions: const ['notes:write'],
+        enabledFeaturePages: const [],
+      );
+
+      final result = await PluginLuaRuntimeService().executeTool(
+        plugin: plugin,
+        tool: manifest.tools.single,
+        arguments: {'id': noteId, 'content': 'new content'},
+        features: features,
+      );
+
+      expect(result['ok'], isTrue);
+      expect(result['timelineSaved'], isTrue);
+      expect(result['revisionId'], isNotNull);
+      expect(features.getNote(noteId)?.content, 'new content');
+      expect(features.getNoteTimeline(noteId).length, greaterThanOrEqualTo(2));
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test(
+    'Lua notes.proposeEdit uses separate notes:propose permission',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final features = FeatureProvider();
+      final noteId = await features.addNoteWithContent('Draft', 'old content');
+      final root = await Directory.systemTemp.createTemp(
+        'lynai_notes_propose_',
+      );
+      try {
+        await File('${root.path}/main.lua').writeAsString(r'''
+function propose_note(args)
+  return lynai.notes.proposeEdit({
+    id = args.id,
+    edits = {
+      { startLine = 1, deleteCount = 1, insertLines = { "new content" }, expectedLines = { "old content" } }
+    }
+  })
+end
+''');
+        final manifest = PluginManifest.fromJson({
+          'id': 'propose_notes_plugin',
+          'name': 'Propose Notes Plugin',
+          'entry': 'main.lua',
+          'permissions': ['notes:propose'],
+          'tools': [
+            {
+              'name': 'propose_notes_plugin_propose_note',
+              'description': 'Propose note edit',
+              'handler': 'propose_note',
+              'parameters': {'type': 'object'},
+            },
+          ],
+        });
+        final plugin = InstalledPlugin(
+          manifest: manifest,
+          path: root.path,
+          enabled: true,
+          grantedPermissions: const ['notes:propose'],
+          enabledFeaturePages: const [],
+        );
+
+        final result = await PluginLuaRuntimeService().executeTool(
+          plugin: plugin,
+          tool: manifest.tools.single,
+          arguments: {'id': noteId},
+          features: features,
+        );
+
+        expect(result['ok'], isTrue);
+        expect(result['timelineSaved'], isFalse);
+        expect(features.getNote(noteId)?.content, 'old content');
+        expect(features.getNoteTimeline(noteId).length, 1);
+        expect(features.getNoteEditProposal(noteId), isNotNull);
+
+        final denied = plugin.copyWith(
+          grantedPermissions: const ['notes:write'],
+        );
+        final deniedResult = await PluginLuaRuntimeService().executeTool(
+          plugin: denied,
+          tool: manifest.tools.single,
+          arguments: {'id': noteId},
+          features: features,
+        );
+        expect(deniedResult['ok'], isFalse);
+        expect(deniedResult['error'], contains('notes:propose'));
+      } finally {
+        await root.delete(recursive: true);
+      }
+    },
+  );
 }

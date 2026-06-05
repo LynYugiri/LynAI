@@ -1,3 +1,5 @@
+// ignore_for_file: unused_element
+
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
@@ -14,6 +16,7 @@ import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
+import 'lynai_function_service.dart';
 import 'plugin_lua_runtime_service.dart';
 import 'storage_v2_service.dart';
 
@@ -199,6 +202,7 @@ class ToolCallService {
   final PluginProvider? _plugins;
   final ModelConfigProvider? _modelConfigs;
   final SettingsProvider? _settings;
+  final _lynaiFunctions = LynAIFunctionService();
 
   static const systemPrompt = '''
 你可以使用本地工具帮助用户管理日程、笔记、待办清单、获取时间/位置、打开安卓应用和创建对话标题。
@@ -726,39 +730,19 @@ class ToolCallService {
             'packageName': packageName,
           });
           return {'ok': true, ...result};
-        case 'list_schedules':
-          return _listSchedules(call.arguments);
-        case 'create_schedule':
-          return await _createSchedule(call.arguments);
-        case 'update_schedule':
-          return await _updateSchedule(call.arguments);
-        case 'list_notes':
-          return _listNotes(call.arguments);
-        case 'read_note':
-          return await _readNote(call.arguments);
-        case 'save_note':
-          return await _saveNote(call.arguments);
-        case 'edit_note':
-          return await _editNote(call.arguments);
-        case 'propose_note_edit':
-          return await _proposeNoteEdit(call.arguments);
-        case 'list_note_pages':
-          return _listNotePages(call.arguments);
-        case 'save_note_page':
-          return await _saveNotePage(call.arguments);
-        case 'list_note_folders':
-          return _listNoteFolders();
-        case 'save_note_folder':
-          return await _saveNoteFolder(call.arguments);
-        case 'list_todo_lists':
-          return _listTodoLists(call.arguments);
-        case 'read_todo_list':
-          return _readTodoList(call.arguments);
-        case 'save_todo_list':
-          return await _saveTodoList(call.arguments);
-        case 'save_todo_item':
-          return await _saveTodoItem(call.arguments);
         default:
+          final functionName = LynAIFunctionService.aiToolAliases[call.name];
+          if (functionName != null) {
+            return _lynaiFunctions.execute(
+              LynAIFunctionCall(name: functionName, arguments: call.arguments),
+              LynAIFunctionContext(
+                features: _features,
+                modelConfigs: _modelConfigs,
+                settings: _settings,
+                plugins: _plugins,
+              ),
+            );
+          }
           final pluginResult = await _executePluginTool(call);
           if (pluginResult != null) return pluginResult;
           return _error('未知工具: ${call.name}');
