@@ -234,6 +234,7 @@ class _NoteDetailState extends State<_NoteDetail> {
                         content: _ctrl.text,
                         onEditLatexBlock: _editLatexBlockFromPreview,
                         onEditMermaidBlock: _editMermaidBlockFromPreview,
+                        onEditCodeBlock: _editCodeBlockFromPreview,
                       ),
                     ),
                   );
@@ -907,6 +908,7 @@ class _NoteDetailState extends State<_NoteDetail> {
                 content: _ctrl.text,
                 onEditLatexBlock: _editLatexBlockFromPreview,
                 onEditMermaidBlock: _editMermaidBlockFromPreview,
+                onEditCodeBlock: _editCodeBlockFromPreview,
               ),
             ),
           ),
@@ -3068,6 +3070,67 @@ class _NoteDetailState extends State<_NoteDetail> {
     final edited = await _openMermaidEditor(_stripMermaidFence(source));
     if (edited == null) return;
     _replaceRange(start, end, _wrapMermaidFence(edited));
+  }
+
+  Future<void> _editCodeBlockFromPreview(
+    String source,
+    int start,
+    int end,
+  ) async {
+    final fence = MarkdownCodeFence.tryParse(source, startOffset: start);
+    if (fence == null) return;
+    final edited = await _openCodeBlockEditor(fence);
+    if (edited == null) return;
+    _replaceRange(start, end, fence.wrapBody(edited));
+  }
+
+  Future<String?> _openCodeBlockEditor(MarkdownCodeFence fence) async {
+    final ctrl = TextEditingController(text: fence.bodyForDisplay);
+    try {
+      return await showDialog<String>(
+        context: context,
+        builder: (ctx) {
+          final size = MediaQuery.sizeOf(ctx);
+          final language = fence.language?.trim();
+          return AlertDialog(
+            title: Text(
+              language == null || language.isEmpty
+                  ? '编辑代码块'
+                  : '编辑 $language 代码块',
+            ),
+            content: SizedBox(
+              width: math.min(size.width * 0.9, 920),
+              child: TextField(
+                controller: ctrl,
+                autofocus: true,
+                minLines: size.width >= 760 ? 18 : 10,
+                maxLines: size.width >= 760 ? 18 : 10,
+                style: const TextStyle(fontFamily: 'Hurmit Nerd Font'),
+                decoration: InputDecoration(
+                  labelText: '代码',
+                  helperText: fence.info.isEmpty
+                      ? '保留原代码围栏'
+                      : '保留围栏信息: ${fence.info}',
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, ctrl.text),
+                child: const Text('应用'),
+              ),
+            ],
+          );
+        },
+      );
+    } finally {
+      ctrl.dispose();
+    }
   }
 
   Future<String?> _openMermaidEditor(String initialSource) async {

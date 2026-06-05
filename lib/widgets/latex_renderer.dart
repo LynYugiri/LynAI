@@ -9,7 +9,6 @@ import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:highlight/highlight.dart' as hl;
 import 'package:markdown/markdown.dart' as md;
 import 'package:path_provider/path_provider.dart';
 import 'package:screenshot/screenshot.dart';
@@ -17,9 +16,11 @@ import 'package:share_plus/share_plus.dart';
 import 'package:super_clipboard/super_clipboard.dart';
 import 'package:webview_all/webview_all.dart';
 
+import '../services/code_syntax_service.dart';
 import '../utils/snackbar_utils.dart';
 
-const _codeFontFamily = 'Hurmit Nerd Font';
+typedef MarkdownBlockEditCallback =
+    void Function(String source, int start, int end);
 
 /// 低层 LaTeX 渲染工具。
 ///
@@ -357,8 +358,9 @@ class MarkdownWithLatex extends StatelessWidget {
   final bool selectable;
   final bool wrapCodeBlocks;
   final bool renderMermaid;
-  final void Function(String source, int start, int end)? onEditLatexBlock;
-  final void Function(String source, int start, int end)? onEditMermaidBlock;
+  final MarkdownBlockEditCallback? onEditLatexBlock;
+  final MarkdownBlockEditCallback? onEditMermaidBlock;
+  final MarkdownBlockEditCallback? onEditCodeBlock;
 
   const MarkdownWithLatex({
     super.key,
@@ -369,6 +371,7 @@ class MarkdownWithLatex extends StatelessWidget {
     this.renderMermaid = true,
     this.onEditLatexBlock,
     this.onEditMermaidBlock,
+    this.onEditCodeBlock,
   });
 
   static final _inlineRegExp = RegExp(r'\$(.+?)\$');
@@ -396,7 +399,7 @@ class MarkdownWithLatex extends StatelessWidget {
         segments.any(
           (s) => s.isFencedCodeBlock && _mermaidFence(s.text) != null,
         );
-    final child = hasLatex || hasMermaid
+    final child = hasLatex || hasMermaid || onEditCodeBlock != null
         ? _buildRichContent(context, segments)
         : _buildMarkdown(context, content);
     return selectable ? SelectionArea(child: child) : child;
@@ -408,8 +411,8 @@ class MarkdownWithLatex extends StatelessWidget {
     bool withInlineLatex = false,
   }) {
     final styleSheet = _markdownStyle(context);
-    final highlighter = _OneDarkSyntaxHighlighter(
-      styleSheet.code ?? const TextStyle(fontFamily: _codeFontFamily),
+    final highlighter = createCodeHighlighter(
+      styleSheet.code ?? const TextStyle(fontFamily: codeFontFamily),
     );
     final builders = <String, MarkdownElementBuilder>{
       'pre': _CodeBlockBuilder(
@@ -532,7 +535,7 @@ class MarkdownWithLatex extends StatelessWidget {
       listBullet: baseStyle,
       blockquote: baseStyle,
       code: TextStyle(
-        fontFamily: _codeFontFamily,
+        fontFamily: codeFontFamily,
         fontSize: (baseStyle.fontSize ?? 15) - 2,
         color: baseStyle.color,
         backgroundColor: Theme.of(
@@ -567,7 +570,7 @@ class MarkdownWithLatex extends StatelessWidget {
       if (segment.isFencedCodeBlock) {
         final mermaid = renderMermaid ? _mermaidFence(segment.text) : null;
         if (mermaid == null) {
-          widgets.add(_buildMarkdown(context, segment.text));
+          widgets.add(_buildCodeFence(context, segment));
         } else {
           widgets.add(
             _MermaidBlock(
@@ -631,6 +634,31 @@ class MarkdownWithLatex extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: widgets,
+    );
+  }
+
+  Widget _buildCodeFence(BuildContext context, _MarkdownSegment segment) {
+    final fence = MarkdownCodeFence.tryParse(
+      segment.text,
+      startOffset: segment.startOffset,
+    );
+    if (fence == null) return _buildMarkdown(context, segment.text);
+    final styleSheet = _markdownStyle(context);
+    final highlighter = createCodeHighlighter(
+      styleSheet.code ?? const TextStyle(fontFamily: codeFontFamily),
+    );
+    return _CodeBlock(
+      code: fence.bodyForDisplay,
+      language: fence.language,
+      span: highlighter.formatCode(
+        fence.bodyForDisplay,
+        language: fence.language,
+      ),
+      selectable: selectable,
+      wrap: wrapCodeBlocks,
+      onEdit: onEditCodeBlock == null
+          ? null
+          : () => onEditCodeBlock!(fence.source, fence.start, fence.end),
     );
   }
 
@@ -965,7 +993,7 @@ class _MermaidBlockState extends State<_MermaidBlock> {
           Text(
             widget.code,
             style: TextStyle(
-              fontFamily: _codeFontFamily,
+              fontFamily: codeFontFamily,
               fontSize: 13,
               color: theme.colorScheme.onSurface,
             ),
@@ -992,7 +1020,7 @@ class _MermaidBlockState extends State<_MermaidBlock> {
           Text(
             widget.code,
             style: TextStyle(
-              fontFamily: _codeFontFamily,
+              fontFamily: codeFontFamily,
               fontSize: 13,
               color: theme.colorScheme.onSurface,
             ),
@@ -1074,10 +1102,117 @@ class _MarkdownSegment {
   const _MarkdownSegment(this.text, this.isFencedCodeBlock, this.startOffset);
 }
 
+/// Parsed Markdown fenced code block with source offsets in the parent note.
+///
+/// The parser keeps the exact opening/closing fence text so preview edits can
+/// replace only the original block range without normalizing the user's
+/// Markdown. Unclosed fences remain unclosed after editing.
+class MarkdownCodeFence {
+  final String source;
+  final int start;
+  final int end;
+  final String openingFence;
+  final String closingFence;
+  final String info;
+  final String? language;
+  final String body;
+  final int bodyStart;
+  final int bodyEnd;
+  final bool hasClosingFence;
+
+  const MarkdownCodeFence({
+    required this.source,
+    required this.start,
+    required this.end,
+    required this.openingFence,
+    required this.closingFence,
+    required this.info,
+    required this.language,
+    required this.body,
+    required this.bodyStart,
+    required this.bodyEnd,
+    required this.hasClosingFence,
+  });
+
+  String get bodyForDisplay => body.replaceAll(RegExp(r'\n$'), '');
+
+  String wrapBody(String nextBody) {
+    if (!hasClosingFence) return '$openingFence\n$nextBody';
+    final suffix = nextBody.endsWith('\n') ? '' : '\n';
+    return '$openingFence\n$nextBody$suffix$closingFence';
+  }
+
+  static MarkdownCodeFence? tryParse(String source, {int startOffset = 0}) {
+    final firstLineEnd = source.indexOf('\n');
+    if (firstLineEnd < 0) return null;
+    final opening = source.substring(0, firstLineEnd);
+    final openMatch = RegExp(
+      r'^[ \t]{0,3}(`{3,}|~{3,})([^`~]*)$',
+    ).firstMatch(opening);
+    if (openMatch == null) return null;
+
+    final marker = openMatch.group(1)!;
+    final markerChar = marker[0];
+    final markerLength = marker.length;
+    final info = openMatch.group(2)!.trim();
+    final language = _safeLanguage(info);
+    final closingMarkerPattern = '${RegExp.escape(markerChar)}{$markerLength,}';
+    final closePattern = RegExp('^[ \\t]{0,3}$closingMarkerPattern[ \\t]*\$');
+
+    var lineStart = firstLineEnd + 1;
+    var closingStart = source.length;
+    var closingEnd = source.length;
+    var closing = '';
+    var hasClosingFence = false;
+    while (lineStart <= source.length) {
+      final lineEnd = source.indexOf('\n', lineStart);
+      final safeLineEnd = lineEnd < 0 ? source.length : lineEnd;
+      final line = source.substring(lineStart, safeLineEnd);
+      if (closePattern.hasMatch(line)) {
+        closingStart = lineStart;
+        closingEnd = safeLineEnd;
+        closing = line;
+        hasClosingFence = true;
+        break;
+      }
+      if (lineEnd < 0) break;
+      lineStart = lineEnd + 1;
+    }
+
+    final bodyStart = firstLineEnd + 1;
+    final bodyEnd = closingStart > bodyStart && source[closingStart - 1] == '\n'
+        ? closingStart - 1
+        : closingStart;
+    final fencedSource = source.substring(0, closingEnd);
+    return MarkdownCodeFence(
+      source: fencedSource,
+      start: startOffset,
+      end: startOffset + fencedSource.length,
+      openingFence: opening,
+      closingFence: closing,
+      info: info,
+      language: language,
+      body: source.substring(bodyStart, bodyEnd),
+      bodyStart: startOffset + bodyStart,
+      bodyEnd: startOffset + bodyEnd,
+      hasClosingFence: hasClosingFence,
+    );
+  }
+
+  static String? _safeLanguage(String info) {
+    if (info.isEmpty) return null;
+    final language = info.split(RegExp(r'\s+')).first.trim();
+    if (RegExp(r'^[A-Za-z][A-Za-z0-9_+#.-]*$').hasMatch(language)) {
+      return language;
+    }
+    return null;
+  }
+}
+
 class _CodeBlockBuilder extends MarkdownElementBuilder {
   final bool selectable;
   final bool wrap;
-  final _OneDarkSyntaxHighlighter highlighter;
+  final CodeSyntaxHighlighter highlighter;
 
   _CodeBlockBuilder({
     required this.selectable,
@@ -1116,6 +1251,7 @@ class _CodeBlock extends StatelessWidget {
   final TextSpan span;
   final bool selectable;
   final bool wrap;
+  final VoidCallback? onEdit;
 
   const _CodeBlock({
     required this.code,
@@ -1123,6 +1259,7 @@ class _CodeBlock extends StatelessWidget {
     required this.span,
     required this.selectable,
     required this.wrap,
+    this.onEdit,
   });
 
   @override
@@ -1136,6 +1273,7 @@ class _CodeBlock extends StatelessWidget {
       label: _displayLanguage(language),
       source: code,
       includeActions: selectable,
+      onEdit: onEdit,
       decoration: decoration,
       exportChildBuilder: (_) => _codeExportBody(),
       child: _codeBody(wrap: wrap),
@@ -1159,7 +1297,7 @@ class _CodeBlock extends StatelessWidget {
                   Text(
                     '${i + 1}',
                     style: const TextStyle(
-                      fontFamily: _codeFontFamily,
+                      fontFamily: codeFontFamily,
                       fontSize: 13,
                       height: 1.5,
                       color: Color(0xFF5C6370),
@@ -1209,277 +1347,6 @@ class _CodeBlock extends StatelessWidget {
       'yaml': 'YAML',
     };
     return names[raw.toLowerCase()] ?? raw;
-  }
-}
-
-class _OneDarkSyntaxHighlighter extends SyntaxHighlighter {
-  static const _foreground = Color(0xFFABB2BF);
-  static const _red = Color(0xFFE06C75);
-  static const _orange = Color(0xFFD19A66);
-  static const _yellow = Color(0xFFE5C07B);
-  static const _green = Color(0xFF98C379);
-  static const _cyan = Color(0xFF56B6C2);
-  static const _blue = Color(0xFF61AFEF);
-  static const _purple = Color(0xFFC678DD);
-  static const _comment = Color(0xFF5C6370);
-
-  static final _operatorRegExp = RegExp(
-    r'(===|!==|==|!=|<=|>=|=>|->|::|\.\.\.|\.\.|\+\+|--|&&|\|\||<<|>>|[-+*/%=&|^~!?:<>.,;()[\]{}])',
-  );
-
-  static final _plainTokenRegExp = RegExp(
-    r'(===|!==|==|!=|<=|>=|=>|->|::|\.\.\.|\.\.|\+\+|--|&&|\|\||<<|>>|[-+*/%=&|^~!?:<>.,;()[\]{}]|\b[A-Za-z_][A-Za-z0-9_]*\b)',
-  );
-
-  static const _reservedWords = {
-    'abstract',
-    'alignas',
-    'alignof',
-    'and',
-    'as',
-    'asm',
-    'async',
-    'await',
-    'bool',
-    'break',
-    'case',
-    'catch',
-    'char',
-    'class',
-    'const',
-    'constexpr',
-    'continue',
-    'def',
-    'default',
-    'delete',
-    'do',
-    'double',
-    'dynamic',
-    'else',
-    'enum',
-    'export',
-    'extends',
-    'false',
-    'final',
-    'finally',
-    'float',
-    'for',
-    'from',
-    'func',
-    'function',
-    'if',
-    'implements',
-    'import',
-    'in',
-    'inline',
-    'int',
-    'interface',
-    'is',
-    'let',
-    'long',
-    'namespace',
-    'new',
-    'noexcept',
-    'not',
-    'nullptr',
-    'operator',
-    'or',
-    'private',
-    'protected',
-    'public',
-    'return',
-    'short',
-    'signed',
-    'sizeof',
-    'static',
-    'string',
-    'struct',
-    'super',
-    'switch',
-    'template',
-    'this',
-    'throw',
-    'true',
-    'try',
-    'typedef',
-    'typename',
-    'union',
-    'unsigned',
-    'using',
-    'var',
-    'virtual',
-    'void',
-    'volatile',
-    'while',
-    'with',
-  };
-
-  static const _syntaxColors = {
-    'subst': _foreground,
-    'comment': _comment,
-    'quote': _comment,
-    'doctag': _purple,
-    'keyword': _purple,
-    'formula': _purple,
-    'operator': _purple,
-    'punctuation': _foreground,
-    'section': _red,
-    'name': _red,
-    'tag': _red,
-    'selector-tag': _red,
-    'deletion': _red,
-    'literal': _cyan,
-    'string': _green,
-    'regexp': _green,
-    'addition': _green,
-    'attribute': _orange,
-    'meta-string': _orange,
-    'built_in': _yellow,
-    'builtin-name': _yellow,
-    'class': _yellow,
-    'class-name': _yellow,
-    'attr': _orange,
-    'property': _red,
-    'variable': _red,
-    'template-variable': _red,
-    'type': _yellow,
-    'selector-class': _orange,
-    'selector-attr': _orange,
-    'selector-pseudo': _orange,
-    'number': _orange,
-    'symbol': _blue,
-    'bullet': _blue,
-    'link': _blue,
-    'meta': _blue,
-    'selector-id': _blue,
-    'title': _blue,
-    'function': _blue,
-    'function-name': _blue,
-    'params': _foreground,
-    'emphasis': _foreground,
-    'strong': _foreground,
-  };
-
-  static const _languageAliases = {
-    'c++': 'cpp',
-    'c#': 'cs',
-    'csharp': 'cs',
-    'golang': 'go',
-    'js': 'javascript',
-    'jsx': 'javascript',
-    'kt': 'kotlin',
-    'html': 'xml',
-    'md': 'markdown',
-    'objc': 'objectivec',
-    'py': 'python',
-    'rb': 'ruby',
-    'rs': 'rust',
-    'sh': 'bash',
-    'shell': 'bash',
-    'ts': 'typescript',
-    'tsx': 'typescript',
-    'yml': 'yaml',
-  };
-
-  final TextStyle baseStyle;
-
-  _OneDarkSyntaxHighlighter(TextStyle baseStyle)
-    : baseStyle = baseStyle.copyWith(
-        color: _foreground,
-        backgroundColor: Colors.transparent,
-      );
-
-  @override
-  TextSpan format(String source) => formatCode(source);
-
-  TextSpan formatCode(String source, {String? language}) {
-    final normalized = _normalizeLanguage(language);
-    if (normalized == null) {
-      return TextSpan(
-        style: baseStyle,
-        children: _splitOperators(source, null),
-      );
-    }
-    try {
-      final result = hl.highlight.parse(source, language: normalized);
-      return TextSpan(
-        style: baseStyle,
-        children: _spansFromNodes(result.nodes),
-      );
-    } catch (_) {
-      return TextSpan(style: baseStyle, text: source);
-    }
-  }
-
-  String? _normalizeLanguage(String? language) {
-    final value = language?.trim().toLowerCase();
-    if (value == null || value.isEmpty) return null;
-    return _languageAliases[value] ?? value;
-  }
-
-  List<TextSpan> _spansFromNodes(List<hl.Node>? nodes, [TextStyle? inherited]) {
-    final spans = <TextSpan>[];
-    for (final node in nodes ?? const <hl.Node>[]) {
-      final style = inherited == null
-          ? _styleFor(node.className)
-          : inherited.merge(_styleFor(node.className));
-      if (node.value != null) {
-        spans.addAll(_splitOperators(node.value!, style));
-      } else if (node.children != null) {
-        spans.addAll(_spansFromNodes(node.children, style));
-      }
-    }
-    return spans;
-  }
-
-  List<TextSpan> _splitOperators(String value, TextStyle? style) {
-    if (style?.color != null && style!.color != _foreground) {
-      return [TextSpan(text: value, style: style)];
-    }
-    final spans = <TextSpan>[];
-    var lastEnd = 0;
-    for (final match in _plainTokenRegExp.allMatches(value)) {
-      if (match.start > lastEnd) {
-        spans.add(
-          TextSpan(text: value.substring(lastEnd, match.start), style: style),
-        );
-      }
-      final token = match.group(0)!;
-      spans.add(TextSpan(text: token, style: _stylePlainToken(token, style)));
-      lastEnd = match.end;
-    }
-    if (lastEnd < value.length) {
-      spans.add(TextSpan(text: value.substring(lastEnd), style: style));
-    }
-    return spans;
-  }
-
-  TextStyle? _stylePlainToken(String token, TextStyle? style) {
-    final base = style ?? const TextStyle();
-    if (_operatorRegExp.hasMatch(token)) {
-      return base.merge(const TextStyle(color: _purple));
-    }
-    if (_reservedWords.contains(token)) {
-      return base.merge(const TextStyle(color: _purple));
-    }
-    return base.merge(const TextStyle(color: _red));
-  }
-
-  TextStyle? _styleFor(String? className) {
-    if (className == null) return null;
-    final classes = className.split(RegExp(r'\s+')).where((e) => e.isNotEmpty);
-    Color? color;
-    for (final cls in classes) {
-      color ??= _syntaxColors[cls];
-    }
-    if (color == null) return null;
-    final isComment = classes.any((cls) => cls == 'comment' || cls == 'quote');
-    final isStrong = classes.any((cls) => cls == 'strong');
-    return TextStyle(
-      color: color,
-      fontStyle: isComment ? FontStyle.italic : null,
-      fontWeight: isStrong ? FontWeight.w700 : null,
-    );
   }
 }
 

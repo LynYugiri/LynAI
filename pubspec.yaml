@@ -58,6 +58,7 @@ dependencies:
   sqlite3: ^3.3.2
   sqlite3_flutter_libs: ^0.6.0+eol
   lua_dardo: ^0.0.5
+  ffi: ^2.1.4
 
 dev_dependencies:
   flutter_test:

@@ -26,9 +26,21 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "short_sha=$(echo '${{ github.sha }}' | cut -c1-7)" >> "$GITHUB_OUTPUT"
 
+  quality:
+    name: Analyze and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
   build-android:
     name: Android
-    needs: meta
+    needs: [meta, quality]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -53,7 +65,7 @@ jobs:
 
   build-linux:
     name: Linux
-    needs: meta
+    needs: [meta, quality]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -150,7 +162,7 @@ jobs:
 
   build-windows:
     name: Windows (x64)
-    needs: meta
+    needs: [meta, quality]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -172,7 +184,7 @@ jobs:
 
   build-macos:
     name: macOS (${{ matrix.arch }})
-    needs: meta
+    needs: [meta, quality]
     strategy:
       fail-fast: false
       matrix:

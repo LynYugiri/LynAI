@@ -14,6 +14,29 @@ val keystoreProperties = Properties().apply {
     }
 }
 
+fun flutterTargetAbis(): Set<String> {
+    // Flutter limits Dart/AOT output through target-platform, but AGP's CMake
+    // and JNI packaging do not automatically inherit that filter.
+    val targetPlatforms = (findProperty("target-platform") as? String)
+        ?.split(',')
+        ?.map { it.trim() }
+        ?.filter { it.isNotEmpty() }
+        ?: return emptySet()
+
+    return targetPlatforms.mapNotNullTo(linkedSetOf()) {
+        when (it) {
+            "android-arm" -> "armeabi-v7a"
+            "android-arm64" -> "arm64-v8a"
+            "android-x86" -> "x86"
+            "android-x64" -> "x86_64"
+            else -> null
+        }
+    }
+}
+
+val targetAbis = flutterTargetAbis()
+val androidAbis = setOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+
 android {
     namespace = "com.github.lynyugiri.lynai"
     compileSdk = flutter.compileSdkVersion
@@ -37,6 +60,35 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        if (targetAbis.isNotEmpty()) {
+            ndk {
+                abiFilters += targetAbis
+            }
+        }
+        externalNativeBuild {
+            cmake {
+                targets += listOf("lynai_tree_sitter")
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("../../native/tree_sitter/CMakeLists.txt")
+        }
+    }
+
+    if (targetAbis.isNotEmpty()) {
+        packaging {
+            jniLibs {
+                // Keep single-architecture release APKs honest: native plugins
+                // can otherwise contribute stale or transitive libraries for
+                // ABIs that Flutter did not compile libapp.so for.
+                excludes += androidAbis
+                    .filterNot { it in targetAbis }
+                    .map { "lib/$it/**" }
+            }
+        }
     }
 
     signingConfigs {

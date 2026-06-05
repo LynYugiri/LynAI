@@ -122,6 +122,37 @@ mindmap
     expect(find.textContaining('root((LynAI))'), findsWidgets);
   });
 
+  testWidgets('MarkdownWithLatex code edit callback keeps fence range', (
+    WidgetTester tester,
+  ) async {
+    String? capturedSource;
+    int? capturedStart;
+    int? capturedEnd;
+    const fence = '```dart title="main"\nvoid main() {}\n```';
+    const content = '前文\n$fence\n后文';
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MarkdownWithLatex(
+            content: content,
+            onEditCodeBlock: (source, start, end) {
+              capturedSource = source;
+              capturedStart = start;
+              capturedEnd = end;
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byTooltip('编辑'));
+
+    expect(capturedSource, fence);
+    expect(capturedStart, content.indexOf(fence));
+    expect(capturedEnd, capturedStart! + capturedSource!.length);
+  });
+
   testWidgets('mermaid fence extraction excludes closing fence', (
     WidgetTester tester,
   ) async {
@@ -219,6 +250,39 @@ graph TD
   test('debugSegments stays consistent for empty content', () {
     final segments = MarkdownWithLatex.debugSegments('');
     expect(segments, isEmpty);
+  });
+
+  test('MarkdownCodeFence parses language info and body offsets', () {
+    const source = '```dart title="main"\nvoid main() {}\n```';
+    final fence = MarkdownCodeFence.tryParse(source, startOffset: 8);
+
+    expect(fence, isNotNull);
+    expect(fence!.language, 'dart');
+    expect(fence.info, 'dart title="main"');
+    expect(fence.body, 'void main() {}');
+    expect(fence.bodyStart, 8 + '```dart title="main"\n'.length);
+    expect(fence.bodyEnd, fence.bodyStart + 'void main() {}'.length);
+    expect(fence.wrapBody('print(1);'), '```dart title="main"\nprint(1);\n```');
+  });
+
+  test('MarkdownCodeFence parses tilde fences', () {
+    const source = '~~~python\nprint(1)\n~~~';
+    final fence = MarkdownCodeFence.tryParse(source);
+
+    expect(fence, isNotNull);
+    expect(fence!.language, 'python');
+    expect(fence.bodyForDisplay, 'print(1)');
+    expect(fence.wrapBody('print(2)\n'), '~~~python\nprint(2)\n~~~');
+  });
+
+  test('MarkdownCodeFence preserves unclosed fences when edited', () {
+    const source = '```js\nconsole.log(1)';
+    final fence = MarkdownCodeFence.tryParse(source);
+
+    expect(fence, isNotNull);
+    expect(fence!.hasClosingFence, false);
+    expect(fence.bodyForDisplay, 'console.log(1)');
+    expect(fence.wrapBody('console.log(2)'), '```js\nconsole.log(2)');
   });
 
   // --- debugMermaidBody tests ---
