@@ -769,6 +769,7 @@ class ToolCallService {
           arguments: call.arguments,
           features: _features,
           modelConfigs: _modelConfigs,
+          plugins: _plugins,
           settings: _settings,
         );
       }

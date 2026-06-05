@@ -1,9 +1,14 @@
+import 'dart:convert';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/plugin.dart';
+import '../models/plugin_config_schema.dart';
+import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
+import '../widgets/model_config_picker.dart';
 import '../widgets/plugin_icon.dart';
 
 class PluginManagementPage extends StatelessWidget {
@@ -29,28 +34,12 @@ class PluginManagementPage extends StatelessWidget {
                   ),
             icon: const Icon(Icons.refresh),
           ),
-          PopupMenuButton<_PluginImportAction>(
-            tooltip: '导入插件',
-            onSelected: (action) => _importPlugin(context, action),
-            itemBuilder: (context) => const [
-              PopupMenuItem(
-                value: _PluginImportAction.directory,
-                child: ListTile(
-                  leading: Icon(Icons.folder_open),
-                  title: Text('导入目录'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              PopupMenuItem(
-                value: _PluginImportAction.zip,
-                child: ListTile(
-                  leading: Icon(Icons.archive_outlined),
-                  title: Text('导入 ZIP'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-            ],
-            icon: const Icon(Icons.add),
+          IconButton(
+            tooltip: '导入 ZIP 插件',
+            onPressed: provider.loading
+                ? null
+                : () => _importPluginZip(context),
+            icon: const Icon(Icons.archive_outlined),
           ),
         ],
       ),
@@ -66,21 +55,7 @@ class PluginManagementPage extends StatelessWidget {
     );
   }
 
-  Future<void> _importPlugin(
-    BuildContext context,
-    _PluginImportAction action,
-  ) async {
-    if (action == _PluginImportAction.directory) {
-      final path = await FilePicker.getDirectoryPath(dialogTitle: '选择插件目录');
-      if (path == null || !context.mounted) return;
-      await _runAction(
-        context,
-        () => context.read<PluginProvider>().importDirectory(path),
-        success: '插件已导入',
-      );
-      return;
-    }
-
+  Future<void> _importPluginZip(BuildContext context) async {
     final result = await FilePicker.pickFiles(
       dialogTitle: '选择插件 ZIP',
       type: FileType.custom,
@@ -281,6 +256,10 @@ class PluginDetailPage extends StatelessWidget {
             const SizedBox(height: 12),
             _PluginSettingsCard(plugin: plugin),
           ],
+          const SizedBox(height: 12),
+          _PluginConfigCard(plugin: plugin),
+          const SizedBox(height: 12),
+          _PluginFilesCard(plugin: plugin),
           const SizedBox(height: 12),
           _SectionCard(
             title: '危险操作',
@@ -501,6 +480,500 @@ class _PluginSettingTile extends StatelessWidget {
   }
 }
 
+class _PluginConfigCard extends StatefulWidget {
+  const _PluginConfigCard({required this.plugin});
+
+  final InstalledPlugin plugin;
+
+  @override
+  State<_PluginConfigCard> createState() => _PluginConfigCardState();
+}
+
+class _PluginConfigCardState extends State<_PluginConfigCard> {
+  Map<String, dynamic>? _values;
+  PluginConfigSchema? _schema;
+  String? _error;
+  bool _loading = true;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PluginConfigCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.plugin.id != widget.plugin.id) _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final provider = context.read<PluginProvider>();
+      final raw = await provider.loadConfig(widget.plugin.id);
+      final schema = await provider.loadConfigSchema(widget.plugin.id);
+      if (!mounted) return;
+      setState(() {
+        _schema = schema;
+        _values = schema?.applyDefaults(raw) ?? raw;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString().replaceFirst('Exception: ', '');
+        _values = <String, dynamic>{};
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _SectionCard(
+      title: '配置文件',
+      child: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(widget.plugin.manifest.config.path),
+                if (_error != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                if (_schema == null)
+                  _rawJsonEditor()
+                else
+                  _schemaForm(_schema!, _values ?? <String, dynamic>{}),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton.icon(
+                    onPressed: _saving || _error != null ? null : _save,
+                    icon: _saving
+                        ? const SizedBox.square(
+                            dimension: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.save_outlined),
+                    label: const Text('保存配置'),
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+
+  Widget _schemaForm(PluginConfigSchema schema, Map<String, dynamic> values) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (schema.description.isNotEmpty) Text(schema.description),
+        for (final field in schema.fields) _fieldTile(field, values[field.key]),
+      ],
+    );
+  }
+
+  Widget _fieldTile(PluginConfigFieldDefinition field, Object? value) {
+    final description = field.description.isEmpty
+        ? field.key
+        : field.description;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            field.titleOrKey(field.key),
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          if (field.type == PluginConfigFieldType.boolean)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: value as bool? ?? false,
+              title: Text(description),
+              onChanged: (next) => _setValue(field.key, next),
+            )
+          else if (field.type == PluginConfigFieldType.select)
+            DropdownButtonFormField<Object?>(
+              initialValue: value,
+              decoration: InputDecoration(
+                labelText: description,
+                border: const OutlineInputBorder(),
+              ),
+              items: field.options
+                  .map(
+                    (option) => DropdownMenuItem<Object?>(
+                      value: option.value,
+                      child: Text(option.label),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (next) => _setValue(field.key, next),
+            )
+          else if (field.type == PluginConfigFieldType.multiSelect)
+            _multiSelectField(field, value)
+          else if (field.type == PluginConfigFieldType.model)
+            ModelConfigPicker(
+              title: field.titleOrKey(field.key),
+              category: field.modelCategory,
+              capabilities: field.modelCapabilities,
+              allowClear: field.allowClear,
+              value: _modelValue(field, value),
+              onChanged: (next) => _setValue(
+                field.key,
+                field.modelStore == PluginModelStoreMode.id
+                    ? next?.modelId
+                    : next?.toJson(),
+              ),
+            )
+          else if (field.type == PluginConfigFieldType.object ||
+              field.type == PluginConfigFieldType.array)
+            _jsonValueField(field, value)
+          else
+            TextFormField(
+              key: ValueKey('${widget.plugin.id}-${field.key}-${value ?? ''}'),
+              initialValue: value?.toString() ?? '',
+              minLines: field.type == PluginConfigFieldType.text ? 3 : 1,
+              maxLines: field.type == PluginConfigFieldType.text ? 8 : 1,
+              keyboardType:
+                  field.type == PluginConfigFieldType.number ||
+                      field.type == PluginConfigFieldType.integer
+                  ? TextInputType.number
+                  : TextInputType.text,
+              decoration: InputDecoration(
+                hintText: field.placeholder,
+                helperText: description,
+                border: const OutlineInputBorder(),
+              ),
+              onChanged: (text) =>
+                  _setValue(field.key, _coerceText(field, text)),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _multiSelectField(PluginConfigFieldDefinition field, Object? value) {
+    final selected = value is List ? value.toSet() : <Object?>{};
+    return Column(
+      children: field.options.map((option) {
+        return CheckboxListTile(
+          contentPadding: EdgeInsets.zero,
+          value: selected.contains(option.value),
+          title: Text(option.label),
+          onChanged: (checked) {
+            final next = selected.toSet();
+            if (checked == true) {
+              next.add(option.value);
+            } else {
+              next.remove(option.value);
+            }
+            _setValue(field.key, next.toList());
+          },
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _jsonValueField(PluginConfigFieldDefinition field, Object? value) {
+    return OutlinedButton.icon(
+      onPressed: () => _editJsonValue(field, value),
+      icon: const Icon(Icons.data_object),
+      label: Text('编辑 ${field.titleOrKey(field.key)} JSON'),
+    );
+  }
+
+  Widget _rawJsonEditor() {
+    return OutlinedButton.icon(
+      onPressed: () => _editRawJson(_values ?? <String, dynamic>{}),
+      icon: const Icon(Icons.edit_outlined),
+      label: const Text('编辑原始 JSON'),
+    );
+  }
+
+  Object? _coerceText(PluginConfigFieldDefinition field, String text) {
+    if (text.isEmpty && !field.required) return null;
+    if (field.type == PluginConfigFieldType.integer) return int.tryParse(text);
+    if (field.type == PluginConfigFieldType.number) return num.tryParse(text);
+    return text;
+  }
+
+  ModelSelectionValue? _modelValue(
+    PluginConfigFieldDefinition field,
+    Object? value,
+  ) {
+    if (field.modelStore == PluginModelStoreMode.id) {
+      final id = value as String?;
+      return id == null || id.isEmpty
+          ? null
+          : ModelSelectionValue(
+              modelId: id,
+              modelName: null,
+              category: field.modelCategory,
+            );
+    }
+    if (value is! Map) return null;
+    final id = value['modelId'] as String?;
+    if (id == null || id.isEmpty) return null;
+    return ModelSelectionValue(
+      modelId: id,
+      modelName: value['modelName'] as String?,
+      category: value['category'] as String? ?? field.modelCategory,
+    );
+  }
+
+  void _setValue(String key, Object? value) {
+    setState(() {
+      final next = Map<String, dynamic>.from(_values ?? const {});
+      if (value == null) {
+        next.remove(key);
+      } else {
+        next[key] = value;
+      }
+      _values = next;
+    });
+  }
+
+  Future<void> _editJsonValue(
+    PluginConfigFieldDefinition field,
+    Object? value,
+  ) async {
+    final result = await _showJsonDialog(
+      field.titleOrKey(field.key),
+      value ?? {},
+    );
+    if (result != null) _setValue(field.key, result);
+  }
+
+  Future<void> _editRawJson(Map<String, dynamic> value) async {
+    final result = await _showJsonDialog('原始配置 JSON', value);
+    if (result is Map && mounted) {
+      setState(() => _values = Map<String, dynamic>.from(result));
+    }
+  }
+
+  Future<Object?> _showJsonDialog(String title, Object value) async {
+    final controller = TextEditingController(
+      text: const JsonEncoder.withIndent('  ').convert(value),
+    );
+    String? error;
+    final result = await showDialog<Object?>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(title),
+          content: SizedBox(
+            width: 560,
+            child: TextField(
+              controller: controller,
+              maxLines: 16,
+              decoration: InputDecoration(
+                border: const OutlineInputBorder(),
+                errorText: error,
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () {
+                try {
+                  Navigator.pop(context, jsonDecode(controller.text));
+                } catch (e) {
+                  setDialogState(() => error = 'JSON 格式错误');
+                }
+              },
+              child: const Text('确定'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    return result;
+  }
+
+  Future<void> _save() async {
+    final values = Map<String, dynamic>.from(_values ?? const {});
+    final schema = _schema;
+    if (schema != null) {
+      final errors = schema.validateValues(
+        values,
+        models: context.read<ModelConfigProvider>().models,
+      );
+      if (errors.isNotEmpty) {
+        _showMessage(errors.map((error) => error.message).join('\n'));
+        return;
+      }
+    }
+    setState(() => _saving = true);
+    try {
+      await context.read<PluginProvider>().saveConfig(widget.plugin.id, values);
+      if (mounted) _showMessage('配置已保存');
+    } catch (e) {
+      if (mounted) _showMessage(e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+}
+
+class _PluginFilesCard extends StatefulWidget {
+  const _PluginFilesCard({required this.plugin});
+
+  final InstalledPlugin plugin;
+
+  @override
+  State<_PluginFilesCard> createState() => _PluginFilesCardState();
+}
+
+class _PluginFilesCardState extends State<_PluginFilesCard> {
+  late Future<List<PluginFileEntry>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = context.read<PluginProvider>().listFiles(widget.plugin.id);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _SectionCard(
+      title: '插件文件',
+      child: FutureBuilder<List<PluginFileEntry>>(
+        future: _future,
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final files = snapshot.data!;
+          if (files.isEmpty) return const Text('没有文件');
+          return Column(
+            children: files.map((file) {
+              return ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                  file.isDirectory
+                      ? Icons.folder_outlined
+                      : Icons.insert_drive_file_outlined,
+                ),
+                title: Text(file.path),
+                subtitle: Text(
+                  file.isDirectory ? '目录' : '${file.type} · ${file.size} bytes',
+                ),
+                trailing: file.isEditable
+                    ? const Icon(Icons.edit_outlined)
+                    : const Icon(Icons.visibility_outlined),
+                onTap: file.isDirectory ? null : () => _openFile(file),
+              );
+            }).toList(),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _openFile(PluginFileEntry file) async {
+    try {
+      final provider = context.read<PluginProvider>();
+      final content = await provider.readFile(widget.plugin.id, file.path);
+      if (!mounted) return;
+      final next = await _showFileDialog(file, content);
+      if (next == null || !mounted) return;
+      await provider.writeEditableFile(widget.plugin.id, file.path, next);
+      setState(() => _future = provider.listFiles(widget.plugin.id));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('文件已保存')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+        );
+      }
+    }
+  }
+
+  Future<String?> _showFileDialog(PluginFileEntry file, String content) async {
+    final controller = TextEditingController(text: content);
+    String? error;
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(file.path),
+          content: SizedBox(
+            width: 720,
+            child: TextField(
+              controller: controller,
+              readOnly: !file.isEditable,
+              maxLines: 20,
+              decoration: InputDecoration(
+                border: const OutlineInputBorder(),
+                errorText: error,
+              ),
+              style: const TextStyle(fontFamily: 'monospace'),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('关闭'),
+            ),
+            if (file.isEditable)
+              FilledButton(
+                onPressed: () {
+                  if (file.type == 'json') {
+                    try {
+                      final decoded = jsonDecode(controller.text);
+                      final formatted = const JsonEncoder.withIndent(
+                        '  ',
+                      ).convert(decoded);
+                      Navigator.pop(context, formatted);
+                      return;
+                    } catch (_) {
+                      setDialogState(() => error = 'JSON 格式错误');
+                      return;
+                    }
+                  }
+                  Navigator.pop(context, controller.text);
+                },
+                child: const Text('保存'),
+              ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    return result;
+  }
+}
+
 class _DefinitionListCard extends StatelessWidget {
   const _DefinitionListCard({
     required this.title,
@@ -585,7 +1058,7 @@ class _EmptyPlugins extends StatelessWidget {
             Text('暂无插件', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             const Text(
-              '通过右上角按钮导入包含 plugin.json 的插件目录或 ZIP。',
+              '通过右上角按钮导入包含 plugin.json 的插件 ZIP。',
               textAlign: TextAlign.center,
             ),
           ],
@@ -632,5 +1105,3 @@ Future<void> _runAction(
     ).showSnackBar(SnackBar(content: Text('操作失败: $e')));
   }
 }
-
-enum _PluginImportAction { directory, zip }

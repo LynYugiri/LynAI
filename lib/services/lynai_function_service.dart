@@ -204,6 +204,12 @@ class LynAIFunctionService {
       if (permission != null) _requirePermission(context, permission);
       return switch (call.name) {
         'plugin.info' => _pluginInfo(context),
+        'plugin.config.read' => await _pluginConfigRead(
+          context,
+          call.arguments,
+        ),
+        'plugin.file.list' => await _pluginFileList(context),
+        'plugin.file.read' => await _pluginFileRead(context, call.arguments),
         'plugin.storage.get' => await _storageGet(context, call.arguments),
         'plugin.storage.set' => await _storageSet(context, call.arguments),
         'plugin.storage.remove' => await _storageRemove(
@@ -350,6 +356,71 @@ class LynAIFunctionService {
         'grantedPermissions': plugin.grantedPermissions,
       },
     };
+  }
+
+  Future<Map<String, dynamic>> _pluginConfigRead(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) async {
+    final plugins = context.plugins;
+    final plugin = context.plugin;
+    if (plugins == null || plugin == null) {
+      return _error('plugin.config.read 需要插件上下文');
+    }
+    final requestedPath = (args['path'] as String? ?? '').trim();
+    if (requestedPath.isNotEmpty &&
+        requestedPath != plugin.manifest.config.path) {
+      return _error('plugin.config.read 只能读取当前插件配置文件');
+    }
+    final rawValues = await plugins.loadConfig(plugin.id);
+    final schema = await plugins.loadConfigSchema(plugin.id);
+    return {
+      'ok': true,
+      'path': plugin.manifest.config.path,
+      'schemaPath': plugin.manifest.config.schema,
+      'values': schema?.applyDefaults(rawValues) ?? rawValues,
+      'rawValues': rawValues,
+    };
+  }
+
+  Future<Map<String, dynamic>> _pluginFileList(
+    LynAIFunctionContext context,
+  ) async {
+    final plugins = context.plugins;
+    final plugin = context.plugin;
+    if (plugins == null || plugin == null) {
+      return _error('plugin.file.list 需要插件上下文');
+    }
+    final files = await plugins.listFiles(plugin.id);
+    return {
+      'ok': true,
+      'files': files
+          .map(
+            (file) => {
+              'path': file.path,
+              'size': file.size,
+              'isDirectory': file.isDirectory,
+              'isEditable': file.isEditable,
+              'type': file.type,
+            },
+          )
+          .toList(),
+    };
+  }
+
+  Future<Map<String, dynamic>> _pluginFileRead(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) async {
+    final plugins = context.plugins;
+    final plugin = context.plugin;
+    if (plugins == null || plugin == null) {
+      return _error('plugin.file.read 需要插件上下文');
+    }
+    final path = (args['path'] as String? ?? '').trim();
+    if (path.isEmpty) return _error('plugin.file.read 缺少 path');
+    final content = await plugins.readFile(plugin.id, path);
+    return {'ok': true, 'path': path, 'content': content};
   }
 
   Future<Map<String, dynamic>> _storageGet(
@@ -1215,7 +1286,11 @@ class LynAIFunctionService {
     LynAIFunctionContext context,
     Map<String, dynamic> args,
   ) async {
-    final model = _selectChatModel(context, args['modelId'] as String?);
+    final model = _selectChatModel(
+      context,
+      args['modelId'] as String?,
+      args['modelName'] as String?,
+    );
     final messages = _modelMessages(args);
     final api = ApiService();
     try {
@@ -1236,7 +1311,11 @@ class LynAIFunctionService {
     }
   }
 
-  ModelConfig _selectChatModel(LynAIFunctionContext context, String? modelId) {
+  ModelConfig _selectChatModel(
+    LynAIFunctionContext context,
+    String? modelId,
+    String? modelName,
+  ) {
     final provider = context.modelConfigs;
     if (provider == null) throw Exception('model.chat 需要模型上下文');
     final chatModels = provider.modelsByCategory(ModelConfig.categoryChat);
@@ -1244,17 +1323,35 @@ class LynAIFunctionService {
     final id = modelId?.trim();
     if (id != null && id.isNotEmpty) {
       for (final model in chatModels) {
-        if (model.id == id) return model;
+        if (model.id == id) return _withRequestedModelName(model, modelName);
       }
       throw Exception('未找到模型: $id');
     }
     final lastId = context.settings?.settings.lastChatModelId;
     if (lastId != null && lastId.isNotEmpty) {
       for (final model in chatModels) {
-        if (model.id == lastId) return model;
+        if (model.id == lastId) {
+          return _withRequestedModelName(model, modelName);
+        }
       }
     }
-    return chatModels.first;
+    return _withRequestedModelName(chatModels.first, modelName);
+  }
+
+  ModelConfig _withRequestedModelName(ModelConfig model, String? rawModelName) {
+    final modelName = rawModelName?.trim();
+    if (modelName == null ||
+        modelName.isEmpty ||
+        modelName == model.modelName) {
+      return model;
+    }
+    for (final entry in model.models) {
+      if (entry.name == modelName) {
+        if (!entry.enabled) throw Exception('子模型未启用: $modelName');
+        return model.copyWith(modelName: modelName);
+      }
+    }
+    throw Exception('未找到子模型: $modelName');
   }
 
   List<Map<String, dynamic>> _modelMessages(Map<String, dynamic> args) {

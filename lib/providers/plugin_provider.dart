@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../models/plugin.dart';
+import '../models/plugin_config_schema.dart';
 import '../repositories/plugin_repository.dart';
 
 /// 管理插件安装状态、权限授权、功能页开关和插件私有配置。
@@ -16,6 +17,8 @@ class PluginProvider extends ChangeNotifier {
   List<InstalledPlugin> _plugins = const [];
   final Map<String, Map<String, dynamic>> _settingsCache = {};
   final Map<String, Map<String, dynamic>> _storageCache = {};
+  final Map<String, Map<String, dynamic>> _configCache = {};
+  final Map<String, PluginConfigSchema?> _schemaCache = {};
   bool _loading = false;
 
   List<InstalledPlugin> get plugins => List.unmodifiable(_plugins);
@@ -44,6 +47,11 @@ class PluginProvider extends ChangeNotifier {
     }
   }
 
+  /// Installs an unpacked plugin directory.
+  ///
+  /// ZIP import uses this after extraction. The user-facing plugin manager does
+  /// not expose directory import, so tests and internal import flows are the only
+  /// callers that should use it.
   Future<void> importDirectory(String path) async {
     final plugin = await _repository.importDirectory(path);
     await _upsert(plugin);
@@ -131,6 +139,8 @@ class PluginProvider extends ChangeNotifier {
     _plugins = _plugins.where((plugin) => plugin.id != id).toList();
     _settingsCache.remove(id);
     _storageCache.remove(id);
+    _configCache.remove(id);
+    _schemaCache.remove(id);
     await _repository.deletePluginDirectory(id);
     await _save();
     notifyListeners();
@@ -182,6 +192,97 @@ class PluginProvider extends ChangeNotifier {
     }
     _storageCache[pluginId] = storage;
     await _repository.savePluginStorage(pluginId, storage);
+  }
+
+  Future<List<PluginFileEntry>> listFiles(String pluginId) async {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) throw Exception('插件不存在: $pluginId');
+    return _repository.listPluginFiles(plugin);
+  }
+
+  Future<String> readFile(String pluginId, String path) async {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) throw Exception('插件不存在: $pluginId');
+    return _repository.readPluginTextFile(plugin.path, path);
+  }
+
+  Future<void> writeEditableFile(
+    String pluginId,
+    String path,
+    String content,
+  ) async {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) throw Exception('插件不存在: $pluginId');
+    await _repository.writePluginTextFile(plugin, path, content);
+    if (path == plugin.manifest.config.path) _configCache.remove(pluginId);
+    if (path == plugin.manifest.config.schema) _schemaCache.remove(pluginId);
+    notifyListeners();
+  }
+
+  bool isEditableFile(String pluginId, String path) {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) return false;
+    return _repository.isEditablePluginFile(plugin, path);
+  }
+
+  Future<Map<String, dynamic>> loadConfig(String pluginId) async {
+    final cached = _configCache[pluginId];
+    if (cached != null) return Map<String, dynamic>.from(cached);
+    final plugin = pluginById(pluginId);
+    if (plugin == null) throw Exception('插件不存在: $pluginId');
+    if (!await _repository.pluginFileExists(
+      plugin.path,
+      plugin.manifest.config.path,
+    )) {
+      _configCache[pluginId] = <String, dynamic>{};
+      return <String, dynamic>{};
+    }
+    final config = await _repository.readPluginJsonFile(
+      plugin.path,
+      plugin.manifest.config.path,
+    );
+    _configCache[pluginId] = config;
+    return Map<String, dynamic>.from(config);
+  }
+
+  Future<PluginConfigSchema?> loadConfigSchema(String pluginId) async {
+    if (_schemaCache.containsKey(pluginId)) return _schemaCache[pluginId];
+    final plugin = pluginById(pluginId);
+    if (plugin == null) throw Exception('插件不存在: $pluginId');
+    if (!await _repository.pluginFileExists(
+      plugin.path,
+      plugin.manifest.config.schema,
+    )) {
+      _schemaCache[pluginId] = null;
+      return null;
+    }
+    final data = await _repository.readPluginJsonFile(
+      plugin.path,
+      plugin.manifest.config.schema,
+    );
+    final schema = PluginConfigSchema.fromJson(data);
+    final error = schema.validateDefinition();
+    if (error != null) throw Exception(error);
+    _schemaCache[pluginId] = schema;
+    return schema;
+  }
+
+  Future<Map<String, dynamic>> loadConfigValues(String pluginId) async {
+    final config = await loadConfig(pluginId);
+    final schema = await loadConfigSchema(pluginId);
+    return schema?.applyDefaults(config) ?? config;
+  }
+
+  Future<void> saveConfig(String pluginId, Map<String, dynamic> values) async {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) throw Exception('插件不存在: $pluginId');
+    await _repository.writePluginJsonFile(
+      plugin,
+      plugin.manifest.config.path,
+      values,
+    );
+    _configCache[pluginId] = Map<String, dynamic>.from(values);
+    notifyListeners();
   }
 
   Future<void> _upsert(InstalledPlugin imported) async {

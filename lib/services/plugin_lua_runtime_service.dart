@@ -12,6 +12,7 @@ import '../models/schedule_item.dart';
 import '../models/todo_list.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
+import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/plugin_path_utils.dart';
 import 'api_service.dart';
@@ -31,6 +32,7 @@ class PluginLuaRuntimeService {
     required Map<String, dynamic> arguments,
     FeatureProvider? features,
     ModelConfigProvider? modelConfigs,
+    PluginProvider? plugins,
     SettingsProvider? settings,
   }) async {
     final entryPath = safePluginFilePath(plugin.path, plugin.manifest.entry);
@@ -43,7 +45,22 @@ class PluginLuaRuntimeService {
     final state = LuaState.newState();
     state.openLibs();
     _removeDangerousGlobals(state);
-    _installLynAI(state, plugin: plugin, features: features);
+    final preloadedConfig = await _preloadPluginConfig(
+      plugin: plugin,
+      features: features,
+      modelConfigs: modelConfigs,
+      plugins: plugins,
+      settings: settings,
+    );
+    _installLynAI(
+      state,
+      plugin: plugin,
+      features: features,
+      modelConfigs: modelConfigs,
+      plugins: plugins,
+      settings: settings,
+      preloadedConfig: preloadedConfig,
+    );
     final loaded = state.loadString(await entry.readAsString());
     if (loaded != ThreadStatus.luaOk) return _error('Lua 加载失败: $loaded');
     final loadStatus = state.pCall(0, 0, 0);
@@ -68,6 +85,7 @@ class PluginLuaRuntimeService {
       plugin: plugin,
       features: features,
       modelConfigs: modelConfigs,
+      plugins: plugins,
       settings: settings,
     );
     if (commandResult != null) return commandResult;
@@ -95,8 +113,18 @@ class PluginLuaRuntimeService {
     LuaState state, {
     required InstalledPlugin plugin,
     required FeatureProvider? features,
+    required ModelConfigProvider? modelConfigs,
+    required PluginProvider? plugins,
+    required SettingsProvider? settings,
+    required Map<String, dynamic>? preloadedConfig,
   }) {
-    final context = LynAIFunctionContext(features: features, plugin: plugin);
+    final context = LynAIFunctionContext(
+      features: features,
+      modelConfigs: modelConfigs,
+      settings: settings,
+      plugins: plugins,
+      plugin: plugin,
+    );
     final functions = LynAIFunctionService();
     state.newTable();
     _setFunction(state, -1, 'call', (ls) {
@@ -105,6 +133,16 @@ class PluginLuaRuntimeService {
       final normalizedArgs = args is Map
           ? args.map((key, item) => MapEntry(key.toString(), item))
           : <String, dynamic>{};
+      if (method == 'plugin.config.read' && preloadedConfig != null) {
+        final requestedPath = (normalizedArgs['path'] as String? ?? '').trim();
+        if (requestedPath.isEmpty ||
+            requestedPath == plugin.manifest.config.path) {
+          _pushJsonValue(ls, preloadedConfig);
+        } else {
+          _pushJsonValue(ls, _error('plugin.config.read 只能读取当前插件配置文件'));
+        }
+        return 1;
+      }
       final sync = functions.executeSync(
         LynAIFunctionCall(name: method, arguments: normalizedArgs),
         context,
@@ -291,6 +329,29 @@ class PluginLuaRuntimeService {
     });
   }
 
+  Future<Map<String, dynamic>?> _preloadPluginConfig({
+    required InstalledPlugin plugin,
+    required FeatureProvider? features,
+    required ModelConfigProvider? modelConfigs,
+    required PluginProvider? plugins,
+    required SettingsProvider? settings,
+  }) async {
+    if (plugins == null) return null;
+    return LynAIFunctionService().execute(
+      const LynAIFunctionCall(
+        name: 'plugin.config.read',
+        arguments: <String, dynamic>{},
+      ),
+      LynAIFunctionContext(
+        features: features,
+        modelConfigs: modelConfigs,
+        settings: settings,
+        plugins: plugins,
+        plugin: plugin,
+      ),
+    );
+  }
+
   void _pushJsonValue(LuaState state, Object? value) {
     if (value == null) {
       state.pushNil();
@@ -359,6 +420,7 @@ class PluginLuaRuntimeService {
     required InstalledPlugin plugin,
     required FeatureProvider? features,
     required ModelConfigProvider? modelConfigs,
+    required PluginProvider? plugins,
     required SettingsProvider? settings,
   }) async {
     if (value is! Map) return null;
@@ -374,6 +436,7 @@ class PluginLuaRuntimeService {
       LynAIFunctionContext(
         features: features,
         modelConfigs: modelConfigs,
+        plugins: plugins,
         settings: settings,
         plugin: plugin,
       ),
@@ -602,6 +665,7 @@ class PluginLuaRuntimeService {
       modelConfigs,
       settings,
       args['modelId'] as String?,
+      args['modelName'] as String?,
     );
     final prompt = (args['user'] ?? args['prompt'])?.toString().trim() ?? '';
     if (prompt.isEmpty) return _error('model.chat 缺少 user/prompt');
@@ -632,20 +696,42 @@ class PluginLuaRuntimeService {
     ModelConfigProvider provider,
     SettingsProvider? settings,
     String? modelId,
+    String? modelName,
   ) {
     final models = provider.modelsByCategory(ModelConfig.categoryChat);
     if (models.isEmpty) throw Exception('没有可用聊天模型');
     final id = modelId?.trim();
     if (id != null && id.isNotEmpty) {
-      return models.firstWhere((model) => model.id == id);
+      return _withRequestedModelName(
+        models.firstWhere((model) => model.id == id),
+        modelName,
+      );
     }
     final lastId = settings?.settings.lastChatModelId;
     if (lastId != null && lastId.isNotEmpty) {
       for (final model in models) {
-        if (model.id == lastId) return model;
+        if (model.id == lastId) {
+          return _withRequestedModelName(model, modelName);
+        }
       }
     }
-    return models.first;
+    return _withRequestedModelName(models.first, modelName);
+  }
+
+  ModelConfig _withRequestedModelName(ModelConfig model, String? rawModelName) {
+    final modelName = rawModelName?.trim();
+    if (modelName == null ||
+        modelName.isEmpty ||
+        modelName == model.modelName) {
+      return model;
+    }
+    for (final entry in model.models) {
+      if (entry.name == modelName) {
+        if (!entry.enabled) throw Exception('子模型未启用: $modelName');
+        return model.copyWith(modelName: modelName);
+      }
+    }
+    throw Exception('未找到子模型: $modelName');
   }
 
   Map<String, dynamic> _noteJson(Note note, {required bool includeContent}) {

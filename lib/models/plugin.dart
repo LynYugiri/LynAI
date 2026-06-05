@@ -149,6 +149,90 @@ class PluginSettingDefinition {
   };
 }
 
+/// 插件真实配置文件定义。
+class PluginConfigDefinition {
+  static const defaultPath = 'config.json';
+  static const defaultSchemaPath = 'config.schema.json';
+
+  final String path;
+  final String schema;
+
+  const PluginConfigDefinition({
+    this.path = defaultPath,
+    this.schema = defaultSchemaPath,
+  });
+
+  factory PluginConfigDefinition.fromJson(Object? value) {
+    if (value is! Map) return const PluginConfigDefinition();
+    return PluginConfigDefinition(
+      path: value['path'] as String? ?? defaultPath,
+      schema: value['schema'] as String? ?? defaultSchemaPath,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {'path': path, 'schema': schema};
+
+  String? validate() {
+    if (!_isSafeRelativePluginPath(path)) return '插件 config.path 不安全: $path';
+    if (!_isSafeRelativePluginPath(schema)) {
+      return '插件 config.schema 不安全: $schema';
+    }
+    return null;
+  }
+}
+
+/// 用户可在插件管理页直接编辑的插件文件。
+class PluginEditableFileDefinition {
+  final String path;
+  final String title;
+  final String type;
+
+  const PluginEditableFileDefinition({
+    required this.path,
+    required this.title,
+    required this.type,
+  });
+
+  factory PluginEditableFileDefinition.fromJson(Map<String, dynamic> json) {
+    final path = json['path'] as String? ?? '';
+    return PluginEditableFileDefinition(
+      path: path,
+      title: json['title'] as String? ?? path,
+      type: json['type'] as String? ?? _fileTypeFromPath(path),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'path': path,
+    if (title.isNotEmpty && title != path) 'title': title,
+    if (type.isNotEmpty) 'type': type,
+  };
+
+  String? validate() {
+    if (!_isSafeRelativePluginPath(path)) {
+      return '插件 editableFiles 路径不安全: $path';
+    }
+    return null;
+  }
+}
+
+/// 插件目录中的文件条目。
+class PluginFileEntry {
+  final String path;
+  final int size;
+  final bool isDirectory;
+  final bool isEditable;
+  final String type;
+
+  const PluginFileEntry({
+    required this.path,
+    required this.size,
+    required this.isDirectory,
+    required this.isEditable,
+    required this.type,
+  });
+}
+
 /// 插件 manifest 的规范化表示。
 class PluginManifest {
   final String id;
@@ -163,6 +247,8 @@ class PluginManifest {
   final List<PluginFunctionDefinition> functions;
   final List<PluginFeaturePageDefinition> featurePages;
   final List<PluginSettingDefinition> settings;
+  final PluginConfigDefinition config;
+  final List<PluginEditableFileDefinition> editableFiles;
 
   const PluginManifest({
     required this.id,
@@ -177,6 +263,8 @@ class PluginManifest {
     required this.functions,
     required this.featurePages,
     required this.settings,
+    this.config = const PluginConfigDefinition(),
+    this.editableFiles = const [],
   });
 
   factory PluginManifest.fromJson(Map<String, dynamic> json) {
@@ -218,6 +306,16 @@ class PluginManifest {
           .map((item) => PluginSettingDefinition.fromJson(Map.from(item)))
           .where((item) => item.key.isNotEmpty)
           .toList(growable: false),
+      config: PluginConfigDefinition.fromJson(json['config']),
+      editableFiles: (json['editableFiles'] as List<dynamic>? ?? const [])
+          .whereType<Map>()
+          .map(
+            (item) => PluginEditableFileDefinition.fromJson(
+              Map<String, dynamic>.from(item),
+            ),
+          )
+          .where((item) => item.path.isNotEmpty)
+          .toList(growable: false),
     );
   }
 
@@ -237,6 +335,9 @@ class PluginManifest {
       'ui': {'featurePages': featurePages.map((e) => e.toJson()).toList()},
     if (settings.isNotEmpty)
       'settings': settings.map((e) => e.toJson()).toList(),
+    'config': config.toJson(),
+    if (editableFiles.isNotEmpty)
+      'editableFiles': editableFiles.map((e) => e.toJson()).toList(),
   };
 
   String? validate() {
@@ -254,8 +355,44 @@ class PluginManifest {
       final error = page.validate();
       if (error != null) return error;
     }
+    final configError = config.validate();
+    if (configError != null) return configError;
+    for (final file in editableFiles) {
+      final error = file.validate();
+      if (error != null) return error;
+    }
     return null;
   }
+}
+
+bool _isSafeRelativePluginPath(String path) {
+  final trimmed = path.trim();
+  if (trimmed.isEmpty) return false;
+  final uri = Uri.tryParse(trimmed);
+  if (uri != null && uri.hasScheme) return false;
+  final normalized = trimmed.replaceAll('\\', '/');
+  if (normalized.startsWith('/') ||
+      RegExp(r'^[a-zA-Z]:/').hasMatch(normalized)) {
+    return false;
+  }
+  final parts = normalized
+      .split('/')
+      .where((part) => part.isNotEmpty && part != '.')
+      .toList(growable: false);
+  return parts.isNotEmpty && !parts.any((part) => part == '..');
+}
+
+String _fileTypeFromPath(String path) {
+  final lower = path.toLowerCase();
+  if (lower.endsWith('.json')) return 'json';
+  if (lower.endsWith('.md') || lower.endsWith('.markdown')) return 'markdown';
+  if (lower.endsWith('.lua')) return 'lua';
+  if (lower.endsWith('.js')) return 'javascript';
+  if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'html';
+  if (lower.endsWith('.css')) return 'css';
+  if (lower.endsWith('.yaml') || lower.endsWith('.yml')) return 'yaml';
+  if (lower.endsWith('.toml')) return 'toml';
+  return 'text';
 }
 
 /// 已安装插件的运行时状态。

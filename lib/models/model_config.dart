@@ -85,6 +85,12 @@ class ModelConfig {
   static const categoryOcr = 'ocr';
   static const categorySpeech = 'speech';
   static const categoryImageGeneration = 'image_generation';
+  static const supportedCategories = [
+    categoryChat,
+    categoryOcr,
+    categorySpeech,
+    categoryImageGeneration,
+  ];
 
   final String id;
   final String name;
