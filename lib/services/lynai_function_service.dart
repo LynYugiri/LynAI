@@ -234,16 +234,10 @@ class LynAIFunctionService {
           context,
           call.arguments,
         ),
-        'plugin.file.list' => await _pluginFileList(
-          context,
-          call.arguments,
-        ),
+        'plugin.file.list' => await _pluginFileList(context, call.arguments),
         'plugin.file.read' => await _pluginFileRead(context, call.arguments),
         'plugin.file.write' => await _pluginFileWrite(context, call.arguments),
-        'plugin.file.create' => await _pluginFileWrite(
-          context,
-          call.arguments,
-        ),
+        'plugin.file.create' => await _pluginFileWrite(context, call.arguments),
         'plugin.file.delete' => await _pluginFileDelete(
           context,
           call.arguments,
@@ -450,8 +444,8 @@ class LynAIFunctionService {
       return _error('plugin.file.list 需要插件上下文');
     }
     final files = await plugins.listFiles(plugin.id);
-    final hideDefaults = args['hideDefaults'] as bool? ?? false;
-    final filtered = hideDefaults
+    final hideUnmodified = args['hideUnmodified'] as bool? ?? false;
+    final filtered = hideUnmodified
         ? files.where((f) => !f.isDefault).toList()
         : files;
     return {

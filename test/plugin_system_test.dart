@@ -156,7 +156,7 @@ void main() {
         );
         final repository = PluginRepository();
 
-        expect(repository.isEditablePluginFile(plugin, 'config.json'), isTrue);
+        expect(repository.isEditablePluginFile(plugin, 'config.json'), isFalse);
         expect(
           repository.isEditablePluginFile(plugin, 'prompts/system.md'),
           isTrue,
@@ -165,10 +165,16 @@ void main() {
           repository.isEditablePluginFile(plugin, 'readonly.txt'),
           isFalse,
         );
-        await repository.writePluginTextFile(
-          plugin,
-          'config.json',
-          '{"ok":true}',
+        await repository.writePluginJsonFile(plugin, 'config.json', {
+          'ok': true,
+        });
+        expect(
+          () => repository.writePluginTextFile(
+            plugin,
+            'config.json',
+            '{"ok":false}',
+          ),
+          throwsException,
         );
         await repository.writePluginTextFile(
           plugin,
@@ -177,6 +183,80 @@ void main() {
         );
         expect(
           () => repository.writePluginTextFile(plugin, 'readonly.txt', 'bad'),
+          throwsException,
+        );
+      } finally {
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'PluginRepository exposes defaults as root overlay without allowing entry edits',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'lynai_overlay_plugin_',
+      );
+      try {
+        await Directory('${root.path}/defaults').create();
+        await File('${root.path}/plugin.json').writeAsString('{}');
+        await File(
+          '${root.path}/defaults/main.lua',
+        ).writeAsString('default main');
+        await File(
+          '${root.path}/defaults/status.html',
+        ).writeAsString('default html');
+        await File(
+          '${root.path}/defaults/status.css',
+        ).writeAsString('default css');
+        final manifest = PluginManifest.fromJson({
+          'id': 'overlay_plugin',
+          'name': 'Overlay Plugin',
+          'entry': 'main.lua',
+          'editableFiles': [
+            {'path': 'status.html', 'defaultPath': 'defaults/status.html'},
+            {'path': 'status.css', 'defaultPath': 'defaults/status.css'},
+            {'path': 'main.lua', 'defaultPath': 'defaults/main.lua'},
+          ],
+        });
+        final plugin = InstalledPlugin(
+          manifest: manifest,
+          path: root.path,
+          enabled: true,
+          grantedPermissions: const ['files:write'],
+          enabledFeaturePages: const [],
+        );
+        final repository = PluginRepository();
+
+        final files = await repository.listPluginFiles(plugin);
+        expect(files.map((file) => file.path), contains('status.html'));
+        expect(files.map((file) => file.path), contains('status.css'));
+        expect(files.map((file) => file.path), isNot(contains('main.lua')));
+        expect(files.map((file) => file.path), isNot(contains('plugin.json')));
+        expect(
+          files.singleWhere((file) => file.path == 'status.html').isDefault,
+          isTrue,
+        );
+
+        expect(
+          await repository.readPluginOverlayTextFile(plugin, 'status.html'),
+          'default html',
+        );
+        await repository.writePluginTextFile(
+          plugin,
+          'status.html',
+          'custom html',
+        );
+        expect(
+          await File('${root.path}/status.html').readAsString(),
+          'custom html',
+        );
+        expect(
+          await repository.readPluginOverlayTextFile(plugin, 'status.html'),
+          'custom html',
+        );
+        expect(
+          () => repository.writePluginTextFile(plugin, 'main.lua', 'bad'),
           throwsException,
         );
       } finally {
@@ -231,10 +311,10 @@ void main() {
   test('PluginRepository file listing skips symlinks', () async {
     final root = await Directory.systemTemp.createTemp('lynai_symlink_plugin_');
     try {
-      await File('${root.path}/config.json').writeAsString('{}');
+      await File('${root.path}/notes.txt').writeAsString('ok');
       await Link(
-        '${root.path}/linked_config.json',
-      ).create('${root.path}/config.json');
+        '${root.path}/linked_notes.txt',
+      ).create('${root.path}/notes.txt');
       final manifest = PluginManifest.fromJson({
         'id': 'symlink_plugin',
         'name': 'Symlink Plugin',
@@ -249,10 +329,10 @@ void main() {
       );
 
       final files = await PluginRepository().listPluginFiles(plugin);
-      expect(files.map((file) => file.path), contains('config.json'));
+      expect(files.map((file) => file.path), contains('notes.txt'));
       expect(
         files.map((file) => file.path),
-        isNot(contains('linked_config.json')),
+        isNot(contains('linked_notes.txt')),
       );
     } finally {
       await root.delete(recursive: true);

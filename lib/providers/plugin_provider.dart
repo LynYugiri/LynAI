@@ -26,8 +26,10 @@ class PluginProvider extends ChangeNotifier {
 
   /// 返回当前已安装的插件列表（不可修改）。
   List<InstalledPlugin> get plugins => List.unmodifiable(_plugins);
+
   /// 插件列表是否正在加载中。
   bool get loading => _loading;
+
   /// 返回当前已启用插件的数量。
   int get enabledCount => _plugins.where((plugin) => plugin.enabled).length;
 
@@ -224,7 +226,7 @@ class PluginProvider extends ChangeNotifier {
   Future<String> readFile(String pluginId, String path) async {
     final plugin = pluginById(pluginId);
     if (plugin == null) throw Exception('插件不存在: $pluginId');
-    return _repository.readPluginTextFile(plugin.path, path);
+    return _repository.readPluginOverlayTextFile(plugin, path);
   }
 
   /// 将文本内容写入插件的可编辑文件中。

@@ -3,7 +3,7 @@
 -- 由 LynAI 运行时自动执行并将结果返回给 AI。
 
 function status_files(args)
-  return {__lynai_function = 'plugin.file.list', args = {hideDefaults = true}}
+  return {__lynai_function = 'plugin.file.list', args = {}}
 end
 
 function status_read(args)

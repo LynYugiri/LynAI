@@ -49,7 +49,7 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
   }
 
   /// 加载插件功能页的入口 HTML 文件。
-  void _loadEntry() {
+  Future<void> _loadEntry() async {
     final path = safePluginFilePath(widget.plugin.path, widget.page.entry);
     if (path == null) {
       setState(() {
@@ -58,27 +58,9 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
       });
       return;
     }
-    final customFile = File(path);
-    File? loadFile;
-    if (customFile.existsSync()) {
-      loadFile = customFile;
-    } else {
-      final defaultRel = context.read<PluginProvider>().defaultPathFor(
-        widget.plugin.id,
-        widget.page.entry,
-      );
-      if (defaultRel != null) {
-        final defaultPath = safePluginFilePath(
-          widget.plugin.path,
-          defaultRel,
-        );
-        if (defaultPath != null) {
-          final defaultFile = File(defaultPath);
-          if (defaultFile.existsSync()) loadFile = defaultFile;
-        }
-      }
-    }
-    if (loadFile == null) {
+    final renderEntry = await _buildRenderEntry();
+    if (!mounted) return;
+    if (renderEntry == null) {
       setState(() {
         _controller = null;
         _error = '插件入口文件不存在: ${widget.page.entry}';
@@ -87,7 +69,9 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     }
     final controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(const Color(0x00000000))
+      ..setBackgroundColor(const Color(0x00000000));
+    final renderRoot = renderEntry.root.absolute.path.replaceAll('\\', '/');
+    controller
       ..addJavaScriptChannel(
         'LynAIBridge',
         onMessageReceived: (message) => _handleBridgeMessage(message.message),
@@ -98,21 +82,109 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
           onNavigationRequest: (request) {
             final targetPath = _filePathFromUrl(request.url);
             if (targetPath == null) return NavigationDecision.prevent;
-            final root = Directory(
-              widget.plugin.path,
-            ).absolute.path.replaceAll('\\', '/');
             final normalized = targetPath.replaceAll('\\', '/');
-            return normalized.startsWith('$root/')
+            return normalized.startsWith('$renderRoot/')
                 ? NavigationDecision.navigate
                 : NavigationDecision.prevent;
           },
         ),
       )
-      ..loadRequest(Uri.file(loadFile.absolute.path));
+      ..loadFile(renderEntry.file.absolute.path);
     setState(() {
       _controller = controller;
       _error = null;
     });
+  }
+
+  /// 构建 WebView 渲染目录，使相对资源也按“根目录覆盖 defaults/”解析。
+  Future<_RenderEntry?> _buildRenderEntry() async {
+    final renderRoot = _renderRoot();
+    if (await renderRoot.exists()) await renderRoot.delete(recursive: true);
+    await renderRoot.create(recursive: true);
+    await _copyRootResources(renderRoot);
+    await _copyDefaultMappedFiles(renderRoot);
+    final entryPath = safePluginFilePath(renderRoot.path, widget.page.entry);
+    if (entryPath == null) return null;
+    final entry = File(entryPath);
+    return await entry.exists()
+        ? _RenderEntry(root: renderRoot, file: entry)
+        : null;
+  }
+
+  Directory _renderRoot() {
+    return Directory(
+      '${Directory.systemTemp.path}/lynai_plugin_webview/${_safeSegment(widget.plugin.id)}_${_safeSegment(widget.page.id)}',
+    );
+  }
+
+  Future<void> _copyRootResources(Directory renderRoot) async {
+    final root = Directory(widget.plugin.path);
+    if (!await root.exists()) return;
+    await for (final entity in root.list(recursive: true, followLinks: false)) {
+      if (entity is! File) continue;
+      final relativePath = _relativePluginPath(root.path, entity.path);
+      if (relativePath == null || _isHiddenRenderPath(relativePath)) continue;
+      final targetPath = safePluginFilePath(renderRoot.path, relativePath);
+      if (targetPath == null) continue;
+      final target = File(targetPath);
+      if (!await target.parent.exists()) {
+        await target.parent.create(recursive: true);
+      }
+      await entity.copy(target.path);
+    }
+  }
+
+  Future<void> _copyDefaultMappedFiles(Directory renderRoot) async {
+    for (final file in widget.plugin.manifest.editableFiles) {
+      final defaultPath = file.defaultPath;
+      if (defaultPath == null || defaultPath.isEmpty) continue;
+      final targetPath = safePluginFilePath(renderRoot.path, file.path);
+      if (targetPath == null) continue;
+      final customPath = safePluginFilePath(widget.plugin.path, file.path);
+      final defaultSafePath = safePluginFilePath(
+        widget.plugin.path,
+        defaultPath,
+      );
+      final source = customPath != null && await File(customPath).exists()
+          ? File(customPath)
+          : defaultSafePath == null
+          ? null
+          : File(defaultSafePath);
+      if (source == null || !await source.exists()) continue;
+      final target = File(targetPath);
+      if (!await target.parent.exists()) {
+        await target.parent.create(recursive: true);
+      }
+      await source.copy(target.path);
+    }
+  }
+
+  String? _relativePluginPath(String root, String path) {
+    final normalizedRoot = root
+        .replaceAll('\\', '/')
+        .replaceAll(RegExp(r'/+$'), '');
+    final normalizedPath = path.replaceAll('\\', '/');
+    if (!normalizedPath.startsWith('$normalizedRoot/')) return null;
+    return normalizedPath.substring(normalizedRoot.length + 1);
+  }
+
+  bool _isHiddenRenderPath(String relativePath) {
+    final normalized = relativePath.replaceAll('\\', '/');
+    if (normalized == 'plugin.json') return true;
+    if (normalized.startsWith('defaults/')) return true;
+    if (normalized ==
+        widget.plugin.manifest.config.path.replaceAll('\\', '/')) {
+      return true;
+    }
+    if (normalized ==
+        widget.plugin.manifest.config.schema.replaceAll('\\', '/')) {
+      return true;
+    }
+    return normalized == widget.plugin.manifest.entry.replaceAll('\\', '/');
+  }
+
+  String _safeSegment(String value) {
+    return value.replaceAll(RegExp(r'[^A-Za-z0-9_.-]+'), '_');
   }
 
   /// 从 file:// URL 中提取本地文件路径。
@@ -221,9 +293,7 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
       ),
     );
     if (result['ok'] != true) {
-      throw Exception(
-        result['error']?.toString() ?? 'Bridge 调用失败: $method',
-      );
+      throw Exception(result['error']?.toString() ?? 'Bridge 调用失败: $method');
     }
     return result;
   }
@@ -233,9 +303,7 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     final controller = _controller;
     if (controller == null) return;
     final json = jsonEncode(payload);
-    await controller.runJavaScript(
-      'window.__lynaiBridgeResolve?.($json);',
-    );
+    await controller.runJavaScript('window.__lynaiBridgeResolve?.($json);');
   }
 
   /// 将动态值转换为 JSON 安全的 Map 结构。
@@ -285,4 +353,11 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     }
     return const Center(child: CircularProgressIndicator());
   }
+}
+
+class _RenderEntry {
+  final Directory root;
+  final File file;
+
+  const _RenderEntry({required this.root, required this.file});
 }

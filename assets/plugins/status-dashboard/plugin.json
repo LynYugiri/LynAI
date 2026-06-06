@@ -54,12 +54,6 @@
       "title": "状态页样式",
       "type": "css",
       "defaultPath": "defaults/status.css"
-    },
-    {
-      "path": "main.lua",
-      "title": "工具脚本",
-      "type": "lua",
-      "defaultPath": "defaults/main.lua"
     }
   ]
 }

@@ -189,6 +189,7 @@ class PluginRepository {
       if (relativePath.isEmpty) continue;
       if (relativePath.split('/').length > maxDepth) continue;
       if (_isDefaultPath(relativePath)) continue;
+      if (_isHiddenCorePath(plugin, relativePath)) continue;
       final stat = await entity.stat();
       final isDirectory = entity is Directory;
       final isEditable =
@@ -208,6 +209,7 @@ class PluginRepository {
     }
     for (final file in plugin.manifest.editableFiles) {
       if (file.defaultPath == null || file.defaultPath!.isEmpty) continue;
+      if (_isHiddenCorePath(plugin, file.path)) continue;
       if (!entryExists(file.path, entries)) {
         entries.add(
           PluginFileEntry(
@@ -230,7 +232,7 @@ class PluginRepository {
     return entries;
   }
 
-  /// 读取插件文本文件（仅限根目录下的自定义文件）。
+  /// 读取插件文本文件（仅限根目录下的真实文件）。
   ///
   /// 注意：不会回退读取 defaults/ 出厂模板。若文件不存在，直接抛出异常。
   /// 出厂模板仅由系统内部模块（Lua 运行时、功能页渲染）自行按需加载。
@@ -246,6 +248,36 @@ class PluginRepository {
     final stat = await file.stat();
     if (stat.size > maxBytes) throw Exception('文件过大，无法预览');
     return file.readAsString();
+  }
+
+  /// 读取插件文本文件的合并视图：优先根目录自定义文件，否则回退 defaults/ 模板。
+  Future<String> readPluginOverlayTextFile(
+    InstalledPlugin plugin,
+    String relativePath, {
+    int maxBytes = maxTextFileBytes,
+  }) async {
+    final normalized = _normalizeRelativePath(relativePath);
+    if (normalized == null) throw Exception('插件文件路径不安全: $relativePath');
+    if (_isProtectedPluginPath(plugin, normalized)) {
+      throw Exception('插件受保护文件不可读取: $relativePath');
+    }
+    final file = File(safePluginFilePath(plugin.path, normalized)!);
+    if (await file.exists()) {
+      await _ensureInsideRoot(plugin.path, file.path);
+      final stat = await file.stat();
+      if (stat.size > maxBytes) throw Exception('文件过大，无法预览');
+      return file.readAsString();
+    }
+    final defaultPath = defaultPathFor(plugin, normalized);
+    if (defaultPath == null) throw Exception('插件文件不存在: $relativePath');
+    final defaultSafePath = safePluginFilePath(plugin.path, defaultPath);
+    if (defaultSafePath == null) throw Exception('插件文件路径不安全: $relativePath');
+    final defaultFile = File(defaultSafePath);
+    if (!await defaultFile.exists()) throw Exception('插件文件不存在: $relativePath');
+    await _ensureInsideRoot(plugin.path, defaultFile.path);
+    final stat = await defaultFile.stat();
+    if (stat.size > maxBytes) throw Exception('文件过大，无法预览');
+    return defaultFile.readAsString();
   }
 
   /// Returns whether a plugin-relative file exists without allowing path escape.
@@ -269,7 +301,7 @@ class PluginRepository {
     if (!_isEditablePluginFile(plugin, relativePath)) {
       throw Exception('插件文件不可编辑: $relativePath');
     }
-    if (_isProtectedPath(relativePath)) {
+    if (_isProtectedPluginPath(plugin, relativePath)) {
       throw Exception('插件受保护文件不可覆盖: $relativePath');
     }
     final file = await _safeWritablePluginFile(plugin.path, relativePath);
@@ -294,10 +326,22 @@ class PluginRepository {
     String relativePath,
     Map<String, dynamic> value,
   ) async {
-    await writePluginTextFile(
-      plugin,
-      relativePath,
+    if (!_isConfigPath(plugin, relativePath)) {
+      await writePluginTextFile(
+        plugin,
+        relativePath,
+        const JsonEncoder.withIndent('  ').convert(value),
+      );
+      return;
+    }
+    if (_isProtectedPluginPath(plugin, relativePath, allowConfig: true)) {
+      throw Exception('插件受保护文件不可覆盖: $relativePath');
+    }
+    final file = await _safeWritablePluginFile(plugin.path, relativePath);
+    if (!await file.parent.exists()) await file.parent.create(recursive: true);
+    await file.writeAsString(
       const JsonEncoder.withIndent('  ').convert(value),
+      flush: true,
     );
   }
 
@@ -309,7 +353,7 @@ class PluginRepository {
     if (!_isEditablePluginFile(plugin, relativePath)) {
       throw Exception('插件文件不可删除: $relativePath');
     }
-    if (_isProtectedPath(relativePath)) {
+    if (_isProtectedPluginPath(plugin, relativePath)) {
       throw Exception('插件受保护文件不可删除: $relativePath');
     }
     final file = await _safeExistingPluginFile(plugin.path, relativePath);
@@ -325,7 +369,8 @@ class PluginRepository {
     if (!_isEditablePluginFile(plugin, oldPath)) {
       throw Exception('插件文件不可重命名: $oldPath');
     }
-    if (_isProtectedPath(oldPath) || _isProtectedPath(newPath)) {
+    if (_isProtectedPluginPath(plugin, oldPath) ||
+        _isProtectedPluginPath(plugin, newPath)) {
       throw Exception('插件受保护文件不可重命名');
     }
     final oldFile = await _safeExistingPluginFile(plugin.path, oldPath);
@@ -539,6 +584,33 @@ class PluginRepository {
     return false;
   }
 
+  bool _isProtectedPluginPath(
+    InstalledPlugin plugin,
+    String relativePath, {
+    bool allowConfig = false,
+  }) {
+    final normalized = _normalizeRelativePath(relativePath);
+    if (normalized == null) return true;
+    if (_isProtectedPath(normalized)) return true;
+    if (!allowConfig && _isConfigPath(plugin, normalized)) return true;
+    return normalized == _normalizeRelativePath(plugin.manifest.entry);
+  }
+
+  bool _isHiddenCorePath(InstalledPlugin plugin, String relativePath) {
+    final normalized = _normalizeRelativePath(relativePath);
+    if (normalized == null) return true;
+    if (normalized == 'plugin.json') return true;
+    if (_isConfigPath(plugin, normalized)) return true;
+    return normalized == _normalizeRelativePath(plugin.manifest.entry);
+  }
+
+  bool _isConfigPath(InstalledPlugin plugin, String relativePath) {
+    final normalized = _normalizeRelativePath(relativePath);
+    if (normalized == null) return false;
+    return normalized == _normalizeRelativePath(plugin.manifest.config.path) ||
+        normalized == _normalizeRelativePath(plugin.manifest.config.schema);
+  }
+
   bool _isDefaultPath(String relativePath) {
     final normalized = relativePath.replaceAll('\\', '/');
     return normalized.startsWith('defaults/');
@@ -557,13 +629,16 @@ class PluginRepository {
     final normalized = _normalizeRelativePath(relativePath);
     if (normalized == null) return false;
     if (_isProtectedPath(normalized)) return false;
-    if (plugin.grantedPermissions.contains('files:write')) return true;
-    if (normalized == _normalizeRelativePath(plugin.manifest.config.path)) {
+    if (normalized == _normalizeRelativePath(plugin.manifest.entry)) {
+      return false;
+    }
+    if (_isConfigPath(plugin, normalized)) return false;
+    if (plugin.manifest.editableFiles.any(
+      (file) => normalized == _normalizeRelativePath(file.path),
+    )) {
       return true;
     }
-    return plugin.manifest.editableFiles.any(
-      (file) => normalized == _normalizeRelativePath(file.path),
-    );
+    return plugin.grantedPermissions.contains('files:write');
   }
 
   bool _hasDefaultPath(InstalledPlugin plugin, String relativePath) {
