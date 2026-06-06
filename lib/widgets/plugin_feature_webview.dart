@@ -19,11 +19,13 @@ import '../utils/plugin_path_utils.dart';
 class PluginFeatureWebView extends StatefulWidget {
   final InstalledPlugin plugin;
   final PluginFeaturePageDefinition page;
+  final double linuxOverlayBottomInset;
 
   const PluginFeatureWebView({
     super.key,
     required this.plugin,
     required this.page,
+    this.linuxOverlayBottomInset = 0,
   });
 
   @override
@@ -36,7 +38,9 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
   final int _renderSession = DateTime.now().microsecondsSinceEpoch;
   int _loadGeneration = 0;
   int? _renderVersion;
+  int _webViewRevision = 0;
   Directory? _activeRenderRoot;
+  final List<Timer> _linuxRefreshTimers = [];
 
   @override
   void initState() {
@@ -75,6 +79,7 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
   @override
   void dispose() {
     _loadGeneration++;
+    _cancelLinuxRefreshTimers();
     final renderRoot = _activeRenderRoot;
     if (renderRoot != null) unawaited(_deleteDirectory(renderRoot));
     super.dispose();
@@ -106,7 +111,7 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     }
     final controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(const Color(0x00000000));
+      ..setBackgroundColor(Theme.of(context).colorScheme.surface);
     final renderRoot = renderEntry.root.absolute.path.replaceAll('\\', '/');
     controller
       ..addJavaScriptChannel(
@@ -115,7 +120,18 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
       )
       ..setNavigationDelegate(
         NavigationDelegate(
-          onPageFinished: (_) => _injectBridge(),
+          onPageFinished: (_) {
+            _injectBridge();
+            _scheduleLinuxOverlayRefresh();
+          },
+          onWebResourceError: (error) {
+            if (error.isForMainFrame == false) return;
+            if (!mounted || generation != _loadGeneration) return;
+            setState(() {
+              _controller = null;
+              _error = '插件页面加载失败: ${error.description}';
+            });
+          },
           onNavigationRequest: (request) {
             final targetPath = _filePathFromUrl(request.url);
             if (targetPath == null) return NavigationDecision.prevent;
@@ -132,10 +148,37 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     setState(() {
       _controller = controller;
       _error = null;
+      _webViewRevision++;
     });
+    _scheduleLinuxOverlayRefresh();
     if (previousRenderRoot != null) {
       unawaited(_deleteDirectory(previousRenderRoot));
     }
+  }
+
+  void _scheduleLinuxOverlayRefresh() {
+    if (!Platform.isLinux) return;
+    _cancelLinuxRefreshTimers();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshLinuxOverlay());
+    for (final delay in const [
+      Duration(milliseconds: 32),
+      Duration(milliseconds: 120),
+      Duration(milliseconds: 320),
+    ]) {
+      _linuxRefreshTimers.add(Timer(delay, _refreshLinuxOverlay));
+    }
+  }
+
+  void _refreshLinuxOverlay() {
+    if (!mounted || !Platform.isLinux || _controller == null) return;
+    setState(() => _webViewRevision++);
+  }
+
+  void _cancelLinuxRefreshTimers() {
+    for (final timer in _linuxRefreshTimers) {
+      timer.cancel();
+    }
+    _linuxRefreshTimers.clear();
   }
 
   /// 构建 WebView 渲染目录，使相对资源也按“根目录覆盖 defaults/”解析。
@@ -398,7 +441,20 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
       );
     }
     if (_controller != null) {
-      return WebViewWidget(controller: _controller!);
+      Widget webView = ColoredBox(
+        color: Theme.of(context).colorScheme.surface,
+        child: WebViewWidget(
+          key: ValueKey(_webViewRevision),
+          controller: _controller!,
+        ),
+      );
+      if (Platform.isLinux && widget.linuxOverlayBottomInset > 0) {
+        webView = Padding(
+          padding: EdgeInsets.only(bottom: widget.linuxOverlayBottomInset),
+          child: webView,
+        );
+      }
+      return webView;
     }
     return const Center(child: CircularProgressIndicator());
   }

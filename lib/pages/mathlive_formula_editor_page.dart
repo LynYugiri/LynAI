@@ -65,7 +65,7 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
     }
     _webCtrl = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(const Color(0x00000000))
+      ..setBackgroundColor(const Color(0xff101216))
       ..addJavaScriptChannel(
         'MathLiveBridge',
         onMessageReceived: (message) {
@@ -76,6 +76,12 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
         NavigationDelegate(
           onPageFinished: (_) {
             _scheduleReadyTimeout();
+          },
+          onWebResourceError: (error) {
+            if (error.isForMainFrame == false) return;
+            _fallbackToSourceMode(
+              'MathLive 加载失败：${error.description}，已切到源码模式。',
+            );
           },
         ),
       )
@@ -299,39 +305,41 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
       return const Center(child: CircularProgressIndicator());
     }
     if (controller == null) return _sourceEditor();
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          border: Border.all(
-            color: Theme.of(context).colorScheme.outlineVariant,
-          ),
-        ),
-        child: Stack(
-          children: [
-            Positioned.fill(child: WebViewWidget(controller: controller)),
-            if (!_mathLiveReady)
-              Positioned.fill(
-                child: ColoredBox(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.surface.withValues(alpha: 0.88),
-                  child: const Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CircularProgressIndicator(),
-                        SizedBox(height: 12),
-                        Text('MathLive 加载中...'),
-                      ],
-                    ),
+    final editor = DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+      ),
+      child: Stack(
+        children: [
+          Positioned.fill(child: WebViewWidget(controller: controller)),
+          if (!_mathLiveReady)
+            Positioned.fill(
+              child: ColoredBox(
+                color: Theme.of(
+                  context,
+                ).colorScheme.surface.withValues(alpha: 0.88),
+                child: const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 12),
+                      Text('MathLive 加载中...'),
+                    ],
                   ),
                 ),
               ),
-          ],
-        ),
+            ),
+        ],
       ),
     );
+    if (_usesOverlayWebView) return editor;
+    return ClipRRect(borderRadius: BorderRadius.circular(16), child: editor);
+  }
+
+  bool get _usesOverlayWebView {
+    if (kIsWeb) return false;
+    return defaultTargetPlatform == TargetPlatform.linux;
   }
 
   Future<void> _pushFormulaToMathLive(String formula) async {
@@ -433,8 +441,8 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
         if (mounted) setState(() => _keyboardVisible = visible);
         break;
       case 'error':
-        _showNotice(
-          'MathLive 初始化失败：${decoded['message'] ?? '未知错误'}，可切到源码模式继续编辑。',
+        _fallbackToSourceMode(
+          'MathLive 初始化失败：${decoded['message'] ?? '未知错误'}，已切到源码模式。',
         );
         break;
       case 'input':
@@ -500,7 +508,17 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
     _readyTimeout?.cancel();
     _readyTimeout = Timer(const Duration(seconds: 4), () {
       if (!mounted || _mathLiveReady) return;
-      _showNotice('MathLive 还没有完成加载，若长时间无响应可切到源码模式继续编辑。');
+      _fallbackToSourceMode('MathLive 还没有完成加载，已切到源码模式继续编辑。');
+    });
+  }
+
+  void _fallbackToSourceMode(String message) {
+    if (!mounted) return;
+    setState(() {
+      _notice = message;
+      _useSourceMode = true;
+      _keyboardVisible = false;
+      _formula = _rawCtrl.text;
     });
   }
 

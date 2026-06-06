@@ -946,6 +946,25 @@ class _MermaidBlockState extends State<_MermaidBlock> {
   }
 
   Widget _webViewBody() {
+    final svg = _svg;
+    if (svg != null) {
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final width = math.max(_width, constraints.maxWidth);
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SizedBox(
+              width: width,
+              height: _height,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: SvgPicture.string(svg, fit: BoxFit.contain),
+              ),
+            ),
+          );
+        },
+      );
+    }
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = math.max(_width, constraints.maxWidth);
