@@ -1364,7 +1364,7 @@ class _BuiltInPluginsSection extends StatelessWidget {
     String id,
   ) async {
     try {
-      final plugin = await provider.importBuiltIn(id);
+      final plugin = await provider.installTrustedBuiltIn(id);
       if (!context.mounted) return;
       ScaffoldMessenger.of(
         context,

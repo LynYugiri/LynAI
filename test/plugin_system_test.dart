@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:lynai/models/model_config.dart';
 import 'package:lynai/models/plugin.dart';
 import 'package:lynai/models/plugin_config_schema.dart';
@@ -587,6 +588,127 @@ end
       }
     },
   );
+
+  test(
+    'Built-in source sync updates defaults and keeps custom files',
+    () async {
+      final installedRoot = await Directory.systemTemp.createTemp(
+        'lynai_builtin_sync_installed_',
+      );
+      final sourceV1 = await Directory.systemTemp.createTemp(
+        'lynai_builtin_sync_source_v1_',
+      );
+      final sourceV2 = await Directory.systemTemp.createTemp(
+        'lynai_builtin_sync_source_v2_',
+      );
+      try {
+        await Directory('${sourceV1.path}/defaults').create(recursive: true);
+        await File('${sourceV1.path}/plugin.json').writeAsString('''
+{
+  "id": "sync_builtin",
+  "name": "Sync Builtin",
+  "entry": "main.lua",
+  "editableFiles": [
+    {"path": "status.html", "defaultPath": "defaults/status.html"}
+  ]
+}
+''');
+        await File('${sourceV1.path}/main.lua').writeAsString('v1 main');
+        await File(
+          '${sourceV1.path}/defaults/status.html',
+        ).writeAsString('default v1');
+        await File('${sourceV1.path}/defaults/old.html').writeAsString('old');
+
+        final repository = PluginRepository(rootOverride: installedRoot);
+        final installed = await repository.importDirectory(sourceV1.path);
+        await File('${installed.path}/status.html').writeAsString('custom');
+
+        await Directory('${sourceV2.path}/defaults').create(recursive: true);
+        await File('${sourceV2.path}/plugin.json').writeAsString('''
+{
+  "id": "sync_builtin",
+  "name": "Sync Builtin",
+  "entry": "main.lua",
+  "editableFiles": [
+    {"path": "status.html", "defaultPath": "defaults/status.html"}
+  ]
+}
+''');
+        await File('${sourceV2.path}/main.lua').writeAsString('v2 main');
+        await File(
+          '${sourceV2.path}/defaults/status.html',
+        ).writeAsString('default v2');
+
+        final synced = await repository.syncDirectory(sourceV2.path);
+
+        expect(await File('${synced.path}/main.lua').readAsString(), 'v2 main');
+        expect(
+          await File('${synced.path}/defaults/status.html').readAsString(),
+          'default v2',
+        );
+        expect(File('${synced.path}/defaults/old.html').existsSync(), isFalse);
+        expect(
+          await File('${synced.path}/status.html').readAsString(),
+          'custom',
+        );
+      } finally {
+        await installedRoot.delete(recursive: true);
+        await sourceV1.delete(recursive: true);
+        await sourceV2.delete(recursive: true);
+      }
+    },
+  );
+
+  testWidgets('Built-in plugin assets are bundled', (tester) async {
+    expect(
+      await rootBundle.loadString(
+        'assets/plugins/status-dashboard/plugin.json',
+      ),
+      contains('status-dashboard'),
+    );
+    expect(
+      await rootBundle.loadString(
+        'assets/plugins/status-dashboard/defaults/main.lua',
+      ),
+      contains('status_files'),
+    );
+    expect(
+      await rootBundle.loadString('assets/plugins/weather-query/plugin.json'),
+      contains('weather-query'),
+    );
+    expect(
+      await rootBundle.loadString('assets/plugins/weather-query/main.lua'),
+      contains('query_weather'),
+    );
+  });
+
+  test('Trusted built-in state enables and grants permissions', () async {
+    final installedRoot = await Directory.systemTemp.createTemp(
+      'lynai_trusted_builtin_',
+    );
+    try {
+      final provider = PluginProvider(
+        repository: PluginRepository(rootOverride: installedRoot),
+      );
+
+      await provider.importDirectory('assets/plugins/weather-query');
+      final plugin = await provider.trustInstalledBuiltIn('weather-query');
+
+      expect(plugin.id, 'weather-query');
+      expect(plugin.enabled, isTrue);
+      expect(plugin.grantedPermissions, contains('network:access'));
+      expect(plugin.hasAllPermissionsGranted, isTrue);
+    } finally {
+      await installedRoot.delete(recursive: true);
+    }
+  });
+
+  test('Built-in plugin file lists skip source-only files', () {
+    for (final files in PluginRepository.builtInPluginFiles.values) {
+      expect(files, isNot(contains('README.md')));
+      expect(files.where((file) => file.endsWith('/README.md')), isEmpty);
+    }
+  });
 
   test('Lua runtime supports JSON decode and command continuation', () async {
     final root = await Directory.systemTemp.createTemp('lynai_lua_next_');

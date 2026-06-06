@@ -77,6 +77,26 @@ class PluginProvider extends ChangeNotifier {
     await _upsert(plugin);
   }
 
+  /// 安装应用内置可信插件，并默认启用和授予其声明的全部权限。
+  Future<InstalledPlugin> installTrustedBuiltIn(String pluginId) async {
+    final plugin = await importBuiltIn(pluginId);
+    return trustInstalledBuiltIn(plugin.id);
+  }
+
+  /// 将已安装的内置可信插件启用，并授予其声明的全部权限。
+  Future<InstalledPlugin> trustInstalledBuiltIn(String pluginId) async {
+    var plugin = pluginById(pluginId);
+    if (plugin == null) throw Exception('插件不存在: $pluginId');
+    await setEnabled(plugin.id, true);
+    plugin = pluginById(pluginId);
+    if (plugin == null) throw Exception('插件不存在: $pluginId');
+    await setGrantedPermissions(
+      plugin.id,
+      plugin.manifest.permissions.toList(),
+    );
+    return pluginById(pluginId) ?? plugin;
+  }
+
   /// 刷新所有插件的清单文件，可选是否持久化保存。
   Future<void> refreshManifests({bool save = false}) async {
     final next = <InstalledPlugin>[];
@@ -281,20 +301,37 @@ class PluginProvider extends ChangeNotifier {
 
   /// 从应用资源包中导入内置插件。
   Future<InstalledPlugin> importBuiltIn(String pluginId) async {
-    final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
+    return _withBuiltInSource(pluginId, (sourceDir) async {
+      final plugin = await _repository.importDirectory(sourceDir.path);
+      await _upsert(plugin);
+      return plugin;
+    });
+  }
+
+  /// 从应用资源包同步内置插件源码，保留用户自定义文件和授权状态。
+  Future<InstalledPlugin> syncBuiltIn(String pluginId) async {
+    return _withBuiltInSource(pluginId, (sourceDir) async {
+      final plugin = await _repository.syncDirectory(sourceDir.path);
+      await _upsert(plugin);
+      return pluginById(plugin.id) ?? plugin;
+    });
+  }
+
+  Future<T> _withBuiltInSource<T>(
+    String pluginId,
+    Future<T> Function(Directory sourceDir) action,
+  ) async {
+    final assetFiles = PluginRepository.builtInPluginFiles[pluginId];
+    if (assetFiles == null || assetFiles.isEmpty) {
+      throw Exception('内置插件资源不存在: $pluginId');
+    }
     final prefix = 'assets/plugins/$pluginId/';
-    final assets = manifest
-        .listAssets()
-        .where((path) => path.startsWith(prefix))
-        .toList(growable: false);
-    if (assets.isEmpty) throw Exception('内置插件资源不存在: $pluginId');
 
     final tempDir = await Directory.systemTemp.createTemp('lynai_builtin_');
     try {
       final sourceDir = Directory('${tempDir.path}/$pluginId');
-      for (final assetPath in assets) {
-        final relativePath = assetPath.substring(prefix.length);
-        if (relativePath.isEmpty) continue;
+      for (final relativePath in assetFiles) {
+        final assetPath = '$prefix$relativePath';
         final data = await rootBundle.load(assetPath);
         final file = File('${sourceDir.path}/$relativePath');
         if (!await file.parent.exists()) {
@@ -305,9 +342,7 @@ class PluginProvider extends ChangeNotifier {
           flush: true,
         );
       }
-      final plugin = await _repository.importDirectory(sourceDir.path);
-      await _upsert(plugin);
-      return plugin;
+      return action(sourceDir);
     } finally {
       if (await tempDir.exists()) await tempDir.delete(recursive: true);
     }

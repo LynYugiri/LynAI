@@ -18,6 +18,16 @@ class PluginRepository {
   static const maxTextFileBytes = 512 * 1024;
 
   static const builtInPluginIds = ['status-dashboard', 'weather-query'];
+  static const builtInPluginFiles = {
+    'status-dashboard': [
+      'plugin.json',
+      'icon.svg',
+      'defaults/main.lua',
+      'defaults/status.html',
+      'defaults/status.css',
+    ],
+    'weather-query': ['plugin.json', 'main.lua'],
+  };
 
   final Directory? _rootOverride;
 
@@ -66,6 +76,25 @@ class PluginRepository {
     final manifest = await readManifest(source.path);
     final target = await _pluginDirectory(manifest.id);
     await _replaceDirectory(source, target);
+    return _installedPlugin(manifest, target.path);
+  }
+
+  /// 同步一个已解包的内置插件源码目录到安装目录。
+  ///
+  /// 与 [importDirectory] 不同，这个方法不会清空目标目录。它只覆盖源码目录中
+  /// 明确提供的文件，用于升级内置插件的 plugin.json、defaults/ 和入口文件，
+  /// 同时保留用户自定义的可编辑文件与配置。
+  Future<InstalledPlugin> syncDirectory(String sourcePath) async {
+    final source = Directory(sourcePath);
+    if (!await source.exists()) throw Exception('插件目录不存在');
+    final manifest = await readManifest(source.path);
+    final target = await _pluginDirectory(manifest.id);
+    if (!await target.exists()) {
+      await _replaceDirectory(source, target);
+    } else {
+      await _clearSourceDirectories(source, target);
+      await _copyDirectoryFiles(source, target);
+    }
     return _installedPlugin(manifest, target.path);
   }
 
@@ -449,6 +478,11 @@ class PluginRepository {
   Future<void> _replaceDirectory(Directory source, Directory target) async {
     if (await target.exists()) await target.delete(recursive: true);
     await target.create(recursive: true);
+    await _copyDirectoryFiles(source, target);
+  }
+
+  Future<void> _copyDirectoryFiles(Directory source, Directory target) async {
+    if (!await target.exists()) await target.create(recursive: true);
     await for (final entity in source.list(
       recursive: true,
       followLinks: false,
@@ -465,6 +499,24 @@ class PluginRepository {
         }
         await entity.copy(targetFile.path);
       }
+    }
+  }
+
+  Future<void> _clearSourceDirectories(
+    Directory source,
+    Directory target,
+  ) async {
+    await for (final entity in source.list(
+      recursive: false,
+      followLinks: false,
+    )) {
+      if (entity is! Directory) continue;
+      final relativePath = _relativePath(source.path, entity.path);
+      if (relativePath.isEmpty) continue;
+      final targetPath = safePluginFilePath(target.path, relativePath);
+      if (targetPath == null) continue;
+      final targetDir = Directory(targetPath);
+      if (await targetDir.exists()) await targetDir.delete(recursive: true);
     }
   }
 

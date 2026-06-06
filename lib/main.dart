@@ -198,18 +198,14 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
     }
   }
 
-  /// 遍历所有内置插件 ID，自动安装并为未安装的插件授予其声明的所有权限。
+  /// 遍历所有内置插件 ID，同步源码，并为首次安装的插件授予其声明权限。
   Future<void> _importBuiltInPlugins(PluginProvider provider) async {
     for (final id in PluginRepository.builtInPluginIds) {
-      if (provider.pluginExistsSync(id)) continue;
       try {
-        final plugin = await provider.importBuiltIn(id);
-        await provider.setEnabled(plugin.id, true);
-        await provider.setGrantedPermissions(
-          plugin.id,
-          plugin.manifest.permissions.toList(),
-        );
-        debugPrint('内置插件已安装: ${plugin.manifest.name}');
+        final plugin = provider.pluginExistsSync(id)
+            ? await provider.syncBuiltIn(id)
+            : await provider.installTrustedBuiltIn(id);
+        debugPrint('内置插件已同步: ${plugin.manifest.name}');
       } catch (e) {
         debugPrint('内置插件安装失败 $id: $e');
       }
