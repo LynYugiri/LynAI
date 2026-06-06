@@ -31,24 +31,8 @@ SnackBar errorSnackBar(
   final detailText = (details == null || details.trim().isEmpty)
       ? message
       : details.trim();
-  final snippet = detailText.length > 120
-      ? '${detailText.substring(0, 120)}…'
-      : detailText;
   return SnackBar(
-    content: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(message, style: const TextStyle(fontWeight: FontWeight.w600)),
-        if (snippet != message)
-          Text(
-            snippet,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 12),
-          ),
-      ],
-    ),
+    content: Text(message),
     showCloseIcon: true,
     action: SnackBarAction(
       label: '查看详细',
