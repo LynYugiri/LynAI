@@ -297,12 +297,12 @@ void main() {
         await provider.importDirectory(source.path);
         final pluginId = provider.plugins.single.id;
 
-        expect(() => provider.loadConfig(pluginId), throwsException);
+        await expectLater(provider.loadConfig(pluginId), throwsException);
 
         await File(
           '${installedRoot.path}/installed/$pluginId/config.json',
         ).writeAsString('{}');
-        expect(() => provider.loadConfigSchema(pluginId), throwsException);
+        await expectLater(provider.loadConfigSchema(pluginId), throwsException);
       } finally {
         await source.delete(recursive: true);
         await installedRoot.delete(recursive: true);
