@@ -4,14 +4,18 @@ import 'package:provider/provider.dart';
 import '../models/model_config.dart';
 import '../providers/model_config_provider.dart';
 
-/// A stable plugin-local model selection.
+/// 插件本地的稳定模型选择值。
 ///
-/// Unlike the chat page picker, selecting a sub-model here must not mutate the
-/// provider's global `modelName`; plugin config stores the chosen provider and
-/// sub-model explicitly so plugin behavior stays reproducible.
+/// 与聊天页的模型选择不同，这里选择的子模型不会修改 Provider 的全局 `modelName`。
+/// 插件配置文件独立存储模型 ID、子模型名称和分类，保证插件行为的可重现性。
 class ModelSelectionValue {
+  /// 模型提供者 ID。
   final String modelId;
+
+  /// 子模型名称（如 gpt-4o）。
   final String? modelName;
+
+  /// 模型分类（chat、embedding 等）。
   final String category;
 
   const ModelSelectionValue({
@@ -20,6 +24,7 @@ class ModelSelectionValue {
     required this.category,
   });
 
+  /// 序列化为 JSON Map，用于写入插件配置文件。
   Map<String, dynamic> toJson() => {
     'modelId': modelId,
     if (modelName != null && modelName!.isNotEmpty) 'modelName': modelName,
@@ -27,12 +32,27 @@ class ModelSelectionValue {
   };
 }
 
+/// 插件配置用的模型选择器组件。
+///
+/// 提供按分类筛选、能力匹配和子模型展开的模型选择 UI。与全局聊天模型选择器
+/// 隔离，确保插件配置不会意外改变主界面的当前模型。
 class ModelConfigPicker extends StatefulWidget {
+  /// 选择器标题。
   final String title;
+
+  /// 模型分类，用于过滤可选项。
   final String category;
+
+  /// 当前选中的模型值。
   final ModelSelectionValue? value;
+
+  /// 所需能力列表（vision、thinking、tools），为空则不过滤。
   final List<String> capabilities;
+
+  /// 是否允许清空选择。
   final bool allowClear;
+
+  /// 选择变更回调。
   final ValueChanged<ModelSelectionValue?> onChanged;
 
   const ModelConfigPicker({
@@ -61,6 +81,7 @@ class _ModelConfigPickerState extends State<ModelConfigPicker> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // 主选择器按钮，显示当前选中模型或"未选择模型"
         InkWell(
           borderRadius: BorderRadius.circular(8),
           onTap: () => setState(() => _expanded = !_expanded),
@@ -99,6 +120,7 @@ class _ModelConfigPickerState extends State<ModelConfigPicker> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
+                // 允许清空且已有选中值时显示清除按钮
                 if (widget.allowClear && widget.value != null)
                   IconButton(
                     visualDensity: VisualDensity.compact,
@@ -115,6 +137,7 @@ class _ModelConfigPickerState extends State<ModelConfigPicker> {
     );
   }
 
+  /// 构建模型列表，按分类和能力过滤后展示。
   Widget _modelList(ModelConfigProvider provider) {
     final models = provider
         .modelsByCategory(widget.category)
@@ -142,6 +165,7 @@ class _ModelConfigPickerState extends State<ModelConfigPicker> {
             final model = models[index];
             final selected = widget.value?.modelId == model.id;
             final expanded = _expandedProviderId == model.id;
+            // 过滤启用的子模型并按能力匹配
             final entries = model.models
                 .where(
                   (entry) => entry.enabled && _entryMatchesCapabilities(entry),
@@ -150,6 +174,7 @@ class _ModelConfigPickerState extends State<ModelConfigPicker> {
             return Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                // 模型提供者行
                 ListTile(
                   dense: true,
                   leading: Icon(
@@ -175,6 +200,7 @@ class _ModelConfigPickerState extends State<ModelConfigPicker> {
                       ? const Icon(Icons.chevron_right, size: 16)
                       : null,
                   onTap: () {
+                    // 多个子模型时展开子列表，否则直接选中
                     if (entries.length > 1) {
                       setState(
                         () => _expandedProviderId = expanded ? null : model.id,
@@ -187,6 +213,7 @@ class _ModelConfigPickerState extends State<ModelConfigPicker> {
                     _select(model, name);
                   },
                 ),
+                // 展开的子模型列表
                 if (expanded)
                   for (final entry in entries)
                     ListTile(
@@ -217,6 +244,7 @@ class _ModelConfigPickerState extends State<ModelConfigPicker> {
     );
   }
 
+  /// 选择模型并关闭面板。
   void _select(ModelConfig model, String modelName) {
     widget.onChanged(
       ModelSelectionValue(
@@ -231,6 +259,7 @@ class _ModelConfigPickerState extends State<ModelConfigPicker> {
     });
   }
 
+  /// 从模型列表中查找当前选中的模型配置。
   ModelConfig? _currentModel(List<ModelConfig> models) {
     final id = widget.value?.modelId;
     if (id == null || id.isEmpty) return null;
@@ -240,6 +269,7 @@ class _ModelConfigPickerState extends State<ModelConfigPicker> {
     return null;
   }
 
+  /// 生成当前选择的可读标签，格式为"模型名 / 子模型名"。
   String? _currentLabel(ModelConfig? model) {
     if (model == null) return null;
     final name = widget.value?.modelName;
@@ -247,6 +277,7 @@ class _ModelConfigPickerState extends State<ModelConfigPicker> {
     return '${model.name} / $name';
   }
 
+  /// 检查模型是否满足所需能力要求。
   bool _matchesCapabilities(ModelConfig model) {
     if (widget.capabilities.isEmpty) return true;
     return model.models.any(
@@ -254,6 +285,7 @@ class _ModelConfigPickerState extends State<ModelConfigPicker> {
     );
   }
 
+  /// 检查子模型条目是否满足指定能力要求。
   bool _entryMatchesCapabilities(ModelEntry entry) {
     bool has(String capability) {
       return switch (capability) {

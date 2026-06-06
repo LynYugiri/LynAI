@@ -31,9 +31,9 @@ class PluginConfigSchema {
     );
   }
 
-  /// Validates the schema definition itself, before it is used to validate
-  /// user config values. This catches authoring mistakes that would otherwise
-  /// render a misleading form or silently drop values on save.
+  /// 校验 Schema 定义本身的正确性，在用于校验用户配置值之前执行。
+  ///
+  /// 可捕获字段重复、类型不匹配等作者错误，避免渲染异常表单或静默丢弃数据。
   String? validateDefinition() {
     final keys = <String>{};
     for (final field in fields) {
@@ -44,6 +44,7 @@ class PluginConfigSchema {
     return null;
   }
 
+  /// 将 Schema 字段的默认值应用到用户配置值中。
   Map<String, dynamic> applyDefaults(Map<String, dynamic> values) {
     final merged = Map<String, dynamic>.from(values);
     for (final field in fields) {
@@ -60,6 +61,9 @@ class PluginConfigSchema {
     return merged;
   }
 
+  /// 按 Schema 定义校验用户配置值，返回所有错误列表。
+  ///
+  /// [models] 用于 model 类型字段的存在性和分类校验。
   List<PluginConfigValidationError> validateValues(
     Map<String, dynamic> values, {
     List<ModelConfig> models = const [],
@@ -72,6 +76,10 @@ class PluginConfigSchema {
   }
 }
 
+/// 插件配置 Schema 的单个字段定义。
+///
+/// 支持多种类型：boolean、string、text、number、integer、select、multiSelect、
+/// model、array、object。每种类型有对应的校验规则和 UI 渲染逻辑。
 class PluginConfigFieldDefinition {
   final String key;
   final PluginConfigFieldType type;
@@ -119,8 +127,10 @@ class PluginConfigFieldDefinition {
     required this.fields,
   });
 
+  /// 是否为匿名数组项（key 为空，仅用于 array 类型的 item 子字段）。
   bool get isAnonymousItem => key.isEmpty;
 
+  /// 校验 Schema 字段定义的完整性，返回错误信息或 null。
   String? validateDefinition({bool allowAnonymous = false}) {
     if (key.isEmpty && !allowAnonymous) return '配置 schema 字段缺少 key';
     if (type == PluginConfigFieldType.select && options.isEmpty) {
@@ -200,6 +210,7 @@ class PluginConfigFieldDefinition {
     );
   }
 
+  /// 为 object 类型字段的嵌套子字段应用默认值。
   Map<String, dynamic> applyObjectDefaults(Map<String, dynamic> values) {
     final merged = Map<String, dynamic>.from(values);
     for (final field in fields) {
@@ -216,6 +227,7 @@ class PluginConfigFieldDefinition {
     return merged;
   }
 
+  /// 根据字段类型校验单个值，递归处理 array 和 object 子字段。
   List<PluginConfigValidationError> validateValue(
     Object? value, {
     required List<ModelConfig> models,
@@ -314,6 +326,7 @@ class PluginConfigFieldDefinition {
     return errors;
   }
 
+  /// 返回字段的显示标题，title 为空时用 key 兜底。
   String titleOrKey(String fallback) => title.isNotEmpty ? title : fallback;
 
   PluginConfigValidationError _typeError(String key, String typeName) {
@@ -456,6 +469,7 @@ class PluginConfigOptionDefinition {
     required this.label,
   });
 
+  /// 从 JSON 反序列化插件配置选项定义。
   factory PluginConfigOptionDefinition.fromJson(Map<String, dynamic> json) {
     final value = json['value'];
     return PluginConfigOptionDefinition(
@@ -465,6 +479,7 @@ class PluginConfigOptionDefinition {
   }
 }
 
+/// 配置校验错误信息。
 class PluginConfigValidationError {
   final String key;
   final String message;
@@ -472,6 +487,7 @@ class PluginConfigValidationError {
   const PluginConfigValidationError(this.key, this.message);
 }
 
+/// 插件配置字段类型枚举。
 enum PluginConfigFieldType {
   boolean,
   string,
@@ -484,6 +500,7 @@ enum PluginConfigFieldType {
   array,
   object;
 
+  /// 根据类型名称字符串返回对应的枚举值。
   static PluginConfigFieldType fromName(String name) {
     return switch (name) {
       'boolean' => boolean,
@@ -500,21 +517,27 @@ enum PluginConfigFieldType {
   }
 }
 
+/// 模型字段的存储模式：
+/// - [id] 仅存储模型 ID 字符串
+/// - [selection] 存储包含 modelId 和 modelName 的对象
 enum PluginModelStoreMode {
   id,
   selection;
 
+  /// 根据模式名称字符串返回对应枚举值。
   static PluginModelStoreMode fromName(String name) {
     return name == 'id' ? id : selection;
   }
 }
 
+/// 深拷贝 JSON 安全的简单值，用于默认值的独立副本。
 Object? _cloneJsonValue(Object? value) {
   if (value is Map) return Map<String, dynamic>.from(value);
   if (value is List) return List<dynamic>.from(value);
   return value;
 }
 
+/// 扩展方法：获取可迭代对象的第一个元素或 null。
 extension _FirstOrNull<T> on Iterable<T> {
   T? get firstOrNull {
     final iterator = this.iterator;

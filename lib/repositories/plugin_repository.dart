@@ -66,10 +66,9 @@ class PluginRepository {
     );
   }
 
-  /// Installs a plugin from an already-unpacked directory.
+  /// 从已解压的目录安装插件。
   ///
-  /// This is kept as an internal installation primitive for ZIP extraction and
-  /// tests; the UI intentionally exposes ZIP import only.
+  /// 内部安装原语，供 ZIP 解压和测试使用。用户界面故意只暴露 ZIP 导入。
   Future<InstalledPlugin> importDirectory(String sourcePath) async {
     final source = Directory(sourcePath);
     if (!await source.exists()) throw Exception('插件目录不存在');
@@ -382,7 +381,7 @@ class PluginRepository {
     return defaultFile.readAsString();
   }
 
-  /// Returns whether a plugin-relative file exists without allowing path escape.
+  /// 检查插件相对路径对应的文件是否存在，并确保不脱离插件根目录。
   Future<bool> pluginFileExists(String pluginPath, String relativePath) async {
     final safePath = safePluginFilePath(pluginPath, relativePath);
     if (safePath == null) throw Exception('插件文件路径不安全: $relativePath');
@@ -392,9 +391,9 @@ class PluginRepository {
     return true;
   }
 
-  /// Writes a plugin file only if the manifest or files:write permission
-  /// declares it editable. Protected paths (defaults/、plugin.json) are
-  /// always rejected.
+  /// 写入插件文件，仅当 manifest 或 files:write 权限声明可编辑时才允许。
+  ///
+  /// 受保护路径（defaults/、plugin.json）始终被拒绝。
   Future<void> writePluginTextFile(
     InstalledPlugin plugin,
     String relativePath,
@@ -604,6 +603,7 @@ class PluginRepository {
     return File(safePath).existsSync();
   }
 
+  /// 创建 InstalledPlugin 实例，默认禁用，但启用所有声明功能页和工具。
   InstalledPlugin _installedPlugin(PluginManifest manifest, String path) {
     return InstalledPlugin(
       manifest: manifest,
@@ -620,6 +620,7 @@ class PluginRepository {
     );
   }
 
+  /// 在目录中递归搜索 plugin.json 文件的父目录。
   Future<Directory?> _findManifestDirectory(Directory root) async {
     await for (final entity in root.list(recursive: true, followLinks: false)) {
       if (entity is File && _fileName(entity.path) == 'plugin.json') {
@@ -629,12 +630,14 @@ class PluginRepository {
     return null;
   }
 
+  /// 删除目标目录后用源目录替换，确保干净的安装状态。
   Future<void> _replaceDirectory(Directory source, Directory target) async {
     if (await target.exists()) await target.delete(recursive: true);
     await target.create(recursive: true);
     await _copyDirectoryFiles(source, target);
   }
 
+  /// 将 PluginManifest 序列化写入 plugin.json 文件。
   Future<void> _writeManifest(
     String pluginPath,
     PluginManifest manifest,
@@ -647,6 +650,7 @@ class PluginRepository {
     );
   }
 
+  /// 迁移数据文件（插件重命名时使用）。
   Future<void> _renameDataFile(File source, File target) async {
     if (!await source.exists()) return;
     if (!await target.parent.exists()) {
@@ -656,6 +660,7 @@ class PluginRepository {
     await source.rename(target.path);
   }
 
+  /// 移除 lynai 元数据中的快照来源信息。
   Map<String, dynamic> _withoutSnapshotMeta(Map<String, dynamic> lynai) {
     final next = Map<String, dynamic>.from(lynai);
     next.remove('snapshotOf');
@@ -663,6 +668,7 @@ class PluginRepository {
     return next;
   }
 
+  /// 递归复制目录下所有文件到目标目录。
   Future<void> _copyDirectoryFiles(Directory source, Directory target) async {
     if (!await target.exists()) await target.create(recursive: true);
     await for (final entity in source.list(
@@ -684,6 +690,7 @@ class PluginRepository {
     }
   }
 
+  /// 同步前清空目标目录中源码对应的子目录，保留用户文件。
   Future<void> _clearSourceDirectories(
     Directory source,
     Directory target,
@@ -702,6 +709,7 @@ class PluginRepository {
     }
   }
 
+  /// 安全化 ZIP 归档中的路径，拒绝路径穿越攻击。
   String? _safeArchivePath(String path) {
     final normalized = path.replaceAll('\\', '/');
     final parts = normalized
@@ -712,26 +720,31 @@ class PluginRepository {
     return parts.join('/');
   }
 
+  /// 插件状态 JSON 文件路径。
   Future<File> _stateFile() async {
     final root = await _pluginsRoot();
     return File('${root.path}/$_stateFileName');
   }
 
+  /// 插件设置 JSON 文件路径。
   Future<File> _pluginSettingsFile(String pluginId) async {
     final root = await _pluginsRoot();
     return File('${root.path}/settings/$pluginId.json');
   }
 
+  /// 插件私有存储 JSON 文件路径。
   Future<File> _pluginStorageFile(String pluginId) async {
     final root = await _pluginsRoot();
     return File('${root.path}/storage/$pluginId.json');
   }
 
+  /// 插件安装目录路径。
   Future<Directory> _pluginDirectory(String pluginId) async {
     final root = await _pluginsRoot();
     return Directory('${root.path}/installed/$pluginId');
   }
 
+  /// 获取插件根目录（应用私有目录下的 plugins/）。
   Future<Directory> _pluginsRoot() async {
     final override = _rootOverride;
     if (override != null) return override;
@@ -739,6 +752,7 @@ class PluginRepository {
     return Directory('${dir.path}/plugins');
   }
 
+  /// 计算相对于根目录的相对路径，路径不匹配时返回空字符串。
   String _relativePath(String root, String path) {
     final normalizedRoot = root
         .replaceAll('\\', '/')
@@ -748,12 +762,14 @@ class PluginRepository {
     return normalizedPath.substring(normalizedRoot.length + 1);
   }
 
+  /// 从完整路径中提取文件名。
   String _fileName(String path) {
     final normalized = path.replaceAll('\\', '/');
     final index = normalized.lastIndexOf('/');
     return index == -1 ? normalized : normalized.substring(index + 1);
   }
 
+  /// 安全获取已存在的插件文件，校验路径安全性。
   Future<File> _safeExistingPluginFile(
     String pluginPath,
     String relativePath,
@@ -766,6 +782,7 @@ class PluginRepository {
     return file;
   }
 
+  /// 安全获取可写入的插件文件路径，校验目录不越界。
   Future<File> _safeWritablePluginFile(
     String pluginPath,
     String relativePath,
@@ -781,6 +798,7 @@ class PluginRepository {
     return file;
   }
 
+  /// 确保路径不脱离插件根目录（防止符号链接逃逸）。
   Future<void> _ensureInsideRoot(
     String pluginPath,
     String path, {
@@ -800,6 +818,7 @@ class PluginRepository {
     }
   }
 
+  /// 向上查找最近存在的目录（允许叶子文件尚不存在）。
   Future<Directory> _nearestExistingDirectory(String path) async {
     var directory = Directory(path);
     while (!await directory.exists()) {
@@ -810,6 +829,7 @@ class PluginRepository {
     return directory;
   }
 
+  /// 判断是否为受保护的系统路径（plugin.json、defaults/）。
   bool _isProtectedPath(String relativePath) {
     final normalized = _normalizeRelativePath(relativePath);
     if (normalized == null) return true;
@@ -818,6 +838,7 @@ class PluginRepository {
     return false;
   }
 
+  /// 判断路径是否为插件保护路径（含入口文件和配置文件）。
   bool _isProtectedPluginPath(
     InstalledPlugin plugin,
     String relativePath, {
@@ -830,6 +851,7 @@ class PluginRepository {
     return normalized == _normalizeRelativePath(plugin.manifest.entry);
   }
 
+  /// 判断路径是否为应在文件列表中隐藏的核心文件。
   bool _isHiddenCorePath(InstalledPlugin plugin, String relativePath) {
     final normalized = _normalizeRelativePath(relativePath);
     if (normalized == null) return true;
@@ -838,6 +860,7 @@ class PluginRepository {
     return normalized == _normalizeRelativePath(plugin.manifest.entry);
   }
 
+  /// 判断路径是否为插件配置文件路径。
   bool _isConfigPath(InstalledPlugin plugin, String relativePath) {
     final normalized = _normalizeRelativePath(relativePath);
     if (normalized == null) return false;
@@ -845,6 +868,7 @@ class PluginRepository {
         normalized == _normalizeRelativePath(plugin.manifest.config.schema);
   }
 
+  /// 判断路径是否在 defaults/ 目录内。
   bool _isDefaultPath(String relativePath) {
     final normalized = relativePath.replaceAll('\\', '/');
     return normalized.startsWith('defaults/');
@@ -859,6 +883,7 @@ class PluginRepository {
     );
   }
 
+  /// 判断插件相对路径对应文件是否可编辑。
   bool _isEditablePluginFile(InstalledPlugin plugin, String relativePath) {
     final normalized = _normalizeRelativePath(relativePath);
     if (normalized == null) return false;
@@ -875,6 +900,7 @@ class PluginRepository {
     return plugin.grantedPermissions.contains('files:write');
   }
 
+  /// 判断文件是否有对应的 defaults 模板。
   bool _hasDefaultPath(InstalledPlugin plugin, String relativePath) {
     final normalized = _normalizeRelativePath(relativePath);
     if (normalized == null) return false;
@@ -886,6 +912,7 @@ class PluginRepository {
     );
   }
 
+  /// 规范化相对路径，通过安全工具函数校验后返回标准化路径。
   String? _normalizeRelativePath(String path) {
     final safe = safePluginFilePath('/tmp/plugin_root', path);
     if (safe == null) return null;

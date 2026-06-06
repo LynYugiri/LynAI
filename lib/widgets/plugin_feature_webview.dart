@@ -156,6 +156,7 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     }
   }
 
+  /// 在 Linux 平台安排多次 WebView 重叠刷新，解决输入法弹出导致的视觉遮挡问题。
   void _scheduleLinuxOverlayRefresh() {
     if (!Platform.isLinux) return;
     _cancelLinuxRefreshTimers();
@@ -169,11 +170,13 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     }
   }
 
+  /// 通过递增 revision 强制 WebView 重建，刷新 Linux 输入法遮盖区域。
   void _refreshLinuxOverlay() {
     if (!mounted || !Platform.isLinux || _controller == null) return;
     setState(() => _webViewRevision++);
   }
 
+  /// 取消所有 Linux 刷新定时器。
   void _cancelLinuxRefreshTimers() {
     for (final timer in _linuxRefreshTimers) {
       timer.cancel();
@@ -197,18 +200,21 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     return null;
   }
 
+  /// 构建渲染目录路径，确保每次加载使用独立目录避免缓存问题。
   Directory _renderRoot(int generation) {
     return Directory(
       '${Directory.systemTemp.path}/lynai_plugin_webview/${_safeSegment(widget.plugin.id)}_${_safeSegment(widget.page.id)}_${_renderSession}_$generation',
     );
   }
 
+  /// 安全删除临时渲染目录，失败时静默忽略。
   Future<void> _deleteDirectory(Directory directory) async {
     try {
       if (await directory.exists()) await directory.delete(recursive: true);
     } catch (_) {}
   }
 
+  /// 复制插件根目录下的资源文件到渲染目录，隐藏受保护路径。
   Future<void> _copyRootResources(Directory renderRoot) async {
     final root = Directory(widget.plugin.path);
     if (!await root.exists()) return;
@@ -226,6 +232,7 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     }
   }
 
+  /// 将可编辑文件的 defaults 模板复制到渲染目录对应位置。
   Future<void> _copyDefaultMappedFiles(Directory renderRoot) async {
     for (final file in widget.plugin.manifest.editableFiles) {
       final defaultPath = file.defaultPath;
@@ -251,6 +258,7 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     }
   }
 
+  /// 计算路径相对于插件根目录的相对路径。
   String? _relativePluginPath(String root, String path) {
     final normalizedRoot = root
         .replaceAll('\\', '/')
@@ -260,6 +268,7 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     return normalizedPath.substring(normalizedRoot.length + 1);
   }
 
+  /// 判断路径是否应在渲染时跳过（plugin.json、defaults/、配置文件、入口文件）。
   bool _isHiddenRenderPath(String relativePath) {
     final normalized = relativePath.replaceAll('\\', '/');
     if (normalized == 'plugin.json') return true;
@@ -275,6 +284,7 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     return normalized == widget.plugin.manifest.entry.replaceAll('\\', '/');
   }
 
+  /// 将字符串中非合法文件名字符替换为下划线，防止文件名注入。
   String _safeSegment(String value) {
     return value.replaceAll(RegExp(r'[^A-Za-z0-9_.-]+'), '_');
   }
@@ -460,6 +470,7 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
   }
 }
 
+/// 渲染目录包装，持有临时目录和入口文件的引用。
 class _RenderEntry {
   final Directory root;
   final File file;

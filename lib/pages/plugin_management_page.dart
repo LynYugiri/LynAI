@@ -89,6 +89,9 @@ class PluginManagementPage extends StatelessWidget {
   }
 }
 
+/// 插件列表卡片。
+///
+/// 展示插件图标、名称、版本、工具数、功能页数及启用开关。
 class _PluginCard extends StatelessWidget {
   const _PluginCard({required this.plugin});
 
@@ -609,6 +612,9 @@ class PluginDetailPage extends StatelessWidget {
   }
 }
 
+/// 插件概览区域。
+///
+/// 以 [_SectionCard] 包裹，展示插件描述及 ID、版本、图标等基本信息。
 class _PluginHeader extends StatelessWidget {
   const _PluginHeader({required this.plugin});
 
@@ -646,6 +652,9 @@ class _PluginHeader extends StatelessWidget {
   }
 }
 
+/// 插件权限与功能页设置卡片。
+///
+/// 展示权限列表及可启用的功能页列表，并为每个功能页提供显示位置选项。
 class _PluginSettingsCard extends StatelessWidget {
   const _PluginSettingsCard({required this.plugin});
 
@@ -675,6 +684,9 @@ class _PluginSettingsCard extends StatelessWidget {
   }
 }
 
+/// 单个设置项行。
+///
+/// 用于展示插件配置 schema 中的字符串、数字、布尔等基础类型字段。
 class _PluginSettingTile extends StatelessWidget {
   const _PluginSettingTile({
     required this.pluginId,
@@ -764,6 +776,10 @@ class _PluginSettingTile extends StatelessWidget {
   }
 }
 
+/// 插件配置文件卡片。
+///
+/// 展示由 manifest 声明的可编辑配置项，支持字符串、数字、布尔、枚举
+/// 和模型选择器等多种类型。
 class _PluginConfigCard extends StatefulWidget {
   const _PluginConfigCard({required this.plugin});
 
@@ -1131,6 +1147,10 @@ class _PluginConfigCardState extends State<_PluginConfigCard> {
   }
 }
 
+/// 插件文件管理卡片。
+///
+/// 展示插件工作目录下的文件列表，支持新建/编辑/删除/重命名文件，
+/// 以及将文件恢复为内置默认版本。
 class _PluginFilesCard extends StatefulWidget {
   const _PluginFilesCard({required this.plugin});
 
@@ -1579,6 +1599,9 @@ class _PluginFilesCardState extends State<_PluginFilesCard> {
   }
 }
 
+/// 插件文件编辑器页面。
+///
+/// 以全屏代码编辑器展示插件工作目录下的文件，支持语法高亮和保存操作。
 class PluginFileEditorPage extends StatefulWidget {
   const PluginFileEditorPage({
     super.key,
@@ -1842,6 +1865,10 @@ class _PluginFileEditorPageState extends State<PluginFileEditorPage> {
   }
 }
 
+/// 带语法高亮的代码编辑控制器。
+///
+/// 将包含高亮样式的富文本写入 [TextEditingController.value]，编辑时
+/// 通过差分更新避免重新构建全量字符串。
 class _CodeEditingController extends TextEditingController {
   _CodeEditingController({required super.text, required this.language});
 
@@ -1861,6 +1888,9 @@ class _CodeEditingController extends TextEditingController {
   }
 }
 
+/// 插件功能页预览页面。
+///
+/// 通过 [PluginFeatureWebView] 加载插件声明的功能页入口。
 class _PluginPagePreviewPage extends StatelessWidget {
   const _PluginPagePreviewPage({required this.pluginId, required this.pageId});
 
@@ -1887,6 +1917,10 @@ class _PluginPagePreviewPage extends StatelessWidget {
   }
 }
 
+/// 分区卡片外壳。
+///
+/// 为插件详情页中的各个分区（概览、设置、配置、文件等）提供统一的
+/// 带标题的卡片容器。
 class _SectionCard extends StatelessWidget {
   const _SectionCard({required this.title, required this.child});
 
@@ -1911,6 +1945,9 @@ class _SectionCard extends StatelessWidget {
   }
 }
 
+/// 键值信息行。
+///
+/// 以标签-内容布局展示插件元数据，如 ID、版本、作者等。
 class _InfoRow extends StatelessWidget {
   const _InfoRow({required this.label, required this.value});
 
@@ -1935,6 +1972,9 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
+/// 空插件列表提示。
+///
+/// 在没有任何已安装插件时展示引导文案。
 class _EmptyPlugins extends StatelessWidget {
   const _EmptyPlugins();
 

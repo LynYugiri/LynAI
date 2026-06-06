@@ -7,6 +7,10 @@ import 'feature_page.dart';
 import 'chat_page.dart';
 import 'settings_page.dart';
 
+/// 应用主页面。
+///
+/// 包含底部导航栏的三个选项卡：功能、对话、设置。支持背景图片与模糊效果，
+/// 处理各子页面的返回和新建对话手势。
 class HomePage extends StatefulWidget {
   final int initialIndex;
   final String? conversationId;
@@ -39,6 +43,7 @@ class _HomePageState extends State<HomePage> {
     _targetConversationId = widget.conversationId;
   }
 
+  // 双重检查背景图片文件是否仍存在，避免无效路径导致异常。
   bool _checkImageExists(String path) {
     if (path == _cachedImagePath) return _cachedImageExists;
     _cachedImagePath = path;
@@ -82,6 +87,7 @@ class _HomePageState extends State<HomePage> {
     _chatNewConversationHandler = handler;
   }
 
+  // 处理底部导航栏点击：当前页双击则回到仪表盘或新建对话，单击则切换页面。
   void _handleNavigationTap(int index) {
     final now = DateTime.now();
     final doubleTappedCurrent =
@@ -109,6 +115,7 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  // 处理系统返回键：优先让对话页或功能页拦截，无拦截时切回对话页。
   void _handleRootBack(bool didPop) {
     if (didPop) return;
 

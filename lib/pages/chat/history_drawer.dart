@@ -1,5 +1,8 @@
 part of '../chat_page.dart';
 
+/// 对话历史抽屉。
+///
+/// 按角色分组展示对话记录，支持搜索、置顶和管理操作。
 class _HistoryDrawer extends StatefulWidget {
   final void Function(String) onSelect;
   final String? currentConvId;

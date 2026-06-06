@@ -11,6 +11,10 @@ import 'plugin_management_page.dart';
 import 'role_management_page.dart';
 import 'theme_page.dart';
 
+/// 设置页面。
+///
+/// 以列表形式展示关于、背景、模型与接口、角色管理、主题、数据管理、
+/// 插件管理入口，并遍历已启用插件的功能页生成设置项。
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
 
@@ -158,6 +162,7 @@ class _SettingsPageState extends State<SettingsPage> {
     return items;
   }
 
+  // 构建统一的设置项卡片：圆形图标、标题、副标题和右侧箭头。
   Widget _buildItem(
     BuildContext context,
     IconData icon,

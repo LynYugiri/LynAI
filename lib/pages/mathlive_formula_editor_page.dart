@@ -6,6 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:webview_all/webview_all.dart';
 
+/// 基于 MathLive WebView 的 LaTeX 公式编辑器。
+///
+/// 支持可视编辑（内嵌 MathLive）和源码模式（纯文本），预览通过 flutter_math_fork 渲染。
+/// 在不支持内嵌 MathLive 的平台上自动回退到源码模式。
 class MathLiveFormulaEditorPage extends StatefulWidget {
   final String initialFormula;
   final bool preferBlock;
@@ -413,6 +417,7 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
     );
   }
 
+  // 分派 WebView 发来的 JSON 消息：就绪、键盘可见性、错误、公式输入。
   void _handleBridgeMessage(String rawMessage) {
     if (!mounted) return;
     final dynamic decoded;
@@ -472,6 +477,7 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
     }
   }
 
+  // 将当前主题的亮色/暗色和色彩角色推送给 MathLive WebView。
   Future<void> _pushThemeToMathLive() async {
     final controller = _webCtrl;
     if (!_supportsEmbeddedMathLive || controller == null || !_mathLiveReady) {
@@ -504,6 +510,7 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
     return '#${value.toRadixString(16).padLeft(6, '0')}';
   }
 
+  // 4 秒后若 MathLive 仍未就绪，回退到源码模式。
   void _scheduleReadyTimeout() {
     _readyTimeout?.cancel();
     _readyTimeout = Timer(const Duration(seconds: 4), () {
@@ -512,6 +519,7 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
     });
   }
 
+  // MathLive 加载超时或出错时切换到源码模式。
   void _fallbackToSourceMode(String message) {
     if (!mounted) return;
     setState(() {
@@ -527,6 +535,7 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
     setState(() => _notice = message);
   }
 
+  // 提交时先卸载 WebView 再返回公式内容。
   Future<void> _submit() async {
     final formula = _rawCtrl.text.trim();
     if (formula.isEmpty) {

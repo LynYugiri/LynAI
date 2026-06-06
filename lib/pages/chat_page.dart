@@ -39,6 +39,9 @@ part 'chat/dialog_settings_content.dart';
 part 'chat/prompt_role_dialogs.dart';
 part 'chat/history_drawer.dart';
 
+/// 重试历史条目。
+///
+/// 记录一次对话生成中用户的输入和助手回复 ID，用于错误重试分支。
 class _RetryEntry {
   String userContent;
   List<MessageImage> userImages;
@@ -48,6 +51,9 @@ class _RetryEntry {
   _RetryEntry(this.userContent, [this.userImages = const []]);
 }
 
+/// 待发送图片的数据模型。
+///
+/// 存储图片本地路径、文件名、大小和 MIME 类型，可转换为 [MessageImage]。
 class _PendingImage {
   final String path;
   final String name;
@@ -66,6 +72,9 @@ class _PendingImage {
       MessageImage(path: path, name: name, size: size, mimeType: mimeType);
 }
 
+/// 流式响应草稿状态。
+///
+/// 封装流式输出期间的正文、思维链和当前阶段标识。
 class _StreamDraft {
   final String content;
   final String? thinking;
@@ -99,6 +108,10 @@ class ChatPage extends StatefulWidget {
   State<ChatPage> createState() => _ChatPageState();
 }
 
+/// 对话页状态管理。
+///
+/// 维护消息列表滚动、流式输出、语音输入/识别、图片识别、工具调用、
+/// 撤回/重试、分享导出和会话设置等全部交互状态。
 class _ChatPageState extends State<ChatPage> {
   static const _backgroundServiceChannel = MethodChannel(
     'lynai/background_service',
@@ -232,6 +245,7 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
+  // 将对话框设置（模型、思维链、系统提示词等）同步到全局设置提供器。
   void _applyConversationSettings(
     String conversationId, {
     bool notifyNow = true,
@@ -334,6 +348,7 @@ class _ChatPageState extends State<ChatPage> {
     _retryIdx = 0;
   }
 
+  // 清空流式输出中间态：模型选择、思维链、附件等临时数据。
   void _clearPendingState() {
     _pendingModelId = null;
     _draftSettings = null;
@@ -351,6 +366,7 @@ class _ChatPageState extends State<ChatPage> {
     return pos.maxScrollExtent - pos.pixels <= 48;
   }
 
+  // 根据滚动位置同步“是否接近底部”状态，控制自动跟随和回底按钮。
   void _syncBottomState() {
     if (!_scrollCtrl.hasClients) return;
     final nearBottom = _isNearBottom;
@@ -1887,6 +1903,7 @@ class _ChatPageState extends State<ChatPage> {
     return 'application/octet-stream';
   }
 
+  // 根据配置选择系统语音识别或服务端语音转文字，启动录音流程。
   Future<void> _voice() async {
     if (_streaming || _recording || _transcribingSpeech) return;
     final speechModelId =
@@ -1899,6 +1916,7 @@ class _ChatPageState extends State<ChatPage> {
     await _startAudioRecording();
   }
 
+  // 使用 record 包启动麦克风录制 AAC 音频到临时文件。
   Future<void> _startAudioRecording() async {
     final requestGen = ++_recordingRequestGen;
     _recordingStartCancelled = false;
@@ -2010,6 +2028,7 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
+  // 将语音识别结果填入输入框，不直接发送消息。
   void _fillSpeechText(String txt) {
     final text = txt.trim();
     if (text.isEmpty) return;
@@ -2020,6 +2039,7 @@ class _ChatPageState extends State<ChatPage> {
     _inputRevision.value++;
   }
 
+  // 将录制文件通过服务端语音模型转为文字，并填入输入框。
   Future<void> _processRecordedSpeech(String path) async {
     final mp = context.read<ModelConfigProvider>();
     final speechConfigId =

@@ -1,5 +1,8 @@
 part of '../chat_page.dart';
 
+/// 系统提示词编辑弹窗。
+///
+/// 支持创建或编辑自定义系统提示词模板，含标题和内容字段。
 class _SystemPromptEditDialog extends StatefulWidget {
   final String initialTitle;
   final String initialContent;

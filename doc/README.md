@@ -40,7 +40,9 @@ lib/
 ├── services/
 ├── pages/
 │   ├── chat/
-│   └── features/
+│   ├── features/
+│   │   └── plugin_feature_page.dart
+│   ├── plugin_management_page.dart
 ├── utils/
 └── widgets/
 ```
@@ -69,6 +71,9 @@ lib/
 | 工具调用 | `lib/services/tool_call_service.dart` | 工具 schema、fallback JSON、日程/笔记/待办/平台工具执行。 |
 | 备份服务 | `lib/services/backup_service.dart` | manifest、分区 JSON、私有附件归档和恢复。 |
 | 存储服务 | `lib/services/storage_v2_service.dart` | storage_v2 根目录、数据库、数据文件、资源文件和安全路径。 |
+| 插件运行时 | `lib/services/plugin_lua_runtime_service.dart` | Lua 沙箱执行、工具/函数注册、延续链、权限注入。 |
+| 代码语法 | `lib/services/code_syntax_service.dart` | tree-sitter 原生 + Dart fallback 双路径代码高亮。 |
+| tree-sitter 原生 | `lib/services/tree_sitter_native.dart` | 语言注册、FFI 绑定解析、语言 grammar 注册映射。 |
 
 ## 本地数据分区
 
@@ -79,6 +84,7 @@ lib/
 | 设置、角色、提示词 | `SettingsProvider` | `SettingsRepository` |
 | 日程、笔记、待办 | `FeatureProvider` | `FeatureRepository` |
 | 情景演绎 | `RoleplayProvider` | `RoleplayRepository` |
+| 插件 | `PluginProvider` | `PluginRepository` |
 | storage_v2 | 多个 Repository 共用 | `StorageV2Service`、`StorageV2Database` |
 | 备份 | 多个 Provider 协作 | `BackupService` |
 

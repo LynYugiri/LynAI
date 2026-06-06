@@ -1,5 +1,9 @@
 part of '../feature_page.dart';
 
+/// 情景演绎主页面。
+///
+/// 支持多角色 AI 共演：导演模型决定发言顺序，各角色按自定义模型生成对话，
+/// 可插入附件、流式输出、导出 Markdown 或长图。
 class _RoleplayPage extends StatefulWidget {
   const _RoleplayPage();
 
@@ -569,6 +573,7 @@ class _RoleplayPageState extends State<_RoleplayPage> {
     _advance(thread.id);
   }
 
+  // 导演模型决定下一位发言人，可能继续 AI 轮播、切为用户等待或触发旁白。
   Future<void> _advance(String threadId) async {
     final provider = context.read<RoleplayProvider>();
     final models = context.read<ModelConfigProvider>().modelsByCategory(
@@ -1269,6 +1274,7 @@ class _RoleplayPageState extends State<_RoleplayPage> {
     }
   }
 
+  // 将消息按内容和附件总长度拆分为多个导出页，避免单页过长。
   List<List<RoleplayMessage>> _splitImagePages(
     List<RoleplayMessage> messages, {
     required int maxWeight,
@@ -1293,6 +1299,7 @@ class _RoleplayPageState extends State<_RoleplayPage> {
     return pages;
   }
 
+  // 将超长消息拆分为多个片段，保持附件仅出现在首片段。
   List<RoleplayMessage> _splitLongMessage(RoleplayMessage message) {
     final content = message.content.trim();
     if (content.length <= 2800) return [message];
@@ -1315,6 +1322,7 @@ class _RoleplayPageState extends State<_RoleplayPage> {
   }
 }
 
+/// 待提交附件的数据模型，存储本地路径及元信息。
 class _RoleplayPendingAttachment {
   final String path;
   final String name;
@@ -1332,6 +1340,7 @@ class _RoleplayPendingAttachment {
       MessageImage(path: path, name: name, size: size, mimeType: mimeType);
 }
 
+/// 为 [Iterable] 提供安全的首元素访问。
 extension _FirstOrNull<T> on Iterable<T> {
   T? get firstOrNull {
     final iterator = this.iterator;
@@ -1339,6 +1348,9 @@ extension _FirstOrNull<T> on Iterable<T> {
   }
 }
 
+/// 情景演绎左侧历史抽屉。
+///
+/// 支持按情景分组展示演绎记录，搜索标题和消息内容，新建/删除情景和演绎。
 class _RoleplayHistoryDrawer extends StatefulWidget {
   final String? currentThreadId;
   final ValueChanged<String> onSelectThread;

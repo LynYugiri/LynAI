@@ -12,7 +12,8 @@ HomePage
 │   ├── 日程表
 │   ├── 笔记
 │   ├── 待办清单
-│   └── 情景演绎
+│   ├── 情景演绎
+│   └── 插件
 ├── 对话
 └── 设置
     ├── 关于
@@ -89,6 +90,7 @@ HomePage
 | 笔记 | `features/notes_page.dart`, `features/note_detail_page.dart` | 文件夹、Markdown/LaTeX 编辑、分页、修订时间线、导入导出。 |
 | 待办清单 | `features/todo_lists_page.dart` | 多清单、任务勾选、排序、Markdown 导入导出、长图分享。 |
 | 情景演绎 | `features/roleplay_page.dart` | 情景模板、多角色线程、导演决策、玩家消息、附件和导出。 |
+| 插件 | `features/plugin_feature_page.dart` | WebView 加载插件提供的功能页面，支持跨插件导航和独立 WebView 上下文。 |
 
 ## 对话历史
 
@@ -111,6 +113,38 @@ HomePage
 情景演绎页面维护情景和线程。情景定义导演、玩家和默认角色；线程保存一次演绎的角色快照和消息历史。导演模型决定下一步由哪个角色发言、是否旁白或是否等待用户。玩家在 AI 运行时继续发送的消息会排队。
 
 可重点手测：创建情景、从情景开新线程、修改线程设置、上传附件、AI 自动轮次、等待用户、导出长图和删除情景。
+
+## PluginManagementPage
+
+文件：`lib/pages/plugin_management_page.dart`
+
+插件管理页负责浏览、安装、卸载、启用/禁用和配置插件。
+
+| 行为 | 说明 |
+|------|------|
+| 浏览插件 | 展示内置和用户安装的插件列表，显示名称、版本、启用状态和权限。 |
+| 安装/卸载 | 从文件选择器加载 `.zip` 插件包或删除已安装插件。 |
+| 启用/禁用 | 切换插件启用状态，禁用插件不会触发其工具或函数挂载。 |
+| 权限管理 | 查看和修改插件声明的权限，例如网络、文件读写、平台能力。 |
+| 代码编辑器 | 打开插件 Lua 入口脚本进行编辑，支持语法高亮和保存。 |
+| 工具/函数开关 | 插件目录内的 `tools/` 和 `functions/` 子目录注册了对应能力，可独立开关。 |
+| 快照导出 | 生成当前插件状态的压缩包，保存到用户选择的位置。 |
+| 配置表单 | 根据 `plugin.json` 中 `config` 定义的 schema 字段渲染配置 UI。 |
+
+插件入口脚本、工具和函数由 `PluginLuaRuntimeService` 在沙箱中加载执行。
+
+## PluginFeaturePage
+
+文件：`lib/pages/features/plugin_feature_page.dart`
+
+`PluginFeaturePage` 是插件的功能展示页，位于 `FeaturePage` 的功能 Tab 下。它使用 WebView 加载插件提供的 `feature` 页面，每个插件拥有独立的 WebView 上下文。
+
+| 行为 | 说明 |
+|------|------|
+| WebView 加载 | 从插件目录读取 `feature/` 下的 HTML 入口，通过 InAppWebView 渲染。 |
+| 跨插件导航 | 插件可通过 JavaScript 接口跳转到其他插件的功能页。 |
+| 上下文隔离 | 每个插件使用独立的 WebView 实例，避免跨插件 JS 污染。 |
+| 平台兼容 | 不支持 WebView 的平台显示不支持提示。 |
 
 ## SettingsPage
 

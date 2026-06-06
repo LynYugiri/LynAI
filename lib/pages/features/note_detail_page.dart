@@ -1,5 +1,9 @@
 part of '../feature_page.dart';
 
+/// 笔记详情编辑器。
+///
+/// 支持 Markdown 实时编辑预览、多分页联动、AI 修改建议吸纳/拒绝、版本时间线
+/// 回溯对比、LaTeX 公式可视化编辑、Mermaid/代码块编辑、查找替换和导出分享。
 class _NoteDetail extends StatefulWidget {
   final String noteId;
   final bool editing;
@@ -20,6 +24,10 @@ class _NoteDetail extends StatefulWidget {
   State<_NoteDetail> createState() => _NoteDetailState();
 }
 
+/// 笔记详情编辑器的状态管理。
+///
+/// 维护编辑栈、查找替换、LaTeX 面板、AI 建议、目录抽屉、
+/// 版本时间线、分页选择等全部编辑态。
 class _NoteDetailState extends State<_NoteDetail> {
   static const _nativeTools = MethodChannel('lynai/native_tools');
 
@@ -1186,6 +1194,7 @@ class _NoteDetailState extends State<_NoteDetail> {
     );
   }
 
+  // 在编辑器文本变更时推入撤销栈，并刷新查找匹配和目录高亮。
   void _onEditorTextChanged() {
     final textChanged = _ctrl.text != _trackedEditorText;
     if (textChanged && !_applyingEditHistory) {
@@ -1366,6 +1375,7 @@ class _NoteDetailState extends State<_NoteDetail> {
     _ctrl.value = TextEditingValue(text: text, selection: selection);
   }
 
+  // 通过 NoteTextDelta 记录每次编辑的差异，供撤销/重做使用。
   void _undo() {
     if (_undoStack.isEmpty) return;
     final step = _undoStack.removeLast();
@@ -1614,6 +1624,7 @@ class _NoteDetailState extends State<_NoteDetail> {
     return '行级变化：新增 ${stats.addedLines} 行，删除 ${stats.removedLines} 行';
   }
 
+  // 使用 LCS 动态规划构建逐行对比结果，超长文本回退到朴素对比。
   List<_DiffLine> _buildDiffLines(String before, String after) {
     final beforeLines = before.split('\n');
     final afterLines = after.split('\n');
@@ -2041,6 +2052,7 @@ class _NoteDetailState extends State<_NoteDetail> {
     await _features.removeNoteEditProposal(noteId);
   }
 
+  // 对 AI 建议按行号倒序应用，避免前面的修改影响后续行号。
   String? _applyProposalBlocksToText(
     String content,
     List<NoteEditBlock> blocks,
@@ -3530,6 +3542,9 @@ class _NoteDetailState extends State<_NoteDetail> {
 
 const _latexPlaceholder = '__LYNAI_LATEX_SELECTION__';
 
+/// LaTeX 公式片段定位信息。
+///
+/// 记录公式在文本中的起止位置、原始源码及去除分隔符后的纯净公式。
 class _LatexSegment {
   final int start;
   final int end;
@@ -3539,6 +3554,7 @@ class _LatexSegment {
   const _LatexSegment(this.start, this.end, this.source, this.formula);
 }
 
+/// Markdown 标题节点，供目录生成使用。
 class _MarkdownHeading {
   final int level;
   final String title;
@@ -3553,6 +3569,7 @@ class _MarkdownHeading {
   });
 }
 
+/// 带编号的标题节点，用于目录列表显示。
 class _NumberedHeading {
   final _MarkdownHeading heading;
   final String number;
@@ -3565,6 +3582,9 @@ class _NumberedHeading {
   });
 }
 
+/// 编辑操作快照，支持 undo/redo。
+///
+/// 通过 [NoteTextDelta] 记录文本差异，避免存储完整文本副本。
 class _NoteEditStep {
   final NoteTextDelta delta;
   final TextSelection beforeSelection;
@@ -3594,6 +3614,7 @@ class _NoteEditStep {
   String redo(String source) => delta.apply(source);
 }
 
+/// LaTeX 快捷片段，含显示标签和 LaTeX 源码。
 class _LatexSnippet {
   final String label;
   final String source;
@@ -3686,6 +3707,9 @@ const _latexArrows = [
   _LatexSnippet('↓', r'\downarrow'),
 ];
 
+/// 笔记导出为长图的渲染组件。
+///
+/// 根据当前主题色和亮度构建独立配色，生成可用于截图分享的卡片式布局。
 class _NoteShareImage extends StatelessWidget {
   final String title;
   final String content;

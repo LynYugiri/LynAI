@@ -149,6 +149,72 @@ storage_v2 下，笔记分页元数据由存储层的 `StorageV2NotePage` 表达
 
 `RoleplayMessageKind` 区分玩家、AI 角色、系统和旁白。线程保存的是角色快照，后续全局角色配置变化不会自动改写已有线程。
 
+## 插件模型
+
+文件：`lib/models/plugin_models.dart`
+
+插件系统使用以下模型描述插件能力、状态和配置。
+
+### PluginToolDefinition
+
+插件目录内 `tools/` 子目录中的 Lua 脚本会注册为 AI 可调用的工具。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `name` | `String` | 工具名，模型通过此名称引用工具。 |
+| `description` | `String` | 工具描述，写入工具的 schema 供模型理解。 |
+| `handler` | `String` | 入口 Lua 函数名，沙箱中 `call(handler, params)`。 |
+| `parameters` | `Map<String, dynamic>` | JSON Schema 格式的参数定义，用于校验和提示模型。 |
+
+### PluginFunctionDefinition
+
+与工具不同，函数不暴露给模型，仅用于功能页 WebView 的 JavaScript 桥调用。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `name` | `String` | 函数名。 |
+| `title` | `String` | 显示名称。 |
+| `handler` | `String` | 入口 Lua 函数名。 |
+
+### PluginManifest
+
+`plugin.json` 是每个插件的描述文件，位于插件根目录。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `name` | `String` | 插件唯一标识名。 |
+| `version` | `String` | 语义版本号。 |
+| `entry` | `String` | Lua 入口脚本相对于插件目录的路径。 |
+| `tools` | `List<PluginToolDefinition>` | 注册给 AI 模型调用的工具列表。 |
+| `functions` | `List<PluginFunctionDefinition>` | 注册给功能页 WebView 的内部函数列表。 |
+| `feature` | `String?` | 可选功能页 HTML 入口路径。没有则功能页入口不可见。 |
+| `permissions` | `List<String>` | 声明的权限列表，例如 `network`、`file_read`、`file_write`。 |
+| `config` | `PluginConfigSchema?` | 可选配置表单 schema，插件管理页据此渲染配置 UI。 |
+
+### InstalledPlugin
+
+`InstalledPlugin` 是插件运行时的安装状态对象，由 `PluginProvider` 管理。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `path` | `String` | 插件在应用支持目录中的安装路径。 |
+| `manifest` | `PluginManifest` | 插件的 `plugin.json` 解析结果。 |
+| `enabled` | `bool` | 是否启用。禁用的插件不加载脚本、不注册工具和函数。 |
+| `permissions` | `List<String>` | 用户实际授予的权限。可能少于 `manifest.permissions` 声明。 |
+
+### PluginConfigSchema / PluginConfigFieldDefinition
+
+`PluginConfigSchema` 定义插件的配置表单结构，由 `PluginConfigFieldDefinition` 列表组成。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `key` | `String` | 配置项键名，写入插件配置 JSON。 |
+| `type` | `String` | 字段类型：`text`、`number`、`toggle`、`select`、`secret`。 |
+| `label` | `String` | 字段展示标签。 |
+| `default` | `dynamic` | 默认值。 |
+| `required` | `bool` | 是否必填。 |
+| `validation` | `Map<String, dynamic>?` | 可选的校验规则，例如 `min`/`max`、正则 `pattern`、`options` 列表。 |
+
 ## Changelog 模型
 
 文件：`lib/models/changelog_entry.dart`

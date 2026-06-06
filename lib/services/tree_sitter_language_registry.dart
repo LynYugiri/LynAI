@@ -1,10 +1,21 @@
 import 'package:flutter/foundation.dart';
 
+/// 单个 tree-sitter 语言的定义。
+///
+/// 描述编译进原生库的某个语言语法元信息。id 是标准语言 ID，symbol 是
+/// tree-sitter 编译时使用的符号名称，aliases 是常见别名。
 @immutable
 class TreeSitterLanguageDefinition {
+  /// tree-sitter 标准语言 ID（如 javascript, python）。
   final String id;
+
+  /// tree-sitter 编译时的 C 符号名（如 tree_sitter_python）。
   final String symbol;
+
+  /// 语言别名集合，用于匹配用户输入的非标准语言名称。
   final Set<String> aliases;
+
+  /// 该语言是否需要外部扫描器（如 Swift 需要）。
   final bool hasExternalScanner;
 
   const TreeSitterLanguageDefinition({
@@ -14,6 +25,7 @@ class TreeSitterLanguageDefinition {
     this.hasExternalScanner = false,
   });
 
+  /// 判断给定语言名称是否匹配此定义（精确匹配或别名匹配）。
   bool matches(String language) {
     final normalized = language.trim().toLowerCase();
     return normalized == id || aliases.contains(normalized);
@@ -136,6 +148,10 @@ class TreeSitterLanguageRegistry {
     TreeSitterLanguageDefinition(id: 'r', symbol: 'tree_sitter_r'),
   ];
 
+  /// 根据语言名称查找对应的 tree-sitter 语言定义。
+  ///
+  /// 支持精确 ID 匹配和别名匹配（不区分大小写）。返回 null 表示不支持该语言，
+  /// 调用方应降级到 Dart 高亮方案。
   static TreeSitterLanguageDefinition? find(String? language) {
     if (language == null || language.trim().isEmpty) return null;
     for (final definition in definitions) {

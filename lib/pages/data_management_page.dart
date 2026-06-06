@@ -358,6 +358,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
   }
 }
 
+/// 隐私提示卡片。
 class _InfoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -384,6 +385,9 @@ class _InfoCard extends StatelessWidget {
   }
 }
 
+/// 存储迁移卡片。
+///
+/// 展示当前迁移状态，支持触发从旧版 JSON 到 storage_v2 的单向迁移。
 class _MigrationCard extends StatelessWidget {
   const _MigrationCard({
     required this.state,
@@ -447,6 +451,7 @@ class _MigrationCard extends StatelessWidget {
   }
 }
 
+/// 迁移报告展示组件。
 class _MigrationReportView extends StatelessWidget {
   const _MigrationReportView({required this.report});
 
@@ -483,6 +488,9 @@ class _MigrationReportView extends StatelessWidget {
   }
 }
 
+/// 数据导出卡片。
+///
+/// 含分区选择树和导出按钮，支持勾选对话、笔记、日程、待办、情景演绎和插件。
 class _ExportCard extends StatelessWidget {
   const _ExportCard({
     required this.selection,
@@ -538,6 +546,9 @@ class _ExportCard extends StatelessWidget {
   }
 }
 
+/// 数据导入卡片。
+///
+/// 支持选取 ZIP 备份文件、预览内容、选择导入分区和冲突处理策略。
 class _ImportCard extends StatelessWidget {
   const _ImportCard({
     required this.archive,
@@ -670,6 +681,9 @@ class _ImportCard extends StatelessWidget {
   }
 }
 
+/// 备份分区选择树。
+///
+/// 以 ExpansionTile 嵌套 CheckboxListTile 实现全选/部分选择/未选三态。
 class _SelectionTree extends StatelessWidget {
   const _SelectionTree({
     required this.selection,
@@ -964,6 +978,7 @@ class _ItemSelectionTile<T> extends StatelessWidget {
   }
 }
 
+/// 分区外壳组件，为每个可展开分区统一圆角容器样式。
 class _SectionShell extends StatelessWidget {
   const _SectionShell({required this.child});
 
@@ -1035,6 +1050,9 @@ class _ChildSelectionRow extends StatelessWidget {
   }
 }
 
+/// 备份清单摘要。
+///
+/// 显示备份的应用版本和导出时间。
 class _ManifestSummary extends StatelessWidget {
   const _ManifestSummary({required this.manifest});
 
@@ -1048,6 +1066,7 @@ class _ManifestSummary extends StatelessWidget {
   }
 }
 
+/// 警告列表组件，以琥珀色背景展示导入预览中发现的问题。
 class _WarningList extends StatelessWidget {
   const _WarningList({required this.warnings});
 
@@ -1067,6 +1086,9 @@ class _WarningList extends StatelessWidget {
   }
 }
 
+/// 导入冲突处理项。
+///
+/// 显示本地与导入项的摘要，并提供保留本地/覆盖的冲突操作选项。
 class _ConflictTile extends StatelessWidget {
   const _ConflictTile({
     required this.conflict,
@@ -1114,12 +1136,14 @@ class _ConflictTile extends StatelessWidget {
   }
 }
 
+// 根据选中数和总数生成三态复选框值：全选 true、未选 false、部分选中 null。
 bool? _triStateValue(int selectedCount, int total) {
   if (total == 0 || selectedCount == 0) return false;
   if (selectedCount == total) return true;
   return null;
 }
 
+// 将 DateTime 格式化为 "yyyy-MM-dd HH:mm" 的本地显示字符串。
 String _formatDate(DateTime value) {
   String two(int n) => n.toString().padLeft(2, '0');
   return '${value.year}-${two(value.month)}-${two(value.day)} ${two(value.hour)}:${two(value.minute)}';

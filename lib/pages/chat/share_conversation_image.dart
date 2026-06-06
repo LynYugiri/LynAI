@@ -1,5 +1,8 @@
 part of '../chat_page.dart';
 
+/// 对话分享长图组件。
+///
+/// 以卡片式布局渲染对话标题、消息气泡和附件，用于截图导出。
 class _ShareConversationImage extends StatelessWidget {
   final String title;
   final List<Message> messages;
@@ -101,6 +104,9 @@ class _ShareConversationImage extends StatelessWidget {
   }
 }
 
+/// 分享图片头部区域。
+///
+/// 渲染应用图标、对话标题和已选消息条数统计。
 class _ShareHeader extends StatelessWidget {
   final String title;
   final int count;
@@ -156,6 +162,9 @@ class _ShareHeader extends StatelessWidget {
   }
 }
 
+/// 分享图片中的消息气泡。
+///
+/// 区分用户和助手消息，使用不同颜色和圆形/方形角样式。
 class _ShareMessageBubble extends StatelessWidget {
   final Message message;
   final ColorScheme scheme;

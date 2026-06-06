@@ -4,6 +4,14 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+/// 跨平台长截图采集服务。
+///
+/// 通过 MethodChannel 与原生端协作用于 Android 系统的滚动截图功能。核心流程：
+/// 1. 原生端发起截图请求，调用 `getMetrics` 获取滚动区域位置和尺寸
+/// 2. 原生端循环调用 `scrollTo` 逐步滚动，每次截取可视区域
+/// 3. 采集完成后调用 `restore` 将滚动位置恢复到初始状态
+///
+/// 非 Android 平台不执行任何操作。
 class SystemScrollCaptureService {
   SystemScrollCaptureService._() {
     _channel.setMethodCallHandler(_handleCall);
@@ -17,6 +25,7 @@ class SystemScrollCaptureService {
   double? _restoreOffset;
   bool _capturing = false;
 
+  /// 是否正在进行截图采集。
   bool get isCapturing => _capturing;
 
   void _register(_SystemScrollCaptureRegistration target) {
@@ -32,6 +41,7 @@ class SystemScrollCaptureService {
     }
   }
 
+  /// 处理来自原生端的 MethodChannel 调用。
   Future<dynamic> _handleCall(MethodCall call) async {
     switch (call.method) {
       case 'getMetrics':
@@ -53,12 +63,14 @@ class SystemScrollCaptureService {
     }
   }
 
+  /// 返回当前滚动目标的度量信息，供原生端计算截图区域和滚动步长。
   Map<String, Object?> _metrics() {
     final target = _target;
     if (target == null || !target.isAvailable) return {'ok': false};
     final rect = target.globalRect;
     if (rect == null || rect.isEmpty) return {'ok': false};
     final metrics = target.controller.position;
+    // 首次调用时记录当前滚动位置，供 restore 使用
     _restoreOffset ??= metrics.pixels;
     return {
       'ok': true,
@@ -74,6 +86,7 @@ class SystemScrollCaptureService {
     };
   }
 
+  /// 将滚动目标移动到指定偏移位置。
   Future<Map<String, Object?>> _scrollTo(double offset) async {
     final target = _target;
     if (target == null || !target.isAvailable) return {'ok': false};
@@ -84,6 +97,7 @@ class SystemScrollCaptureService {
     return {'ok': true, 'offset': target.controller.position.pixels};
   }
 
+  /// 将滚动位置恢复到截图开始前的状态。
   Future<Map<String, Object?>> _restore() async {
     final target = _target;
     final restoreOffset = _restoreOffset;
@@ -100,6 +114,7 @@ class SystemScrollCaptureService {
     return {'ok': true};
   }
 
+  /// 等待当前帧渲染完成后额外延迟一帧，确保原生端能截取到最新画面。
   Future<void> _endOfFrame() async {
     final binding = WidgetsBinding.instance;
     await binding.endOfFrame;
@@ -107,9 +122,18 @@ class SystemScrollCaptureService {
   }
 }
 
+/// 标记一个可滚动区域作为系统截图的采集目标。
+///
+/// 包裹在任意 `ScrollController` 驱动的滚动组件外层即可启用系统截图功能。
+/// [enabled] 为 false 时取消注册。
 class SystemScrollCaptureTarget extends StatefulWidget {
+  /// 目标区域的滚动控制器。
   final ScrollController controller;
+
+  /// 被包裹的子组件。
   final Widget child;
+
+  /// 是否启用截图采集注册。
   final bool enabled;
 
   const SystemScrollCaptureTarget({
@@ -151,6 +175,7 @@ class _SystemScrollCaptureTargetState extends State<SystemScrollCaptureTarget> {
 
   @override
   Widget build(BuildContext context) {
+    // build 中注册确保重建后仍被 target 引用
     _registerIfEnabled();
     return widget.child;
   }
@@ -162,6 +187,7 @@ class _SystemScrollCaptureTargetState extends State<SystemScrollCaptureTarget> {
   }
 }
 
+/// 滚动截图注册令牌，封装对 target State 的引用和几何信息查询。
 class _SystemScrollCaptureRegistration {
   final _SystemScrollCaptureTargetState state;
 
@@ -169,6 +195,7 @@ class _SystemScrollCaptureRegistration {
 
   ScrollController get controller => state.widget.controller;
 
+  /// 目标区域的滚动组件是否处于可用状态。
   bool get isAvailable {
     return state.mounted &&
         state.widget.enabled &&
@@ -179,6 +206,7 @@ class _SystemScrollCaptureRegistration {
 
   double get devicePixelRatio => MediaQuery.devicePixelRatioOf(state.context);
 
+  /// 获取目标区域在屏幕上的全局矩形区域。
   Rect? get globalRect {
     final renderObject = state.context.findRenderObject();
     if (renderObject is! RenderBox || !renderObject.attached) return null;

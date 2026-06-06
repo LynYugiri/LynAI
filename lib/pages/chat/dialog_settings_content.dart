@@ -1,5 +1,8 @@
 part of '../chat_page.dart';
 
+/// 对话设置弹窗内容。
+///
+/// 整合模型选择器、思维链开关、系统提示词编辑、语音和图片模型配置。
 class _DialogSettingsContent extends StatefulWidget {
   final ConversationSettings settings;
   final ValueChanged<ConversationSettings> onChanged;

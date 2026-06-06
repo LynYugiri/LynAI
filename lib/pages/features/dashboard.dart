@@ -76,6 +76,7 @@ class _FeatureDashboard extends StatelessWidget {
     );
   }
 
+  // 遍历所有已启用且无错误的插件，将其已启用的功能页加入仪表盘。
   List<_FeatureDashboardItem> _pluginItems(PluginProvider provider) {
     final items = <_FeatureDashboardItem>[];
     for (final plugin in provider.plugins) {
@@ -99,6 +100,7 @@ class _FeatureDashboard extends StatelessWidget {
     return items;
   }
 
+  // 根据可用宽度返回响应式列数：小屏 2 列，中屏 4 列，宽屏 5-6 列。
   int _crossAxisCount(double width) {
     if (width < 600) return 2;
     if (width < 900) return 4;
@@ -106,6 +108,7 @@ class _FeatureDashboard extends StatelessWidget {
     return 6;
   }
 
+  // 根据宽度返回卡片宽高比，小屏偏竖长以容纳更多文案。
   double _childAspectRatio(double width) {
     if (width < 600) return 1.18;
     if (width < 900) return 1.05;
@@ -113,6 +116,9 @@ class _FeatureDashboard extends StatelessWidget {
   }
 }
 
+/// 仪表盘功能项数据模型。
+///
+/// 封装图标、标题、副标题及可选插件路径，供 [_FeatureDashboardCard] 使用。
 class _FeatureDashboardItem {
   final String value;
   final IconData icon;
@@ -141,6 +147,9 @@ class _FeatureDashboardItem {
   }) : icon = Icons.extension;
 }
 
+/// 仪表盘功能卡片。
+///
+/// 根据紧凑程度调整图标大小、间距，支持显示插件自定义图标或 Material 图标。
 class _FeatureDashboardCard extends StatelessWidget {
   final _FeatureDashboardItem item;
   final VoidCallback onTap;

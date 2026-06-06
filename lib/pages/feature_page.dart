@@ -86,6 +86,7 @@ class _SearchMatcher {
     );
   }
 
+  // 解析 "re:" 前缀或 "/pattern/flags" 正则搜索语法。
   factory _SearchMatcher.fromSearchSyntax(
     String query, {
     bool caseSensitive = false,
@@ -145,6 +146,7 @@ class _SearchMatcher {
     return text.toLowerCase().contains(query.toLowerCase());
   }
 
+  // 返回正则匹配迭代器：有正则以正则，否则以转义后的字面匹配。
   Iterable<RegExpMatch> allMatches(String text) {
     final regex = _regex;
     if (query.isEmpty || regexError != null) return const Iterable.empty();
@@ -279,6 +281,7 @@ class _FeaturePageState extends State<FeaturePage> {
     widget.onDashboardHandlerChanged?.call(_goToDashboard);
   }
 
+  // 返回键处理：先尝试关闭笔记详情，再尝试返回功能仪表盘。
   bool _handleBack() {
     if (_selectedNoteId != null) {
       _closeSelectedNote();
@@ -318,6 +321,7 @@ class _FeaturePageState extends State<FeaturePage> {
         true;
   }
 
+  // 根据 lastFeature 决定显示仪表盘或对应子页面。
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>().settings;
@@ -678,6 +682,7 @@ class _FeaturePageState extends State<FeaturePage> {
     return cleaned.isEmpty ? '导入待办清单' : cleaned;
   }
 
+  // 将 Markdown 有序/无序列表项解析为 TodoItem。
   List<TodoItem> _parseTodoItems(String content) {
     const uuid = Uuid();
     return content

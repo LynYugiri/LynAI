@@ -204,6 +204,8 @@ class PluginSettingDefinition {
 }
 
 /// 插件真实配置文件定义。
+///
+/// 描述 config.json 和 config.schema.json 的相对路径，用于插件表单渲染和校验。
 class PluginConfigDefinition {
   /// 配置文件的默认路径。
   static const defaultPath = 'config.json';

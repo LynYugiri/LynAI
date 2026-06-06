@@ -496,6 +496,7 @@ class PluginProvider extends ChangeNotifier {
     });
   }
 
+  /// 从应用资源包提取内置插件源码并执行操作，完成后清理临时目录。
   Future<T> _withBuiltInSource<T>(
     String pluginId,
     Future<T> Function(Directory sourceDir) action,
@@ -611,10 +612,12 @@ class PluginProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 递增插件的渲染版本号，触发 WebView 等依赖组件重建。
   void _bumpRenderVersion(String pluginId) {
     _renderVersions[pluginId] = renderVersion(pluginId) + 1;
   }
 
+  /// 新增或更新插件，同名插件合并用户授权状态。
   Future<void> _upsert(InstalledPlugin imported) async {
     final current = pluginById(imported.id);
     final plugin = current == null
@@ -626,6 +629,7 @@ class PluginProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 替换列表中指定 ID 的插件并保存。
   Future<void> _replace(String id, InstalledPlugin plugin) async {
     _plugins = _sortPlugins(
       _plugins.map((item) => item.id == id ? plugin : item).toList(),
@@ -634,8 +638,10 @@ class PluginProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 持久化当前插件列表到本地。
   Future<void> _save() => _repository.saveInstalledPlugins(_plugins);
 
+  /// 导入插件与已有插件合并，保留用户的授权和启用状态配置。
   InstalledPlugin _mergeImported(
     InstalledPlugin imported,
     InstalledPlugin current,
@@ -674,6 +680,7 @@ class PluginProvider extends ChangeNotifier {
     );
   }
 
+  /// 合并新老插件的 API 启用列表，保留旧授权并自动启用新增 API。
   List<String> _mergeEnabledApiNames({
     required Set<String> previousNames,
     required Set<String> nextNames,
@@ -684,11 +691,13 @@ class PluginProvider extends ChangeNotifier {
     return retained.toList(growable: false);
   }
 
+  /// 按显示名称字母序排列插件列表。
   List<InstalledPlugin> _sortPlugins(List<InstalledPlugin> plugins) {
     return plugins.toList()
       ..sort((a, b) => a.displayName.compareTo(b.displayName));
   }
 
+  /// 计算下一个快照插件的编号索引。
   int _nextSnapshotIndex(String sourceId) {
     var maxIndex = 0;
     final pattern = RegExp('^${RegExp.escape(sourceId)}-snapshot-(\\d+)\$');
@@ -707,6 +716,7 @@ class PluginProvider extends ChangeNotifier {
     return maxIndex + 1;
   }
 
+  /// 插件 ID 变更时迁移缓存中的键名。
   void _renameCaches(String oldId, String newId) {
     if (oldId == newId) return;
     void move<T>(Map<String, T> map) {
@@ -722,6 +732,7 @@ class PluginProvider extends ChangeNotifier {
     if (renderVersion != null) _renderVersions[newId] = renderVersion;
   }
 
+  /// 确保新启用的插件不会与已启用插件的 API 名称冲突。
   void _ensureNoEnabledPluginApiConflict(InstalledPlugin target) {
     final targetEnabledTools = target.enabledTools.toSet();
     final targetTools = target.manifest.tools
@@ -737,6 +748,7 @@ class PluginProvider extends ChangeNotifier {
         .toSet();
     if (targetTools.isEmpty && targetFunctions.isEmpty) return;
 
+    // 遍历所有已启用插件，检测 tool 和 function 名称冲突
     for (final plugin in _plugins) {
       if (plugin.id == target.id || !plugin.enabled || plugin.hasError) {
         continue;
