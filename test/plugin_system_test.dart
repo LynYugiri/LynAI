@@ -854,6 +854,16 @@ end
           ),
           arguments: {'location': '北京'},
         );
+        final localeRequest = await PluginLuaRuntimeService().executeTool(
+          plugin: plugin,
+          tool: const PluginToolDefinition(
+            name: 'weather_request_for_test',
+            description: 'Build weather request',
+            handler: 'weather_request_for_test',
+            parameters: {'type': 'object'},
+          ),
+          arguments: {'language': 'zh-CN'},
+        );
         final parsed = await PluginLuaRuntimeService().executeTool(
           plugin: plugin,
           tool: const PluginToolDefinition(
@@ -904,7 +914,10 @@ end
         expect(ipRequest['ok'], isTrue, reason: ipRequest.toString());
         expect(cityRequest['ok'], isTrue, reason: cityRequest.toString());
         expect(ipRequest['url'], startsWith('https://wttr.in?'));
+        expect(ipRequest['url'], contains('lang=zh'));
         expect(cityRequest['url'], contains('%E5%8C%97%E4%BA%AC'));
+        expect(localeRequest['url'], contains('lang=zh'));
+        expect(localeRequest['url'], isNot(contains('zh-CN')));
         expect(parsed['ok'], isTrue);
         expect(parsed['location'], 'Beijing');
         expect(parsed['temperatureC'], '18');

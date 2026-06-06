@@ -10,7 +10,7 @@
 -- 3. Lua 负责构造请求、解析响应、裁剪字段，返回适合 AI 总结的结构。
 -- 4. Dart 只提供通用能力：http.fetch、lynai.json.decode 和 __lynai_next。
 
-local DEFAULT_LANGUAGE = "zh-CN"
+local DEFAULT_LANGUAGE = "zh"
 local USER_AGENT = "LynAI Weather Plugin"
 
 -- 去除字符串首尾空白。插件参数来自模型，可能出现空字符串或只有空格的值。
@@ -19,6 +19,17 @@ local function trim(value)
     return ""
   end
   return tostring(value):gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+local function normalize_language(value)
+  local language = trim(value)
+  if language == "" then
+    return DEFAULT_LANGUAGE
+  end
+  if language == "zh-CN" or language == "zh_CN" then
+    return "zh"
+  end
+  return language
 end
 
 -- 按 RFC 3986 对 URL 组件编码。Lua 字符串按字节处理，中文会被转成 UTF-8
@@ -67,10 +78,7 @@ end
 -- format=j1 返回 JSON，lang 控制天气描述语言。
 local function build_weather_url(args)
   local location = trim(args.location)
-  local language = trim(args.language)
-  if language == "" then
-    language = DEFAULT_LANGUAGE
-  end
+  local language = normalize_language(args.language)
 
   local query = "format=j1&lang=" .. url_encode(language)
   if location == "" then
@@ -96,7 +104,7 @@ end
 --
 -- 参数：
 -- args.location 可选。城市、地区或地点名称；为空时按 IP 自动定位。
--- args.language 可选。天气描述语言，默认 zh-CN。
+-- args.language 可选。天气描述语言，默认 zh。
 --
 -- 返回：
 -- 第一步返回 __lynai_function = "http.fetch"，由 Dart 执行网络请求；

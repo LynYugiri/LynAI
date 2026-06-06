@@ -22,7 +22,7 @@
           },
           "language": {
             "type": "string",
-            "description": "可选。天气描述语言，默认 zh-CN；常用值包括 zh-CN、en。"
+            "description": "可选。天气描述语言，默认 zh。"
           }
         }
       }
