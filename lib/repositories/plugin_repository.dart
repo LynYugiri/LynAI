@@ -79,6 +79,79 @@ class PluginRepository {
     return _installedPlugin(manifest, target.path);
   }
 
+  /// 用当前插件目录创建一个独立快照插件。
+  Future<InstalledPlugin> createSnapshot(
+    InstalledPlugin source,
+    String snapshotId,
+    String snapshotName,
+    int snapshotIndex,
+  ) async {
+    final target = await _pluginDirectory(snapshotId);
+    if (await target.exists()) throw Exception('插件已存在: $snapshotId');
+    await _replaceDirectory(Directory(source.path), target);
+    final manifest = source.manifest.copyWith(
+      id: snapshotId,
+      name: snapshotName,
+      lynai: {
+        ...source.manifest.lynai,
+        'snapshotOf': source.id,
+        'snapshotIndex': snapshotIndex,
+      },
+    );
+    await _writeManifest(target.path, manifest);
+    return _installedPlugin(manifest, target.path);
+  }
+
+  /// 修改快照插件的 id/name，并在 id 改变时同步重命名安装目录。
+  Future<InstalledPlugin> updateSnapshotIdentity(
+    InstalledPlugin plugin,
+    String nextId,
+    String nextName,
+  ) async {
+    if (!plugin.isSnapshot) throw Exception('只有快照插件可以修改 id/name');
+    final id = nextId.trim();
+    final name = nextName.trim();
+    if (!RegExp(r'^[a-zA-Z0-9_.-]+$').hasMatch(id)) {
+      throw Exception('插件 id 只能包含字母、数字、下划线、点和横线');
+    }
+    if (name.isEmpty) throw Exception('插件名称不能为空');
+    final target = await _pluginDirectory(id);
+    var path = plugin.path;
+    if (id != plugin.id) {
+      if (await target.exists()) throw Exception('插件已存在: $id');
+      await Directory(plugin.path).rename(target.path);
+      await renamePluginDataFiles(plugin.id, id);
+      path = target.path;
+    }
+    final manifest = plugin.manifest.copyWith(id: id, name: name);
+    await _writeManifest(path, manifest);
+    return plugin.copyWith(manifest: manifest, path: path);
+  }
+
+  /// 用快照目录内容覆盖来源插件目录，但保留来源插件的 id/name。
+  Future<InstalledPlugin> restoreSnapshotToSource(
+    InstalledPlugin snapshot,
+    InstalledPlugin source,
+  ) async {
+    if (!snapshot.isSnapshot || snapshot.manifest.snapshotOf != source.id) {
+      throw Exception('快照来源不匹配');
+    }
+    final sourceManifest = source.manifest;
+    await _replaceDirectory(Directory(snapshot.path), Directory(source.path));
+    await _writeManifest(
+      source.path,
+      snapshot.manifest.copyWith(
+        id: sourceManifest.id,
+        name: sourceManifest.name,
+        lynai: _withoutSnapshotMeta(snapshot.manifest.lynai),
+      ),
+    );
+    return source.copyWith(
+      manifest: await readManifest(source.path),
+      path: source.path,
+    );
+  }
+
   /// 同步一个已解包的内置插件源码目录到安装目录。
   ///
   /// 与 [importDirectory] 不同，这个方法不会清空目标目录。它只覆盖源码目录中
@@ -349,6 +422,23 @@ class PluginRepository {
     return Map<String, dynamic>.from(data);
   }
 
+  /// 将字节内容写入插件文件，适合上传图片、字体等非文本资源。
+  Future<void> writePluginFileBytes(
+    InstalledPlugin plugin,
+    String relativePath,
+    List<int> bytes,
+  ) async {
+    if (!_isEditablePluginFile(plugin, relativePath)) {
+      throw Exception('插件文件不可编辑: $relativePath');
+    }
+    if (_isProtectedPluginPath(plugin, relativePath)) {
+      throw Exception('插件受保护文件不可覆盖: $relativePath');
+    }
+    final file = await _safeWritablePluginFile(plugin.path, relativePath);
+    if (!await file.parent.exists()) await file.parent.create(recursive: true);
+    await file.writeAsBytes(bytes, flush: true);
+  }
+
   /// 将 Map 数据以 JSON 格式写入插件文件。
   Future<void> writePluginJsonFile(
     InstalledPlugin plugin,
@@ -413,7 +503,54 @@ class PluginRepository {
     if (!await File(newSafe).parent.exists()) {
       await File(newSafe).parent.create(recursive: true);
     }
+    if (await File(newSafe).exists()) throw Exception('目标文件已存在: $newPath');
     await oldFile.rename(newSafe);
+  }
+
+  /// 删除插件中所有用户自定义文件，使其回退到出厂状态。
+  Future<void> resetPluginFilesToDefaults(InstalledPlugin plugin) async {
+    final root = Directory(plugin.path);
+    if (!await root.exists()) throw Exception('插件目录不存在');
+    final emptyDirs = <Directory>[];
+    await for (final entity in root.list(recursive: true, followLinks: false)) {
+      final relativePath = _relativePath(root.path, entity.path);
+      if (relativePath.isEmpty) continue;
+      if (entity is Directory) {
+        if (!_isDefaultPath(relativePath)) emptyDirs.add(entity);
+        continue;
+      }
+      if (entity is! File) continue;
+      if (_isProtectedPluginPath(plugin, relativePath)) continue;
+      await _ensureInsideRoot(plugin.path, entity.path);
+      await entity.delete();
+    }
+    emptyDirs.sort((a, b) => b.path.length.compareTo(a.path.length));
+    for (final dir in emptyDirs) {
+      if (await dir.exists() && await dir.list(followLinks: false).isEmpty) {
+        await dir.delete();
+      }
+    }
+  }
+
+  /// 导出当前插件安装目录为 ZIP 文件。
+  Future<void> exportPluginZip(
+    InstalledPlugin plugin,
+    String targetPath,
+  ) async {
+    final archive = Archive();
+    final root = Directory(plugin.path);
+    if (!await root.exists()) throw Exception('插件目录不存在');
+    await for (final entity in root.list(recursive: true, followLinks: false)) {
+      if (entity is! File) continue;
+      final relativePath = _relativePath(root.path, entity.path);
+      if (relativePath.isEmpty) continue;
+      final bytes = await entity.readAsBytes();
+      archive.addFile(ArchiveFile(relativePath, bytes.length, bytes));
+    }
+    final bytes = ZipEncoder().encode(archive);
+    final file = File(targetPath);
+    if (!await file.parent.exists()) await file.parent.create(recursive: true);
+    await file.writeAsBytes(bytes, flush: true);
   }
 
   /// 保存插件的私有存储 JSON 数据。
@@ -426,6 +563,19 @@ class PluginRepository {
     await file.writeAsString(
       const JsonEncoder.withIndent('  ').convert(storage),
       flush: true,
+    );
+  }
+
+  /// 修改插件 ID 时迁移与 ID 绑定的设置和私有存储文件。
+  Future<void> renamePluginDataFiles(String oldId, String newId) async {
+    if (oldId == newId) return;
+    await _renameDataFile(
+      await _pluginSettingsFile(oldId),
+      await _pluginSettingsFile(newId),
+    );
+    await _renameDataFile(
+      await _pluginStorageFile(oldId),
+      await _pluginStorageFile(newId),
     );
   }
 
@@ -463,6 +613,10 @@ class PluginRepository {
       enabledFeaturePages: manifest.featurePages
           .map((page) => page.id)
           .toList(),
+      enabledTools: manifest.tools.map((tool) => tool.name).toList(),
+      enabledFunctions: manifest.functions
+          .map((function) => function.name)
+          .toList(),
     );
   }
 
@@ -479,6 +633,34 @@ class PluginRepository {
     if (await target.exists()) await target.delete(recursive: true);
     await target.create(recursive: true);
     await _copyDirectoryFiles(source, target);
+  }
+
+  Future<void> _writeManifest(
+    String pluginPath,
+    PluginManifest manifest,
+  ) async {
+    final file = File('$pluginPath/plugin.json');
+    if (!await file.parent.exists()) await file.parent.create(recursive: true);
+    await file.writeAsString(
+      const JsonEncoder.withIndent('  ').convert(manifest.toJson()),
+      flush: true,
+    );
+  }
+
+  Future<void> _renameDataFile(File source, File target) async {
+    if (!await source.exists()) return;
+    if (!await target.parent.exists()) {
+      await target.parent.create(recursive: true);
+    }
+    if (await target.exists()) await target.delete();
+    await source.rename(target.path);
+  }
+
+  Map<String, dynamic> _withoutSnapshotMeta(Map<String, dynamic> lynai) {
+    final next = Map<String, dynamic>.from(lynai);
+    next.remove('snapshotOf');
+    next.remove('snapshotIndex');
+    return next;
   }
 
   Future<void> _copyDirectoryFiles(Directory source, Directory target) async {

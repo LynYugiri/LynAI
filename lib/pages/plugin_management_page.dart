@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -9,7 +10,10 @@ import '../models/plugin_config_schema.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../repositories/plugin_repository.dart';
+import '../services/code_syntax_service.dart';
+import '../utils/snackbar_utils.dart';
 import '../widgets/model_config_picker.dart';
+import '../widgets/plugin_feature_webview.dart';
 import '../widgets/plugin_icon.dart';
 
 /// 插件管理页面。
@@ -110,7 +114,7 @@ class _PluginCard extends StatelessWidget {
           ),
         ),
         title: Text(
-          manifest.name,
+          plugin.displayName,
           style: const TextStyle(fontWeight: FontWeight.w700),
         ),
         subtitle: Padding(
@@ -174,7 +178,7 @@ class PluginDetailPage extends StatelessWidget {
     }
     final manifest = plugin.manifest;
     return Scaffold(
-      appBar: AppBar(title: Text(manifest.name)),
+      appBar: AppBar(title: Text(plugin.displayName)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -216,36 +220,59 @@ class PluginDetailPage extends StatelessWidget {
                   ),
           ),
           const SizedBox(height: 12),
-          _DefinitionListCard(
+          _SectionCard(
             title: 'Tools',
-            emptyText: '未提供模型工具',
-            children: manifest.tools
-                .map(
-                  (tool) => ListTile(
-                    leading: const Icon(Icons.build_outlined),
-                    title: Text(tool.name),
-                    subtitle: Text(
-                      tool.description.isEmpty
-                          ? tool.handler
-                          : tool.description,
-                    ),
+            child: manifest.tools.isEmpty
+                ? const Text('未提供模型工具')
+                : Column(
+                    children: manifest.tools.map((tool) {
+                      return SwitchListTile(
+                        value: plugin.enabledTools.contains(tool.name),
+                        title: Text(tool.name),
+                        subtitle: Text(
+                          tool.description.isEmpty
+                              ? tool.handler
+                              : tool.description,
+                        ),
+                        secondary: const Icon(Icons.build_outlined),
+                        contentPadding: EdgeInsets.zero,
+                        onChanged: (value) => _runAction(
+                          context,
+                          () => context.read<PluginProvider>().setToolEnabled(
+                            plugin.id,
+                            tool.name,
+                            value,
+                          ),
+                        ),
+                      );
+                    }).toList(),
                   ),
-                )
-                .toList(),
           ),
           const SizedBox(height: 12),
-          _DefinitionListCard(
+          _SectionCard(
             title: 'Functions',
-            emptyText: '未声明内部函数',
-            children: manifest.functions
-                .map(
-                  (function) => ListTile(
-                    leading: const Icon(Icons.functions),
-                    title: Text(function.name),
-                    subtitle: Text(function.handler),
+            child: manifest.functions.isEmpty
+                ? const Text('未声明内部函数')
+                : Column(
+                    children: manifest.functions.map((function) {
+                      return SwitchListTile(
+                        value: plugin.enabledFunctions.contains(function.name),
+                        title: Text(function.name),
+                        subtitle: Text(function.handler),
+                        secondary: const Icon(Icons.functions),
+                        contentPadding: EdgeInsets.zero,
+                        onChanged: (value) => _runAction(
+                          context,
+                          () =>
+                              context.read<PluginProvider>().setFunctionEnabled(
+                                plugin.id,
+                                function.name,
+                                value,
+                              ),
+                        ),
+                      );
+                    }).toList(),
                   ),
-                )
-                .toList(),
           ),
           const SizedBox(height: 12),
           _SectionCard(
@@ -284,6 +311,50 @@ class PluginDetailPage extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 OutlinedButton.icon(
+                  onPressed: () => _renameDisplayName(context, plugin),
+                  icon: const Icon(Icons.drive_file_rename_outline),
+                  label: const Text('修改显示名'),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: () => _runAction(
+                    context,
+                    () => context.read<PluginProvider>().createSnapshot(
+                      plugin.id,
+                    ),
+                    success: '快照已创建',
+                  ),
+                  icon: const Icon(Icons.copy_all_outlined),
+                  label: const Text('创建快照'),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: () => _exportPlugin(context, plugin),
+                  icon: const Icon(Icons.archive_outlined),
+                  label: const Text('导出插件 ZIP'),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: () => _confirmResetDefaults(context, plugin),
+                  icon: const Icon(Icons.restore_page_outlined),
+                  label: const Text('重置为默认'),
+                ),
+                if (plugin.isSnapshot) ...[
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () => _editSnapshotIdentity(context, plugin),
+                    icon: const Icon(Icons.badge_outlined),
+                    label: const Text('修改快照 ID/Name'),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () => _confirmRestoreSnapshot(context, plugin),
+                    icon: const Icon(Icons.restore_outlined),
+                    label: const Text('恢复到原插件'),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
                   onPressed: () => _runAction(
                     context,
                     () => context.read<PluginProvider>().refreshManifests(
@@ -311,6 +382,201 @@ class PluginDetailPage extends StatelessWidget {
     );
   }
 
+  Future<void> _renameDisplayName(
+    BuildContext context,
+    InstalledPlugin plugin,
+  ) async {
+    final controller = TextEditingController(text: plugin.displayName);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('修改显示名'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: '显示名',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (result == null || !context.mounted) return;
+    await _runAction(
+      context,
+      () => context.read<PluginProvider>().renameDisplayName(plugin.id, result),
+      success: '显示名已更新',
+    );
+  }
+
+  Future<void> _editSnapshotIdentity(
+    BuildContext context,
+    InstalledPlugin plugin,
+  ) async {
+    final idController = TextEditingController(text: plugin.id);
+    final nameController = TextEditingController(text: plugin.manifest.name);
+    String? error;
+    final result = await showDialog<({String id, String name})>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('修改快照 ID/Name'),
+          content: SizedBox(
+            width: 480,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: idController,
+                  decoration: InputDecoration(
+                    labelText: '插件 ID',
+                    border: const OutlineInputBorder(),
+                    errorText: error,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(
+                    labelText: '插件 name',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final id = idController.text.trim();
+                final name = nameController.text.trim();
+                if (!RegExp(r'^[a-zA-Z0-9_.-]+$').hasMatch(id)) {
+                  setDialogState(() => error = 'ID 只能包含字母、数字、下划线、点和横线');
+                  return;
+                }
+                if (name.isEmpty) {
+                  setDialogState(() => error = 'Name 不能为空');
+                  return;
+                }
+                Navigator.pop(context, (id: id, name: name));
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        ),
+      ),
+    );
+    idController.dispose();
+    nameController.dispose();
+    if (result == null || !context.mounted) return;
+    await _runAction(
+      context,
+      () => context.read<PluginProvider>().updateSnapshotIdentity(
+        plugin.id,
+        result.id,
+        result.name,
+      ),
+      success: '快照身份已更新',
+    );
+  }
+
+  Future<void> _exportPlugin(
+    BuildContext context,
+    InstalledPlugin plugin,
+  ) async {
+    final path = await FilePicker.saveFile(
+      dialogTitle: '导出插件 ZIP',
+      fileName: '${_safeFileName(plugin.displayName)}.zip',
+      type: FileType.custom,
+      allowedExtensions: const ['zip'],
+    );
+    if (path == null || !context.mounted) return;
+    await _runAction(
+      context,
+      () => context.read<PluginProvider>().exportPluginZip(plugin.id, path),
+      success: '插件已导出',
+    );
+  }
+
+  Future<void> _confirmResetDefaults(
+    BuildContext context,
+    InstalledPlugin plugin,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('重置为默认'),
+        content: Text('将删除 ${plugin.displayName} 的所有用户自定义文件，并回退到出厂默认。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('重置'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    await _runAction(
+      context,
+      () => context.read<PluginProvider>().resetPluginDefaults(plugin.id),
+      success: '已重置为默认',
+    );
+  }
+
+  Future<void> _confirmRestoreSnapshot(
+    BuildContext context,
+    InstalledPlugin plugin,
+  ) async {
+    final sourceId = plugin.manifest.snapshotOf;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('恢复到原插件'),
+        content: Text('将用此快照覆盖原插件 $sourceId 的文件。快照不会删除，原插件名称和当前状态会保留。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('恢复'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    await _runAction(
+      context,
+      () => context.read<PluginProvider>().restoreSnapshotToSource(plugin.id),
+      success: '已恢复到原插件',
+    );
+  }
+
+  String _safeFileName(String value) {
+    final cleaned = value.trim().replaceAll(RegExp(r'[\\/:*?"<>|]+'), '_');
+    return cleaned.isEmpty ? 'plugin' : cleaned;
+  }
+
   /// 弹出确认对话框后删除指定插件，删除成功后自动返回上一页。
   Future<void> _confirmDelete(
     BuildContext context,
@@ -320,7 +586,7 @@ class PluginDetailPage extends StatelessWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('删除插件'),
-        content: Text('确定删除 ${plugin.manifest.name}？插件文件会从应用私有目录移除。'),
+        content: Text('确定删除 ${plugin.displayName}？插件文件会从应用私有目录移除。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -846,7 +1112,13 @@ class _PluginConfigCardState extends State<_PluginConfigCard> {
       await context.read<PluginProvider>().saveConfig(widget.plugin.id, values);
       if (mounted) _showMessage('配置已保存');
     } catch (e) {
-      if (mounted) _showMessage(e.toString().replaceFirst('Exception: ', ''));
+      if (mounted) {
+        showErrorSnackBar(
+          context,
+          e.toString().replaceFirst('Exception: ', ''),
+          details: e.toString(),
+        );
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -870,15 +1142,26 @@ class _PluginFilesCard extends StatefulWidget {
 
 class _PluginFilesCardState extends State<_PluginFilesCard> {
   late Future<List<PluginFileEntry>> _future;
+  var _seenRenderVersion = 0;
 
   @override
   void initState() {
     super.initState();
+    _seenRenderVersion = context.read<PluginProvider>().renderVersion(
+      widget.plugin.id,
+    );
     _future = context.read<PluginProvider>().listFiles(widget.plugin.id);
   }
 
   @override
   Widget build(BuildContext context) {
+    final renderVersion = context.watch<PluginProvider>().renderVersion(
+      widget.plugin.id,
+    );
+    if (renderVersion != _seenRenderVersion) {
+      _seenRenderVersion = renderVersion;
+      _future = context.read<PluginProvider>().listFiles(widget.plugin.id);
+    }
     return _SectionCard(
       title: '插件文件',
       child: FutureBuilder<List<PluginFileEntry>>(
@@ -935,6 +1218,9 @@ class _PluginFilesCardState extends State<_PluginFilesCard> {
                   ),
                   trailing: trailing,
                   onTap: file.isDirectory ? null : () => _openFile(file),
+                  onLongPress: file.isDirectory
+                      ? null
+                      : () => _showFileActions(file),
                 );
               }),
               if (hasFilesWrite)
@@ -942,8 +1228,8 @@ class _PluginFilesCardState extends State<_PluginFilesCard> {
                   padding: const EdgeInsets.only(top: 8),
                   child: TextButton.icon(
                     icon: const Icon(Icons.add, size: 18),
-                    label: const Text('新建文件'),
-                    onPressed: _createFile,
+                    label: const Text('添加文件'),
+                    onPressed: _showAddFileMenu,
                   ),
                 ),
             ],
@@ -958,106 +1244,145 @@ class _PluginFilesCardState extends State<_PluginFilesCard> {
       final provider = context.read<PluginProvider>();
       final content = await provider.readFile(widget.plugin.id, file.path);
       if (!mounted) return;
-      final next = await _showFileDialog(file, content);
-      if (next == null || !mounted) return;
-      await provider.writeEditableFile(widget.plugin.id, file.path, next);
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PluginFileEditorPage(
+            pluginId: widget.plugin.id,
+            path: file.path,
+            initialContent: content,
+            readOnly: !file.isEditable,
+          ),
+        ),
+      );
+      if (!mounted) return;
       setState(() => _future = provider.listFiles(widget.plugin.id));
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('文件已保存')));
-      }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
-        );
+        _showError(e);
       }
     }
   }
 
-  Future<String?> _showFileDialog(PluginFileEntry file, String content) async {
-    final controller = TextEditingController(text: content);
-    String? error;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final editorBg = isDark ? const Color(0xFF1e1e2e) : const Color(0xFFf5f5f5);
-    final editorText = isDark
-        ? const Color(0xFFdcdcdc)
-        : const Color(0xFF1a1a1a);
-    final result = await showDialog<String>(
+  Future<void> _showFileActions(PluginFileEntry file) async {
+    final action = await showModalBottomSheet<String>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text(file.path),
-          content: SizedBox(
-            width: 720,
-            child: TextField(
-              controller: controller,
-              readOnly: !file.isEditable,
-              maxLines: 20,
-              style: TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 13,
-                color: editorText,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (file.isEditable && !file.isDefault)
+              ListTile(
+                leading: const Icon(Icons.drive_file_rename_outline),
+                title: const Text('重命名'),
+                onTap: () => Navigator.pop(context, 'rename'),
               ),
-              decoration: InputDecoration(
-                filled: true,
-                fillColor: editorBg,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(
-                    color: isDark
-                        ? const Color(0xFF3a3a50)
-                        : const Color(0xFFdddddd),
-                  ),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(
-                    color: isDark
-                        ? const Color(0xFF3a3a50)
-                        : const Color(0xFFdddddd),
-                  ),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Color(0xFF6c5ce7)),
-                ),
-                errorText: error,
+            if (file.hasDefault && !file.isDefault)
+              ListTile(
+                leading: const Icon(Icons.restore),
+                title: const Text('恢复默认'),
+                onTap: () => Navigator.pop(context, 'restore'),
               ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('关闭'),
-            ),
-            if (file.isEditable)
-              FilledButton(
-                onPressed: () {
-                  if (file.type == 'json') {
-                    try {
-                      final decoded = jsonDecode(controller.text);
-                      final formatted = const JsonEncoder.withIndent(
-                        '  ',
-                      ).convert(decoded);
-                      Navigator.pop(context, formatted);
-                      return;
-                    } catch (_) {
-                      setDialogState(() => error = 'JSON 格式错误');
-                      return;
-                    }
-                  }
-                  Navigator.pop(context, controller.text);
-                },
-                child: const Text('保存'),
+            if (file.isEditable && !file.isDefault)
+              ListTile(
+                leading: Icon(
+                  Icons.delete_outline,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+                title: Text(
+                  '删除',
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+                onTap: () => Navigator.pop(context, 'delete'),
               ),
           ],
         ),
       ),
     );
+    if (!mounted || action == null) return;
+    switch (action) {
+      case 'rename':
+        await _renameFile(file);
+      case 'restore':
+        await _restoreDefault(file);
+      case 'delete':
+        await _deleteFile(file);
+    }
+  }
+
+  Future<void> _renameFile(PluginFileEntry file) async {
+    final controller = TextEditingController(text: file.path);
+    final next = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('重命名文件'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: '新路径',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('重命名'),
+          ),
+        ],
+      ),
+    );
     controller.dispose();
-    return result;
+    if (next == null || next.isEmpty || !mounted) return;
+    try {
+      final provider = context.read<PluginProvider>();
+      await provider.renameFile(widget.plugin.id, file.path, next);
+      setState(() => _future = provider.listFiles(widget.plugin.id));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('文件已重命名')));
+      }
+    } catch (e) {
+      _showError(e);
+    }
+  }
+
+  Future<void> _deleteFile(PluginFileEntry file) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除文件'),
+        content: Text('确定删除 "${file.path}"？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      final provider = context.read<PluginProvider>();
+      await provider.deleteFile(widget.plugin.id, file.path);
+      setState(() => _future = provider.listFiles(widget.plugin.id));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('文件已删除')));
+      }
+    } catch (e) {
+      _showError(e);
+    }
   }
 
   /// 弹出确认对话框后将指定插件文件恢复为出厂默认版本。
@@ -1091,17 +1416,43 @@ class _PluginFilesCardState extends State<_PluginFilesCard> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
-        );
+        _showError(e);
       }
     }
   }
 
-  /// 弹出对话框让用户在插件目录下创建新文件并写入初始内容。
+  Future<void> _showAddFileMenu() async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.note_add_outlined),
+              title: const Text('新文件'),
+              onTap: () => Navigator.pop(context, 'new'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.upload_file),
+              title: const Text('上传文件'),
+              onTap: () => Navigator.pop(context, 'upload'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'new') {
+      await _createFile();
+    } else if (action == 'upload') {
+      await _uploadFile();
+    }
+  }
+
+  /// 输入路径后打开独立编辑页，保存时才创建文件。
   Future<void> _createFile() async {
     final nameController = TextEditingController();
-    final contentController = TextEditingController();
     final result = await showDialog<String>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -1121,15 +1472,6 @@ class _PluginFilesCardState extends State<_PluginFilesCard> {
                       hintText: '例如 style.css',
                       border: const OutlineInputBorder(),
                       errorText: error,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: contentController,
-                    maxLines: 8,
-                    decoration: const InputDecoration(
-                      labelText: '初始内容 (可选)',
-                      border: OutlineInputBorder(),
                     ),
                   ),
                 ],
@@ -1157,45 +1499,390 @@ class _PluginFilesCardState extends State<_PluginFilesCard> {
       ),
     );
     final resultPath = result;
-    final content = contentController.text;
     nameController.dispose();
-    contentController.dispose();
     if (resultPath == null || !mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PluginFileEditorPage(
+          pluginId: widget.plugin.id,
+          path: resultPath,
+          initialContent: '',
+        ),
+      ),
+    );
+    if (!mounted) return;
+    setState(
+      () =>
+          _future = context.read<PluginProvider>().listFiles(widget.plugin.id),
+    );
+  }
+
+  Future<void> _uploadFile() async {
+    final picked = await FilePicker.pickFiles(withData: true);
+    final file = picked?.files.single;
+    if (file == null || !mounted) return;
+    final controller = TextEditingController(text: file.name);
+    final targetPath = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('上传文件'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: '目标路径',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('上传'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (targetPath == null || targetPath.isEmpty || !mounted) return;
+    final provider = context.read<PluginProvider>();
+    final pluginId = widget.plugin.id;
     try {
-      final provider = context.read<PluginProvider>();
-      await provider.writeEditableFile(widget.plugin.id, resultPath, content);
-      setState(() => _future = provider.listFiles(widget.plugin.id));
+      final filePath = file.path;
+      final bytes =
+          file.bytes ??
+          (filePath == null ? null : await File(filePath).readAsBytes());
+      if (bytes == null) throw Exception('无法读取上传文件内容');
+      await provider.writeFileBytes(pluginId, targetPath, bytes);
+      setState(() => _future = provider.listFiles(pluginId));
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('文件已创建')));
+        ).showSnackBar(const SnackBar(content: Text('文件已上传')));
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
-        );
-      }
+      _showError(e);
     }
+  }
+
+  void _showError(Object e) {
+    if (!mounted) return;
+    showErrorSnackBar(
+      context,
+      e.toString().replaceFirst('Exception: ', ''),
+      details: e.toString(),
+    );
   }
 }
 
-class _DefinitionListCard extends StatelessWidget {
-  const _DefinitionListCard({
-    required this.title,
-    required this.emptyText,
-    required this.children,
+class PluginFileEditorPage extends StatefulWidget {
+  const PluginFileEditorPage({
+    super.key,
+    required this.pluginId,
+    required this.path,
+    required this.initialContent,
+    this.readOnly = false,
   });
 
-  final String title;
-  final String emptyText;
-  final List<Widget> children;
+  final String pluginId;
+  final String path;
+  final String initialContent;
+  final bool readOnly;
+
+  @override
+  State<PluginFileEditorPage> createState() => _PluginFileEditorPageState();
+}
+
+class _PluginFileEditorPageState extends State<PluginFileEditorPage> {
+  late final _CodeEditingController _controller;
+  final _scrollController = ScrollController();
+  final _horizontalController = ScrollController();
+  var _savedContent = '';
+  var _wrap = false;
+  var _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _savedContent = widget.initialContent;
+    _controller = _CodeEditingController(
+      text: widget.initialContent,
+      language: fileTypeFromPath(widget.path),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _scrollController.dispose();
+    _horizontalController.dispose();
+    super.dispose();
+  }
+
+  bool get _dirty => _controller.text != _savedContent;
 
   @override
   Widget build(BuildContext context) {
-    return _SectionCard(
-      title: title,
-      child: children.isEmpty ? Text(emptyText) : Column(children: children),
+    final plugin = context.watch<PluginProvider>().pluginById(widget.pluginId);
+    if (plugin == null) {
+      return const Scaffold(body: Center(child: Text('插件不存在')));
+    }
+    final page = _featurePageForPath(plugin, widget.path);
+    return PopScope(
+      canPop: !_dirty,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (await _confirmDiscard()) {
+          if (context.mounted) Navigator.pop(context);
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(widget.path),
+          actions: [
+            if (fileTypeFromPath(widget.path) == 'json' && !widget.readOnly)
+              IconButton(
+                tooltip: '格式化 JSON',
+                onPressed: _formatJson,
+                icon: const Icon(Icons.data_object),
+              ),
+            IconButton(
+              tooltip: _wrap ? '关闭自动换行' : '开启自动换行',
+              onPressed: () => setState(() => _wrap = !_wrap),
+              icon: Icon(_wrap ? Icons.wrap_text : Icons.short_text),
+            ),
+            if (page != null)
+              IconButton(
+                tooltip: '预览页面',
+                onPressed: _saving ? null : () => _previewPage(page),
+                icon: const Icon(Icons.preview_outlined),
+              ),
+            IconButton(
+              tooltip: '保存',
+              onPressed: widget.readOnly || _saving ? null : _save,
+              icon: const Icon(Icons.save),
+            ),
+          ],
+        ),
+        body: Column(
+          children: [
+            if (widget.readOnly)
+              MaterialBanner(
+                content: const Text('此文件不可编辑'),
+                actions: [
+                  TextButton(
+                    onPressed: () => ScaffoldMessenger.of(
+                      context,
+                    ).hideCurrentMaterialBanner(),
+                    child: const Text('知道了'),
+                  ),
+                ],
+              ),
+            Expanded(child: _editor()),
+            _statusBar(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _editor() {
+    final editor = TextField(
+      controller: _controller,
+      scrollController: _scrollController,
+      readOnly: widget.readOnly,
+      expands: true,
+      maxLines: null,
+      minLines: null,
+      keyboardType: TextInputType.multiline,
+      textAlignVertical: TextAlignVertical.top,
+      cursorColor: const Color(0xFF61AFEF),
+      style: const TextStyle(
+        fontFamily: codeFontFamily,
+        fontSize: 14,
+        height: 1.45,
+      ),
+      decoration: const InputDecoration(
+        border: InputBorder.none,
+        contentPadding: EdgeInsets.all(16),
+      ),
+    );
+    final surface = Container(color: const Color(0xFF282C34), child: editor);
+    if (_wrap) return surface;
+    final width = (_longestLine() * 8.5 + 48).clamp(1200.0, 6000.0);
+    return Scrollbar(
+      controller: _horizontalController,
+      notificationPredicate: (notification) => notification.depth == 1,
+      child: SingleChildScrollView(
+        controller: _horizontalController,
+        scrollDirection: Axis.horizontal,
+        child: SizedBox(width: width, child: surface),
+      ),
+    );
+  }
+
+  Widget _statusBar() {
+    final lines = _controller.text.split('\n').length;
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Row(
+          children: [
+            Text(fileTypeFromPath(widget.path)),
+            const SizedBox(width: 12),
+            Text('$lines 行'),
+            const Spacer(),
+            if (_dirty) const Text('未保存'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  int _longestLine() {
+    return _controller.text
+        .split('\n')
+        .fold<int>(
+          0,
+          (longest, line) => line.length > longest ? line.length : longest,
+        );
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      await context.read<PluginProvider>().writeEditableFile(
+        widget.pluginId,
+        widget.path,
+        _controller.text,
+      );
+      _savedContent = _controller.text;
+      if (mounted) {
+        setState(() {});
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('文件已保存')));
+      }
+    } catch (e) {
+      if (mounted) {
+        showErrorSnackBar(
+          context,
+          e.toString().replaceFirst('Exception: ', ''),
+          details: e.toString(),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _previewPage(PluginFeaturePageDefinition page) async {
+    if (_dirty && !widget.readOnly) {
+      await _save();
+      if (!mounted || _dirty) return;
+    }
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            _PluginPagePreviewPage(pluginId: widget.pluginId, pageId: page.id),
+      ),
+    );
+  }
+
+  void _formatJson() {
+    try {
+      final decoded = jsonDecode(_controller.text);
+      _controller.text = const JsonEncoder.withIndent('  ').convert(decoded);
+      setState(() {});
+    } catch (_) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('JSON 格式错误')));
+    }
+  }
+
+  Future<bool> _confirmDiscard() async {
+    if (!_dirty) return true;
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('放弃未保存修改？'),
+        content: const Text('当前文件还有未保存修改，继续返回会丢失这些内容。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('放弃修改'),
+          ),
+        ],
+      ),
+    );
+    return result == true;
+  }
+
+  PluginFeaturePageDefinition? _featurePageForPath(
+    InstalledPlugin plugin,
+    String path,
+  ) {
+    final normalized = path.replaceAll('\\', '/');
+    for (final page in plugin.manifest.featurePages) {
+      if (page.entry.replaceAll('\\', '/') == normalized) return page;
+    }
+    return null;
+  }
+}
+
+class _CodeEditingController extends TextEditingController {
+  _CodeEditingController({required super.text, required this.language});
+
+  final String language;
+
+  @override
+  TextSpan buildTextSpan({
+    required BuildContext context,
+    TextStyle? style,
+    required bool withComposing,
+  }) {
+    final base = (style ?? const TextStyle()).copyWith(
+      fontFamily: codeFontFamily,
+      color: const Color(0xFFABB2BF),
+    );
+    return createCodeHighlighter(base).formatCode(text, language: language);
+  }
+}
+
+class _PluginPagePreviewPage extends StatelessWidget {
+  const _PluginPagePreviewPage({required this.pluginId, required this.pageId});
+
+  final String pluginId;
+  final String pageId;
+
+  @override
+  Widget build(BuildContext context) {
+    final plugin = context.watch<PluginProvider>().pluginById(pluginId);
+    PluginFeaturePageDefinition? page;
+    for (final item in plugin?.manifest.featurePages ?? const []) {
+      if (item.id == pageId) {
+        page = item;
+        break;
+      }
+    }
+    if (plugin == null || page == null) {
+      return const Scaffold(body: Center(child: Text('插件页面不存在')));
+    }
+    return Scaffold(
+      appBar: AppBar(title: Text('${plugin.displayName} 预览')),
+      body: PluginFeatureWebView(plugin: plugin, page: page),
     );
   }
 }
@@ -1371,9 +2058,7 @@ class _BuiltInPluginsSection extends StatelessWidget {
       ).showSnackBar(SnackBar(content: Text('${plugin.manifest.name} 已安装')));
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('安装失败: $e')));
+      showErrorSnackBar(context, '安装失败', details: e.toString());
     }
   }
 }
@@ -1391,8 +2076,6 @@ Future<void> _runAction(
     ).showSnackBar(SnackBar(content: Text(success)));
   } catch (e) {
     if (!context.mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('操作失败: $e')));
+    showErrorSnackBar(context, '操作失败', details: e.toString());
   }
 }

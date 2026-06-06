@@ -284,7 +284,8 @@ class PluginEditableFileDefinition {
     'path': path,
     if (title.isNotEmpty && title != path) 'title': title,
     if (type.isNotEmpty) 'type': type,
-    if (defaultPath != null && defaultPath!.isNotEmpty) 'defaultPath': defaultPath,
+    if (defaultPath != null && defaultPath!.isNotEmpty)
+      'defaultPath': defaultPath,
   };
 
   /// 校验可编辑文件路径的安全性，返回错误信息或 null。
@@ -380,6 +381,9 @@ class PluginManifest {
   /// 插件可编辑文件列表。
   final List<PluginEditableFileDefinition> editableFiles;
 
+  /// LynAI 私有元数据，用于记录快照来源等非插件运行时信息。
+  final Map<String, dynamic> lynai;
+
   /// 创建插件清单实例，必填字段为 id、name、version、entry、permissions 等。
   const PluginManifest({
     required this.id,
@@ -396,6 +400,7 @@ class PluginManifest {
     required this.settings,
     this.config = const PluginConfigDefinition(),
     this.editableFiles = const [],
+    this.lynai = const {},
   });
 
   /// 从 JSON 数据创建 [PluginManifest] 实例。
@@ -448,6 +453,7 @@ class PluginManifest {
           )
           .where((item) => item.path.isNotEmpty)
           .toList(growable: false),
+      lynai: Map<String, dynamic>.from(json['lynai'] as Map? ?? const {}),
     );
   }
 
@@ -471,7 +477,42 @@ class PluginManifest {
     'config': config.toJson(),
     if (editableFiles.isNotEmpty)
       'editableFiles': editableFiles.map((e) => e.toJson()).toList(),
+    if (lynai.isNotEmpty) 'lynai': lynai,
   };
+
+  /// 当前 manifest 是否来自 LynAI 插件快照。
+  bool get isSnapshot => snapshotOf != null;
+
+  /// 快照来源插件 ID。
+  String? get snapshotOf {
+    final value = lynai['snapshotOf']?.toString().trim();
+    return value == null || value.isEmpty ? null : value;
+  }
+
+  /// 创建当前 manifest 的副本，可用于更新快照身份。
+  PluginManifest copyWith({
+    String? id,
+    String? name,
+    Map<String, dynamic>? lynai,
+  }) {
+    return PluginManifest(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      version: version,
+      author: author,
+      description: description,
+      icon: icon,
+      entry: entry,
+      permissions: permissions,
+      tools: tools,
+      functions: functions,
+      featurePages: featurePages,
+      settings: settings,
+      config: config,
+      editableFiles: editableFiles,
+      lynai: lynai ?? this.lynai,
+    );
+  }
 
   /// 校验插件清单的完整性，返回错误信息或 null。
   String? validate() {
@@ -551,8 +592,17 @@ class InstalledPlugin {
   /// 用户已启用的功能页 ID 列表。
   final List<String> enabledFeaturePages;
 
+  /// 用户已启用的模型工具名称列表。
+  final List<String> enabledTools;
+
+  /// 用户已启用的插件函数名称列表。
+  final List<String> enabledFunctions;
+
   /// 插件加载失败时的错误信息。
   final String? loadError;
+
+  /// 用户自定义显示名，仅影响 UI，不写回 plugin.json。
+  final String? displayNameOverride;
 
   /// 创建一个已安装插件实例。
   const InstalledPlugin({
@@ -561,11 +611,23 @@ class InstalledPlugin {
     required this.enabled,
     required this.grantedPermissions,
     required this.enabledFeaturePages,
+    this.enabledTools = const [],
+    this.enabledFunctions = const [],
     this.loadError,
+    this.displayNameOverride,
   });
 
   /// 快捷返回插件 id，等同于 manifest.id。
   String get id => manifest.id;
+
+  /// UI 中显示的插件名称，优先使用用户自定义显示名。
+  String get displayName {
+    final override = displayNameOverride?.trim();
+    return override == null || override.isEmpty ? manifest.name : override;
+  }
+
+  /// 当前插件是否是 LynAI 快照插件。
+  bool get isSnapshot => manifest.isSnapshot;
 
   /// 插件是否在加载过程中发生了错误。
   bool get hasError => loadError != null && loadError!.isNotEmpty;
@@ -583,7 +645,10 @@ class InstalledPlugin {
     bool? enabled,
     List<String>? grantedPermissions,
     List<String>? enabledFeaturePages,
+    List<String>? enabledTools,
+    List<String>? enabledFunctions,
     Object? loadError = _sentinel,
+    Object? displayNameOverride = _sentinel,
   }) {
     return InstalledPlugin(
       manifest: manifest ?? this.manifest,
@@ -591,9 +656,14 @@ class InstalledPlugin {
       enabled: enabled ?? this.enabled,
       grantedPermissions: grantedPermissions ?? this.grantedPermissions,
       enabledFeaturePages: enabledFeaturePages ?? this.enabledFeaturePages,
+      enabledTools: enabledTools ?? this.enabledTools,
+      enabledFunctions: enabledFunctions ?? this.enabledFunctions,
       loadError: identical(loadError, _sentinel)
           ? this.loadError
           : loadError as String?,
+      displayNameOverride: identical(displayNameOverride, _sentinel)
+          ? this.displayNameOverride
+          : displayNameOverride as String?,
     );
   }
 
@@ -604,15 +674,20 @@ class InstalledPlugin {
     'enabled': enabled,
     'grantedPermissions': grantedPermissions,
     'enabledFeaturePages': enabledFeaturePages,
+    'enabledTools': enabledTools,
+    'enabledFunctions': enabledFunctions,
     if (loadError != null) 'loadError': loadError,
+    if (displayNameOverride != null && displayNameOverride!.trim().isNotEmpty)
+      'displayNameOverride': displayNameOverride,
   };
 
   /// 从 JSON 数据创建 [InstalledPlugin] 实例。
   factory InstalledPlugin.fromJson(Map<String, dynamic> json) {
+    final manifest = PluginManifest.fromJson(
+      Map<String, dynamic>.from(json['manifest'] as Map? ?? const {}),
+    );
     return InstalledPlugin(
-      manifest: PluginManifest.fromJson(
-        Map<String, dynamic>.from(json['manifest'] as Map? ?? const {}),
-      ),
+      manifest: manifest,
       path: json['path'] as String? ?? '',
       enabled: json['enabled'] as bool? ?? false,
       grantedPermissions:
@@ -623,7 +698,20 @@ class InstalledPlugin {
           (json['enabledFeaturePages'] as List<dynamic>? ?? const [])
               .map((item) => item.toString())
               .toList(growable: false),
+      enabledTools:
+          (json['enabledTools'] as List<dynamic>?)
+              ?.map((item) => item.toString())
+              .toList(growable: false) ??
+          manifest.tools.map((tool) => tool.name).toList(growable: false),
+      enabledFunctions:
+          (json['enabledFunctions'] as List<dynamic>?)
+              ?.map((item) => item.toString())
+              .toList(growable: false) ??
+          manifest.functions
+              .map((function) => function.name)
+              .toList(growable: false),
       loadError: json['loadError'] as String?,
+      displayNameOverride: json['displayNameOverride'] as String?,
     );
   }
 

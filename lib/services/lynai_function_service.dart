@@ -683,6 +683,9 @@ class LynAIFunctionService {
     }
     final name = (args['name'] as String? ?? '').trim();
     if (name.isEmpty) return _error('plugin.func 缺少 name');
+    if (!plugins.isFunctionEnabled(plugin.id, name)) {
+      return _error('插件函数已禁用: $name');
+    }
     return switch (name) {
       'stats' => _funcStats(context),
       'weather' => await _funcWeather(context),

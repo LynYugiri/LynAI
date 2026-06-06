@@ -110,11 +110,31 @@ class PluginProvider extends ChangeNotifier {
         final enabledPages = plugin.enabledFeaturePages
             .where(pageIds.contains)
             .toList(growable: false);
+        final previousToolIds = plugin.manifest.tools
+            .map((tool) => tool.name)
+            .toSet();
+        final toolIds = manifest.tools.map((tool) => tool.name).toSet();
+        final enabledTools = plugin.enabledTools
+            .where(toolIds.contains)
+            .toSet();
+        enabledTools.addAll(toolIds.difference(previousToolIds));
+        final previousFunctionIds = plugin.manifest.functions
+            .map((function) => function.name)
+            .toSet();
+        final functionIds = manifest.functions
+            .map((function) => function.name)
+            .toSet();
+        final enabledFunctions = plugin.enabledFunctions
+            .where(functionIds.contains)
+            .toSet();
+        enabledFunctions.addAll(functionIds.difference(previousFunctionIds));
         next.add(
           plugin.copyWith(
             manifest: manifest,
             grantedPermissions: granted,
             enabledFeaturePages: enabledPages,
+            enabledTools: enabledTools.toList(growable: false),
+            enabledFunctions: enabledFunctions.toList(growable: false),
             loadError: null,
           ),
         );
@@ -132,6 +152,7 @@ class PluginProvider extends ChangeNotifier {
     final plugin = pluginById(id);
     if (plugin == null) return;
     final shouldEnable = enabled && !plugin.hasError;
+    if (shouldEnable) _ensureNoEnabledPluginApiConflict(plugin);
     await _replace(id, plugin.copyWith(enabled: shouldEnable));
   }
 
@@ -172,6 +193,135 @@ class PluginProvider extends ChangeNotifier {
       pluginId,
       plugin.copyWith(enabledFeaturePages: pages.toList(growable: false)),
     );
+  }
+
+  /// 启用或禁用插件的指定模型工具。
+  Future<void> setToolEnabled(
+    String pluginId,
+    String toolName,
+    bool enabled,
+  ) async {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) return;
+    final tools = plugin.enabledTools.toSet();
+    if (enabled) {
+      tools.add(toolName);
+    } else {
+      tools.remove(toolName);
+    }
+    final next = plugin.copyWith(enabledTools: tools.toList(growable: false));
+    if (plugin.enabled) _ensureNoEnabledPluginApiConflict(next);
+    await _replace(pluginId, next);
+  }
+
+  /// 启用或禁用插件的指定内部函数。
+  Future<void> setFunctionEnabled(
+    String pluginId,
+    String functionName,
+    bool enabled,
+  ) async {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) return;
+    final functions = plugin.enabledFunctions.toSet();
+    if (enabled) {
+      functions.add(functionName);
+    } else {
+      functions.remove(functionName);
+    }
+    final next = plugin.copyWith(
+      enabledFunctions: functions.toList(growable: false),
+    );
+    if (plugin.enabled) _ensureNoEnabledPluginApiConflict(next);
+    await _replace(pluginId, next);
+  }
+
+  /// 判断插件函数当前是否允许通过 plugin.func 调用。
+  bool isFunctionEnabled(String pluginId, String functionName) {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) return false;
+    return plugin.enabledFunctions.contains(functionName);
+  }
+
+  /// 修改插件在 UI 中显示的名称，不改写 plugin.json。
+  Future<void> renameDisplayName(String pluginId, String name) async {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) throw Exception('插件不存在: $pluginId');
+    final value = name.trim();
+    await _replace(
+      pluginId,
+      plugin.copyWith(displayNameOverride: value.isEmpty ? null : value),
+    );
+  }
+
+  /// 为当前插件创建一个默认禁用的独立快照，复制授权和功能页状态。
+  Future<InstalledPlugin> createSnapshot(String pluginId) async {
+    final source = pluginById(pluginId);
+    if (source == null) throw Exception('插件不存在: $pluginId');
+    final index = _nextSnapshotIndex(source.id);
+    final snapshotId = '${source.id}-snapshot-$index';
+    final snapshotName = '${source.displayName}-快照 #$index';
+    final imported = await _repository.createSnapshot(
+      source,
+      snapshotId,
+      snapshotName,
+      index,
+    );
+    final snapshot = imported.copyWith(
+      enabled: false,
+      grantedPermissions: source.grantedPermissions.toList(growable: false),
+      enabledFeaturePages: source.enabledFeaturePages.toList(growable: false),
+      enabledTools: source.enabledTools.toList(growable: false),
+      enabledFunctions: source.enabledFunctions.toList(growable: false),
+    );
+    _plugins = _sortPlugins([..._plugins, snapshot]);
+    await _save();
+    notifyListeners();
+    return snapshot;
+  }
+
+  /// 修改快照插件自身 id/name。普通插件不允许执行此操作。
+  Future<InstalledPlugin> updateSnapshotIdentity(
+    String pluginId,
+    String newId,
+    String newName,
+  ) async {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) throw Exception('插件不存在: $pluginId');
+    if (newId != pluginId && pluginById(newId) != null) {
+      throw Exception('插件已存在: $newId');
+    }
+    final updated = await _repository.updateSnapshotIdentity(
+      plugin,
+      newId,
+      newName,
+    );
+    _renameCaches(pluginId, updated.id);
+    _plugins = _sortPlugins(
+      _plugins.map((item) => item.id == pluginId ? updated : item).toList(),
+    );
+    await _save();
+    notifyListeners();
+    return updated;
+  }
+
+  /// 用快照文件覆盖来源插件文件，保留来源插件当前名称、启用状态和授权状态。
+  Future<InstalledPlugin> restoreSnapshotToSource(String snapshotId) async {
+    final snapshot = pluginById(snapshotId);
+    if (snapshot == null) throw Exception('插件不存在: $snapshotId');
+    final sourceId = snapshot.manifest.snapshotOf;
+    if (sourceId == null) throw Exception('插件不是快照: $snapshotId');
+    final source = pluginById(sourceId);
+    if (source == null) throw Exception('快照来源插件不存在: $sourceId');
+    final restored = await _repository.restoreSnapshotToSource(
+      snapshot,
+      source,
+    );
+    final keptState = source.copyWith(manifest: restored.manifest);
+    _configCache.remove(source.id);
+    _schemaCache.remove(source.id);
+    _bumpRenderVersion(source.id);
+    await _replace(source.id, keptState);
+    return keptState;
   }
 
   /// 删除指定插件及其所有缓存数据和文件。
@@ -268,6 +418,19 @@ class PluginProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 将字节内容写入插件文件，适合上传二进制资源。
+  Future<void> writeFileBytes(
+    String pluginId,
+    String path,
+    List<int> bytes,
+  ) async {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) throw Exception('插件不存在: $pluginId');
+    await _repository.writePluginFileBytes(plugin, path, bytes);
+    _bumpRenderVersion(pluginId);
+    notifyListeners();
+  }
+
   /// 判断指定路径是否为插件的可编辑文件。
   bool isEditableFile(String pluginId, String path) {
     final plugin = pluginById(pluginId);
@@ -297,6 +460,22 @@ class PluginProvider extends ChangeNotifier {
     await _repository.renamePluginFile(plugin, oldPath, newPath);
     _bumpRenderVersion(pluginId);
     notifyListeners();
+  }
+
+  /// 删除所有用户自定义插件文件，回退到 defaults 出厂模板。
+  Future<void> resetPluginDefaults(String pluginId) async {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) throw Exception('插件不存在: $pluginId');
+    await _repository.resetPluginFilesToDefaults(plugin);
+    _bumpRenderVersion(pluginId);
+    notifyListeners();
+  }
+
+  /// 将当前插件目录导出为 ZIP 文件。
+  Future<void> exportPluginZip(String pluginId, String targetPath) async {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) throw Exception('插件不存在: $pluginId');
+    await _repository.exportPluginZip(plugin, targetPath);
   }
 
   /// 从应用资源包中导入内置插件。
@@ -477,11 +656,116 @@ class PluginProvider extends ChangeNotifier {
           .where(imported.manifest.permissions.contains)
           .toList(growable: false),
       enabledFeaturePages: retainedEnabledPages.toList(growable: false),
+      enabledTools: _mergeEnabledApiNames(
+        previousNames: current.manifest.tools.map((tool) => tool.name).toSet(),
+        nextNames: imported.manifest.tools.map((tool) => tool.name).toSet(),
+        enabledNames: current.enabledTools.toSet(),
+      ),
+      enabledFunctions: _mergeEnabledApiNames(
+        previousNames: current.manifest.functions
+            .map((function) => function.name)
+            .toSet(),
+        nextNames: imported.manifest.functions
+            .map((function) => function.name)
+            .toSet(),
+        enabledNames: current.enabledFunctions.toSet(),
+      ),
+      displayNameOverride: current.displayNameOverride,
     );
+  }
+
+  List<String> _mergeEnabledApiNames({
+    required Set<String> previousNames,
+    required Set<String> nextNames,
+    required Set<String> enabledNames,
+  }) {
+    final retained = enabledNames.where(nextNames.contains).toSet();
+    retained.addAll(nextNames.difference(previousNames));
+    return retained.toList(growable: false);
   }
 
   List<InstalledPlugin> _sortPlugins(List<InstalledPlugin> plugins) {
     return plugins.toList()
-      ..sort((a, b) => a.manifest.name.compareTo(b.manifest.name));
+      ..sort((a, b) => a.displayName.compareTo(b.displayName));
+  }
+
+  int _nextSnapshotIndex(String sourceId) {
+    var maxIndex = 0;
+    final pattern = RegExp('^${RegExp.escape(sourceId)}-snapshot-(\\d+)\$');
+    for (final plugin in _plugins) {
+      if (plugin.manifest.snapshotOf == sourceId) {
+        final value = plugin.manifest.lynai['snapshotIndex'];
+        final index = value is int
+            ? value
+            : int.tryParse(value?.toString() ?? '');
+        if (index != null && index > maxIndex) maxIndex = index;
+      }
+      final match = pattern.firstMatch(plugin.id);
+      final index = match == null ? null : int.tryParse(match.group(1)!);
+      if (index != null && index > maxIndex) maxIndex = index;
+    }
+    return maxIndex + 1;
+  }
+
+  void _renameCaches(String oldId, String newId) {
+    if (oldId == newId) return;
+    void move<T>(Map<String, T> map) {
+      final value = map.remove(oldId);
+      if (value != null) map[newId] = value;
+    }
+
+    move(_settingsCache);
+    move(_storageCache);
+    move(_configCache);
+    move(_schemaCache);
+    final renderVersion = _renderVersions.remove(oldId);
+    if (renderVersion != null) _renderVersions[newId] = renderVersion;
+  }
+
+  void _ensureNoEnabledPluginApiConflict(InstalledPlugin target) {
+    final targetEnabledTools = target.enabledTools.toSet();
+    final targetTools = target.manifest.tools
+        .map((tool) => tool.name.trim())
+        .where((name) => name.isNotEmpty && targetEnabledTools.contains(name))
+        .toSet();
+    final targetEnabledFunctions = target.enabledFunctions.toSet();
+    final targetFunctions = target.manifest.functions
+        .map((function) => function.name.trim())
+        .where(
+          (name) => name.isNotEmpty && targetEnabledFunctions.contains(name),
+        )
+        .toSet();
+    if (targetTools.isEmpty && targetFunctions.isEmpty) return;
+
+    for (final plugin in _plugins) {
+      if (plugin.id == target.id || !plugin.enabled || plugin.hasError) {
+        continue;
+      }
+      final toolConflicts = plugin.manifest.tools
+          .map((tool) => tool.name.trim())
+          .where(
+            (name) =>
+                plugin.enabledTools.contains(name) &&
+                targetTools.contains(name),
+          )
+          .toList(growable: false);
+      final functionConflicts = plugin.manifest.functions
+          .map((function) => function.name.trim())
+          .where(
+            (name) =>
+                plugin.enabledFunctions.contains(name) &&
+                targetFunctions.contains(name),
+          )
+          .toList(growable: false);
+      if (toolConflicts.isEmpty && functionConflicts.isEmpty) continue;
+      final parts = [
+        if (toolConflicts.isNotEmpty) 'Tools: ${toolConflicts.join(', ')}',
+        if (functionConflicts.isNotEmpty)
+          'Functions: ${functionConflicts.join(', ')}',
+      ];
+      throw Exception(
+        '插件 ${target.displayName} 与已启用插件 ${plugin.displayName} API 名称冲突：${parts.join('；')}',
+      );
+    }
   }
 }

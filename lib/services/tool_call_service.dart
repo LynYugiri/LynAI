@@ -653,6 +653,7 @@ class ToolCallService {
       for (final tool in plugin.manifest.tools) {
         if (tool.name.isEmpty ||
             tool.handler.isEmpty ||
+            !plugin.enabledTools.contains(tool.name) ||
             names.contains(tool.name)) {
           continue;
         }
@@ -808,6 +809,7 @@ class ToolCallService {
       if (!plugin.enabled || plugin.hasError) continue;
       for (final tool in plugin.manifest.tools) {
         if (tool.name != call.name) continue;
+        if (!plugin.enabledTools.contains(tool.name)) continue;
         if (!plugin.hasAllPermissionsGranted) {
           return _error('插件 ${plugin.manifest.name} 权限不足，无法执行 ${call.name}');
         }

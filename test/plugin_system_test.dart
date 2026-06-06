@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:lynai/models/model_config.dart';
@@ -329,6 +330,7 @@ void main() {
         enabled: true,
         grantedPermissions: const [],
         enabledFeaturePages: const [],
+        enabledTools: const ['calc_plugin_add_numbers'],
       );
 
       final files = await PluginRepository().listPluginFiles(plugin);
@@ -375,6 +377,7 @@ end
         enabled: true,
         grantedPermissions: const [],
         enabledFeaturePages: const [],
+        enabledTools: const ['calc_plugin_add_numbers'],
       );
 
       final tools = ToolCallService.openAITools([plugin]);
@@ -464,6 +467,7 @@ end
       enabled: true,
       grantedPermissions: const [],
       enabledFeaturePages: const [],
+      enabledTools: const ['secure_plugin_read_notes'],
     );
     final granted = locked.copyWith(grantedPermissions: const ['notes:read']);
 
@@ -655,6 +659,214 @@ end
         await installedRoot.delete(recursive: true);
         await sourceV1.delete(recursive: true);
         await sourceV2.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'Plugin snapshots, reset, bytes write and export preserve state',
+    () async {
+      final installedRoot = await Directory.systemTemp.createTemp(
+        'lynai_plugin_snapshot_root_',
+      );
+      final sourceRoot = await Directory.systemTemp.createTemp(
+        'lynai_plugin_snapshot_source_',
+      );
+      try {
+        await Directory('${sourceRoot.path}/defaults').create(recursive: true);
+        await File('${sourceRoot.path}/plugin.json').writeAsString('''
+{
+  "id": "snapshot_source",
+  "name": "Snapshot Source",
+  "entry": "main.lua",
+  "permissions": ["files:write", "network:access"],
+  "featurePages": [
+    {"id": "main", "title": "Main", "entry": "index.html"}
+  ],
+  "editableFiles": [
+    {"path": "index.html", "type": "html", "defaultPath": "defaults/index.html"}
+  ]
+}
+''');
+        await File(
+          '${sourceRoot.path}/main.lua',
+        ).writeAsString('function noop() end');
+        await File(
+          '${sourceRoot.path}/defaults/index.html',
+        ).writeAsString('default page');
+
+        final provider = PluginProvider(
+          repository: PluginRepository(rootOverride: installedRoot),
+        );
+        await provider.importDirectory(sourceRoot.path);
+        await provider.setGrantedPermissions('snapshot_source', [
+          'files:write',
+          'network:access',
+        ]);
+        await provider.renameDisplayName('snapshot_source', '显示名');
+        await provider.writeEditableFile(
+          'snapshot_source',
+          'index.html',
+          'custom v1',
+        );
+        await provider.writeFileBytes('snapshot_source', 'assets/logo.bin', [
+          1,
+          2,
+          3,
+        ]);
+
+        final snapshot = await provider.createSnapshot('snapshot_source');
+        expect(snapshot.id, 'snapshot_source-snapshot-1');
+        expect(snapshot.enabled, isFalse);
+        expect(snapshot.grantedPermissions, contains('files:write'));
+        expect(snapshot.manifest.snapshotOf, 'snapshot_source');
+        expect(snapshot.manifest.name, '显示名-快照 #1');
+        await provider.updateSetting(snapshot.id, 'mode', 'before-rename');
+
+        final renamed = await provider.updateSnapshotIdentity(
+          snapshot.id,
+          'renamed_snapshot',
+          'Renamed Snapshot',
+        );
+        expect(renamed.id, 'renamed_snapshot');
+        expect(provider.pluginById(snapshot.id), isNull);
+        expect(provider.pluginById('renamed_snapshot'), isNotNull);
+        final reloadedProvider = PluginProvider(
+          repository: PluginRepository(rootOverride: installedRoot),
+        );
+        await reloadedProvider.load();
+        expect(reloadedProvider.pluginById('renamed_snapshot'), isNotNull);
+        expect(
+          await reloadedProvider.loadSettings('renamed_snapshot'),
+          containsPair('mode', 'before-rename'),
+        );
+
+        await provider.writeEditableFile(
+          'snapshot_source',
+          'index.html',
+          'custom v2',
+        );
+        await provider.restoreSnapshotToSource('renamed_snapshot');
+        final source = provider.pluginById('snapshot_source')!;
+        expect(source.displayName, '显示名');
+        expect(source.grantedPermissions, contains('network:access'));
+        expect(source.manifest.name, 'Snapshot Source');
+        expect(
+          await File('${source.path}/index.html').readAsString(),
+          'custom v1',
+        );
+        expect(
+          await File('${source.path}/plugin.json').readAsString(),
+          contains('snapshot_source'),
+        );
+        expect(
+          await File('${source.path}/plugin.json').readAsString(),
+          isNot(contains('snapshotOf')),
+        );
+
+        await provider.setGrantedPermissions('snapshot_source', const []);
+        await provider.resetPluginDefaults('snapshot_source');
+        expect(File('${source.path}/index.html').existsSync(), isFalse);
+        expect(File('${source.path}/assets/logo.bin').existsSync(), isFalse);
+        expect(
+          await provider.readFile('snapshot_source', 'index.html'),
+          'default page',
+        );
+
+        await provider.writeEditableFile(
+          'snapshot_source',
+          'index.html',
+          'exported page',
+        );
+        final exportPath = '${installedRoot.path}/snapshot.zip';
+        await provider.exportPluginZip('snapshot_source', exportPath);
+        final archive = ZipDecoder().decodeBytes(
+          await File(exportPath).readAsBytes(),
+        );
+        final names = archive.map((item) => item.name).toSet();
+        expect(names, contains('plugin.json'));
+        expect(names, contains('index.html'));
+        final exportedIndex = archive.firstWhere(
+          (item) => item.name == 'index.html',
+        );
+        expect(
+          utf8.decode(exportedIndex.content as List<int>),
+          'exported page',
+        );
+      } finally {
+        await installedRoot.delete(recursive: true);
+        await sourceRoot.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'Plugin snapshots cannot enable duplicate tools and functions',
+    () async {
+      final installedRoot = await Directory.systemTemp.createTemp(
+        'lynai_plugin_conflict_root_',
+      );
+      final sourceRoot = await Directory.systemTemp.createTemp(
+        'lynai_plugin_conflict_source_',
+      );
+      try {
+        await File('${sourceRoot.path}/plugin.json').writeAsString('''
+{
+  "id": "conflict_source",
+  "name": "Conflict Source",
+  "entry": "main.lua",
+  "tools": [
+    {"name": "same_tool", "handler": "same_tool", "parameters": {"type": "object"}}
+  ],
+  "functions": [
+    {"name": "same_func", "handler": "same_func"}
+  ]
+}
+''');
+        await File('${sourceRoot.path}/main.lua').writeAsString('''
+function same_tool(args) return {ok = true} end
+function same_func(args) return {ok = true} end
+''');
+
+        final provider = PluginProvider(
+          repository: PluginRepository(rootOverride: installedRoot),
+        );
+        await provider.importDirectory(sourceRoot.path);
+        await provider.setEnabled('conflict_source', true);
+        final snapshot = await provider.createSnapshot('conflict_source');
+
+        expect(
+          () => provider.setEnabled(snapshot.id, true),
+          throwsA(
+            isA<Exception>()
+                .having((e) => e.toString(), 'message', contains('same_tool'))
+                .having((e) => e.toString(), 'message', contains('same_func')),
+          ),
+        );
+
+        await provider.setToolEnabled(snapshot.id, 'same_tool', false);
+        await provider.setFunctionEnabled(snapshot.id, 'same_func', false);
+        await provider.setEnabled(snapshot.id, true);
+        expect(provider.pluginById(snapshot.id)?.enabled, isTrue);
+
+        await provider.setEnabled('conflict_source', false);
+        await provider.setToolEnabled(snapshot.id, 'same_tool', true);
+        await provider.setFunctionEnabled(snapshot.id, 'same_func', true);
+        await provider.setEnabled(snapshot.id, true);
+        expect(provider.pluginById(snapshot.id)?.enabled, isTrue);
+        expect(
+          () => provider.setEnabled('conflict_source', true),
+          throwsA(
+            isA<Exception>().having(
+              (e) => e.toString(),
+              'message',
+              contains('API 名称冲突'),
+            ),
+          ),
+        );
+      } finally {
+        await installedRoot.delete(recursive: true);
+        await sourceRoot.delete(recursive: true);
       }
     },
   );
