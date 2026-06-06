@@ -36,6 +36,7 @@ import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/api_service.dart';
 import '../services/roleplay_service.dart';
+import '../services/system_scroll_capture_service.dart';
 import '../utils/file_share_utils.dart';
 import '../utils/file_name_utils.dart';
 import '../utils/share_image_utils.dart';

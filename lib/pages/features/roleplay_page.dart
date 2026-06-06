@@ -164,20 +164,23 @@ class _RoleplayPageState extends State<_RoleplayPage> {
     return Column(
       children: [
         Expanded(
-          child: ListView(
+          child: SystemScrollCaptureTarget(
             controller: _scrollCtrl,
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-            children: [
-              if (thread.messages.isEmpty) _scenarioIntro(thread),
-              for (final message in thread.messages) _messageBubble(message),
-              if (isActive && provider.activeSpeakerName != null)
-                _draftBubble(provider),
-              if (pending.isNotEmpty) _queuedBanner(pending.length),
-              if (isActive &&
-                  provider.runState == RoleplayRunState.error &&
-                  provider.errorMessage != null)
-                _errorBanner(provider.errorMessage!),
-            ],
+            child: ListView(
+              controller: _scrollCtrl,
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+              children: [
+                if (thread.messages.isEmpty) _scenarioIntro(thread),
+                for (final message in thread.messages) _messageBubble(message),
+                if (isActive && provider.activeSpeakerName != null)
+                  _draftBubble(provider),
+                if (pending.isNotEmpty) _queuedBanner(pending.length),
+                if (isActive &&
+                    provider.runState == RoleplayRunState.error &&
+                    provider.errorMessage != null)
+                  _errorBanner(provider.errorMessage!),
+              ],
+            ),
           ),
         ),
         _inputArea(thread, running),
@@ -1134,6 +1137,7 @@ class _RoleplayPageState extends State<_RoleplayPage> {
   }
 
   void _scrollToBottom() {
+    if (SystemScrollCaptureService.instance.isCapturing) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollCtrl.hasClients) return;
       _scrollCtrl.animateTo(

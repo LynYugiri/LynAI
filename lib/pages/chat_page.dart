@@ -26,6 +26,7 @@ import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/api_service.dart';
 import '../services/storage_v2_service.dart';
+import '../services/system_scroll_capture_service.dart';
 import '../services/tool_call_service.dart';
 import '../utils/file_name_utils.dart';
 import '../utils/share_image_utils.dart';
@@ -394,6 +395,7 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   void _scrollEnd({bool force = false}) {
+    if (SystemScrollCaptureService.instance.isCapturing) return;
     if (!force && !_autoScrollToBottom) return;
     if (!force) {
       final now = DateTime.now();
@@ -2234,21 +2236,25 @@ class _ChatPageState extends State<ChatPage> {
                   ? _empty()
                   : NotificationListener<ScrollNotification>(
                       onNotification: _onScrollNotification,
-                      child: ListView.builder(
+                      child: SystemScrollCaptureTarget(
                         controller: _scrollCtrl,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
+                        enabled: !_shareSelecting,
+                        child: ListView.builder(
+                          controller: _scrollCtrl,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          itemCount: msgs.length,
+                          itemBuilder: (_, i) {
+                            final msg = msgs[i];
+                            return _selectableBubble(
+                              msg,
+                              i == msgs.length - 1,
+                              i == lastUserIdx,
+                            );
+                          },
                         ),
-                        itemCount: msgs.length,
-                        itemBuilder: (_, i) {
-                          final msg = msgs[i];
-                          return _selectableBubble(
-                            msg,
-                            i == msgs.length - 1,
-                            i == lastUserIdx,
-                          );
-                        },
                       ),
                     ),
               if (_showScrollToBottom) _scrollToBottomButton(),
