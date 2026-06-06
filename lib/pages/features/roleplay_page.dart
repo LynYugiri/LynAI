@@ -1306,6 +1306,7 @@ class _RoleplayPageState extends State<_RoleplayPage> {
           speakerName: message.speakerName,
           content: chunks[i],
           kind: message.kind,
+          attachments: i == 0 ? message.attachments : const [],
           timestamp: message.timestamp,
         ),
       );
@@ -3053,34 +3054,6 @@ class _RoleplayShareImage extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 20),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-              decoration: BoxDecoration(
-                color: cardBg,
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(
-                  color: scheme.outlineVariant.withValues(alpha: 0.5),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: shadowColor.withValues(alpha: isDark ? 0.18 : 0.06),
-                    blurRadius: 18,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (var i = 0; i < messages.length; i++) ...[
-                    _ExportBubble(messages[i], scheme, isDark, mutedColor),
-                    if (i != messages.length - 1) const SizedBox(height: 10),
-                  ],
-                ],
-              ),
-            ),
             const SizedBox(height: 16),
             Text(
               pageNumber == null || pageCount == null
@@ -3227,7 +3200,6 @@ class _ExportBubble extends StatelessWidget {
           content: message.content,
           selectable: false,
           wrapCodeBlocks: true,
-          renderMermaid: false,
           textStyle: TextStyle(
             fontStyle: FontStyle.italic,
             color: mutedColor,
@@ -3264,15 +3236,76 @@ class _ExportBubble extends StatelessWidget {
             color: bubbleColor,
             borderRadius: BorderRadius.circular(16),
           ),
-          child: MarkdownWithLatex(
-            content: message.content,
-            selectable: false,
-            wrapCodeBlocks: true,
-            renderMermaid: false,
-            textStyle: TextStyle(fontSize: 17, height: 1.5, color: textColor),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (message.content.trim().isNotEmpty)
+                MarkdownWithLatex(
+                  content: message.content.trim(),
+                  selectable: false,
+                  wrapCodeBlocks: true,
+                  textStyle: TextStyle(
+                    fontSize: 17,
+                    height: 1.5,
+                    color: textColor,
+                  ),
+                ),
+              if (message.attachments.isNotEmpty &&
+                  message.content.trim().isNotEmpty)
+                const SizedBox(height: 10),
+              if (message.attachments.isNotEmpty)
+                _ExportAttachmentStrip(attachments: message.attachments),
+            ],
           ),
         ),
       ],
+    );
+  }
+}
+
+class _ExportAttachmentStrip extends StatelessWidget {
+  final List<MessageImage> attachments;
+
+  const _ExportAttachmentStrip({required this.attachments});
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: attachments.map((attachment) {
+        final file = File(attachment.path);
+        if (!file.existsSync()) return const SizedBox.shrink();
+        if (!attachment.isImage) {
+          return Container(
+            width: 220,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.42),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.insert_drive_file_outlined, size: 26),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    attachment.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Image.file(file, width: 140, height: 140, fit: BoxFit.cover),
+        );
+      }).toList(),
     );
   }
 }

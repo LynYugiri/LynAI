@@ -208,7 +208,6 @@ class _ShareMessageBubble extends StatelessWidget {
                     content: message.content.trim(),
                     selectable: false,
                     wrapCodeBlocks: true,
-                    renderMermaid: false,
                     textStyle: TextStyle(
                       fontSize: 20,
                       height: 1.45,
