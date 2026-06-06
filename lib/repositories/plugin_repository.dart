@@ -4,11 +4,8 @@ import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:path_provider/path_provider.dart';
 
-import '../models/plugin.dart' show
-    InstalledPlugin,
-    PluginFileEntry,
-    PluginManifest,
-    fileTypeFromPath;
+import '../models/plugin.dart'
+    show InstalledPlugin, PluginFileEntry, PluginManifest, fileTypeFromPath;
 import '../utils/plugin_path_utils.dart';
 
 /// 插件文件系统仓储。
@@ -118,6 +115,34 @@ class PluginRepository {
     if (await dir.exists()) await dir.delete(recursive: true);
   }
 
+  /// 返回插件在当前设备上的安装目录。
+  Future<Directory> pluginDirectory(String pluginId) =>
+      _pluginDirectory(pluginId);
+
+  /// 用备份文件完整恢复指定插件目录。
+  Future<void> restorePluginDirectory(
+    String pluginId,
+    Map<String, List<int>> files,
+  ) async {
+    final target = await _pluginDirectory(pluginId);
+    if (await target.exists()) await target.delete(recursive: true);
+    await target.create(recursive: true);
+    for (final entry in files.entries) {
+      final safePath = safePluginFilePath(target.path, entry.key);
+      if (safePath == null) throw Exception('插件文件路径不安全: ${entry.key}');
+      final file = File(safePath);
+      await _ensureInsideRoot(
+        target.path,
+        file.parent.path,
+        allowMissingLeaf: true,
+      );
+      if (!await file.parent.exists()) {
+        await file.parent.create(recursive: true);
+      }
+      await file.writeAsBytes(entry.value, flush: true);
+    }
+  }
+
   /// 加载插件的用户设置 JSON 数据。
   Future<Map<String, dynamic>> loadPluginSettings(String pluginId) async {
     final file = await _pluginSettingsFile(pluginId);
@@ -166,7 +191,8 @@ class PluginRepository {
       if (_isDefaultPath(relativePath)) continue;
       final stat = await entity.stat();
       final isDirectory = entity is Directory;
-      final isEditable = !isDirectory && _isEditablePluginFile(plugin, relativePath);
+      final isEditable =
+          !isDirectory && _isEditablePluginFile(plugin, relativePath);
       final hasDef = !isDirectory && _hasDefaultPath(plugin, relativePath);
       entries.add(
         PluginFileEntry(
@@ -305,8 +331,11 @@ class PluginRepository {
     final oldFile = await _safeExistingPluginFile(plugin.path, oldPath);
     final newSafe = safePluginFilePath(plugin.path, newPath);
     if (newSafe == null) throw Exception('目标路径不安全: $newPath');
-    await _ensureInsideRoot(plugin.path, File(newSafe).parent.path,
-        allowMissingLeaf: true);
+    await _ensureInsideRoot(
+      plugin.path,
+      File(newSafe).parent.path,
+      allowMissingLeaf: true,
+    );
     if (!await File(newSafe).parent.exists()) {
       await File(newSafe).parent.create(recursive: true);
     }
@@ -519,8 +548,9 @@ class PluginRepository {
   bool entryExists(String path, List<PluginFileEntry> entries) {
     final normalized = _normalizeRelativePath(path);
     if (normalized == null) return false;
-    return entries.any((e) =>
-        !e.isDefault && _normalizeRelativePath(e.path) == normalized);
+    return entries.any(
+      (e) => !e.isDefault && _normalizeRelativePath(e.path) == normalized,
+    );
   }
 
   bool _isEditablePluginFile(InstalledPlugin plugin, String relativePath) {

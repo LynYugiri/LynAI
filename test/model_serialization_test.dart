@@ -19,8 +19,10 @@ import 'package:lynai/models/todo_list.dart';
 import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
+import 'package:lynai/providers/plugin_provider.dart';
 import 'package:lynai/providers/roleplay_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
+import 'package:lynai/repositories/plugin_repository.dart';
 import 'package:lynai/repositories/settings_repository.dart';
 import 'package:lynai/services/api_service.dart';
 import 'package:lynai/services/backup_service.dart';
@@ -298,6 +300,129 @@ void main() {
       expect(targetRoleplays.threads.single.messages.single.content, '别动。');
     } finally {
       await root.delete(recursive: true);
+    }
+  });
+
+  test('BackupService exports and imports full plugin data', () async {
+    SharedPreferences.setMockInitialValues({});
+    final backupRoot = await Directory.systemTemp.createTemp(
+      'lynai_plugin_backup_test_',
+    );
+    final sourceRoot = await Directory.systemTemp.createTemp(
+      'lynai_plugin_source_',
+    );
+    final targetRoot = await Directory.systemTemp.createTemp(
+      'lynai_plugin_target_',
+    );
+    final pluginSource = await Directory.systemTemp.createTemp(
+      'lynai_plugin_package_',
+    );
+
+    try {
+      await File('${pluginSource.path}/plugin.json').writeAsString(
+        jsonEncode({
+          'id': 'backup_plugin',
+          'name': 'Backup Plugin',
+          'version': '1.2.3',
+          'entry': 'main.lua',
+          'permissions': ['storage:read', 'storage:write'],
+          'ui': {
+            'featurePages': [
+              {'id': 'panel', 'title': 'Panel', 'entry': 'panel.html'},
+            ],
+          },
+          'config': {'path': 'config.json', 'schema': 'config.schema.json'},
+          'editableFiles': [
+            {'path': 'prompts/system.md', 'title': 'Prompt'},
+          ],
+        }),
+      );
+      await File('${pluginSource.path}/main.lua').writeAsString('return 42');
+      await File('${pluginSource.path}/panel.html').writeAsString('<p>ok</p>');
+      await File(
+        '${pluginSource.path}/config.json',
+      ).writeAsString(jsonEncode({'mode': 'source'}));
+      await File(
+        '${pluginSource.path}/config.schema.json',
+      ).writeAsString(jsonEncode({'type': 'object', 'properties': {}}));
+      await Directory('${pluginSource.path}/prompts').create();
+      await File(
+        '${pluginSource.path}/prompts/system.md',
+      ).writeAsString('custom prompt');
+
+      final sourceRepo = PluginRepository(rootOverride: sourceRoot);
+      final sourcePlugins = PluginProvider(repository: sourceRepo);
+      await sourcePlugins.importDirectory(pluginSource.path);
+      await sourcePlugins.setEnabled('backup_plugin', true);
+      await sourcePlugins.setGrantedPermissions('backup_plugin', [
+        'storage:read',
+      ]);
+      await sourcePlugins.setFeaturePageEnabled('backup_plugin', 'panel', true);
+      await sourcePlugins.updateSetting('backup_plugin', 'accent', 'purple');
+      await sourcePlugins.writeStorageValue('backup_plugin', 'count', 7);
+
+      final archiveFile =
+          await BackupService(
+            settingsProvider: SettingsProvider(),
+            modelConfigProvider: ModelConfigProvider(),
+            conversationProvider: ConversationProvider(),
+            featureProvider: FeatureProvider(),
+            roleplayProvider: RoleplayProvider(),
+            pluginProvider: sourcePlugins,
+            pluginRepository: sourceRepo,
+            temporaryDirectory: backupRoot,
+            appVersionLoader: () async => '0.0.0-test',
+          ).exportZip(
+            const BackupSelection(
+              {BackupSection.plugins},
+              pluginIds: {'backup_plugin'},
+            ),
+          );
+
+      final targetRepo = PluginRepository(rootOverride: targetRoot);
+      final targetPlugins = PluginProvider(repository: targetRepo);
+      final targetService = BackupService(
+        settingsProvider: SettingsProvider(),
+        modelConfigProvider: ModelConfigProvider(),
+        conversationProvider: ConversationProvider(),
+        featureProvider: FeatureProvider(),
+        roleplayProvider: RoleplayProvider(),
+        pluginProvider: targetPlugins,
+        pluginRepository: targetRepo,
+      );
+      final archive = await targetService.readZip(archiveFile);
+      expect(archive.data.plugins, hasLength(1));
+      expect(archive.pluginFiles.keys, contains(contains('main.lua')));
+
+      await targetService.importArchive(
+        archive,
+        ImportPlan(
+          selection: BackupSelection.fromData(archive.data),
+          mode: ImportMode.merge,
+        ),
+      );
+
+      final restored = targetPlugins.pluginById('backup_plugin')!;
+      expect(restored.enabled, isTrue);
+      expect(restored.grantedPermissions, ['storage:read']);
+      expect(restored.enabledFeaturePages, ['panel']);
+      expect(await targetPlugins.loadSettings('backup_plugin'), {
+        'accent': 'purple',
+      });
+      expect(await targetPlugins.loadStorage('backup_plugin'), {'count': 7});
+      expect(
+        await File('${restored.path}/prompts/system.md').readAsString(),
+        'custom prompt',
+      );
+      expect(
+        await File('${restored.path}/panel.html').readAsString(),
+        '<p>ok</p>',
+      );
+    } finally {
+      await backupRoot.delete(recursive: true);
+      await sourceRoot.delete(recursive: true);
+      await targetRoot.delete(recursive: true);
+      await pluginSource.delete(recursive: true);
     }
   });
 

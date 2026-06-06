@@ -2,6 +2,7 @@ import 'app_settings.dart';
 import 'conversation.dart';
 import 'model_config.dart';
 import 'note.dart';
+import 'plugin.dart';
 import 'roleplay.dart';
 import 'schedule_item.dart';
 import 'todo_list.dart';
@@ -27,6 +28,9 @@ enum BackupSection {
 
   /// 情景演绎。
   roleplay,
+
+  /// 插件。
+  plugins,
 }
 
 /// 设置备份的子分类。
@@ -80,6 +84,8 @@ extension BackupSectionInfo on BackupSection {
         return 'todoLists';
       case BackupSection.roleplay:
         return 'roleplay';
+      case BackupSection.plugins:
+        return 'plugins';
     }
   }
 
@@ -98,6 +104,8 @@ extension BackupSectionInfo on BackupSection {
         return '待办清单';
       case BackupSection.roleplay:
         return '情景演绎';
+      case BackupSection.plugins:
+        return '插件';
     }
   }
 }
@@ -127,6 +135,9 @@ class BackupSelection {
   /// 选中的情景演绎会话 ID 集合。
   final Set<String> roleplaySessionIds;
 
+  /// 选中的插件 ID 集合。
+  final Set<String> pluginIds;
+
   /// 创建一个备份选择范围实例。
   const BackupSelection(
     this.sections, {
@@ -136,6 +147,7 @@ class BackupSelection {
     this.scheduleIds = const {},
     this.todoListIds = const {},
     this.roleplaySessionIds = const {},
+    this.pluginIds = const {},
   });
 
   /// 创建一个全选所有分类的备份选择范围。
@@ -169,6 +181,8 @@ class BackupSelection {
       todoListIds: data.todoLists?.map((item) => item.id).toSet() ?? const {},
       roleplaySessionIds:
           data.roleplaySessions?.map((item) => item.id).toSet() ?? const {},
+      pluginIds:
+          data.plugins?.map((item) => item.plugin.id).toSet() ?? const {},
     );
   }
 
@@ -184,6 +198,7 @@ class BackupSelection {
     Set<String>? scheduleIds,
     Set<String>? todoListIds,
     Set<String>? roleplaySessionIds,
+    Set<String>? pluginIds,
   }) {
     return BackupSelection(
       sections ?? this.sections,
@@ -193,8 +208,81 @@ class BackupSelection {
       scheduleIds: scheduleIds ?? this.scheduleIds,
       todoListIds: todoListIds ?? this.todoListIds,
       roleplaySessionIds: roleplaySessionIds ?? this.roleplaySessionIds,
+      pluginIds: pluginIds ?? this.pluginIds,
     );
   }
+}
+
+/// 单个插件的备份载荷。
+class BackupPluginData {
+  /// 插件安装状态和清单。
+  final InstalledPlugin plugin;
+
+  /// 插件用户设置。
+  final Map<String, dynamic> settings;
+
+  /// 插件私有 storage。
+  final Map<String, dynamic> storage;
+
+  /// 插件目录内的文件列表。
+  final List<BackupPluginFile> files;
+
+  /// 创建插件备份载荷。
+  const BackupPluginData({
+    required this.plugin,
+    this.settings = const {},
+    this.storage = const {},
+    this.files = const [],
+  });
+
+  /// 从 JSON 创建插件备份载荷。
+  factory BackupPluginData.fromJson(Map<String, dynamic> json) {
+    return BackupPluginData(
+      plugin: InstalledPlugin.fromJson(
+        Map<String, dynamic>.from(json['plugin'] as Map? ?? const {}),
+      ),
+      settings: Map<String, dynamic>.from(json['settings'] as Map? ?? const {}),
+      storage: Map<String, dynamic>.from(json['storage'] as Map? ?? const {}),
+      files: (json['files'] as List<dynamic>? ?? const [])
+          .whereType<Map>()
+          .map(
+            (item) =>
+                BackupPluginFile.fromJson(Map<String, dynamic>.from(item)),
+          )
+          .toList(growable: false),
+    );
+  }
+
+  /// 转成 JSON。
+  Map<String, dynamic> toJson() => {
+    'plugin': plugin.toJson(),
+    'settings': settings,
+    'storage': storage,
+    'files': files.map((item) => item.toJson()).toList(),
+  };
+}
+
+/// 插件目录内的一个备份文件。
+class BackupPluginFile {
+  /// 插件相对路径。
+  final String path;
+
+  /// 备份包内路径。
+  final String archivePath;
+
+  /// 创建插件文件备份记录。
+  const BackupPluginFile({required this.path, required this.archivePath});
+
+  /// 从 JSON 创建插件文件备份记录。
+  factory BackupPluginFile.fromJson(Map<String, dynamic> json) {
+    return BackupPluginFile(
+      path: json['path'] as String? ?? '',
+      archivePath: json['archivePath'] as String? ?? '',
+    );
+  }
+
+  /// 转成 JSON。
+  Map<String, dynamic> toJson() => {'path': path, 'archivePath': archivePath};
 }
 
 /// 备份导入时的合并模式。
@@ -294,6 +382,9 @@ class BackupData {
   /// 情景演绎会话列表。
   final List<RoleplayThread>? roleplayThreads;
 
+  /// 插件列表。
+  final List<BackupPluginData>? plugins;
+
   /// 创建一个备份数据实例。
   const BackupData({
     this.appSettings,
@@ -309,6 +400,7 @@ class BackupData {
     this.todoLists,
     this.roleplaySessions,
     this.roleplayThreads,
+    this.plugins,
   });
 
   /// 判断指定分类是否有可用的备份数据。
@@ -330,6 +422,8 @@ class BackupData {
         return todoLists != null;
       case BackupSection.roleplay:
         return roleplaySessions != null || roleplayThreads != null;
+      case BackupSection.plugins:
+        return plugins != null;
     }
   }
 
@@ -357,6 +451,9 @@ class BackupArchiveData {
   /// 归档中的附加资源列表。
   final List<Map<String, dynamic>>? resources;
 
+  /// 归档中的插件文件映射，key 为备份包内路径。
+  final Map<String, List<int>> pluginFiles;
+
   /// 创建一个备份归档数据实例。
   const BackupArchiveData({
     required this.manifest,
@@ -364,6 +461,7 @@ class BackupArchiveData {
     this.warnings = const [],
     this.assetFiles = const {},
     this.resources,
+    this.pluginFiles = const {},
   });
 
   /// 获取归档中所有含数据的分类集合。

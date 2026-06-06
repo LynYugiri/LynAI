@@ -14,14 +14,17 @@ import '../models/conversation.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
 import '../models/note.dart';
+import '../models/plugin.dart';
 import '../models/roleplay.dart';
 import '../models/schedule_item.dart';
 import '../models/todo_list.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
+import '../providers/plugin_provider.dart';
 import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
+import '../repositories/plugin_repository.dart';
 import 'storage_v2_service.dart';
 import '../utils/file_name_utils.dart';
 
@@ -37,10 +40,13 @@ class BackupService {
     required this.conversationProvider,
     required this.featureProvider,
     required this.roleplayProvider,
+    this.pluginProvider,
+    PluginRepository? pluginRepository,
     this.storageV2,
     Directory? temporaryDirectory,
     Future<String> Function()? appVersionLoader,
   }) : _temporaryDirectory = temporaryDirectory,
+       _pluginRepository = pluginRepository ?? PluginRepository(),
        _appVersionLoader = appVersionLoader;
 
   final SettingsProvider settingsProvider;
@@ -48,12 +54,14 @@ class BackupService {
   final ConversationProvider conversationProvider;
   final FeatureProvider featureProvider;
   final RoleplayProvider roleplayProvider;
+  final PluginProvider? pluginProvider;
   final StorageV2Service? storageV2;
   final Directory? _temporaryDirectory;
+  final PluginRepository _pluginRepository;
   final Future<String> Function()? _appVersionLoader;
   final _uuid = const Uuid();
 
-  static const currentSchemaVersion = 3;
+  static const currentSchemaVersion = 4;
   static const _backupType = 'lynai.backup';
 
   static Set<BackupSettingsPart> settingsPartsFromManifest(
@@ -427,6 +435,53 @@ class BackupService {
         'count': scenarios.length,
       };
     }
+    if (selection.contains(BackupSection.plugins) && pluginProvider != null) {
+      final plugins = pluginProvider!.plugins
+          .where((item) => selection.pluginIds.contains(item.id))
+          .toList();
+      final pluginData = <BackupPluginData>[];
+      for (final plugin in plugins) {
+        final pluginSegment = safeStorageSegment(plugin.id, fallback: 'plugin');
+        final files = <BackupPluginFile>[];
+        final root = Directory(plugin.path);
+        if (await root.exists()) {
+          await for (final entity in root.list(
+            recursive: true,
+            followLinks: false,
+          )) {
+            if (entity is! File) continue;
+            final relativePath = _relativePath(root.path, entity.path);
+            if (relativePath.isEmpty ||
+                !_isSafePluginRelativePath(relativePath)) {
+              continue;
+            }
+            final archivePath =
+                'plugins/installed/$pluginSegment/$relativePath';
+            final bytes = await entity.readAsBytes();
+            archive.addFile(ArchiveFile(archivePath, bytes.length, bytes));
+            files.add(
+              BackupPluginFile(path: relativePath, archivePath: archivePath),
+            );
+          }
+        }
+        pluginData.add(
+          BackupPluginData(
+            plugin: plugin.copyWith(path: ''),
+            settings: await pluginProvider!.loadSettings(plugin.id),
+            storage: await pluginProvider!.loadStorage(plugin.id),
+            files: files,
+          ),
+        );
+      }
+      addJson('plugins/installed_plugins.json', {
+        'plugins': pluginData.map((item) => item.toJson()).toList(),
+      });
+      sections[BackupSection.plugins.key] = {
+        'enabled': true,
+        'files': ['plugins/installed_plugins.json'],
+        'count': pluginData.length,
+      };
+    }
 
     final exportedResources = await _collectExportResources(
       selection,
@@ -459,6 +514,7 @@ class BackupService {
     final decoded = ZipDecoder().decodeBytes(await file.readAsBytes());
     final files = <String, ArchiveFile>{};
     final assetFiles = <String, List<int>>{};
+    final pluginFiles = <String, List<int>>{};
     for (final entry in decoded.files) {
       _validateArchiveEntryPath(entry.name);
       if (entry.name.endsWith('/')) continue;
@@ -469,6 +525,9 @@ class BackupService {
       final content = entry.content;
       if (entry.name.startsWith('assets/')) {
         assetFiles[entry.name] = List<int>.from(content);
+      }
+      if (entry.name.startsWith('plugins/installed/')) {
+        pluginFiles[entry.name] = List<int>.from(content);
       }
     }
     final warnings = <String>[];
@@ -508,6 +567,7 @@ class BackupService {
     final todoListsJson = readMap('todo_lists.json');
     final roleplayJson = readMap('roleplay_scenarios.json');
     final roleplayThreadsJson = readMap('roleplay_threads.json');
+    final pluginsJson = readMap('plugins/installed_plugins.json');
     final resourcesJson = readMap('resources.json');
 
     final conversations = _parseConversations(
@@ -596,8 +656,15 @@ class BackupService {
           warnings,
           '演绎对话',
         ),
+        plugins: _parseList(
+          pluginsJson?['plugins'],
+          BackupPluginData.fromJson,
+          warnings,
+          '插件',
+        ),
       ),
       assetFiles: assetFiles,
+      pluginFiles: pluginFiles,
       resources: _parseRawMapList(resourcesJson?['resources'], warnings, '资源'),
     );
   }
@@ -912,6 +979,12 @@ class BackupService {
       }
       if (plan.sections.contains(BackupSection.roleplay)) {
         final result = await _applyRoleplay(data, plan, idMap);
+        added += result.added;
+        replaced += result.replaced;
+        skipped += result.skipped;
+      }
+      if (plan.sections.contains(BackupSection.plugins)) {
+        final result = await _applyPlugins(data, plan, archive.pluginFiles);
         added += result.added;
         replaced += result.replaced;
         skipped += result.skipped;
@@ -1609,6 +1682,81 @@ class BackupService {
     return ImportResult(added: added, replaced: replaced, skipped: skipped);
   }
 
+  Future<ImportResult> _applyPlugins(
+    BackupData data,
+    ImportPlan plan,
+    Map<String, List<int>> pluginFiles,
+  ) async {
+    final incomingItems = data.plugins;
+    if (incomingItems == null) {
+      return const ImportResult(added: 0, replaced: 0, skipped: 0);
+    }
+    final currentPlugins =
+        pluginProvider?.plugins ??
+        await _pluginRepository.loadInstalledPlugins();
+    final nextPlugins = List<InstalledPlugin>.from(currentPlugins);
+    var added = 0;
+    var replaced = 0;
+    var skipped = 0;
+
+    for (final incoming in incomingItems) {
+      final pluginId = incoming.plugin.id;
+      if (pluginId.isEmpty) {
+        skipped++;
+        continue;
+      }
+      final index = nextPlugins.indexWhere((item) => item.id == pluginId);
+      final exists = index != -1;
+      if (exists && plan.mode == ImportMode.addOnly) {
+        skipped++;
+        continue;
+      }
+      if (exists && plan.mode == ImportMode.merge) {
+        final action = plan.actionFor(
+          _conflictId(BackupSection.plugins, pluginId),
+        );
+        if (action != ImportConflictAction.replaceLocal) {
+          skipped++;
+          continue;
+        }
+      }
+      final restoredFiles = <String, List<int>>{};
+      var missingFile = false;
+      for (final file in incoming.files) {
+        if (!_isSafePluginRelativePath(file.path) ||
+            !_isSafeArchivePath(file.archivePath)) {
+          throw FormatException('插件备份文件路径不安全：${file.path}');
+        }
+        final bytes = pluginFiles[file.archivePath];
+        if (bytes == null) {
+          missingFile = true;
+          break;
+        }
+        restoredFiles[file.path] = bytes;
+      }
+      if (missingFile) {
+        skipped++;
+        continue;
+      }
+      await _pluginRepository.restorePluginDirectory(pluginId, restoredFiles);
+      final pluginDir = await _pluginRepository.pluginDirectory(pluginId);
+      await _pluginRepository.savePluginSettings(pluginId, incoming.settings);
+      await _pluginRepository.savePluginStorage(pluginId, incoming.storage);
+      final restored = incoming.plugin.copyWith(path: pluginDir.path);
+      if (exists) {
+        nextPlugins[index] = restored;
+        replaced++;
+      } else {
+        nextPlugins.add(restored);
+        added++;
+      }
+    }
+
+    await _pluginRepository.saveInstalledPlugins(nextPlugins);
+    await pluginProvider?.load();
+    return ImportResult(added: added, replaced: replaced, skipped: skipped);
+  }
+
   List<ImportConflict> _findConflicts(
     BackupData data,
     BackupSelection selection,
@@ -1767,6 +1915,23 @@ class BackupService {
               title: incoming.title,
               localSummary: _formatUpdated(local.updatedAt),
               incomingSummary: _formatUpdated(incoming.updatedAt),
+            ),
+          );
+        }
+      }
+    }
+    if (sections.contains(BackupSection.plugins)) {
+      final localPlugins = pluginProvider?.plugins ?? const <InstalledPlugin>[];
+      for (final incoming in data.plugins ?? const <BackupPluginData>[]) {
+        final local = _findById(localPlugins, incoming.plugin.id);
+        if (local != null) {
+          conflicts.add(
+            ImportConflict(
+              id: _conflictId(BackupSection.plugins, incoming.plugin.id),
+              section: BackupSection.plugins,
+              title: incoming.plugin.manifest.name,
+              localSummary: '版本 ${local.manifest.version}',
+              incomingSummary: '版本 ${incoming.plugin.manifest.version}',
             ),
           );
         }
@@ -2491,6 +2656,9 @@ class BackupService {
       noteEditProposals: data.noteEditProposals,
       schedules: data.schedules,
       todoLists: data.todoLists,
+      roleplaySessions: data.roleplaySessions,
+      roleplayThreads: data.roleplayThreads,
+      plugins: data.plugins,
     );
   }
 
@@ -2550,6 +2718,19 @@ class BackupService {
   }
 
   static String _normalizePath(String path) => path.replaceAll('\\', '/');
+
+  static String _relativePath(String root, String path) {
+    final normalizedRoot = _normalizePath(root).replaceAll(RegExp(r'/+$'), '');
+    final normalizedPath = _normalizePath(path);
+    if (!normalizedPath.startsWith('$normalizedRoot/')) return '';
+    return normalizedPath.substring(normalizedRoot.length + 1);
+  }
+
+  static bool _isSafePluginRelativePath(String path) {
+    if (!_isSafeArchivePath(path)) return false;
+    final normalized = path.replaceAll('\\', '/');
+    return normalized != 'plugin.json' || normalized.split('/').length == 1;
+  }
 
   static void _validateArchiveEntryPath(String path) {
     if (!_isSafeArchivePath(path, allowDirectory: true)) {
@@ -2630,6 +2811,9 @@ class BackupService {
           ?.where(
             (item) => selection.roleplaySessionIds.contains(item.scenarioId),
           )
+          .toList(),
+      plugins: data.plugins
+          ?.where((item) => selection.pluginIds.contains(item.plugin.id))
           .toList(),
     );
   }
@@ -2714,6 +2898,8 @@ class BackupService {
         return '${data.todoLists?.length ?? 0} 个清单';
       case BackupSection.roleplay:
         return '${data.roleplaySessions?.length ?? 0} 个情景，${data.roleplayThreads?.length ?? 0} 次演绎';
+      case BackupSection.plugins:
+        return '${data.plugins?.length ?? 0} 个插件';
     }
   }
 

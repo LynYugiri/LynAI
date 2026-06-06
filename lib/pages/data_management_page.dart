@@ -7,11 +7,14 @@ import 'package:provider/provider.dart';
 import '../models/backup_models.dart';
 import '../models/conversation.dart';
 import '../models/note.dart';
+import '../models/plugin.dart';
+import '../models/roleplay.dart';
 import '../models/schedule_item.dart';
 import '../models/todo_list.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
+import '../providers/plugin_provider.dart';
 import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/backup_service.dart';
@@ -46,6 +49,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       conversationProvider: context.read<ConversationProvider>(),
       featureProvider: context.read<FeatureProvider>(),
       roleplayProvider: context.read<RoleplayProvider>(),
+      pluginProvider: context.read<PluginProvider>(),
       storageV2: StorageV2Service(),
     );
   }
@@ -78,6 +82,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
     final conversations = context.read<ConversationProvider>().conversations;
     final features = context.read<FeatureProvider>();
     final roleplays = context.read<RoleplayProvider>().scenarios;
+    final plugins = context.read<PluginProvider>().plugins;
     return BackupSelection(
       Set.of(BackupSection.values),
       settingsParts: Set.of(BackupSettingsPart.values),
@@ -86,6 +91,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       scheduleIds: features.schedules.map((item) => item.id).toSet(),
       todoListIds: features.todoLists.map((item) => item.id).toSet(),
       roleplaySessionIds: roleplays.map((item) => item.id).toSet(),
+      pluginIds: plugins.map((item) => item.id).toSet(),
     );
   }
 
@@ -494,6 +500,8 @@ class _ExportCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final conversations = context.watch<ConversationProvider>().conversations;
     final features = context.watch<FeatureProvider>();
+    final roleplays = context.watch<RoleplayProvider>().scenarios;
+    final plugins = context.watch<PluginProvider>().plugins;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -509,6 +517,8 @@ class _ExportCard extends StatelessWidget {
               notes: features.notes,
               schedules: features.schedules,
               todoLists: features.todoLists,
+              roleplays: roleplays,
+              plugins: plugins,
               busy: busy,
               onChanged: onSelectionChanged,
             ),
@@ -588,6 +598,12 @@ class _ImportCard extends StatelessWidget {
                 notes: archive.data.notes ?? const [],
                 schedules: archive.data.schedules ?? const [],
                 todoLists: archive.data.todoLists ?? const [],
+                roleplays: archive.data.roleplaySessions ?? const [],
+                plugins:
+                    archive.data.plugins
+                        ?.map((item) => item.plugin)
+                        .toList(growable: false) ??
+                    const [],
                 busy: busy,
                 onChanged: onSelectionChanged,
               ),
@@ -662,6 +678,8 @@ class _SelectionTree extends StatelessWidget {
     required this.notes,
     required this.schedules,
     required this.todoLists,
+    required this.roleplays,
+    required this.plugins,
     required this.busy,
     required this.onChanged,
   });
@@ -672,6 +690,8 @@ class _SelectionTree extends StatelessWidget {
   final List<Note> notes;
   final List<ScheduleItem> schedules;
   final List<TodoList> todoLists;
+  final List<RoleplayScenario> roleplays;
+  final List<InstalledPlugin> plugins;
   final bool busy;
   final ValueChanged<BackupSelection> onChanged;
 
@@ -738,6 +758,35 @@ class _SelectionTree extends StatelessWidget {
           subtitleFor: (item) => '${item.items.length} 项',
           copyWithIds: (ids, sections) =>
               selection.copyWith(sections: sections, todoListIds: ids),
+          busy: busy,
+          onChanged: onChanged,
+        ),
+        _ItemSelectionTile<RoleplayScenario>(
+          section: BackupSection.roleplay,
+          selection: selection,
+          enabled: availableSections.contains(BackupSection.roleplay),
+          items: roleplays,
+          selectedIds: selection.roleplaySessionIds,
+          idFor: (item) => item.id,
+          titleFor: (item) => item.title,
+          subtitleFor: (item) => _formatDate(item.updatedAt),
+          copyWithIds: (ids, sections) =>
+              selection.copyWith(sections: sections, roleplaySessionIds: ids),
+          busy: busy,
+          onChanged: onChanged,
+        ),
+        _ItemSelectionTile<InstalledPlugin>(
+          section: BackupSection.plugins,
+          selection: selection,
+          enabled: availableSections.contains(BackupSection.plugins),
+          items: plugins,
+          selectedIds: selection.pluginIds,
+          idFor: (item) => item.id,
+          titleFor: (item) => item.manifest.name,
+          subtitleFor: (item) =>
+              '${item.enabled ? '已启用' : '未启用'}，版本 ${item.manifest.version}',
+          copyWithIds: (ids, sections) =>
+              selection.copyWith(sections: sections, pluginIds: ids),
           busy: busy,
           onChanged: onChanged,
         ),
