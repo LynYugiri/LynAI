@@ -342,7 +342,7 @@ class PluginProvider extends ChangeNotifier {
           flush: true,
         );
       }
-      return action(sourceDir);
+      return await action(sourceDir);
     } finally {
       if (await tempDir.exists()) await tempDir.delete(recursive: true);
     }
