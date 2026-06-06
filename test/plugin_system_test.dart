@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/model_config.dart';
 import 'package:lynai/models/plugin.dart';
@@ -9,7 +12,6 @@ import 'package:lynai/services/plugin_lua_runtime_service.dart';
 import 'package:lynai/services/tool_call_service.dart';
 import 'package:lynai/utils/plugin_path_utils.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:io';
 
 void main() {
   test('PluginManifest rejects feature page ids that break route keys', () {
@@ -549,6 +551,251 @@ end
       await root.delete(recursive: true);
     }
   });
+
+  test(
+    'Built-in plugin source directories are valid plugin directories',
+    () async {
+      final installedRoot = await Directory.systemTemp.createTemp(
+        'lynai_builtin_source_',
+      );
+      try {
+        final repository = PluginRepository(rootOverride: installedRoot);
+
+        final status = await repository.importDirectory(
+          'assets/plugins/status-dashboard',
+        );
+        final weather = await repository.importDirectory(
+          'assets/plugins/weather-query',
+        );
+
+        expect(status.id, 'status-dashboard');
+        expect(weather.id, 'weather-query');
+        expect(
+          File(
+            '${installedRoot.path}/installed/status-dashboard/plugin.json',
+          ).existsSync(),
+          isTrue,
+        );
+        expect(
+          File(
+            '${installedRoot.path}/installed/weather-query/main.lua',
+          ).existsSync(),
+          isTrue,
+        );
+      } finally {
+        await installedRoot.delete(recursive: true);
+      }
+    },
+  );
+
+  test('Lua runtime supports JSON decode and command continuation', () async {
+    final root = await Directory.systemTemp.createTemp('lynai_lua_next_');
+    try {
+      await File('${root.path}/main.lua').writeAsString(r'''
+function read_info(args)
+  return { __lynai_function = "plugin.info", args = {}, __lynai_next = "parse_info" }
+end
+
+function parse_info(response, original_args, request_args)
+  local encoded = lynai.json.encode(response.plugin)
+  local decoded = lynai.json.decode(encoded)
+  return {
+    ok = response.ok,
+    pluginId = decoded.id,
+    requestedMarker = original_args.marker,
+    methodHadArgs = request_args ~= nil
+  }
+end
+''');
+      final manifest = PluginManifest.fromJson({
+        'id': 'next_plugin',
+        'name': 'Next Plugin',
+        'entry': 'main.lua',
+        'tools': [
+          {
+            'name': 'next_plugin_read_info',
+            'description': 'Read plugin info through continuation',
+            'handler': 'read_info',
+            'parameters': {'type': 'object'},
+          },
+        ],
+      });
+      final plugin = InstalledPlugin(
+        manifest: manifest,
+        path: root.path,
+        enabled: true,
+        grantedPermissions: const [],
+        enabledFeaturePages: const [],
+      );
+
+      final result = await PluginLuaRuntimeService().executeTool(
+        plugin: plugin,
+        tool: manifest.tools.single,
+        arguments: {'marker': 'weather'},
+      );
+
+      expect(result['ok'], isTrue);
+      expect(result['pluginId'], 'next_plugin');
+      expect(result['requestedMarker'], 'weather');
+      expect(result['methodHadArgs'], isTrue);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('Lua runtime limits recursive command continuations', () async {
+    final root = await Directory.systemTemp.createTemp('lynai_lua_next_loop_');
+    try {
+      await File('${root.path}/main.lua').writeAsString(r'''
+function loop(args)
+  return { __lynai_function = "plugin.info", args = {}, __lynai_next = "loop_next" }
+end
+
+function loop_next(response, original_args, request_args)
+  return { __lynai_function = "plugin.info", args = {}, __lynai_next = "loop_next" }
+end
+''');
+      final manifest = PluginManifest.fromJson({
+        'id': 'loop_plugin',
+        'name': 'Loop Plugin',
+        'entry': 'main.lua',
+        'tools': [
+          {
+            'name': 'loop_plugin_loop',
+            'description': 'Loop through continuations',
+            'handler': 'loop',
+            'parameters': {'type': 'object'},
+          },
+        ],
+      });
+      final plugin = InstalledPlugin(
+        manifest: manifest,
+        path: root.path,
+        enabled: true,
+        grantedPermissions: const [],
+        enabledFeaturePages: const [],
+      );
+
+      final result = await PluginLuaRuntimeService().executeTool(
+        plugin: plugin,
+        tool: manifest.tools.single,
+        arguments: const {},
+      );
+
+      expect(result['ok'], isFalse);
+      expect(result['error'], contains('continuation 超过最大深度'));
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test(
+    'Weather plugin builds URLs and returns compact parsed weather',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'lynai_weather_plugin_',
+      );
+      try {
+        await File('${root.path}/main.lua').writeAsString(
+          await File('assets/plugins/weather-query/main.lua').readAsString(),
+        );
+        final manifest = PluginManifest.fromJson({
+          'id': 'weather-query',
+          'name': 'Weather Query',
+          'entry': 'main.lua',
+        });
+        final plugin = InstalledPlugin(
+          manifest: manifest,
+          path: root.path,
+          enabled: true,
+          grantedPermissions: const ['network:access'],
+          enabledFeaturePages: const [],
+        );
+
+        final ipRequest = await PluginLuaRuntimeService().executeTool(
+          plugin: plugin,
+          tool: const PluginToolDefinition(
+            name: 'weather_request_for_test',
+            description: 'Build weather request',
+            handler: 'weather_request_for_test',
+            parameters: {'type': 'object'},
+          ),
+          arguments: const {},
+        );
+        final cityRequest = await PluginLuaRuntimeService().executeTool(
+          plugin: plugin,
+          tool: const PluginToolDefinition(
+            name: 'weather_request_for_test',
+            description: 'Build weather request',
+            handler: 'weather_request_for_test',
+            parameters: {'type': 'object'},
+          ),
+          arguments: {'location': '北京'},
+        );
+        final parsed = await PluginLuaRuntimeService().executeTool(
+          plugin: plugin,
+          tool: const PluginToolDefinition(
+            name: 'parse_weather_for_test',
+            description: 'Parse weather response',
+            handler: 'parse_weather',
+            parameters: {'type': 'object'},
+          ),
+          arguments: {
+            'ok': true,
+            'status': 200,
+            'body': jsonEncode({
+              'current_condition': [
+                {
+                  'observation_time': '08:30 AM',
+                  'temp_C': '18',
+                  'FeelsLikeC': '17',
+                  'weatherDesc': [
+                    {'value': 'Partly cloudy'},
+                  ],
+                  'humidity': '42',
+                  'windspeedKmph': '11',
+                  'winddir16Point': 'NE',
+                  'pressure': '1012',
+                  'visibility': '10',
+                  'uvIndex': '3',
+                },
+              ],
+              'nearest_area': [
+                {
+                  'areaName': [
+                    {'value': 'Beijing'},
+                  ],
+                  'region': [
+                    {'value': 'Beijing'},
+                  ],
+                  'country': [
+                    {'value': 'China'},
+                  ],
+                  'latitude': '39.9042',
+                  'longitude': '116.4074',
+                },
+              ],
+            }),
+          },
+        );
+
+        expect(ipRequest['ok'], isTrue, reason: ipRequest.toString());
+        expect(cityRequest['ok'], isTrue, reason: cityRequest.toString());
+        expect(ipRequest['url'], startsWith('https://wttr.in?'));
+        expect(cityRequest['url'], contains('%E5%8C%97%E4%BA%AC'));
+        expect(parsed['ok'], isTrue);
+        expect(parsed['location'], 'Beijing');
+        expect(parsed['temperatureC'], '18');
+        expect(parsed['feelsLikeC'], '17');
+        expect(parsed['condition'], 'Partly cloudy');
+        expect(parsed['humidity'], '42');
+        expect(parsed['source'], 'wttr.in');
+        expect(parsed.containsKey('body'), isFalse);
+      } finally {
+        await root.delete(recursive: true);
+      }
+    },
+  );
 
   test('Lua lynai.notes read APIs require permission', () async {
     SharedPreferences.setMockInitialValues({});

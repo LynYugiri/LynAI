@@ -281,12 +281,31 @@ class PluginProvider extends ChangeNotifier {
 
   /// 从应用资源包中导入内置插件。
   Future<InstalledPlugin> importBuiltIn(String pluginId) async {
-    final bytes = await rootBundle.load('assets/plugins/$pluginId.zip');
+    final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
+    final prefix = 'assets/plugins/$pluginId/';
+    final assets = manifest
+        .listAssets()
+        .where((path) => path.startsWith(prefix))
+        .toList(growable: false);
+    if (assets.isEmpty) throw Exception('内置插件资源不存在: $pluginId');
+
     final tempDir = await Directory.systemTemp.createTemp('lynai_builtin_');
     try {
-      final zipPath = '${tempDir.path}/$pluginId.zip';
-      await File(zipPath).writeAsBytes(bytes.buffer.asUint8List(), flush: true);
-      final plugin = await _repository.importZip(zipPath);
+      final sourceDir = Directory('${tempDir.path}/$pluginId');
+      for (final assetPath in assets) {
+        final relativePath = assetPath.substring(prefix.length);
+        if (relativePath.isEmpty) continue;
+        final data = await rootBundle.load(assetPath);
+        final file = File('${sourceDir.path}/$relativePath');
+        if (!await file.parent.exists()) {
+          await file.parent.create(recursive: true);
+        }
+        await file.writeAsBytes(
+          data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+          flush: true,
+        );
+      }
+      final plugin = await _repository.importDirectory(sourceDir.path);
       await _upsert(plugin);
       return plugin;
     } finally {

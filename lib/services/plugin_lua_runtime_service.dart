@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:lua_dardo/lua.dart';
@@ -16,6 +17,7 @@ import 'lynai_function_service.dart';
 /// immediately and mutating/model APIs return a command that Dart executes after
 /// the Lua handler finishes.
 class PluginLuaRuntimeService {
+  static const _maxContinuationDepth = 8;
 
   /// 在 Lua 沙箱中执行插件定义的工具 handler。
   ///
@@ -24,7 +26,8 @@ class PluginLuaRuntimeService {
   /// 2. 初始化受限 Lua 状态机——禁用 os/io/package/require/dofile/loadfile 等危险全局函数
   /// 3. 注入 `lynai` 全局表（沙箱 API），将同步读操作直接返回、异步写操作包装为延迟命令
   /// 4. 执行脚本初始化，再调用 tool.handler 命名的全局函数
-  /// 5. 执行结束后处理 Lua 返回的延迟命令（__lynai_function），调用 Dart 端执行实际写操作
+  /// 5. 执行结束后处理 Lua 返回的延迟命令（__lynai_function），调用 Dart 端执行实际 I/O
+  /// 6. 如果命令声明 __lynai_next，则把 I/O 结果交回 Lua continuation 继续整理结果
   ///
   /// 之所以异步分阶段执行而非直接在 Lua 回调中做 I/O，是因为 lua_dardo
   /// 的 DartFunction 回调必须是同步的，无法在其中 await 异步操作。
@@ -91,6 +94,8 @@ class PluginLuaRuntimeService {
     state.pop(1);
     final commandResult = await _executeCommand(
       result,
+      state: state,
+      originalArguments: arguments,
       plugin: plugin,
       features: features,
       modelConfigs: modelConfigs,
@@ -124,6 +129,8 @@ class PluginLuaRuntimeService {
   /// - **读操作**（list/read/info 等）直接在 Lua 回调中同步返回，因为读取无需 I/O 等待
   /// - **写操作**（save/edit/create/delete 等）返回一个 `__lynai_function` 命令标记，
   ///   Lua 脚本执行完毕后由 Dart 端统一处理这些延迟命令
+  /// - **异步读后处理**（HTTP 后解析 JSON 等）可在命令上声明 `__lynai_next`，
+  ///   Dart 完成 I/O 后会再次调用 Lua continuation，让业务解析仍留在 Lua 内。
   ///
   /// 这样设计的原因是 lua_dardo 的 DartFunction 回调签名是同步的（`int Function(LuaState)`），
   /// 无法在其中使用 `await`。通过命令模式将异步操作推迟到脚本执行之后，
@@ -202,6 +209,29 @@ class PluginLuaRuntimeService {
           ),
         );
         return 1;
+      },
+    });
+    _setTable(state, -1, 'json', {
+      'decode': (LuaState ls) {
+        final text = ls.checkString(1) ?? '';
+        try {
+          _pushJsonValue(ls, jsonDecode(text));
+          return 1;
+        } catch (e) {
+          ls.pushNil();
+          ls.pushString(e.toString());
+          return 2;
+        }
+      },
+      'encode': (LuaState ls) {
+        try {
+          ls.pushString(jsonEncode(_readJsonValue(ls, 1)));
+          return 1;
+        } catch (e) {
+          ls.pushNil();
+          ls.pushString(e.toString());
+          return 2;
+        }
       },
     });
     _setTable(state, -1, 'model', {
@@ -435,21 +465,27 @@ class PluginLuaRuntimeService {
 
   Future<Map<String, dynamic>?> _executeCommand(
     Object? value, {
+    required LuaState state,
+    required Map<String, dynamic> originalArguments,
     required InstalledPlugin plugin,
     required FeatureProvider? features,
     required ModelConfigProvider? modelConfigs,
     required PluginProvider? plugins,
     required SettingsProvider? settings,
+    int depth = 0,
   }) async {
     if (value is! Map) return null;
     final rawMethod = value['__lynai_function'] ?? value['__lynai_command'];
     if (rawMethod is! String) return null;
+    if (depth >= _maxContinuationDepth) {
+      return _error('Lua continuation 超过最大深度: $_maxContinuationDepth');
+    }
     final method = rawMethod;
     final rawArgs = value['args'];
     final args = rawArgs is Map
         ? rawArgs.map((key, item) => MapEntry(key.toString(), item))
         : <String, dynamic>{};
-    return LynAIFunctionService().execute(
+    final result = await LynAIFunctionService().execute(
       LynAIFunctionCall(name: method, arguments: args),
       LynAIFunctionContext(
         features: features,
@@ -459,6 +495,39 @@ class PluginLuaRuntimeService {
         plugin: plugin,
       ),
     );
+    final next = (value['__lynai_next'] as String? ?? '').trim();
+    if (next.isEmpty) return result;
+
+    state.getGlobal(next);
+    if (!state.isFunction(-1)) {
+      state.pop(1);
+      return _error('Lua continuation 不存在: $next');
+    }
+    _pushJsonValue(state, result);
+    _pushJsonValue(state, originalArguments);
+    _pushJsonValue(state, args);
+    final status = state.pCall(3, 1, 0);
+    if (status != ThreadStatus.luaOk) {
+      return _error('Lua continuation 执行失败: ${_popError(state, status)}');
+    }
+    final nextResult = _readJsonValue(state, -1);
+    state.pop(1);
+    final commandResult = await _executeCommand(
+      nextResult,
+      state: state,
+      originalArguments: originalArguments,
+      plugin: plugin,
+      features: features,
+      modelConfigs: modelConfigs,
+      plugins: plugins,
+      settings: settings,
+      depth: depth + 1,
+    );
+    if (commandResult != null) return commandResult;
+    if (nextResult is Map) {
+      return nextResult.map((key, value) => MapEntry(key.toString(), value));
+    }
+    return {'ok': true, 'result': nextResult};
   }
 
   String _popError(LuaState state, ThreadStatus status) {

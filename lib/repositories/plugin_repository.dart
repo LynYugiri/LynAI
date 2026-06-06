@@ -17,7 +17,7 @@ class PluginRepository {
   static const _stateFileName = 'installed_plugins.json';
   static const maxTextFileBytes = 512 * 1024;
 
-  static const builtInPluginIds = ['status-dashboard'];
+  static const builtInPluginIds = ['status-dashboard', 'weather-query'];
 
   final Directory? _rootOverride;
 

@@ -889,8 +889,9 @@ class _PluginFilesCardState extends State<_PluginFilesCard> {
           }
           final files = snapshot.data!;
           if (files.isEmpty) return const Text('没有文件');
-          final hasFilesWrite = widget.plugin.grantedPermissions
-              .contains('files:write');
+          final hasFilesWrite = widget.plugin.grantedPermissions.contains(
+            'files:write',
+          );
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -929,8 +930,8 @@ class _PluginFilesCardState extends State<_PluginFilesCard> {
                     file.isDirectory
                         ? '目录'
                         : file.isDefault
-                            ? '出厂版本'
-                            : '${file.type} · ${file.size} bytes',
+                        ? '出厂版本'
+                        : '${file.type} · ${file.size} bytes',
                   ),
                   trailing: trailing,
                   onTap: file.isDirectory ? null : () => _openFile(file),
@@ -980,8 +981,9 @@ class _PluginFilesCardState extends State<_PluginFilesCard> {
     String? error;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final editorBg = isDark ? const Color(0xFF1e1e2e) : const Color(0xFFf5f5f5);
-    final editorText =
-        isDark ? const Color(0xFFdcdcdc) : const Color(0xFF1a1a1a);
+    final editorText = isDark
+        ? const Color(0xFFdcdcdc)
+        : const Color(0xFF1a1a1a);
     final result = await showDialog<String>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -1062,21 +1064,20 @@ class _PluginFilesCardState extends State<_PluginFilesCard> {
   Future<void> _restoreDefault(PluginFileEntry file) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('恢复默认'),
-            content: Text('将 "${file.path}" 恢复为出厂默认版本，当前修改将被丢弃。'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('取消'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('恢复默认'),
-              ),
-            ],
+      builder: (context) => AlertDialog(
+        title: const Text('恢复默认'),
+        content: Text('将 "${file.path}" 恢复为出厂默认版本，当前修改将被丢弃。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
           ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('恢复默认'),
+          ),
+        ],
+      ),
     );
     if (confirmed != true || !mounted) return;
     try {
@@ -1084,9 +1085,9 @@ class _PluginFilesCardState extends State<_PluginFilesCard> {
       await provider.deleteFile(widget.plugin.id, file.path);
       setState(() => _future = provider.listFiles(widget.plugin.id));
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('已恢复默认')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('已恢复默认')));
       }
     } catch (e) {
       if (mounted) {
@@ -1162,22 +1163,18 @@ class _PluginFilesCardState extends State<_PluginFilesCard> {
     if (resultPath == null || !mounted) return;
     try {
       final provider = context.read<PluginProvider>();
-      await provider.writeEditableFile(
-        widget.plugin.id,
-        resultPath,
-        content,
-      );
+      await provider.writeEditableFile(widget.plugin.id, resultPath, content);
       setState(() => _future = provider.listFiles(widget.plugin.id));
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('文件已创建')),
-        );
-      }
-    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))));
+        ).showSnackBar(const SnackBar(content: Text('文件已创建')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+        );
       }
     }
   }
@@ -1323,10 +1320,7 @@ class _BuiltInPluginsSection extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  '内置插件',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
+                Text('内置插件', style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 8),
                 const Text('内置插件来自应用自身，安全可信。'),
                 const SizedBox(height: 12),
@@ -1358,6 +1352,7 @@ class _BuiltInPluginsSection extends StatelessWidget {
   String _builtInName(String id) {
     return switch (id) {
       'status-dashboard' => '状态仪表盘',
+      'weather-query' => '天气查询',
       _ => id,
     };
   }
@@ -1371,9 +1366,9 @@ class _BuiltInPluginsSection extends StatelessWidget {
     try {
       final plugin = await provider.importBuiltIn(id);
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${plugin.manifest.name} 已安装')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('${plugin.manifest.name} 已安装')));
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(

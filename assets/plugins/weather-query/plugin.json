@@ -1,0 +1,31 @@
+{
+  "id": "weather-query",
+  "name": "天气查询",
+  "version": "1.0.0",
+  "author": "LynAI",
+  "description": "查询当前网络位置或指定城市、地区、地点的实时天气，并返回适合 AI 总结的精简结构。",
+  "entry": "main.lua",
+  "permissions": [
+    "network:access"
+  ],
+  "tools": [
+    {
+      "name": "query_weather",
+      "description": "查询天气。没有指定 location 时按当前网络 IP 自动判断位置；用户指定城市、地区或地点时传 location。返回温度、体感温度、天气描述、湿度、风速等结构化字段。",
+      "handler": "query_weather",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "string",
+            "description": "可选。城市、地区或地点名称，例如 北京、上海、Tokyo。省略或为空时按当前网络 IP 自动定位。"
+          },
+          "language": {
+            "type": "string",
+            "description": "可选。天气描述语言，默认 zh-CN；常用值包括 zh-CN、en。"
+          }
+        }
+      }
+    }
+  ]
+}
