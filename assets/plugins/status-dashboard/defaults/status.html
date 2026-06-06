@@ -7,79 +7,87 @@
 <link rel="stylesheet" href="status.css"/>
 </head>
 <body>
-<div class="container">
-  <header>
-    <h1>LynAI 状态</h1>
-    <p class="subtitle" id="header-time">--</p>
-  </header>
-
-  <div class="stats-grid">
-    <div class="stat-card notes">
-      <div class="card-bg"></div>
-      <div class="card-content">
-        <div class="card-icon-wrap">
-          <svg class="card-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-        </div>
-        <div class="card-value" id="notes-count">--</div>
-        <div class="card-label">笔记总数</div>
-      </div>
+<main class="shell">
+  <section class="hero panel">
+    <div>
+      <p class="eyebrow">LynAI Status</p>
+      <h1>状态仪表盘</h1>
+      <p class="subtitle">笔记、待办、对话和系统运行情况一屏掌握</p>
     </div>
-
-    <div class="stat-card todos">
-      <div class="card-bg"></div>
-      <div class="card-content">
-        <div class="card-icon-wrap">
-          <svg class="card-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-        </div>
-        <div class="card-value" id="todos-done">--</div>
-        <div class="card-label">待办已完成</div>
-        <div class="card-sub" id="todos-rate">--</div>
-      </div>
+    <div class="hero-badge">
+      <span class="pulse"></span>
+      <span id="system-status">--</span>
     </div>
+    <p class="hero-time" id="header-time">等待同步</p>
+  </section>
 
-    <div class="stat-card conversations">
-      <div class="card-bg"></div>
-      <div class="card-content">
-        <div class="card-icon-wrap">
-          <svg class="card-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        </div>
-        <div class="card-value" id="conversations-count">--</div>
-        <div class="card-label">对话记录</div>
+  <section class="metrics">
+    <article class="metric-card notes">
+      <div class="metric-top">
+        <span class="metric-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        </span>
+        <span class="metric-label">笔记总数</span>
       </div>
-    </div>
+      <div class="metric-value" id="notes-count">--</div>
+      <div class="metric-line"></div>
+    </article>
 
-    <div class="stat-card system">
-      <div class="card-bg"></div>
-      <div class="card-content">
-        <div class="card-icon-wrap">
-          <svg class="card-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        </div>
-        <div class="card-value" id="system-status">--</div>
-        <div class="card-label">运行状态</div>
-        <div class="card-sub" id="system-detail">--</div>
+    <article class="metric-card todos">
+      <div class="metric-top">
+        <span class="metric-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        </span>
+        <span class="metric-label">待办已完成</span>
       </div>
-    </div>
-  </div>
+      <div class="metric-value" id="todos-done">--</div>
+      <div class="metric-sub" id="todos-rate">--</div>
+    </article>
 
-  <div class="weather-card" id="weather-card" style="display:none">
-    <div class="weather-header">天气</div>
-    <div class="weather-row">
-      <div class="weather-temp" id="weather-temp">--</div>
-      <div class="weather-details">
-        <div id="weather-cond">--</div>
-        <div class="weather-meta">
-          <span id="weather-humidity">--</span>
-          <span class="weather-sep">|</span>
-          <span id="weather-location">--</span>
+    <article class="metric-card conversations">
+      <div class="metric-top">
+        <span class="metric-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </span>
+        <span class="metric-label">对话记录</span>
+      </div>
+      <div class="metric-value" id="conversations-count">--</div>
+      <div class="metric-line"></div>
+    </article>
+  </section>
+
+  <section class="detail-grid">
+    <article class="system-card panel">
+      <div class="section-title">
+        <span>系统</span>
+        <small>Runtime</small>
+      </div>
+      <div class="system-orbit">
+        <div class="orbit-ring"></div>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </div>
+      <p class="system-detail" id="system-detail">--</p>
+    </article>
+
+    <article class="weather-card panel" id="weather-card" style="display:none">
+      <div class="section-title">
+        <span>天气</span>
+        <small id="weather-location">--</small>
+      </div>
+      <div class="weather-main">
+        <div class="weather-temp" id="weather-temp">--</div>
+        <div>
+          <p id="weather-cond">--</p>
+          <p class="weather-meta" id="weather-humidity">--</p>
         </div>
       </div>
-    </div>
-  </div>
+    </article>
+  </section>
 
   <footer>
     <p id="status-footer">正在连接...</p>
   </footer>
-</div>
+</main>
 
 <script>
 (function () {
@@ -149,7 +157,7 @@
 
     animateValue(el('notes-count'), 0, notes, 600);
     animateValue(el('todos-done'), 0, done, 600);
-    el('todos-rate').textContent = total > 0 ? done + '/' + total + ' · ' + pct + '%' : '暂无';
+    el('todos-rate').textContent = total > 0 ? done + '/' + total + ' · ' + pct + '%' : '暂无待办';
     animateValue(el('conversations-count'), 0, convs, 600);
   }
 
