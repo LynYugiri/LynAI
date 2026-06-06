@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -32,6 +33,10 @@ class PluginFeatureWebView extends StatefulWidget {
 class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
   WebViewController? _controller;
   String? _error;
+  final int _renderSession = DateTime.now().microsecondsSinceEpoch;
+  int _loadGeneration = 0;
+  int? _renderVersion;
+  Directory? _activeRenderRoot;
 
   @override
   void initState() {
@@ -44,22 +49,54 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.plugin.path != widget.plugin.path ||
         oldWidget.page.entry != widget.page.entry) {
+      _renderVersion = context.read<PluginProvider>().renderVersion(
+        widget.plugin.id,
+      );
       _loadEntry();
     }
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final version = context.watch<PluginProvider>().renderVersion(
+      widget.plugin.id,
+    );
+    if (_renderVersion == null) {
+      _renderVersion = version;
+      return;
+    }
+    if (_renderVersion != version) {
+      _renderVersion = version;
+      _loadEntry();
+    }
+  }
+
+  @override
+  void dispose() {
+    _loadGeneration++;
+    final renderRoot = _activeRenderRoot;
+    if (renderRoot != null) unawaited(_deleteDirectory(renderRoot));
+    super.dispose();
+  }
+
   /// 加载插件功能页的入口 HTML 文件。
   Future<void> _loadEntry() async {
+    final generation = ++_loadGeneration;
     final path = safePluginFilePath(widget.plugin.path, widget.page.entry);
     if (path == null) {
+      if (!mounted || generation != _loadGeneration) return;
       setState(() {
         _controller = null;
         _error = '插件入口路径不安全: ${widget.page.entry}';
       });
       return;
     }
-    final renderEntry = await _buildRenderEntry();
-    if (!mounted) return;
+    final renderEntry = await _buildRenderEntry(generation);
+    if (!mounted || generation != _loadGeneration) {
+      if (renderEntry != null) unawaited(_deleteDirectory(renderEntry.root));
+      return;
+    }
     if (renderEntry == null) {
       setState(() {
         _controller = null;
@@ -90,31 +127,43 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
         ),
       )
       ..loadFile(renderEntry.file.absolute.path);
+    final previousRenderRoot = _activeRenderRoot;
+    _activeRenderRoot = renderEntry.root;
     setState(() {
       _controller = controller;
       _error = null;
     });
+    if (previousRenderRoot != null) {
+      unawaited(_deleteDirectory(previousRenderRoot));
+    }
   }
 
   /// 构建 WebView 渲染目录，使相对资源也按“根目录覆盖 defaults/”解析。
-  Future<_RenderEntry?> _buildRenderEntry() async {
-    final renderRoot = _renderRoot();
-    if (await renderRoot.exists()) await renderRoot.delete(recursive: true);
+  Future<_RenderEntry?> _buildRenderEntry(int generation) async {
+    final renderRoot = _renderRoot(generation);
     await renderRoot.create(recursive: true);
     await _copyRootResources(renderRoot);
     await _copyDefaultMappedFiles(renderRoot);
     final entryPath = safePluginFilePath(renderRoot.path, widget.page.entry);
     if (entryPath == null) return null;
     final entry = File(entryPath);
-    return await entry.exists()
-        ? _RenderEntry(root: renderRoot, file: entry)
-        : null;
+    if (await entry.exists()) {
+      return _RenderEntry(root: renderRoot, file: entry);
+    }
+    await _deleteDirectory(renderRoot);
+    return null;
   }
 
-  Directory _renderRoot() {
+  Directory _renderRoot(int generation) {
     return Directory(
-      '${Directory.systemTemp.path}/lynai_plugin_webview/${_safeSegment(widget.plugin.id)}_${_safeSegment(widget.page.id)}',
+      '${Directory.systemTemp.path}/lynai_plugin_webview/${_safeSegment(widget.plugin.id)}_${_safeSegment(widget.page.id)}_${_renderSession}_$generation',
     );
+  }
+
+  Future<void> _deleteDirectory(Directory directory) async {
+    try {
+      if (await directory.exists()) await directory.delete(recursive: true);
+    } catch (_) {}
   }
 
   Future<void> _copyRootResources(Directory renderRoot) async {

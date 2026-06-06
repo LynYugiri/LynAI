@@ -824,6 +824,14 @@ class _MermaidBlockState extends State<_MermaidBlock> {
             _ready = true;
             unawaited(_renderMermaid());
           },
+          onNavigationRequest: (request) {
+            if (!_ready) return NavigationDecision.navigate;
+            final uri = Uri.tryParse(request.url);
+            return uri != null &&
+                    (uri.scheme == 'http' || uri.scheme == 'https')
+                ? NavigationDecision.prevent
+                : NavigationDecision.navigate;
+          },
         ),
       )
       ..loadFlutterAsset(_mermaidRendererAssetKey);

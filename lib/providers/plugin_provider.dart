@@ -22,6 +22,7 @@ class PluginProvider extends ChangeNotifier {
   final Map<String, Map<String, dynamic>> _storageCache = {};
   final Map<String, Map<String, dynamic>> _configCache = {};
   final Map<String, PluginConfigSchema?> _schemaCache = {};
+  final Map<String, int> _renderVersions = {};
   bool _loading = false;
 
   /// 返回当前已安装的插件列表（不可修改）。
@@ -32,6 +33,9 @@ class PluginProvider extends ChangeNotifier {
 
   /// 返回当前已启用插件的数量。
   int get enabledCount => _plugins.where((plugin) => plugin.enabled).length;
+
+  /// 返回插件 WebView 渲染资源版本，插件文件变化时递增。
+  int renderVersion(String pluginId) => _renderVersions[pluginId] ?? 0;
 
   /// 根据插件 ID 查找已安装的插件，未找到则返回 null。
   InstalledPlugin? pluginById(String id) {
@@ -240,6 +244,7 @@ class PluginProvider extends ChangeNotifier {
     await _repository.writePluginTextFile(plugin, path, content);
     if (path == plugin.manifest.config.path) _configCache.remove(pluginId);
     if (path == plugin.manifest.config.schema) _schemaCache.remove(pluginId);
+    _bumpRenderVersion(pluginId);
     notifyListeners();
   }
 
@@ -257,6 +262,7 @@ class PluginProvider extends ChangeNotifier {
     await _repository.deletePluginFile(plugin, path);
     if (path == plugin.manifest.config.path) _configCache.remove(pluginId);
     if (path == plugin.manifest.config.schema) _schemaCache.remove(pluginId);
+    _bumpRenderVersion(pluginId);
     notifyListeners();
   }
 
@@ -269,6 +275,7 @@ class PluginProvider extends ChangeNotifier {
     final plugin = pluginById(pluginId);
     if (plugin == null) throw Exception('插件不存在: $pluginId');
     await _repository.renamePluginFile(plugin, oldPath, newPath);
+    _bumpRenderVersion(pluginId);
     notifyListeners();
   }
 
@@ -367,7 +374,12 @@ class PluginProvider extends ChangeNotifier {
       values,
     );
     _configCache[pluginId] = Map<String, dynamic>.from(values);
+    _bumpRenderVersion(pluginId);
     notifyListeners();
+  }
+
+  void _bumpRenderVersion(String pluginId) {
+    _renderVersions[pluginId] = renderVersion(pluginId) + 1;
   }
 
   Future<void> _upsert(InstalledPlugin imported) async {
