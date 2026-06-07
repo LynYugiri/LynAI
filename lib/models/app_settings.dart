@@ -142,7 +142,11 @@ class AppSettings {
     for (final item in rolesJson ?? const <dynamic>[]) {
       try {
         if (item is Map) {
-          roles.add(ChatRole.fromJson(Map<String, dynamic>.from(item)));
+          roles.add(
+            ChatRole.normalizeDefaultRole(
+              ChatRole.fromJson(Map<String, dynamic>.from(item)),
+            ),
+          );
         }
       } catch (e) {
         debugPrint('跳过损坏的角色配置: $e');

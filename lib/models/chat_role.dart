@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 
 class ChatRole {
   static const defaultId = 'default';
+  static const legacyDefaultSystemPrompt = 'You are a helpful assistant.';
+  static const defaultSystemPrompt =
+      'You are a helpful assistant. Never print or expose DSML, XML-style tool tags, pseudo tool calls, or raw function-calling markup to the user. When tools are available, use only the native OpenAI tool-calling interface. If tool calling is unavailable or disallowed, reply in plain natural language instead of simulating a tool call in text.';
 
   final String id;
   final String name;
@@ -26,7 +29,7 @@ class ChatRole {
       id: defaultId,
       name: '默认',
       description: '通用助手',
-      systemPrompt: 'You are a helpful assistant.',
+      systemPrompt: defaultSystemPrompt,
     );
   }
 
@@ -37,11 +40,20 @@ class ChatRole {
       name: json['name'] as String? ?? '默认',
       description: json['description'] as String? ?? '',
       systemPrompt:
-          json['systemPrompt'] as String? ?? 'You are a helpful assistant.',
+          json['systemPrompt'] as String? ?? defaultSystemPrompt,
       modelId: json['modelId'] as String?,
       modelName: json['modelName'] as String?,
       themeColor: colorValue == null ? null : Color(colorValue),
     );
+  }
+
+  static ChatRole normalizeDefaultRole(ChatRole role) {
+    if (role.id != defaultId) return role;
+    final prompt = role.systemPrompt.trim();
+    if (prompt.isEmpty || prompt == legacyDefaultSystemPrompt) {
+      return role.copyWith(systemPrompt: defaultSystemPrompt);
+    }
+    return role;
   }
 
   Map<String, dynamic> toJson() {

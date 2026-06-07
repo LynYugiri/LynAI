@@ -930,7 +930,7 @@ class _ChatPageState extends State<ChatPage> {
       tools: allowTools
           ? ToolCallService.openAITools(context.read<PluginProvider>().plugins)
           : const [],
-      toolChoice: depth >= 3 ? 'none' : 'auto',
+      toolChoice: 'auto',
     );
     String buf = '', thinkBuf = '';
     var finalized = false;
@@ -967,7 +967,7 @@ class _ChatPageState extends State<ChatPage> {
       clearWaitTimeout();
       final currentThink = thinkBuf.isNotEmpty ? thinkBuf : null;
       final think = _joinThinking(priorThink, currentThink);
-      if (toolCalls.isNotEmpty && allowTools && depth < 4) {
+      if (toolCalls.isNotEmpty && allowTools) {
         final toolService = ToolCallService(
           context.read<FeatureProvider>(),
           plugins: context.read<PluginProvider>(),
