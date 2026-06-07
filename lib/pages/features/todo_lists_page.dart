@@ -377,15 +377,12 @@ class _TodoListsPageState extends State<_TodoListsPage> {
   Future<void> _export(TodoList list) async {
     final fileName = '${safeExportFileName(list.title, fallback: 'todo')}.md';
     final bytes = Uint8List.fromList(utf8.encode(_todoMarkdown(list)));
-    final path = await FilePicker.saveFile(
+    final path = await saveBytesWithPicker(
       dialogTitle: '导出待办清单',
       fileName: fileName,
       bytes: bytes,
     );
     if (path == null) return;
-    if (!Platform.isAndroid && !Platform.isIOS) {
-      await File(path).writeAsBytes(bytes, flush: true);
-    }
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,

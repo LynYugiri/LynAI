@@ -768,15 +768,11 @@ class _RoleplayPageState extends State<_RoleplayPage> {
 
   Future<void> _pickFiles() async {
     try {
-      final result = await FilePicker.pickFiles(
-        allowMultiple: true,
-        withData: false,
-      );
-      if (!mounted || result == null) return;
+      final result = await pickMultipleFilePayloads();
+      if (!mounted || result.isEmpty) return;
       final files = <_RoleplayPendingAttachment>[];
-      for (final item in result.files) {
-        if (item.path == null) continue;
-        files.add(await _storeAttachmentFile(File(item.path!), item.name));
+      for (final item in result) {
+        files.add(await _storeAttachmentPayload(item));
       }
       if (mounted) setState(() => _pendingAttachments.addAll(files));
     } catch (e) {
@@ -853,6 +849,23 @@ class _RoleplayPageState extends State<_RoleplayPage> {
       name: name,
       size: await stored.length(),
       mimeType: mimeType ?? _mimeTypeForPath(name, fallbackPath: source.path),
+    );
+  }
+
+  Future<_RoleplayPendingAttachment> _storeAttachmentPayload(
+    PickedFilePayload source,
+  ) async {
+    final dir = await StorageV2Service.defaultBaseDirectory();
+    final attachmentDir = Directory('${dir.path}/roleplay_attachments');
+    final stored = File(
+      '${attachmentDir.path}/${DateTime.now().microsecondsSinceEpoch}_${safeStorageFileName(source.name, fallback: 'file')}',
+    );
+    await source.copyTo(stored);
+    return _RoleplayPendingAttachment(
+      path: stored.path,
+      name: source.name,
+      size: await stored.length(),
+      mimeType: _mimeTypeForPath(source.name, fallbackPath: source.path),
     );
   }
 

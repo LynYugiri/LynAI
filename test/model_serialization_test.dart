@@ -233,9 +233,6 @@ void main() {
 
   test('BackupService exports and imports roleplay data', () async {
     SharedPreferences.setMockInitialValues({});
-    final root = await Directory.systemTemp.createTemp(
-      'lynai_roleplay_backup_test_',
-    );
     final sourceRoleplays = RoleplayProvider();
     final scenarioId = sourceRoleplays.createScenario(
       title: '雨夜咖啡馆',
@@ -265,49 +262,41 @@ void main() {
       conversationProvider: ConversationProvider(),
       featureProvider: FeatureProvider(),
       roleplayProvider: sourceRoleplays,
-      temporaryDirectory: root,
       appVersionLoader: () async => '0.0.0-test',
     );
 
-    try {
-      final archiveFile = await sourceService.exportZip(
-        BackupSelection(
-          {BackupSection.roleplay},
-          roleplaySessionIds: {scenarioId},
-        ),
-      );
-      final targetRoleplays = RoleplayProvider();
-      final targetService = BackupService(
-        settingsProvider: SettingsProvider(),
-        modelConfigProvider: ModelConfigProvider(),
-        conversationProvider: ConversationProvider(),
-        featureProvider: FeatureProvider(),
-        roleplayProvider: targetRoleplays,
-      );
-      final archive = await targetService.readZip(archiveFile);
-      expect(archive.data.roleplaySessions, hasLength(1));
-      expect(archive.data.roleplayThreads, hasLength(1));
+    final archiveBytes = await sourceService.exportZipBytes(
+      BackupSelection(
+        {BackupSection.roleplay},
+        roleplaySessionIds: {scenarioId},
+      ),
+    );
+    final targetRoleplays = RoleplayProvider();
+    final targetService = BackupService(
+      settingsProvider: SettingsProvider(),
+      modelConfigProvider: ModelConfigProvider(),
+      conversationProvider: ConversationProvider(),
+      featureProvider: FeatureProvider(),
+      roleplayProvider: targetRoleplays,
+    );
+    final archive = await targetService.readZipBytes(archiveBytes);
+    expect(archive.data.roleplaySessions, hasLength(1));
+    expect(archive.data.roleplayThreads, hasLength(1));
 
-      await targetService.importArchive(
-        archive,
-        ImportPlan(
-          selection: BackupSelection.fromData(archive.data),
-          mode: ImportMode.merge,
-        ),
-      );
+    await targetService.importArchive(
+      archive,
+      ImportPlan(
+        selection: BackupSelection.fromData(archive.data),
+        mode: ImportMode.merge,
+      ),
+    );
 
-      expect(targetRoleplays.scenarios, hasLength(1));
-      expect(targetRoleplays.threads.single.messages.single.content, '别动。');
-    } finally {
-      await root.delete(recursive: true);
-    }
+    expect(targetRoleplays.scenarios, hasLength(1));
+    expect(targetRoleplays.threads.single.messages.single.content, '别动。');
   });
 
   test('BackupService exports and imports full plugin data', () async {
     SharedPreferences.setMockInitialValues({});
-    final backupRoot = await Directory.systemTemp.createTemp(
-      'lynai_plugin_backup_test_',
-    );
     final sourceRoot = await Directory.systemTemp.createTemp(
       'lynai_plugin_source_',
     );
@@ -361,7 +350,7 @@ void main() {
       await sourcePlugins.updateSetting('backup_plugin', 'accent', 'purple');
       await sourcePlugins.writeStorageValue('backup_plugin', 'count', 7);
 
-      final archiveFile =
+      final archiveBytes =
           await BackupService(
             settingsProvider: SettingsProvider(),
             modelConfigProvider: ModelConfigProvider(),
@@ -370,9 +359,8 @@ void main() {
             roleplayProvider: RoleplayProvider(),
             pluginProvider: sourcePlugins,
             pluginRepository: sourceRepo,
-            temporaryDirectory: backupRoot,
             appVersionLoader: () async => '0.0.0-test',
-          ).exportZip(
+          ).exportZipBytes(
             const BackupSelection(
               {BackupSection.plugins},
               pluginIds: {'backup_plugin'},
@@ -390,7 +378,7 @@ void main() {
         pluginProvider: targetPlugins,
         pluginRepository: targetRepo,
       );
-      final archive = await targetService.readZip(archiveFile);
+      final archive = await targetService.readZipBytes(archiveBytes);
       expect(archive.data.plugins, hasLength(1));
       expect(archive.pluginFiles.keys, contains(contains('main.lua')));
 
@@ -419,7 +407,6 @@ void main() {
         '<p>ok</p>',
       );
     } finally {
-      await backupRoot.delete(recursive: true);
       await sourceRoot.delete(recursive: true);
       await targetRoot.delete(recursive: true);
       await pluginSource.delete(recursive: true);
@@ -2170,15 +2157,17 @@ void main() {
       );
       expect(secondRevision, isNotNull);
 
-      final archiveFile = await BackupService(
-        settingsProvider: sourceSettings,
-        modelConfigProvider: sourceModels,
-        conversationProvider: sourceConversations,
-        featureProvider: source,
-        roleplayProvider: sourceRoleplays,
-        temporaryDirectory: sourceRoot,
-        appVersionLoader: () async => '0.0.0-test',
-      ).exportZip(BackupSelection({BackupSection.notes}, noteIds: {noteId}));
+      final archiveBytes =
+          await BackupService(
+            settingsProvider: sourceSettings,
+            modelConfigProvider: sourceModels,
+            conversationProvider: sourceConversations,
+            featureProvider: source,
+            roleplayProvider: sourceRoleplays,
+            appVersionLoader: () async => '0.0.0-test',
+          ).exportZipBytes(
+            BackupSelection({BackupSection.notes}, noteIds: {noteId}),
+          );
 
       SharedPreferences.setMockInitialValues({});
       final targetSettings = SettingsProvider();
@@ -2209,7 +2198,7 @@ void main() {
         featureProvider: target,
         roleplayProvider: targetRoleplays,
       );
-      final archive = await service.readZip(archiveFile);
+      final archive = await service.readZipBytes(archiveBytes);
       await service.importArchive(
         archive,
         ImportPlan(
@@ -2274,15 +2263,17 @@ void main() {
       expect(secondPageId, isNotNull);
       await source.saveNoteContent(noteId, 'imported second page');
 
-      final archiveFile = await BackupService(
-        settingsProvider: sourceSettings,
-        modelConfigProvider: sourceModels,
-        conversationProvider: sourceConversations,
-        featureProvider: source,
-        roleplayProvider: sourceRoleplays,
-        temporaryDirectory: sourceRoot,
-        appVersionLoader: () async => '0.0.0-test',
-      ).exportZip(BackupSelection({BackupSection.notes}, noteIds: {noteId}));
+      final archiveBytes =
+          await BackupService(
+            settingsProvider: sourceSettings,
+            modelConfigProvider: sourceModels,
+            conversationProvider: sourceConversations,
+            featureProvider: source,
+            roleplayProvider: sourceRoleplays,
+            appVersionLoader: () async => '0.0.0-test',
+          ).exportZipBytes(
+            BackupSelection({BackupSection.notes}, noteIds: {noteId}),
+          );
 
       SharedPreferences.setMockInitialValues({});
       final targetSettings = SettingsProvider();
@@ -2313,7 +2304,7 @@ void main() {
         featureProvider: target,
         roleplayProvider: targetRoleplays,
       );
-      final archive = await service.readZip(archiveFile);
+      final archive = await service.readZipBytes(archiveBytes);
       final selection = BackupSelection.fromData(archive.data);
 
       await service.importArchive(
@@ -2404,10 +2395,10 @@ void main() {
               ),
             ),
           );
-        final file = File('${root.path}/${path.hashCode}.zip');
-        await file.writeAsBytes(ZipEncoder().encode(archive), flush: true);
-
-        expect(service.readZip(file), throwsA(isA<FormatException>()));
+        expect(
+          service.readZipBytes(ZipEncoder().encode(archive)),
+          throwsA(isA<FormatException>()),
+        );
       }
     } finally {
       await root.delete(recursive: true);
@@ -2464,10 +2455,7 @@ void main() {
             utf8.encode(conversations),
           ),
         );
-      final file = File('${root.path}/legacy.zip');
-      await file.writeAsBytes(ZipEncoder().encode(archive), flush: true);
-
-      final data = await service.readZip(file);
+      final data = await service.readZipBytes(ZipEncoder().encode(archive));
 
       expect(data.data.conversations, hasLength(1));
       expect(data.data.conversations!.single.id, 'legacy-conv');

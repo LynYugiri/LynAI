@@ -71,9 +71,9 @@ class PluginProvider extends ChangeNotifier {
     await _upsert(plugin);
   }
 
-  /// 从 ZIP 文件导入并安装插件。
-  Future<void> importZip(String path) async {
-    final plugin = await _repository.importZip(path);
+  /// 从 ZIP 字节内容导入并安装插件。
+  Future<void> importZipBytes(List<int> bytes) async {
+    final plugin = await _repository.importZipBytes(bytes);
     await _upsert(plugin);
   }
 
@@ -471,11 +471,11 @@ class PluginProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 将当前插件目录导出为 ZIP 文件。
-  Future<void> exportPluginZip(String pluginId, String targetPath) async {
+  /// 构建当前插件目录的 ZIP 字节内容。
+  Future<Uint8List> buildPluginZipBytes(String pluginId) async {
     final plugin = pluginById(pluginId);
     if (plugin == null) throw Exception('插件不存在: $pluginId');
-    await _repository.exportPluginZip(plugin, targetPath);
+    return _repository.buildPluginZipBytes(plugin);
   }
 
   /// 从应用资源包中导入内置插件。

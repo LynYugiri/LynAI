@@ -1,7 +1,6 @@
 import 'dart:convert';
-import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
+import 'package:file_picker/file_picker.dart' show FileType;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -11,6 +10,7 @@ import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../repositories/plugin_repository.dart';
 import '../services/code_syntax_service.dart';
+import '../utils/file_picker_io_utils.dart';
 import '../utils/snackbar_utils.dart';
 import '../widgets/model_config_picker.dart';
 import '../widgets/plugin_feature_webview.dart';
@@ -74,16 +74,16 @@ class PluginManagementPage extends StatelessWidget {
 
   /// 打开文件选择器选取 ZIP 文件后，调用 [PluginProvider.importZip] 导入插件。
   Future<void> _importPluginZip(BuildContext context) async {
-    final result = await FilePicker.pickFiles(
+    final file = await pickSingleFilePayload(
       dialogTitle: '选择插件 ZIP',
       type: FileType.custom,
       allowedExtensions: const ['zip'],
     );
-    final path = result?.files.single.path;
-    if (path == null || !context.mounted) return;
+    if (file == null || !context.mounted) return;
     await _runAction(
       context,
-      () => context.read<PluginProvider>().importZip(path),
+      () async =>
+          context.read<PluginProvider>().importZipBytes(await file.readBytes()),
       success: '插件已导入',
     );
   }
@@ -502,18 +502,18 @@ class PluginDetailPage extends StatelessWidget {
     BuildContext context,
     InstalledPlugin plugin,
   ) async {
-    final path = await FilePicker.saveFile(
-      dialogTitle: '导出插件 ZIP',
-      fileName: '${_safeFileName(plugin.displayName)}.zip',
-      type: FileType.custom,
-      allowedExtensions: const ['zip'],
-    );
-    if (path == null || !context.mounted) return;
-    await _runAction(
-      context,
-      () => context.read<PluginProvider>().exportPluginZip(plugin.id, path),
-      success: '插件已导出',
-    );
+    await _runAction(context, () async {
+      final bytes = await context.read<PluginProvider>().buildPluginZipBytes(
+        plugin.id,
+      );
+      await saveBytesWithPicker(
+        dialogTitle: '导出插件 ZIP',
+        fileName: '${_safeFileName(plugin.displayName)}.zip',
+        type: FileType.custom,
+        allowedExtensions: const ['zip'],
+        bytes: bytes,
+      );
+    }, success: '插件已导出');
   }
 
   Future<void> _confirmResetDefaults(
@@ -1539,8 +1539,7 @@ class _PluginFilesCardState extends State<_PluginFilesCard> {
   }
 
   Future<void> _uploadFile() async {
-    final picked = await FilePicker.pickFiles(withData: true);
-    final file = picked?.files.single;
+    final file = await pickSingleFilePayload();
     if (file == null || !mounted) return;
     final controller = TextEditingController(text: file.name);
     final targetPath = await showDialog<String>(
@@ -1572,11 +1571,7 @@ class _PluginFilesCardState extends State<_PluginFilesCard> {
     final provider = context.read<PluginProvider>();
     final pluginId = widget.plugin.id;
     try {
-      final filePath = file.path;
-      final bytes =
-          file.bytes ??
-          (filePath == null ? null : await File(filePath).readAsBytes());
-      if (bytes == null) throw Exception('无法读取上传文件内容');
+      final bytes = await file.readBytes();
       await provider.writeFileBytes(pluginId, targetPath, bytes);
       setState(() => _future = provider.listFiles(pluginId));
       if (mounted) {

@@ -4,7 +4,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'package:crypto/crypto.dart';
 import 'package:archive/archive.dart';
-import 'package:file_picker/file_picker.dart';
+import 'package:file_picker/file_picker.dart' show FileType;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
@@ -45,6 +45,7 @@ import '../widgets/latex_renderer.dart';
 import '../widgets/plugin_feature_webview.dart';
 import '../widgets/plugin_icon.dart';
 import '../services/storage_v2_service.dart';
+import '../utils/file_picker_io_utils.dart';
 part 'features/shared.dart';
 part 'features/feature_shell.dart';
 part 'features/dashboard.dart';
@@ -583,17 +584,13 @@ class _FeaturePageState extends State<FeaturePage> {
     final features = context.read<FeatureProvider>();
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final result = await FilePicker.pickFiles(
+      final file = await pickSingleFilePayload(
+        dialogTitle: '导入 Markdown',
         type: FileType.custom,
         allowedExtensions: ['md', 'markdown', 'txt'],
-        withData: true,
       );
-      if (!mounted || result == null || result.files.isEmpty) return;
-      final file = result.files.single;
-      final bytes =
-          file.bytes ??
-          (file.path == null ? null : await File(file.path!).readAsBytes());
-      if (bytes == null) throw Exception('无法读取文件内容');
+      if (!mounted || file == null) return;
+      final bytes = await file.readBytes();
       final content = utf8.decode(bytes, allowMalformed: true);
       final title = _noteTitleFromFileName(file.name);
       final id = await features.addNoteWithContent(title, content);
@@ -652,17 +649,13 @@ class _FeaturePageState extends State<FeaturePage> {
     final features = context.read<FeatureProvider>();
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final result = await FilePicker.pickFiles(
+      final file = await pickSingleFilePayload(
+        dialogTitle: '导入待办清单',
         type: FileType.custom,
         allowedExtensions: ['md', 'markdown', 'txt'],
-        withData: true,
       );
-      if (!mounted || result == null || result.files.isEmpty) return;
-      final file = result.files.single;
-      final bytes =
-          file.bytes ??
-          (file.path == null ? null : await File(file.path!).readAsBytes());
-      if (bytes == null) throw Exception('无法读取文件内容');
+      if (!mounted || file == null) return;
+      final bytes = await file.readBytes();
       final content = utf8.decode(bytes, allowMalformed: true);
       final title = _todoTitleFromFileName(file.name);
       await features.addTodoListWithItems(title, _parseTodoItems(content));

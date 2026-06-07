@@ -3360,15 +3360,12 @@ class _NoteDetailState extends State<_NoteDetail> {
     final fileName = '${safeExportFileName(note.title, fallback: 'note')}.md';
     try {
       final bytes = Uint8List.fromList(utf8.encode(_ctrl.text));
-      final path = await FilePicker.saveFile(
+      final path = await saveBytesWithPicker(
         dialogTitle: '导出笔记',
         fileName: fileName,
         bytes: bytes,
       );
       if (path == null) return;
-      if (!Platform.isAndroid && !Platform.isIOS) {
-        await File(path).writeAsBytes(bytes, flush: true);
-      }
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
@@ -3393,7 +3390,7 @@ class _NoteDetailState extends State<_NoteDetail> {
       final zipBytes = Uint8List.fromList(ZipEncoder().encode(archive));
       final fileName =
           '${safeExportFileName(note.title, fallback: 'note')}.zip';
-      final path = await FilePicker.saveFile(
+      final path = await saveBytesWithPicker(
         dialogTitle: '按分页导出笔记',
         fileName: fileName,
         type: FileType.custom,
@@ -3401,9 +3398,6 @@ class _NoteDetailState extends State<_NoteDetail> {
         bytes: zipBytes,
       );
       if (path == null) return;
-      if (!Platform.isAndroid && !Platform.isIOS) {
-        await File(path).writeAsBytes(zipBytes, flush: true);
-      }
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,

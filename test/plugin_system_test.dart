@@ -778,10 +778,8 @@ end
           'index.html',
           'exported page',
         );
-        final exportPath = '${installedRoot.path}/snapshot.zip';
-        await provider.exportPluginZip('snapshot_source', exportPath);
         final archive = ZipDecoder().decodeBytes(
-          await File(exportPath).readAsBytes(),
+          await provider.buildPluginZipBytes('snapshot_source'),
         );
         final names = archive.map((item) => item.name).toSet();
         expect(names, contains('plugin.json'));

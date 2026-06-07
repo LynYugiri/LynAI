@@ -1,6 +1,4 @@
-import 'dart:io';
-
-import 'package:file_picker/file_picker.dart';
+import 'package:file_picker/file_picker.dart' show FileType;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -20,6 +18,7 @@ import '../providers/settings_provider.dart';
 import '../services/backup_service.dart';
 import '../services/storage_migration_service.dart';
 import '../services/storage_v2_service.dart';
+import '../utils/file_picker_io_utils.dart';
 
 /// 数据管理页面。
 ///
@@ -227,10 +226,9 @@ class _DataManagementPageState extends State<DataManagementPage> {
   Future<void> _export(BackupSelection selection) async {
     setState(() => _busy = true);
     try {
-      final file = await _service(context).exportZip(selection);
-      final bytes = await file.readAsBytes();
-      final fileName = file.uri.pathSegments.last;
-      final path = await FilePicker.saveFile(
+      final bytes = await _service(context).exportZipBytes(selection);
+      final fileName = 'lynai-${_backupFileDate(DateTime.now())}.zip';
+      final path = await saveBytesWithPicker(
         dialogTitle: '导出备份',
         fileName: fileName,
         type: FileType.custom,
@@ -238,9 +236,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
         bytes: bytes,
       );
       if (path == null) return;
-      if (!Platform.isAndroid && !Platform.isIOS) {
-        await File(path).writeAsBytes(bytes, flush: true);
-      }
       if (!mounted) return;
       _showSnack('备份已导出到 $path');
     } catch (e) {
@@ -250,18 +245,23 @@ class _DataManagementPageState extends State<DataManagementPage> {
     }
   }
 
+  String _backupFileDate(DateTime value) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${value.year}${two(value.month)}${two(value.day)}-${two(value.hour)}${two(value.minute)}${two(value.second)}';
+  }
+
   Future<void> _pickImportFile() async {
     setState(() => _busy = true);
     try {
       final service = _service(context);
-      final result = await FilePicker.pickFiles(
+      final file = await pickSingleFilePayload(
+        dialogTitle: '选择备份 ZIP',
         type: FileType.custom,
         allowedExtensions: ['zip'],
       );
       if (!mounted) return;
-      final path = result?.files.single.path;
-      if (path == null) return;
-      final archive = await service.readZip(File(path));
+      if (file == null) return;
+      final archive = await service.readZipBytes(await file.readBytes());
       if (!mounted) return;
       setState(() {
         _archive = archive;

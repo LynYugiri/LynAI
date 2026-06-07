@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
@@ -43,10 +44,8 @@ class BackupService {
     this.pluginProvider,
     PluginRepository? pluginRepository,
     this.storageV2,
-    Directory? temporaryDirectory,
     Future<String> Function()? appVersionLoader,
-  }) : _temporaryDirectory = temporaryDirectory,
-       _pluginRepository = pluginRepository ?? PluginRepository(),
+  }) : _pluginRepository = pluginRepository ?? PluginRepository(),
        _appVersionLoader = appVersionLoader;
 
   final SettingsProvider settingsProvider;
@@ -56,7 +55,6 @@ class BackupService {
   final RoleplayProvider roleplayProvider;
   final PluginProvider? pluginProvider;
   final StorageV2Service? storageV2;
-  final Directory? _temporaryDirectory;
   final PluginRepository _pluginRepository;
   final Future<String> Function()? _appVersionLoader;
   final _uuid = const Uuid();
@@ -96,7 +94,7 @@ class BackupService {
     return parts;
   }
 
-  Future<File> exportZip(BackupSelection selection) async {
+  Future<Uint8List> exportZipBytes(BackupSelection selection) async {
     final appVersion = _appVersionLoader == null
         ? (await PackageInfo.fromPlatform()).version
         : await _appVersionLoader();
@@ -503,15 +501,11 @@ class BackupService {
       if (exportedResources.isNotEmpty) 'resourcesFile': 'resources.json',
     });
 
-    final dir = _temporaryDirectory ?? await getTemporaryDirectory();
-    final name = 'lynai-${_formatFileDate(createdAt)}.zip';
-    final file = File('${dir.path}/$name');
-    await file.writeAsBytes(ZipEncoder().encode(archive), flush: true);
-    return file;
+    return Uint8List.fromList(ZipEncoder().encode(archive));
   }
 
-  Future<BackupArchiveData> readZip(File file) async {
-    final decoded = ZipDecoder().decodeBytes(await file.readAsBytes());
+  Future<BackupArchiveData> readZipBytes(List<int> bytes) async {
+    final decoded = ZipDecoder().decodeBytes(bytes);
     final files = <String, ArchiveFile>{};
     final assetFiles = <String, List<int>>{};
     final pluginFiles = <String, List<int>>{};
@@ -2901,11 +2895,6 @@ class BackupService {
       case BackupSection.plugins:
         return '${data.plugins?.length ?? 0} 个插件';
     }
-  }
-
-  static String _formatFileDate(DateTime value) {
-    String two(int n) => n.toString().padLeft(2, '0');
-    return '${value.year}${two(value.month)}${two(value.day)}-${two(value.hour)}${two(value.minute)}${two(value.second)}';
   }
 
   static String _formatUpdated(DateTime value) => '更新时间 ${_formatTime(value)}';

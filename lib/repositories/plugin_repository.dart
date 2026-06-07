@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:path_provider/path_provider.dart';
@@ -170,11 +171,9 @@ class PluginRepository {
     return _installedPlugin(manifest, target.path);
   }
 
-  /// 从 ZIP 压缩包导入并安装插件。
-  Future<InstalledPlugin> importZip(String zipPath) async {
-    final file = File(zipPath);
-    if (!await file.exists()) throw Exception('插件压缩包不存在');
-    final archive = ZipDecoder().decodeBytes(await file.readAsBytes());
+  /// 从 ZIP 字节内容导入并安装插件。
+  Future<InstalledPlugin> importZipBytes(List<int> bytes) async {
+    final archive = ZipDecoder().decodeBytes(bytes);
     final root = await Directory.systemTemp.createTemp('lynai_plugin_import_');
     try {
       for (final item in archive) {
@@ -531,11 +530,8 @@ class PluginRepository {
     }
   }
 
-  /// 导出当前插件安装目录为 ZIP 文件。
-  Future<void> exportPluginZip(
-    InstalledPlugin plugin,
-    String targetPath,
-  ) async {
+  /// 构建当前插件安装目录的 ZIP 字节内容。
+  Future<Uint8List> buildPluginZipBytes(InstalledPlugin plugin) async {
     final archive = Archive();
     final root = Directory(plugin.path);
     if (!await root.exists()) throw Exception('插件目录不存在');
@@ -547,9 +543,7 @@ class PluginRepository {
       archive.addFile(ArchiveFile(relativePath, bytes.length, bytes));
     }
     final bytes = ZipEncoder().encode(archive);
-    final file = File(targetPath);
-    if (!await file.parent.exists()) await file.parent.create(recursive: true);
-    await file.writeAsBytes(bytes, flush: true);
+    return Uint8List.fromList(bytes);
   }
 
   /// 保存插件的私有存储 JSON 数据。

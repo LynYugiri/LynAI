@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/rendering.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -28,6 +27,7 @@ import '../services/api_service.dart';
 import '../services/storage_v2_service.dart';
 import '../services/system_scroll_capture_service.dart';
 import '../services/tool_call_service.dart';
+import '../utils/file_picker_io_utils.dart';
 import '../utils/file_name_utils.dart';
 import '../utils/share_image_utils.dart';
 import '../utils/snackbar_utils.dart';
@@ -1067,9 +1067,10 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   String? _joinThinking(String? first, String? second) {
-    final parts = [first, second]
-        .where((part) => part != null && part.trim().isNotEmpty)
-        .toList();
+    final parts = [
+      first,
+      second,
+    ].where((part) => part != null && part.trim().isNotEmpty).toList();
     if (parts.isEmpty) return null;
     return parts.join('\n\n');
   }
@@ -1553,15 +1554,11 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _pickFiles() async {
     if (_streaming) return;
     try {
-      final result = await FilePicker.pickFiles(
-        allowMultiple: true,
-        withData: false,
-      );
-      if (!mounted || result == null || result.files.isEmpty) return;
+      final result = await pickMultipleFilePayloads();
+      if (!mounted || result.isEmpty) return;
       final files = <_PendingImage>[];
-      for (final item in result.files) {
-        if (item.path == null) continue;
-        files.add(await _storeAttachmentFile(File(item.path!), item.name));
+      for (final item in result) {
+        files.add(await _storeAttachmentPayload(item));
         if (!mounted) return;
       }
       if (files.isEmpty) return;
@@ -1612,6 +1609,23 @@ class _ChatPageState extends State<ChatPage> {
       name: name,
       size: await storedFile.length(),
       mimeType: mimeType ?? _mimeTypeForPath(name, fallbackPath: source.path),
+    );
+  }
+
+  Future<_PendingImage> _storeAttachmentPayload(
+    PickedFilePayload source,
+  ) async {
+    final dir = await StorageV2Service.defaultBaseDirectory();
+    final attachmentDir = Directory('${dir.path}/message_attachments');
+    final storedFile = File(
+      '${attachmentDir.path}/${DateTime.now().microsecondsSinceEpoch}_${safeStorageFileName(source.name, fallback: 'file')}',
+    );
+    await source.copyTo(storedFile);
+    return _PendingImage(
+      path: storedFile.path,
+      name: source.name,
+      size: await storedFile.length(),
+      mimeType: _mimeTypeForPath(source.name, fallbackPath: source.path),
     );
   }
 
