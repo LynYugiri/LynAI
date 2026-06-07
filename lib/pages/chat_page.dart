@@ -112,7 +112,7 @@ class ChatPage extends StatefulWidget {
 ///
 /// 维护消息列表滚动、流式输出、语音输入/识别、图片识别、工具调用、
 /// 撤回/重试、分享导出和会话设置等全部交互状态。
-class _ChatPageState extends State<ChatPage> {
+class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   static const _backgroundServiceChannel = MethodChannel(
     'lynai/background_service',
   );
@@ -142,6 +142,7 @@ class _ChatPageState extends State<ChatPage> {
   bool _autoScrollToBottom = true;
   bool _showScrollToBottom = false;
   bool _scrollEndScheduled = false;
+  double _lastBottomInset = 0;
   DateTime? _lastAutoScrollAt;
   int _scrollGen = 0;
   String? _thinkingTxt;
@@ -182,8 +183,8 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _speech = stt.SpeechToText();
-    _focusNode.addListener(_handleFocusChange);
     if (widget.conversationId != null) {
       _convId = widget.conversationId;
       _applyConversationSettings(widget.conversationId!, notifyNow: false);
@@ -288,9 +289,9 @@ class _ChatPageState extends State<ChatPage> {
     _inputRevision.dispose();
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
-    _focusNode.removeListener(_handleFocusChange);
     _focusNode.dispose();
     _api.dispose();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
@@ -457,14 +458,17 @@ class _ChatPageState extends State<ChatPage> {
     _scrollEnd(force: true);
   }
 
-  void _handleFocusChange() {
-    if (_focusNode.hasFocus) {
-      Future.delayed(const Duration(milliseconds: 200), () {
-        if (mounted && _focusNode.hasFocus) {
-          _scrollEnd(force: true);
-        }
+  @override
+  void didChangeMetrics() {
+    super.didChangeMetrics();
+    if (!mounted) return;
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    if (bottomInset > _lastBottomInset && _autoScrollToBottom) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _scrollEnd(force: true);
       });
     }
+    _lastBottomInset = bottomInset;
   }
 
   void _showMissingChatModelTip() {
