@@ -183,6 +183,7 @@ class _ChatPageState extends State<ChatPage> {
   void initState() {
     super.initState();
     _speech = stt.SpeechToText();
+    _focusNode.addListener(_handleFocusChange);
     if (widget.conversationId != null) {
       _convId = widget.conversationId;
       _applyConversationSettings(widget.conversationId!, notifyNow: false);
@@ -287,6 +288,7 @@ class _ChatPageState extends State<ChatPage> {
     _inputRevision.dispose();
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
+    _focusNode.removeListener(_handleFocusChange);
     _focusNode.dispose();
     _api.dispose();
     super.dispose();
@@ -453,6 +455,16 @@ class _ChatPageState extends State<ChatPage> {
       _showScrollToBottom = false;
     });
     _scrollEnd(force: true);
+  }
+
+  void _handleFocusChange() {
+    if (_focusNode.hasFocus) {
+      Future.delayed(const Duration(milliseconds: 200), () {
+        if (mounted && _focusNode.hasFocus) {
+          _scrollEnd(force: true);
+        }
+      });
+    }
   }
 
   void _showMissingChatModelTip() {
