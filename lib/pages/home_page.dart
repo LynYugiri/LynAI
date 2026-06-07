@@ -158,6 +158,7 @@ class _HomePageState extends State<HomePage> {
           index: _currentIndex,
           children: [
             FeaturePage(
+              active: _currentIndex == 0,
               onConversationTap: _navigateToChat,
               onRoleChanged: _roleChanged,
               onBackHandlerChanged: _setFeatureBackHandler,

@@ -1,6 +1,6 @@
--- 状态仪表盘工具处理器。
+-- 状态工具处理器。
 --
--- 本文件位于 defaults/ 目录，是状态仪表盘内置插件的出厂 Lua 入口。
+-- 本文件位于 defaults/ 目录，是状态内置插件的出厂 Lua 入口。
 -- 如果插件根目录不存在 main.lua，PluginLuaRuntimeService 会自动回退读取
 -- defaults/main.lua。这样用户可以编辑 HTML/CSS 功能页，而不会覆盖核心工具。
 --

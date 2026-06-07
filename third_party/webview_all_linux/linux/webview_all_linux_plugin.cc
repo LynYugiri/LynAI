@@ -67,6 +67,19 @@ G_DEFINE_TYPE(WebviewAllLinuxPlugin,
 
 static void update_flutter_view_input_region(WebviewAllLinuxPlugin* self);
 
+static void restore_flutter_view_focus(WebviewAllLinuxPlugin* self) {
+  FlView* view = fl_plugin_registrar_get_view(self->registrar);
+  if (view == nullptr) {
+    return;
+  }
+
+  GtkWidget* view_widget = GTK_WIDGET(view);
+  if (!gtk_widget_get_can_focus(view_widget)) {
+    gtk_widget_set_can_focus(view_widget, TRUE);
+  }
+  gtk_widget_grab_focus(view_widget);
+}
+
 static void queue_webview_overlay_redraw(GtkWidget* widget) {
   if (widget == nullptr) {
     return;
@@ -1011,6 +1024,11 @@ static void destroy_linux_webview(gpointer data) {
     return;
   }
 
+  if (webview->plugin != nullptr) {
+    update_flutter_view_input_region(webview->plugin);
+    restore_flutter_view_focus(webview->plugin);
+  }
+
   if (webview->web_view != nullptr) {
     gtk_widget_destroy(GTK_WIDGET(webview->web_view));
     g_object_unref(webview->web_view);
@@ -1057,6 +1075,9 @@ static void instance_method_call_cb(FlMethodChannel* channel,
       gtk_widget_hide(widget);
     }
     update_flutter_view_input_region(webview->plugin);
+    if (!webview->visible) {
+      restore_flutter_view_focus(webview->plugin);
+    }
     queue_webview_overlay_redraw(widget);
     respond(method_call, success_response());
     return;
@@ -1451,6 +1472,7 @@ static void instance_method_call_cb(FlMethodChannel* channel,
     gtk_widget_hide(widget);
     webview->visible = FALSE;
     update_flutter_view_input_region(webview->plugin);
+    restore_flutter_view_focus(webview->plugin);
     queue_webview_overlay_redraw(widget);
     respond(method_call, success_response());
     return;

@@ -1,9 +1,9 @@
 {
   "id": "status-dashboard",
-  "name": "状态仪表盘",
+  "name": "状态",
   "version": "1.0.0",
   "author": "LynAI",
-  "description": "显示笔记、待办、对话、系统状态统计仪表盘",
+  "description": "显示笔记、待办、对话和系统状态概览",
   "icon": "icon.svg",
   "entry": "main.lua",
   "permissions": [
@@ -36,7 +36,7 @@
   "featurePages": [
     {
       "id": "status",
-      "title": "状态仪表盘",
+      "title": "状态",
       "entry": "status.html",
       "showInSettings": true,
       "showInDashboard": false

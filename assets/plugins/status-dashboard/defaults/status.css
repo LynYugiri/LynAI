@@ -9,6 +9,7 @@
   --bg: #070a12;
   --panel: rgba(14, 20, 34, 0.94);
   --panel-strong: rgba(18, 27, 46, 0.96);
+  --panel-soft: rgba(18, 27, 46, 0.78);
   --line: rgba(148, 163, 184, 0.16);
   --text: #f7fbff;
   --muted: rgba(203, 213, 225, 0.68);
@@ -46,9 +47,9 @@ body::before {
 }
 
 .shell {
-  width: min(100%, 760px);
+  width: min(100%, 820px);
   margin: 0 auto;
-  padding: 18px 14px 34px;
+  padding: 20px 14px 36px;
 }
 
 .panel,
@@ -71,13 +72,22 @@ body::before {
 }
 
 .hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
   min-height: 190px;
   border-radius: 30px;
   padding: 24px;
   background:
-    linear-gradient(135deg, rgba(17, 24, 39, 0.9), rgba(10, 15, 28, 0.66)),
-    radial-gradient(circle at 82% 8%, rgba(56, 213, 255, 0.3), transparent 32%);
+    radial-gradient(circle at 86% 12%, rgba(56, 213, 255, 0.24), transparent 28%),
+    radial-gradient(circle at 16% 100%, rgba(167, 139, 250, 0.18), transparent 32%),
+    linear-gradient(135deg, rgba(17, 24, 39, 0.92), rgba(10, 15, 28, 0.7));
   animation: floatIn 0.55s ease both;
+}
+
+.hero-copy {
+  position: relative;
+  z-index: 1;
 }
 
 .eyebrow {
@@ -97,20 +107,42 @@ h1 {
 }
 
 .subtitle {
-  max-width: 320px;
+  max-width: 360px;
   margin-top: 14px;
   color: var(--muted);
   font-size: 14px;
   line-height: 1.6;
 }
 
+.hero-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.hero-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  color: rgba(236, 247, 255, 0.88);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
 .hero-badge {
-  position: absolute;
-  top: 22px;
-  right: 22px;
+  position: relative;
   z-index: 1;
   display: inline-flex;
   align-items: center;
+  align-self: start;
+  justify-self: end;
   gap: 8px;
   min-height: 34px;
   padding: 0 13px;
@@ -150,7 +182,15 @@ h1 {
   min-height: 166px;
   border-radius: 26px;
   padding: 18px;
+  backdrop-filter: blur(10px);
   animation: floatIn 0.55s ease both;
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.metric-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(148, 163, 184, 0.26);
+  box-shadow: 0 22px 52px rgba(0, 0, 0, 0.28);
 }
 
 .metric-card:nth-child(1) { animation-delay: 0.05s; }
@@ -253,6 +293,7 @@ h1 {
   min-height: 160px;
   border-radius: 28px;
   padding: 20px;
+  backdrop-filter: blur(12px);
   animation: floatIn 0.55s ease 0.18s both;
 }
 
@@ -307,10 +348,29 @@ h1 {
   line-height: 1.5;
 }
 
+.system-glow,
+.weather-glow {
+  position: absolute;
+  inset: auto -40px -46px auto;
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  filter: blur(8px);
+  pointer-events: none;
+}
+
+.system-glow {
+  background: radial-gradient(circle, rgba(255, 209, 102, 0.26), transparent 68%);
+}
+
 .weather-card {
   background:
     radial-gradient(circle at 85% 20%, rgba(56, 213, 255, 0.24), transparent 32%),
-    var(--panel-strong);
+    linear-gradient(160deg, rgba(20, 32, 57, 0.92), var(--panel-soft));
+}
+
+.weather-glow {
+  background: radial-gradient(circle, rgba(56, 213, 255, 0.24), transparent 68%);
 }
 
 .weather-main {
@@ -352,6 +412,7 @@ footer {
 footer p {
   color: rgba(203, 213, 225, 0.46);
   font-size: 11px;
+  letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
 }
 
@@ -376,13 +437,11 @@ footer p {
   .hero {
     min-height: 210px;
     padding: 22px;
+    grid-template-columns: 1fr;
   }
 
   .hero-badge {
-    top: auto;
-    right: auto;
-    left: 22px;
-    bottom: 50px;
+    justify-self: start;
   }
 
   .hero-time {

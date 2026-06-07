@@ -232,6 +232,7 @@ String _noteLineDiffSummary(String before, String after) {
 /// 根据 `AppSettings.lastFeature` 在历史、日程、笔记和待办之间切换。子页面
 /// 拆成 `part` 文件，但共享搜索语法、导出工具和若干内部组件。
 class FeaturePage extends StatefulWidget {
+  final bool active;
   final void Function(String conversationId) onConversationTap;
   final VoidCallback onRoleChanged;
   final void Function(bool Function() handler)? onBackHandlerChanged;
@@ -240,6 +241,7 @@ class FeaturePage extends StatefulWidget {
 
   const FeaturePage({
     super.key,
+    this.active = true,
     required this.onConversationTap,
     required this.onRoleChanged,
     this.onBackHandlerChanged,
@@ -386,10 +388,11 @@ class _FeaturePageState extends State<FeaturePage> {
           onRoleChanged: widget.onRoleChanged,
         ),
         'roleplay' => const _RoleplayPage(),
-        _ when pluginFeature != null => PluginFeatureWebView(
+        _ when pluginFeature != null && widget.active => PluginFeatureWebView(
           plugin: pluginFeature.plugin,
           page: pluginFeature.page,
         ),
+        _ when pluginFeature != null => const SizedBox.shrink(),
         _ => _FeatureDashboard(onFeatureSelected: _selectFeature),
       },
     );

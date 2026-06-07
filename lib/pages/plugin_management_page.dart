@@ -2073,7 +2073,7 @@ class _BuiltInPluginsSection extends StatelessWidget {
   /// 将内置插件的内部标识符映射为用户可见的中文名称。
   String _builtInName(String id) {
     return switch (id) {
-      'status-dashboard' => '状态仪表盘',
+      'status-dashboard' => '状态',
       'weather-query' => '天气查询',
       _ => id,
     };

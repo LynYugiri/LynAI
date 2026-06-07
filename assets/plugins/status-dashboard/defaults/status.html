@@ -9,10 +9,14 @@
 <body>
 <main class="shell">
   <section class="hero panel">
-    <div>
+    <div class="hero-copy">
       <p class="eyebrow">LynAI Status</p>
-      <h1>状态仪表盘</h1>
+      <h1>LynAI状态</h1>
       <p class="subtitle">笔记、待办、对话和系统运行情况一屏掌握</p>
+      <div class="hero-tags">
+        <span class="hero-tag">实时聚合</span>
+        <span class="hero-tag">内置插件</span>
+      </div>
     </div>
     <div class="hero-badge">
       <span class="pulse"></span>
@@ -67,6 +71,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </div>
       <p class="system-detail" id="system-detail">--</p>
+      <div class="system-glow"></div>
     </article>
 
     <article class="weather-card panel" id="weather-card" style="display:none">
@@ -81,6 +86,7 @@
           <p class="weather-meta" id="weather-humidity">--</p>
         </div>
       </div>
+      <div class="weather-glow"></div>
     </article>
   </section>
 

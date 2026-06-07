@@ -157,8 +157,8 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     if (_controller == null) return;
     if (mounted) {
       setState(() => _controller = null);
-      await _waitForNativeWebViewDetach();
     }
+    await _waitForNativeWebViewDetach();
   }
 
   /// 桌面端 WebView 是原生 overlay/texture，需要给一帧时间处理隐藏和输入区域恢复。
