@@ -1057,10 +1057,13 @@ class _ChatPageState extends State<ChatPage> {
   String? _joinThinking(String? first, String? second) {
     final parts = [first, second]
         .where((part) => part != null && part.trim().isNotEmpty)
-        .map((part) => part!.trim())
         .toList();
     if (parts.isEmpty) return null;
     return parts.join('\n\n');
+  }
+
+  String _preserveWhitespace(String text) {
+    return text.replaceAll(' ', '\u00A0');
   }
 
   void _switchModel(ModelConfig model) {
@@ -2688,7 +2691,7 @@ class _ChatPageState extends State<ChatPage> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               child: Text(
-                content,
+                _preserveWhitespace(content),
                 style: TextStyle(
                   fontSize: 13,
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -2791,7 +2794,7 @@ class _ChatPageState extends State<ChatPage> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 child: Text(
-                  think,
+                  _preserveWhitespace(think),
                   style: TextStyle(
                     fontSize: 13,
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
