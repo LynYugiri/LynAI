@@ -38,9 +38,7 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
   final int _renderSession = DateTime.now().microsecondsSinceEpoch;
   int _loadGeneration = 0;
   int? _renderVersion;
-  int _webViewRevision = 0;
   Directory? _activeRenderRoot;
-  final List<Timer> _linuxRefreshTimers = [];
 
   @override
   void initState() {
@@ -79,7 +77,9 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
   @override
   void dispose() {
     _loadGeneration++;
-    _cancelLinuxRefreshTimers();
+    final controller = _controller;
+    _controller = null;
+    if (controller != null) unawaited(_disposePlatformWebView(controller));
     final renderRoot = _activeRenderRoot;
     if (renderRoot != null) unawaited(_deleteDirectory(renderRoot));
     super.dispose();
@@ -88,6 +88,14 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
   /// 加载插件功能页的入口 HTML 文件。
   Future<void> _loadEntry() async {
     final generation = ++_loadGeneration;
+    final previousRenderRoot = _activeRenderRoot;
+    _activeRenderRoot = null;
+    await _detachCurrentWebView();
+    if (previousRenderRoot != null) {
+      unawaited(_deleteDirectory(previousRenderRoot));
+    }
+    if (!mounted || generation != _loadGeneration) return;
+
     final path = safePluginFilePath(widget.plugin.path, widget.page.entry);
     if (path == null) {
       if (!mounted || generation != _loadGeneration) return;
@@ -122,66 +130,61 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
         NavigationDelegate(
           onPageFinished: (_) {
             _injectBridge();
-            _scheduleLinuxOverlayRefresh();
           },
           onWebResourceError: (error) {
             if (error.isForMainFrame == false) return;
             if (!mounted || generation != _loadGeneration) return;
+            final failedController = _controller == controller
+                ? controller
+                : null;
             setState(() {
               _controller = null;
               _error = '插件页面加载失败: ${error.description}';
             });
+            if (failedController != null) {
+              unawaited(_disposePlatformWebView(failedController));
+            }
           },
           onNavigationRequest: (request) {
-            final targetPath = _filePathFromUrl(request.url);
-            if (targetPath == null) return NavigationDecision.prevent;
-            final normalized = targetPath.replaceAll('\\', '/');
-            return normalized.startsWith('$renderRoot/')
+            return _isAllowedNavigation(request.url, renderRoot)
                 ? NavigationDecision.navigate
                 : NavigationDecision.prevent;
           },
         ),
       )
       ..loadFile(renderEntry.file.absolute.path);
-    final previousRenderRoot = _activeRenderRoot;
     _activeRenderRoot = renderEntry.root;
     setState(() {
       _controller = controller;
       _error = null;
-      _webViewRevision++;
     });
-    _scheduleLinuxOverlayRefresh();
-    if (previousRenderRoot != null) {
-      unawaited(_deleteDirectory(previousRenderRoot));
-    }
   }
 
-  /// 在 Linux 平台安排多次 WebView 重叠刷新，解决输入法弹出导致的视觉遮挡问题。
-  void _scheduleLinuxOverlayRefresh() {
-    if (!Platform.isLinux) return;
-    _cancelLinuxRefreshTimers();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshLinuxOverlay());
-    for (final delay in const [
-      Duration(milliseconds: 32),
-      Duration(milliseconds: 120),
-      Duration(milliseconds: 320),
-    ]) {
-      _linuxRefreshTimers.add(Timer(delay, _refreshLinuxOverlay));
+  /// 从 Flutter 树中移除当前 WebView，并释放桌面端原生承载控件。
+  Future<void> _detachCurrentWebView() async {
+    final controller = _controller;
+    if (controller == null) return;
+    if (mounted) {
+      setState(() => _controller = null);
+      await _waitForNativeWebViewDetach();
     }
+    await _disposePlatformWebView(controller);
   }
 
-  /// 通过递增 revision 强制 WebView 重建，刷新 Linux 输入法遮盖区域。
-  void _refreshLinuxOverlay() {
-    if (!mounted || !Platform.isLinux || _controller == null) return;
-    setState(() => _webViewRevision++);
+  /// 桌面端 WebView 是原生 overlay/texture，需要给一帧时间处理隐藏和输入区域恢复。
+  Future<void> _waitForNativeWebViewDetach() async {
+    if (!Platform.isLinux && !Platform.isWindows) return;
+    await WidgetsBinding.instance.endOfFrame;
+    await Future<void>.delayed(const Duration(milliseconds: 80));
   }
 
-  /// 取消所有 Linux 刷新定时器。
-  void _cancelLinuxRefreshTimers() {
-    for (final timer in _linuxRefreshTimers) {
-      timer.cancel();
-    }
-    _linuxRefreshTimers.clear();
+  /// 释放 webview_all 桌面平台控制器；移动端平台没有该公开 API 时静默跳过。
+  Future<void> _disposePlatformWebView(WebViewController controller) async {
+    if (!Platform.isLinux && !Platform.isWindows) return;
+    try {
+      final platform = controller.platform as dynamic;
+      await platform.dispose();
+    } catch (_) {}
   }
 
   /// 构建 WebView 渲染目录，使相对资源也按“根目录覆盖 defaults/”解析。
@@ -300,6 +303,21 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     }
   }
 
+  /// 只允许插件临时渲染目录内资源；Windows loadFile 使用 webview_all 的本地虚拟域名。
+  bool _isAllowedNavigation(String url, String renderRoot) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return false;
+    if (Platform.isWindows &&
+        uri.scheme == 'https' &&
+        uri.host == 'app-file.webview.flutter.dev') {
+      return true;
+    }
+    final targetPath = _filePathFromUrl(url);
+    if (targetPath == null) return false;
+    final normalized = targetPath.replaceAll('\\', '/');
+    return normalized.startsWith('$renderRoot/');
+  }
+
   /// 向 WebView 注入 LynAI JS Bridge 脚本。
   Future<void> _injectBridge() async {
     final controller = _controller;
@@ -405,7 +423,9 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     final controller = _controller;
     if (controller == null) return;
     final json = jsonEncode(payload);
-    await controller.runJavaScript('window.__lynaiBridgeResolve?.($json);');
+    await controller.runJavaScript(
+      'if (window.__lynaiBridgeResolve) window.__lynaiBridgeResolve($json);',
+    );
   }
 
   /// 将动态值转换为 JSON 安全的 Map 结构。
@@ -453,10 +473,7 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     if (_controller != null) {
       Widget webView = ColoredBox(
         color: Theme.of(context).colorScheme.surface,
-        child: WebViewWidget(
-          key: ValueKey(_webViewRevision),
-          controller: _controller!,
-        ),
+        child: WebViewWidget(controller: _controller!),
       );
       if (Platform.isLinux && widget.linuxOverlayBottomInset > 0) {
         webView = Padding(
