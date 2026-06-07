@@ -1075,10 +1075,6 @@ class _ChatPageState extends State<ChatPage> {
     return parts.join('\n\n');
   }
 
-  String _preserveWhitespace(String text) {
-    return text.replaceAll(' ', '\u00A0');
-  }
-
   void _switchModel(ModelConfig model) {
     if (_convId != null) {
       context.read<ConversationProvider>().updateConversationModelId(
@@ -2713,11 +2709,11 @@ class _ChatPageState extends State<ChatPage> {
               ),
             ),
           ),
-          if (_thinkExpanded)
+            if (_thinkExpanded)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               child: Text(
-                _preserveWhitespace(content),
+                content,
                 style: TextStyle(
                   fontSize: 13,
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -2820,7 +2816,7 @@ class _ChatPageState extends State<ChatPage> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 child: Text(
-                  _preserveWhitespace(think),
+                  think,
                   style: TextStyle(
                     fontSize: 13,
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
