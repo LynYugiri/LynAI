@@ -65,6 +65,7 @@ class ApiService {
   static const _timeout = Duration(minutes: 5);
   static const _streamTimeout = Duration(minutes: 30);
   static const _speechSliceSize = 5 * 1024 * 1024;
+  static const _sseDiagnosticMaxLineLength = 220;
 
   http.Client? _client;
   http.Client get client => _client ??= http.Client();
@@ -80,6 +81,96 @@ class ApiService {
       throw Exception('API Endpoint 不能为空');
     }
     return Uri.parse('$endpoint$path');
+  }
+
+  bool _shouldLogSseDiagnostics(ModelConfig config) {
+    return config.extraParams['debugSse'] == true;
+  }
+
+  static const _internalExtraKeys = {
+    'debugSse',
+    'appId',
+    'disableTools',
+    'thinkingBudgetTokens',
+  };
+
+  void _applyExtraRequestParams(
+    Map<String, dynamic> body,
+    ModelConfig config,
+  ) {
+    for (final entry in config.extraParams.entries) {
+      if (_internalExtraKeys.contains(entry.key)) continue;
+      if (!body.containsKey(entry.key)) {
+        body[entry.key] = entry.value;
+      }
+    }
+  }
+
+  void _logSseDiagnostic(String label, Object? value) {
+    final text = value?.toString() ?? 'null';
+    debugPrint('[SSE] $label ${_compactSseText(text)}');
+  }
+
+  String _compactSseText(String text) {
+    final normalized = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (normalized.length <= _sseDiagnosticMaxLineLength) return normalized;
+    return '${normalized.substring(0, _sseDiagnosticMaxLineLength)}...(${normalized.length})';
+  }
+
+  Map<String, dynamic> _streamRequestSummary(
+    List<Map<String, dynamic>> messages, {
+    required bool thinking,
+    required List<Map<String, dynamic>> tools,
+    required String? toolChoice,
+  }) {
+    return {
+      'messageCount': messages.length,
+      'thinking': thinking,
+      'toolCount': tools.length,
+      'toolChoice': toolChoice,
+      'messages': messages
+          .map((message) {
+            final content = message['content'];
+            final toolCalls = message['tool_calls'];
+            return {
+              'role': message['role'],
+              'contentLength': _messageContentText(content).length,
+              if (message['reasoning_content'] != null)
+                'reasoningLength': _messageContentText(
+                  message['reasoning_content'],
+                ).length,
+              if (toolCalls is List) 'toolCallCount': toolCalls.length,
+              if (message['tool_call_id'] != null)
+                'toolCallId': message['tool_call_id'],
+            };
+          })
+          .toList(),
+    };
+  }
+
+  Map<String, dynamic> _streamChunkSummary(
+    Object? choice,
+    String? content,
+    String? reasoning,
+    List<ChatToolCall> finalizedToolCalls,
+  ) {
+    final finishReason = choice is Map ? choice['finish_reason'] : null;
+    return {
+      'finishReason': finishReason,
+      'contentLength': content?.length ?? 0,
+      'reasoningLength': reasoning?.length ?? 0,
+      if (content != null && content.isNotEmpty)
+        'contentPreview': _compactSseText(content),
+      'finalizedToolCalls': finalizedToolCalls
+          .map(
+            (call) => {
+              'id': call.id,
+              'name': call.name,
+              'argumentKeys': call.arguments.keys.toList(),
+            },
+          )
+          .toList(),
+    };
   }
 
   static String _truncateErrorBody(String body) {
@@ -710,11 +801,7 @@ class ApiService {
       if (tools.isNotEmpty) 'tools': tools,
       if (tools.isNotEmpty) 'tool_choice': toolChoice ?? 'auto',
     };
-    for (final entry in config.extraParams.entries) {
-      if (!body.containsKey(entry.key)) {
-        body[entry.key] = entry.value;
-      }
-    }
+    _applyExtraRequestParams(body, config);
 
     final headers = <String, String>{'Content-Type': 'application/json'};
     if (config.apiKey.isNotEmpty) {
@@ -763,6 +850,7 @@ class ApiService {
     String? toolChoice,
   }) async* {
     final uri = _endpointUri(config, '/chat/completions');
+    final logSse = _shouldLogSseDiagnostics(config);
 
     final body = <String, dynamic>{
       'model': config.modelName,
@@ -777,11 +865,7 @@ class ApiService {
       if (tools.isNotEmpty) 'tools': tools,
       if (tools.isNotEmpty) 'tool_choice': toolChoice ?? 'auto',
     };
-    for (final entry in config.extraParams.entries) {
-      if (!body.containsKey(entry.key)) {
-        body[entry.key] = entry.value;
-      }
-    }
+    _applyExtraRequestParams(body, config);
 
     final headers = <String, String>{'Content-Type': 'application/json'};
     if (config.apiKey.isNotEmpty) {
@@ -792,11 +876,43 @@ class ApiService {
     request.headers.addAll(headers);
     request.body = jsonEncode(body);
 
+    if (logSse) {
+      _logSseDiagnostic(
+        'request',
+        jsonEncode(
+          {
+            'uri': uri.toString(),
+            'model': config.modelName,
+            ..._streamRequestSummary(
+              messages,
+              thinking: thinking,
+              tools: tools,
+              toolChoice: toolChoice,
+            ),
+          },
+        ),
+      );
+    }
+
     try {
       final streamedResponse = await client.send(request).timeout(_timeout);
 
+      if (logSse) {
+        _logSseDiagnostic(
+          'response',
+          jsonEncode(
+            {
+              'statusCode': streamedResponse.statusCode,
+            },
+          ),
+        );
+      }
+
       if (streamedResponse.statusCode != 200) {
         final errorBody = await streamedResponse.stream.bytesToString();
+        if (logSse) {
+          _logSseDiagnostic('error-body', errorBody);
+        }
         throw Exception(
           '流式请求失败: ${streamedResponse.statusCode} ${_truncateErrorBody(errorBody)}',
         );
@@ -810,12 +926,24 @@ class ApiService {
               .transform(utf8.decoder)
               .transform(const LineSplitter())
               .timeout(_streamTimeout)) {
+        if (logSse) {
+          _logSseDiagnostic('raw-chunk', chunk);
+        }
         if (chunk.startsWith('data:')) {
           final data = chunk.substring(5).trim();
           if (data == '[DONE]') {
             doneEmitted = true;
+            final finalizedToolCalls = _finalizeOpenAIToolCalls(toolCallParts);
+            if (logSse) {
+              _logSseDiagnostic(
+                'done-summary',
+                jsonEncode(
+                  _streamChunkSummary(null, null, null, finalizedToolCalls),
+                ),
+              );
+            }
             yield StreamChunk(
-              toolCalls: _finalizeOpenAIToolCalls(toolCallParts),
+              toolCalls: finalizedToolCalls,
               isDone: true,
             );
             break;
@@ -824,6 +952,9 @@ class ApiService {
           try {
             final json = jsonDecode(data);
             if (json is Map && json['error'] != null) {
+              if (logSse) {
+                _logSseDiagnostic('api-error', jsonEncode(json['error']));
+              }
               throw Exception(_formatApiError(json['error']));
             }
             final choice = json['choices']?[0];
@@ -832,6 +963,23 @@ class ApiService {
               final content = _streamContentText(delta?['content']);
               final reasoning = _extractReasoning(delta);
               _accumulateOpenAIToolCalls(delta, toolCallParts);
+              if (logSse) {
+                final finalizedToolCalls =
+                    choice?['finish_reason'] == 'tool_calls'
+                    ? _finalizeOpenAIToolCalls(toolCallParts)
+                    : const <ChatToolCall>[];
+                _logSseDiagnostic(
+                  'parsed-chunk',
+                  jsonEncode(
+                    _streamChunkSummary(
+                      choice,
+                      content,
+                      reasoning,
+                      finalizedToolCalls,
+                    ),
+                  ),
+                );
+              }
               if (content != null || reasoning != null) {
                 yield StreamChunk(
                   content: content,
@@ -841,12 +989,35 @@ class ApiService {
             }
             finishReason = choice?['finish_reason'];
           } on FormatException {
+            if (logSse) {
+              _logSseDiagnostic('malformed-data', data);
+            }
             // malformed chunk, skip
           }
           if (finishReason != null && finishReason != '') {
             doneEmitted = true;
+            final finalizedToolCalls = _finalizeOpenAIToolCalls(toolCallParts);
+            if (logSse) {
+              _logSseDiagnostic(
+                'finish-summary',
+                jsonEncode(
+                  {
+                    'finishReason': finishReason,
+                    'finalizedToolCalls': finalizedToolCalls
+                        .map(
+                          (call) => {
+                            'id': call.id,
+                            'name': call.name,
+                            'argumentKeys': call.arguments.keys.toList(),
+                          },
+                        )
+                        .toList(),
+                  },
+                ),
+              );
+            }
             yield StreamChunk(
-              toolCalls: _finalizeOpenAIToolCalls(toolCallParts),
+              toolCalls: finalizedToolCalls,
               isDone: true,
             );
             break;
@@ -854,8 +1025,27 @@ class ApiService {
         }
       }
       if (!doneEmitted) {
+        final finalizedToolCalls = _finalizeOpenAIToolCalls(toolCallParts);
+        if (logSse) {
+          _logSseDiagnostic(
+            'implicit-done-summary',
+            jsonEncode(
+              {
+                'finalizedToolCalls': finalizedToolCalls
+                    .map(
+                      (call) => {
+                        'id': call.id,
+                        'name': call.name,
+                        'argumentKeys': call.arguments.keys.toList(),
+                      },
+                    )
+                    .toList(),
+              },
+            ),
+          );
+        }
         yield StreamChunk(
-          toolCalls: _finalizeOpenAIToolCalls(toolCallParts),
+          toolCalls: finalizedToolCalls,
           isDone: true,
         );
       }

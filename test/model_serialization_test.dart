@@ -3103,4 +3103,221 @@ PRAGMA user_version = 2;
     expect(nodes.single, isA<md.Element>());
     expect((nodes.single as md.Element).tag, 'p');
   });
+
+  test('ModelConfig serializes Provider-level maxTokens/temperature/topP', () {
+    final config = ModelConfig(
+      id: '1',
+      name: 'Provider',
+      endpoint: 'https://example.com',
+      apiKey: 'key',
+      modelName: 'model-a',
+      apiType: 'openai',
+      priority: 0,
+      maxTokens: 4096,
+      temperature: 0.7,
+      topP: 0.9,
+    );
+
+    final json = config.toJson();
+    expect(json['maxTokens'], 4096);
+    expect(json['temperature'], 0.7);
+    expect(json['topP'], 0.9);
+
+    final restored = ModelConfig.fromJson(json);
+    expect(restored.maxTokens, 4096);
+    expect(restored.temperature, 0.7);
+    expect(restored.topP, 0.9);
+  });
+
+  test('ModelConfig effective params fall back to Provider-level', () {
+    final config = ModelConfig(
+      id: '1',
+      name: 'Provider',
+      endpoint: 'https://example.com',
+      apiKey: 'key',
+      modelName: 'model-a',
+      apiType: 'openai',
+      priority: 0,
+      maxTokens: 4096,
+      temperature: 0.7,
+      topP: 0.9,
+      models: [
+        ModelEntry(name: 'model-a', enabled: true),
+      ],
+    );
+
+    expect(config.effectiveMaxTokens, 4096);
+    expect(config.effectiveTemperature, 0.7);
+    expect(config.effectiveTopP, 0.9);
+  });
+
+  test('extraParams are included in OpenAI request body', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    Map<String, dynamic>? requestBody;
+    unawaited(
+      server.first.then((request) async {
+        requestBody =
+            jsonDecode(await utf8.decoder.bind(request).join())
+                as Map<String, dynamic>;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({
+            'choices': [
+              {
+                'message': {
+                  'role': 'assistant',
+                  'content': 'ok',
+                },
+              },
+            ],
+          }),
+        );
+        await request.response.close();
+      }),
+    );
+
+    try {
+      await ApiService().sendChatRequest(
+        ModelConfig(
+          id: 'm1',
+          name: 'Local',
+          endpoint: 'http://${server.address.host}:${server.port}',
+          apiKey: '',
+          modelName: 'model-a',
+          apiType: 'openai',
+          priority: 0,
+          maxTokens: 2048,
+          temperature: 0.5,
+          extraParams: {
+            'presence_penalty': 0.3,
+            'frequency_penalty': 0.8,
+            'seed': 42,
+            'stop': ['END', 'STOP'],
+            'user': 'test-user',
+          },
+        ),
+        const [{'role': 'user', 'content': 'hello'}],
+      );
+
+      expect(requestBody?['max_tokens'], 2048);
+      expect(requestBody?['temperature'], 0.5);
+      expect(requestBody?['top_p'], isNull);
+      expect(requestBody?['presence_penalty'], 0.3);
+      expect(requestBody?['frequency_penalty'], 0.8);
+      expect(requestBody?['seed'], 42);
+      expect(requestBody?['stop'], ['END', 'STOP']);
+      expect(requestBody?['user'], 'test-user');
+    } finally {
+      await server.close(force: true);
+    }
+  });
+
+  test('internal extraParams keys are not leaked to OpenAI request body',
+      () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    Map<String, dynamic>? requestBody;
+    unawaited(
+      server.first.then((request) async {
+        requestBody =
+            jsonDecode(await utf8.decoder.bind(request).join())
+                as Map<String, dynamic>;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({
+            'choices': [
+              {
+                'message': {
+                  'role': 'assistant',
+                  'content': 'ok',
+                },
+              },
+            ],
+          }),
+        );
+        await request.response.close();
+      }),
+    );
+
+    try {
+      await ApiService().sendChatRequest(
+        ModelConfig(
+          id: 'm1',
+          name: 'Local',
+          endpoint: 'http://${server.address.host}:${server.port}',
+          apiKey: '',
+          modelName: 'model-a',
+          apiType: 'openai',
+          priority: 0,
+          extraParams: {
+            'debugSse': true,
+            'appId': 'secret-app',
+            'disableTools': true,
+            'thinkingBudgetTokens': 1024,
+            'user': 'real-user',
+          },
+        ),
+        const [{'role': 'user', 'content': 'hello'}],
+      );
+
+      expect(requestBody?['debugSse'], isNull);
+      expect(requestBody?['appId'], isNull);
+      expect(requestBody?['disableTools'], isNull);
+      expect(requestBody?['thinkingBudgetTokens'], isNull);
+      expect(requestBody?['user'], 'real-user');
+    } finally {
+      await server.close(force: true);
+    }
+  });
+
+  test('core OpenAI fields are not overwritten by extraParams', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    Map<String, dynamic>? requestBody;
+    unawaited(
+      server.first.then((request) async {
+        requestBody =
+            jsonDecode(await utf8.decoder.bind(request).join())
+                as Map<String, dynamic>;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({
+            'choices': [
+              {
+                'message': {
+                  'role': 'assistant',
+                  'content': 'ok',
+                },
+              },
+            ],
+          }),
+        );
+        await request.response.close();
+      }),
+    );
+
+    try {
+      await ApiService().sendChatRequest(
+        ModelConfig(
+          id: 'm1',
+          name: 'Local',
+          endpoint: 'http://${server.address.host}:${server.port}',
+          apiKey: '',
+          modelName: 'model-a',
+          apiType: 'openai',
+          priority: 0,
+          extraParams: {
+            'model': 'evil-model',
+            'messages': [],
+            'stream': 999,
+          },
+        ),
+        const [{'role': 'user', 'content': 'hello'}],
+      );
+
+      expect(requestBody?['model'], 'model-a');
+      expect((requestBody?['messages'] as List).isNotEmpty, isTrue);
+      expect(requestBody?['stream'], false);
+    } finally {
+      await server.close(force: true);
+    }
+  });
 }

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
@@ -329,13 +330,23 @@ class _EditModelPageState extends State<EditModelPage> {
   late TextEditingController _nameController,
       _endpointController,
       _apiKeyController,
-      _appIdController;
+      _appIdController,
+      _maxTokensController,
+      _temperatureController,
+      _topPController,
+      _presencePenaltyController,
+      _frequencyPenaltyController,
+      _seedController,
+      _stopController,
+      _userController;
   late TextEditingController _newModelController;
   late List<ModelEntry> _modelEntries;
   String _apiType = 'openai';
   bool _obscureApiKey = true;
   bool _showEndpointSuggestions = false;
   bool _isFetchingModels = false;
+  bool _showAdvancedOptions = false;
+  bool _debugSse = false;
   bool _saved = false;
   bool _closing = false;
   List<Map<String, dynamic>> _filteredPresets = [];
@@ -351,6 +362,8 @@ class _EditModelPageState extends State<EditModelPage> {
       widget.category.id == ModelConfig.categoryOcr ||
       widget.category.id == ModelConfig.categorySpeech;
   bool get hasChatStyleOptions => isChat || isImageGeneration;
+  bool get _isOpenAICompatible =>
+      _apiType == 'openai' || _apiType == 'custom';
 
   @override
   void initState() {
@@ -364,6 +377,32 @@ class _EditModelPageState extends State<EditModelPage> {
     _appIdController = TextEditingController(
       text: model?.extraParams['appId'] as String? ?? '',
     );
+    _maxTokensController = TextEditingController(
+      text: model?.maxTokens?.toString() ?? '',
+    );
+    _temperatureController = TextEditingController(
+      text: model?.temperature?.toString() ?? '',
+    );
+    _topPController = TextEditingController(
+      text: model?.topP?.toString() ?? '',
+    );
+    _presencePenaltyController = TextEditingController(
+      text: model?.extraParams['presence_penalty']?.toString() ?? '',
+    );
+    _frequencyPenaltyController = TextEditingController(
+      text: model?.extraParams['frequency_penalty']?.toString() ?? '',
+    );
+    _seedController = TextEditingController(
+      text: model?.extraParams['seed']?.toString() ?? '',
+    );
+    _stopController = TextEditingController(
+      text: (model?.extraParams['stop'] as List<dynamic>?)?.join('\n') ?? '',
+    );
+    _userController = TextEditingController(
+      text: model?.extraParams['user'] as String? ?? '',
+    );
+    _debugSse = model?.extraParams['debugSse'] == true;
+    _showAdvancedOptions = _debugSse;
     _newModelController = TextEditingController();
     _apiType =
         model?.apiType ??
@@ -413,6 +452,14 @@ class _EditModelPageState extends State<EditModelPage> {
     _endpointController.dispose();
     _apiKeyController.dispose();
     _appIdController.dispose();
+    _maxTokensController.dispose();
+    _temperatureController.dispose();
+    _topPController.dispose();
+    _presencePenaltyController.dispose();
+    _frequencyPenaltyController.dispose();
+    _seedController.dispose();
+    _stopController.dispose();
+    _userController.dispose();
     _newModelController.dispose();
     super.dispose();
   }
@@ -448,6 +495,7 @@ class _EditModelPageState extends State<EditModelPage> {
     final activeModelName =
         preservedActive ??
         (enabled.isNotEmpty ? enabled.first.name : entries.first.name);
+    final extraParams = _buildExtraParams();
     final config = ModelConfig(
       id: widget.model?.id ?? widget.provider.generateId(),
       name: _nameController.text.trim(),
@@ -459,12 +507,10 @@ class _EditModelPageState extends State<EditModelPage> {
       priority:
           widget.model?.priority ??
           widget.provider.nextPriorityForCategory(widget.category.id),
-      maxTokens: null,
-      temperature: null,
-      topP: null,
-      extraParams: needsAppId
-          ? {'appId': _appIdController.text.trim()}
-          : widget.model?.extraParams,
+      maxTokens: int.tryParse(_maxTokensController.text.trim()),
+      temperature: double.tryParse(_temperatureController.text.trim()),
+      topP: double.tryParse(_topPController.text.trim()),
+      extraParams: extraParams,
       models: entries,
     );
     if (isEditing) {
@@ -532,16 +578,150 @@ class _EditModelPageState extends State<EditModelPage> {
           _endpointController.text.trim().isNotEmpty ||
           _apiKeyController.text.trim().isNotEmpty ||
           _appIdController.text.trim().isNotEmpty ||
+          _maxTokensController.text.trim().isNotEmpty ||
+          _temperatureController.text.trim().isNotEmpty ||
+          _topPController.text.trim().isNotEmpty ||
+          _presencePenaltyController.text.trim().isNotEmpty ||
+          _frequencyPenaltyController.text.trim().isNotEmpty ||
+          _seedController.text.trim().isNotEmpty ||
+          _stopController.text.trim().isNotEmpty ||
+          _userController.text.trim().isNotEmpty ||
+          _debugSse ||
           _apiType != _defaultApiType ||
           (!isInterfaceOnly && currentEntries.isNotEmpty);
     }
     final originalAppId = original.extraParams['appId'] as String? ?? '';
+    final originalDebugSse = original.extraParams['debugSse'] == true;
     return _nameController.text.trim() != original.name ||
         _endpointController.text.trim() != original.endpoint ||
         _apiKeyController.text.trim() != original.apiKey ||
         _appIdController.text.trim() != originalAppId ||
+        _debugSse != originalDebugSse ||
         _apiType != original.apiType ||
-        !_sameModelEntries(currentEntries, original.models);
+        !_sameModelEntries(currentEntries, original.models) ||
+        (_maxTokensController.text.trim() !=
+            (original.maxTokens?.toString() ?? '')) ||
+        (_temperatureController.text.trim() !=
+            (original.temperature?.toString() ?? '')) ||
+        (_topPController.text.trim() !=
+            (original.topP?.toString() ?? '')) ||
+        _extraFieldChanged(
+          original,
+          'presence_penalty',
+          _presencePenaltyController,
+        ) ||
+        _extraFieldChanged(
+          original,
+          'frequency_penalty',
+          _frequencyPenaltyController,
+        ) ||
+        _extraIntFieldChanged(original, 'seed', _seedController) ||
+        _stopFieldChanged(original) ||
+        (_userController.text.trim() !=
+            (original.extraParams['user'] as String? ?? ''));
+  }
+
+  bool _extraFieldChanged(
+    ModelConfig original,
+    String key,
+    TextEditingController controller,
+  ) {
+    final origValue = original.extraParams[key];
+    final text = controller.text.trim();
+    if (text.isEmpty) return origValue != null;
+    final parsed = double.tryParse(text);
+    if (parsed == null) return origValue != null;
+    return parsed != (origValue as num?)?.toDouble();
+  }
+
+  bool _extraIntFieldChanged(
+    ModelConfig original,
+    String key,
+    TextEditingController controller,
+  ) {
+    final origValue = original.extraParams[key];
+    final text = controller.text.trim();
+    if (text.isEmpty) return origValue != null;
+    final parsed = int.tryParse(text);
+    if (parsed == null) return origValue != null;
+    return parsed != (origValue as num?)?.toInt();
+  }
+
+  bool _stopFieldChanged(ModelConfig original) {
+    final origList =
+        (original.extraParams['stop'] as List<dynamic>?) ?? const [];
+    final current = const LineSplitter()
+        .convert(_stopController.text.trim())
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    return !listEquals(current, origList);
+  }
+
+  Map<String, dynamic> _buildExtraParams() {
+    final extra = Map<String, dynamic>.from(widget.model?.extraParams ?? const {});
+    final appId = _appIdController.text.trim();
+    if (needsAppId) {
+      if (appId.isNotEmpty) {
+        extra['appId'] = appId;
+      } else {
+        extra.remove('appId');
+      }
+    } else {
+      extra.remove('appId');
+    }
+    if (isChat && _debugSse) {
+      extra['debugSse'] = true;
+    } else {
+      extra.remove('debugSse');
+    }
+    if (_isOpenAICompatible) {
+      _writeExtraNumber(extra, 'presence_penalty', _presencePenaltyController);
+      _writeExtraNumber(extra, 'frequency_penalty', _frequencyPenaltyController);
+      _writeExtraNumber(extra, 'seed', _seedController, isInt: true);
+      final stopText = _stopController.text.trim();
+      if (stopText.isNotEmpty) {
+        extra['stop'] = const LineSplitter()
+            .convert(stopText)
+            .map((s) => s.trim())
+            .where((s) => s.isNotEmpty)
+            .toList();
+      } else {
+        extra.remove('stop');
+      }
+      final userText = _userController.text.trim();
+      if (userText.isNotEmpty) {
+        extra['user'] = userText;
+      } else {
+        extra.remove('user');
+      }
+    } else {
+      extra.remove('presence_penalty');
+      extra.remove('frequency_penalty');
+      extra.remove('seed');
+      extra.remove('stop');
+      extra.remove('user');
+    }
+    return extra;
+  }
+
+  void _writeExtraNumber(
+    Map<String, dynamic> extra,
+    String key,
+    TextEditingController controller, {
+    bool isInt = false,
+  }) {
+    final text = controller.text.trim();
+    if (text.isEmpty) {
+      extra.remove(key);
+      return;
+    }
+    final value = isInt ? int.tryParse(text) : double.tryParse(text);
+    if (value != null) {
+      extra[key] = value;
+    } else {
+      extra.remove(key);
+    }
   }
 
   String get _defaultApiType => isChat
@@ -783,6 +963,10 @@ class _EditModelPageState extends State<EditModelPage> {
                     ),
                   ),
                 if (isChat) const SizedBox(height: 12),
+                if (isChat) ...[
+                  _advancedOptionsSection(),
+                  const SizedBox(height: 12),
+                ],
                 if (!isInterfaceOnly) _modelList(),
                 const SizedBox(height: 32),
                 ElevatedButton(
@@ -1026,6 +1210,123 @@ class _EditModelPageState extends State<EditModelPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _advancedOptionsSection() {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: ExpansionTile(
+        key: const PageStorageKey('api_model_advanced_options'),
+        initiallyExpanded: _showAdvancedOptions,
+        onExpansionChanged: (expanded) {
+          setState(() => _showAdvancedOptions = expanded);
+        },
+        leading: const Icon(Icons.tune),
+        title: const Text('高级选项'),
+        subtitle: const Text('采样参数与兼容性开关'),
+        childrenPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        children: [
+          if (hasChatStyleOptions) ...[
+            _advancedNumberField(
+              controller: _maxTokensController,
+              label: 'Max Tokens',
+              hint: 'Provider 级最大 Token 数，留空使用服务默认值',
+            ),
+            const SizedBox(height: 12),
+            _advancedNumberField(
+              controller: _temperatureController,
+              label: 'Temperature',
+              hint: 'Provider 级温度，留空使用服务默认值',
+              isDecimal: true,
+            ),
+            const SizedBox(height: 12),
+            _advancedNumberField(
+              controller: _topPController,
+              label: 'Top P',
+              hint: 'Provider 级核采样，留空使用服务默认值',
+              isDecimal: true,
+            ),
+            const SizedBox(height: 16),
+          ],
+          if (_isOpenAICompatible) ...[
+            _advancedNumberField(
+              controller: _presencePenaltyController,
+              label: 'Presence Penalty',
+              hint: '-2.0 到 2.0，正值增加新话题倾向',
+              isDecimal: true,
+            ),
+            const SizedBox(height: 12),
+            _advancedNumberField(
+              controller: _frequencyPenaltyController,
+              label: 'Frequency Penalty',
+              hint: '-2.0 到 2.0，正值减少重复',
+              isDecimal: true,
+            ),
+            const SizedBox(height: 12),
+            _advancedNumberField(
+              controller: _seedController,
+              label: 'Seed',
+              hint: '整数种子值，使输出可复现',
+              isInt: true,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _stopController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Stop',
+                hintText: '停止词列表，每行一个',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _userController,
+              decoration: const InputDecoration(
+                labelText: 'User',
+                hintText: '终端用户标识符',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('SSE 调试日志'),
+            subtitle: const Text('打印流式请求摘要、原始 SSE chunk 和 tool call 解析结果'),
+            value: _debugSse,
+            onChanged: (value) {
+              setState(() => _debugSse = value);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _advancedNumberField({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    bool isDecimal = false,
+    bool isInt = false,
+  }) {
+    TextInputType keyboardType = TextInputType.number;
+    if (isDecimal) {
+      keyboardType = const TextInputType.numberWithOptions(decimal: true);
+    }
+    return TextField(
+      controller: controller,
+      keyboardType: keyboardType,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        border: const OutlineInputBorder(),
+        isDense: true,
       ),
     );
   }
