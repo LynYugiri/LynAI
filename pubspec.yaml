@@ -31,6 +31,10 @@ dependencies:
   flutter:
     sdk: flutter
 
+  # Used for FluentLocalizations support on Windows.
+  flutter_localizations:
+    sdk: flutter
+
   cupertino_icons: ^1.0.8
   provider: ^6.1.2
   uuid: ^4.5.1
@@ -59,6 +63,7 @@ dependencies:
   sqlite3_flutter_libs: ^0.6.0+eol
   lua_dardo: ^0.0.5
   ffi: ^2.1.4
+  fluent_ui: ^4.15.1
 
 dev_dependencies:
   flutter_test:
@@ -104,6 +109,11 @@ flutter:
           weight: 700
         - asset: assets/fonts/HurmitNerdFont-Italic.otf
           style: italic
+    - family: monospace
+      fonts:
+        - asset: assets/fonts/HurmitNerdFont-Regular.otf
+        - asset: assets/fonts/HurmitNerdFont-Bold.otf
+          weight: 700
 
   # To add assets to your application, add an assets section, like this:
   # assets:

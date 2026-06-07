@@ -1,6 +1,11 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
+// flutter_localizations is used on Windows via FluentApp builder.
+// ignore: unused_import
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:fluent_ui/fluent_ui.dart' as fluent;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'providers/conversation_provider.dart';
@@ -215,8 +220,97 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>().settings;
-
     final settingsProvider = context.read<SettingsProvider>();
+
+    final home = _isLoading
+        ? const _SplashScreen()
+        : _hasError
+            ? _ErrorScreen(message: _errorMessage)
+            : const HomePage();
+
+    if (Platform.isWindows) {
+      return _buildWindowsApp(settings, settingsProvider, home);
+    }
+    return _buildDefaultApp(settings, settingsProvider, home);
+  }
+
+  Widget _buildWindowsApp(
+    dynamic settings,
+    SettingsProvider settingsProvider,
+    Widget home,
+  ) {
+    final accentColor = _toAccentColor(settings.themeColor);
+
+    final lightMaterialTheme = ThemeData(
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: settings.themeColor,
+        brightness: Brightness.light,
+      ),
+      useMaterial3: true,
+      appBarTheme: const AppBarTheme(centerTitle: true, elevation: 0),
+      cardTheme: CardThemeData(
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+    final darkMaterialTheme = ThemeData(
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: settings.themeColor,
+        brightness: Brightness.dark,
+      ),
+      useMaterial3: true,
+      appBarTheme: const AppBarTheme(centerTitle: true, elevation: 0),
+      cardTheme: CardThemeData(
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+
+    return fluent.FluentApp(
+      navigatorKey: _navigatorKey,
+      title: 'LynAI',
+      debugShowCheckedModeBanner: false,
+      theme: fluent.FluentThemeData(
+        accentColor: accentColor,
+        brightness: Brightness.light,
+      ),
+      darkTheme: fluent.FluentThemeData(
+        accentColor: accentColor,
+        brightness: Brightness.dark,
+      ),
+      themeMode: settingsProvider.themeModeEnum,
+      localizationsDelegates: const [
+        fluent.FluentLocalizations.delegate,
+        DefaultMaterialLocalizations.delegate,
+        DefaultWidgetsLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('zh', 'CN'),
+        Locale('en', 'US'),
+      ],
+      home: home,
+      builder: (context, child) {
+        final fluentTheme = fluent.FluentTheme.of(context);
+        final isDark = fluentTheme.brightness == Brightness.dark;
+        return Theme(
+          data: isDark ? darkMaterialTheme : lightMaterialTheme,
+          child: DefaultTextStyle.merge(
+            style: const TextStyle(
+              fontFamily: 'Microsoft YaHei',
+              fontFamilyFallback: ['Segoe UI', 'Arial'],
+            ),
+            child: child!,
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDefaultApp(
+    dynamic settings,
+    SettingsProvider settingsProvider,
+    Widget home,
+  ) {
     return MaterialApp(
       navigatorKey: _navigatorKey,
       title: 'LynAI',
@@ -230,9 +324,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         appBarTheme: const AppBarTheme(centerTitle: true, elevation: 0),
         cardTheme: CardThemeData(
           elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       ),
       darkTheme: ThemeData(
@@ -244,19 +336,26 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         appBarTheme: const AppBarTheme(centerTitle: true, elevation: 0),
         cardTheme: CardThemeData(
           elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       ),
       themeMode: settingsProvider.themeModeEnum,
-      // 加载完成后显示主页面，否则显示启动画面或错误
-      home: _isLoading
-          ? const _SplashScreen()
-          : _hasError
-          ? _ErrorScreen(message: _errorMessage)
-          : const HomePage(),
+      home: home,
     );
+  }
+
+  /// 将用户选的主题色转换为 fluent_ui 的 AccentColor。
+  static fluent.AccentColor _toAccentColor(Color base) {
+    final hsl = HSLColor.fromColor(base);
+    return fluent.AccentColor.swatch({
+      'darkest': hsl.withLightness((hsl.lightness - 0.3).clamp(0.0, 1.0)).toColor(),
+      'darker': hsl.withLightness((hsl.lightness - 0.15).clamp(0.0, 1.0)).toColor(),
+      'dark': hsl.withLightness((hsl.lightness - 0.07).clamp(0.0, 1.0)).toColor(),
+      'normal': base,
+      'light': hsl.withLightness((hsl.lightness + 0.1).clamp(0.0, 1.0)).toColor(),
+      'lighter': hsl.withLightness((hsl.lightness + 0.2).clamp(0.0, 1.0)).toColor(),
+      'lightest': hsl.withLightness((hsl.lightness + 0.3).clamp(0.0, 1.0)).toColor(),
+    });
   }
 }
 
