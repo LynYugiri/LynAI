@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/changelog_entry.dart';
+import 'latex_renderer.dart';
 
 enum ChangelogDialogAction { dismiss, viewAll }
 
@@ -130,9 +131,9 @@ class _ChangelogDialog extends StatelessWidget {
                           ),
                           const SizedBox(width: 8),
                           Expanded(
-                            child: Text(
-                              item,
-                              style: const TextStyle(fontSize: 14),
+                            child: MarkdownWithLatex(
+                              content: item,
+                              selectable: false,
                             ),
                           ),
                         ],

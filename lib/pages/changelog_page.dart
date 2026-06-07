@@ -4,6 +4,7 @@ import '../models/app_settings.dart';
 import '../models/changelog_entry.dart';
 import '../providers/settings_provider.dart';
 import '../utils/changelog_parser.dart';
+import '../widgets/latex_renderer.dart';
 
 class ChangelogPage extends StatefulWidget {
   const ChangelogPage({super.key});
@@ -166,9 +167,9 @@ class _VersionCardState extends State<_VersionCard> {
                                 ),
                                 const SizedBox(width: 6),
                                 Expanded(
-                                  child: Text(
-                                    item,
-                                    style: const TextStyle(fontSize: 14),
+                                  child: MarkdownWithLatex(
+                                    content: item,
+                                    selectable: false,
                                   ),
                                 ),
                               ],
