@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -101,12 +100,7 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
 
   @override
   void dispose() {
-    final controller = _webCtrl;
-    if (controller != null) {
-      unawaited(_cleanupMathLiveEditor());
-      _webCtrl = null;
-      unawaited(_disposePlatformWebView(controller));
-    }
+    unawaited(_cleanupMathLiveEditor());
     _readyTimeout?.cancel();
     _rawCtrl.dispose();
     super.dispose();
@@ -402,23 +396,12 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
 
   Future<void> _detachWebView() async {
     await _cleanupMathLiveEditor();
-    final controller = _webCtrl;
     if (!mounted || !_webViewActive) return;
     setState(() {
       _webViewActive = false;
       _keyboardVisible = false;
     });
     await Future<void>.delayed(const Duration(milliseconds: 90));
-    _webCtrl = null;
-    if (controller != null) await _disposePlatformWebView(controller);
-  }
-
-  Future<void> _disposePlatformWebView(WebViewController controller) async {
-    if (!Platform.isLinux && !Platform.isWindows) return;
-    try {
-      final platform = controller.platform as dynamic;
-      await platform.dispose();
-    } catch (_) {}
   }
 
   Future<void> _closeEditor() async {

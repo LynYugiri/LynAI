@@ -1270,12 +1270,11 @@ packages:
     source: hosted
     version: "1.0.3"
   webview_all_linux:
-    dependency: transitive
+    dependency: "direct overridden"
     description:
-      name: webview_all_linux
-      sha256: "328d63ec38d4f0626fd0f7eec9ad47601cff4874b28d6ef56bbd0d663d206caf"
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/webview_all_linux"
+      relative: true
+    source: path
     version: "0.5.4"
   webview_all_web:
     dependency: transitive

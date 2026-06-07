@@ -7,8 +7,8 @@
 :root {
   color-scheme: dark;
   --bg: #070a12;
-  --panel: rgba(14, 20, 34, 0.72);
-  --panel-strong: rgba(18, 27, 46, 0.88);
+  --panel: rgba(14, 20, 34, 0.94);
+  --panel-strong: rgba(18, 27, 46, 0.96);
   --line: rgba(148, 163, 184, 0.16);
   --text: #f7fbff;
   --muted: rgba(203, 213, 225, 0.68);
@@ -29,6 +29,7 @@ body {
     radial-gradient(circle at 12% 8%, rgba(56, 213, 255, 0.22), transparent 28%),
     radial-gradient(circle at 88% 20%, rgba(167, 139, 250, 0.2), transparent 30%),
     linear-gradient(145deg, #050712 0%, #0b1020 48%, #080b13 100%);
+  background-color: var(--bg);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -41,7 +42,7 @@ body::before {
     linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
   background-size: 42px 42px;
-  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), transparent 72%);
+  opacity: 0.34;
 }
 
 .shell {
@@ -56,8 +57,7 @@ body::before {
   overflow: hidden;
   border: 1px solid var(--line);
   background: var(--panel);
-  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.26);
-  backdrop-filter: blur(22px);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
 }
 
 .panel::after,
@@ -67,7 +67,7 @@ body::before {
   inset: 0;
   pointer-events: none;
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.16), transparent 34%);
-  opacity: 0.5;
+  opacity: 0.28;
 }
 
 .hero {
@@ -90,6 +90,7 @@ body::before {
 
 h1 {
   margin-top: 8px;
+  font-size: 42px;
   font-size: clamp(32px, 8vw, 56px);
   line-height: 0.95;
   letter-spacing: -0.08em;
@@ -212,6 +213,7 @@ h1 {
   z-index: 1;
   margin-top: 24px;
   color: #ffffff;
+  font-size: 44px;
   font-size: clamp(34px, 8vw, 50px);
   font-weight: 850;
   letter-spacing: -0.07em;
@@ -322,6 +324,7 @@ h1 {
 
 .weather-temp {
   color: #c8f7ff;
+  font-size: 52px;
   font-size: clamp(42px, 12vw, 62px);
   font-weight: 850;
   letter-spacing: -0.08em;
