@@ -56,7 +56,9 @@ android {
         applicationId = "com.github.lynyugiri.lynai"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        // Flutter 3.44 currently defaults to API 24; keep it explicit so the
+        // supported Android floor stays stable across Flutter upgrades.
+        minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

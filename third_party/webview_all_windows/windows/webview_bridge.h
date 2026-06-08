@@ -23,6 +23,9 @@ class WebviewBridge {
 
   int64_t texture_id() const { return texture_id_; }
 
+  void Suspend();
+  void Resume();
+
  private:
   std::unique_ptr<flutter::TextureVariant> flutter_texture_;
   std::unique_ptr<TextureBridge> texture_bridge_;
@@ -35,6 +38,7 @@ class WebviewBridge {
 
   flutter::TextureRegistrar* texture_registrar_;
   int64_t texture_id_;
+  bool is_suspended_ = false;
 
   void HandleMethodCall(
       const flutter::MethodCall<flutter::EncodableValue>& method_call,

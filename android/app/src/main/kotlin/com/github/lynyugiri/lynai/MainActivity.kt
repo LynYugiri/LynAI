@@ -1,12 +1,6 @@
 package com.github.lynyugiri.lynai
 
 import android.Manifest
-import android.app.Activity
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.PorterDuff
-import android.graphics.Rect
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -16,29 +10,19 @@ import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
-import android.os.Handler
-import android.os.Looper
 import android.provider.MediaStore
-import android.view.PixelCopy
-import android.view.ScrollCaptureCallback
-import android.view.ScrollCaptureSession
-import android.view.View
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
-import java.util.function.Consumer
 
 class MainActivity : FlutterActivity() {
     private var pendingLocationResult: MethodChannel.Result? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            window.decorView.scrollCaptureHint = View.SCROLL_CAPTURE_HINT_INCLUDE
-        }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -93,12 +77,10 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            FlutterScrollCaptureCallback(
-                this,
-                MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "lynai/scroll_capture")
-            ).install(window.decorView)
-        }
+        installFlutterScrollCaptureIfSupported(
+            this,
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "lynai/scroll_capture")
+        )
     }
 
     private fun startGenerationService() {
@@ -256,170 +238,4 @@ class MainActivity : FlutterActivity() {
         private const val LOCATION_REQUEST_CODE = 7811
         private const val NOTIFICATION_REQUEST_CODE = 7812
     }
-}
-
-private data class ScrollCaptureMetrics(
-    val bounds: Rect,
-    val devicePixelRatio: Double,
-    val maxOffset: Double
-)
-
-private class FlutterScrollCaptureCallback(
-    private val activity: Activity,
-    private val channel: MethodChannel
-) : ScrollCaptureCallback {
-    private val handler = Handler(Looper.getMainLooper())
-    private var metrics: ScrollCaptureMetrics? = null
-
-    fun install(view: View) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
-        view.scrollCaptureHint = View.SCROLL_CAPTURE_HINT_INCLUDE
-        view.setScrollCaptureCallback(this)
-    }
-
-    override fun onScrollCaptureSearch(
-        signal: android.os.CancellationSignal,
-        onReady: Consumer<Rect>
-    ) {
-        requestMetrics { next ->
-            metrics = next
-            onReady.accept(next?.bounds ?: Rect())
-        }
-    }
-
-    override fun onScrollCaptureStart(
-        session: ScrollCaptureSession,
-        signal: android.os.CancellationSignal,
-        onReady: Runnable
-    ) {
-        invokeMap("begin", null) {
-            onReady.run()
-        }
-    }
-
-    override fun onScrollCaptureImageRequest(
-        session: ScrollCaptureSession,
-        signal: android.os.CancellationSignal,
-        captureArea: Rect,
-        onComplete: Consumer<Rect>
-    ) {
-        val current = metrics
-        if (current == null || signal.isCanceled) {
-            onComplete.accept(Rect())
-            return
-        }
-        val targetOffset = (captureArea.top / current.devicePixelRatio)
-            .coerceIn(0.0, current.maxOffset)
-        invokeMap("scrollTo", targetOffset) { result ->
-            if (result?.get("ok") != true || signal.isCanceled) {
-                onComplete.accept(Rect())
-                return@invokeMap
-            }
-            copyVisibleBoundsToSession(session, current.bounds, captureArea, onComplete)
-        }
-    }
-
-    override fun onScrollCaptureEnd(onReady: Runnable) {
-        invokeMap("restore", null) {
-            metrics = null
-            onReady.run()
-        }
-    }
-
-    private fun requestMetrics(onResult: (ScrollCaptureMetrics?) -> Unit) {
-        invokeMap("getMetrics", null) { result ->
-            if (result?.get("ok") != true) {
-                onResult(null)
-                return@invokeMap
-            }
-            val ratio = result.doubleValue("devicePixelRatio") ?: 1.0
-            val bounds = Rect(
-                result.pixelValue("left", ratio),
-                result.pixelValue("top", ratio),
-                result.pixelValue("right", ratio),
-                result.pixelValue("bottom", ratio)
-            )
-            if (bounds.isEmpty) {
-                onResult(null)
-                return@invokeMap
-            }
-            onResult(
-                ScrollCaptureMetrics(
-                    bounds = bounds,
-                    devicePixelRatio = ratio,
-                    maxOffset = result.doubleValue("maxOffset") ?: 0.0
-                )
-            )
-        }
-    }
-
-    private fun copyVisibleBoundsToSession(
-        session: ScrollCaptureSession,
-        bounds: Rect,
-        captureArea: Rect,
-        onComplete: Consumer<Rect>
-    ) {
-        val bitmap = Bitmap.createBitmap(bounds.width(), bounds.height(), Bitmap.Config.ARGB_8888)
-        PixelCopy.request(activity.window, bounds, bitmap, { copyResult ->
-            if (copyResult != PixelCopy.SUCCESS) {
-                onComplete.accept(Rect())
-                return@request
-            }
-            val canvas = session.surface.lockCanvas(null)
-            try {
-                clearCanvas(canvas)
-                canvas.drawBitmap(bitmap, 0f, 0f, null)
-            } finally {
-                session.surface.unlockCanvasAndPost(canvas)
-                bitmap.recycle()
-            }
-            onComplete.accept(
-                Rect(
-                    captureArea.left,
-                    captureArea.top,
-                    captureArea.left + bounds.width(),
-                    captureArea.top + bounds.height()
-                )
-            )
-        }, handler)
-    }
-
-    private fun clearCanvas(canvas: Canvas) {
-        if (canvas.isOpaque) {
-            canvas.drawColor(Color.WHITE)
-        } else {
-            canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-        }
-    }
-
-    private fun invokeMap(
-        method: String,
-        arguments: Any?,
-        onResult: (Map<String, Any?>?) -> Unit
-    ) {
-        handler.post {
-            channel.invokeMethod(method, arguments, object : MethodChannel.Result {
-                override fun success(result: Any?) {
-                    @Suppress("UNCHECKED_CAST")
-                    onResult(result as? Map<String, Any?>)
-                }
-
-                override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) {
-                    onResult(null)
-                }
-
-                override fun notImplemented() {
-                    onResult(null)
-                }
-            })
-        }
-    }
-}
-
-private fun Map<String, Any?>.doubleValue(key: String): Double? {
-    return (this[key] as? Number)?.toDouble()
-}
-
-private fun Map<String, Any?>.pixelValue(key: String, devicePixelRatio: Double): Int {
-    return ((doubleValue(key) ?: 0.0) * devicePixelRatio).toInt()
 }

@@ -195,9 +195,26 @@ WebviewBridge::WebviewBridge(flutter::BinaryMessenger* messenger,
 
 WebviewBridge::~WebviewBridge() {
   method_channel_->SetMethodCallHandler(nullptr);
+  Suspend();
+  texture_registrar_->UnregisterTexture(texture_id_);
+}
+
+void WebviewBridge::Suspend() {
+  if (is_suspended_) {
+    return;
+  }
+  is_suspended_ = true;
   texture_bridge_->Stop();
   webview_->Suspend();
-  texture_registrar_->UnregisterTexture(texture_id_);
+}
+
+void WebviewBridge::Resume() {
+  if (!is_suspended_) {
+    return;
+  }
+  is_suspended_ = false;
+  webview_->Resume();
+  texture_bridge_->Start();
 }
 
 void WebviewBridge::RegisterEventHandlers() {

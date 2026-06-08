@@ -47,6 +47,10 @@ bool TextureBridge::Start() {
     return false;
   }
 
+  last_frame_ = nullptr;
+  last_frame_timestamp_.reset();
+  needs_update_ = false;
+
   ABI::Windows::Graphics::SizeInt32 size;
   capture_item_->get_Size(&size);
 
@@ -73,6 +77,7 @@ bool TextureBridge::Start() {
   if (FAILED(frame_pool_->CreateCaptureSession(capture_item_.get(),
                                                capture_session_.put()))) {
     std::cerr << "Creating capture session failed." << std::endl;
+    frame_pool_ = nullptr;
     return false;
   }
 
@@ -81,6 +86,8 @@ bool TextureBridge::Start() {
     return true;
   }
 
+  capture_session_ = nullptr;
+  frame_pool_ = nullptr;
   return false;
 }
 
@@ -92,13 +99,20 @@ void TextureBridge::Stop() {
 void TextureBridge::StopInternal() {
   if (is_running_) {
     is_running_ = false;
-    frame_pool_->remove_FrameArrived(on_frame_arrived_token_);
+    if (frame_pool_) {
+      frame_pool_->remove_FrameArrived(on_frame_arrived_token_);
+    }
     auto closable =
         capture_session_.try_as<ABI::Windows::Foundation::IClosable>();
-    assert(closable);
-    closable->Close();
+    if (closable) {
+      closable->Close();
+    }
     capture_session_ = nullptr;
   }
+  frame_pool_ = nullptr;
+  last_frame_ = nullptr;
+  last_frame_timestamp_.reset();
+  needs_update_ = false;
 }
 
 void TextureBridge::OnFrameArrived() {

@@ -32,16 +32,6 @@ constexpr auto kErrorCodeEnvironmentAlreadyInitialized =
 constexpr auto kErrorCodeWebviewCreationFailed = "webview_creation_failed";
 constexpr auto kErrorUnsupportedPlatform = "unsupported_platform";
 
-HWND ResolveHostWindow() {
-  HWND window = GetActiveWindow();
-  if (!window) window = GetForegroundWindow();
-  if (!window) return nullptr;
-  window = GetAncestor(window, GA_ROOT);
-  DWORD process_id = 0;
-  GetWindowThreadProcessId(window, &process_id);
-  return process_id == GetCurrentProcessId() ? window : nullptr;
-}
-
 template <typename T>
 std::optional<T> GetOptionalValue(const flutter::EncodableMap& map,
                                   const std::string& key) {
@@ -60,20 +50,27 @@ class WebviewWindowsPlugin : public flutter::Plugin {
   static void RegisterWithRegistrar(flutter::PluginRegistrarWindows* registrar);
 
   WebviewWindowsPlugin(flutter::TextureRegistrar* textures,
-                       flutter::BinaryMessenger* messenger);
+                       flutter::BinaryMessenger* messenger,
+                       HWND host_window);
 
   virtual ~WebviewWindowsPlugin();
+
+  void RegisterWindowProcDelegate(flutter::PluginRegistrarWindows* registrar);
 
  private:
   std::unique_ptr<WebviewPlatform> platform_;
   std::unique_ptr<WebviewHost> webview_host_;
   std::unordered_map<int64_t, std::unique_ptr<WebviewBridge>> instances_;
 
-  WNDCLASS window_class_ = {};
   flutter::TextureRegistrar* textures_;
   flutter::BinaryMessenger* messenger_;
+  HWND host_window_;
+  flutter::PluginRegistrarWindows* registrar_ = nullptr;
+  int top_level_window_proc_id_ = -1;
 
   bool InitPlatform();
+  void SuspendAllWebviews();
+  void ResumeAllWebviews();
 
   void CreateWebviewInstance(
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>);
@@ -86,13 +83,18 @@ class WebviewWindowsPlugin : public flutter::Plugin {
 // static
 void WebviewWindowsPlugin::RegisterWithRegistrar(
     flutter::PluginRegistrarWindows* registrar) {
+  HWND host_window = nullptr;
+  if (auto* view = registrar->GetView()) {
+    host_window = view->GetNativeWindow();
+  }
   auto channel =
       std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
           registrar->messenger(), "io.jns.webview.win",
           &flutter::StandardMethodCodec::GetInstance());
 
   auto plugin = std::make_unique<WebviewWindowsPlugin>(
-      registrar->texture_registrar(), registrar->messenger());
+      registrar->texture_registrar(), registrar->messenger(), host_window);
+  plugin->RegisterWindowProcDelegate(registrar);
 
   channel->SetMethodCallHandler(
       [plugin_pointer = plugin.get()](const auto& call, auto result) {
@@ -103,16 +105,53 @@ void WebviewWindowsPlugin::RegisterWithRegistrar(
 }
 
 WebviewWindowsPlugin::WebviewWindowsPlugin(flutter::TextureRegistrar* textures,
-                                           flutter::BinaryMessenger* messenger)
-    : textures_(textures), messenger_(messenger) {
-  window_class_.lpszClassName = L"FlutterWebviewMessage";
-  window_class_.lpfnWndProc = &DefWindowProc;
-  RegisterClass(&window_class_);
-}
+                                           flutter::BinaryMessenger* messenger,
+                                           HWND host_window)
+    : textures_(textures), messenger_(messenger), host_window_(host_window) {}
 
 WebviewWindowsPlugin::~WebviewWindowsPlugin() {
+  if (registrar_ != nullptr && top_level_window_proc_id_ != -1) {
+    registrar_->UnregisterTopLevelWindowProcDelegate(top_level_window_proc_id_);
+  }
   instances_.clear();
-  UnregisterClass(window_class_.lpszClassName, nullptr);
+}
+
+void WebviewWindowsPlugin::RegisterWindowProcDelegate(
+    flutter::PluginRegistrarWindows* registrar) {
+  registrar_ = registrar;
+  top_level_window_proc_id_ = registrar->RegisterTopLevelWindowProcDelegate(
+      [this](HWND hwnd, UINT message, WPARAM wparam,
+             LPARAM lparam) -> std::optional<LRESULT> {
+        switch (message) {
+          case WM_ACTIVATEAPP:
+            if (wparam == 0) {
+              SuspendAllWebviews();
+            } else {
+              ResumeAllWebviews();
+            }
+            break;
+          case WM_SIZE:
+            if (wparam == SIZE_MINIMIZED) {
+              SuspendAllWebviews();
+            } else if (wparam == SIZE_RESTORED || wparam == SIZE_MAXIMIZED) {
+              ResumeAllWebviews();
+            }
+            break;
+        }
+        return std::nullopt;
+      });
+}
+
+void WebviewWindowsPlugin::SuspendAllWebviews() {
+  for (const auto& item : instances_) {
+    item.second->Suspend();
+  }
+}
+
+void WebviewWindowsPlugin::ResumeAllWebviews() {
+  for (const auto& item : instances_) {
+    item.second->Resume();
+  }
 }
 
 void WebviewWindowsPlugin::HandleMethodCall(
@@ -195,6 +234,10 @@ void WebviewWindowsPlugin::CreateWebviewInstance(
     return result->Error(kErrorUnsupportedPlatform,
                          "The platform is not supported");
   }
+  if (!host_window_) {
+    return result->Error(kErrorCodeWebviewCreationFailed,
+                         "The Flutter host window is unavailable.");
+  }
 
   if (!webview_host_) {
     webview_host_ = std::move(WebviewHost::Create(
@@ -204,24 +247,13 @@ void WebviewWindowsPlugin::CreateWebviewInstance(
     }
   }
 
-  const auto host_window = ResolveHostWindow();
-  auto hwnd = CreateWindowEx(
-      WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, window_class_.lpszClassName, L"",
-      WS_POPUP, 0, 0, 0, 0, host_window, nullptr, window_class_.hInstance,
-      nullptr);
-  if (!hwnd) {
-    return result->Error(kErrorCodeWebviewCreationFailed,
-                         "Creating the webview host window failed.");
-  }
-
   std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>>
       shared_result = std::move(result);
   webview_host_->CreateWebview(
-      hwnd, true, true,
-      [shared_result, this, hwnd](std::unique_ptr<Webview> webview,
-                                  std::unique_ptr<WebviewCreationError> error) {
+      host_window_, true, false,
+      [shared_result, this](std::unique_ptr<Webview> webview,
+                            std::unique_ptr<WebviewCreationError> error) {
         if (!webview) {
-          DestroyWindow(hwnd);
           if (error) {
             return shared_result->Error(
                 kErrorCodeWebviewCreationFailed,
