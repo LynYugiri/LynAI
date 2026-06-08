@@ -1322,12 +1322,11 @@ packages:
     source: hosted
     version: "0.5.2"
   webview_all_windows:
-    dependency: transitive
+    dependency: "direct overridden"
     description:
-      name: webview_all_windows
-      sha256: "6bcd9173ea709976005c96dcef75d596d6e2a58192e859f574d305dbee9954b6"
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/webview_all_windows"
+      relative: true
+    source: path
     version: "0.5.2"
   webview_flutter_android:
     dependency: transitive

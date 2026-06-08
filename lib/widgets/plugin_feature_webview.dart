@@ -77,7 +77,9 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
   @override
   void dispose() {
     _loadGeneration++;
+    final controller = _controller;
     _controller = null;
+    if (controller != null) unawaited(_disposeWindowsWebView(controller));
     final renderRoot = _activeRenderRoot;
     if (renderRoot != null) unawaited(_deleteDirectory(renderRoot));
     super.dispose();
@@ -132,10 +134,16 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
           onWebResourceError: (error) {
             if (error.isForMainFrame == false) return;
             if (!mounted || generation != _loadGeneration) return;
+            final failedController = _controller == controller
+                ? controller
+                : null;
             setState(() {
               _controller = null;
               _error = '插件页面加载失败: ${error.description}';
             });
+            if (failedController != null) {
+              unawaited(_disposeWindowsWebView(failedController));
+            }
           },
           onNavigationRequest: (request) {
             return _isAllowedNavigation(request.url, renderRoot)
@@ -154,11 +162,13 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
 
   /// 从 Flutter 树中移除当前 WebView，让 webview_all 自行恢复原生输入区域。
   Future<void> _detachCurrentWebView() async {
-    if (_controller == null) return;
+    final controller = _controller;
+    if (controller == null) return;
     if (mounted) {
       setState(() => _controller = null);
     }
     await _waitForNativeWebViewDetach();
+    await _disposeWindowsWebView(controller);
   }
 
   /// 桌面端 WebView 是原生 overlay/texture，需要给一帧时间处理隐藏和输入区域恢复。
@@ -166,6 +176,15 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     if (!Platform.isLinux && !Platform.isWindows) return;
     await WidgetsBinding.instance.endOfFrame;
     await Future<void>.delayed(const Duration(milliseconds: 80));
+  }
+
+  /// Windows 的 webview_all 需要显式释放原生实例，否则桌面输入层可能残留。
+  Future<void> _disposeWindowsWebView(WebViewController controller) async {
+    if (!Platform.isWindows) return;
+    try {
+      final platform = controller.platform as dynamic;
+      await platform.dispose();
+    } catch (_) {}
   }
 
   /// 构建 WebView 渲染目录，使相对资源也按“根目录覆盖 defaults/”解析。
