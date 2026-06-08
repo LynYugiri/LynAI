@@ -123,6 +123,7 @@ class WindowsWebViewController extends PlatformWebViewController {
   bool _canGoBack = false;
   bool _canGoForward = false;
   bool _scrollBridgeInstalled = false;
+  bool _disposed = false;
   String? _consoleBridgeScriptId;
 
   void Function(JavaScriptConsoleMessage)? _onConsoleMessageCallback;
@@ -185,7 +186,38 @@ class WindowsWebViewController extends PlatformWebViewController {
   }
 
   Future<void> _ensureInitialized() async {
+    if (_disposed) {
+      throw StateError('This WindowsWebViewController has been disposed.');
+    }
     await _initializationFuture!;
+  }
+
+  /// Releases the native WebView2 instance and its graphics capture resources.
+  Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
+
+    try {
+      await _initializationFuture;
+    } catch (_) {
+      // Initialization failures are handled by callers; disposal remains best effort.
+    }
+
+    for (final subscription in _subscriptions) {
+      await subscription.cancel();
+    }
+    _subscriptions.clear();
+
+    for (final host in _virtualHostMappings.keys.toList(growable: false)) {
+      try {
+        await _webviewController.removeVirtualHostNameMapping(host);
+      } catch (_) {}
+    }
+    _virtualHostMappings.clear();
+
+    try {
+      await _webviewController.dispose();
+    } catch (_) {}
   }
 
   void _handleUrlChanged(String url) {

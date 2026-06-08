@@ -79,7 +79,7 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     _loadGeneration++;
     final controller = _controller;
     _controller = null;
-    if (controller != null) unawaited(_disposeWindowsWebView(controller));
+    if (controller != null) unawaited(_disposeDesktopWebView(controller));
     final renderRoot = _activeRenderRoot;
     if (renderRoot != null) unawaited(_deleteDirectory(renderRoot));
     super.dispose();
@@ -142,7 +142,7 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
               _error = '插件页面加载失败: ${error.description}';
             });
             if (failedController != null) {
-              unawaited(_disposeWindowsWebView(failedController));
+              unawaited(_disposeDesktopWebView(failedController));
             }
           },
           onNavigationRequest: (request) {
@@ -168,7 +168,7 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
       setState(() => _controller = null);
     }
     await _waitForNativeWebViewDetach();
-    await _disposeWindowsWebView(controller);
+    await _disposeDesktopWebView(controller);
   }
 
   /// 桌面端 WebView 是原生 overlay/texture，需要给一帧时间处理隐藏和输入区域恢复。
@@ -178,13 +178,15 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     await Future<void>.delayed(const Duration(milliseconds: 80));
   }
 
-  /// Windows 的 webview_all 需要显式释放原生实例，否则桌面输入层可能残留。
-  Future<void> _disposeWindowsWebView(WebViewController controller) async {
-    if (!Platform.isWindows) return;
+  /// 桌面端 webview_all 需要显式释放原生实例，否则原生输入层可能残留。
+  Future<void> _disposeDesktopWebView(WebViewController controller) async {
+    if (!Platform.isWindows && !Platform.isLinux) return;
     try {
       final platform = controller.platform as dynamic;
       await platform.dispose();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('释放桌面 WebView 失败: $e');
+    }
   }
 
   /// 构建 WebView 渲染目录，使相对资源也按“根目录覆盖 defaults/”解析。
