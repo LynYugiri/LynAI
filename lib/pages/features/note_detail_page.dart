@@ -30,6 +30,7 @@ class _NoteDetail extends StatefulWidget {
 /// 版本时间线、分页选择等全部编辑态。
 class _NoteDetailState extends State<_NoteDetail> {
   static const _nativeTools = MethodChannel('lynai/native_tools');
+  static const _editHistoryLimit = 100;
 
   final _shot = ScreenshotController();
   late final TextEditingController _ctrl;
@@ -1206,6 +1207,7 @@ class _NoteDetailState extends State<_NoteDetail> {
           afterSelection: _ctrl.selection,
         ),
       );
+      _trimEditHistory(_undoStack);
       _redoStack.clear();
     }
     if (textChanged && _showFind) _refreshMatches();
@@ -1380,6 +1382,7 @@ class _NoteDetailState extends State<_NoteDetail> {
     if (_undoStack.isEmpty) return;
     final step = _undoStack.removeLast();
     _redoStack.add(step);
+    _trimEditHistory(_redoStack);
     _applyEditHistory(step.undo(_ctrl.text), step.beforeSelection);
   }
 
@@ -1387,7 +1390,13 @@ class _NoteDetailState extends State<_NoteDetail> {
     if (_redoStack.isEmpty) return;
     final step = _redoStack.removeLast();
     _undoStack.add(step);
+    _trimEditHistory(_undoStack);
     _applyEditHistory(step.redo(_ctrl.text), step.afterSelection);
+  }
+
+  void _trimEditHistory(List<_NoteEditStep> stack) {
+    final overflow = stack.length - _editHistoryLimit;
+    if (overflow > 0) stack.removeRange(0, overflow);
   }
 
   void _applyEditHistory(String text, TextSelection selection) {

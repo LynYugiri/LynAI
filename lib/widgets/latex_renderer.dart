@@ -18,6 +18,7 @@ import 'package:webview_all/webview_all.dart';
 
 import '../services/code_syntax_service.dart';
 import '../utils/snackbar_utils.dart';
+import '../utils/webview_dispose_utils.dart';
 
 typedef MarkdownBlockEditCallback =
     void Function(String source, int start, int end);
@@ -868,6 +869,11 @@ class _MermaidBlockState extends State<_MermaidBlock> {
   @override
   void dispose() {
     _renderTimeout?.cancel();
+    final controller = _controller;
+    _controller = null;
+    if (controller != null) {
+      unawaited(WebViewDisposeUtils.disposeDesktop(controller));
+    }
     super.dispose();
   }
 

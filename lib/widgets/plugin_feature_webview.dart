@@ -14,6 +14,7 @@ import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/lynai_function_service.dart';
 import '../utils/plugin_path_utils.dart';
+import '../utils/webview_dispose_utils.dart';
 
 /// 在 WebView 中渲染插件功能页，并提供 JS Bridge 与原生能力交互。
 class PluginFeatureWebView extends StatefulWidget {
@@ -79,7 +80,9 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     _loadGeneration++;
     final controller = _controller;
     _controller = null;
-    if (controller != null) unawaited(_disposeDesktopWebView(controller));
+    if (controller != null) {
+      unawaited(WebViewDisposeUtils.disposeDesktop(controller));
+    }
     final renderRoot = _activeRenderRoot;
     if (renderRoot != null) unawaited(_deleteDirectory(renderRoot));
     super.dispose();
@@ -142,7 +145,7 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
               _error = '插件页面加载失败: ${error.description}';
             });
             if (failedController != null) {
-              unawaited(_disposeDesktopWebView(failedController));
+              unawaited(WebViewDisposeUtils.disposeDesktop(failedController));
             }
           },
           onNavigationRequest: (request) {
@@ -167,26 +170,8 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     if (mounted) {
       setState(() => _controller = null);
     }
-    await _waitForNativeWebViewDetach();
-    await _disposeDesktopWebView(controller);
-  }
-
-  /// 桌面端 WebView 是原生 overlay/texture，需要给一帧时间处理隐藏和输入区域恢复。
-  Future<void> _waitForNativeWebViewDetach() async {
-    if (!Platform.isLinux && !Platform.isWindows) return;
-    await WidgetsBinding.instance.endOfFrame;
-    await Future<void>.delayed(const Duration(milliseconds: 80));
-  }
-
-  /// 桌面端 webview_all 需要显式释放原生实例，否则原生输入层可能残留。
-  Future<void> _disposeDesktopWebView(WebViewController controller) async {
-    if (!Platform.isWindows && !Platform.isLinux) return;
-    try {
-      final platform = controller.platform as dynamic;
-      await platform.dispose();
-    } catch (e) {
-      debugPrint('释放桌面 WebView 失败: $e');
-    }
+    await WebViewDisposeUtils.waitForNativeDetach();
+    await WebViewDisposeUtils.disposeDesktop(controller);
   }
 
   /// 构建 WebView 渲染目录，使相对资源也按“根目录覆盖 defaults/”解析。

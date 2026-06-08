@@ -23,12 +23,11 @@ import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
+import '../services/attachment_storage_service.dart';
 import '../services/api_service.dart';
-import '../services/storage_v2_service.dart';
 import '../services/system_scroll_capture_service.dart';
 import '../services/tool_call_service.dart';
 import '../utils/file_picker_io_utils.dart';
-import '../utils/file_name_utils.dart';
 import '../utils/share_image_utils.dart';
 import '../utils/snackbar_utils.dart';
 import '../widgets/latex_renderer.dart';
@@ -127,6 +126,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   final _focusNode = FocusNode();
   final _screenshotCtrl = ScreenshotController();
   final _audioRecorder = AudioRecorder();
+  final _attachmentStorage = const AttachmentStorageService();
   final _api = ApiService();
   final _streamDraft = ValueNotifier<_StreamDraft>(const _StreamDraft());
   final _inputRevision = ValueNotifier<int>(0);
@@ -1548,21 +1548,19 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     if (!mounted) return;
     final images = <_PendingImage>[];
     try {
-      final dir = await StorageV2Service.defaultBaseDirectory();
-      final imageDir = Directory('${dir.path}/message_images');
-      if (!await imageDir.exists()) await imageDir.create(recursive: true);
       for (var i = 0; i < picked.length; i++) {
         final item = picked[i];
-        final source = File(item.path);
-        final storedFile = await source.copy(
-          '${imageDir.path}/${DateTime.now().microsecondsSinceEpoch}_${i}_${safeStorageFileName(item.name, fallback: 'image')}',
-        );
         images.add(
-          _PendingImage(
-            path: storedFile.path,
-            name: item.name,
-            size: await storedFile.length(),
-            mimeType: item.mimeType ?? _mimeTypeForPath(item.path),
+          _pendingImageFromStored(
+            await _attachmentStorage.storeFile(
+              File(item.path),
+              directoryName: 'message_images',
+              name: item.name,
+              fallbackName: 'image',
+              mimeType:
+                  item.mimeType ??
+                  AttachmentStorageService.inferMimeType(item.path),
+            ),
           ),
         );
       }
@@ -1607,7 +1605,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       final file = await _storeAttachmentFile(
         File(picked.path),
         picked.name,
-        mimeType: picked.mimeType ?? _mimeTypeForPath(picked.path),
+        mimeType:
+            picked.mimeType ??
+            AttachmentStorageService.inferMimeType(picked.path),
       );
       if (!mounted) return;
       setState(() => _pendingImages.add(file));
@@ -1624,36 +1624,33 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     String name, {
     String? mimeType,
   }) async {
-    final dir = await StorageV2Service.defaultBaseDirectory();
-    final attachmentDir = Directory('${dir.path}/message_attachments');
-    if (!await attachmentDir.exists()) {
-      await attachmentDir.create(recursive: true);
-    }
-    final storedFile = await source.copy(
-      '${attachmentDir.path}/${DateTime.now().microsecondsSinceEpoch}_${safeStorageFileName(name, fallback: 'file')}',
-    );
-    return _PendingImage(
-      path: storedFile.path,
-      name: name,
-      size: await storedFile.length(),
-      mimeType: mimeType ?? _mimeTypeForPath(name, fallbackPath: source.path),
+    return _pendingImageFromStored(
+      await _attachmentStorage.storeFile(
+        source,
+        directoryName: 'message_attachments',
+        name: name,
+        mimeType: mimeType,
+      ),
     );
   }
 
   Future<_PendingImage> _storeAttachmentPayload(
     PickedFilePayload source,
   ) async {
-    final dir = await StorageV2Service.defaultBaseDirectory();
-    final attachmentDir = Directory('${dir.path}/message_attachments');
-    final storedFile = File(
-      '${attachmentDir.path}/${DateTime.now().microsecondsSinceEpoch}_${safeStorageFileName(source.name, fallback: 'file')}',
+    return _pendingImageFromStored(
+      await _attachmentStorage.storePayload(
+        source,
+        directoryName: 'message_attachments',
+      ),
     );
-    await source.copyTo(storedFile);
+  }
+
+  _PendingImage _pendingImageFromStored(StoredAttachment stored) {
     return _PendingImage(
-      path: storedFile.path,
-      name: source.name,
-      size: await storedFile.length(),
-      mimeType: _mimeTypeForPath(source.name, fallbackPath: source.path),
+      path: stored.path,
+      name: stored.name,
+      size: stored.size,
+      mimeType: stored.mimeType,
     );
   }
 
@@ -1728,24 +1725,15 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   Future<void> _addClipboardImage(Uint8List bytes, String fileName) async {
     if (!mounted) return;
     try {
-      final dir = await StorageV2Service.defaultBaseDirectory();
-      final imageDir = Directory('${dir.path}/message_images');
-      if (!await imageDir.exists()) await imageDir.create(recursive: true);
-      final storedFile = File(
-        '${imageDir.path}/${DateTime.now().millisecondsSinceEpoch}_${safeStorageFileName(fileName, fallback: 'image')}',
+      final stored = await _attachmentStorage.storeBytes(
+        bytes,
+        directoryName: 'message_images',
+        name: fileName,
+        fallbackName: 'image',
       );
-      await storedFile.writeAsBytes(bytes, flush: true);
       if (!mounted) return;
-      final size = bytes.length;
       setState(() {
-        _pendingImages.add(
-          _PendingImage(
-            path: storedFile.path,
-            name: fileName,
-            size: size,
-            mimeType: _mimeTypeForPath(fileName),
-          ),
-        );
+        _pendingImages.add(_pendingImageFromStored(stored));
       });
     } catch (e) {
       if (!mounted) return;
@@ -1928,36 +1916,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       );
     }
     return ApiService.chatContentWithFiles(text, inputs);
-  }
-
-  String _mimeTypeForPath(String path, {String? fallbackPath}) {
-    final lower = path.toLowerCase();
-    final fallback = fallbackPath?.toLowerCase();
-    bool endsWith(String extension) {
-      return lower.endsWith(extension) ||
-          (fallback?.endsWith(extension) ?? false);
-    }
-
-    if (endsWith('.png')) return 'image/png';
-    if (endsWith('.jpg') || endsWith('.jpeg')) return 'image/jpeg';
-    if (endsWith('.webp')) return 'image/webp';
-    if (endsWith('.gif')) return 'image/gif';
-    if (endsWith('.pdf')) return 'application/pdf';
-    if (endsWith('.txt') || endsWith('.md')) return 'text/plain';
-    if (endsWith('.json')) return 'application/json';
-    if (endsWith('.csv')) return 'text/csv';
-    if (endsWith('.html') || endsWith('.htm')) return 'text/html';
-    if (endsWith('.xml')) return 'application/xml';
-    if (endsWith('.zip')) return 'application/zip';
-    if (endsWith('.doc')) return 'application/msword';
-    if (endsWith('.docx')) {
-      return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-    }
-    if (endsWith('.xls')) return 'application/vnd.ms-excel';
-    if (endsWith('.xlsx')) {
-      return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-    }
-    return 'application/octet-stream';
   }
 
   // 根据配置选择系统语音识别或服务端语音转文字，启动录音流程。

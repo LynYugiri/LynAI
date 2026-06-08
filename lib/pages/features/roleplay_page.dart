@@ -18,6 +18,7 @@ class _RoleplayPageState extends State<_RoleplayPage> {
   final _scrollCtrl = ScrollController();
   final _focusNode = FocusNode();
   final _service = RoleplayService();
+  final _attachmentStorage = const AttachmentStorageService();
   final _screenshotCtrl = ScreenshotController();
   final List<_RoleplayPendingAttachment> _pendingAttachments = [];
   final Map<String, bool> _attachmentExistsCache = {};
@@ -26,6 +27,9 @@ class _RoleplayPageState extends State<_RoleplayPage> {
   bool _showAttach = false;
   bool _exporting = false;
   int _runGen = 0;
+  DateTime? _lastDraftUiUpdate;
+
+  static const _draftUiUpdateInterval = Duration(milliseconds: 80);
 
   bool get _running =>
       context.read<RoleplayProvider>().activeThreadId == _threadId &&
@@ -36,12 +40,22 @@ class _RoleplayPageState extends State<_RoleplayPage> {
 
   @override
   void dispose() {
+    _clearRunningStateOnDispose();
     _speechSub?.cancel();
     _inputCtrl.dispose();
     _scrollCtrl.dispose();
     _focusNode.dispose();
     _service.dispose();
     super.dispose();
+  }
+
+  void _clearRunningStateOnDispose() {
+    final threadId = _threadId;
+    if (threadId == null) return;
+    final provider = context.read<RoleplayProvider>();
+    if (provider.activeThreadId != threadId) return;
+    if (provider.runState == RoleplayRunState.idle) return;
+    provider.setRunState(RoleplayRunState.idle);
   }
 
   @override
@@ -713,7 +727,7 @@ class _RoleplayPageState extends State<_RoleplayPage> {
             final content = chunk.content;
             if (content != null && content.isNotEmpty) {
               buffer.write(content);
-              provider.updateDraft(buffer.toString());
+              _updateDraft(provider, buffer.toString());
               _scrollToBottom();
             }
             if (chunk.isDone && !completer.isCompleted) completer.complete();
@@ -728,7 +742,26 @@ class _RoleplayPageState extends State<_RoleplayPage> {
     await completer.future;
     await _speechSub?.cancel();
     _speechSub = null;
+    _updateDraft(provider, buffer.toString(), force: true);
     return buffer.toString();
+  }
+
+  void _updateDraft(
+    RoleplayProvider provider,
+    String content, {
+    bool force = false,
+  }) {
+    if (!force) {
+      final now = DateTime.now();
+      final last = _lastDraftUiUpdate;
+      if (last != null && now.difference(last) < _draftUiUpdateInterval) {
+        return;
+      }
+      _lastDraftUiUpdate = now;
+    } else {
+      _lastDraftUiUpdate = DateTime.now();
+    }
+    provider.updateDraft(content);
   }
 
   void _stopGeneration({required bool saveDraft}) {
@@ -740,6 +773,7 @@ class _RoleplayPageState extends State<_RoleplayPage> {
               .where((item) => item.name == provider.activeSpeakerName)
               .firstOrNull;
     _runGen++;
+    _lastDraftUiUpdate = null;
     _speechSub?.cancel();
     _speechSub = null;
     if (saveDraft && thread != null && speaker != null) {
@@ -759,7 +793,9 @@ class _RoleplayPageState extends State<_RoleplayPage> {
           await _storeAttachmentFile(
             File(item.path),
             item.name,
-            mimeType: item.mimeType ?? _mimeTypeForPath(item.path),
+            mimeType:
+                item.mimeType ??
+                AttachmentStorageService.inferMimeType(item.path),
           ),
         );
       }
@@ -790,7 +826,9 @@ class _RoleplayPageState extends State<_RoleplayPage> {
       final file = await _storeAttachmentFile(
         File(picked.path),
         picked.name,
-        mimeType: picked.mimeType ?? _mimeTypeForPath(picked.path),
+        mimeType:
+            picked.mimeType ??
+            AttachmentStorageService.inferMimeType(picked.path),
       );
       if (mounted) setState(() => _pendingAttachments.add(file));
     } catch (e) {
@@ -822,7 +860,7 @@ class _RoleplayPageState extends State<_RoleplayPage> {
         final stored = await _storeBytesAttachment(
           bytes,
           file.fileName ?? 'clipboard$ext',
-          _mimeTypeForPath(ext),
+          AttachmentStorageService.inferMimeType(ext),
         );
         if (mounted) setState(() => _pendingAttachments.add(stored));
         if (!completer.isCompleted) completer.complete();
@@ -839,36 +877,24 @@ class _RoleplayPageState extends State<_RoleplayPage> {
     String name, {
     String? mimeType,
   }) async {
-    final dir = await StorageV2Service.defaultBaseDirectory();
-    final attachmentDir = Directory('${dir.path}/roleplay_attachments');
-    if (!await attachmentDir.exists()) {
-      await attachmentDir.create(recursive: true);
-    }
-    final stored = await source.copy(
-      '${attachmentDir.path}/${DateTime.now().microsecondsSinceEpoch}_${safeStorageFileName(name, fallback: 'file')}',
-    );
-    return _RoleplayPendingAttachment(
-      path: stored.path,
-      name: name,
-      size: await stored.length(),
-      mimeType: mimeType ?? _mimeTypeForPath(name, fallbackPath: source.path),
+    return _roleplayAttachmentFromStored(
+      await _attachmentStorage.storeFile(
+        source,
+        directoryName: 'roleplay_attachments',
+        name: name,
+        mimeType: mimeType,
+      ),
     );
   }
 
   Future<_RoleplayPendingAttachment> _storeAttachmentPayload(
     PickedFilePayload source,
   ) async {
-    final dir = await StorageV2Service.defaultBaseDirectory();
-    final attachmentDir = Directory('${dir.path}/roleplay_attachments');
-    final stored = File(
-      '${attachmentDir.path}/${DateTime.now().microsecondsSinceEpoch}_${safeStorageFileName(source.name, fallback: 'file')}',
-    );
-    await source.copyTo(stored);
-    return _RoleplayPendingAttachment(
-      path: stored.path,
-      name: source.name,
-      size: await stored.length(),
-      mimeType: _mimeTypeForPath(source.name, fallbackPath: source.path),
+    return _roleplayAttachmentFromStored(
+      await _attachmentStorage.storePayload(
+        source,
+        directoryName: 'roleplay_attachments',
+      ),
     );
   }
 
@@ -877,20 +903,25 @@ class _RoleplayPageState extends State<_RoleplayPage> {
     String name,
     String mimeType,
   ) async {
-    final dir = await StorageV2Service.defaultBaseDirectory();
-    final attachmentDir = Directory('${dir.path}/roleplay_attachments');
-    if (!await attachmentDir.exists()) {
-      await attachmentDir.create(recursive: true);
-    }
-    final stored = File(
-      '${attachmentDir.path}/${DateTime.now().microsecondsSinceEpoch}_${safeStorageFileName(name, fallback: 'image')}',
+    return _roleplayAttachmentFromStored(
+      await _attachmentStorage.storeBytes(
+        bytes,
+        directoryName: 'roleplay_attachments',
+        name: name,
+        fallbackName: 'image',
+        mimeType: mimeType,
+      ),
     );
-    await stored.writeAsBytes(bytes, flush: true);
+  }
+
+  _RoleplayPendingAttachment _roleplayAttachmentFromStored(
+    StoredAttachment stored,
+  ) {
     return _RoleplayPendingAttachment(
       path: stored.path,
-      name: name,
-      size: bytes.length,
-      mimeType: mimeType,
+      name: stored.name,
+      size: stored.size,
+      mimeType: stored.mimeType,
     );
   }
 
@@ -1185,23 +1216,6 @@ class _RoleplayPageState extends State<_RoleplayPage> {
       return Icons.folder_zip_outlined;
     }
     return Icons.insert_drive_file_outlined;
-  }
-
-  String _mimeTypeForPath(String path, {String? fallbackPath}) {
-    final lower = path.toLowerCase();
-    final fallback = fallbackPath?.toLowerCase();
-    bool endsWith(String extension) =>
-        lower.endsWith(extension) || (fallback?.endsWith(extension) ?? false);
-    if (endsWith('.png')) return 'image/png';
-    if (endsWith('.jpg') || endsWith('.jpeg')) return 'image/jpeg';
-    if (endsWith('.webp')) return 'image/webp';
-    if (endsWith('.gif')) return 'image/gif';
-    if (endsWith('.pdf')) return 'application/pdf';
-    if (endsWith('.txt') || endsWith('.md')) return 'text/plain';
-    if (endsWith('.json')) return 'application/json';
-    if (endsWith('.csv')) return 'text/csv';
-    if (endsWith('.zip')) return 'application/zip';
-    return 'application/octet-stream';
   }
 
   Future<void> _exportMarkdown(RoleplayThread thread) async {
@@ -2357,6 +2371,7 @@ class _RoleplayRolesDialogState extends State<_RoleplayRolesDialog> {
         PopupMenuItem(value: 'group', child: Text('添加分组')),
       ],
     );
+    if (!mounted) return;
     if (value == 'role') _addRole();
     if (value == 'global') _importGlobalRoles();
     if (value == 'group') _addGroup();
@@ -2368,6 +2383,7 @@ class _RoleplayRolesDialogState extends State<_RoleplayRolesDialog> {
       builder: (_) => const _RoleplayParticipantDialog(),
     );
     if (role == null) return;
+    if (!mounted) return;
     setState(() {
       _participants.add(role);
       _selectedRoleId = role.id;
@@ -2406,6 +2422,7 @@ class _RoleplayRolesDialogState extends State<_RoleplayRolesDialog> {
           _RoleplayParticipantDialog(initial: role, groups: _groups),
     );
     if (next == null) return;
+    if (!mounted) return;
     setState(() {
       final index = _participants.indexWhere((item) => item.id == role.id);
       if (index != -1) _participants[index] = next;
@@ -2438,6 +2455,7 @@ class _RoleplayRolesDialogState extends State<_RoleplayRolesDialog> {
     );
     ctrl.dispose();
     if (name == null || name.isEmpty) return;
+    if (!mounted) return;
     setState(
       () =>
           _groups.add(context.read<RoleplayProvider>().createLocalGroup(name)),
@@ -2781,215 +2799,33 @@ class _RoleplayModelSelector extends StatefulWidget {
 }
 
 class _RoleplayModelSelectorState extends State<_RoleplayModelSelector> {
-  bool _expanded = false;
-
   @override
   Widget build(BuildContext context) {
-    final models = context.watch<ModelConfigProvider>().modelsByCategory(
-      ModelConfig.categoryChat,
-    );
-    final scheme = Theme.of(context).colorScheme;
-    final resolved = _resolvedModel(models);
-    final displayName = widget.value.modelId == null && widget.showNoneOption
-        ? widget.noneLabel
-        : resolved != null
-        ? widget.value.modelName != null && widget.value.modelName!.isNotEmpty
-              ? '${resolved.name} / ${widget.value.modelName}'
-              : '${resolved.name} / ${resolved.modelName}'
-        : '无可用模型';
-    return Column(
-      children: [
-        InkWell(
-          onTap: () => setState(() => _expanded = !_expanded),
-          borderRadius: BorderRadius.circular(8),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: _expanded
-                    ? scheme.primary.withValues(alpha: 0.3)
-                    : scheme.outlineVariant.withValues(alpha: 0.35),
-              ),
-              color: _expanded ? scheme.primary.withValues(alpha: 0.06) : null,
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.smart_toy, size: 18, color: scheme.outline),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        widget.boxLabel,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        displayName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 13),
-                      ),
-                    ],
-                  ),
-                ),
-                Icon(
-                  _expanded ? Icons.expand_less : Icons.expand_more,
-                  size: 18,
-                  color: scheme.outline,
-                ),
-              ],
-            ),
-          ),
-        ),
-        if (_expanded) ...[
-          const SizedBox(height: 4),
-          Material(
-            color: scheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(10),
-            clipBehavior: Clip.antiAlias,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 240),
-              child: ListView(
-                shrinkWrap: true,
-                children: [
-                  if (widget.showNoneOption) ...[
-                    _modelRadioTile(
-                      title: widget.noneLabel,
-                      subtitle: '使用导演的模型',
-                      selected: widget.value.modelId == null,
-                      onTap: () {
-                        widget.onChanged(const RoleplayModelSelection());
-                        setState(() => _expanded = false);
-                      },
-                    ),
-                    const Divider(height: 1),
-                  ],
-                  for (final model in models) ...[
-                    _modelTile(model),
-                    if (model.hasMultipleModels &&
-                        widget.value.modelId == model.id &&
-                        model.models.any((entry) => entry.enabled))
-                      for (final entry in model.models)
-                        if (entry.enabled) _subModelTile(model, entry),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        ],
-      ],
+    return ModelConfigPicker(
+      title: widget.boxLabel,
+      category: ModelConfig.categoryChat,
+      value: _pickerValue,
+      allowClear: widget.showNoneOption,
+      emptyLabel: widget.showNoneOption ? widget.noneLabel : '无可用模型',
+      onChanged: (value) => widget.onChanged(_roleplayValue(value)),
     );
   }
 
-  ModelConfig? _resolvedModel(List<ModelConfig> models) {
-    final id = widget.value.modelId;
-    if (id == null || id.isEmpty) return models.isEmpty ? null : models.first;
-    for (final model in models) {
-      if (model.id == id) return model;
-    }
-    return models.isEmpty ? null : models.first;
-  }
-
-  Widget _modelRadioTile({
-    required String title,
-    String? subtitle,
-    required bool selected,
-    required VoidCallback onTap,
-  }) {
-    final scheme = Theme.of(context).colorScheme;
-    return ListTile(
-      dense: true,
-      leading: Icon(
-        selected ? Icons.check_circle : Icons.circle_outlined,
-        size: 18,
-        color: selected ? scheme.primary : scheme.outline,
-      ),
-      title: Text(title, style: const TextStyle(fontSize: 14)),
-      subtitle: subtitle != null
-          ? Text(subtitle, style: const TextStyle(fontSize: 11))
-          : null,
-      onTap: onTap,
+  ModelSelectionValue? get _pickerValue {
+    final modelId = widget.value.modelId;
+    if (modelId == null || modelId.isEmpty) return null;
+    return ModelSelectionValue(
+      modelId: modelId,
+      modelName: widget.value.modelName,
+      category: ModelConfig.categoryChat,
     );
   }
 
-  Widget _modelTile(ModelConfig model) {
-    final scheme = Theme.of(context).colorScheme;
-    final sel = widget.value.modelId == model.id;
-    return ListTile(
-      dense: true,
-      leading: Icon(
-        sel ? Icons.check_circle : Icons.circle_outlined,
-        size: 18,
-        color: sel ? scheme.primary : scheme.outline,
-      ),
-      title: Text(model.name, style: const TextStyle(fontSize: 14)),
-      subtitle: Text(
-        model.hasMultipleModels
-            ? '${model.enabledModelNames.length} 个模型'
-            : model.modelName,
-        style: const TextStyle(fontSize: 11),
-      ),
-      trailing: model.hasMultipleModels
-          ? const Padding(
-              padding: EdgeInsets.only(right: 8),
-              child: SizedBox(
-                width: 20,
-                height: 20,
-                child: Center(child: Icon(Icons.chevron_right, size: 16)),
-              ),
-            )
-          : null,
-      onTap: () {
-        final hasSubs =
-            model.hasMultipleModels &&
-            model.models.any((entry) => entry.enabled);
-        if (hasSubs && sel) {
-          return;
-        }
-        widget.onChanged(
-          RoleplayModelSelection(
-            modelId: model.id,
-            modelName: model.hasMultipleModels ? model.modelName : null,
-          ),
-        );
-        if (!model.hasMultipleModels) {
-          setState(() => _expanded = false);
-        }
-      },
-    );
-  }
-
-  Widget _subModelTile(ModelConfig model, ModelEntry entry) {
-    final scheme = Theme.of(context).colorScheme;
-    final sel =
-        widget.value.modelId == model.id &&
-        widget.value.modelName == entry.name;
-    return ListTile(
-      dense: true,
-      contentPadding: const EdgeInsets.only(left: 48),
-      leading: Icon(
-        sel ? Icons.radio_button_checked : Icons.radio_button_off,
-        size: 14,
-        color: sel ? scheme.primary : scheme.outline,
-      ),
-      title: Text(
-        entry.name,
-        style: const TextStyle(fontSize: 13, fontFamily: 'monospace'),
-      ),
-      onTap: () {
-        widget.onChanged(
-          RoleplayModelSelection(modelId: model.id, modelName: entry.name),
-        );
-        setState(() => _expanded = false);
-      },
+  RoleplayModelSelection _roleplayValue(ModelSelectionValue? value) {
+    if (value == null) return const RoleplayModelSelection();
+    return RoleplayModelSelection(
+      modelId: value.modelId,
+      modelName: value.modelName,
     );
   }
 }

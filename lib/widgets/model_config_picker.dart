@@ -52,6 +52,9 @@ class ModelConfigPicker extends StatefulWidget {
   /// 是否允许清空选择。
   final bool allowClear;
 
+  /// 未选择时显示的标签。
+  final String emptyLabel;
+
   /// 选择变更回调。
   final ValueChanged<ModelSelectionValue?> onChanged;
 
@@ -62,6 +65,7 @@ class ModelConfigPicker extends StatefulWidget {
     required this.value,
     this.capabilities = const [],
     this.allowClear = true,
+    this.emptyLabel = '未选择模型',
     required this.onChanged,
   });
 
@@ -115,7 +119,7 @@ class _ModelConfigPickerState extends State<ModelConfigPicker> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    currentName ?? '未选择模型',
+                    currentName ?? widget.emptyLabel,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),

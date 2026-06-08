@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:webview_all/webview_all.dart';
 
+import '../utils/webview_dispose_utils.dart';
+
 /// 基于 MathLive WebView 的 LaTeX 公式编辑器。
 ///
 /// 支持可视编辑（内嵌 MathLive）和源码模式（纯文本），预览通过 flutter_math_fork 渲染。
@@ -101,6 +103,11 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
   @override
   void dispose() {
     unawaited(_cleanupMathLiveEditor());
+    final controller = _webCtrl;
+    _webCtrl = null;
+    if (controller != null) {
+      unawaited(WebViewDisposeUtils.disposeDesktop(controller));
+    }
     _readyTimeout?.cancel();
     _rawCtrl.dispose();
     super.dispose();
@@ -401,7 +408,12 @@ class _MathLiveFormulaEditorPageState extends State<MathLiveFormulaEditorPage> {
       _webViewActive = false;
       _keyboardVisible = false;
     });
-    await Future<void>.delayed(const Duration(milliseconds: 90));
+    await WebViewDisposeUtils.waitForNativeDetach();
+    final controller = _webCtrl;
+    _webCtrl = null;
+    if (controller != null) {
+      await WebViewDisposeUtils.disposeDesktop(controller);
+    }
   }
 
   Future<void> _closeEditor() async {

@@ -317,6 +317,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
           context.read<FeatureProvider>().load(),
         ]);
         await _loadMigrationState();
+        if (!mounted) return;
       }
       setState(() {
         _archive = null;
