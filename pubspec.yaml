@@ -91,12 +91,15 @@ dependency_overrides:
 flutter:
 
   assets:
+    - LICENSE
     - assets/mathlive/
     - assets/mermaid/
     - assets/plugins/status-dashboard/
     - assets/plugins/status-dashboard/defaults/
     - assets/plugins/weather-query/
     - changelogs/
+    - third_party/webview_all_linux/LICENSE
+    - third_party/webview_all_windows/LICENSE
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in

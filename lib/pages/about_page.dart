@@ -18,6 +18,17 @@ class AboutPage extends StatefulWidget {
 class _AboutPageState extends State<AboutPage> {
   late final Future<PackageInfo> _packageInfo = PackageInfo.fromPlatform();
 
+  Future<void> _showOpenSourceLicenses() async {
+    final packageInfo = await _packageInfo;
+    if (!mounted) return;
+    showLicensePage(
+      context: context,
+      applicationName: 'LynAI',
+      applicationVersion: packageInfo.version,
+      applicationLegalese: 'Copyright (C) LynAI Contributors\nGPL-3.0-or-later',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>().settings;
@@ -108,6 +119,15 @@ class _AboutPageState extends State<AboutPage> {
                   ),
                   icon: const Icon(Icons.auto_awesome, size: 18),
                   label: const Text('更新日志'),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _showOpenSourceLicenses,
+                  icon: const Icon(Icons.gavel_outlined, size: 18),
+                  label: const Text('开源许可'),
                 ),
               ),
             ],

@@ -20,14 +20,16 @@ import 'pages/changelog_page.dart';
 import 'services/legacy_resource_migration_service.dart';
 import 'services/storage_migration_service.dart';
 import 'utils/changelog_parser.dart';
+import 'utils/open_source_licenses.dart';
 import 'widgets/changelog_dialog.dart';
 
 /// LynAI 的应用入口。
 ///
 /// 入口只做三件事：注册全局 Provider、启动根组件、把 Flutter 绑定初始化。
 /// 数据加载和主题构建留给 [LynAIApp]，避免入口函数承担运行时状态。
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await registerOpenSourceLicenses();
 
   runApp(
     MultiProvider(
