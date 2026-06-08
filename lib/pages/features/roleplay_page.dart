@@ -5,7 +5,9 @@ part of '../feature_page.dart';
 /// 支持多角色 AI 共演：导演模型决定发言顺序，各角色按自定义模型生成对话，
 /// 可插入附件、流式输出、导出 Markdown 或长图。
 class _RoleplayPage extends StatefulWidget {
-  const _RoleplayPage();
+  final bool active;
+
+  const _RoleplayPage({required this.active});
 
   @override
   State<_RoleplayPage> createState() => _RoleplayPageState();
@@ -170,6 +172,7 @@ class _RoleplayPageState extends State<_RoleplayPage> {
         Expanded(
           child: SystemScrollCaptureTarget(
             controller: _scrollCtrl,
+            enabled: widget.active,
             child: ListView(
               controller: _scrollCtrl,
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),

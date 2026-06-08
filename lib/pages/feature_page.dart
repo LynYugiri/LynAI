@@ -387,7 +387,7 @@ class _FeaturePageState extends State<FeaturePage> {
           onConversationTap: widget.onConversationTap,
           onRoleChanged: widget.onRoleChanged,
         ),
-        'roleplay' => const _RoleplayPage(),
+        'roleplay' => _RoleplayPage(active: widget.active),
         _ when pluginFeature != null && widget.active => PluginFeatureWebView(
           plugin: pluginFeature.plugin,
           page: pluginFeature.page,

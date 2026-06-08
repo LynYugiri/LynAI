@@ -167,6 +167,7 @@ class _HomePageState extends State<HomePage> {
             ChatPage(
               conversationId: _targetConversationId,
               roleChangeSerial: _roleChangeSerial,
+              active: _currentIndex == 1,
               onBackHandlerChanged: _setChatBackHandler,
               onBackAvailabilityChanged: _setChatBackAvailability,
               onNewConversationHandlerChanged: _setChatNewConversationHandler,

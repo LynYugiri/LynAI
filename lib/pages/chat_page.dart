@@ -90,6 +90,7 @@ class _StreamDraft {
 class ChatPage extends StatefulWidget {
   final String? conversationId;
   final int roleChangeSerial;
+  final bool active;
   final VoidCallback? onConversationLoaded;
   final void Function(bool Function() handler)? onBackHandlerChanged;
   final ValueChanged<bool>? onBackAvailabilityChanged;
@@ -98,6 +99,7 @@ class ChatPage extends StatefulWidget {
     super.key,
     this.conversationId,
     this.roleChangeSerial = 0,
+    this.active = true,
     this.onConversationLoaded,
     this.onBackHandlerChanged,
     this.onBackAvailabilityChanged,
@@ -143,6 +145,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   bool _showScrollToBottom = false;
   bool _scrollEndScheduled = false;
   double _lastBottomInset = 0;
+  bool _keyboardLiftRequestedByInputTap = false;
+  bool _keyboardShouldLiftMessages = false;
   DateTime? _lastAutoScrollAt;
   int _scrollGen = 0;
   String? _thinkingTxt;
@@ -369,6 +373,20 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     return pos.maxScrollExtent - pos.pixels <= 48;
   }
 
+  bool get _isMobilePlatform => Platform.isAndroid || Platform.isIOS;
+
+  double _currentBottomInset() {
+    final view = View.maybeOf(context);
+    if (view != null) return view.viewInsets.bottom / view.devicePixelRatio;
+    return MediaQuery.maybeOf(context)?.viewInsets.bottom ?? 0;
+  }
+
+  void _handleInputTap() {
+    if (!_isMobilePlatform) return;
+    _keyboardLiftRequestedByInputTap = _lastBottomInset <= 0;
+    _keyboardShouldLiftMessages = _autoScrollToBottom && _isNearBottom;
+  }
+
   // 根据滚动位置同步“是否接近底部”状态，控制自动跟随和回底按钮。
   void _syncBottomState() {
     if (!_scrollCtrl.hasClients) return;
@@ -407,6 +425,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
   void _pauseAutoScroll() {
     _scrollGen++;
+    _keyboardLiftRequestedByInputTap = false;
+    _keyboardShouldLiftMessages = false;
     setState(() {
       _autoScrollToBottom = false;
       _showScrollToBottom = true;
@@ -462,8 +482,16 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   void didChangeMetrics() {
     super.didChangeMetrics();
     if (!mounted) return;
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-    if (bottomInset > _lastBottomInset && _autoScrollToBottom) {
+    final bottomInset = _currentBottomInset();
+    final keyboardOpening = bottomInset > _lastBottomInset;
+    if (bottomInset <= 0) {
+      _keyboardLiftRequestedByInputTap = false;
+      _keyboardShouldLiftMessages = false;
+    }
+    if (keyboardOpening &&
+        _keyboardLiftRequestedByInputTap &&
+        _keyboardShouldLiftMessages &&
+        _autoScrollToBottom) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _scrollEnd(force: true);
       });
@@ -2064,7 +2092,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final current = _msgCtrl.text.trim();
     _msgCtrl.text = current.isEmpty ? text : '$current\n$text';
     _msgCtrl.selection = TextSelection.collapsed(offset: _msgCtrl.text.length);
-    _focusNode.requestFocus();
+    if (!_isMobilePlatform) _focusNode.requestFocus();
     _inputRevision.value++;
   }
 
@@ -2287,7 +2315,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                       onNotification: _onScrollNotification,
                       child: SystemScrollCaptureTarget(
                         controller: _scrollCtrl,
-                        enabled: !_shareSelecting,
+                        enabled: widget.active && !_shareSelecting,
                         child: ListView.builder(
                           controller: _scrollCtrl,
                           padding: const EdgeInsets.symmetric(
@@ -2713,7 +2741,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
               ),
             ),
           ),
-            if (_thinkExpanded)
+          if (_thinkExpanded)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               child: Text(
@@ -3007,7 +3035,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
             border: OutlineInputBorder(),
             hintText: '编辑消息内容...',
           ),
-          autofocus: true,
+          autofocus: !_isMobilePlatform,
         ),
         actions: [
           TextButton(
@@ -3094,7 +3122,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     });
     context.read<ConversationProvider>().deleteMessagesFrom(cid, msg.id);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _focusNode.requestFocus();
+      if (mounted && !_isMobilePlatform) _focusNode.requestFocus();
     });
   }
 
@@ -3221,6 +3249,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                           maxLines: 5,
                           minLines: 1,
                           textInputAction: TextInputAction.newline,
+                          onTap: _handleInputTap,
                           onChanged: (_) => _inputRevision.value++,
                         ),
                       ),
