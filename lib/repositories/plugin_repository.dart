@@ -17,6 +17,7 @@ import '../utils/plugin_path_utils.dart';
 class PluginRepository {
   static const _stateFileName = 'installed_plugins.json';
   static const maxTextFileBytes = 512 * 1024;
+  static final _windowsAbsolutePathPattern = RegExp(r'^[a-zA-Z]:/');
 
   static const builtInPluginIds = ['status-dashboard', 'weather-query'];
   static const builtInPluginFiles = {
@@ -705,7 +706,15 @@ class PluginRepository {
 
   /// 安全化 ZIP 归档中的路径，拒绝路径穿越攻击。
   String? _safeArchivePath(String path) {
-    final normalized = path.replaceAll('\\', '/');
+    final trimmed = path.trim();
+    if (trimmed.isEmpty) return null;
+    final uri = Uri.tryParse(trimmed);
+    if (uri != null && uri.hasScheme) return null;
+    final normalized = trimmed.replaceAll('\\', '/');
+    if (normalized.startsWith('/') ||
+        _windowsAbsolutePathPattern.hasMatch(normalized)) {
+      return null;
+    }
     final parts = normalized
         .split('/')
         .where((part) => part.isNotEmpty && part != '.')

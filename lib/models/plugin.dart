@@ -1,3 +1,20 @@
+final _pluginApiNamePattern = RegExp(r'^[a-zA-Z0-9_-]{1,64}$');
+final _luaGlobalFunctionPattern = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
+
+String? _validatePluginApiDefinition({
+  required String kind,
+  required String name,
+  required String handler,
+}) {
+  if (!_pluginApiNamePattern.hasMatch(name)) {
+    return '插件 $kind 名称只能包含字母、数字、下划线和横线，且长度不超过 64';
+  }
+  if (!_luaGlobalFunctionPattern.hasMatch(handler)) {
+    return '插件 $kind handler 必须是 Lua 全局函数名';
+  }
+  return null;
+}
+
 /// Lua/WebView 插件清单中的工具定义。
 class PluginToolDefinition {
   /// 工具名称，用于在 API 调用时标识该工具。
@@ -43,15 +60,8 @@ class PluginToolDefinition {
   };
 
   /// 校验工具定义的合法性，返回错误信息或 null。
-  String? validate() {
-    if (!RegExp(r'^[a-zA-Z0-9_-]{1,64}$').hasMatch(name)) {
-      return '插件 tool 名称只能包含字母、数字、下划线和横线，且长度不超过 64';
-    }
-    if (!RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(handler)) {
-      return '插件 tool handler 必须是 Lua 全局函数名';
-    }
-    return null;
-  }
+  String? validate() =>
+      _validatePluginApiDefinition(kind: 'tool', name: name, handler: handler);
 }
 
 /// Lua 插件导出的非模型调用函数。
@@ -106,6 +116,13 @@ class PluginFunctionDefinition {
     if (description.isNotEmpty) 'description': description,
     'parameters': parameters,
   };
+
+  /// 校验函数定义的合法性，返回错误信息或 null。
+  String? validate() => _validatePluginApiDefinition(
+    kind: 'function',
+    name: name,
+    handler: handler,
+  );
 }
 
 /// WebView 插件功能页定义。
@@ -545,6 +562,17 @@ class PluginManifest {
     for (final tool in tools) {
       final error = tool.validate();
       if (error != null) return error;
+    }
+    for (final function in functions) {
+      final error = function.validate();
+      if (error != null) return error;
+    }
+    final apiNames = <String>{};
+    for (final tool in tools) {
+      if (!apiNames.add(tool.name)) return '插件 API 名称重复: ${tool.name}';
+    }
+    for (final function in functions) {
+      if (!apiNames.add(function.name)) return '插件 API 名称重复: ${function.name}';
     }
     for (final page in featurePages) {
       final error = page.validate();

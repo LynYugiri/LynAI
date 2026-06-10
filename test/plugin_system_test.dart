@@ -794,6 +794,54 @@ end
     expect(badHandler.validate(), contains('handler'));
   });
 
+  test('PluginManifest rejects invalid function names and handlers', () {
+    final badName = PluginManifest.fromJson({
+      'id': 'bad_function_plugin',
+      'name': 'Bad Function Plugin',
+      'entry': 'main.lua',
+      'functions': [
+        {'name': 'bad.function', 'handler': 'run'},
+      ],
+    });
+    final badHandler = PluginManifest.fromJson({
+      'id': 'bad_function_handler_plugin',
+      'name': 'Bad Function Handler Plugin',
+      'entry': 'main.lua',
+      'functions': [
+        {'name': 'good_function', 'handler': 'bad.handler'},
+      ],
+    });
+
+    expect(badName.validate(), contains('function 名称'));
+    expect(badHandler.validate(), contains('handler'));
+  });
+
+  test('PluginManifest rejects duplicate tool and function names', () {
+    final duplicateTools = PluginManifest.fromJson({
+      'id': 'duplicate_tools_plugin',
+      'name': 'Duplicate Tools Plugin',
+      'entry': 'main.lua',
+      'tools': [
+        {'name': 'same_api', 'handler': 'first'},
+        {'name': 'same_api', 'handler': 'second'},
+      ],
+    });
+    final duplicateAcrossTypes = PluginManifest.fromJson({
+      'id': 'duplicate_api_plugin',
+      'name': 'Duplicate API Plugin',
+      'entry': 'main.lua',
+      'tools': [
+        {'name': 'same_api', 'handler': 'tool_run'},
+      ],
+      'functions': [
+        {'name': 'same_api', 'handler': 'function_run'},
+      ],
+    });
+
+    expect(duplicateTools.validate(), contains('API 名称重复'));
+    expect(duplicateAcrossTypes.validate(), contains('API 名称重复'));
+  });
+
   test('Lua plugin tools can read notes through lynai.notes', () async {
     SharedPreferences.setMockInitialValues({});
     final features = FeatureProvider();
@@ -953,6 +1001,61 @@ end
       }
     },
   );
+
+  test('PluginRepository ignores unsafe ZIP archive paths', () async {
+    final installedRoot = await Directory.systemTemp.createTemp(
+      'lynai_zip_path_root_',
+    );
+    try {
+      final manifestBytes = utf8.encode(
+        jsonEncode({
+          'id': 'zip_path_plugin',
+          'name': 'ZIP Path Plugin',
+          'entry': 'main.lua',
+        }),
+      );
+      final luaBytes = utf8.encode('function run(args) return {ok = true} end');
+      final archive = Archive()
+        ..addFile(
+          ArchiveFile('plugin.json', manifestBytes.length, manifestBytes),
+        )
+        ..addFile(ArchiveFile('main.lua', luaBytes.length, luaBytes))
+        ..addFile(ArchiveFile('../escape.txt', 3, utf8.encode('bad')))
+        ..addFile(ArchiveFile('/absolute.txt', 3, utf8.encode('bad')))
+        ..addFile(ArchiveFile('C:/absolute.txt', 3, utf8.encode('bad')))
+        ..addFile(
+          ArchiveFile('https://example.com/file.txt', 3, utf8.encode('bad')),
+        );
+
+      final repository = PluginRepository(rootOverride: installedRoot);
+      final plugin = await repository.importZipBytes(
+        ZipEncoder().encode(archive),
+      );
+
+      expect(plugin.id, 'zip_path_plugin');
+      expect(File('${installedRoot.path}/escape.txt').existsSync(), isFalse);
+      expect(
+        File(
+          '${installedRoot.path}/installed/zip_path_plugin/absolute.txt',
+        ).existsSync(),
+        isFalse,
+      );
+      expect(
+        File(
+          '${installedRoot.path}/installed/zip_path_plugin/C:/absolute.txt',
+        ).existsSync(),
+        isFalse,
+      );
+      expect(
+        Directory(
+          '${installedRoot.path}/installed/zip_path_plugin/https:',
+        ).existsSync(),
+        isFalse,
+      );
+    } finally {
+      await installedRoot.delete(recursive: true);
+    }
+  });
 
   test(
     'Plugin snapshots, reset, bytes write and export preserve state',
@@ -1264,6 +1367,91 @@ end
     } finally {
       await root.delete(recursive: true);
     }
+  });
+
+  test('Lua runtime removes dangerous globals', () async {
+    final root = await Directory.systemTemp.createTemp('lynai_lua_globals_');
+    try {
+      await File('${root.path}/main.lua').writeAsString(r'''
+function inspect_globals(args)
+  return {
+    ok = true,
+    osMissing = os == nil,
+    ioMissing = io == nil,
+    packageMissing = package == nil,
+    requireMissing = require == nil,
+    loadMissing = load == nil,
+    debugMissing = debug == nil,
+    collectgarbageMissing = collectgarbage == nil
+  }
+end
+''');
+      final manifest = PluginManifest.fromJson({
+        'id': 'globals_plugin',
+        'name': 'Globals Plugin',
+        'entry': 'main.lua',
+        'tools': [
+          {
+            'name': 'globals_plugin_inspect',
+            'description': 'Inspect Lua globals',
+            'handler': 'inspect_globals',
+            'parameters': {'type': 'object'},
+          },
+        ],
+      });
+      final plugin = InstalledPlugin(
+        manifest: manifest,
+        path: root.path,
+        enabled: true,
+        grantedPermissions: const [],
+        enabledFeaturePages: const [],
+      );
+
+      final result = await PluginLuaRuntimeService().executeTool(
+        plugin: plugin,
+        tool: manifest.tools.single,
+        arguments: const {},
+      );
+
+      expect(result['ok'], isTrue);
+      expect(result['osMissing'], isTrue);
+      expect(result['ioMissing'], isTrue);
+      expect(result['packageMissing'], isTrue);
+      expect(result['requireMissing'], isTrue);
+      expect(result['loadMissing'], isTrue);
+      expect(result['debugMissing'], isTrue);
+      expect(result['collectgarbageMissing'], isTrue);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('Agent Lua runtime removes dangerous globals', () async {
+    final result = await AgentLuaScriptService().execute(
+      purpose: 'inspect globals',
+      code: r'''
+return {
+  ok = true,
+  osMissing = os == nil,
+  ioMissing = io == nil,
+  packageMissing = package == nil,
+  requireMissing = require == nil,
+  loadMissing = load == nil,
+  debugMissing = debug == nil,
+  collectgarbageMissing = collectgarbage == nil
+}
+''',
+    );
+
+    expect(result['ok'], isTrue);
+    final payload = result['result'] as Map;
+    expect(payload['osMissing'], isTrue);
+    expect(payload['ioMissing'], isTrue);
+    expect(payload['packageMissing'], isTrue);
+    expect(payload['requireMissing'], isTrue);
+    expect(payload['loadMissing'], isTrue);
+    expect(payload['debugMissing'], isTrue);
+    expect(payload['collectgarbageMissing'], isTrue);
   });
 
   test('Lua runtime limits recursive command continuations', () async {

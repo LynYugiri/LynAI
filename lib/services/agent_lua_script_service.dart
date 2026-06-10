@@ -11,6 +11,7 @@ import '../providers/settings_provider.dart';
 import 'lynai_call_identity.dart';
 import 'lynai_function_service.dart';
 import 'lynai_permission_service.dart';
+import 'lua_sandbox_utils.dart';
 import 'plugin_lua_runtime_service.dart';
 
 /// Executes model-provided Agent Lua scripts in a restricted sandbox.
@@ -37,7 +38,7 @@ class AgentLuaScriptService {
     }
     final state = LuaState.newState();
     state.openLibs();
-    _removeDangerousGlobals(state);
+    removeDangerousLuaGlobals(state);
     var callCount = 0;
     _installLynAI(
       state,
@@ -339,20 +340,6 @@ class AgentLuaScriptService {
       plugins: plugins,
       settings: settings,
     );
-  }
-
-  void _removeDangerousGlobals(LuaState state) {
-    for (final name in const [
-      'os',
-      'io',
-      'package',
-      'require',
-      'dofile',
-      'loadfile',
-    ]) {
-      state.pushNil();
-      state.setGlobal(name);
-    }
   }
 
   Map<String, dynamic> _listPluginFunctions(Iterable<dynamic> plugins) {

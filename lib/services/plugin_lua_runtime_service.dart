@@ -9,6 +9,7 @@ import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/plugin_path_utils.dart';
+import 'lua_sandbox_utils.dart';
 import 'lynai_function_service.dart';
 
 /// Executes Lua handlers declared by plugins.
@@ -96,7 +97,7 @@ class PluginLuaRuntimeService {
 
     final state = LuaState.newState();
     state.openLibs();
-    _removeDangerousGlobals(state);
+    removeDangerousLuaGlobals(state);
     final preloadedConfig = await _preloadPluginConfig(
       plugin: plugin,
       features: features,
@@ -147,20 +148,6 @@ class PluginLuaRuntimeService {
       return result.map((key, value) => MapEntry(key.toString(), value));
     }
     return {'ok': true, 'result': result};
-  }
-
-  void _removeDangerousGlobals(LuaState state) {
-    for (final name in const [
-      'os',
-      'io',
-      'package',
-      'require',
-      'dofile',
-      'loadfile',
-    ]) {
-      state.pushNil();
-      state.setGlobal(name);
-    }
   }
 
   /// 向 Lua 状态机注入 `lynai` 全局 API 表（沙箱入口）。
