@@ -327,6 +327,8 @@ class EditModelPage extends StatefulWidget {
 
 class _EditModelPageState extends State<EditModelPage> {
   final _formKey = GlobalKey<FormState>();
+  final _scrollController = ScrollController();
+  final _advancedOptionsKey = GlobalKey();
   late TextEditingController _nameController,
       _endpointController,
       _apiKeyController,
@@ -362,8 +364,7 @@ class _EditModelPageState extends State<EditModelPage> {
       widget.category.id == ModelConfig.categoryOcr ||
       widget.category.id == ModelConfig.categorySpeech;
   bool get hasChatStyleOptions => isChat || isImageGeneration;
-  bool get _isOpenAICompatible =>
-      _apiType == 'openai' || _apiType == 'custom';
+  bool get _isOpenAICompatible => _apiType == 'openai' || _apiType == 'custom';
 
   @override
   void initState() {
@@ -448,6 +449,7 @@ class _EditModelPageState extends State<EditModelPage> {
 
   @override
   void dispose() {
+    _scrollController.dispose();
     _nameController.dispose();
     _endpointController.dispose();
     _apiKeyController.dispose();
@@ -603,8 +605,7 @@ class _EditModelPageState extends State<EditModelPage> {
             (original.maxTokens?.toString() ?? '')) ||
         (_temperatureController.text.trim() !=
             (original.temperature?.toString() ?? '')) ||
-        (_topPController.text.trim() !=
-            (original.topP?.toString() ?? '')) ||
+        (_topPController.text.trim() != (original.topP?.toString() ?? '')) ||
         _extraFieldChanged(
           original,
           'presence_penalty',
@@ -659,7 +660,9 @@ class _EditModelPageState extends State<EditModelPage> {
   }
 
   Map<String, dynamic> _buildExtraParams() {
-    final extra = Map<String, dynamic>.from(widget.model?.extraParams ?? const {});
+    final extra = Map<String, dynamic>.from(
+      widget.model?.extraParams ?? const {},
+    );
     final appId = _appIdController.text.trim();
     if (needsAppId) {
       if (appId.isNotEmpty) {
@@ -677,7 +680,11 @@ class _EditModelPageState extends State<EditModelPage> {
     }
     if (_isOpenAICompatible) {
       _writeExtraNumber(extra, 'presence_penalty', _presencePenaltyController);
-      _writeExtraNumber(extra, 'frequency_penalty', _frequencyPenaltyController);
+      _writeExtraNumber(
+        extra,
+        'frequency_penalty',
+        _frequencyPenaltyController,
+      );
       _writeExtraNumber(extra, 'seed', _seedController, isInt: true);
       final stopText = _stopController.text.trim();
       if (stopText.isNotEmpty) {
@@ -885,7 +892,13 @@ class _EditModelPageState extends State<EditModelPage> {
           ],
         ),
         body: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
+          controller: _scrollController,
+          padding: EdgeInsets.fromLTRB(
+            16,
+            16,
+            16,
+            16 + MediaQuery.viewInsetsOf(context).bottom,
+          ),
           child: Form(
             key: _formKey,
             child: Column(
@@ -1216,23 +1229,28 @@ class _EditModelPageState extends State<EditModelPage> {
 
   Widget _advancedOptionsSection() {
     return Card(
+      key: _advancedOptionsKey,
       margin: EdgeInsets.zero,
       child: ExpansionTile(
-        key: const PageStorageKey('api_model_advanced_options'),
         initiallyExpanded: _showAdvancedOptions,
         onExpansionChanged: (expanded) {
           setState(() => _showAdvancedOptions = expanded);
+          if (expanded) _ensureAdvancedOptionsVisible();
         },
         leading: const Icon(Icons.tune),
         title: const Text('高级选项'),
         subtitle: const Text('采样参数与兼容性开关'),
-        childrenPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        childrenPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 8,
+        ),
         children: [
           if (hasChatStyleOptions) ...[
             _advancedNumberField(
               controller: _maxTokensController,
               label: 'Max Tokens',
               hint: 'Provider 级最大 Token 数，留空使用服务默认值',
+              min: 1,
             ),
             const SizedBox(height: 12),
             _advancedNumberField(
@@ -1240,6 +1258,7 @@ class _EditModelPageState extends State<EditModelPage> {
               label: 'Temperature',
               hint: 'Provider 级温度，留空使用服务默认值',
               isDecimal: true,
+              min: 0,
             ),
             const SizedBox(height: 12),
             _advancedNumberField(
@@ -1247,6 +1266,8 @@ class _EditModelPageState extends State<EditModelPage> {
               label: 'Top P',
               hint: 'Provider 级核采样，留空使用服务默认值',
               isDecimal: true,
+              min: 0,
+              max: 1,
             ),
             const SizedBox(height: 16),
           ],
@@ -1256,6 +1277,8 @@ class _EditModelPageState extends State<EditModelPage> {
               label: 'Presence Penalty',
               hint: '-2.0 到 2.0，正值增加新话题倾向',
               isDecimal: true,
+              min: -2,
+              max: 2,
             ),
             const SizedBox(height: 12),
             _advancedNumberField(
@@ -1263,6 +1286,8 @@ class _EditModelPageState extends State<EditModelPage> {
               label: 'Frequency Penalty',
               hint: '-2.0 到 2.0，正值减少重复',
               isDecimal: true,
+              min: -2,
+              max: 2,
             ),
             const SizedBox(height: 12),
             _advancedNumberField(
@@ -1314,14 +1339,23 @@ class _EditModelPageState extends State<EditModelPage> {
     required String hint,
     bool isDecimal = false,
     bool isInt = false,
+    num? min,
+    num? max,
   }) {
     TextInputType keyboardType = TextInputType.number;
     if (isDecimal) {
       keyboardType = const TextInputType.numberWithOptions(decimal: true);
     }
-    return TextField(
+    return TextFormField(
       controller: controller,
       keyboardType: keyboardType,
+      validator: (value) => _validateNumberField(
+        value,
+        label: label,
+        isInt: isInt,
+        min: min,
+        max: max,
+      ),
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
@@ -1331,8 +1365,38 @@ class _EditModelPageState extends State<EditModelPage> {
     );
   }
 
+  void _ensureAdvancedOptionsVisible() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final context = _advancedOptionsKey.currentContext;
+      if (context == null || !mounted) return;
+      Scrollable.ensureVisible(
+        context,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+        alignment: 0.08,
+      );
+    });
+  }
+
+  String? _validateNumberField(
+    String? value, {
+    required String label,
+    required bool isInt,
+    num? min,
+    num? max,
+  }) {
+    final text = value?.trim() ?? '';
+    if (text.isEmpty) return null;
+    final parsed = isInt ? int.tryParse(text) : double.tryParse(text);
+    if (parsed == null) return '$label 必须是${isInt ? '整数' : '数字'}';
+    if (min != null && parsed < min) return '$label 不能小于 $min';
+    if (max != null && parsed > max) return '$label 不能大于 $max';
+    return null;
+  }
+
   Future<void> _editModelEntry(int index) async {
     final entry = _modelEntries[index];
+    final formKey = GlobalKey<FormState>();
     final maxTokens = TextEditingController(
       text: entry.maxTokens?.toString() ?? '',
     );
@@ -1348,66 +1412,88 @@ class _EditModelPageState extends State<EditModelPage> {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialog) => AlertDialog(
           title: Text(entry.name),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('视觉'),
-                  subtitle: const Text('可用于图片/文件识别和视觉输入'),
-                  value: supportsVision,
-                  onChanged: (v) => setDialog(() => supportsVision = v),
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('思考'),
-                  subtitle: const Text('发送 thinking/reasoning 相关参数'),
-                  value: supportsThinking,
-                  onChanged: (v) => setDialog(() => supportsThinking = v),
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('工具使用'),
-                  subtitle: const Text('OpenAI 格式下发送 tools/tool_choice'),
-                  value: supportsTools,
-                  onChanged: (v) => setDialog(() => supportsTools = v),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: maxTokens,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Max Tokens',
-                    hintText: '留空使用服务默认值',
-                    border: OutlineInputBorder(),
+          content: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('视觉'),
+                    subtitle: const Text('可用于图片/文件识别和视觉输入'),
+                    value: supportsVision,
+                    onChanged: (v) => setDialog(() => supportsVision = v),
                   ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: temperature,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('思考'),
+                    subtitle: const Text('发送 thinking/reasoning 相关参数'),
+                    value: supportsThinking,
+                    onChanged: (v) => setDialog(() => supportsThinking = v),
                   ),
-                  decoration: const InputDecoration(
-                    labelText: 'Temperature',
-                    hintText: '留空使用服务默认值',
-                    border: OutlineInputBorder(),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('工具使用'),
+                    subtitle: const Text('OpenAI 格式下发送 tools/tool_choice'),
+                    value: supportsTools,
+                    onChanged: (v) => setDialog(() => supportsTools = v),
                   ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: topP,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: maxTokens,
+                    keyboardType: TextInputType.number,
+                    validator: (value) => _validateNumberField(
+                      value,
+                      label: 'Max Tokens',
+                      isInt: true,
+                      min: 1,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'Max Tokens',
+                      hintText: '留空继承 Provider 级设置',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
-                  decoration: const InputDecoration(
-                    labelText: 'Top P',
-                    hintText: '留空使用服务默认值',
-                    border: OutlineInputBorder(),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: temperature,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    validator: (value) => _validateNumberField(
+                      value,
+                      label: 'Temperature',
+                      isInt: false,
+                      min: 0,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'Temperature',
+                      hintText: '留空继承 Provider 级设置',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: topP,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    validator: (value) => _validateNumberField(
+                      value,
+                      label: 'Top P',
+                      isInt: false,
+                      min: 0,
+                      max: 1,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'Top P',
+                      hintText: '留空继承 Provider 级设置',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           actions: [
@@ -1416,17 +1502,20 @@ class _EditModelPageState extends State<EditModelPage> {
               child: const Text('取消'),
             ),
             TextButton(
-              onPressed: () => Navigator.pop(
-                ctx,
-                entry.copyWith(
-                  supportsVision: supportsVision,
-                  supportsThinking: supportsThinking,
-                  supportsTools: supportsTools,
-                  maxTokens: int.tryParse(maxTokens.text.trim()),
-                  temperature: double.tryParse(temperature.text.trim()),
-                  topP: double.tryParse(topP.text.trim()),
-                ),
-              ),
+              onPressed: () {
+                if (!formKey.currentState!.validate()) return;
+                Navigator.pop(
+                  ctx,
+                  entry.copyWith(
+                    supportsVision: supportsVision,
+                    supportsThinking: supportsThinking,
+                    supportsTools: supportsTools,
+                    maxTokens: int.tryParse(maxTokens.text.trim()),
+                    temperature: double.tryParse(temperature.text.trim()),
+                    topP: double.tryParse(topP.text.trim()),
+                  ),
+                );
+              },
               child: const Text('保存'),
             ),
           ],
