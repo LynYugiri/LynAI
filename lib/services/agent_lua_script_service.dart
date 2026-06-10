@@ -3,16 +3,21 @@ import 'dart:convert';
 import 'package:lua_dardo/lua.dart';
 
 import '../models/plugin.dart';
+import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
+import 'lynai_call_identity.dart';
 import 'lynai_function_service.dart';
+import 'lynai_permission_service.dart';
+import 'plugin_lua_runtime_service.dart';
 
 /// Executes model-provided Agent Lua scripts in a restricted sandbox.
 class AgentLuaScriptService {
   static const maxCodeLength = 32000;
   static const maxCallCount = 40;
+  static const _maxContinuationDepth = 8;
 
   Future<Map<String, dynamic>> execute({
     required String code,
@@ -21,11 +26,14 @@ class AgentLuaScriptService {
     ModelConfigProvider? modelConfigs,
     PluginProvider? plugins,
     SettingsProvider? settings,
+    ConversationProvider? conversations,
+    String? conversationId,
+    LynAICallIdentity? identity,
   }) async {
     final trimmed = code.trim();
-    if (trimmed.isEmpty) return _error('Lua 脚本为空');
+    if (trimmed.isEmpty) return _error('empty_code', 'Lua 脚本为空');
     if (trimmed.length > maxCodeLength) {
-      return _error('Lua 脚本过长，最多 $maxCodeLength 字符');
+      return _error('code_too_long', 'Lua 脚本过长，最多 $maxCodeLength 字符');
     }
     final state = LuaState.newState();
     state.openLibs();
@@ -36,7 +44,10 @@ class AgentLuaScriptService {
       onCall: (method, args) {
         callCount++;
         if (callCount > maxCallCount) {
-          return _error('lynai.call 超过最大次数: $maxCallCount');
+          return _error(
+            'call_limit_exceeded',
+            'lynai.call 超过最大次数: $maxCallCount',
+          );
         }
         return _call(
           method,
@@ -45,23 +56,64 @@ class AgentLuaScriptService {
           modelConfigs: modelConfigs,
           plugins: plugins,
           settings: settings,
+          conversations: conversations,
+          conversationId: conversationId,
+          identity: identity,
         );
       },
     );
     final loaded = state.loadString(trimmed);
-    if (loaded != ThreadStatus.luaOk) return _error('Lua 加载失败: $loaded');
+    if (loaded != ThreadStatus.luaOk) {
+      return _error('load_failed', 'Lua 加载失败: $loaded');
+    }
     final status = state.pCall(0, 1, 0);
     if (status != ThreadStatus.luaOk) {
-      return _error('Lua 执行失败: ${_popError(state, status)}');
+      return _error(
+        'execution_failed',
+        'Lua 执行失败: ${_popError(state, status)}',
+      );
     }
     final result = _readJsonValue(state, -1);
     state.pop(1);
+    final commandResult = await _executeCommand(
+      result,
+      state: state,
+      depth: 0,
+      features: features,
+      modelConfigs: modelConfigs,
+      plugins: plugins,
+      settings: settings,
+      conversations: conversations,
+      conversationId: conversationId,
+      identity: identity,
+    );
+    if (commandResult != null) {
+      return {
+        'ok': commandResult['ok'] != false,
+        'purpose': purpose,
+        'calls': callCount,
+        'result': commandResult,
+        if (commandResult['ok'] == false) 'error': commandResult['error'],
+      };
+    }
     if (result is Map) {
+      final mapped = result.map(
+        (key, value) => MapEntry(key.toString(), value),
+      );
+      if (mapped['ok'] == false) {
+        return {
+          'ok': false,
+          'purpose': purpose,
+          'calls': callCount,
+          'result': mapped,
+          'error': mapped['error'],
+        };
+      }
       return {
         'ok': true,
         'purpose': purpose,
         'calls': callCount,
-        'result': result.map((key, value) => MapEntry(key.toString(), value)),
+        'result': mapped,
       };
     }
     return {
@@ -79,9 +131,39 @@ class AgentLuaScriptService {
     ModelConfigProvider? modelConfigs,
     PluginProvider? plugins,
     SettingsProvider? settings,
+    ConversationProvider? conversations,
+    String? conversationId,
+    LynAICallIdentity? identity,
   }) {
     if (method == 'plugins.functions.list') {
       return _listPluginFunctions(plugins?.plugins ?? const []);
+    }
+    if (method == 'plugins.callFunction') {
+      final conv = conversationId == null
+          ? null
+          : conversations?.getConversation(conversationId);
+      if (conv?.settings.agentEnabled != true) {
+        return _error('agent_disabled', '当前对话未启用 Agent 模式');
+      }
+      final permitted = const LynAIPermissionService().canUseCapability(
+        identity:
+            identity ??
+            LynAICallIdentity(
+              type: LynAICallerType.lua,
+              conversationId: conversationId,
+            ),
+        capability: LynAICapabilities.pluginCallFunction,
+        settings: conv!.settings,
+      );
+      if (!permitted) {
+        return _error('permission_denied', 'Agent 未授权 plugins.callFunction');
+      }
+      return {
+        '__lynai_agent_function': 'plugins.callFunction',
+        'args': args,
+        if (args['__lynai_next'] is String)
+          '__lynai_next': args['__lynai_next'],
+      };
     }
     final functions = LynAIFunctionService();
     final context = LynAIFunctionContext(
@@ -96,9 +178,167 @@ class AgentLuaScriptService {
     );
     if (sync['ok'] == false &&
         (sync['error'] as String? ?? '').contains('需要异步执行')) {
-      return _error('Agent Lua 第一版仅支持同步读取函数和 plugins.functions.list: $method');
+      return _error(
+        'async_function_unsupported',
+        'Agent Lua 第一版仅支持同步读取函数和 plugins.functions.list: $method',
+      );
     }
     return sync;
+  }
+
+  Future<Map<String, dynamic>?> _executeCommand(
+    Object? raw, {
+    required LuaState state,
+    required int depth,
+    FeatureProvider? features,
+    ModelConfigProvider? modelConfigs,
+    PluginProvider? plugins,
+    SettingsProvider? settings,
+    ConversationProvider? conversations,
+    String? conversationId,
+    LynAICallIdentity? identity,
+  }) async {
+    if (raw is! Map) return null;
+    final command = raw.map((key, value) => MapEntry(key.toString(), value));
+    final name = command['__lynai_agent_function'] as String?;
+    if (name == null || name.isEmpty) return null;
+    if (depth >= _maxContinuationDepth) {
+      return _error(
+        'continuation_depth_exceeded',
+        'Lua continuation 超过最大深度: $_maxContinuationDepth',
+      );
+    }
+    final args = command['args'] is Map
+        ? Map<String, dynamic>.from(command['args'] as Map)
+        : <String, dynamic>{};
+    final result = await _executeAgentCommand(
+      name,
+      args,
+      features: features,
+      modelConfigs: modelConfigs,
+      plugins: plugins,
+      settings: settings,
+      conversations: conversations,
+      conversationId: conversationId,
+      identity: identity,
+    );
+    final next = (command['__lynai_next'] as String? ?? '').trim();
+    if (next.isEmpty) return result;
+    state.getGlobal(next);
+    if (!state.isFunction(-1)) {
+      state.pop(1);
+      return _error('continuation_not_found', 'Lua continuation 不存在: $next');
+    }
+    _pushJsonValue(state, result);
+    _pushJsonValue(state, args);
+    final status = state.pCall(2, 1, 0);
+    if (status != ThreadStatus.luaOk) {
+      return _error(
+        'continuation_failed',
+        'Lua continuation 执行失败: ${_popError(state, status)}',
+      );
+    }
+    final continuationResult = _readJsonValue(state, -1);
+    state.pop(1);
+    final nested = await _executeCommand(
+      continuationResult,
+      state: state,
+      depth: depth + 1,
+      features: features,
+      modelConfigs: modelConfigs,
+      plugins: plugins,
+      settings: settings,
+      conversations: conversations,
+      conversationId: conversationId,
+      identity: identity,
+    );
+    if (nested != null) return nested;
+    if (continuationResult is Map) {
+      return continuationResult.map(
+        (key, value) => MapEntry(key.toString(), value),
+      );
+    }
+    return {'ok': true, 'result': continuationResult};
+  }
+
+  Future<Map<String, dynamic>> _executeAgentCommand(
+    String name,
+    Map<String, dynamic> args, {
+    FeatureProvider? features,
+    ModelConfigProvider? modelConfigs,
+    PluginProvider? plugins,
+    SettingsProvider? settings,
+    ConversationProvider? conversations,
+    String? conversationId,
+    LynAICallIdentity? identity,
+  }) async {
+    if (name != 'plugins.callFunction') {
+      return _error('unknown_command', '未知 Agent Lua command: $name');
+    }
+    final conv = conversationId == null
+        ? null
+        : conversations?.getConversation(conversationId);
+    if (conv?.settings.agentEnabled != true) {
+      return _error('agent_disabled', '当前对话未启用 Agent 模式');
+    }
+    final permitted = const LynAIPermissionService().canUseCapability(
+      identity:
+          identity ??
+          LynAICallIdentity(
+            type: LynAICallerType.lua,
+            conversationId: conversationId,
+          ),
+      capability: LynAICapabilities.pluginCallFunction,
+      settings: conv!.settings,
+    );
+    if (!permitted) {
+      return _error('permission_denied', 'Agent 未授权 plugins.callFunction');
+    }
+    final provider = plugins;
+    if (provider == null) return _error('plugin_system_unavailable', '插件系统不可用');
+    final pluginId = (args['pluginId'] as String? ?? '').trim();
+    final functionName = (args['functionName'] as String? ?? '').trim();
+    final functionArgs = args['arguments'] is Map
+        ? Map<String, dynamic>.from(args['arguments'] as Map)
+        : <String, dynamic>{};
+    InstalledPlugin? plugin;
+    for (final item in provider.plugins) {
+      if (item.id == pluginId) {
+        plugin = item;
+        break;
+      }
+    }
+    if (plugin == null || !plugin.enabled || plugin.hasError) {
+      return _error('plugin_not_found', '插件不可用: $pluginId');
+    }
+    PluginFunctionDefinition? function;
+    for (final item in plugin.manifest.functions) {
+      if (item.name == functionName) {
+        function = item;
+        break;
+      }
+    }
+    if (function == null || !plugin.enabledFunctions.contains(function.name)) {
+      return _error(
+        'plugin_function_not_found',
+        '插件函数不可用: $pluginId.$functionName',
+      );
+    }
+    if (!plugin.hasAllPermissionsGranted) {
+      return _error(
+        'plugin_permissions_missing',
+        '插件 ${plugin.displayName} 权限不足，无法执行 $functionName',
+      );
+    }
+    return PluginLuaRuntimeService().executeFunction(
+      plugin: plugin,
+      function: function,
+      arguments: functionArgs,
+      features: features,
+      modelConfigs: modelConfigs,
+      plugins: plugins,
+      settings: settings,
+    );
   }
 
   void _removeDangerousGlobals(LuaState state) {
@@ -275,8 +515,8 @@ class AgentLuaScriptService {
     return message ?? status.toString();
   }
 
-  static Map<String, dynamic> _error(String message) => {
+  static Map<String, dynamic> _error(String code, String message) => {
     'ok': false,
-    'error': message,
+    'error': {'code': code, 'message': message},
   };
 }

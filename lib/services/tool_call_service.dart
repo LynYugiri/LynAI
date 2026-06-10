@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
+import '../models/agent_trace.dart';
 import '../models/message.dart';
 import '../models/note.dart';
 import '../models/agent_plan.dart';
@@ -19,7 +20,9 @@ import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/conversation_provider.dart';
 import 'agent_lua_script_service.dart';
+import 'lynai_call_identity.dart';
 import 'lynai_function_service.dart';
+import 'lynai_permission_service.dart';
 import 'plugin_lua_runtime_service.dart';
 import 'storage_v2_service.dart';
 
@@ -216,6 +219,7 @@ class ToolCallService {
   final ConversationProvider? _conversations;
   final String? _conversationId;
   final _lynaiFunctions = LynAIFunctionService();
+  final _permissionService = const LynAIPermissionService();
 
   /// 非原生 tool_calls 接口使用的系统提示词。
   ///
@@ -254,7 +258,10 @@ class ToolCallService {
 执行过程中使用 update_plan 更新步骤状态；不要在自然语言中伪造计划状态。
 Plan 创建和更新不需要权限，只用于当前对话的可视化状态。
 如果需要了解可用插件函数，先调用 list_plugin_functions。
-如果需要运行 Lua，调用 execute_lua。Lua 运行在受限沙箱中：禁用 os/io/package/require/dofile/loadfile，不能访问文件系统或系统命令；所有 LynAI 能力必须通过 lynai.call(name, args) 调用；脚本最后必须 return 一个 JSON 可序列化 table。Agent Lua 第一版支持同步读取函数和 plugins.functions.list，写入或异步操作请继续使用普通 tools。
+如果需要调用插件函数，先调用 list_plugin_functions 查看可用函数，再用 call_plugin_function。该能力需要 plugins.callFunction 权限。
+如果需要运行 Lua，调用 execute_lua。Lua 运行在受限沙箱中：禁用 os/io/package/require/dofile/loadfile，不能访问文件系统或系统命令；所有 LynAI 能力必须通过 lynai.call(name, args) 调用；脚本最后必须 return 一个 JSON 可序列化 table。Agent Lua 支持同步读取函数、plugins.functions.list 和 plugins.callFunction；插件函数调用需要 plugins.callFunction 权限。
+Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:false,error:{code,message,details?}}；读取数据时优先看 result。
+可以输出简短的中间说明，但不要把工具 JSON 原样展示给用户；最终回复应汇总执行结果。
 ''';
 
   /// 生成当前设备时间的上下文字符串。
@@ -744,6 +751,11 @@ Plan 创建和更新不需要权限，只用于当前对话的可视化状态。
                 'enum': AgentPlanItem.statuses.toList(growable: false),
               },
               'summary': {'type': 'string', 'description': '可选，简短说明结果或失败原因'},
+              'resultSummary': {
+                'type': 'string',
+                'description': '可选，步骤完成后的结果摘要',
+              },
+              'error': {'type': 'string', 'description': '可选，步骤失败原因'},
             },
             'required': ['id', 'status'],
           },
@@ -755,10 +767,40 @@ Plan 创建和更新不需要权限，只用于当前对话的可视化状态。
       'type': 'object',
       'properties': <String, dynamic>{},
     });
-    if (permissions.contains('lua.execute')) {
+    add(
+      'add_agent_note',
+      '向当前 assistant 消息追加一条简短的用户可见 Agent 中间说明。不需要权限，不要用于最终回答或输出工具 JSON。',
+      {
+        'type': 'object',
+        'properties': {
+          'content': {'type': 'string', 'description': '简短说明，最多 500 字。'},
+        },
+        'required': ['content'],
+      },
+    );
+    if (permissions.contains(LynAICapabilities.pluginCallFunction)) {
+      add(
+        'call_plugin_function',
+        '调用当前启用插件提供的函数。调用前应先用 list_plugin_functions 查看 pluginId、functionName 和参数 schema。需要 plugins.callFunction 权限。',
+        {
+          'type': 'object',
+          'properties': {
+            'pluginId': {'type': 'string', 'description': '插件 ID'},
+            'functionName': {'type': 'string', 'description': '插件函数名'},
+            'arguments': {
+              'type': 'object',
+              'description': '传给插件函数的参数',
+              'additionalProperties': true,
+            },
+          },
+          'required': ['pluginId', 'functionName', 'arguments'],
+        },
+      );
+    }
+    if (permissions.contains(LynAICapabilities.luaExecute)) {
       add(
         'execute_lua',
-        '执行 LynAI Agent Lua 脚本。脚本运行在受限 lua_dardo 沙箱中：禁用 os、io、package、require、dofile、loadfile；不能访问本地文件系统或执行系统命令；所有 LynAI 能力必须通过 lynai.call(name, args) 调用；lynai.call 返回 JSON 风格 table，通常包含 ok 字段；脚本最后必须 return 一个 JSON 可序列化 table。Agent Lua 第一版支持同步读取函数（如 todos.list、notes.read、schedules.list、plugins.functions.list），写入或异步操作请使用普通 tools。示例：local todos = lynai.call("todos.list", {}); if not todos.ok then return todos end; return { ok = true, lists = todos.todoLists }',
+        '执行 LynAI Agent Lua 脚本。脚本运行在受限 lua_dardo 沙箱中：禁用 os、io、package、require、dofile、loadfile；不能访问本地文件系统或执行系统命令；所有 LynAI 能力必须通过 lynai.call(name, args) 调用；lynai.call 返回 JSON 风格 table，通常包含 ok 字段；脚本最后必须 return 一个 JSON 可序列化 table。支持同步读取函数（如 todos.list、notes.read、schedules.list）、plugins.functions.list 和 plugins.callFunction。plugins.callFunction 还需要 plugins.callFunction 权限。示例：local funcs = lynai.call("plugins.functions.list", {}); if not funcs.ok then return funcs end; return { ok = true, functions = funcs.functions }',
         {
           'type': 'object',
           'properties': {
@@ -909,8 +951,14 @@ Plan 创建和更新不需要权限，只用于当前对话的可视化状态。
         case 'update_plan':
           return _updatePlan(call.arguments);
         case 'list_plugin_functions':
-          if (!_agentEnabled) return _error('当前对话未启用 Agent 模式');
-          return listPluginFunctions(_plugins?.plugins ?? const []);
+          if (!_agentEnabled) {
+            return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
+          }
+          return _listPluginFunctionsForAgent();
+        case 'add_agent_note':
+          return _addAgentNote(call.arguments);
+        case 'call_plugin_function':
+          return _callPluginFunction(call.arguments);
         case 'execute_lua':
           return _executeAgentLua(call.arguments);
         default:
@@ -936,6 +984,42 @@ Plan 创建和更新不需要权限，只用于当前对话的可视化状态。
     }
   }
 
+  Map<String, dynamic> _addAgentNote(Map<String, dynamic> args) {
+    final cid = _conversationId;
+    final conversations = _conversations;
+    if (cid == null || conversations == null) {
+      return _agentError('missing_context', '缺少对话上下文');
+    }
+    final conv = conversations.getConversation(cid);
+    if (conv?.settings.agentEnabled != true) {
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
+    }
+    final content = (args['content'] as String? ?? '').trim();
+    if (content.isEmpty) {
+      return _agentError('invalid_arguments', 'add_agent_note 缺少 content');
+    }
+    final limited = content.length > 500 ? content.substring(0, 500) : content;
+    _appendAgentTrace(
+      AgentTraceEvent.assistantNote,
+      'Agent 说明',
+      content: limited,
+    );
+    return _agentOk({'noted': true});
+  }
+
+  Map<String, dynamic> _listPluginFunctionsForAgent() {
+    _appendAgentTrace(AgentTraceEvent.toolCall, '查看插件函数');
+    final result = listPluginFunctions(_plugins?.plugins ?? const []);
+    final count = (result['functions'] as List?)?.length ?? 0;
+    _appendAgentTrace(
+      AgentTraceEvent.toolResult,
+      '插件函数列表已读取',
+      content: '$count 个可用函数',
+      metadata: {'count': count},
+    );
+    return _agentOk(result);
+  }
+
   bool get _agentEnabled {
     final cid = _conversationId;
     final conversations = _conversations;
@@ -943,21 +1027,87 @@ Plan 创建和更新不需要权限，只用于当前对话的可视化状态。
     return conversations.getConversation(cid)?.settings.agentEnabled == true;
   }
 
+  LynAICallIdentity get _agentIdentity => LynAICallIdentity(
+    type: LynAICallerType.agent,
+    conversationId: _conversationId,
+  );
+
+  bool _hasAgentCapability(String capability) {
+    final cid = _conversationId;
+    final conversations = _conversations;
+    if (cid == null || conversations == null) return false;
+    final settings = conversations.getConversation(cid)?.settings;
+    if (settings == null || !settings.agentEnabled) return false;
+    return _permissionService.canUseCapability(
+      identity: _agentIdentity,
+      capability: capability,
+      settings: settings,
+    );
+  }
+
+  void _appendAgentTrace(
+    String type,
+    String title, {
+    String? content,
+    Map<String, dynamic>? metadata,
+  }) {
+    final cid = _conversationId;
+    final conversations = _conversations;
+    if (cid == null || conversations == null) return;
+    conversations.appendAgentTraceEvent(
+      cid,
+      AgentTraceEvent(
+        id: _uuid.v4(),
+        type: type,
+        title: title,
+        content: content,
+        metadata: metadata,
+        timestamp: DateTime.now(),
+      ),
+    );
+  }
+
+  static Map<String, dynamic> _agentError(
+    String code,
+    String message, {
+    Map<String, dynamic>? details,
+  }) => {
+    'ok': false,
+    'error': {
+      'code': code,
+      'message': message,
+      if (details != null && details.isNotEmpty) 'details': details,
+    },
+  };
+
+  static Map<String, dynamic> _agentOk([Map<String, dynamic>? result]) {
+    if (result == null) return {'ok': true};
+    return {'ok': true, 'result': result};
+  }
+
+  static String? _errorMessage(Map<String, dynamic> result) {
+    final error = result['error'];
+    if (error is Map) return error['message']?.toString();
+    return error?.toString();
+  }
+
   Map<String, dynamic> _createPlan(Map<String, dynamic> args) {
     final cid = _conversationId;
     final conversations = _conversations;
-    if (cid == null || conversations == null) return _error('缺少对话上下文');
+    if (cid == null || conversations == null) {
+      return _agentError('missing_context', '缺少对话上下文');
+    }
     final conv = conversations.getConversation(cid);
     if (conv == null) {
-      return _error('对话不存在');
+      return _agentError('missing_context', '对话不存在');
     }
     if (!conv.settings.agentEnabled) {
-      return _error('当前对话未启用 Agent 模式');
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
     }
     final title = (args['title'] as String? ?? 'Agent Plan').trim();
     final rawItems = args['items'];
     if (rawItems is! List || rawItems.isEmpty) {
-      return _error('create_plan 缺少 items');
+      return _agentError('invalid_arguments', 'create_plan 缺少 items');
     }
     final items = <AgentPlanItem>[];
     for (var i = 0; i < rawItems.length; i++) {
@@ -974,7 +1124,9 @@ Plan 创建和更新不需要权限，只用于当前对话的可视化状态。
         ),
       );
     }
-    if (items.isEmpty) return _error('create_plan 没有有效步骤');
+    if (items.isEmpty) {
+      return _agentError('invalid_arguments', 'create_plan 没有有效步骤');
+    }
     final now = DateTime.now();
     final plan = AgentPlan(
       id: 'plan_${now.microsecondsSinceEpoch}',
@@ -984,25 +1136,33 @@ Plan 创建和更新不需要权限，只用于当前对话的可视化状态。
       updatedAt: now,
     );
     conversations.updateAgentPlan(cid, plan);
-    return {'ok': true, 'plan': plan.toJson()};
+    _appendAgentTrace(
+      AgentTraceEvent.planUpdate,
+      '创建 Agent 计划',
+      content: '${plan.items.length} 个步骤',
+      metadata: {'planId': plan.id},
+    );
+    return _agentOk({'plan': plan.toJson()});
   }
 
   Map<String, dynamic> _updatePlan(Map<String, dynamic> args) {
     final cid = _conversationId;
     final conversations = _conversations;
-    if (cid == null || conversations == null) return _error('缺少对话上下文');
+    if (cid == null || conversations == null) {
+      return _agentError('missing_context', '缺少对话上下文');
+    }
     final conv = conversations.getConversation(cid);
     if (conv == null) {
-      return _error('对话不存在');
+      return _agentError('missing_context', '对话不存在');
     }
     if (!conv.settings.agentEnabled) {
-      return _error('当前对话未启用 Agent 模式');
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
     }
     final plan = conv.agentPlan;
-    if (plan == null) return _error('当前对话没有 Agent Plan');
+    if (plan == null) return _agentError('plan_not_found', '当前对话没有 Agent Plan');
     final rawItems = args['items'];
     if (rawItems is! List || rawItems.isEmpty) {
-      return _error('update_plan 缺少 items');
+      return _agentError('invalid_arguments', 'update_plan 缺少 items');
     }
     final updates = <String, Map<String, dynamic>>{};
     for (final raw in rawItems) {
@@ -1013,49 +1173,221 @@ Plan 创建和更新不需要权限，只用于当前对话的可视化状态。
       if (id.isEmpty || !AgentPlanItem.statuses.contains(status)) continue;
       updates[id] = json;
     }
-    if (updates.isEmpty) return _error('update_plan 没有有效更新');
+    if (updates.isEmpty) {
+      return _agentError('invalid_arguments', 'update_plan 没有有效更新');
+    }
     final known = plan.items.map((item) => item.id).toSet();
     final unknown = updates.keys.where((id) => !known.contains(id)).toList();
-    if (unknown.isNotEmpty) return _error('未知计划步骤: ${unknown.join(', ')}');
+    if (unknown.isNotEmpty) {
+      return _agentError(
+        'plan_step_not_found',
+        '未知计划步骤: ${unknown.join(', ')}',
+      );
+    }
     final nextItems = plan.items
         .map((item) {
           final update = updates[item.id];
           if (update == null) return item;
+          var next = item.copyWith(status: update['status'] as String);
           if (update.containsKey('summary')) {
-            return item.copyWith(
-              status: update['status'] as String,
+            next = next.copyWith(
               summary: (update['summary'] as String? ?? '').trim(),
             );
           }
-          return item.copyWith(status: update['status'] as String);
+          if (update.containsKey('resultSummary')) {
+            next = next.copyWith(
+              resultSummary: (update['resultSummary'] as String? ?? '').trim(),
+            );
+          }
+          if (update.containsKey('error')) {
+            next = next.copyWith(
+              error: (update['error'] as String? ?? '').trim(),
+            );
+          }
+          return next;
         })
         .toList(growable: false);
     final next = plan.copyWith(items: nextItems, updatedAt: DateTime.now());
     conversations.updateAgentPlan(cid, next);
-    return {'ok': true, 'plan': next.toJson()};
+    _appendAgentTrace(
+      AgentTraceEvent.planUpdate,
+      '更新 Agent 计划',
+      content: '${updates.length} 个步骤已更新',
+      metadata: {'updatedStepIds': updates.keys.toList(growable: false)},
+    );
+    return _agentOk({'plan': next.toJson()});
   }
 
-  Future<Map<String, dynamic>> _executeAgentLua(Map<String, dynamic> args) {
+  Future<Map<String, dynamic>> _callPluginFunction(
+    Map<String, dynamic> args,
+  ) async {
     final cid = _conversationId;
     final conversations = _conversations;
     if (cid == null || conversations == null) {
-      return Future.value(_error('缺少对话上下文'));
+      return _agentError('missing_context', '缺少对话上下文');
     }
     final conv = conversations.getConversation(cid);
     if (conv?.settings.agentEnabled != true) {
-      return Future.value(_error('当前对话未启用 Agent 模式'));
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
     }
-    if (!conv!.settings.agentGrantedPermissions.contains('lua.execute')) {
-      return Future.value(_error('Agent 未授权 lua.execute'));
+    if (!_hasAgentCapability(LynAICapabilities.pluginCallFunction)) {
+      final result = _agentError(
+        'permission_denied',
+        'Agent 未授权 plugins.callFunction。请请求用户在 Agent 设置中开启“调用插件函数”。',
+      );
+      _appendAgentTrace(
+        AgentTraceEvent.error,
+        '插件函数调用被拒绝',
+        content: _errorMessage(result),
+      );
+      return result;
     }
-    return AgentLuaScriptService().execute(
+    final plugins = _plugins;
+    if (plugins == null) {
+      return _agentError('plugin_system_unavailable', '插件系统不可用');
+    }
+    final pluginId = (args['pluginId'] as String? ?? '').trim();
+    final functionName = (args['functionName'] as String? ?? '').trim();
+    final functionArgs = args['arguments'] is Map
+        ? Map<String, dynamic>.from(args['arguments'] as Map)
+        : <String, dynamic>{};
+    if (pluginId.isEmpty || functionName.isEmpty) {
+      return _agentError(
+        'invalid_arguments',
+        'call_plugin_function 缺少 pluginId 或 functionName',
+      );
+    }
+    InstalledPlugin? plugin;
+    for (final item in plugins.plugins) {
+      if (item.id == pluginId) {
+        plugin = item;
+        break;
+      }
+    }
+    if (plugin == null || !plugin.enabled || plugin.hasError) {
+      return _agentError('plugin_not_found', '插件不可用: $pluginId');
+    }
+    PluginFunctionDefinition? function;
+    for (final item in plugin.manifest.functions) {
+      if (item.name == functionName) {
+        function = item;
+        break;
+      }
+    }
+    if (function == null || !plugin.enabledFunctions.contains(function.name)) {
+      return _agentError(
+        'plugin_function_not_found',
+        '插件函数不可用: $pluginId.$functionName',
+      );
+    }
+    if (!plugin.hasAllPermissionsGranted) {
+      return _agentError(
+        'plugin_permissions_missing',
+        '插件 ${plugin.displayName} 权限不足，无法执行 $functionName',
+      );
+    }
+    _appendAgentTrace(
+      AgentTraceEvent.toolCall,
+      '调用插件函数',
+      content: '${plugin.displayName}.${function.name}',
+      metadata: {'pluginId': plugin.id, 'functionName': function.name},
+    );
+    final result = await PluginLuaRuntimeService().executeFunction(
+      plugin: plugin,
+      function: function,
+      arguments: functionArgs,
+      features: _features,
+      modelConfigs: _modelConfigs,
+      plugins: _plugins,
+      settings: _settings,
+    );
+    _appendAgentTrace(
+      result['ok'] == false
+          ? AgentTraceEvent.error
+          : AgentTraceEvent.toolResult,
+      result['ok'] == false ? '插件函数调用失败' : '插件函数调用完成',
+      content: '${plugin.displayName}.${function.name}',
+      metadata: {
+        'pluginId': plugin.id,
+        'functionName': function.name,
+        'ok': result['ok'] != false,
+        if (_errorMessage(result) != null) 'error': _errorMessage(result),
+      },
+    );
+    if (result['ok'] == false) {
+      return _agentError(
+        'plugin_function_failed',
+        _errorMessage(result) ?? '插件函数执行失败',
+        details: result,
+      );
+    }
+    final flattened = Map<String, dynamic>.from(result)..remove('ok');
+    return {
+      'ok': true,
+      'result': {
+        'pluginId': plugin.id,
+        'functionName': function.name,
+        'value': flattened.isEmpty ? result['result'] : flattened,
+      },
+    };
+  }
+
+  Future<Map<String, dynamic>> _executeAgentLua(
+    Map<String, dynamic> args,
+  ) async {
+    final cid = _conversationId;
+    final conversations = _conversations;
+    if (cid == null || conversations == null) {
+      return _agentError('missing_context', '缺少对话上下文');
+    }
+    final conv = conversations.getConversation(cid);
+    if (conv?.settings.agentEnabled != true) {
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
+    }
+    if (!_hasAgentCapability(LynAICapabilities.luaExecute)) {
+      final result = _agentError(
+        'permission_denied',
+        'Agent 未授权 lua.execute。请请求用户在 Agent 设置中开启“执行 Lua 脚本”。',
+      );
+      _appendAgentTrace(
+        AgentTraceEvent.error,
+        'Agent Lua 被拒绝',
+        content: _errorMessage(result),
+      );
+      return result;
+    }
+    _appendAgentTrace(
+      AgentTraceEvent.toolCall,
+      '执行 Agent Lua',
+      content: (args['purpose'] as String? ?? '').trim(),
+    );
+    final result = await AgentLuaScriptService().execute(
       code: (args['code'] as String? ?? '').trim(),
       purpose: (args['purpose'] as String? ?? '').trim(),
       features: _features,
       modelConfigs: _modelConfigs,
       plugins: _plugins,
       settings: _settings,
+      conversations: _conversations,
+      conversationId: _conversationId,
+      identity: _agentIdentity.child(
+        type: LynAICallerType.lua,
+        toolName: 'execute_lua',
+      ),
     );
+    _appendAgentTrace(
+      result['ok'] == false
+          ? AgentTraceEvent.error
+          : AgentTraceEvent.toolResult,
+      result['ok'] == false ? 'Agent Lua 执行失败' : 'Agent Lua 执行完成',
+      content: (args['purpose'] as String? ?? '').trim(),
+      metadata: {
+        'ok': result['ok'] != false,
+        'calls': result['calls'],
+        if (_errorMessage(result) != null) 'error': _errorMessage(result),
+      },
+    );
+    return result;
   }
 
   Future<Map<String, dynamic>?> _executePluginTool(ChatToolCall call) async {

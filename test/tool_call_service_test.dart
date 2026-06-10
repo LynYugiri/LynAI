@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lynai/models/conversation.dart';
 import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
@@ -9,6 +10,7 @@ import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/services/storage_migration_service.dart';
 import 'package:lynai/services/storage_v2_service.dart';
 import 'package:lynai/services/tool_call_service.dart';
+import 'package:lynai/services/lynai_permission_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -142,5 +144,111 @@ void main() {
     } finally {
       await root.delete(recursive: true);
     }
+  });
+
+  test(
+    'Agent tools expose notes and plugin calls according to permissions',
+    () {
+      final baseTools = ToolCallService.openAITools(const [], true, const []);
+      final baseNames = baseTools
+          .map((tool) => tool['function']?['name'])
+          .whereType<String>()
+          .toSet();
+
+      expect(baseNames, contains('add_agent_note'));
+      expect(baseNames, contains('create_plan'));
+      expect(baseNames, contains('update_plan'));
+      expect(baseNames, contains('list_plugin_functions'));
+      expect(baseNames, isNot(contains('call_plugin_function')));
+
+      final grantedTools = ToolCallService.openAITools(const [], true, const [
+        LynAICapabilities.pluginCallFunction,
+      ]);
+      final grantedNames = grantedTools
+          .map((tool) => tool['function']?['name'])
+          .whereType<String>()
+          .toSet();
+      expect(grantedNames, contains('call_plugin_function'));
+    },
+  );
+
+  test('add_agent_note appends assistant trace without permissions', () async {
+    SharedPreferences.setMockInitialValues({});
+    final conversations = ConversationProvider();
+    final cid = conversations.createConversation(
+      ConversationSettings(modelId: 'm1', agentEnabled: true),
+    );
+    conversations.addMessage(cid, 'user', 'do work');
+    conversations.addMessage(cid, 'assistant', '', save: false);
+    final service = ToolCallService(
+      FeatureProvider(),
+      conversations: conversations,
+      conversationId: cid,
+    );
+
+    final result = await service.execute(
+      const ChatToolCall(
+        id: 'note',
+        name: 'add_agent_note',
+        arguments: {'content': '我先查看可用插件。'},
+      ),
+      const [],
+    );
+
+    expect(result['ok'], isTrue);
+    expect(result['result'], {'noted': true});
+    final trace = conversations.getConversation(cid)!.messages.last.agentTrace;
+    expect(trace?.events, hasLength(1));
+    expect(trace?.events.single.content, '我先查看可用插件。');
+  });
+
+  test('Agent tools use structured success and error payloads', () async {
+    SharedPreferences.setMockInitialValues({});
+    final conversations = ConversationProvider();
+    final disabledCid = conversations.createConversation(
+      ConversationSettings(modelId: 'm1'),
+    );
+    final disabledService = ToolCallService(
+      FeatureProvider(),
+      conversations: conversations,
+      conversationId: disabledCid,
+    );
+
+    final disabled = await disabledService.execute(
+      const ChatToolCall(
+        id: 'functions-disabled',
+        name: 'list_plugin_functions',
+        arguments: {},
+      ),
+      const [],
+    );
+
+    expect(disabled['ok'], isFalse);
+    expect(disabled['error'], isA<Map>());
+    expect((disabled['error'] as Map)['code'], 'agent_disabled');
+
+    final cid = conversations.createConversation(
+      ConversationSettings(modelId: 'm1', agentEnabled: true),
+    );
+    conversations.addMessage(cid, 'user', 'list functions');
+    conversations.addMessage(cid, 'assistant', '', save: false);
+    final service = ToolCallService(
+      FeatureProvider(),
+      conversations: conversations,
+      conversationId: cid,
+    );
+
+    final listed = await service.execute(
+      const ChatToolCall(
+        id: 'functions',
+        name: 'list_plugin_functions',
+        arguments: {},
+      ),
+      const [],
+    );
+
+    expect(listed['ok'], isTrue);
+    expect(listed['result'], isA<Map>());
+    expect((listed['result'] as Map)['functions'], isA<List>());
   });
 }

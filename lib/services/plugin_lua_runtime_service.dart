@@ -39,6 +39,46 @@ class PluginLuaRuntimeService {
     ModelConfigProvider? modelConfigs,
     PluginProvider? plugins,
     SettingsProvider? settings,
+  }) {
+    return _executeHandler(
+      plugin: plugin,
+      handler: tool.handler,
+      arguments: arguments,
+      features: features,
+      modelConfigs: modelConfigs,
+      plugins: plugins,
+      settings: settings,
+    );
+  }
+
+  Future<Map<String, dynamic>> executeFunction({
+    required InstalledPlugin plugin,
+    required PluginFunctionDefinition function,
+    required Map<String, dynamic> arguments,
+    FeatureProvider? features,
+    ModelConfigProvider? modelConfigs,
+    PluginProvider? plugins,
+    SettingsProvider? settings,
+  }) {
+    return _executeHandler(
+      plugin: plugin,
+      handler: function.handler,
+      arguments: arguments,
+      features: features,
+      modelConfigs: modelConfigs,
+      plugins: plugins,
+      settings: settings,
+    );
+  }
+
+  Future<Map<String, dynamic>> _executeHandler({
+    required InstalledPlugin plugin,
+    required String handler,
+    required Map<String, dynamic> arguments,
+    FeatureProvider? features,
+    ModelConfigProvider? modelConfigs,
+    PluginProvider? plugins,
+    SettingsProvider? settings,
   }) async {
     final entryRelPath = plugin.manifest.entry;
     final entryPath = safePluginFilePath(plugin.path, entryRelPath);
@@ -80,10 +120,10 @@ class PluginLuaRuntimeService {
       return _error('Lua 初始化失败: ${_popError(state, loadStatus)}');
     }
 
-    state.getGlobal(tool.handler);
+    state.getGlobal(handler);
     if (!state.isFunction(-1)) {
       state.pop(1);
-      return _error('Lua handler 不存在: ${tool.handler}');
+      return _error('Lua handler 不存在: $handler');
     }
     _pushJsonValue(state, arguments);
     final status = state.pCall(1, 1, 0);

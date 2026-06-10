@@ -13,6 +13,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:super_clipboard/super_clipboard.dart';
 import '../models/agent_plan.dart';
+import '../models/agent_trace.dart';
 import '../models/conversation.dart';
 import '../models/chat_role.dart';
 import '../models/message.dart';
@@ -2424,6 +2425,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
   Widget _agentPlanStep(AgentPlanItem item) {
     final scheme = Theme.of(context).colorScheme;
+    final detail = item.status == AgentPlanItem.failed
+        ? (item.error ?? item.summary)
+        : item.status == AgentPlanItem.completed
+        ? (item.resultSummary ?? item.summary)
+        : item.summary;
     final (icon, color) = switch (item.status) {
       AgentPlanItem.completed => (Icons.check_circle, scheme.primary),
       AgentPlanItem.inProgress => (Icons.play_circle_outline, scheme.tertiary),
@@ -2447,14 +2453,16 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(item.title, style: const TextStyle(fontSize: 13)),
-                if (item.summary != null && item.summary!.isNotEmpty)
+                if (detail != null && detail.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 2),
                     child: Text(
-                      item.summary!,
+                      detail,
                       style: TextStyle(
                         fontSize: 12,
-                        color: scheme.onSurfaceVariant,
+                        color: item.status == AgentPlanItem.failed
+                            ? scheme.error
+                            : scheme.onSurfaceVariant,
                       ),
                     ),
                   ),
@@ -2642,6 +2650,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           _thinkSection(missingThinkNotice),
         if (isLastAi && draft?.status != null) _streamStatus(draft!.status!),
         if (!isLastAi) ..._buildPerMsgThinkSection(msg),
+        if (msg.agentTrace != null && msg.agentTrace!.events.isNotEmpty)
+          _agentTracePanel(msg.agentTrace!),
         Container(
           margin: const EdgeInsets.symmetric(vertical: 4),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -2677,6 +2687,168 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         if (!streaming && !_shareSelecting) _bubbleActions(msg, isLastAi),
       ],
     );
+  }
+
+  Widget _agentTracePanel(AgentTrace trace) {
+    final scheme = Theme.of(context).colorScheme;
+    const maxVisibleEvents = 30;
+    final errors = trace.events
+        .where((event) => event.type == AgentTraceEvent.error)
+        .length;
+    final last = trace.events.last;
+    final visibleEvents = trace.events.length > maxVisibleEvents
+        ? trace.events.sublist(trace.events.length - maxVisibleEvents)
+        : trace.events;
+    final hiddenCount = trace.events.length - visibleEvents.length;
+    return Container(
+      margin: const EdgeInsets.only(top: 4, bottom: 4),
+      constraints: BoxConstraints(
+        maxWidth: MediaQuery.of(context).size.width * 0.85,
+      ),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.7)),
+      ),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+          childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          initiallyExpanded: false,
+          leading: Icon(Icons.route_outlined, size: 18, color: scheme.primary),
+          title: Text(
+            'Agent 过程 · ${trace.events.length} 步${errors > 0 ? ' · $errors 个错误' : ''}',
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+          subtitle: Text(
+            last.content == null || last.content!.isEmpty
+                ? last.title
+                : '${last.title}：${last.content}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+          ),
+          children: [
+            if (hiddenCount > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  '已省略较早的 $hiddenCount 步',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            for (final event in visibleEvents) _agentTraceEventRow(event),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _agentTraceEventRow(AgentTraceEvent event) {
+    final scheme = Theme.of(context).colorScheme;
+    final (icon, color) = switch (event.type) {
+      AgentTraceEvent.toolCall => (Icons.play_arrow_rounded, scheme.tertiary),
+      AgentTraceEvent.toolResult => (
+        Icons.check_circle_outline,
+        scheme.primary,
+      ),
+      AgentTraceEvent.planUpdate => (
+        Icons.account_tree_outlined,
+        scheme.secondary,
+      ),
+      AgentTraceEvent.error => (Icons.error_outline, scheme.error),
+      _ => (Icons.notes_outlined, scheme.onSurfaceVariant),
+    };
+    final label = switch (event.type) {
+      AgentTraceEvent.toolCall => '工具调用',
+      AgentTraceEvent.toolResult => '工具结果',
+      AgentTraceEvent.planUpdate => '计划更新',
+      AgentTraceEvent.error => '错误',
+      _ => '中间说明',
+    };
+    final content = event.content == null
+        ? null
+        : _compactAgentTraceText(event.content!, maxLength: 240);
+    final metadata = event.metadata == null || event.metadata!.isEmpty
+        ? null
+        : _compactAgentTraceText(jsonEncode(event.metadata), maxLength: 320);
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        event.title,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        label,
+                        style: TextStyle(fontSize: 10, color: color),
+                      ),
+                    ),
+                  ],
+                ),
+                if (content != null && content.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      content,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                if (metadata != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      metadata,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _compactAgentTraceText(String value, {required int maxLength}) {
+    final singleLine = value.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (singleLine.length <= maxLength) return singleLine;
+    return '${singleLine.substring(0, maxLength)}...';
   }
 
   Widget _messageImages(List<MessageImage> images) {

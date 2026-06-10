@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/app_settings.dart';
+import '../models/agent_trace.dart';
 import '../models/backup_models.dart';
 import '../models/chat_role.dart';
 import '../models/conversation.dart';
@@ -726,6 +727,11 @@ class BackupService {
               content: raw['content'] as String? ?? '',
               images: attachmentsByMessageId[msgId] ?? const [],
               thinkingContent: raw['thinkingContent'] as String?,
+              agentTrace: raw['agentTrace'] is Map
+                  ? AgentTrace.fromJson(
+                      Map<String, dynamic>.from(raw['agentTrace'] as Map),
+                    )
+                  : null,
               timestamp: timestamp,
             ),
             sortOrder: (raw['sortOrder'] as num?)?.toInt(),
@@ -2250,6 +2256,7 @@ class BackupService {
               content: message.content,
               images: message.images,
               thinkingContent: message.thinkingContent,
+              agentTrace: message.agentTrace,
               timestamp: message.timestamp,
             ),
           )
@@ -2686,6 +2693,7 @@ class BackupService {
         content: message.content,
         images: images,
         thinkingContent: message.thinkingContent,
+        agentTrace: message.agentTrace,
         timestamp: message.timestamp,
       );
     }).toList();

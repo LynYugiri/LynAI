@@ -1,3 +1,5 @@
+import 'agent_trace.dart';
+
 /// 消息数据模型。
 ///
 /// [content] 始终保存可直接发送给文本模型的内容。附件只通过 [images]
@@ -18,6 +20,9 @@ class Message {
   /// assistant 消息的思考过程内容。
   final String? thinkingContent;
 
+  /// assistant 消息内的 Agent 执行过程记录，不作为普通对话内容发送给模型。
+  final AgentTrace? agentTrace;
+
   /// 消息时间戳。
   final DateTime timestamp;
 
@@ -28,6 +33,7 @@ class Message {
     required this.content,
     this.images = const [],
     this.thinkingContent,
+    this.agentTrace,
     required this.timestamp,
   });
 
@@ -43,6 +49,11 @@ class Message {
           .where((e) => e.path.isNotEmpty)
           .toList(),
       thinkingContent: json['thinkingContent'] as String?,
+      agentTrace: json['agentTrace'] is Map
+          ? AgentTrace.fromJson(
+              Map<String, dynamic>.from(json['agentTrace'] as Map),
+            )
+          : null,
       timestamp: DateTime.parse(json['timestamp'] as String),
     );
   }
@@ -56,6 +67,8 @@ class Message {
       if (images.isNotEmpty) 'images': images.map((e) => e.toJson()).toList(),
       if (thinkingContent != null && thinkingContent!.isNotEmpty)
         'thinkingContent': thinkingContent,
+      if (agentTrace != null && agentTrace!.events.isNotEmpty)
+        'agentTrace': agentTrace!.toJson(),
       'timestamp': timestamp.toIso8601String(),
     };
   }

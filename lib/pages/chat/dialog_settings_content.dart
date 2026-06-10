@@ -861,21 +861,32 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
               ),
             ),
           ),
-          _agentPermissionTile('执行 Lua 脚本', 'lua.execute'),
-          _agentPermissionTile('调用插件函数', 'plugins.callFunction'),
-          _agentPermissionTile('网络请求', 'http.fetch'),
-          _agentPermissionTile('设备能力', 'device.access'),
+          _agentPermissionTile(
+            '执行 Lua 脚本',
+            'lua.execute',
+            subtitle: '允许 Agent 运行受限 Lua，用于编排同步读取和插件函数。',
+          ),
+          _agentPermissionTile(
+            '调用插件函数',
+            'plugins.callFunction',
+            subtitle: '允许 Agent 或 Agent Lua 调用已安装插件暴露的函数。',
+          ),
         ],
       ),
     );
   }
 
-  Widget _agentPermissionTile(String title, String permission) {
+  Widget _agentPermissionTile(
+    String title,
+    String permission, {
+    String? subtitle,
+  }) {
     final permissions = _settings.agentGrantedPermissions.toSet();
     return CheckboxListTile(
       dense: true,
       value: permissions.contains(permission),
       title: Text(title),
+      subtitle: subtitle == null ? null : Text(subtitle),
       controlAffinity: ListTileControlAffinity.leading,
       onChanged: (value) {
         if (value == true) {

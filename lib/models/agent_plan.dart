@@ -80,12 +80,16 @@ class AgentPlanItem {
   final String title;
   final String status;
   final String? summary;
+  final String? resultSummary;
+  final String? error;
 
   const AgentPlanItem({
     required this.id,
     required this.title,
     this.status = pending,
     this.summary,
+    this.resultSummary,
+    this.error,
   });
 
   factory AgentPlanItem.fromJson(Map<String, dynamic> json) {
@@ -95,6 +99,8 @@ class AgentPlanItem {
       title: json['title'] as String? ?? '',
       status: statuses.contains(status) ? status : pending,
       summary: json['summary'] as String?,
+      resultSummary: json['resultSummary'] as String?,
+      error: json['error'] as String?,
     );
   }
 
@@ -103,9 +109,17 @@ class AgentPlanItem {
     'title': title,
     'status': status,
     if (summary != null && summary!.isNotEmpty) 'summary': summary,
+    if (resultSummary != null && resultSummary!.isNotEmpty)
+      'resultSummary': resultSummary,
+    if (error != null && error!.isNotEmpty) 'error': error,
   };
 
-  AgentPlanItem copyWith({String? status, Object? summary = _sentinel}) {
+  AgentPlanItem copyWith({
+    String? status,
+    Object? summary = _sentinel,
+    Object? resultSummary = _sentinel,
+    Object? error = _sentinel,
+  }) {
     return AgentPlanItem(
       id: id,
       title: title,
@@ -113,6 +127,10 @@ class AgentPlanItem {
       summary: identical(summary, _sentinel)
           ? this.summary
           : summary as String?,
+      resultSummary: identical(resultSummary, _sentinel)
+          ? this.resultSummary
+          : resultSummary as String?,
+      error: identical(error, _sentinel) ? this.error : error as String?,
     );
   }
 

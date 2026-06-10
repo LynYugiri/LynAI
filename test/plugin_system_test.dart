@@ -4,12 +4,16 @@ import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/model_config.dart';
 import 'package:lynai/models/plugin.dart';
 import 'package:lynai/models/plugin_config_schema.dart';
+import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/plugin_provider.dart';
 import 'package:lynai/repositories/plugin_repository.dart';
+import 'package:lynai/services/agent_lua_script_service.dart';
+import 'package:lynai/services/lynai_permission_service.dart';
 import 'package:lynai/services/plugin_lua_runtime_service.dart';
 import 'package:lynai/services/tool_call_service.dart';
 import 'package:lynai/utils/plugin_path_utils.dart';
@@ -397,6 +401,293 @@ end
       expect(result['sum'], 5);
     } finally {
       await root.delete(recursive: true);
+    }
+  });
+
+  test('Lua plugin functions are executable through runtime', () async {
+    final root = await Directory.systemTemp.createTemp('lynai_lua_function_');
+    try {
+      await File('${root.path}/main.lua').writeAsString(r'''
+function lookup(args)
+  return { ok = true, value = "hello " .. args.name }
+end
+''');
+      final manifest = PluginManifest.fromJson({
+        'id': 'function_plugin',
+        'name': 'Function Plugin',
+        'entry': 'main.lua',
+        'functions': [
+          {
+            'name': 'lookup',
+            'title': 'Lookup',
+            'handler': 'lookup',
+            'parameters': {
+              'type': 'object',
+              'properties': {
+                'name': {'type': 'string'},
+              },
+            },
+          },
+        ],
+      });
+      final plugin = InstalledPlugin(
+        manifest: manifest,
+        path: root.path,
+        enabled: true,
+        grantedPermissions: const [],
+        enabledFeaturePages: const [],
+        enabledFunctions: const ['lookup'],
+      );
+
+      final result = await PluginLuaRuntimeService().executeFunction(
+        plugin: plugin,
+        function: manifest.functions.single,
+        arguments: {'name': 'lynai'},
+      );
+
+      expect(result['ok'], isTrue);
+      expect(result['value'], 'hello lynai');
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('Agent Lua can call plugin functions with continuation', () async {
+    SharedPreferences.setMockInitialValues({});
+    final source = await Directory.systemTemp.createTemp(
+      'lynai_agent_lua_func_src_',
+    );
+    final installedRoot = await Directory.systemTemp.createTemp(
+      'lynai_agent_lua_func_installed_',
+    );
+    try {
+      await File('${source.path}/main.lua').writeAsString(r'''
+function lookup(args)
+  return { ok = true, value = "hello " .. args.name }
+end
+''');
+      await File('${source.path}/plugin.json').writeAsString(
+        jsonEncode({
+          'id': 'agent_function_plugin',
+          'name': 'Agent Function Plugin',
+          'entry': 'main.lua',
+          'functions': [
+            {'name': 'lookup', 'title': 'Lookup', 'handler': 'lookup'},
+          ],
+        }),
+      );
+      final plugins = PluginProvider(
+        repository: PluginRepository(rootOverride: installedRoot),
+      );
+      await plugins.importDirectory(source.path);
+      await plugins.setEnabled('agent_function_plugin', true);
+      await plugins.setFunctionEnabled('agent_function_plugin', 'lookup', true);
+      final conversations = ConversationProvider();
+      final cid = conversations.createConversation(
+        ConversationSettings(
+          modelId: 'm1',
+          agentEnabled: true,
+          agentGrantedPermissions: const [LynAICapabilities.pluginCallFunction],
+        ),
+      );
+
+      final result = await AgentLuaScriptService().execute(
+        purpose: 'call plugin',
+        plugins: plugins,
+        conversations: conversations,
+        conversationId: cid,
+        code: r'''
+function after_lookup(response, request)
+  return { ok = response.ok, summary = response.value, requested = request.functionName }
+end
+
+return lynai.call("plugins.callFunction", {
+  pluginId = "agent_function_plugin",
+  functionName = "lookup",
+  arguments = { name = "lynai" },
+  __lynai_next = "after_lookup"
+})
+''',
+      );
+
+      expect(result['ok'], isTrue);
+      final payload = result['result'] as Map;
+      expect(payload['summary'], 'hello lynai');
+      expect(payload['requested'], 'lookup');
+    } finally {
+      await source.delete(recursive: true);
+      await installedRoot.delete(recursive: true);
+    }
+  });
+
+  test(
+    'Agent Lua returns structured error without plugin permission',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final conversations = ConversationProvider();
+      final cid = conversations.createConversation(
+        ConversationSettings(modelId: 'm1', agentEnabled: true),
+      );
+
+      final result = await AgentLuaScriptService().execute(
+        purpose: 'call plugin without permission',
+        conversations: conversations,
+        conversationId: cid,
+        code: r'''
+return lynai.call("plugins.callFunction", {
+  pluginId = "missing",
+  functionName = "lookup"
+})
+''',
+      );
+
+      expect(result['ok'], isFalse);
+      final payload = result['result'] as Map;
+      expect(payload['ok'], isFalse);
+      expect(payload['error'], isA<Map>());
+      expect((payload['error'] as Map)['code'], 'permission_denied');
+      expect((result['error'] as Map)['code'], 'permission_denied');
+    },
+  );
+
+  test(
+    'Agent Lua reports missing continuation with structured error',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final source = await Directory.systemTemp.createTemp(
+        'lynai_agent_lua_missing_next_src_',
+      );
+      final installedRoot = await Directory.systemTemp.createTemp(
+        'lynai_agent_lua_missing_next_installed_',
+      );
+      try {
+        await File('${source.path}/main.lua').writeAsString(r'''
+function lookup(args)
+  return { ok = true, value = "hello" }
+end
+''');
+        await File('${source.path}/plugin.json').writeAsString(
+          jsonEncode({
+            'id': 'agent_missing_next_plugin',
+            'name': 'Agent Missing Next Plugin',
+            'entry': 'main.lua',
+            'functions': [
+              {'name': 'lookup', 'title': 'Lookup', 'handler': 'lookup'},
+            ],
+          }),
+        );
+        final plugins = PluginProvider(
+          repository: PluginRepository(rootOverride: installedRoot),
+        );
+        await plugins.importDirectory(source.path);
+        await plugins.setEnabled('agent_missing_next_plugin', true);
+        await plugins.setFunctionEnabled(
+          'agent_missing_next_plugin',
+          'lookup',
+          true,
+        );
+        final conversations = ConversationProvider();
+        final cid = conversations.createConversation(
+          ConversationSettings(
+            modelId: 'm1',
+            agentEnabled: true,
+            agentGrantedPermissions: const [
+              LynAICapabilities.pluginCallFunction,
+            ],
+          ),
+        );
+
+        final result = await AgentLuaScriptService().execute(
+          purpose: 'missing continuation',
+          plugins: plugins,
+          conversations: conversations,
+          conversationId: cid,
+          code: r'''
+return lynai.call("plugins.callFunction", {
+  pluginId = "agent_missing_next_plugin",
+  functionName = "lookup",
+  __lynai_next = "missing_next"
+})
+''',
+        );
+
+        expect(result['ok'], isFalse);
+        final error = result['error'] as Map;
+        expect(error['code'], 'continuation_not_found');
+      } finally {
+        await source.delete(recursive: true);
+        await installedRoot.delete(recursive: true);
+      }
+    },
+  );
+
+  test('Agent Lua limits recursive continuations', () async {
+    SharedPreferences.setMockInitialValues({});
+    final source = await Directory.systemTemp.createTemp(
+      'lynai_agent_lua_loop_src_',
+    );
+    final installedRoot = await Directory.systemTemp.createTemp(
+      'lynai_agent_lua_loop_installed_',
+    );
+    try {
+      await File('${source.path}/main.lua').writeAsString(r'''
+function lookup(args)
+  return { ok = true, value = "again" }
+end
+''');
+      await File('${source.path}/plugin.json').writeAsString(
+        jsonEncode({
+          'id': 'agent_loop_plugin',
+          'name': 'Agent Loop Plugin',
+          'entry': 'main.lua',
+          'functions': [
+            {'name': 'lookup', 'title': 'Lookup', 'handler': 'lookup'},
+          ],
+        }),
+      );
+      final plugins = PluginProvider(
+        repository: PluginRepository(rootOverride: installedRoot),
+      );
+      await plugins.importDirectory(source.path);
+      await plugins.setEnabled('agent_loop_plugin', true);
+      await plugins.setFunctionEnabled('agent_loop_plugin', 'lookup', true);
+      final conversations = ConversationProvider();
+      final cid = conversations.createConversation(
+        ConversationSettings(
+          modelId: 'm1',
+          agentEnabled: true,
+          agentGrantedPermissions: const [LynAICapabilities.pluginCallFunction],
+        ),
+      );
+
+      final result = await AgentLuaScriptService().execute(
+        purpose: 'loop continuation',
+        plugins: plugins,
+        conversations: conversations,
+        conversationId: cid,
+        code: r'''
+function loop_next(response, request)
+  return lynai.call("plugins.callFunction", {
+    pluginId = "agent_loop_plugin",
+    functionName = "lookup",
+    __lynai_next = "loop_next"
+  })
+end
+
+return lynai.call("plugins.callFunction", {
+  pluginId = "agent_loop_plugin",
+  functionName = "lookup",
+  __lynai_next = "loop_next"
+})
+''',
+      );
+
+      expect(result['ok'], isFalse);
+      final error = result['error'] as Map;
+      expect(error['code'], 'continuation_depth_exceeded');
+    } finally {
+      await source.delete(recursive: true);
+      await installedRoot.delete(recursive: true);
     }
   });
 

@@ -4,6 +4,7 @@ import 'dart:isolate';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/agent_trace.dart';
 import '../models/conversation.dart';
 import '../models/message.dart';
 import '../services/storage_v2_service.dart';
@@ -154,6 +155,11 @@ class ConversationRepository {
               content: raw['content'] as String? ?? '',
               images: attachmentsByMessageId[messageId] ?? const [],
               thinkingContent: raw['thinkingContent'] as String?,
+              agentTrace: raw['agentTrace'] is Map
+                  ? AgentTrace.fromJson(
+                      Map<String, dynamic>.from(raw['agentTrace'] as Map),
+                    )
+                  : null,
               timestamp: timestamp,
             ),
             sortOrder: (raw['sortOrder'] as num?)?.toInt(),
@@ -233,6 +239,9 @@ class ConversationRepository {
           if (message.thinkingContent != null &&
               message.thinkingContent!.isNotEmpty)
             'thinkingContent': message.thinkingContent,
+          if (message.agentTrace != null &&
+              message.agentTrace!.events.isNotEmpty)
+            'agentTrace': message.agentTrace!.toJson(),
           'timestamp': message.timestamp.toIso8601String(),
           'sortOrder': i,
         });

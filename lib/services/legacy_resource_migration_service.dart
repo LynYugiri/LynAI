@@ -93,6 +93,7 @@ class LegacyResourceMigrationService {
                   content: message.content,
                   images: images,
                   thinkingContent: message.thinkingContent,
+                  agentTrace: message.agentTrace,
                   timestamp: message.timestamp,
                 )
               : message,

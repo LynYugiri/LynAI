@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import '../models/agent_plan.dart';
+import '../models/agent_trace.dart';
 import '../models/conversation.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
@@ -217,6 +218,7 @@ class ConversationProvider extends ChangeNotifier {
         content: content,
         images: images,
         thinkingContent: thinkingContent,
+        agentTrace: null,
         timestamp: DateTime.now(),
       );
 
@@ -356,6 +358,7 @@ class ConversationProvider extends ChangeNotifier {
         thinkingContent: identical(thinkingContent, _sentinel)
             ? lastMsg.thinkingContent
             : thinkingContent as String?,
+        agentTrace: lastMsg.agentTrace,
         timestamp: lastMsg.timestamp,
       );
 
@@ -380,6 +383,50 @@ class ConversationProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('更新最后消息失败: $e');
     }
+  }
+
+  /// Appends an Agent trace event to the latest assistant message.
+  void appendAgentTraceEvent(
+    String conversationId,
+    AgentTraceEvent event, {
+    bool save = false,
+  }) {
+    final index = _conversations.indexWhere((c) => c.id == conversationId);
+    if (index == -1 || _conversations[index].messages.isEmpty) return;
+    final messages = List<Message>.from(_conversations[index].messages);
+    var msgIdx = -1;
+    for (var i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role == 'assistant') {
+        msgIdx = i;
+        break;
+      }
+    }
+    if (msgIdx == -1) return;
+    final old = messages[msgIdx];
+    final trace = (old.agentTrace ?? const AgentTrace()).append(event);
+    messages[msgIdx] = Message(
+      id: old.id,
+      role: old.role,
+      content: old.content,
+      images: old.images,
+      thinkingContent: old.thinkingContent,
+      agentTrace: trace,
+      timestamp: old.timestamp,
+    );
+    _conversations[index] = Conversation(
+      id: _conversations[index].id,
+      title: _conversations[index].title,
+      messages: messages,
+      modelId: _conversations[index].modelId,
+      settings: _conversations[index].settings,
+      agentPlan: _conversations[index].agentPlan,
+      roleId: _conversations[index].roleId,
+      createdAt: _conversations[index].createdAt,
+      updatedAt: DateTime.now(),
+    );
+    _touchConversation(index);
+    if (save) _queueSaveConversations();
+    notifyListeners();
   }
 
   /// 删除指定消息
@@ -505,6 +552,7 @@ class ConversationProvider extends ChangeNotifier {
       thinkingContent: identical(thinkingContent, _sentinel)
           ? old.thinkingContent
           : thinkingContent as String?,
+      agentTrace: old.agentTrace,
       timestamp: old.timestamp,
     );
     _conversations[index] = Conversation(
@@ -542,6 +590,7 @@ class ConversationProvider extends ChangeNotifier {
       content: old.content,
       images: List<MessageImage>.from(images),
       thinkingContent: old.thinkingContent,
+      agentTrace: old.agentTrace,
       timestamp: old.timestamp,
     );
     _conversations[index] = Conversation(

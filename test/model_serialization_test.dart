@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:lynai/models/app_settings.dart';
+import 'package:lynai/models/agent_plan.dart';
+import 'package:lynai/models/agent_trace.dart';
 import 'package:lynai/models/backup_models.dart';
 import 'package:lynai/models/chat_role.dart';
 import 'package:lynai/models/conversation.dart';
@@ -424,23 +426,63 @@ void main() {
     expect(decision.content, '雨声渐渐大起来，房间里陷入沉默。');
   });
 
-  test('Message serializes image attachments and thinking content', () {
-    final message = Message(
-      id: 'm1',
-      role: 'user',
-      content: 'hello',
-      images: const [MessageImage(path: '/tmp/a.png', name: 'a.png', size: 12)],
-      thinkingContent: 'reasoning trace',
-      timestamp: DateTime.utc(2026),
+  test(
+    'Message serializes image attachments, thinking content and Agent trace',
+    () {
+      final message = Message(
+        id: 'm1',
+        role: 'user',
+        content: 'hello',
+        images: const [
+          MessageImage(path: '/tmp/a.png', name: 'a.png', size: 12),
+        ],
+        thinkingContent: 'reasoning trace',
+        agentTrace: AgentTrace(
+          events: [
+            AgentTraceEvent(
+              id: 'e1',
+              type: AgentTraceEvent.toolCall,
+              title: '调用工具',
+              content: 'list_plugin_functions',
+              metadata: const {'tool': 'list_plugin_functions'},
+              timestamp: DateTime.utc(2026),
+            ),
+          ],
+        ),
+        timestamp: DateTime.utc(2026),
+      );
+
+      final restored = Message.fromJson(message.toJson());
+
+      expect(restored.images, hasLength(1));
+      expect(restored.images.single.path, '/tmp/a.png');
+      expect(restored.images.single.name, 'a.png');
+      expect(restored.images.single.size, 12);
+      expect(restored.thinkingContent, 'reasoning trace');
+      expect(restored.agentTrace?.events, hasLength(1));
+      expect(restored.agentTrace?.events.single.type, AgentTraceEvent.toolCall);
+      expect(
+        restored.agentTrace?.events.single.metadata?['tool'],
+        'list_plugin_functions',
+      );
+    },
+  );
+
+  test('AgentPlanItem serializes result and error details', () {
+    const item = AgentPlanItem(
+      id: 'step_1',
+      title: '调用插件',
+      status: AgentPlanItem.failed,
+      summary: '处理中',
+      resultSummary: '找到 2 条结果',
+      error: '插件返回错误',
     );
 
-    final restored = Message.fromJson(message.toJson());
+    final restored = AgentPlanItem.fromJson(item.toJson());
 
-    expect(restored.images, hasLength(1));
-    expect(restored.images.single.path, '/tmp/a.png');
-    expect(restored.images.single.name, 'a.png');
-    expect(restored.images.single.size, 12);
-    expect(restored.thinkingContent, 'reasoning trace');
+    expect(restored.id, 'step_1');
+    expect(restored.resultSummary, '找到 2 条结果');
+    expect(restored.error, '插件返回错误');
   });
 
   test(
@@ -487,6 +529,50 @@ void main() {
       final message = provider.getConversation(conversationId)!.messages.single;
       expect(message.content, 'third');
       expect(message.thinkingContent, isNull);
+    },
+  );
+
+  test(
+    'ConversationProvider appends Agent trace to latest assistant message',
+    () {
+      SharedPreferences.setMockInitialValues({});
+      final provider = ConversationProvider();
+      final conversationId = provider.createConversation(
+        ConversationSettings(modelId: 'm1'),
+      );
+      provider.addMessage(conversationId, 'user', 'hello');
+      provider.appendAgentTraceEvent(
+        conversationId,
+        AgentTraceEvent(
+          id: 'ignored',
+          type: AgentTraceEvent.toolCall,
+          title: '不会写入',
+          timestamp: DateTime.utc(2026),
+        ),
+      );
+      expect(
+        provider.getConversation(conversationId)!.messages.single.agentTrace,
+        isNull,
+      );
+
+      provider.addMessage(conversationId, 'assistant', 'answer');
+      provider.appendAgentTraceEvent(
+        conversationId,
+        AgentTraceEvent(
+          id: 'e1',
+          type: AgentTraceEvent.planUpdate,
+          title: '更新计划',
+          timestamp: DateTime.utc(2026),
+        ),
+      );
+
+      final trace = provider
+          .getConversation(conversationId)!
+          .messages
+          .last
+          .agentTrace;
+      expect(trace?.events, hasLength(1));
+      expect(trace?.events.single.title, '更新计划');
     },
   );
 
@@ -3141,9 +3227,7 @@ PRAGMA user_version = 2;
       maxTokens: 4096,
       temperature: 0.7,
       topP: 0.9,
-      models: [
-        ModelEntry(name: 'model-a', enabled: true),
-      ],
+      models: [ModelEntry(name: 'model-a', enabled: true)],
     );
 
     expect(config.effectiveMaxTokens, 4096);
@@ -3164,10 +3248,7 @@ PRAGMA user_version = 2;
           jsonEncode({
             'choices': [
               {
-                'message': {
-                  'role': 'assistant',
-                  'content': 'ok',
-                },
+                'message': {'role': 'assistant', 'content': 'ok'},
               },
             ],
           }),
@@ -3196,7 +3277,9 @@ PRAGMA user_version = 2;
             'user': 'test-user',
           },
         ),
-        const [{'role': 'user', 'content': 'hello'}],
+        const [
+          {'role': 'user', 'content': 'hello'},
+        ],
       );
 
       expect(requestBody?['max_tokens'], 2048);
@@ -3212,62 +3295,63 @@ PRAGMA user_version = 2;
     }
   });
 
-  test('internal extraParams keys are not leaked to OpenAI request body',
-      () async {
-    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    Map<String, dynamic>? requestBody;
-    unawaited(
-      server.first.then((request) async {
-        requestBody =
-            jsonDecode(await utf8.decoder.bind(request).join())
-                as Map<String, dynamic>;
-        request.response.headers.contentType = ContentType.json;
-        request.response.write(
-          jsonEncode({
-            'choices': [
-              {
-                'message': {
-                  'role': 'assistant',
-                  'content': 'ok',
+  test(
+    'internal extraParams keys are not leaked to OpenAI request body',
+    () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      Map<String, dynamic>? requestBody;
+      unawaited(
+        server.first.then((request) async {
+          requestBody =
+              jsonDecode(await utf8.decoder.bind(request).join())
+                  as Map<String, dynamic>;
+          request.response.headers.contentType = ContentType.json;
+          request.response.write(
+            jsonEncode({
+              'choices': [
+                {
+                  'message': {'role': 'assistant', 'content': 'ok'},
                 },
-              },
-            ],
-          }),
-        );
-        await request.response.close();
-      }),
-    );
-
-    try {
-      await ApiService().sendChatRequest(
-        ModelConfig(
-          id: 'm1',
-          name: 'Local',
-          endpoint: 'http://${server.address.host}:${server.port}',
-          apiKey: '',
-          modelName: 'model-a',
-          apiType: 'openai',
-          priority: 0,
-          extraParams: {
-            'debugSse': true,
-            'appId': 'secret-app',
-            'disableTools': true,
-            'thinkingBudgetTokens': 1024,
-            'user': 'real-user',
-          },
-        ),
-        const [{'role': 'user', 'content': 'hello'}],
+              ],
+            }),
+          );
+          await request.response.close();
+        }),
       );
 
-      expect(requestBody?['debugSse'], isNull);
-      expect(requestBody?['appId'], isNull);
-      expect(requestBody?['disableTools'], isNull);
-      expect(requestBody?['thinkingBudgetTokens'], isNull);
-      expect(requestBody?['user'], 'real-user');
-    } finally {
-      await server.close(force: true);
-    }
-  });
+      try {
+        await ApiService().sendChatRequest(
+          ModelConfig(
+            id: 'm1',
+            name: 'Local',
+            endpoint: 'http://${server.address.host}:${server.port}',
+            apiKey: '',
+            modelName: 'model-a',
+            apiType: 'openai',
+            priority: 0,
+            extraParams: {
+              'debugSse': true,
+              'appId': 'secret-app',
+              'disableTools': true,
+              'thinkingBudgetTokens': 1024,
+              'user': 'real-user',
+            },
+          ),
+          const [
+            {'role': 'user', 'content': 'hello'},
+          ],
+        );
+
+        expect(requestBody?['debugSse'], isNull);
+        expect(requestBody?['appId'], isNull);
+        expect(requestBody?['disableTools'], isNull);
+        expect(requestBody?['thinkingBudgetTokens'], isNull);
+        expect(requestBody?['user'], 'real-user');
+      } finally {
+        await server.close(force: true);
+      }
+    },
+  );
 
   test('core OpenAI fields are not overwritten by extraParams', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -3282,10 +3366,7 @@ PRAGMA user_version = 2;
           jsonEncode({
             'choices': [
               {
-                'message': {
-                  'role': 'assistant',
-                  'content': 'ok',
-                },
+                'message': {'role': 'assistant', 'content': 'ok'},
               },
             ],
           }),
@@ -3304,13 +3385,11 @@ PRAGMA user_version = 2;
           modelName: 'model-a',
           apiType: 'openai',
           priority: 0,
-          extraParams: {
-            'model': 'evil-model',
-            'messages': [],
-            'stream': 999,
-          },
+          extraParams: {'model': 'evil-model', 'messages': [], 'stream': 999},
         ),
-        const [{'role': 'user', 'content': 'hello'}],
+        const [
+          {'role': 'user', 'content': 'hello'},
+        ],
       );
 
       expect(requestBody?['model'], 'model-a');
