@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
+import '../models/agent_plan.dart';
 import '../models/conversation.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
@@ -234,6 +235,7 @@ class ConversationProvider extends ChangeNotifier {
         messages: updatedMessages,
         modelId: _conversations[index].modelId,
         settings: _conversations[index].settings,
+        agentPlan: _conversations[index].agentPlan,
         roleId: _conversations[index].roleId,
         createdAt: _conversations[index].createdAt,
         updatedAt: now,
@@ -260,6 +262,7 @@ class ConversationProvider extends ChangeNotifier {
       messages: _conversations[index].messages,
       modelId: _conversations[index].modelId,
       settings: _conversations[index].settings,
+      agentPlan: _conversations[index].agentPlan,
       roleId: _conversations[index].roleId,
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
@@ -282,6 +285,7 @@ class ConversationProvider extends ChangeNotifier {
         modelId: modelId,
         modelName: null,
       ),
+      agentPlan: _conversations[index].agentPlan,
       roleId: _conversations[index].roleId,
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
@@ -361,6 +365,7 @@ class ConversationProvider extends ChangeNotifier {
         messages: messages,
         modelId: _conversations[index].modelId,
         settings: _conversations[index].settings,
+        agentPlan: _conversations[index].agentPlan,
         roleId: _conversations[index].roleId,
         createdAt: _conversations[index].createdAt,
         updatedAt: DateTime.now(),
@@ -391,6 +396,7 @@ class ConversationProvider extends ChangeNotifier {
       messages: messages,
       modelId: _conversations[index].modelId,
       settings: _conversations[index].settings,
+      agentPlan: _conversations[index].agentPlan,
       roleId: _conversations[index].roleId,
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
@@ -415,6 +421,7 @@ class ConversationProvider extends ChangeNotifier {
       messages: updatedMessages,
       modelId: _conversations[index].modelId,
       settings: _conversations[index].settings,
+      agentPlan: _conversations[index].agentPlan,
       roleId: _conversations[index].roleId,
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
@@ -455,8 +462,21 @@ class ConversationProvider extends ChangeNotifier {
       messages: _conversations[index].messages,
       modelId: settings.modelId,
       settings: settings,
+      agentPlan: _conversations[index].agentPlan,
       roleId: _conversations[index].roleId,
       createdAt: _conversations[index].createdAt,
+      updatedAt: DateTime.now(),
+    );
+    _touchConversation(index);
+    _queueSaveConversations();
+    notifyListeners();
+  }
+
+  void updateAgentPlan(String conversationId, AgentPlan? plan) {
+    final index = _conversations.indexWhere((c) => c.id == conversationId);
+    if (index == -1) return;
+    _conversations[index] = _conversations[index].copyWith(
+      agentPlan: plan,
       updatedAt: DateTime.now(),
     );
     _touchConversation(index);
@@ -493,6 +513,7 @@ class ConversationProvider extends ChangeNotifier {
       messages: messages,
       modelId: _conversations[index].modelId,
       settings: _conversations[index].settings,
+      agentPlan: _conversations[index].agentPlan,
       roleId: _conversations[index].roleId,
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
@@ -529,6 +550,7 @@ class ConversationProvider extends ChangeNotifier {
       messages: messages,
       modelId: _conversations[index].modelId,
       settings: _conversations[index].settings,
+      agentPlan: _conversations[index].agentPlan,
       roleId: _conversations[index].roleId,
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),

@@ -187,6 +187,17 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                 _systemPromptList(set),
               ],
               const SizedBox(height: 20),
+              Text(
+                'Agent 设置',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 8),
+              _agentSettings(),
+              const SizedBox(height: 20),
               // 语音转文字模型
               Text(
                 '语音转文字模型',
@@ -815,6 +826,69 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
           },
         ),
       ),
+    );
+  }
+
+  Widget _agentSettings() {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        children: [
+          SwitchListTile(
+            dense: true,
+            value: _settings.agentEnabled,
+            title: const Text('启用 Agent 模式'),
+            subtitle: const Text('允许模型创建 Plan，并按步骤调用工具完成复杂任务。'),
+            onChanged: (value) =>
+                _updateSettings(_settings.copyWith(agentEnabled: value)),
+          ),
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Agent 权限（Plan 不需要权限）',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ),
+          _agentPermissionTile('执行 Lua 脚本', 'lua.execute'),
+          _agentPermissionTile('调用插件函数', 'plugins.callFunction'),
+          _agentPermissionTile('网络请求', 'http.fetch'),
+          _agentPermissionTile('设备能力', 'device.access'),
+        ],
+      ),
+    );
+  }
+
+  Widget _agentPermissionTile(String title, String permission) {
+    final permissions = _settings.agentGrantedPermissions.toSet();
+    return CheckboxListTile(
+      dense: true,
+      value: permissions.contains(permission),
+      title: Text(title),
+      controlAffinity: ListTileControlAffinity.leading,
+      onChanged: (value) {
+        if (value == true) {
+          permissions.add(permission);
+        } else {
+          permissions.remove(permission);
+        }
+        _updateSettings(
+          _settings.copyWith(
+            agentGrantedPermissions: permissions.toList(growable: false),
+          ),
+        );
+      },
     );
   }
 

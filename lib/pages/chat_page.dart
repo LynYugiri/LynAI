@@ -12,6 +12,7 @@ import 'package:screenshot/screenshot.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:super_clipboard/super_clipboard.dart';
+import '../models/agent_plan.dart';
 import '../models/conversation.dart';
 import '../models/chat_role.dart';
 import '../models/message.dart';
@@ -134,6 +135,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   String? _convId;
   String? _pendingModelId;
   bool _thinking = true;
+  bool _agentEnabled = false;
   ConversationSettings? _draftSettings;
   bool _streaming = false;
   bool _preparingSend = false;
@@ -240,6 +242,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       modelId: role.modelId ?? model.id,
       modelName: role.modelName ?? model.modelName,
       thinking: _thinking,
+      agentEnabled: _agentEnabled,
       selectedSystemPromptId: role.id == ChatRole.defaultId ? null : role.id,
       systemPrompt: role.systemPrompt,
       speechModelId: settings.speechModelId,
@@ -262,6 +265,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     if (conv == null) return;
     _draftSettings = null;
     _thinking = conv.settings.thinking;
+    _agentEnabled = conv.settings.agentEnabled;
     final settings = conv.settings;
     void apply() {
       if (!mounted) return;
@@ -588,13 +592,19 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       final conv = context.read<ConversationProvider>().getConversation(
         _convId!,
       );
-      if (conv != null) return conv.settings.copyWith(thinking: _thinking);
+      if (conv != null) {
+        return conv.settings.copyWith(
+          thinking: _thinking,
+          agentEnabled: _agentEnabled,
+        );
+      }
     }
     if (_draftSettings != null) {
       return _draftSettings!.copyWith(
         modelId: model.id,
         modelName: model.modelName,
         thinking: _thinking,
+        agentEnabled: _agentEnabled,
       );
     }
     final role = context.read<SettingsProvider>().currentRole;
@@ -609,6 +619,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       modelId: model.id,
       modelName: model.modelName,
       thinking: _thinking,
+      agentEnabled: _agentEnabled,
       selectedSystemPromptId: set.selectedSystemPromptId,
       systemPrompt: set.systemPrompt,
       speechModelId: set.speechModelId,
@@ -622,11 +633,13 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
   void _saveDraftSettings(ConversationSettings settings) {
     _draftSettings = settings;
+    _agentEnabled = settings.agentEnabled;
     context.read<SettingsProvider>().applyConversationSettings(settings);
   }
 
   void _saveConversationSettings(ConversationSettings settings) {
     if (_convId != null) {
+      _agentEnabled = settings.agentEnabled;
       context.read<ConversationProvider>().updateConversationSettings(
         _convId!,
         settings,
@@ -643,7 +656,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       final conv = context.read<ConversationProvider>().getConversation(
         _convId!,
       );
-      if (conv != null) return conv.settings.copyWith(thinking: _thinking);
+      if (conv != null) {
+        return conv.settings.copyWith(
+          thinking: _thinking,
+          agentEnabled: _agentEnabled,
+        );
+      }
     }
     return _draftSettings;
   }
@@ -806,18 +824,20 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
             conv.settings.systemPrompt,
           )
         : conv.settings.systemPrompt;
+    final toolPrompt = conv.settings.agentEnabled
+        ? '${ToolCallService.nativeSystemPrompt}\n\n${ToolCallService.agentSystemPrompt}'
+        : ToolCallService.nativeSystemPrompt;
     if (promptContent.isNotEmpty) {
       msgs.add({
         'role': 'system',
         'content': enableTools
-            ? '$promptContent\n\n${ToolCallService.nativeSystemPrompt}\n\n${ToolCallService.currentTimeContext()}'
+            ? '$promptContent\n\n$toolPrompt\n\n${ToolCallService.currentTimeContext()}'
             : promptContent,
       });
     } else if (enableTools) {
       msgs.add({
         'role': 'system',
-        'content':
-            '${ToolCallService.nativeSystemPrompt}\n\n${ToolCallService.currentTimeContext()}',
+        'content': '$toolPrompt\n\n${ToolCallService.currentTimeContext()}',
       });
     }
     final lastUserIndex = lastUserContentOverride == null
@@ -954,13 +974,18 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   }) {
     if (!mounted) return;
     final cp = context.read<ConversationProvider>();
+    final streamSettings = cp.getConversation(cid)?.settings;
     final gen = ++_streamGen;
     final stream = _api.sendStreamRequest(
       model,
       working,
       thinking: _thinking && _supportsThinking(model),
       tools: allowTools
-          ? ToolCallService.openAITools(context.read<PluginProvider>().plugins)
+          ? ToolCallService.openAITools(
+              context.read<PluginProvider>().plugins,
+              streamSettings?.agentEnabled == true,
+              streamSettings?.agentGrantedPermissions ?? const [],
+            )
           : const [],
       toolChoice: 'auto',
     );
@@ -1005,6 +1030,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           plugins: context.read<PluginProvider>(),
           modelConfigs: context.read<ModelConfigProvider>(),
           settings: context.read<SettingsProvider>(),
+          conversations: context.read<ConversationProvider>(),
+          conversationId: cid,
         );
         final conv = cp.getConversation(cid);
         final results = await toolService.executeAll(
@@ -2280,8 +2307,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                             horizontal: 12,
                             vertical: 8,
                           ),
-                          itemCount: msgs.length,
+                          itemCount:
+                              msgs.length + (conv?.agentPlan == null ? 0 : 1),
                           itemBuilder: (_, i) {
+                            if (i == msgs.length) {
+                              return _agentPlanCard(conv!.agentPlan!);
+                            }
                             final msg = msgs[i];
                             return _selectableBubble(
                               msg,
@@ -2322,6 +2353,115 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _agentPlanCard(AgentPlan plan) {
+    final scheme = Theme.of(context).colorScheme;
+    final completed = plan.items
+        .where(
+          (item) =>
+              item.status == AgentPlanItem.completed ||
+              item.status == AgentPlanItem.skipped,
+        )
+        .length;
+    AgentPlanItem? active;
+    for (final item in plan.items) {
+      if (item.status == AgentPlanItem.inProgress ||
+          item.status == AgentPlanItem.needsConfirmation ||
+          item.status == AgentPlanItem.failed) {
+        active = item;
+        break;
+      }
+    }
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.75),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.account_tree_outlined,
+                size: 18,
+                color: scheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  plan.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              Text(
+                '$completed/${plan.items.length}',
+                style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+              ),
+            ],
+          ),
+          if (active != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              '当前：${active.title}',
+              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+            ),
+          ],
+          const SizedBox(height: 10),
+          for (final item in plan.items) _agentPlanStep(item),
+        ],
+      ),
+    );
+  }
+
+  Widget _agentPlanStep(AgentPlanItem item) {
+    final scheme = Theme.of(context).colorScheme;
+    final (icon, color) = switch (item.status) {
+      AgentPlanItem.completed => (Icons.check_circle, scheme.primary),
+      AgentPlanItem.inProgress => (Icons.play_circle_outline, scheme.tertiary),
+      AgentPlanItem.failed => (Icons.error_outline, scheme.error),
+      AgentPlanItem.skipped => (Icons.remove_circle_outline, scheme.outline),
+      AgentPlanItem.needsConfirmation => (
+        Icons.priority_high,
+        scheme.secondary,
+      ),
+      _ => (Icons.radio_button_unchecked, scheme.outline),
+    };
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 17, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(item.title, style: const TextStyle(fontSize: 13)),
+                if (item.summary != null && item.summary!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      item.summary!,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -3221,6 +3361,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
               const SizedBox(width: 4),
               _dialogSetBtn(),
               const SizedBox(width: 4),
+              _agentBtn(),
+              const SizedBox(width: 4),
               _thinkBtn(),
               const SizedBox(width: 4),
               _ocrBtn(),
@@ -3605,6 +3747,29 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     selected: false,
     onPressed: _showDialogSettings,
   );
+
+  Widget _agentBtn() {
+    final enabled = _activeSettings()?.agentEnabled ?? _agentEnabled;
+    return _inputActionButton(
+      id: 'agent',
+      icon: enabled ? Icons.account_tree : Icons.account_tree_outlined,
+      label: 'Agent',
+      selected: enabled,
+      onPressed: () {
+        final value = !enabled;
+        setState(() => _agentEnabled = value);
+        final model = _getModel(context.read<ModelConfigProvider>());
+        if (model == null) return;
+        final settings = _currentConversationSettings(
+          model,
+        ).copyWith(agentEnabled: value);
+        _saveConversationSettings(settings);
+        if (value && settings.agentGrantedPermissions.isEmpty) {
+          showShortSnackBar(context, 'Agent 已开启，可在对话设置中配置权限');
+        }
+      },
+    );
+  }
 
   Widget _thinkBtn() {
     final model = _getModel(context.read<ModelConfigProvider>());

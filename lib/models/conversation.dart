@@ -1,3 +1,4 @@
+import 'agent_plan.dart';
 import 'message.dart';
 import 'package:flutter/foundation.dart';
 
@@ -39,6 +40,12 @@ class ConversationSettings {
   /// 图片识别时使用的提示词文本。
   final String imageRecognitionPrompt;
 
+  /// 是否启用 Agent 模式。
+  final bool agentEnabled;
+
+  /// 当前对话授予 Agent 的扩展权限。
+  final List<String> agentGrantedPermissions;
+
   /// 创建一个对话设置快照实例。
   ConversationSettings({
     required this.modelId,
@@ -52,6 +59,8 @@ class ConversationSettings {
     this.imageRecognitionModelId,
     this.imageRecognitionEnabled = false,
     this.imageRecognitionPrompt = '请根据下面的文件内容或识别结果回答。',
+    this.agentEnabled = false,
+    this.agentGrantedPermissions = const [],
   });
 
   static const _sentinel = Object();
@@ -69,6 +78,8 @@ class ConversationSettings {
     Object? imageRecognitionModelId = _sentinel,
     bool? imageRecognitionEnabled,
     String? imageRecognitionPrompt,
+    bool? agentEnabled,
+    List<String>? agentGrantedPermissions,
   }) {
     return ConversationSettings(
       modelId: modelId ?? this.modelId,
@@ -94,6 +105,9 @@ class ConversationSettings {
           imageRecognitionEnabled ?? this.imageRecognitionEnabled,
       imageRecognitionPrompt:
           imageRecognitionPrompt ?? this.imageRecognitionPrompt,
+      agentEnabled: agentEnabled ?? this.agentEnabled,
+      agentGrantedPermissions:
+          agentGrantedPermissions ?? this.agentGrantedPermissions,
     );
   }
 
@@ -119,6 +133,12 @@ class ConversationSettings {
           json['imageRecognitionPrompt'] as String? ??
           json['imagePrompt'] as String? ??
           '请根据下面的文件内容或识别结果回答。',
+      agentEnabled: json['agentEnabled'] as bool? ?? false,
+      agentGrantedPermissions:
+          (json['agentGrantedPermissions'] as List<dynamic>? ?? const [])
+              .map((item) => item.toString())
+              .where((item) => item.isNotEmpty)
+              .toList(growable: false),
     );
   }
 
@@ -138,6 +158,9 @@ class ConversationSettings {
         'imageRecognitionModelId': imageRecognitionModelId,
       'imageRecognitionEnabled': imageRecognitionEnabled,
       'imageRecognitionPrompt': imageRecognitionPrompt,
+      'agentEnabled': agentEnabled,
+      if (agentGrantedPermissions.isNotEmpty)
+        'agentGrantedPermissions': agentGrantedPermissions,
     };
   }
 }
@@ -156,6 +179,8 @@ class ConversationSettings {
 /// [messages] 保存用户和 assistant 消息；[modelId] 与 [settings] 记录创建或
 /// 最近发送时使用的模型上下文；[roleId] 用于历史页按角色分组。
 class Conversation {
+  static const _sentinel = Object();
+
   /// 对话唯一标识符。
   final String id;
 
@@ -170,6 +195,9 @@ class Conversation {
 
   /// 对话创建或最近发送时使用的设置快照。
   final ConversationSettings settings;
+
+  /// 当前对话的 Agent 计划状态。
+  final AgentPlan? agentPlan;
 
   /// 对话所属角色 ID，用于历史页按角色分组。
   final String roleId;
@@ -187,6 +215,7 @@ class Conversation {
     required this.messages,
     required this.modelId,
     ConversationSettings? settings,
+    this.agentPlan,
     this.roleId = 'default',
     required this.createdAt,
     required this.updatedAt,
@@ -236,6 +265,18 @@ class Conversation {
         debugPrint('跳过损坏的消息记录: $e');
       }
     }
+    AgentPlan? agentPlan;
+    final rawPlan = json['agentPlan'];
+    if (rawPlan is Map) {
+      try {
+        final parsed = AgentPlan.fromJson(Map<String, dynamic>.from(rawPlan));
+        if (parsed.id.isNotEmpty && parsed.items.isNotEmpty) {
+          agentPlan = parsed;
+        }
+      } catch (e) {
+        debugPrint('跳过损坏的 Agent 计划: $e');
+      }
+    }
     return Conversation(
       id: id,
       title: title,
@@ -247,6 +288,7 @@ class Conversation {
               fallbackModelId: modelId,
             )
           : ConversationSettings(modelId: modelId),
+      agentPlan: agentPlan,
       roleId: json['roleId'] as String? ?? 'default',
       createdAt: createdAt,
       updatedAt: updatedAt,
@@ -261,6 +303,7 @@ class Conversation {
       'messages': messages.map((m) => m.toJson()).toList(),
       'modelId': modelId,
       'settings': settings.toJson(),
+      if (agentPlan != null) 'agentPlan': agentPlan!.toJson(),
       'roleId': roleId,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
@@ -274,6 +317,7 @@ class Conversation {
     List<Message>? messages,
     String? modelId,
     ConversationSettings? settings,
+    Object? agentPlan = _sentinel,
     String? roleId,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -284,6 +328,9 @@ class Conversation {
       messages: messages ?? this.messages,
       modelId: modelId ?? this.modelId,
       settings: settings ?? this.settings,
+      agentPlan: identical(agentPlan, _sentinel)
+          ? this.agentPlan
+          : agentPlan as AgentPlan?,
       roleId: roleId ?? this.roleId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,

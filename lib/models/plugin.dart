@@ -65,11 +65,22 @@ class PluginFunctionDefinition {
   /// 对应的 Lua 全局函数名，用于执行函数逻辑。
   final String handler;
 
+  /// 函数描述，供 Agent 理解用途。
+  final String description;
+
+  /// 函数参数 JSON Schema。
+  final Map<String, dynamic> parameters;
+
   /// 创建一个插件函数定义实例。
   const PluginFunctionDefinition({
     required this.name,
     required this.title,
     required this.handler,
+    this.description = '',
+    this.parameters = const {
+      'type': 'object',
+      'properties': <String, dynamic>{},
+    },
   });
 
   /// 从 JSON 数据创建 [PluginFunctionDefinition] 实例。
@@ -79,6 +90,11 @@ class PluginFunctionDefinition {
       name: name,
       title: json['title'] as String? ?? name,
       handler: json['handler'] as String? ?? name,
+      description: json['description'] as String? ?? '',
+      parameters: Map<String, dynamic>.from(
+        json['parameters'] as Map? ??
+            const {'type': 'object', 'properties': <String, dynamic>{}},
+      ),
     );
   }
 
@@ -87,6 +103,8 @@ class PluginFunctionDefinition {
     'name': name,
     'title': title,
     'handler': handler,
+    if (description.isNotEmpty) 'description': description,
+    'parameters': parameters,
   };
 }
 
