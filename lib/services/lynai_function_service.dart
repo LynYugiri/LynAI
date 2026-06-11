@@ -16,6 +16,11 @@ import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import 'api_service.dart';
+import 'device_control_service.dart';
+import 'device_run_controller.dart';
+import 'lynai_call_identity.dart';
+import 'lynai_permission_definitions.dart';
+import 'lynai_permission_service.dart';
 import 'storage_v2_service.dart';
 
 /// AI 函数调用描述。
@@ -28,6 +33,7 @@ class LynAIFunctionCall {
 
 /// AI 函数执行的上下文环境。
 class LynAIFunctionContext {
+  final LynAICallIdentity identity;
   final FeatureProvider? features;
   final ModelConfigProvider? modelConfigs;
   final SettingsProvider? settings;
@@ -37,6 +43,7 @@ class LynAIFunctionContext {
   final void Function(String message)? showToast;
 
   const LynAIFunctionContext({
+    this.identity = const LynAICallIdentity(type: LynAICallerType.system),
     this.features,
     this.modelConfigs,
     this.settings,
@@ -198,6 +205,7 @@ _ParsedRegexSearch? _parseRegexSearch(String query) {
 class LynAIFunctionService {
   static const _uuid = Uuid();
   static String? _appVersion;
+  static const _permissionService = LynAIPermissionService();
 
   /// 工具别名映射表，将 comfyui 风格的短名映射到内部标准化函数名。
   /// 供 [ToolCallService] 在接收到旧版工具调用名称时进行兼容转换。
@@ -227,7 +235,9 @@ class LynAIFunctionService {
   ) async {
     try {
       final permission = _permissionFor(call.name);
-      if (permission != null) _requirePermission(context, permission);
+      if (permission != null) {
+        _requirePermission(context, call.name, permission);
+      }
       return switch (call.name) {
         'plugin.info' => _pluginInfo(context),
         'plugin.config.read' => await _pluginConfigRead(
@@ -308,6 +318,8 @@ class LynAIFunctionService {
           call.arguments,
         ),
         'model.chat' => await _modelChat(context, call.arguments),
+        String name when name.startsWith('device.') =>
+          await DeviceControlService.instance.execute(name, call.arguments),
         _ => _error('未知 LynAI function: ${call.name}'),
       };
     } on Exception catch (e) {
@@ -322,7 +334,9 @@ class LynAIFunctionService {
   ) {
     try {
       final permission = _permissionFor(call.name);
-      if (permission != null) _requirePermission(context, permission);
+      if (permission != null) {
+        _requirePermission(context, call.name, permission);
+      }
       return switch (call.name) {
         'plugin.info' => _pluginInfo(context),
         'notes.list' => _listNotesForPlugin(_features(context), call.arguments),
@@ -337,6 +351,7 @@ class LynAIFunctionService {
         'schedules.list' => _listSchedules(_features(context), call.arguments),
         'conversations.count' => _conversationCount(context),
         'system.status' => _systemStatus(context),
+        'device.service.status' => DeviceRunController.instance.statusJson(),
         _ => _error('LynAI function 需要异步执行: ${call.name}'),
       };
     } on Exception catch (e) {
@@ -347,42 +362,79 @@ class LynAIFunctionService {
   /// 根据函数名称返回所需权限标识。
   String? _permissionFor(String name) {
     return switch (name) {
-      'plugin.storage.get' => 'storage:read',
-      'plugin.storage.set' || 'plugin.storage.remove' => 'storage:write',
+      'plugin.storage.get' => LynAIPermissions.storageRead,
+      'plugin.storage.set' ||
+      'plugin.storage.remove' => LynAIPermissions.storageWrite,
       'plugin.file.write' ||
       'plugin.file.create' ||
       'plugin.file.delete' ||
       'plugin.file.rename' ||
-      'plugin.restore' => 'files:write',
-      'http.fetch' => 'network:access',
+      'plugin.restore' => LynAIPermissions.filesWrite,
+      'http.fetch' => LynAIPermissions.networkAccess,
       'notes.list' ||
       'notes.read' ||
       'notes.pages.list' ||
-      'notes.folders.list' => 'notes:read',
-      'notes.proposeEdit' => 'notes:propose',
+      'notes.folders.list' => LynAIPermissions.notesRead,
+      'notes.proposeEdit' => LynAIPermissions.notesPropose,
       'notes.save' ||
       'notes.edit' ||
       'notes.delete' ||
       'notes.pages.save' ||
-      'notes.folders.save' => 'notes:write',
-      'todos.list' || 'todos.read' => 'todos:read',
+      'notes.folders.save' => LynAIPermissions.notesWrite,
+      'todos.list' || 'todos.read' => LynAIPermissions.todosRead,
       'todos.saveList' ||
       'todos.saveItem' ||
-      'todos.deleteList' => 'todos:write',
-      'schedules.list' => 'schedules:read',
+      'todos.deleteList' => LynAIPermissions.todosWrite,
+      'schedules.list' => LynAIPermissions.schedulesRead,
       'schedules.create' ||
       'schedules.update' ||
-      'schedules.delete' => 'schedules:write',
-      'model.chat' => 'model:chat',
+      'schedules.delete' => LynAIPermissions.schedulesWrite,
+      'model.chat' => LynAIPermissions.modelChat,
+      'device.screen.snapshot' ||
+      'device.screen.context' ||
+      'device.screen.screenshot' => LynAIPermissions.deviceScreenRead,
+      'device.service.status' ||
+      'device.service.openSettings' => LynAIPermissions.deviceOverlay,
+      String name when name.startsWith('device.') =>
+        LynAIPermissions.deviceControl,
       _ => null,
     };
   }
 
-  void _requirePermission(LynAIFunctionContext context, String permission) {
-    final plugin = context.plugin;
-    if (plugin != null && !plugin.grantedPermissions.contains(permission)) {
-      throw Exception('插件未授权 $permission');
+  void _requirePermission(
+    LynAIFunctionContext context,
+    String functionName,
+    String permission,
+  ) {
+    if (_agentDeleteBlocked(context, functionName)) {
+      throw Exception('当前暂不支持 Agent 删除操作，未来会在回收站能力完成后开放');
     }
+    final allowed = _permissionService.canUsePermission(
+      identity: context.identity,
+      permission: permission,
+      appSettings: context.settings?.settings,
+      plugin: context.plugin,
+    );
+    if (!allowed) {
+      throw Exception('未授权 $permission');
+    }
+  }
+
+  bool _agentDeleteBlocked(LynAIFunctionContext context, String functionName) {
+    final caller = context.identity.type;
+    if (caller != LynAICallerType.agent &&
+        caller != LynAICallerType.agentLua &&
+        caller != LynAICallerType.lua) {
+      return false;
+    }
+    return switch (functionName) {
+      'notes.delete' ||
+      'todos.deleteList' ||
+      'schedules.delete' ||
+      'plugin.file.delete' ||
+      'plugin.restore' => true,
+      _ => false,
+    };
   }
 
   FeatureProvider _features(LynAIFunctionContext context) {

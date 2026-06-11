@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'chat_role.dart';
 import 'system_prompt.dart';
+import '../services/lynai_permission_definitions.dart';
 
 /// 应用级设置快照。
 ///
@@ -29,6 +30,7 @@ class AppSettings {
   final String currentRoleId;
   final String lastFeature;
   final String? lastSeenChangelogVersion;
+  final List<String> agentGrantedPermissions;
 
   AppSettings({
     required this.themeColor,
@@ -52,6 +54,7 @@ class AppSettings {
     this.currentRoleId = ChatRole.defaultId,
     this.lastFeature = 'dashboard',
     this.lastSeenChangelogVersion,
+    this.agentGrantedPermissions = LynAIPermissions.defaultAgent,
   }) : roles = roles ?? [ChatRole.defaultRole()];
 
   factory AppSettings.defaults() {
@@ -82,6 +85,7 @@ class AppSettings {
     String? currentRoleId,
     String? lastFeature,
     Object? lastSeenChangelogVersion = _sentinel,
+    List<String>? agentGrantedPermissions,
   }) {
     return AppSettings(
       themeColor: themeColor ?? this.themeColor,
@@ -121,6 +125,8 @@ class AppSettings {
       lastSeenChangelogVersion: identical(lastSeenChangelogVersion, _sentinel)
           ? this.lastSeenChangelogVersion
           : lastSeenChangelogVersion as String?,
+      agentGrantedPermissions:
+          agentGrantedPermissions ?? this.agentGrantedPermissions,
     );
   }
 
@@ -218,6 +224,9 @@ class AppSettings {
           : ChatRole.defaultId,
       lastFeature: json['lastFeature'] as String? ?? 'dashboard',
       lastSeenChangelogVersion: json['lastSeenChangelogVersion'] as String?,
+      agentGrantedPermissions: _agentPermissionsFromJson(
+        json['agentGrantedPermissions'],
+      ),
     );
   }
 
@@ -247,6 +256,24 @@ class AppSettings {
       'lastFeature': lastFeature,
       if (lastSeenChangelogVersion != null)
         'lastSeenChangelogVersion': lastSeenChangelogVersion,
+      'agentGrantedPermissions': agentGrantedPermissions,
     };
+  }
+
+  static List<String> _agentPermissionsFromJson(Object? raw) {
+    final restored = raw is List
+        ? raw
+              .map((item) => item.toString())
+              .where((item) => LynAIPermissions.agentAssignable.contains(item))
+              .toSet()
+        : <String>{};
+    return LynAIPermissions.defaultAgent
+        .where(
+          (permission) =>
+              raw == null ||
+              restored.contains(permission) ||
+              permission.startsWith('device:'),
+        )
+        .toList(growable: false);
   }
 }

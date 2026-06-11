@@ -15,6 +15,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
@@ -80,6 +81,15 @@ class MainActivity : FlutterActivity() {
         installFlutterScrollCaptureIfSupported(
             this,
             MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "lynai/scroll_capture")
+        )
+        DeviceControlBridge.install(
+            this,
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "lynai/device_control"),
+            EventChannel(flutterEngine.dartExecutor.binaryMessenger, "lynai/device_events")
+        )
+        DevicePlanOverlay.install(
+            this,
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "lynai/device_overlay")
         )
     }
 

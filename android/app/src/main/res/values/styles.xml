@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="schedule_widget_description">显示本月日程月历的桌面小工具</string>
+    <string name="lynai_accessibility_description">允许 LynAI Agent 读取当前屏幕结构并执行点击、滑动、输入等自动操作。</string>
     <!-- Theme applied to the Android Window while the process is starting when the OS's Dark Mode setting is off -->
     <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <!-- Show a splash screen on the activity. Automatically removed when

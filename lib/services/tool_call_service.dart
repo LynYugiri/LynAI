@@ -259,7 +259,7 @@ class ToolCallService {
 Plan 创建和更新不需要权限，只用于当前对话的可视化状态。
 如果需要了解可用插件函数，先调用 list_plugin_functions。
 如果需要调用插件函数，先调用 list_plugin_functions 查看可用函数，再用 call_plugin_function。该能力需要 plugins.callFunction 权限。
-如果需要运行 Lua，调用 execute_lua。Lua 运行在受限沙箱中：禁用 os/io/package/require/dofile/loadfile，不能访问文件系统或系统命令；所有 LynAI 能力必须通过 lynai.call(name, args) 调用；脚本最后必须 return 一个 JSON 可序列化 table。Agent Lua 支持同步读取函数、plugins.functions.list 和 plugins.callFunction；插件函数调用需要 plugins.callFunction 权限。
+如果需要运行 Lua，调用 execute_lua。Lua 运行在受限沙箱中：禁用 os/io/package/require/dofile/loadfile，不能访问文件系统或系统命令；所有 LynAI 能力必须通过 lynai.call(name, args) 调用；脚本最后必须 return 一个 JSON 可序列化 table。Agent Lua 支持同步读取函数、plugins.functions.list、plugins.callFunction 和 device.* 设备函数；插件函数调用需要 plugins.callFunction 权限。复杂屏幕操控应优先用 Lua 编排 device.* 原子动作。
 Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:false,error:{code,message,details?}}；读取数据时优先看 result。
 可以输出简短的中间说明，但不要把工具 JSON 原样展示给用户；最终回复应汇总执行结果。
 ''';
@@ -800,16 +800,12 @@ Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:f
     if (permissions.contains(LynAICapabilities.luaExecute)) {
       add(
         'execute_lua',
-        '执行 LynAI Agent Lua 脚本。脚本运行在受限 lua_dardo 沙箱中：禁用 os、io、package、require、dofile、loadfile；不能访问本地文件系统或执行系统命令；所有 LynAI 能力必须通过 lynai.call(name, args) 调用；lynai.call 返回 JSON 风格 table，通常包含 ok 字段；脚本最后必须 return 一个 JSON 可序列化 table。支持同步读取函数（如 todos.list、notes.read、schedules.list）、plugins.functions.list 和 plugins.callFunction。plugins.callFunction 还需要 plugins.callFunction 权限。示例：local funcs = lynai.call("plugins.functions.list", {}); if not funcs.ok then return funcs end; return { ok = true, functions = funcs.functions }',
+        '执行 LynAI Agent Lua 脚本。脚本运行在受限 lua_dardo 沙箱中：禁用 os、io、package、require、dofile、loadfile；不能访问本地文件系统或执行系统命令；所有 LynAI 能力必须通过 lynai.call(name, args) 调用；lynai.call 返回 JSON 风格 table，通常包含 ok 字段；脚本最后必须 return 一个 JSON 可序列化 table。支持同步读取函数（如 todos.list、notes.read、schedules.list）、plugins.functions.list、plugins.callFunction 和 device.*。plugins.callFunction 还需要 plugins.callFunction 权限。device.* 异步动作第一版应作为脚本最终 return 的调用结果，复杂点击优先使用 device.tapRepeat、device.waitForNode、device.node.action 等批量/等待原子函数。示例：return lynai.call("device.tapRepeat", { x = 540, y = 1600, repeat = 20, intervalMs = 80 })',
         {
           'type': 'object',
           'properties': {
             'purpose': {'type': 'string', 'description': '脚本目的，展示给用户和日志'},
             'code': {'type': 'string', 'description': 'Lua 源码'},
-            'expectedPermissions': {
-              'type': 'array',
-              'items': {'type': 'string'},
-            },
           },
           'required': ['purpose', 'code'],
         },
@@ -967,6 +963,7 @@ Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:f
             return _lynaiFunctions.execute(
               LynAIFunctionCall(name: functionName, arguments: call.arguments),
               LynAIFunctionContext(
+                identity: const LynAICallIdentity(type: LynAICallerType.system),
                 features: _features,
                 modelConfigs: _modelConfigs,
                 settings: _settings,
@@ -1041,7 +1038,7 @@ Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:f
     return _permissionService.canUseCapability(
       identity: _agentIdentity,
       capability: capability,
-      settings: settings,
+      appSettings: _settings?.settings,
     );
   }
 
@@ -1371,7 +1368,7 @@ Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:f
       conversations: _conversations,
       conversationId: _conversationId,
       identity: _agentIdentity.child(
-        type: LynAICallerType.lua,
+        type: LynAICallerType.agentLua,
         toolName: 'execute_lua',
       ),
     );

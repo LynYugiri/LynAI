@@ -18,6 +18,7 @@ import 'repositories/plugin_repository.dart';
 import 'pages/home_page.dart';
 import 'pages/changelog_page.dart';
 import 'services/legacy_resource_migration_service.dart';
+import 'services/device_plan_overlay_service.dart';
 import 'services/storage_migration_service.dart';
 import 'utils/changelog_parser.dart';
 import 'utils/open_source_licenses.dart';
@@ -68,6 +69,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    DevicePlanOverlayService.instance.start();
     // Provider 已在父级注册；延后到 microtask 后再读取 context。
     Future.microtask(() => _loadData());
   }
@@ -101,6 +103,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    DevicePlanOverlayService.instance.dispose();
     unawaited(_flushCriticalSaves());
     super.dispose();
   }
@@ -227,8 +230,8 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
     final home = _isLoading
         ? const _SplashScreen()
         : _hasError
-            ? _ErrorScreen(message: _errorMessage)
-            : const HomePage();
+        ? _ErrorScreen(message: _errorMessage)
+        : const HomePage();
 
     if (Platform.isWindows) {
       return _buildWindowsApp(settings, settingsProvider, home);
@@ -286,10 +289,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         DefaultMaterialLocalizations.delegate,
         DefaultWidgetsLocalizations.delegate,
       ],
-      supportedLocales: const [
-        Locale('zh', 'CN'),
-        Locale('en', 'US'),
-      ],
+      supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
       home: home,
       builder: (context, child) {
         final fluentTheme = fluent.FluentTheme.of(context);
@@ -326,7 +326,9 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         appBarTheme: const AppBarTheme(centerTitle: true, elevation: 0),
         cardTheme: CardThemeData(
           elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
         ),
       ),
       darkTheme: ThemeData(
@@ -338,7 +340,9 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         appBarTheme: const AppBarTheme(centerTitle: true, elevation: 0),
         cardTheme: CardThemeData(
           elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
         ),
       ),
       themeMode: settingsProvider.themeModeEnum,
@@ -350,13 +354,25 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   static fluent.AccentColor _toAccentColor(Color base) {
     final hsl = HSLColor.fromColor(base);
     return fluent.AccentColor.swatch({
-      'darkest': hsl.withLightness((hsl.lightness - 0.3).clamp(0.0, 1.0)).toColor(),
-      'darker': hsl.withLightness((hsl.lightness - 0.15).clamp(0.0, 1.0)).toColor(),
-      'dark': hsl.withLightness((hsl.lightness - 0.07).clamp(0.0, 1.0)).toColor(),
+      'darkest': hsl
+          .withLightness((hsl.lightness - 0.3).clamp(0.0, 1.0))
+          .toColor(),
+      'darker': hsl
+          .withLightness((hsl.lightness - 0.15).clamp(0.0, 1.0))
+          .toColor(),
+      'dark': hsl
+          .withLightness((hsl.lightness - 0.07).clamp(0.0, 1.0))
+          .toColor(),
       'normal': base,
-      'light': hsl.withLightness((hsl.lightness + 0.1).clamp(0.0, 1.0)).toColor(),
-      'lighter': hsl.withLightness((hsl.lightness + 0.2).clamp(0.0, 1.0)).toColor(),
-      'lightest': hsl.withLightness((hsl.lightness + 0.3).clamp(0.0, 1.0)).toColor(),
+      'light': hsl
+          .withLightness((hsl.lightness + 0.1).clamp(0.0, 1.0))
+          .toColor(),
+      'lighter': hsl
+          .withLightness((hsl.lightness + 0.2).clamp(0.0, 1.0))
+          .toColor(),
+      'lightest': hsl
+          .withLightness((hsl.lightness + 0.3).clamp(0.0, 1.0))
+          .toColor(),
     });
   }
 }
