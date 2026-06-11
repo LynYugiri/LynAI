@@ -2738,44 +2738,51 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       constraints: BoxConstraints(
         maxWidth: MediaQuery.of(context).size.width * 0.85,
       ),
-      decoration: BoxDecoration(
+      child: Material(
         color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.7)),
-      ),
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          tilePadding: const EdgeInsets.symmetric(horizontal: 12),
-          childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-          initiallyExpanded: false,
-          leading: Icon(Icons.route_outlined, size: 18, color: scheme.primary),
-          title: Text(
-            'Agent 过程 · ${trace.events.length} 步${errors > 0 ? ' · $errors 个错误' : ''}',
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-          ),
-          subtitle: Text(
-            last.content == null || last.content!.isEmpty
-                ? last.title
-                : '${last.title}：${last.content}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
-          ),
-          children: [
-            if (hiddenCount > 0)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  '已省略较早的 $hiddenCount 步',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: scheme.onSurfaceVariant,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.7)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Theme(
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+            childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            initiallyExpanded: false,
+            leading: Icon(
+              Icons.route_outlined,
+              size: 18,
+              color: scheme.primary,
+            ),
+            title: Text(
+              'Agent 过程 · ${trace.events.length} 步${errors > 0 ? ' · $errors 个错误' : ''}',
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+            subtitle: Text(
+              last.content == null || last.content!.isEmpty
+                  ? last.title
+                  : '${last.title}：${last.content}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+            ),
+            children: [
+              if (hiddenCount > 0)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    '已省略较早的 $hiddenCount 步',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: scheme.onSurfaceVariant,
+                    ),
                   ),
                 ),
-              ),
-            for (final event in visibleEvents) _agentTraceEventRow(event),
-          ],
+              for (final event in visibleEvents) _agentTraceEventRow(event),
+            ],
+          ),
         ),
       ),
     );
