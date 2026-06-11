@@ -48,6 +48,7 @@ class AgentLuaScriptService {
       var callCount = 0;
       _installLynAI(
         state,
+        asyncCalls: isDeviceScript,
         onCall: (method, args) {
           callCount++;
           final limit = isDeviceScript ? maxCallCount * 10 : maxCallCount;
@@ -74,7 +75,24 @@ class AgentLuaScriptService {
           isDeviceScript,
         );
       }
-      final status = state.pCall(0, 1, 0);
+      final status = isDeviceScript
+          ? await state.pCallAsync(
+              0,
+              1,
+              0,
+              (request) => _handleYieldedCommand(
+                request,
+                state: state,
+                features: features,
+                modelConfigs: modelConfigs,
+                plugins: plugins,
+                settings: settings,
+                conversations: conversations,
+                conversationId: conversationId,
+                identity: identity,
+              ),
+            )
+          : state.pCall(0, 1, 0);
       if (status != ThreadStatus.luaOk) {
         return _finishDeviceRun(
           _error('execution_failed', 'Lua 执行失败: ${_popError(state, status)}'),
@@ -225,6 +243,43 @@ class AgentLuaScriptService {
       };
     }
     return sync;
+  }
+
+  Future<Map<String, dynamic>> _handleYieldedCommand(
+    Object? request, {
+    required LuaState state,
+    FeatureProvider? features,
+    ModelConfigProvider? modelConfigs,
+    PluginProvider? plugins,
+    SettingsProvider? settings,
+    ConversationProvider? conversations,
+    String? conversationId,
+    LynAICallIdentity? identity,
+  }) async {
+    if (request is! Map) return _error('invalid_yield', 'Lua yield 请求无效');
+    final command = request.map(
+      (key, value) => MapEntry(key.toString(), value),
+    );
+    final name =
+        command['__lynai_function'] as String? ??
+        command['__lynai_agent_function'] as String?;
+    if (name == null || name.isEmpty) {
+      return _error('invalid_yield', 'Lua yield 缺少函数名');
+    }
+    final args = command['args'] is Map
+        ? Map<String, dynamic>.from(command['args'] as Map)
+        : <String, dynamic>{};
+    return _executeAgentCommand(
+      name,
+      args,
+      features: features,
+      modelConfigs: modelConfigs,
+      plugins: plugins,
+      settings: settings,
+      conversations: conversations,
+      conversationId: conversationId,
+      identity: identity,
+    );
   }
 
   Future<Map<String, dynamic>?> _executeCommand(
@@ -422,6 +477,7 @@ class AgentLuaScriptService {
 
   void _installLynAI(
     LuaState state, {
+    required bool asyncCalls,
     required Map<String, dynamic> Function(
       String method,
       Map<String, dynamic> args,
@@ -429,16 +485,26 @@ class AgentLuaScriptService {
     onCall,
   }) {
     state.newTable();
-    _setFunction(state, -1, 'call', (ls) {
+    int callFunction(LuaState ls) {
       final method = ls.checkString(1)?.trim() ?? '';
       final args = _readJsonValue(ls, 2);
       final normalizedArgs = args is Map
           ? args.map((key, item) => MapEntry(key.toString(), item))
           : <String, dynamic>{};
       final result = onCall(method, normalizedArgs);
+      if (result['__lynai_function'] is String ||
+          result['__lynai_agent_function'] is String) {
+        if (asyncCalls) ls.yieldAsync(result);
+      }
       _pushJsonValue(ls, result);
       return 1;
-    });
+    }
+
+    if (asyncCalls) {
+      _setAsyncFunction(state, -1, 'call', callFunction);
+    } else {
+      _setFunction(state, -1, 'call', callFunction);
+    }
     _setTable(state, -1, 'json', {
       'decode': (LuaState ls) {
         final text = ls.checkString(1) ?? '';
@@ -487,6 +553,17 @@ class AgentLuaScriptService {
   ) {
     final table = state.absIndex(tableIndex);
     state.pushDartFunction(function);
+    state.setField(table, name);
+  }
+
+  void _setAsyncFunction(
+    LuaState state,
+    int tableIndex,
+    String name,
+    DartFunction function,
+  ) {
+    final table = state.absIndex(tableIndex);
+    state.pushAsyncDartFunction(function);
     state.setField(table, name);
   }
 

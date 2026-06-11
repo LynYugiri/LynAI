@@ -11,9 +11,9 @@ import 'package:lynai/models/plugin_config_schema.dart';
 import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/plugin_provider.dart';
+import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/repositories/plugin_repository.dart';
 import 'package:lynai/services/agent_lua_script_service.dart';
-import 'package:lynai/services/lynai_permission_service.dart';
 import 'package:lynai/services/plugin_lua_runtime_service.dart';
 import 'package:lynai/services/tool_call_service.dart';
 import 'package:lynai/utils/plugin_path_utils.dart';
@@ -483,17 +483,15 @@ end
       await plugins.setEnabled('agent_function_plugin', true);
       await plugins.setFunctionEnabled('agent_function_plugin', 'lookup', true);
       final conversations = ConversationProvider();
+      final settings = SettingsProvider();
       final cid = conversations.createConversation(
-        ConversationSettings(
-          modelId: 'm1',
-          agentEnabled: true,
-          agentGrantedPermissions: const [LynAICapabilities.pluginCallFunction],
-        ),
+        ConversationSettings(modelId: 'm1', agentEnabled: true),
       );
 
       final result = await AgentLuaScriptService().execute(
         purpose: 'call plugin',
         plugins: plugins,
+        settings: settings,
         conversations: conversations,
         conversationId: cid,
         code: r'''
@@ -525,12 +523,17 @@ return lynai.call("plugins.callFunction", {
     () async {
       SharedPreferences.setMockInitialValues({});
       final conversations = ConversationProvider();
+      final settings = SettingsProvider();
+      await settings.replaceSettings(
+        settings.settings.copyWith(agentGrantedPermissions: const []),
+      );
       final cid = conversations.createConversation(
         ConversationSettings(modelId: 'm1', agentEnabled: true),
       );
 
       final result = await AgentLuaScriptService().execute(
         purpose: 'call plugin without permission',
+        settings: settings,
         conversations: conversations,
         conversationId: cid,
         code: r'''
@@ -587,19 +590,15 @@ end
           true,
         );
         final conversations = ConversationProvider();
+        final settings = SettingsProvider();
         final cid = conversations.createConversation(
-          ConversationSettings(
-            modelId: 'm1',
-            agentEnabled: true,
-            agentGrantedPermissions: const [
-              LynAICapabilities.pluginCallFunction,
-            ],
-          ),
+          ConversationSettings(modelId: 'm1', agentEnabled: true),
         );
 
         final result = await AgentLuaScriptService().execute(
           purpose: 'missing continuation',
           plugins: plugins,
+          settings: settings,
           conversations: conversations,
           conversationId: cid,
           code: r'''
@@ -652,17 +651,15 @@ end
       await plugins.setEnabled('agent_loop_plugin', true);
       await plugins.setFunctionEnabled('agent_loop_plugin', 'lookup', true);
       final conversations = ConversationProvider();
+      final settings = SettingsProvider();
       final cid = conversations.createConversation(
-        ConversationSettings(
-          modelId: 'm1',
-          agentEnabled: true,
-          agentGrantedPermissions: const [LynAICapabilities.pluginCallFunction],
-        ),
+        ConversationSettings(modelId: 'm1', agentEnabled: true),
       );
 
       final result = await AgentLuaScriptService().execute(
         purpose: 'loop continuation',
         plugins: plugins,
+        settings: settings,
         conversations: conversations,
         conversationId: cid,
         code: r'''
@@ -689,6 +686,70 @@ return lynai.call("plugins.callFunction", {
       await source.delete(recursive: true);
       await installedRoot.delete(recursive: true);
     }
+  });
+
+  test(
+    'Agent Lua executes async LynAI functions with global permissions',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final features = FeatureProvider();
+      final settings = SettingsProvider();
+      final conversations = ConversationProvider();
+      final cid = conversations.createConversation(
+        ConversationSettings(modelId: 'm1', agentEnabled: true),
+      );
+
+      final result = await AgentLuaScriptService().execute(
+        purpose: 'save note',
+        features: features,
+        settings: settings,
+        conversations: conversations,
+        conversationId: cid,
+        code: r'''
+function after_save(response, request)
+  return { ok = response.ok, title = response.note.title }
+end
+
+return lynai.call("notes.save", {
+  title = "Agent Note",
+  content = "created by lua",
+  __lynai_next = "after_save"
+})
+''',
+      );
+
+      expect(result['ok'], isTrue);
+      final payload = result['result'] as Map;
+      expect(payload['title'], 'Agent Note');
+      expect(features.notes.single.title, 'Agent Note');
+    },
+  );
+
+  test('Agent Lua blocks delete functions until recycle bin exists', () async {
+    SharedPreferences.setMockInitialValues({});
+    final features = FeatureProvider();
+    final noteId = await features.addNoteWithContent('Delete Me', 'content');
+    final settings = SettingsProvider();
+    final conversations = ConversationProvider();
+    final cid = conversations.createConversation(
+      ConversationSettings(modelId: 'm1', agentEnabled: true),
+    );
+
+    final result = await AgentLuaScriptService().execute(
+      purpose: 'delete note',
+      features: features,
+      settings: settings,
+      conversations: conversations,
+      conversationId: cid,
+      code:
+          '''
+return lynai.call("notes.delete", { id = "$noteId" })
+''',
+    );
+
+    expect(result['ok'], isFalse);
+    expect(result['error'].toString(), contains('回收站'));
+    expect(features.notes.single.id, noteId);
   });
 
   test('Lua plugins can read real config through lynai.call', () async {

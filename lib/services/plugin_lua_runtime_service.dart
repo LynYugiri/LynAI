@@ -9,6 +9,7 @@ import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/plugin_path_utils.dart';
+import 'lynai_call_identity.dart';
 import 'lua_sandbox_utils.dart';
 import 'lynai_function_service.dart';
 
@@ -175,6 +176,10 @@ class PluginLuaRuntimeService {
     required Map<String, dynamic>? preloadedConfig,
   }) {
     final context = LynAIFunctionContext(
+      identity: LynAICallIdentity(
+        type: LynAICallerType.plugin,
+        pluginId: plugin.id,
+      ),
       features: features,
       modelConfigs: modelConfigs,
       settings: settings,
@@ -418,6 +423,10 @@ class PluginLuaRuntimeService {
         arguments: <String, dynamic>{},
       ),
       LynAIFunctionContext(
+        identity: LynAICallIdentity(
+          type: LynAICallerType.plugin,
+          pluginId: plugin.id,
+        ),
         features: features,
         modelConfigs: modelConfigs,
         settings: settings,
@@ -515,6 +524,11 @@ class PluginLuaRuntimeService {
     final result = await LynAIFunctionService().execute(
       LynAIFunctionCall(name: method, arguments: args),
       LynAIFunctionContext(
+        identity: LynAICallIdentity(
+          type: LynAICallerType.plugin,
+          pluginId: plugin.id,
+          toolName: method,
+        ),
         features: features,
         modelConfigs: modelConfigs,
         plugins: plugins,

@@ -600,10 +600,9 @@ packages:
   lua_dardo:
     dependency: "direct main"
     description:
-      name: lua_dardo
-      sha256: "9f0c95bcd4f983f4f4e4134bd94a961ff5a688c2092e57be2b5cbfd2b2c5f1e4"
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/lua_dardo"
+      relative: true
+    source: path
     version: "0.0.5"
   markdown:
     dependency: "direct main"

@@ -3,14 +3,17 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/conversation.dart';
+import 'package:lynai/models/plugin.dart';
 import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
+import 'package:lynai/services/lynai_call_identity.dart';
+import 'package:lynai/services/lynai_permission_definitions.dart';
+import 'package:lynai/services/lynai_permission_service.dart';
 import 'package:lynai/services/storage_migration_service.dart';
 import 'package:lynai/services/storage_v2_service.dart';
 import 'package:lynai/services/tool_call_service.dart';
-import 'package:lynai/services/lynai_permission_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -169,6 +172,44 @@ void main() {
           .whereType<String>()
           .toSet();
       expect(grantedNames, contains('call_plugin_function'));
+    },
+  );
+
+  test(
+    'permission service separates Agent defaults and plugin webview grants',
+    () {
+      const service = LynAIPermissionService();
+      expect(
+        service.canUsePermission(
+          identity: const LynAICallIdentity(type: LynAICallerType.agentLua),
+          permission: LynAIPermissions.notesRead,
+        ),
+        isTrue,
+      );
+      final manifest = PluginManifest.fromJson({
+        'id': 'webview_perm_plugin',
+        'name': 'WebView Permission Plugin',
+        'entry': 'main.lua',
+        'permissions': ['notes:read'],
+      });
+      final plugin = InstalledPlugin(
+        manifest: manifest,
+        path: '/tmp/webview_perm_plugin',
+        enabled: true,
+        grantedPermissions: const [],
+        enabledFeaturePages: const [],
+      );
+      expect(
+        service.canUsePermission(
+          identity: const LynAICallIdentity(
+            type: LynAICallerType.pluginWebview,
+            pluginId: 'webview_perm_plugin',
+          ),
+          permission: LynAIPermissions.notesRead,
+          plugin: plugin,
+        ),
+        isFalse,
+      );
     },
   );
 

@@ -29,6 +29,7 @@ import '../services/attachment_storage_service.dart';
 import '../services/api_service.dart';
 import '../services/system_scroll_capture_service.dart';
 import '../services/tool_call_service.dart';
+import '../services/lynai_permission_definitions.dart';
 import '../utils/file_picker_io_utils.dart';
 import '../utils/share_image_utils.dart';
 import '../utils/snackbar_utils.dart';
@@ -160,6 +161,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   bool _showImageRecognitionList = false;
   bool _shareSelecting = false;
   bool _sharingImage = false;
+  bool? _agentPlanExpanded;
   final Set<String> _selectedShareMessageIds = {};
   final Map<String, bool> _attachmentExistsCache = {};
   String? _expandedInputAction;
@@ -985,7 +987,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           ? ToolCallService.openAITools(
               context.read<PluginProvider>().plugins,
               streamSettings?.agentEnabled == true,
-              streamSettings?.agentGrantedPermissions ?? const [],
+              context.read<SettingsProvider>().settings.agentGrantedPermissions,
             )
           : const [],
       toolChoice: 'auto',
@@ -2308,12 +2310,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                             horizontal: 12,
                             vertical: 8,
                           ),
-                          itemCount:
-                              msgs.length + (conv?.agentPlan == null ? 0 : 1),
+                          itemCount: msgs.length,
                           itemBuilder: (_, i) {
-                            if (i == msgs.length) {
-                              return _agentPlanCard(conv!.agentPlan!);
-                            }
                             final msg = msgs[i];
                             return _selectableBubble(
                               msg,
@@ -2329,6 +2327,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
             ],
           ),
         ),
+        if (conv?.agentPlan != null) _agentPlanPanel(conv!.agentPlan!),
         _inputArea(model, mp),
       ],
     );
@@ -2358,8 +2357,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     );
   }
 
-  Widget _agentPlanCard(AgentPlan plan) {
+  Widget _agentPlanPanel(AgentPlan plan) {
     final scheme = Theme.of(context).colorScheme;
+    final narrow = MediaQuery.of(context).size.width < 600;
+    final expanded = _agentPlanExpanded ?? !narrow;
     final completed = plan.items
         .where(
           (item) =>
@@ -2376,48 +2377,54 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         break;
       }
     }
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 8),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest.withValues(alpha: 0.75),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: scheme.primary.withValues(alpha: 0.18)),
-      ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 4, 14, 2),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(
-                Icons.account_tree_outlined,
-                size: 18,
-                color: scheme.primary,
+          InkWell(
+            onTap: () => setState(() => _agentPlanExpanded = !expanded),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Row(
+                children: [
+                  Icon(
+                    expanded ? Icons.expand_more : Icons.chevron_right,
+                    size: 18,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 2),
+                  Expanded(
+                    child: Text(
+                      active == null
+                          ? '计划 $completed/${plan.items.length}：${plan.title}'
+                          : '计划 $completed/${plan.items.length}：${active.title}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: scheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  plan.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-              ),
-              Text(
-                '$completed/${plan.items.length}',
-                style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
-              ),
-            ],
-          ),
-          if (active != null) ...[
-            const SizedBox(height: 6),
-            Text(
-              '当前：${active.title}',
-              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
             ),
+          ),
+          if (expanded) ...[
+            const SizedBox(height: 2),
+            for (final item in plan.items)
+              Padding(
+                padding: const EdgeInsets.only(left: 20),
+                child: _agentPlanStep(item),
+              ),
           ],
-          const SizedBox(height: 10),
-          for (final item in plan.items) _agentPlanStep(item),
+          Divider(
+            height: 8,
+            color: scheme.outlineVariant.withValues(alpha: 0.25),
+          ),
         ],
       ),
     );
@@ -2425,44 +2432,70 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
   Widget _agentPlanStep(AgentPlanItem item) {
     final scheme = Theme.of(context).colorScheme;
-    final detail = item.status == AgentPlanItem.failed
+    final active =
+        item.status == AgentPlanItem.inProgress ||
+        item.status == AgentPlanItem.needsConfirmation;
+    final failed = item.status == AgentPlanItem.failed;
+    final completed =
+        item.status == AgentPlanItem.completed ||
+        item.status == AgentPlanItem.skipped;
+    final detail = failed
         ? (item.error ?? item.summary)
-        : item.status == AgentPlanItem.completed
+        : completed
         ? (item.resultSummary ?? item.summary)
         : item.summary;
-    final (icon, color) = switch (item.status) {
-      AgentPlanItem.completed => (Icons.check_circle, scheme.primary),
-      AgentPlanItem.inProgress => (Icons.play_circle_outline, scheme.tertiary),
-      AgentPlanItem.failed => (Icons.error_outline, scheme.error),
-      AgentPlanItem.skipped => (Icons.remove_circle_outline, scheme.outline),
-      AgentPlanItem.needsConfirmation => (
-        Icons.priority_high,
-        scheme.secondary,
-      ),
-      _ => (Icons.radio_button_unchecked, scheme.outline),
-    };
+    final color = failed
+        ? scheme.error
+        : active
+        ? scheme.primary
+        : scheme.onSurfaceVariant.withValues(alpha: completed ? 0.58 : 0.82);
+    final marker = completed
+        ? '✓'
+        : failed
+        ? '!'
+        : active
+        ? '•'
+        : '·';
     return Padding(
-      padding: const EdgeInsets.only(top: 6),
+      padding: const EdgeInsets.only(top: 3),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 17, color: color),
-          const SizedBox(width: 8),
+          SizedBox(
+            width: 16,
+            child: Text(
+              marker,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: color, fontSize: 12),
+            ),
+          ),
+          const SizedBox(width: 4),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(item.title, style: const TextStyle(fontSize: 13)),
+                Text(
+                  item.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: color,
+                    fontWeight: active ? FontWeight.w700 : FontWeight.w400,
+                  ),
+                ),
                 if (detail != null && detail.isNotEmpty)
                   Padding(
-                    padding: const EdgeInsets.only(top: 2),
+                    padding: const EdgeInsets.only(top: 1),
                     child: Text(
                       detail,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 12,
-                        color: item.status == AgentPlanItem.failed
+                        fontSize: 11,
+                        color: failed
                             ? scheme.error
-                            : scheme.onSurfaceVariant,
+                            : scheme.onSurfaceVariant.withValues(alpha: 0.68),
                       ),
                     ),
                   ),
@@ -3936,9 +3969,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           model,
         ).copyWith(agentEnabled: value);
         _saveConversationSettings(settings);
-        if (value && settings.agentGrantedPermissions.isEmpty) {
-          showShortSnackBar(context, 'Agent 已开启，可在对话设置中配置权限');
-        }
+        if (value) showShortSnackBar(context, 'Agent 已开启，可在对话设置中配置全局权限');
       },
     );
   }

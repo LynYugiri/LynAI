@@ -12,6 +12,7 @@ import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
+import '../services/lynai_call_identity.dart';
 import '../services/lynai_function_service.dart';
 import '../utils/plugin_path_utils.dart';
 import '../utils/webview_dispose_utils.dart';
@@ -384,6 +385,11 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     final result = await LynAIFunctionService().execute(
       LynAIFunctionCall(name: method, arguments: args),
       LynAIFunctionContext(
+        identity: LynAICallIdentity(
+          type: LynAICallerType.pluginWebview,
+          pluginId: widget.plugin.id,
+          toolName: method,
+        ),
         features: context.read<FeatureProvider>(),
         modelConfigs: context.read<ModelConfigProvider>(),
         settings: context.read<SettingsProvider>(),

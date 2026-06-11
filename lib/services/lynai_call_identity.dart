@@ -1,4 +1,12 @@
-enum LynAICallerType { assistant, agent, lua, plugin }
+enum LynAICallerType {
+  assistant,
+  agent,
+  agentLua,
+  lua,
+  plugin,
+  pluginWebview,
+  system,
+}
 
 class LynAICallIdentity {
   final LynAICallerType type;

@@ -83,6 +83,8 @@ dependency_overrides:
     path: third_party/webview_all_linux
   webview_all_windows:
     path: third_party/webview_all_windows
+  lua_dardo:
+    path: third_party/lua_dardo
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

@@ -852,7 +852,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                'Agent 权限（Plan 不需要权限）',
+                'Agent 权限（全局）',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -862,41 +862,50 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
             ),
           ),
           _agentPermissionTile(
-            '执行 Lua 脚本',
-            'lua.execute',
-            subtitle: '允许 Agent 运行受限 Lua，用于编排同步读取和插件函数。',
+            const LynAIPermissionDefinition(
+              id: '__info__',
+              title: '这些权限对所有对话生效',
+              description: '当前开关只决定本对话是否启用 Agent。',
+            ),
+            informational: true,
           ),
-          _agentPermissionTile(
-            '调用插件函数',
-            'plugins.callFunction',
-            subtitle: '允许 Agent 或 Agent Lua 调用已安装插件暴露的函数。',
-          ),
+          for (final definition in lynaiPermissionDefinitions)
+            _agentPermissionTile(definition),
         ],
       ),
     );
   }
 
   Widget _agentPermissionTile(
-    String title,
-    String permission, {
-    String? subtitle,
+    LynAIPermissionDefinition definition, {
+    bool informational = false,
   }) {
-    final permissions = _settings.agentGrantedPermissions.toSet();
+    if (informational) {
+      return ListTile(
+        dense: true,
+        title: Text(definition.title),
+        subtitle: Text(definition.description),
+      );
+    }
+    final provider = context.watch<SettingsProvider>();
+    final permissions = provider.settings.agentGrantedPermissions.toSet();
     return CheckboxListTile(
       dense: true,
-      value: permissions.contains(permission),
-      title: Text(title),
-      subtitle: subtitle == null ? null : Text(subtitle),
+      value: permissions.contains(definition.id),
+      title: Text(definition.title),
+      subtitle: Text(definition.description),
       controlAffinity: ListTileControlAffinity.leading,
       onChanged: (value) {
         if (value == true) {
-          permissions.add(permission);
+          permissions.add(definition.id);
         } else {
-          permissions.remove(permission);
+          permissions.remove(definition.id);
         }
-        _updateSettings(
-          _settings.copyWith(
-            agentGrantedPermissions: permissions.toList(growable: false),
+        context.read<SettingsProvider>().replaceSettings(
+          provider.settings.copyWith(
+            agentGrantedPermissions: LynAIPermissions.agentAssignable
+                .where(permissions.contains)
+                .toList(growable: false),
           ),
         );
       },
