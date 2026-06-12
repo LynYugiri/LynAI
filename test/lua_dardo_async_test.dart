@@ -1,9 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lua_dardo/lua.dart';
 import 'package:lynai/models/agent_plan.dart';
+import 'package:lynai/models/app_settings.dart';
 import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/device_control.dart';
 import 'package:lynai/providers/conversation_provider.dart';
+import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/services/agent_lua_script_service.dart';
 import 'package:lynai/services/device_run_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -57,6 +59,28 @@ return { ok = true, count = count }
       DeviceRunController.instance.snapshot.status,
       DeviceRunStatus.completed,
     );
+  });
+
+  test('Agent Lua awaits model calls without starting device run', () async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsProvider();
+    await settings.replaceSettings(
+      AppSettings.defaults().copyWith(agentGrantedPermissions: const []),
+    );
+    DeviceRunController.instance.reset();
+
+    final result = await AgentLuaScriptService().execute(
+      purpose: 'test async model call',
+      settings: settings,
+      code: r'''
+local result = lynai.call("model.ocr", { imageBase64 = "AA==" })
+return result
+''',
+    );
+
+    expect(result['ok'], isFalse);
+    expect(result['error'], contains('model:ocr'));
+    expect(DeviceRunController.instance.snapshot.status, DeviceRunStatus.idle);
   });
 
   test('Agent Lua can update plan during async device script', () async {

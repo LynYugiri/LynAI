@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lynai/models/app_settings.dart';
 import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/plugin.dart';
 import 'package:lynai/providers/conversation_provider.dart';
@@ -9,6 +10,7 @@ import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/services/lynai_call_identity.dart';
+import 'package:lynai/services/lynai_function_service.dart';
 import 'package:lynai/services/lynai_permission_definitions.dart';
 import 'package:lynai/services/lynai_permission_service.dart';
 import 'package:lynai/services/storage_migration_service.dart';
@@ -189,6 +191,54 @@ void main() {
     expect(description, contains('agent.plan.update'));
     expect(description, contains('agent.note.add'));
     expect(description, contains('device.waitForNode'));
+    expect(description, contains('model.ocr'));
+    expect(description, contains('model.recognizeFile'));
+  });
+
+  test('model recognition functions require dedicated permissions', () async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsProvider();
+    await settings.replaceSettings(
+      AppSettings.defaults().copyWith(agentGrantedPermissions: const []),
+    );
+    final result = await LynAIFunctionService().execute(
+      const LynAIFunctionCall(
+        name: 'model.ocr',
+        arguments: {'imageBase64': 'AA=='},
+      ),
+      LynAIFunctionContext(
+        identity: const LynAICallIdentity(type: LynAICallerType.agentLua),
+        settings: settings,
+      ),
+    );
+
+    expect(result['ok'], isFalse);
+    expect(result['error'], contains(LynAIPermissions.modelOcr));
+  });
+
+  test('settings migration preserves disabled model permissions', () {
+    final settings = AppSettings.fromJson({
+      'themeColor': 0xFF2196F3,
+      'baseThemeColor': 0xFF2196F3,
+      'agentGrantedPermissions': const [LynAIPermissions.notesRead],
+    });
+
+    expect(
+      settings.agentGrantedPermissions,
+      contains(LynAIPermissions.notesRead),
+    );
+    expect(
+      settings.agentGrantedPermissions,
+      contains(LynAIPermissions.deviceControl),
+    );
+    expect(
+      settings.agentGrantedPermissions,
+      isNot(contains(LynAIPermissions.modelChat)),
+    );
+    expect(
+      settings.agentGrantedPermissions,
+      isNot(contains(LynAIPermissions.modelOcr)),
+    );
   });
 
   test(

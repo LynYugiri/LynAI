@@ -2,14 +2,19 @@ package com.github.lynyugiri.lynai
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.graphics.Bitmap
 import android.graphics.Path
 import android.graphics.Rect
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Base64
+import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import io.flutter.plugin.common.MethodChannel
+import java.io.ByteArrayOutputStream
 
 class LynAIAccessibilityService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
@@ -79,6 +84,48 @@ class LynAIAccessibilityService : AccessibilityService() {
                 "scrollableNodes" to scrollableNodes.take(30)
             )
         )
+    }
+
+    fun screenshot(result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            result.success(error("unsupported_android_version", "无障碍截屏需要 Android 11 或更高版本"))
+            return
+        }
+        try {
+            takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+                override fun onSuccess(screenshot: ScreenshotResult) {
+                    try {
+                        val bitmap = Bitmap.wrapHardwareBuffer(screenshot.hardwareBuffer, screenshot.colorSpace)
+                        if (bitmap == null) {
+                            result.success(error("screenshot_failed", "系统未返回可用截图"))
+                            return
+                        }
+                        val stream = ByteArrayOutputStream()
+                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+                        result.success(
+                            mapOf(
+                                "ok" to true,
+                                "result" to mapOf(
+                                    "mimeType" to "image/png",
+                                    "width" to bitmap.width,
+                                    "height" to bitmap.height,
+                                    "dataBase64" to Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP),
+                                    "timestamp" to System.currentTimeMillis().toString()
+                                )
+                            )
+                        )
+                    } finally {
+                        screenshot.hardwareBuffer.close()
+                    }
+                }
+
+                override fun onFailure(errorCode: Int) {
+                    result.success(error("screenshot_failed", "系统截屏失败: $errorCode"))
+                }
+            })
+        } catch (e: Exception) {
+            result.success(error("screenshot_failed", "系统截屏异常: ${e.message ?: e.javaClass.simpleName}"))
+        }
     }
 
     fun tap(args: Map<String, Any?>, result: MethodChannel.Result) {

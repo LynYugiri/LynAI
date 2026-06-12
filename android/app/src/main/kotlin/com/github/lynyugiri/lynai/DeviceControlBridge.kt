@@ -19,15 +19,7 @@ object DeviceControlBridge : EventChannel.StreamHandler {
             when (call.method) {
                 "snapshot" -> result.success(service?.snapshot() ?: unavailable())
                 "context" -> result.success(service?.screenContext() ?: unavailable())
-                "screenshot" -> result.success(
-                    mapOf(
-                        "ok" to false,
-                        "error" to mapOf(
-                            "code" to "not_implemented",
-                            "message" to "截屏接口已预留，第一版暂未实现"
-                        )
-                    )
-                )
+                "screenshot" -> service?.screenshot(result) ?: result.success(unavailable())
                 "tap" -> service?.tap(arguments(call.arguments), result) ?: result.success(unavailable())
                 "tapRepeat" -> service?.tapRepeat(arguments(call.arguments), result) ?: result.success(unavailable())
                 "swipe" -> service?.swipe(arguments(call.arguments), result) ?: result.success(unavailable())

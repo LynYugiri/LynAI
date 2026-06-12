@@ -2006,6 +2006,8 @@ String _permissionLabel(String permission) {
     'schedules:read' => '读取日程',
     'schedules:write' => '修改日程',
     'model:chat' => '调用模型',
+    'model:ocr' => '调用 OCR 模型',
+    'model:recognizeFile' => '调用文件识别模型',
     'storage:read' => '读取插件存储',
     'storage:write' => '写入插件存储',
     'webview:bridge' => '使用 WebView Bridge',

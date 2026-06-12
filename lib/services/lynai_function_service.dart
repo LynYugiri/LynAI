@@ -21,6 +21,7 @@ import 'device_run_controller.dart';
 import 'lynai_call_identity.dart';
 import 'lynai_permission_definitions.dart';
 import 'lynai_permission_service.dart';
+import 'model_recognition_service.dart';
 import 'storage_v2_service.dart';
 
 /// AI 函数调用描述。
@@ -318,6 +319,11 @@ class LynAIFunctionService {
           call.arguments,
         ),
         'model.chat' => await _modelChat(context, call.arguments),
+        'model.ocr' => await _modelOcr(context, call.arguments),
+        'model.recognizeFile' => await _modelRecognizeFile(
+          context,
+          call.arguments,
+        ),
         String name when name.startsWith('device.') =>
           await DeviceControlService.instance.execute(name, call.arguments),
         _ => _error('未知 LynAI function: ${call.name}'),
@@ -390,6 +396,8 @@ class LynAIFunctionService {
       'schedules.update' ||
       'schedules.delete' => LynAIPermissions.schedulesWrite,
       'model.chat' => LynAIPermissions.modelChat,
+      'model.ocr' => LynAIPermissions.modelOcr,
+      'model.recognizeFile' => LynAIPermissions.modelRecognizeFile,
       'device.screen.snapshot' ||
       'device.screen.context' ||
       'device.screen.screenshot' => LynAIPermissions.deviceScreenRead,
@@ -1633,6 +1641,120 @@ class LynAIFunctionService {
     } finally {
       api.dispose();
     }
+  }
+
+  Future<Map<String, dynamic>> _modelOcr(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) async {
+    final provider = context.modelConfigs;
+    if (provider == null) throw Exception('model.ocr 需要模型上下文');
+    final files = _recognitionFiles(args, defaultName: 'image.png');
+    if (files.isEmpty) throw Exception('model.ocr 缺少 imageBase64 或 files');
+    if (!files.any((file) => file.mimeType.startsWith('image/'))) {
+      throw Exception('model.ocr 需要 image/* MIME 类型文件');
+    }
+    final modelId = (args['modelId'] as String?)?.trim().isNotEmpty == true
+        ? args['modelId'] as String
+        : context.settings?.settings.imageModelId;
+    final recognition = ModelRecognitionService();
+    final String text;
+    try {
+      text = await recognition.recognizeImagesWithOcr(
+        modelConfigs: provider,
+        modelId: modelId,
+        files: files,
+      );
+    } finally {
+      recognition.dispose();
+    }
+    return {
+      'ok': true,
+      'text': text,
+      'fileCount': files.length,
+      if (modelId != null && modelId.isNotEmpty) 'modelId': modelId,
+    };
+  }
+
+  Future<Map<String, dynamic>> _modelRecognizeFile(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) async {
+    final provider = context.modelConfigs;
+    if (provider == null) throw Exception('model.recognizeFile 需要模型上下文');
+    final files = _recognitionFiles(args, defaultName: 'file');
+    if (files.isEmpty) {
+      throw Exception('model.recognizeFile 缺少 dataBase64/imageBase64 或 files');
+    }
+    final modelId = (args['modelId'] as String?)?.trim().isNotEmpty == true
+        ? args['modelId'] as String
+        : context.settings?.settings.imageRecognitionModelId;
+    final prompt = (args['prompt'] as String? ?? '').trim().isNotEmpty
+        ? (args['prompt'] as String).trim()
+        : context.settings?.settings.imageRecognitionPrompt ??
+              '请根据下面的文件内容或识别结果回答。';
+    final recognition = ModelRecognitionService();
+    final String content;
+    try {
+      content = await recognition.recognizeFilesWithModel(
+        modelConfigs: provider,
+        modelId: modelId,
+        prompt: prompt,
+        files: files,
+      );
+    } finally {
+      recognition.dispose();
+    }
+    return {
+      'ok': true,
+      'content': content,
+      'fileCount': files.length,
+      if (modelId != null && modelId.isNotEmpty) 'modelId': modelId,
+    };
+  }
+
+  List<ModelRecognitionFileInput> _recognitionFiles(
+    Map<String, dynamic> args, {
+    required String defaultName,
+  }) {
+    final files = <ModelRecognitionFileInput>[];
+    final rawFiles = args['files'];
+    if (rawFiles is List) {
+      for (final raw in rawFiles.whereType<Map>()) {
+        final json = Map<String, dynamic>.from(raw);
+        final data =
+            (json['dataBase64'] as String? ??
+                    json['imageBase64'] as String? ??
+                    '')
+                .trim();
+        if (data.isEmpty) continue;
+        files.add(
+          ModelRecognitionFileInput.fromBase64(
+            name: _stringArg(json['name'], defaultName),
+            mimeType: (json['mimeType'] as String? ?? 'image/png').trim(),
+            dataBase64: data,
+          ),
+        );
+      }
+    }
+    final directData =
+        (args['dataBase64'] as String? ?? args['imageBase64'] as String? ?? '')
+            .trim();
+    if (directData.isNotEmpty) {
+      files.add(
+        ModelRecognitionFileInput.fromBase64(
+          name: _stringArg(args['name'], defaultName),
+          mimeType: (args['mimeType'] as String? ?? 'image/png').trim(),
+          dataBase64: directData,
+        ),
+      );
+    }
+    return files;
+  }
+
+  String _stringArg(Object? raw, String fallback) {
+    final value = raw?.toString().trim() ?? '';
+    return value.isEmpty ? fallback : value;
   }
 
   ModelConfig _selectChatModel(

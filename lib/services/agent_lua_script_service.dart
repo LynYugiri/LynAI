@@ -39,6 +39,7 @@ class AgentLuaScriptService {
       return _error('code_too_long', 'Lua 脚本过长，最多 $maxCodeLength 字符');
     }
     final isDeviceScript = trimmed.contains('device.');
+    final needsAsyncCalls = _needsAsyncCalls(trimmed);
     if (isDeviceScript) {
       DeviceRunController.instance.start(purpose: purpose);
     }
@@ -49,7 +50,7 @@ class AgentLuaScriptService {
       var callCount = 0;
       _installLynAI(
         state,
-        asyncCalls: isDeviceScript,
+        asyncCalls: needsAsyncCalls,
         onCall: (method, args) {
           callCount++;
           final limit = isDeviceScript ? maxCallCount * 10 : maxCallCount;
@@ -76,7 +77,7 @@ class AgentLuaScriptService {
           isDeviceScript,
         );
       }
-      final status = isDeviceScript
+      final status = needsAsyncCalls
           ? await state.pCallAsync(
               0,
               1,
@@ -177,6 +178,12 @@ class AgentLuaScriptService {
       DeviceRunController.instance.complete();
     }
     return result;
+  }
+
+  bool _needsAsyncCalls(String code) {
+    return code.contains('device.') ||
+        code.contains('model.') ||
+        code.contains('plugins.callFunction');
   }
 
   Map<String, dynamic> _call(

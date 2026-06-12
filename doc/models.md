@@ -68,6 +68,8 @@
 
 `ModelEntry` 是子模型。子模型可以独立设置启用状态、视觉能力、thinking 能力、工具能力和采样参数。
 
+Agent 可通过 `model.chat` 调用 Chat 模型，通过 `model.ocr` 调用 OCR 分类模型，通过 `model.recognizeFile` 调用开启视觉能力的 Chat 模型。`model.recognizeFile` 依赖 `supportsVision=true` 的子模型。
+
 请求参数优先级：子模型参数高于 Provider 参数，高于接口默认值。
 
 ## AppSettings、角色和提示词

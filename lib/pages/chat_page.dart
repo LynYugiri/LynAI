@@ -27,6 +27,7 @@ import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/attachment_storage_service.dart';
 import '../services/api_service.dart';
+import '../services/model_recognition_service.dart';
 import '../services/system_scroll_capture_service.dart';
 import '../services/tool_call_service.dart';
 import '../services/lynai_permission_definitions.dart';
@@ -131,6 +132,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   final _audioRecorder = AudioRecorder();
   final _attachmentStorage = const AttachmentStorageService();
   final _api = ApiService();
+  final _recognition = ModelRecognitionService();
   final _streamDraft = ValueNotifier<_StreamDraft>(const _StreamDraft());
   final _inputRevision = ValueNotifier<int>(0);
 
@@ -302,6 +304,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _scrollCtrl.dispose();
     _focusNode.dispose();
     _api.dispose();
+    _recognition.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -869,8 +872,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   }
 
   bool _supportsThinking(ModelConfig model) => model.supportsThinking;
-
-  bool _supportsVision(ModelConfig model) => model.supportsVision;
 
   Map<String, dynamic> _assistantToolCallMessage(
     String content,
@@ -1873,33 +1874,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     List<MessageImage> files,
     ConversationSettings set,
   ) async {
-    if (files.isEmpty) return '';
-    final modelId = set.imageRecognitionModelId;
-    if (modelId == null || modelId.isEmpty) {
-      throw Exception('请先选择文件识别模型');
-    }
-    final mp = context.read<ModelConfigProvider>();
-    final model = _findModelConfigById(
-      mp.modelsByCategory(ModelConfig.categoryChat),
-      modelId,
-    );
-    if (model == null) {
-      throw Exception('文件识别模型已不存在，请在设置中重新选择');
-    }
-    if (!_supportsVision(model)) {
-      throw Exception('当前文件识别模型未开启视觉能力，请在模型设置中启用');
-    }
-    final inputs = <ChatFileInput>[];
-    for (final file in files) {
-      final bytes = await File(file.path).readAsBytes();
-      inputs.add(
-        ChatFileInput(bytes: bytes, mimeType: file.mimeType, name: file.name),
-      );
-    }
-    return _api.recognizeImageTextWithChatModel(
-      model,
-      set.imageRecognitionPrompt,
-      inputs,
+    return _recognition.recognizeMessageFilesWithModel(
+      modelConfigs: context.read<ModelConfigProvider>(),
+      settings: set,
+      files: files,
     );
   }
 
@@ -1907,27 +1885,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     List<MessageImage> files,
     ConversationSettings set,
   ) async {
-    final modelId = set.imageModelId;
-    if (modelId == null || modelId.isEmpty) {
-      throw Exception('请先选择 OCR 模型');
-    }
-    final mp = context.read<ModelConfigProvider>();
-    final ocrModel = _findModelConfigById(mp.models, modelId);
-    if (ocrModel == null) {
-      throw Exception('OCR 模型已不存在，请在设置中重新选择');
-    }
-    final results = <String>[];
-    for (final image in files.where((file) => file.isImage)) {
-      try {
-        final bytes = await File(image.path).readAsBytes();
-        final text = await _api.recognizeImageText(ocrModel, bytes);
-        final clean = text.trim();
-        if (clean.isNotEmpty) results.add(clean);
-      } catch (e) {
-        results.add('[${image.name} OCR 识别失败: $e]');
-      }
-    }
-    return results.join('\n');
+    return _recognition.recognizeMessageImagesWithOcr(
+      modelConfigs: context.read<ModelConfigProvider>(),
+      settings: set,
+      files: files,
+    );
   }
 
   Future<Object> _directModelContent(

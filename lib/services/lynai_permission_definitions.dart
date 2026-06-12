@@ -15,6 +15,8 @@ class LynAIPermissions {
   static const storageWrite = 'storage:write';
   static const networkAccess = 'network:access';
   static const modelChat = 'model:chat';
+  static const modelOcr = 'model:ocr';
+  static const modelRecognizeFile = 'model:recognizeFile';
   static const webviewBridge = 'webview:bridge';
   static const deviceScreenRead = 'device:screen:read';
   static const deviceControl = 'device:control';
@@ -32,6 +34,8 @@ class LynAIPermissions {
     schedulesWrite,
     networkAccess,
     modelChat,
+    modelOcr,
+    modelRecognizeFile,
     deviceScreenRead,
     deviceControl,
     deviceOverlay,
@@ -115,6 +119,18 @@ const lynaiPermissionDefinitions = <LynAIPermissionDefinition>[
     id: LynAIPermissions.modelChat,
     title: '调用模型',
     description: '允许通过 model.chat 调用已配置模型。',
+    risk: LynAIPermissionRisk.elevated,
+  ),
+  LynAIPermissionDefinition(
+    id: LynAIPermissions.modelOcr,
+    title: '调用 OCR 模型',
+    description: '允许通过 model.ocr 调用已配置 OCR 模型识别图片文字。',
+    risk: LynAIPermissionRisk.elevated,
+  ),
+  LynAIPermissionDefinition(
+    id: LynAIPermissions.modelRecognizeFile,
+    title: '调用文件识别模型',
+    description: '允许通过 model.recognizeFile 调用视觉模型识别图片或文件。',
     risk: LynAIPermissionRisk.elevated,
   ),
   LynAIPermissionDefinition(
