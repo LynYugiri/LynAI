@@ -70,11 +70,6 @@ set(PLUGIN_SOURCES
 add_library(${PLUGIN_NAME} SHARED ${PLUGIN_SOURCES})
 add_dependencies(${PLUGIN_NAME} ${DEPS_TARGET_NAME})
 
-# Configure compiler options
-if(MSVC)
-  target_compile_options(${PLUGIN_NAME} PRIVATE "/await")
-endif()
-
 # Apply standard settings
 apply_standard_settings(${PLUGIN_NAME})
 
