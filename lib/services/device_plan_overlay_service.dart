@@ -18,6 +18,7 @@ class DevicePlanOverlayService with WidgetsBindingObserver {
   void start() {
     if (_started || !Platform.isAndroid) return;
     _started = true;
+    _channel.setMethodCallHandler(_handleOverlayCall);
     WidgetsBinding.instance.addObserver(this);
     DeviceRunController.instance.addListener(_syncOverlay);
   }
@@ -25,6 +26,7 @@ class DevicePlanOverlayService with WidgetsBindingObserver {
   void dispose() {
     if (!_started) return;
     _started = false;
+    _channel.setMethodCallHandler(null);
     WidgetsBinding.instance.removeObserver(this);
     DeviceRunController.instance.removeListener(_syncOverlay);
     unawaited(_hide());
@@ -46,11 +48,29 @@ class DevicePlanOverlayService with WidgetsBindingObserver {
           'purpose': run.purpose,
           'currentStep': run.currentStep,
           'lastAction': run.lastAction,
+          'canResume': run.canResume,
+          'canStop': run.canStop,
+          'pauseReason': run.pauseReason,
         }),
       );
       return;
     }
     unawaited(_hide());
+  }
+
+  Future<dynamic> _handleOverlayCall(MethodCall call) async {
+    switch (call.method) {
+      case 'resume':
+        DeviceRunController.instance.resume();
+        return {'ok': true};
+      case 'stop':
+        DeviceRunController.instance.stop();
+        return {'ok': true};
+      default:
+        throw MissingPluginException(
+          'Unknown device overlay call: ${call.method}',
+        );
+    }
   }
 
   Future<void> _hide() async {

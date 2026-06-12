@@ -59,15 +59,24 @@ class LynAIAccessibilityService : AccessibilityService() {
         @Suppress("UNCHECKED_CAST")
         val result = snapshot["result"] as? Map<String, Any?> ?: return snapshot
         val lines = mutableListOf<String>()
+        val clickableNodes = mutableListOf<Map<String, Any?>>()
+        val editableNodes = mutableListOf<Map<String, Any?>>()
+        val scrollableNodes = mutableListOf<Map<String, Any?>>()
         @Suppress("UNCHECKED_CAST")
         val roots = result["roots"] as? List<Map<String, Any?>> ?: emptyList()
-        roots.forEach { collectContextLines(it, lines) }
+        roots.forEach {
+            collectContextLines(it, lines)
+            collectNodeSummaries(it, clickableNodes, editableNodes, scrollableNodes)
+        }
         return mapOf(
             "ok" to true,
             "result" to mapOf(
                 "platform" to "android",
                 "packageName" to result["packageName"],
-                "text" to lines.distinct().take(120).joinToString("\n")
+                "text" to lines.distinct().take(120).joinToString("\n"),
+                "clickableNodes" to clickableNodes.take(80),
+                "editableNodes" to editableNodes.take(30),
+                "scrollableNodes" to scrollableNodes.take(30)
             )
         )
     }
@@ -214,6 +223,31 @@ class LynAIAccessibilityService : AccessibilityService() {
         @Suppress("UNCHECKED_CAST")
         val children = node["children"] as? List<Map<String, Any?>> ?: emptyList()
         children.forEach { collectContextLines(it, lines) }
+    }
+
+    private fun collectNodeSummaries(
+        node: Map<String, Any?>,
+        clickableNodes: MutableList<Map<String, Any?>>,
+        editableNodes: MutableList<Map<String, Any?>>,
+        scrollableNodes: MutableList<Map<String, Any?>>
+    ) {
+        if (node["clickable"] == true) clickableNodes.add(nodeSummary(node))
+        if (node["editable"] == true) editableNodes.add(nodeSummary(node))
+        if (node["scrollable"] == true) scrollableNodes.add(nodeSummary(node))
+        @Suppress("UNCHECKED_CAST")
+        val children = node["children"] as? List<Map<String, Any?>> ?: emptyList()
+        children.forEach { collectNodeSummaries(it, clickableNodes, editableNodes, scrollableNodes) }
+    }
+
+    private fun nodeSummary(node: Map<String, Any?>): Map<String, Any?> {
+        return mapOf(
+            "id" to node["id"],
+            "text" to node["text"],
+            "description" to node["description"],
+            "className" to node["className"],
+            "viewId" to node["viewId"],
+            "bounds" to node["bounds"]
+        )
     }
 
     private fun findFocusedEditable(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {

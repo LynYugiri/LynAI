@@ -20,6 +20,7 @@ import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/conversation_provider.dart';
 import 'agent_lua_script_service.dart';
+import 'agent_runtime_service.dart';
 import 'lynai_call_identity.dart';
 import 'lynai_function_service.dart';
 import 'lynai_permission_service.dart';
@@ -220,6 +221,7 @@ class ToolCallService {
   final String? _conversationId;
   final _lynaiFunctions = LynAIFunctionService();
   final _permissionService = const LynAIPermissionService();
+  final _agentRuntime = const AgentRuntimeService();
 
   /// 非原生 tool_calls 接口使用的系统提示词。
   ///
@@ -259,7 +261,7 @@ class ToolCallService {
 Plan 创建和更新不需要权限，只用于当前对话的可视化状态。
 如果需要了解可用插件函数，先调用 list_plugin_functions。
 如果需要调用插件函数，先调用 list_plugin_functions 查看可用函数，再用 call_plugin_function。该能力需要 plugins.callFunction 权限。
-如果需要运行 Lua，调用 execute_lua。Lua 运行在受限沙箱中：禁用 os/io/package/require/dofile/loadfile，不能访问文件系统或系统命令；所有 LynAI 能力必须通过 lynai.call(name, args) 调用；脚本最后必须 return 一个 JSON 可序列化 table。Agent Lua 支持同步读取函数、plugins.functions.list、plugins.callFunction 和 device.* 设备函数；插件函数调用需要 plugins.callFunction 权限。复杂屏幕操控应优先用 Lua 编排 device.* 原子动作。
+如果需要运行 Lua，调用 execute_lua。Lua 运行在受限沙箱中：禁用 os/io/package/require/dofile/loadfile，不能访问文件系统或系统命令；所有 LynAI 能力必须通过 lynai.call(name, args) 调用；脚本最后必须 return 一个 JSON 可序列化 table。Agent Lua 支持同步读取函数、plugins.functions.list、plugins.callFunction、agent.plan.update、agent.note.add 和 device.* 设备函数；插件函数调用需要 plugins.callFunction 权限。复杂屏幕操控应优先在 Lua 中线性编排多步 device.*：读取 screen.context 或 waitForNode，优先用 node.action，必要时才用坐标 tap/swipe。关键调用后检查 ok，失败时返回结构化 error。
 Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:false,error:{code,message,details?}}；读取数据时优先看 result。
 可以输出简短的中间说明，但不要把工具 JSON 原样展示给用户；最终回复应汇总执行结果。
 ''';
@@ -800,7 +802,7 @@ Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:f
     if (permissions.contains(LynAICapabilities.luaExecute)) {
       add(
         'execute_lua',
-        '执行 LynAI Agent Lua 脚本。脚本运行在受限 lua_dardo 沙箱中：禁用 os、io、package、require、dofile、loadfile；不能访问本地文件系统或执行系统命令；所有 LynAI 能力必须通过 lynai.call(name, args) 调用；lynai.call 返回 JSON 风格 table，通常包含 ok 字段；脚本最后必须 return 一个 JSON 可序列化 table。支持同步读取函数（如 todos.list、notes.read、schedules.list）、plugins.functions.list、plugins.callFunction 和 device.*。plugins.callFunction 还需要 plugins.callFunction 权限。device.* 异步动作第一版应作为脚本最终 return 的调用结果，复杂点击优先使用 device.tapRepeat、device.waitForNode、device.node.action 等批量/等待原子函数。示例：return lynai.call("device.tapRepeat", { x = 540, y = 1600, repeat = 20, intervalMs = 80 })',
+        '执行 LynAI Agent Lua 脚本。脚本运行在受限 lua_dardo 沙箱中：禁用 os、io、package、require、dofile、loadfile；不能访问本地文件系统或执行系统命令；所有 LynAI 能力必须通过 lynai.call(name, args) 调用；lynai.call 返回 JSON 风格 table，通常包含 ok 字段；脚本最后必须 return 一个 JSON 可序列化 table。支持同步读取函数（如 todos.list、notes.read、schedules.list）、plugins.functions.list、plugins.callFunction、agent.plan.update、agent.note.add 和 device.*。device.* 支持异步线性执行，可在 Lua 中写循环、等待和多步流程；复杂屏幕操控优先使用 device.screen.context、device.waitForNode、device.node.action，必要时再用 device.tap/device.swipe。关键调用应检查 ok，失败时 return { ok = false, error = result.error }。示例：local n = lynai.call("device.waitForNode", { text = "发送", timeoutMs = 5000 }); if not n.ok then return n end; return lynai.call("device.node.action", { nodeId = n.result.id, action = "click" })',
         {
           'type': 'object',
           'properties': {
@@ -987,21 +989,7 @@ Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:f
     if (cid == null || conversations == null) {
       return _agentError('missing_context', '缺少对话上下文');
     }
-    final conv = conversations.getConversation(cid);
-    if (conv?.settings.agentEnabled != true) {
-      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
-    }
-    final content = (args['content'] as String? ?? '').trim();
-    if (content.isEmpty) {
-      return _agentError('invalid_arguments', 'add_agent_note 缺少 content');
-    }
-    final limited = content.length > 500 ? content.substring(0, 500) : content;
-    _appendAgentTrace(
-      AgentTraceEvent.assistantNote,
-      'Agent 说明',
-      content: limited,
-    );
-    return _agentOk({'noted': true});
+    return _agentRuntime.addNote(conversations, cid, args);
   }
 
   Map<String, dynamic> _listPluginFunctionsForAgent() {
@@ -1051,16 +1039,13 @@ Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:f
     final cid = _conversationId;
     final conversations = _conversations;
     if (cid == null || conversations == null) return;
-    conversations.appendAgentTraceEvent(
+    _agentRuntime.appendTrace(
+      conversations,
       cid,
-      AgentTraceEvent(
-        id: _uuid.v4(),
-        type: type,
-        title: title,
-        content: content,
-        metadata: metadata,
-        timestamp: DateTime.now(),
-      ),
+      type,
+      title,
+      content: content,
+      metadata: metadata,
     );
   }
 
@@ -1068,18 +1053,10 @@ Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:f
     String code,
     String message, {
     Map<String, dynamic>? details,
-  }) => {
-    'ok': false,
-    'error': {
-      'code': code,
-      'message': message,
-      if (details != null && details.isNotEmpty) 'details': details,
-    },
-  };
+  }) => AgentRuntimeService.error(code, message, details: details);
 
   static Map<String, dynamic> _agentOk([Map<String, dynamic>? result]) {
-    if (result == null) return {'ok': true};
-    return {'ok': true, 'result': result};
+    return AgentRuntimeService.ok(result);
   }
 
   static String? _errorMessage(Map<String, dynamic> result) {
@@ -1094,52 +1071,7 @@ Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:f
     if (cid == null || conversations == null) {
       return _agentError('missing_context', '缺少对话上下文');
     }
-    final conv = conversations.getConversation(cid);
-    if (conv == null) {
-      return _agentError('missing_context', '对话不存在');
-    }
-    if (!conv.settings.agentEnabled) {
-      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
-    }
-    final title = (args['title'] as String? ?? 'Agent Plan').trim();
-    final rawItems = args['items'];
-    if (rawItems is! List || rawItems.isEmpty) {
-      return _agentError('invalid_arguments', 'create_plan 缺少 items');
-    }
-    final items = <AgentPlanItem>[];
-    for (var i = 0; i < rawItems.length; i++) {
-      final raw = rawItems[i];
-      if (raw is! Map) continue;
-      final json = Map<String, dynamic>.from(raw);
-      final itemTitle = (json['title'] as String? ?? '').trim();
-      if (itemTitle.isEmpty) continue;
-      final id = (json['id'] as String? ?? '').trim();
-      items.add(
-        AgentPlanItem(
-          id: id.isEmpty ? 'step_${items.length + 1}' : id,
-          title: itemTitle,
-        ),
-      );
-    }
-    if (items.isEmpty) {
-      return _agentError('invalid_arguments', 'create_plan 没有有效步骤');
-    }
-    final now = DateTime.now();
-    final plan = AgentPlan(
-      id: 'plan_${now.microsecondsSinceEpoch}',
-      title: title.isEmpty ? 'Agent Plan' : title,
-      items: items,
-      createdAt: now,
-      updatedAt: now,
-    );
-    conversations.updateAgentPlan(cid, plan);
-    _appendAgentTrace(
-      AgentTraceEvent.planUpdate,
-      '创建 Agent 计划',
-      content: '${plan.items.length} 个步骤',
-      metadata: {'planId': plan.id},
-    );
-    return _agentOk({'plan': plan.toJson()});
+    return _agentRuntime.createPlan(conversations, cid, args);
   }
 
   Map<String, dynamic> _updatePlan(Map<String, dynamic> args) {
@@ -1148,71 +1080,7 @@ Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:f
     if (cid == null || conversations == null) {
       return _agentError('missing_context', '缺少对话上下文');
     }
-    final conv = conversations.getConversation(cid);
-    if (conv == null) {
-      return _agentError('missing_context', '对话不存在');
-    }
-    if (!conv.settings.agentEnabled) {
-      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
-    }
-    final plan = conv.agentPlan;
-    if (plan == null) return _agentError('plan_not_found', '当前对话没有 Agent Plan');
-    final rawItems = args['items'];
-    if (rawItems is! List || rawItems.isEmpty) {
-      return _agentError('invalid_arguments', 'update_plan 缺少 items');
-    }
-    final updates = <String, Map<String, dynamic>>{};
-    for (final raw in rawItems) {
-      if (raw is! Map) continue;
-      final json = Map<String, dynamic>.from(raw);
-      final id = (json['id'] as String? ?? '').trim();
-      final status = (json['status'] as String? ?? '').trim();
-      if (id.isEmpty || !AgentPlanItem.statuses.contains(status)) continue;
-      updates[id] = json;
-    }
-    if (updates.isEmpty) {
-      return _agentError('invalid_arguments', 'update_plan 没有有效更新');
-    }
-    final known = plan.items.map((item) => item.id).toSet();
-    final unknown = updates.keys.where((id) => !known.contains(id)).toList();
-    if (unknown.isNotEmpty) {
-      return _agentError(
-        'plan_step_not_found',
-        '未知计划步骤: ${unknown.join(', ')}',
-      );
-    }
-    final nextItems = plan.items
-        .map((item) {
-          final update = updates[item.id];
-          if (update == null) return item;
-          var next = item.copyWith(status: update['status'] as String);
-          if (update.containsKey('summary')) {
-            next = next.copyWith(
-              summary: (update['summary'] as String? ?? '').trim(),
-            );
-          }
-          if (update.containsKey('resultSummary')) {
-            next = next.copyWith(
-              resultSummary: (update['resultSummary'] as String? ?? '').trim(),
-            );
-          }
-          if (update.containsKey('error')) {
-            next = next.copyWith(
-              error: (update['error'] as String? ?? '').trim(),
-            );
-          }
-          return next;
-        })
-        .toList(growable: false);
-    final next = plan.copyWith(items: nextItems, updatedAt: DateTime.now());
-    conversations.updateAgentPlan(cid, next);
-    _appendAgentTrace(
-      AgentTraceEvent.planUpdate,
-      '更新 Agent 计划',
-      content: '${updates.length} 个步骤已更新',
-      metadata: {'updatedStepIds': updates.keys.toList(growable: false)},
-    );
-    return _agentOk({'plan': next.toJson()});
+    return _agentRuntime.updatePlan(conversations, cid, args);
   }
 
   Future<Map<String, dynamic>> _callPluginFunction(

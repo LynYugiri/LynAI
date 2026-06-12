@@ -11,6 +11,10 @@ class DeviceRunSnapshot {
   final String purpose;
   final String currentStep;
   final String lastAction;
+  final DateTime? startedAt;
+  final DateTime? updatedAt;
+  final String? pauseReason;
+  final int actionCount;
   final String? errorCode;
   final String? errorMessage;
 
@@ -20,6 +24,10 @@ class DeviceRunSnapshot {
     this.purpose = '',
     this.currentStep = '',
     this.lastAction = '',
+    this.startedAt,
+    this.updatedAt,
+    this.pauseReason,
+    this.actionCount = 0,
     this.errorCode,
     this.errorMessage,
   });
@@ -31,6 +39,9 @@ class DeviceRunSnapshot {
 
   bool get isActive =>
       status == DeviceRunStatus.running || status == DeviceRunStatus.paused;
+
+  bool get canResume => status == DeviceRunStatus.paused;
+  bool get canStop => isActive;
 }
 
 class DeviceRunController extends ChangeNotifier {
@@ -47,11 +58,14 @@ class DeviceRunController extends ChangeNotifier {
 
   String start({required String purpose}) {
     final runId = _uuid.v4();
+    final now = DateTime.now();
     _resumeCompleter = null;
     _snapshot = DeviceRunSnapshot(
       runId: runId,
       status: DeviceRunStatus.running,
       purpose: purpose,
+      startedAt: now,
+      updatedAt: now,
     );
     notifyListeners();
     return runId;
@@ -65,6 +79,10 @@ class DeviceRunController extends ChangeNotifier {
       purpose: _snapshot.purpose,
       currentStep: step,
       lastAction: _snapshot.lastAction,
+      startedAt: _snapshot.startedAt,
+      updatedAt: DateTime.now(),
+      pauseReason: _snapshot.pauseReason,
+      actionCount: _snapshot.actionCount,
     );
     notifyListeners();
   }
@@ -77,6 +95,10 @@ class DeviceRunController extends ChangeNotifier {
       purpose: _snapshot.purpose,
       currentStep: _snapshot.currentStep,
       lastAction: action,
+      startedAt: _snapshot.startedAt,
+      updatedAt: DateTime.now(),
+      pauseReason: _snapshot.pauseReason,
+      actionCount: _snapshot.actionCount + 1,
     );
     notifyListeners();
   }
@@ -90,6 +112,10 @@ class DeviceRunController extends ChangeNotifier {
       purpose: _snapshot.purpose,
       currentStep: _snapshot.currentStep,
       lastAction: reason,
+      startedAt: _snapshot.startedAt,
+      updatedAt: DateTime.now(),
+      pauseReason: reason,
+      actionCount: _snapshot.actionCount,
     );
     notifyListeners();
   }
@@ -104,6 +130,9 @@ class DeviceRunController extends ChangeNotifier {
       purpose: _snapshot.purpose,
       currentStep: _snapshot.currentStep,
       lastAction: 'resumed',
+      startedAt: _snapshot.startedAt,
+      updatedAt: DateTime.now(),
+      actionCount: _snapshot.actionCount,
     );
     notifyListeners();
     if (completer != null && !completer.isCompleted) completer.complete();
@@ -117,6 +146,10 @@ class DeviceRunController extends ChangeNotifier {
       purpose: _snapshot.purpose,
       currentStep: _snapshot.currentStep,
       lastAction: 'stopping',
+      startedAt: _snapshot.startedAt,
+      updatedAt: DateTime.now(),
+      pauseReason: _snapshot.pauseReason,
+      actionCount: _snapshot.actionCount,
     );
     final completer = _resumeCompleter;
     _resumeCompleter = null;
@@ -126,6 +159,10 @@ class DeviceRunController extends ChangeNotifier {
 
   void complete() {
     _finish(DeviceRunStatus.completed);
+  }
+
+  void stopped() {
+    _finish(DeviceRunStatus.stopped);
   }
 
   void fail(String code, String message) {
@@ -153,15 +190,16 @@ class DeviceRunController extends ChangeNotifier {
   }
 
   Future<Map<String, dynamic>?> delay(Duration duration) async {
-    final deadline = DateTime.now().add(duration);
-    while (DateTime.now().isBefore(deadline)) {
+    var remaining = duration;
+    while (remaining > Duration.zero) {
       final interrupted = await beforeAction('sleep');
       if (interrupted != null) return interrupted;
-      final remaining = deadline.difference(DateTime.now());
       final slice = remaining < const Duration(milliseconds: 100)
           ? remaining
           : const Duration(milliseconds: 100);
-      if (slice > Duration.zero) await Future<void>.delayed(slice);
+      if (slice <= Duration.zero) break;
+      await Future<void>.delayed(slice);
+      remaining -= slice;
     }
     return null;
   }
@@ -174,6 +212,14 @@ class DeviceRunController extends ChangeNotifier {
       'purpose': _snapshot.purpose,
       'currentStep': _snapshot.currentStep,
       'lastAction': _snapshot.lastAction,
+      'canResume': _snapshot.canResume,
+      'canStop': _snapshot.canStop,
+      'actionCount': _snapshot.actionCount,
+      if (_snapshot.pauseReason != null) 'pauseReason': _snapshot.pauseReason,
+      if (_snapshot.startedAt != null)
+        'startedAt': _snapshot.startedAt!.toIso8601String(),
+      if (_snapshot.updatedAt != null)
+        'updatedAt': _snapshot.updatedAt!.toIso8601String(),
       if (_snapshot.errorCode != null) 'errorCode': _snapshot.errorCode,
       if (_snapshot.errorMessage != null)
         'errorMessage': _snapshot.errorMessage,
@@ -188,6 +234,10 @@ class DeviceRunController extends ChangeNotifier {
       purpose: _snapshot.purpose,
       currentStep: _snapshot.currentStep,
       lastAction: _snapshot.lastAction,
+      startedAt: _snapshot.startedAt,
+      updatedAt: DateTime.now(),
+      pauseReason: _snapshot.pauseReason,
+      actionCount: _snapshot.actionCount,
       errorCode: code,
       errorMessage: message,
     );

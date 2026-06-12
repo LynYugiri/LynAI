@@ -52,4 +52,47 @@ void main() {
     expect(controller.snapshot.status, DeviceRunStatus.running);
     controller.complete();
   });
+
+  test(
+    'DeviceRunController stops delayed actions and reports status flags',
+    () async {
+      final controller = DeviceRunController.instance;
+      controller.reset();
+      controller.start(purpose: '停止测试');
+      final waiting = controller.delay(const Duration(seconds: 1));
+
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      controller.stop();
+      final interrupted = await waiting;
+
+      expect(interrupted?['ok'], isFalse);
+      expect((interrupted?['error'] as Map)['code'], 'user_stopped');
+      final status = controller.statusJson();
+      expect(status['status'], DeviceRunStatus.stopping.name);
+      expect(status['canStop'], isFalse);
+      expect(status['actionCount'], greaterThanOrEqualTo(1));
+      controller.reset();
+    },
+  );
+
+  test('DeviceRunController delay does not elapse while paused', () async {
+    final controller = DeviceRunController.instance;
+    controller.reset();
+    controller.start(purpose: '暂停计时测试');
+    controller.pause();
+
+    var completed = false;
+    final waiting = controller.delay(const Duration(milliseconds: 30)).then((
+      _,
+    ) {
+      completed = true;
+    });
+
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(completed, isFalse);
+    controller.resume();
+    await waiting;
+    expect(completed, isTrue);
+    controller.complete();
+  });
 }

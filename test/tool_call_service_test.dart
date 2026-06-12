@@ -175,6 +175,22 @@ void main() {
     },
   );
 
+  test('execute_lua tool describes async multi-step device scripts', () {
+    final tools = ToolCallService.openAITools(const [], true, const [
+      LynAICapabilities.luaExecute,
+    ]);
+    final executeLua = tools
+        .map((tool) => tool['function'])
+        .whereType<Map>()
+        .firstWhere((function) => function['name'] == 'execute_lua');
+    final description = executeLua['description'] as String;
+
+    expect(description, contains('异步线性执行'));
+    expect(description, contains('agent.plan.update'));
+    expect(description, contains('agent.note.add'));
+    expect(description, contains('device.waitForNode'));
+  });
+
   test(
     'permission service separates Agent defaults and plugin webview grants',
     () {

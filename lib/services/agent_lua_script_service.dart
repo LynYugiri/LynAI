@@ -10,6 +10,7 @@ import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import 'lynai_call_identity.dart';
 import 'device_run_controller.dart';
+import 'agent_runtime_service.dart';
 import 'lynai_function_service.dart';
 import 'lynai_permission_service.dart';
 import 'lua_sandbox_utils.dart';
@@ -164,6 +165,10 @@ class AgentLuaScriptService {
     if (result['ok'] == false) {
       final rawError = result['error'];
       final error = rawError is Map ? rawError : const <String, dynamic>{};
+      if (error['code']?.toString() == 'user_stopped') {
+        DeviceRunController.instance.stopped();
+        return result;
+      }
       DeviceRunController.instance.fail(
         error['code']?.toString() ?? 'failed',
         error['message']?.toString() ?? rawError?.toString() ?? '设备脚本执行失败',
@@ -187,6 +192,12 @@ class AgentLuaScriptService {
   }) {
     if (method == 'plugins.functions.list') {
       return _listPluginFunctions(plugins?.plugins ?? const []);
+    }
+    if (method == 'agent.plan.update' || method == 'update_plan') {
+      return _updateAgentPlan(args, conversations, conversationId);
+    }
+    if (method == 'agent.note.add' || method == 'add_agent_note') {
+      return _addAgentNote(args, conversations, conversationId);
     }
     if (method == 'plugins.callFunction') {
       final conv = conversationId == null
@@ -243,6 +254,36 @@ class AgentLuaScriptService {
       };
     }
     return sync;
+  }
+
+  Map<String, dynamic> _updateAgentPlan(
+    Map<String, dynamic> args,
+    ConversationProvider? conversations,
+    String? conversationId,
+  ) {
+    if (conversations == null || conversationId == null) {
+      return _error('missing_context', '缺少对话上下文');
+    }
+    return const AgentRuntimeService().updatePlan(
+      conversations,
+      conversationId,
+      args,
+    );
+  }
+
+  Map<String, dynamic> _addAgentNote(
+    Map<String, dynamic> args,
+    ConversationProvider? conversations,
+    String? conversationId,
+  ) {
+    if (conversations == null || conversationId == null) {
+      return _error('missing_context', '缺少对话上下文');
+    }
+    return const AgentRuntimeService().addNote(
+      conversations,
+      conversationId,
+      args,
+    );
   }
 
   Future<Map<String, dynamic>> _handleYieldedCommand(
