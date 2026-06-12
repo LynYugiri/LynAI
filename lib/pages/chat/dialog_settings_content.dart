@@ -847,30 +847,31 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                 _updateSettings(_settings.copyWith(agentEnabled: value)),
           ),
           const Divider(height: 1),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Agent 权限（全局）',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: scheme.onSurfaceVariant,
-                ),
+          ExpansionTile(
+            tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+            childrenPadding: const EdgeInsets.only(bottom: 8),
+            initiallyExpanded: false,
+            title: Text(
+              'Agent 权限（全局）',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: scheme.onSurfaceVariant,
               ),
             ),
+            children: [
+              _agentPermissionTile(
+                const LynAIPermissionDefinition(
+                  id: '__info__',
+                  title: '这些权限对所有对话生效',
+                  description: '当前开关只决定本对话是否启用 Agent。',
+                ),
+                informational: true,
+              ),
+              for (final definition in lynaiPermissionDefinitions)
+                _agentPermissionTile(definition),
+            ],
           ),
-          _agentPermissionTile(
-            const LynAIPermissionDefinition(
-              id: '__info__',
-              title: '这些权限对所有对话生效',
-              description: '当前开关只决定本对话是否启用 Agent。',
-            ),
-            informational: true,
-          ),
-          for (final definition in lynaiPermissionDefinitions)
-            _agentPermissionTile(definition),
         ],
       ),
     );

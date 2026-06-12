@@ -94,10 +94,7 @@ class ApiService {
     'thinkingBudgetTokens',
   };
 
-  void _applyExtraRequestParams(
-    Map<String, dynamic> body,
-    ModelConfig config,
-  ) {
+  void _applyExtraRequestParams(Map<String, dynamic> body, ModelConfig config) {
     for (final entry in config.extraParams.entries) {
       if (_internalExtraKeys.contains(entry.key)) continue;
       if (!body.containsKey(entry.key)) {
@@ -128,23 +125,21 @@ class ApiService {
       'thinking': thinking,
       'toolCount': tools.length,
       'toolChoice': toolChoice,
-      'messages': messages
-          .map((message) {
-            final content = message['content'];
-            final toolCalls = message['tool_calls'];
-            return {
-              'role': message['role'],
-              'contentLength': _messageContentText(content).length,
-              if (message['reasoning_content'] != null)
-                'reasoningLength': _messageContentText(
-                  message['reasoning_content'],
-                ).length,
-              if (toolCalls is List) 'toolCallCount': toolCalls.length,
-              if (message['tool_call_id'] != null)
-                'toolCallId': message['tool_call_id'],
-            };
-          })
-          .toList(),
+      'messages': messages.map((message) {
+        final content = message['content'];
+        final toolCalls = message['tool_calls'];
+        return {
+          'role': message['role'],
+          'contentLength': _messageContentText(content).length,
+          if (message['reasoning_content'] != null)
+            'reasoningLength': _messageContentText(
+              message['reasoning_content'],
+            ).length,
+          if (toolCalls is List) 'toolCallCount': toolCalls.length,
+          if (message['tool_call_id'] != null)
+            'toolCallId': message['tool_call_id'],
+        };
+      }).toList(),
     };
   }
 
@@ -879,18 +874,16 @@ class ApiService {
     if (logSse) {
       _logSseDiagnostic(
         'request',
-        jsonEncode(
-          {
-            'uri': uri.toString(),
-            'model': config.modelName,
-            ..._streamRequestSummary(
-              messages,
-              thinking: thinking,
-              tools: tools,
-              toolChoice: toolChoice,
-            ),
-          },
-        ),
+        jsonEncode({
+          'uri': uri.toString(),
+          'model': config.modelName,
+          ..._streamRequestSummary(
+            messages,
+            thinking: thinking,
+            tools: tools,
+            toolChoice: toolChoice,
+          ),
+        }),
       );
     }
 
@@ -900,11 +893,7 @@ class ApiService {
       if (logSse) {
         _logSseDiagnostic(
           'response',
-          jsonEncode(
-            {
-              'statusCode': streamedResponse.statusCode,
-            },
-          ),
+          jsonEncode({'statusCode': streamedResponse.statusCode}),
         );
       }
 
@@ -942,10 +931,7 @@ class ApiService {
                 ),
               );
             }
-            yield StreamChunk(
-              toolCalls: finalizedToolCalls,
-              isDone: true,
-            );
+            yield StreamChunk(toolCalls: finalizedToolCalls, isDone: true);
             break;
           }
           Object? finishReason;
@@ -1000,26 +986,21 @@ class ApiService {
             if (logSse) {
               _logSseDiagnostic(
                 'finish-summary',
-                jsonEncode(
-                  {
-                    'finishReason': finishReason,
-                    'finalizedToolCalls': finalizedToolCalls
-                        .map(
-                          (call) => {
-                            'id': call.id,
-                            'name': call.name,
-                            'argumentKeys': call.arguments.keys.toList(),
-                          },
-                        )
-                        .toList(),
-                  },
-                ),
+                jsonEncode({
+                  'finishReason': finishReason,
+                  'finalizedToolCalls': finalizedToolCalls
+                      .map(
+                        (call) => {
+                          'id': call.id,
+                          'name': call.name,
+                          'argumentKeys': call.arguments.keys.toList(),
+                        },
+                      )
+                      .toList(),
+                }),
               );
             }
-            yield StreamChunk(
-              toolCalls: finalizedToolCalls,
-              isDone: true,
-            );
+            yield StreamChunk(toolCalls: finalizedToolCalls, isDone: true);
             break;
           }
         }
@@ -1029,25 +1010,20 @@ class ApiService {
         if (logSse) {
           _logSseDiagnostic(
             'implicit-done-summary',
-            jsonEncode(
-              {
-                'finalizedToolCalls': finalizedToolCalls
-                    .map(
-                      (call) => {
-                        'id': call.id,
-                        'name': call.name,
-                        'argumentKeys': call.arguments.keys.toList(),
-                      },
-                    )
-                    .toList(),
-              },
-            ),
+            jsonEncode({
+              'finalizedToolCalls': finalizedToolCalls
+                  .map(
+                    (call) => {
+                      'id': call.id,
+                      'name': call.name,
+                      'argumentKeys': call.arguments.keys.toList(),
+                    },
+                  )
+                  .toList(),
+            }),
           );
         }
-        yield StreamChunk(
-          toolCalls: finalizedToolCalls,
-          isDone: true,
-        );
+        yield StreamChunk(toolCalls: finalizedToolCalls, isDone: true);
       }
     } finally {}
   }
@@ -1169,7 +1145,7 @@ class ApiService {
         r'<think[^>]*>(.*?)</think>',
         dotAll: true,
       ).firstMatch(rawContent);
-      final reasoning = thinkMatch?.group(1)?.trim();
+      final reasoning = thinkMatch?.group(1);
       final content = rawContent
           .replaceAll(RegExp(r'<think[^>]*>.*?</think>', dotAll: true), '')
           .trim();
@@ -1562,7 +1538,7 @@ class ApiService {
 
     void add(Object? value) {
       if (value is String && value.trim().isNotEmpty) {
-        parts.add(value.trim());
+        parts.add(value);
       }
     }
 
@@ -1610,7 +1586,7 @@ class ApiService {
 
     visit(message);
     if (parts.isEmpty) return null;
-    return parts.toSet().join('\n\n');
+    return parts.join();
   }
 
   String _messageContentText(Object? content) {

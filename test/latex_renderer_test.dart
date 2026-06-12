@@ -153,6 +153,23 @@ mindmap
     expect(capturedEnd, capturedStart! + capturedSource!.length);
   });
 
+  testWidgets('MarkdownWithLatex renders latex fenced block as formula', (
+    WidgetTester tester,
+  ) async {
+    const content = '''```latex
+x^2 + 1
+```''';
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: MarkdownWithLatex(content: content)),
+      ),
+    );
+
+    expect(find.byType(Math), findsOneWidget);
+    expect(find.textContaining('```latex'), findsNothing);
+  });
+
   testWidgets('mermaid fence extraction excludes closing fence', (
     WidgetTester tester,
   ) async {

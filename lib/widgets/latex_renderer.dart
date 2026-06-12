@@ -395,12 +395,16 @@ class MarkdownWithLatex extends StatelessWidget {
         .map((s) => s.text)
         .join('\n');
     final hasLatex = LatexRenderer.hasLatexContent(nonFenced);
+    final hasLatexFence = segments.any(
+      (s) => s.isFencedCodeBlock && _isLatexFence(_fenceLanguage(s.text)),
+    );
     final hasMermaid =
         renderMermaid &&
         segments.any(
           (s) => s.isFencedCodeBlock && _mermaidFence(s.text) != null,
         );
-    final child = hasLatex || hasMermaid || onEditCodeBlock != null
+    final child =
+        hasLatex || hasLatexFence || hasMermaid || onEditCodeBlock != null
         ? _buildRichContent(context, segments)
         : _buildMarkdown(context, content);
     return selectable ? SelectionArea(child: child) : child;
@@ -569,24 +573,43 @@ class MarkdownWithLatex extends StatelessWidget {
 
     for (final segment in segments) {
       if (segment.isFencedCodeBlock) {
-        final mermaid = renderMermaid ? _mermaidFence(segment.text) : null;
-        if (mermaid == null) {
-          widgets.add(_buildCodeFence(context, segment));
-        } else {
+        final fence = MarkdownCodeFence.tryParse(
+          segment.text,
+          startOffset: segment.startOffset,
+        );
+        if (fence != null && _isLatexFence(fence.language)) {
           widgets.add(
-            _MermaidBlock(
-              code: mermaid.code,
-              source: segment.text,
+            _MathBlock(
+              formula: fence.bodyForDisplay,
+              rawSource: fence.source,
+              textStyle: textStyle,
               selectable: selectable,
-              onEdit: onEditMermaidBlock == null
+              onEdit: onEditLatexBlock == null
                   ? null
-                  : () => onEditMermaidBlock!(
-                      segment.text,
-                      segment.startOffset,
-                      segment.startOffset + segment.text.length,
-                    ),
+                  : () =>
+                        onEditLatexBlock!(fence.source, fence.start, fence.end),
             ),
           );
+        } else {
+          final mermaid = renderMermaid ? _mermaidFence(segment.text) : null;
+          if (mermaid == null) {
+            widgets.add(_buildCodeFence(context, segment));
+          } else {
+            widgets.add(
+              _MermaidBlock(
+                code: mermaid.code,
+                source: segment.text,
+                selectable: selectable,
+                onEdit: onEditMermaidBlock == null
+                    ? null
+                    : () => onEditMermaidBlock!(
+                        segment.text,
+                        segment.startOffset,
+                        segment.startOffset + segment.text.length,
+                      ),
+              ),
+            );
+          }
         }
         continue;
       }
@@ -661,6 +684,16 @@ class MarkdownWithLatex extends StatelessWidget {
           ? null
           : () => onEditCodeBlock!(fence.source, fence.start, fence.end),
     );
+  }
+
+  bool _isLatexFence(String? language) {
+    final normalized = language?.trim().toLowerCase();
+    return normalized == 'latex' || normalized == 'tex';
+  }
+
+  String? _fenceLanguage(String text) {
+    final fence = MarkdownCodeFence.tryParse(text);
+    return fence?.language;
   }
 
   @visibleForTesting

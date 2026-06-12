@@ -3938,7 +3938,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           model,
         ).copyWith(agentEnabled: value);
         _saveConversationSettings(settings);
-        if (value) showShortSnackBar(context, 'Agent 已开启，可在对话设置中配置全局权限');
       },
     );
   }
