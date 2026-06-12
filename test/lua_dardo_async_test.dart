@@ -5,6 +5,7 @@ import 'package:lynai/models/app_settings.dart';
 import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/device_control.dart';
 import 'package:lynai/providers/conversation_provider.dart';
+import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/services/agent_lua_script_service.dart';
 import 'package:lynai/services/device_run_controller.dart';
@@ -80,6 +81,35 @@ return result
 
     expect(result['ok'], isFalse);
     expect(result['error'], contains('model:ocr'));
+    expect(DeviceRunController.instance.snapshot.status, DeviceRunStatus.idle);
+  });
+
+  test('Agent Lua preserves continuations on async LynAI commands', () async {
+    SharedPreferences.setMockInitialValues({});
+    final features = FeatureProvider();
+    final settings = SettingsProvider();
+
+    final result = await AgentLuaScriptService().execute(
+      purpose: 'async continuation command',
+      features: features,
+      settings: settings,
+      code: r'''
+function after_save(response, request)
+  return { ok = response.ok, title = response.note.title, requested = request.title }
+end
+
+return lynai.call("notes.save", {
+  title = "Async Continuation",
+  content = "created by lua",
+  __lynai_next = "after_save"
+})
+''',
+    );
+
+    expect(result['ok'], isTrue);
+    final payload = result['result'] as Map;
+    expect(payload['title'], 'Async Continuation');
+    expect(payload['requested'], 'Async Continuation');
     expect(DeviceRunController.instance.snapshot.status, DeviceRunStatus.idle);
   });
 
