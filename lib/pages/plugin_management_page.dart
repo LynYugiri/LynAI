@@ -128,7 +128,7 @@ class _PluginCard extends StatelessWidget {
               Text('${manifest.version} · ${plugin.enabled ? '已启用' : '已禁用'}'),
               const SizedBox(height: 2),
               Text(
-                '${manifest.tools.length} 个工具 · ${manifest.functions.length} 个函数 · ${manifest.featurePages.length} 个功能页',
+                '${manifest.tools.length} 个工具 · ${manifest.functions.length} 个函数 · ${manifest.skills.length} 个 Skill · ${manifest.featurePages.length} 个功能页',
               ),
               if (plugin.loadError != null) ...[
                 const SizedBox(height: 4),
@@ -272,6 +272,38 @@ class PluginDetailPage extends StatelessWidget {
                                 function.name,
                                 value,
                               ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+          ),
+          const SizedBox(height: 12),
+          _SectionCard(
+            title: 'Skills',
+            child: manifest.skills.isEmpty
+                ? const Text('未声明 Skill')
+                : Column(
+                    children: manifest.skills.map((skill) {
+                      final title = skill.title.isEmpty
+                          ? skill.name
+                          : skill.title;
+                      return SwitchListTile(
+                        value: plugin.enabledSkills.contains(skill.name),
+                        title: Text(title),
+                        subtitle: Text(
+                          skill.description.isEmpty
+                              ? 'skills/${skill.name}.md'
+                              : skill.description,
+                        ),
+                        secondary: const Icon(Icons.auto_awesome_motion),
+                        contentPadding: EdgeInsets.zero,
+                        onChanged: (value) => _runAction(
+                          context,
+                          () => context.read<PluginProvider>().setSkillEnabled(
+                            plugin.id,
+                            skill.name,
+                            value,
+                          ),
                         ),
                       );
                     }).toList(),

@@ -261,10 +261,49 @@ class ToolCallService {
 Plan 创建和更新不需要权限，只用于当前对话的可视化状态。
 如果需要了解可用插件函数，先调用 list_plugin_functions。
 如果需要调用插件函数，先调用 list_plugin_functions 查看可用函数，再用 call_plugin_function。该能力需要 plugins.callFunction 权限。
-如果需要运行 Lua，调用 execute_lua。Lua 运行在受限沙箱中：禁用 os/io/package/require/dofile/loadfile，不能访问文件系统或系统命令；所有 LynAI 能力必须通过 lynai.call(name, args) 调用；脚本最后必须 return 一个 JSON 可序列化 table。Agent Lua 支持同步读取函数、plugins.functions.list、plugins.callFunction、agent.plan.update、agent.note.add 和 device.* 设备函数；插件函数调用需要 plugins.callFunction 权限。复杂屏幕操控应优先在 Lua 中线性编排多步 device.*：读取 screen.context 或 waitForNode，优先用 node.action，必要时才用坐标 tap/swipe。关键调用后检查 ok，失败时返回结构化 error。
+如果需要了解可用插件 Skill，先调用 list_plugin_skills；Skill 摘要不是完整说明，执行相关流程前调用 load_plugin_skill 加载正文。加载 Skill 不需要额外权限。
+如果需要运行 Lua，调用 execute_lua。Lua 运行在受限沙箱中：禁用 os/io/package/require/dofile/loadfile，不能访问文件系统或系统命令；所有 LynAI 能力必须通过 lynai.call(name, args) 调用；脚本最后必须 return 一个 JSON 可序列化 table。Agent Lua 支持同步读取函数、plugins.functions.list、plugins.callFunction、agent.plan.update、agent.note.add、device.app.open 和 device.* 设备函数；插件函数调用需要 plugins.callFunction 权限。打开已安装 Android 应用时在 Lua 中调用 lynai.call("device.app.open", { packageName = "目标包名" })。复杂屏幕操控应优先在 Lua 中线性编排多步 device.*：读取 screen.context 或 waitForNode，优先用 node.action，必要时才用坐标 tap/swipe。关键调用后检查 ok，失败时返回结构化 error。
 Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:false,error:{code,message,details?}}；读取数据时优先看 result。
 可以输出简短的中间说明，但不要把工具 JSON 原样展示给用户；最终回复应汇总执行结果。
 ''';
+
+  /// 生成 Agent 模式系统提示词，并在末尾追加启用插件 Skill 的摘要。
+  static String agentSystemPromptWithSkills(
+    Iterable<InstalledPlugin> plugins, {
+    int maxSkills = 30,
+  }) {
+    final lines = <String>[];
+    var total = 0;
+    for (final plugin in plugins) {
+      if (!plugin.enabled || plugin.hasError) continue;
+      for (final skill in plugin.manifest.skills) {
+        if (!skill.modelInvocable ||
+            !plugin.enabledSkills.contains(skill.name)) {
+          continue;
+        }
+        total++;
+        if (lines.length >= maxSkills) continue;
+        final title = skill.title.isNotEmpty ? skill.title : skill.name;
+        final parts = [
+          if (skill.description.isNotEmpty) skill.description,
+          if (skill.whenToUse.isNotEmpty) '使用场景：${skill.whenToUse}',
+          if (skill.tags.isNotEmpty) '标签：${skill.tags.join(', ')}',
+        ];
+        lines.add(
+          '- ${_qualifiedName(plugin.id, skill.name)}：$title${parts.isEmpty ? '' : '。${parts.join('；')}'}',
+        );
+      }
+    }
+    if (lines.isEmpty) return agentSystemPrompt;
+    final more = total > lines.length
+        ? '\n还有 ${total - lines.length} 个 Skill，可调用 list_plugin_skills 查询。'
+        : '';
+    return '''$agentSystemPrompt
+
+可用插件 Skills：
+以下是当前启用插件提供的可按需加载 Skill 摘要。不要把摘要当成完整说明；需要执行相关流程时，先调用 load_plugin_skill 加载正文。
+${lines.join('\n')}$more''';
+  }
 
   /// 生成当前设备时间的上下文字符串。
   ///
@@ -770,6 +809,32 @@ Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:f
       'properties': <String, dynamic>{},
     });
     add(
+      'list_plugin_skills',
+      '列出当前启用插件提供且已启用的 Skills。Skill 只返回摘要，需要正文时调用 load_plugin_skill。',
+      {
+        'type': 'object',
+        'properties': {
+          'pluginId': {'type': 'string', 'description': '可选，按插件 ID 筛选'},
+          'query': {'type': 'string', 'description': '可选，按标题、描述、使用场景或标签搜索'},
+        },
+      },
+    );
+    add(
+      'load_plugin_skill',
+      '加载插件 Skill 正文。调用前应先用 list_plugin_skills 查看 pluginId 和 skillName。加载 Skill 不需要额外权限。',
+      {
+        'type': 'object',
+        'properties': {
+          'pluginId': {'type': 'string', 'description': '插件 ID'},
+          'skillName': {'type': 'string', 'description': '插件 Skill 名'},
+          'qualifiedName': {
+            'type': 'string',
+            'description': '可选，形如 pluginId__skillName；解析时只切第一个 __',
+          },
+        },
+      },
+    );
+    add(
       'add_agent_note',
       '向当前 assistant 消息追加一条简短的用户可见 Agent 中间说明。不需要权限，不要用于最终回答或输出工具 JSON。',
       {
@@ -802,7 +867,7 @@ Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:f
     if (permissions.contains(LynAICapabilities.luaExecute)) {
       add(
         'execute_lua',
-        '执行 LynAI Agent Lua 脚本。脚本运行在受限 lua_dardo 沙箱中：禁用 os、io、package、require、dofile、loadfile；不能访问本地文件系统或执行系统命令；所有 LynAI 能力必须通过 lynai.call(name, args) 调用；lynai.call 返回 JSON 风格 table，通常包含 ok 字段；脚本最后必须 return 一个 JSON 可序列化 table。支持同步读取函数（如 todos.list、notes.read、schedules.list）、plugins.functions.list、plugins.callFunction、agent.plan.update、agent.note.add、model.chat、model.ocr、model.recognizeFile 和 device.*。device.* 支持异步线性执行，可在 Lua 中写循环、等待和多步流程；复杂屏幕操控优先使用 device.screen.context、device.waitForNode、device.node.action，必要时再用 device.screen.screenshot 配合 model.ocr/model.recognizeFile，最后才用 device.tap/device.swipe 坐标操作。关键调用应检查 ok，失败时 return { ok = false, error = result.error }。示例：local n = lynai.call("device.waitForNode", { text = "发送", timeoutMs = 5000 }); if not n.ok then return n end; return lynai.call("device.node.action", { nodeId = n.result.id, action = "click" })',
+        '执行 LynAI Agent Lua 脚本。脚本运行在受限 lua_dardo 沙箱中：禁用 os、io、package、require、dofile、loadfile；不能访问本地文件系统或执行系统命令；所有 LynAI 能力必须通过 lynai.call(name, args) 调用；lynai.call 返回 JSON 风格 table，通常包含 ok 字段；脚本最后必须 return 一个 JSON 可序列化 table。支持同步读取函数（如 todos.list、notes.read、schedules.list）、plugins.functions.list、plugins.callFunction、agent.plan.update、agent.note.add、model.chat、model.ocr、model.recognizeFile、device.app.open 和 device.*。打开已安装 Android 应用时调用 lynai.call("device.app.open", { packageName = "目标包名" })；device.* 支持异步线性执行，可在 Lua 中写循环、等待和多步流程；复杂屏幕操控优先使用 device.screen.context、device.waitForNode、device.node.action，必要时再用 device.screen.screenshot 配合 model.ocr/model.recognizeFile，最后才用 device.tap/device.swipe 坐标操作。关键调用应检查 ok，失败时 return { ok = false, error = result.error }。示例：local opened = lynai.call("device.app.open", { packageName = "com.example.app" }); if not opened.ok then return opened end; local n = lynai.call("device.waitForNode", { text = "发送", timeoutMs = 5000 }); if not n.ok then return n end; return lynai.call("device.node.action", { nodeId = n.result.id, action = "click" })',
         {
           'type': 'object',
           'properties': {
@@ -827,6 +892,7 @@ Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:f
           'pluginId': plugin.id,
           'pluginName': plugin.displayName,
           'name': function.name,
+          'qualifiedName': _qualifiedName(plugin.id, function.name),
           'title': function.title,
           'description': function.description,
           'parameters': function.parameters,
@@ -834,6 +900,59 @@ Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:f
       }
     }
     return {'ok': true, 'functions': functions};
+  }
+
+  static Map<String, dynamic> listPluginSkills(
+    Iterable<InstalledPlugin> plugins, {
+    String pluginId = '',
+    String query = '',
+  }) {
+    final normalizedQuery = query.trim().toLowerCase();
+    final skills = <Map<String, dynamic>>[];
+    for (final plugin in plugins) {
+      if (!plugin.enabled || plugin.hasError) continue;
+      if (pluginId.isNotEmpty && plugin.id != pluginId) continue;
+      for (final skill in plugin.manifest.skills) {
+        if (!plugin.enabledSkills.contains(skill.name)) continue;
+        final item = _skillSummaryJson(plugin, skill);
+        if (normalizedQuery.isNotEmpty &&
+            !_skillMatchesQuery(skill, normalizedQuery)) {
+          continue;
+        }
+        skills.add(item);
+      }
+    }
+    return {'ok': true, 'skills': skills};
+  }
+
+  static Map<String, dynamic> _skillSummaryJson(
+    InstalledPlugin plugin,
+    PluginSkillDefinition skill,
+  ) {
+    return {
+      'pluginId': plugin.id,
+      'pluginName': plugin.displayName,
+      'name': skill.name,
+      'qualifiedName': _qualifiedName(plugin.id, skill.name),
+      'title': skill.title,
+      'description': skill.description,
+      'whenToUse': skill.whenToUse,
+      'tags': skill.tags,
+      'modelInvocable': skill.modelInvocable,
+      'userInvocable': skill.userInvocable,
+      'path': 'skills/${skill.name}.md',
+    };
+  }
+
+  static bool _skillMatchesQuery(
+    PluginSkillDefinition skill,
+    String normalizedQuery,
+  ) {
+    return skill.name.toLowerCase().contains(normalizedQuery) ||
+        skill.title.toLowerCase().contains(normalizedQuery) ||
+        skill.description.toLowerCase().contains(normalizedQuery) ||
+        skill.whenToUse.toLowerCase().contains(normalizedQuery) ||
+        skill.tags.any((tag) => tag.toLowerCase().contains(normalizedQuery));
   }
 
   /// 解析 JSON fallback 格式的工具调用。
@@ -953,6 +1072,10 @@ Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:f
             return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
           }
           return _listPluginFunctionsForAgent();
+        case 'list_plugin_skills':
+          return _listPluginSkillsForAgent(call.arguments);
+        case 'load_plugin_skill':
+          return _loadPluginSkill(call.arguments);
         case 'add_agent_note':
           return _addAgentNote(call.arguments);
         case 'call_plugin_function':
@@ -1003,6 +1126,114 @@ Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:f
       metadata: {'count': count},
     );
     return _agentOk(result);
+  }
+
+  Map<String, dynamic> _listPluginSkillsForAgent(Map<String, dynamic> args) {
+    if (!_agentEnabled) {
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
+    }
+    final pluginId = (args['pluginId'] as String? ?? '').trim();
+    final query = (args['query'] as String? ?? '').trim();
+    _appendAgentTrace(
+      AgentTraceEvent.toolCall,
+      '查看插件 Skills',
+      metadata: {
+        if (pluginId.isNotEmpty) 'pluginId': pluginId,
+        if (query.isNotEmpty) 'query': query,
+      },
+    );
+    final result = listPluginSkills(
+      _plugins?.plugins ?? const [],
+      pluginId: pluginId,
+      query: query,
+    );
+    final count = (result['skills'] as List?)?.length ?? 0;
+    _appendAgentTrace(
+      AgentTraceEvent.toolResult,
+      '插件 Skill 列表已读取',
+      content: '$count 个可用 Skill',
+      metadata: {'count': count},
+    );
+    return _agentOk(result);
+  }
+
+  Future<Map<String, dynamic>> _loadPluginSkill(
+    Map<String, dynamic> args,
+  ) async {
+    if (!_agentEnabled) {
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
+    }
+    final plugins = _plugins;
+    if (plugins == null) {
+      return _agentError('plugin_system_unavailable', '插件系统不可用');
+    }
+    final parsed = _parseQualifiedName(args['qualifiedName'] as String? ?? '');
+    final pluginId = (args['pluginId'] as String? ?? parsed?.$1 ?? '').trim();
+    final skillName = (args['skillName'] as String? ?? parsed?.$2 ?? '').trim();
+    if (pluginId.isEmpty || skillName.isEmpty) {
+      return _agentError(
+        'invalid_arguments',
+        'load_plugin_skill 缺少 pluginId 或 skillName',
+      );
+    }
+    InstalledPlugin? plugin;
+    for (final item in plugins.plugins) {
+      if (item.id == pluginId) {
+        plugin = item;
+        break;
+      }
+    }
+    if (plugin == null || !plugin.enabled || plugin.hasError) {
+      return _agentError('plugin_not_found', '插件不可用: $pluginId');
+    }
+    PluginSkillDefinition? skill;
+    for (final item in plugin.manifest.skills) {
+      if (item.name == skillName) {
+        skill = item;
+        break;
+      }
+    }
+    if (skill == null || !plugin.enabledSkills.contains(skill.name)) {
+      return _agentError(
+        'plugin_skill_not_found',
+        '插件 Skill 不可用: $pluginId.$skillName',
+      );
+    }
+    final path = 'skills/${skill.name}.md';
+    _appendAgentTrace(
+      AgentTraceEvent.toolCall,
+      '加载插件 Skill',
+      content: '${plugin.displayName}.${skill.name}',
+      metadata: {'pluginId': plugin.id, 'skillName': skill.name},
+    );
+    try {
+      final content = await plugins.readFile(plugin.id, path);
+      final result = {..._skillSummaryJson(plugin, skill), 'content': content};
+      _appendAgentTrace(
+        AgentTraceEvent.toolResult,
+        '插件 Skill 已加载',
+        content: '${plugin.displayName}.${skill.name}',
+        metadata: {
+          'pluginId': plugin.id,
+          'skillName': skill.name,
+          'length': content.length,
+        },
+      );
+      return _agentOk(result);
+    } catch (e) {
+      final result = _agentError(
+        'plugin_skill_load_failed',
+        '加载插件 Skill 失败: $e',
+        details: {'pluginId': plugin.id, 'skillName': skill.name, 'path': path},
+      );
+      _appendAgentTrace(
+        AgentTraceEvent.error,
+        '插件 Skill 加载失败',
+        content: _errorMessage(result),
+        metadata: {'pluginId': plugin.id, 'skillName': skill.name},
+      );
+      return result;
+    }
   }
 
   bool get _agentEnabled {
@@ -2229,4 +2460,13 @@ Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:f
     'ok': false,
     'error': message,
   };
+
+  static String _qualifiedName(String pluginId, String name) =>
+      '${pluginId}__$name';
+
+  static (String, String)? _parseQualifiedName(String value) {
+    final index = value.indexOf('__');
+    if (index <= 0 || index + 2 >= value.length) return null;
+    return (value.substring(0, index), value.substring(index + 2));
+  }
 }

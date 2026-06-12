@@ -61,6 +61,44 @@ void main() {
     expect(manifest.editableFiles.single.path, 'prompts/system.md');
   });
 
+  test(
+    'PluginManifest parses skills and allows cross-kind duplicate names',
+    () {
+      final manifest = PluginManifest.fromJson({
+        'id': 'skill_plugin',
+        'name': 'Skill Plugin',
+        'entry': 'main.lua',
+        'tools': [
+          {'name': 'assist', 'description': 'tool', 'handler': 'assist'},
+        ],
+        'functions': [
+          {'name': 'assist', 'title': 'Assist', 'handler': 'assist_func'},
+        ],
+        'skills': [
+          {
+            'name': 'assist',
+            'title': 'Assist Skill',
+            'description': 'Use when assistance is needed.',
+            'whenToUse': 'assistant workflows',
+            'tags': ['demo'],
+          },
+        ],
+      });
+
+      expect(manifest.validate(), isNull);
+      expect(manifest.skills.single.name, 'assist');
+      expect(manifest.skills.single.whenToUse, 'assistant workflows');
+      final plugin = InstalledPlugin.fromJson({
+        'manifest': manifest.toJson(),
+        'path': '/tmp/skill_plugin',
+        'enabled': true,
+        'grantedPermissions': const [],
+        'enabledFeaturePages': const [],
+      });
+      expect(plugin.enabledSkills, contains('assist'));
+    },
+  );
+
   test('PluginManifest rejects unsafe config paths', () {
     final manifest = PluginManifest.fromJson({
       'id': 'bad_config_plugin',
@@ -877,7 +915,7 @@ end
     expect(badHandler.validate(), contains('handler'));
   });
 
-  test('PluginManifest rejects duplicate tool and function names', () {
+  test('PluginManifest rejects duplicate names only within the same kind', () {
     final duplicateTools = PluginManifest.fromJson({
       'id': 'duplicate_tools_plugin',
       'name': 'Duplicate Tools Plugin',
@@ -885,6 +923,24 @@ end
       'tools': [
         {'name': 'same_api', 'handler': 'first'},
         {'name': 'same_api', 'handler': 'second'},
+      ],
+    });
+    final duplicateFunctions = PluginManifest.fromJson({
+      'id': 'duplicate_functions_plugin',
+      'name': 'Duplicate Functions Plugin',
+      'entry': 'main.lua',
+      'functions': [
+        {'name': 'same_api', 'handler': 'first'},
+        {'name': 'same_api', 'handler': 'second'},
+      ],
+    });
+    final duplicateSkills = PluginManifest.fromJson({
+      'id': 'duplicate_skills_plugin',
+      'name': 'Duplicate Skills Plugin',
+      'entry': 'main.lua',
+      'skills': [
+        {'name': 'same_api'},
+        {'name': 'same_api'},
       ],
     });
     final duplicateAcrossTypes = PluginManifest.fromJson({
@@ -897,10 +953,15 @@ end
       'functions': [
         {'name': 'same_api', 'handler': 'function_run'},
       ],
+      'skills': [
+        {'name': 'same_api'},
+      ],
     });
 
-    expect(duplicateTools.validate(), contains('API 名称重复'));
-    expect(duplicateAcrossTypes.validate(), contains('API 名称重复'));
+    expect(duplicateTools.validate(), contains('tool 名称重复'));
+    expect(duplicateFunctions.validate(), contains('function 名称重复'));
+    expect(duplicateSkills.validate(), contains('skill 名称重复'));
+    expect(duplicateAcrossTypes.validate(), isNull);
   });
 
   test('Lua plugin tools can read notes through lynai.notes', () async {

@@ -84,6 +84,23 @@ return result
     expect(DeviceRunController.instance.snapshot.status, DeviceRunStatus.idle);
   });
 
+  test('Agent Lua exposes device app open function', () async {
+    try {
+      final result = await AgentLuaScriptService().execute(
+        purpose: 'test app open function',
+        code: r'''
+local result = lynai.call("device.app.open", { packageName = "com.example.app" })
+return result
+''',
+      );
+
+      expect(result['ok'], isFalse);
+      expect(result['error'].toString(), contains('仅支持 Android'));
+    } finally {
+      DeviceRunController.instance.reset();
+    }
+  });
+
   test('Agent Lua preserves continuations on async LynAI commands', () async {
     SharedPreferences.setMockInitialValues({});
     final features = FeatureProvider();

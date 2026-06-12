@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io' show Platform;
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
@@ -205,6 +206,7 @@ _ParsedRegexSearch? _parseRegexSearch(String query) {
 /// 每个函数在执行前都会检查插件权限，无权限则拒绝执行。
 class LynAIFunctionService {
   static const _uuid = Uuid();
+  static const _nativeToolsChannel = MethodChannel('lynai/native_tools');
   static String? _appVersion;
   static const _permissionService = LynAIPermissionService();
 
@@ -324,6 +326,7 @@ class LynAIFunctionService {
           context,
           call.arguments,
         ),
+        'device.app.open' => await _openApp(call.arguments),
         String name when name.startsWith('device.') =>
           await DeviceControlService.instance.execute(name, call.arguments),
         _ => _error('未知 LynAI function: ${call.name}'),
@@ -403,6 +406,7 @@ class LynAIFunctionService {
       'device.screen.screenshot' => LynAIPermissions.deviceScreenRead,
       'device.service.status' ||
       'device.service.openSettings' => LynAIPermissions.deviceOverlay,
+      'device.app.open' => LynAIPermissions.deviceControl,
       String name when name.startsWith('device.') =>
         LynAIPermissions.deviceControl,
       _ => null,
@@ -1711,6 +1715,17 @@ class LynAIFunctionService {
       'fileCount': files.length,
       if (modelId != null && modelId.isNotEmpty) 'modelId': modelId,
     };
+  }
+
+  Future<Map<String, dynamic>> _openApp(Map<String, dynamic> args) async {
+    final packageName = (args['packageName'] as String? ?? '').trim();
+    if (packageName.isEmpty) return _error('device.app.open 缺少 packageName');
+    if (!Platform.isAndroid) return _error('device.app.open 仅支持 Android');
+    final result = await _nativeToolsChannel.invokeMapMethod<String, dynamic>(
+      'openApp',
+      {'packageName': packageName},
+    );
+    return result ?? {'ok': false, 'error': '平台无返回'};
   }
 
   List<ModelRecognitionFileInput> _recognitionFiles(

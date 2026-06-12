@@ -16,8 +16,20 @@
     "webview:bridge"
   ],
   "functions": [
-    {"name": "stats",   "title": "统计聚合", "handler": "get_stats"},
-    {"name": "weather", "title": "天气信息", "handler": "get_weather"}
+    {
+      "name": "stats",
+      "title": "统计聚合",
+      "description": "汇总当前用户的笔记数量、待办完成情况和对话数量，适合状态面板或 Agent 做概览。",
+      "handler": "get_stats",
+      "parameters": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "weather",
+      "title": "天气信息",
+      "description": "读取当前网络位置天气摘要，适合状态页展示或 Agent 获取简要天气概况。",
+      "handler": "get_weather",
+      "parameters": {"type": "object", "properties": {}}
+    }
   ],
   "tools": [
     {"name":"status_files",  "description":"列出插件目录内的文件（排除出厂模板）。","handler":"status_files",

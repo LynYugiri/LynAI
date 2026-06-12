@@ -28,7 +28,7 @@ class PluginRepository {
       'defaults/status.html',
       'defaults/status.css',
     ],
-    'weather-query': ['plugin.json', 'main.lua'],
+    'weather-query': ['plugin.json', 'main.lua', 'skills/weather_research.md'],
   };
 
   final Directory? _rootOverride;
@@ -612,6 +612,7 @@ class PluginRepository {
       enabledFunctions: manifest.functions
           .map((function) => function.name)
           .toList(),
+      enabledSkills: manifest.skills.map((skill) => skill.name).toList(),
     );
   }
 

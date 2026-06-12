@@ -7,6 +7,7 @@ import 'about_page.dart';
 import 'background_page.dart';
 import 'api_models_page.dart';
 import 'data_management_page.dart';
+import 'plugin_capability_management_page.dart';
 import 'plugin_management_page.dart';
 import 'role_management_page.dart';
 import 'theme_page.dart';
@@ -111,6 +112,19 @@ class _SettingsPageState extends State<SettingsPage> {
               MaterialPageRoute(builder: (_) => const PluginManagementPage()),
             ),
           ),
+          _buildItem(
+            context,
+            Icons.auto_awesome_motion,
+            '插件能力',
+            '集中管理 Tools、Functions、Skills',
+            Colors.deepOrange,
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const PluginCapabilityManagementPage(),
+              ),
+            ),
+          ),
           ...pluginItems,
         ],
       ),
@@ -138,21 +152,15 @@ class _SettingsPageState extends State<SettingsPage> {
             () => Navigator.push(
               context,
               MaterialPageRoute(
-                builder:
-                    (_) => Scaffold(
-                      appBar: AppBar(
-                        title: Text(
-                          page.title.isNotEmpty
-                              ? page.title
-                              : plugin.manifest.name,
-                        ),
-                        centerTitle: true,
-                      ),
-                      body: PluginFeatureWebView(
-                        plugin: plugin,
-                        page: page,
-                      ),
+                builder: (_) => Scaffold(
+                  appBar: AppBar(
+                    title: Text(
+                      page.title.isNotEmpty ? page.title : plugin.manifest.name,
                     ),
+                    centerTitle: true,
+                  ),
+                  body: PluginFeatureWebView(plugin: plugin, page: page),
+                ),
               ),
             ),
           ),

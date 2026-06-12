@@ -1,6 +1,7 @@
 package com.github.lynyugiri.lynai
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -123,10 +124,19 @@ class MainActivity : FlutterActivity() {
             return mapOf("ok" to false, "error" to "缺少包名")
         }
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-            ?: return mapOf("ok" to false, "error" to "未找到可打开的应用: $packageName")
-        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        startActivity(launchIntent)
-        return mapOf("ok" to true, "packageName" to packageName)
+            ?: Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_LAUNCHER)
+                setPackage(packageName)
+            }
+        return try {
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(launchIntent)
+            mapOf("ok" to true, "packageName" to packageName)
+        } catch (e: ActivityNotFoundException) {
+            mapOf("ok" to false, "error" to "未找到可打开的应用: $packageName")
+        } catch (e: SecurityException) {
+            mapOf("ok" to false, "error" to "无权打开应用: $packageName")
+        }
     }
 
     private fun getLocation(result: MethodChannel.Result) {

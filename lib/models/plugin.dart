@@ -125,6 +125,80 @@ class PluginFunctionDefinition {
   );
 }
 
+/// 插件提供的按需加载 Skill 定义。
+class PluginSkillDefinition {
+  /// Skill 名称，用于定位 `skills/<name>.md`。
+  final String name;
+
+  /// Skill 在界面上显示的标题。
+  final String title;
+
+  /// Skill 摘要，供 Agent 判断是否需要加载正文。
+  final String description;
+
+  /// 更具体的触发场景说明。
+  final String whenToUse;
+
+  /// Skill 标签，用于筛选和搜索。
+  final List<String> tags;
+
+  /// 是否允许模型自动按需加载。
+  final bool modelInvocable;
+
+  /// 是否允许用户手动调用。
+  final bool userInvocable;
+
+  /// 创建一个插件 Skill 定义实例。
+  const PluginSkillDefinition({
+    required this.name,
+    required this.title,
+    this.description = '',
+    this.whenToUse = '',
+    this.tags = const [],
+    this.modelInvocable = true,
+    this.userInvocable = true,
+  });
+
+  /// 从 JSON 数据创建 [PluginSkillDefinition] 实例。
+  factory PluginSkillDefinition.fromJson(Map<String, dynamic> json) {
+    final name = json['name'] as String? ?? '';
+    return PluginSkillDefinition(
+      name: name,
+      title: json['title'] as String? ?? name,
+      description: json['description'] as String? ?? '',
+      whenToUse:
+          json['whenToUse'] as String? ?? json['when_to_use'] as String? ?? '',
+      tags: (json['tags'] as List<dynamic>? ?? const [])
+          .map((item) => item.toString())
+          .where((item) => item.isNotEmpty)
+          .toList(growable: false),
+      modelInvocable:
+          json['modelInvocable'] as bool? ??
+          !(json['disableModelInvocation'] as bool? ?? false),
+      userInvocable: json['userInvocable'] as bool? ?? true,
+    );
+  }
+
+  /// 将当前实例序列化为 JSON Map。
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    if (title.isNotEmpty && title != name) 'title': title,
+    if (description.isNotEmpty) 'description': description,
+    if (whenToUse.isNotEmpty) 'whenToUse': whenToUse,
+    if (tags.isNotEmpty) 'tags': tags,
+    if (!modelInvocable) 'modelInvocable': false,
+    if (!userInvocable) 'userInvocable': false,
+  };
+
+  /// 校验 Skill 定义的合法性，返回错误信息或 null。
+  String? validate() {
+    if (!_pluginApiNamePattern.hasMatch(name)) {
+      return '插件 skill 名称只能包含字母、数字、下划线和横线，且长度不超过 64';
+    }
+    return null;
+  }
+}
+
 /// WebView 插件功能页定义。
 class PluginFeaturePageDefinition {
   /// 功能页唯一标识符。
@@ -406,6 +480,9 @@ class PluginManifest {
   /// 插件导出的非模型调用函数列表。
   final List<PluginFunctionDefinition> functions;
 
+  /// 插件提供的按需加载 Skills。
+  final List<PluginSkillDefinition> skills;
+
   /// 插件提供的功能页列表。
   final List<PluginFeaturePageDefinition> featurePages;
 
@@ -433,6 +510,7 @@ class PluginManifest {
     required this.permissions,
     required this.tools,
     required this.functions,
+    this.skills = const [],
     required this.featurePages,
     required this.settings,
     this.config = const PluginConfigDefinition(),
@@ -463,6 +541,11 @@ class PluginManifest {
       functions: (json['functions'] as List<dynamic>? ?? const [])
           .whereType<Map>()
           .map((item) => PluginFunctionDefinition.fromJson(Map.from(item)))
+          .where((item) => item.name.isNotEmpty)
+          .toList(growable: false),
+      skills: (json['skills'] as List<dynamic>? ?? const [])
+          .whereType<Map>()
+          .map((item) => PluginSkillDefinition.fromJson(Map.from(item)))
           .where((item) => item.name.isNotEmpty)
           .toList(growable: false),
       featurePages:
@@ -507,6 +590,7 @@ class PluginManifest {
     if (tools.isNotEmpty) 'tools': tools.map((e) => e.toJson()).toList(),
     if (functions.isNotEmpty)
       'functions': functions.map((e) => e.toJson()).toList(),
+    if (skills.isNotEmpty) 'skills': skills.map((e) => e.toJson()).toList(),
     if (featurePages.isNotEmpty)
       'ui': {'featurePages': featurePages.map((e) => e.toJson()).toList()},
     if (settings.isNotEmpty)
@@ -543,6 +627,7 @@ class PluginManifest {
       permissions: permissions,
       tools: tools,
       functions: functions,
+      skills: skills,
       featurePages: featurePages,
       settings: settings,
       config: config,
@@ -567,12 +652,23 @@ class PluginManifest {
       final error = function.validate();
       if (error != null) return error;
     }
-    final apiNames = <String>{};
-    for (final tool in tools) {
-      if (!apiNames.add(tool.name)) return '插件 API 名称重复: ${tool.name}';
+    for (final skill in skills) {
+      final error = skill.validate();
+      if (error != null) return error;
     }
+    final toolNames = <String>{};
+    for (final tool in tools) {
+      if (!toolNames.add(tool.name)) return '插件 tool 名称重复: ${tool.name}';
+    }
+    final functionNames = <String>{};
     for (final function in functions) {
-      if (!apiNames.add(function.name)) return '插件 API 名称重复: ${function.name}';
+      if (!functionNames.add(function.name)) {
+        return '插件 function 名称重复: ${function.name}';
+      }
+    }
+    final skillNames = <String>{};
+    for (final skill in skills) {
+      if (!skillNames.add(skill.name)) return '插件 skill 名称重复: ${skill.name}';
     }
     for (final page in featurePages) {
       final error = page.validate();
@@ -646,6 +742,9 @@ class InstalledPlugin {
   /// 用户已启用的插件函数名称列表。
   final List<String> enabledFunctions;
 
+  /// 用户已启用的插件 Skill 名称列表。
+  final List<String> enabledSkills;
+
   /// 插件加载失败时的错误信息。
   final String? loadError;
 
@@ -661,6 +760,7 @@ class InstalledPlugin {
     required this.enabledFeaturePages,
     this.enabledTools = const [],
     this.enabledFunctions = const [],
+    this.enabledSkills = const [],
     this.loadError,
     this.displayNameOverride,
   });
@@ -695,6 +795,7 @@ class InstalledPlugin {
     List<String>? enabledFeaturePages,
     List<String>? enabledTools,
     List<String>? enabledFunctions,
+    List<String>? enabledSkills,
     Object? loadError = _sentinel,
     Object? displayNameOverride = _sentinel,
   }) {
@@ -706,6 +807,7 @@ class InstalledPlugin {
       enabledFeaturePages: enabledFeaturePages ?? this.enabledFeaturePages,
       enabledTools: enabledTools ?? this.enabledTools,
       enabledFunctions: enabledFunctions ?? this.enabledFunctions,
+      enabledSkills: enabledSkills ?? this.enabledSkills,
       loadError: identical(loadError, _sentinel)
           ? this.loadError
           : loadError as String?,
@@ -724,6 +826,7 @@ class InstalledPlugin {
     'enabledFeaturePages': enabledFeaturePages,
     'enabledTools': enabledTools,
     'enabledFunctions': enabledFunctions,
+    'enabledSkills': enabledSkills,
     if (loadError != null) 'loadError': loadError,
     if (displayNameOverride != null && displayNameOverride!.trim().isNotEmpty)
       'displayNameOverride': displayNameOverride,
@@ -758,6 +861,11 @@ class InstalledPlugin {
           manifest.functions
               .map((function) => function.name)
               .toList(growable: false),
+      enabledSkills:
+          (json['enabledSkills'] as List<dynamic>?)
+              ?.map((item) => item.toString())
+              .toList(growable: false) ??
+          manifest.skills.map((skill) => skill.name).toList(growable: false),
       loadError: json['loadError'] as String?,
       displayNameOverride: json['displayNameOverride'] as String?,
     );

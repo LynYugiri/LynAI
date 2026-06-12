@@ -128,6 +128,14 @@ class PluginProvider extends ChangeNotifier {
             .where(functionIds.contains)
             .toSet();
         enabledFunctions.addAll(functionIds.difference(previousFunctionIds));
+        final previousSkillIds = plugin.manifest.skills
+            .map((skill) => skill.name)
+            .toSet();
+        final skillIds = manifest.skills.map((skill) => skill.name).toSet();
+        final enabledSkills = plugin.enabledSkills
+            .where(skillIds.contains)
+            .toSet();
+        enabledSkills.addAll(skillIds.difference(previousSkillIds));
         next.add(
           plugin.copyWith(
             manifest: manifest,
@@ -135,6 +143,7 @@ class PluginProvider extends ChangeNotifier {
             enabledFeaturePages: enabledPages,
             enabledTools: enabledTools.toList(growable: false),
             enabledFunctions: enabledFunctions.toList(growable: false),
+            enabledSkills: enabledSkills.toList(growable: false),
             loadError: null,
           ),
         );
@@ -242,6 +251,33 @@ class PluginProvider extends ChangeNotifier {
     return plugin.enabledFunctions.contains(functionName);
   }
 
+  /// 启用或禁用插件的指定 Skill。
+  Future<void> setSkillEnabled(
+    String pluginId,
+    String skillName,
+    bool enabled,
+  ) async {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) return;
+    final skills = plugin.enabledSkills.toSet();
+    if (enabled) {
+      skills.add(skillName);
+    } else {
+      skills.remove(skillName);
+    }
+    await _replace(
+      pluginId,
+      plugin.copyWith(enabledSkills: skills.toList(growable: false)),
+    );
+  }
+
+  /// 判断插件 Skill 当前是否启用。
+  bool isSkillEnabled(String pluginId, String skillName) {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) return false;
+    return plugin.enabledSkills.contains(skillName);
+  }
+
   /// 修改插件在 UI 中显示的名称，不改写 plugin.json。
   Future<void> renameDisplayName(String pluginId, String name) async {
     final plugin = pluginById(pluginId);
@@ -272,6 +308,7 @@ class PluginProvider extends ChangeNotifier {
       enabledFeaturePages: source.enabledFeaturePages.toList(growable: false),
       enabledTools: source.enabledTools.toList(growable: false),
       enabledFunctions: source.enabledFunctions.toList(growable: false),
+      enabledSkills: source.enabledSkills.toList(growable: false),
     );
     _plugins = _sortPlugins([..._plugins, snapshot]);
     await _save();
@@ -675,6 +712,13 @@ class PluginProvider extends ChangeNotifier {
             .map((function) => function.name)
             .toSet(),
         enabledNames: current.enabledFunctions.toSet(),
+      ),
+      enabledSkills: _mergeEnabledApiNames(
+        previousNames: current.manifest.skills
+            .map((skill) => skill.name)
+            .toSet(),
+        nextNames: imported.manifest.skills.map((skill) => skill.name).toSet(),
+        enabledNames: current.enabledSkills.toSet(),
       ),
       displayNameOverride: current.displayNameOverride,
     );

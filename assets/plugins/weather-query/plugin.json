@@ -27,5 +27,14 @@
         }
       }
     }
+  ],
+  "skills": [
+    {
+      "name": "weather_research",
+      "title": "天气查询工作流",
+      "description": "查询天气并给出出行、穿衣、活动建议。用户询问天气、温度、下雨、出门建议或旅行天气时使用。",
+      "whenToUse": "天气、温度、下雨、出门、旅行天气、穿衣建议、户外活动安排",
+      "tags": ["weather", "travel", "planning"]
+    }
   ]
 }

@@ -8,7 +8,9 @@ import 'package:lynai/models/plugin.dart';
 import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
+import 'package:lynai/providers/plugin_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
+import 'package:lynai/repositories/plugin_repository.dart';
 import 'package:lynai/services/lynai_call_identity.dart';
 import 'package:lynai/services/lynai_function_service.dart';
 import 'package:lynai/services/lynai_permission_definitions.dart';
@@ -164,6 +166,8 @@ void main() {
       expect(baseNames, contains('create_plan'));
       expect(baseNames, contains('update_plan'));
       expect(baseNames, contains('list_plugin_functions'));
+      expect(baseNames, contains('list_plugin_skills'));
+      expect(baseNames, contains('load_plugin_skill'));
       expect(baseNames, isNot(contains('call_plugin_function')));
 
       final grantedTools = ToolCallService.openAITools(const [], true, const [
@@ -358,4 +362,86 @@ void main() {
     expect(listed['result'], isA<Map>());
     expect((listed['result'] as Map)['functions'], isA<List>());
   });
+
+  test(
+    'Agent can list and load plugin skills without extra permission',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final source = await Directory.systemTemp.createTemp(
+        'lynai_skill_source_',
+      );
+      final installRoot = await Directory.systemTemp.createTemp(
+        'lynai_skill_root_',
+      );
+      try {
+        await Directory('${source.path}/skills').create();
+        await File('${source.path}/plugin.json').writeAsString(
+          jsonEncode({
+            'id': 'skill-plugin',
+            'name': 'Skill Plugin',
+            'entry': 'main.lua',
+            'skills': [
+              {
+                'name': 'weather__inner',
+                'title': 'Weather Inner',
+                'description': 'Use for weather planning.',
+                'whenToUse': 'weather plans',
+                'tags': ['weather'],
+              },
+            ],
+          }),
+        );
+        await File('${source.path}/main.lua').writeAsString('return {}');
+        await File(
+          '${source.path}/skills/weather__inner.md',
+        ).writeAsString('# Weather\n\nUse the weather tool.');
+        final plugins = PluginProvider(
+          repository: PluginRepository(rootOverride: installRoot),
+        );
+        await plugins.importDirectory(source.path);
+        await plugins.setEnabled('skill-plugin', true);
+        final conversations = ConversationProvider();
+        final cid = conversations.createConversation(
+          ConversationSettings(modelId: 'm1', agentEnabled: true),
+        );
+        conversations.addMessage(cid, 'user', 'load skill');
+        conversations.addMessage(cid, 'assistant', '', save: false);
+        final service = ToolCallService(
+          FeatureProvider(),
+          plugins: plugins,
+          conversations: conversations,
+          conversationId: cid,
+        );
+
+        final listed = await service.execute(
+          const ChatToolCall(
+            id: 'skills',
+            name: 'list_plugin_skills',
+            arguments: {},
+          ),
+          const [],
+        );
+        expect(listed['ok'], isTrue);
+        final skills = ((listed['result'] as Map)['skills'] as List)
+            .cast<Map>();
+        expect(skills.single['qualifiedName'], 'skill-plugin__weather__inner');
+
+        final loaded = await service.execute(
+          const ChatToolCall(
+            id: 'load-skill',
+            name: 'load_plugin_skill',
+            arguments: {'qualifiedName': 'skill-plugin__weather__inner'},
+          ),
+          const [],
+        );
+        expect(loaded['ok'], isTrue);
+        final result = loaded['result'] as Map;
+        expect(result['name'], 'weather__inner');
+        expect(result['content'], contains('Use the weather tool'));
+      } finally {
+        await source.delete(recursive: true);
+        await installRoot.delete(recursive: true);
+      }
+    },
+  );
 }

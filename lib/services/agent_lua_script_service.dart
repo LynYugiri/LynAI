@@ -505,6 +505,7 @@ class AgentLuaScriptService {
           'pluginId': plugin.id,
           'pluginName': plugin.displayName,
           'name': function.name,
+          'qualifiedName': '${plugin.id}__${function.name}',
           'title': function.title,
           'description': function.description,
           'parameters': function.parameters,

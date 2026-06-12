@@ -831,7 +831,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           )
         : conv.settings.systemPrompt;
     final toolPrompt = conv.settings.agentEnabled
-        ? '${ToolCallService.nativeSystemPrompt}\n\n${ToolCallService.agentSystemPrompt}'
+        ? '${ToolCallService.nativeSystemPrompt}\n\n${ToolCallService.agentSystemPromptWithSkills(context.read<PluginProvider>().plugins)}'
         : ToolCallService.nativeSystemPrompt;
     if (promptContent.isNotEmpty) {
       msgs.add({
