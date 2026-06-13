@@ -20,7 +20,8 @@ HomePage
     ├── 背景
     ├── API
     ├── 主题
-    └── 数据管理
+    ├── 数据管理
+    └── 回收站
 ```
 
 主 Tab 由 `HomePage` 的 `IndexedStack` 保持状态。设置子页、笔记详情、公式编辑和更新日志页面使用命令式 `Navigator.push(MaterialPageRoute)`。
@@ -158,6 +159,7 @@ HomePage
 | 背景 | `background_page.dart` | 背景图、清除背景、模糊开关和强度。 |
 | API | `api_models_page.dart` | 模型配置分类、编辑、排序和模型拉取。 |
 | 主题 | `theme_page.dart` | 预设色、HSV 调色板、浅色/深色/跟随系统。 |
+| 回收站 | `recycle_bin_page.dart` | 按功能分类查看已删除项目，支持恢复、永久删除和清空。 |
 | 数据管理 | `data_management_page.dart` | storage_v2 迁移、备份导出、备份预览、导入和冲突处理。 |
 
 ## ApiModelsPage

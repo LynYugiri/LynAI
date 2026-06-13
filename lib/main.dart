@@ -12,6 +12,7 @@ import 'providers/conversation_provider.dart';
 import 'providers/feature_provider.dart';
 import 'providers/model_config_provider.dart';
 import 'providers/plugin_provider.dart';
+import 'providers/recycle_bin_provider.dart';
 import 'providers/roleplay_provider.dart';
 import 'providers/settings_provider.dart';
 import 'repositories/plugin_repository.dart';
@@ -39,6 +40,7 @@ Future<void> main() async {
         ChangeNotifierProvider(create: (_) => FeatureProvider()),
         ChangeNotifierProvider(create: (_) => ModelConfigProvider()),
         ChangeNotifierProvider(create: (_) => PluginProvider()),
+        ChangeNotifierProvider(create: (_) => RecycleBinProvider()),
         ChangeNotifierProvider(create: (_) => RoleplayProvider()),
         ChangeNotifierProvider(create: (_) => SettingsProvider()),
       ],
@@ -124,6 +126,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       final settingsProvider = context.read<SettingsProvider>();
       final featureProvider = context.read<FeatureProvider>();
       final pluginProvider = context.read<PluginProvider>();
+      final recycleBinProvider = context.read<RecycleBinProvider>();
       final roleplayProvider = context.read<RoleplayProvider>();
 
       await StorageMigrationService(
@@ -137,6 +140,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         conversationProvider.loadConversations(),
         featureProvider.load(),
         pluginProvider.load(),
+        recycleBinProvider.load(),
         roleplayProvider.loadSessions(),
         modelProvider.loadModels(),
         settingsProvider.loadSettings(),

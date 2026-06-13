@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 import '../models/model_config.dart';
 import '../models/note.dart';
 import '../models/plugin.dart';
+import '../models/recycle_bin_item.dart';
 import '../models/schedule_item.dart';
 import '../models/todo_list.dart';
 import '../providers/conversation_provider.dart';
@@ -16,6 +17,7 @@ import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
+import '../repositories/recycle_bin_repository.dart';
 import 'api_service.dart';
 import 'device_control_service.dart';
 import 'device_run_controller.dart';
@@ -209,6 +211,7 @@ class LynAIFunctionService {
   static const _nativeToolsChannel = MethodChannel('lynai/native_tools');
   static String? _appVersion;
   static const _permissionService = LynAIPermissionService();
+  static final _recycleBinRepository = RecycleBinRepository();
 
   /// 工具别名映射表，将 comfyui 风格的短名映射到内部标准化函数名。
   /// 供 [ToolCallService] 在接收到旧版工具调用名称时进行兼容转换。
@@ -262,6 +265,23 @@ class LynAIFunctionService {
         'plugin.storage.get' => await _storageGet(context, call.arguments),
         'plugin.storage.set' => await _storageSet(context, call.arguments),
         'plugin.storage.remove' => await _storageRemove(
+          context,
+          call.arguments,
+        ),
+        'recycleBin.putData' => await _recycleBinPutData(
+          context,
+          call.arguments,
+        ),
+        'recycleBin.putFile' => await _recycleBinPutFile(
+          context,
+          call.arguments,
+        ),
+        'recycleBin.list' => await _recycleBinList(context, call.arguments),
+        'recycleBin.restore' => await _recycleBinRestore(
+          context,
+          call.arguments,
+        ),
+        'recycleBin.deleteForever' => await _recycleBinDeleteForever(
           context,
           call.arguments,
         ),
@@ -374,6 +394,11 @@ class LynAIFunctionService {
       'plugin.storage.get' => LynAIPermissions.storageRead,
       'plugin.storage.set' ||
       'plugin.storage.remove' => LynAIPermissions.storageWrite,
+      'recycleBin.list' => LynAIPermissions.recycleBinRead,
+      'recycleBin.putData' ||
+      'recycleBin.putFile' => LynAIPermissions.recycleBinWrite,
+      'recycleBin.restore' ||
+      'recycleBin.deleteForever' => LynAIPermissions.recycleBinRestore,
       'plugin.file.write' ||
       'plugin.file.create' ||
       'plugin.file.delete' ||
@@ -444,6 +469,7 @@ class LynAIFunctionService {
       'todos.deleteList' ||
       'schedules.delete' ||
       'plugin.file.delete' ||
+      'recycleBin.deleteForever' ||
       'plugin.restore' => true,
       _ => false,
     };
@@ -705,6 +731,140 @@ class LynAIFunctionService {
     final key = (args['key'] as String? ?? '').trim();
     if (key.isEmpty) return _error('plugin.storage.remove 缺少 key');
     await plugins.writeStorageValue(plugin.id, key, null);
+    return {'ok': true};
+  }
+
+  Future<Map<String, dynamic>> _recycleBinPutData(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) async {
+    final plugin = context.plugin;
+    if (plugin == null) return _error('recycleBin.putData 需要插件上下文');
+    final category = (args['category'] as String? ?? 'data').trim();
+    final title = (args['title'] as String? ?? '').trim();
+    if (title.isEmpty) return _error('recycleBin.putData 缺少 title');
+    final item = RecycleBinItem(
+      owner: RecycleBinOwners.plugin(plugin.id),
+      category: RecycleBinCategories.plugin(plugin.id, category),
+      type: RecycleBinItemTypes.pluginData,
+      title: title,
+      preview: (args['preview'] as String? ?? '').trim(),
+      payload: {
+        'pluginId': plugin.id,
+        'data': _jsonValue(args['data']),
+        if ((args['restoreHandler'] as String? ?? '').trim().isNotEmpty)
+          'restoreHandler': (args['restoreHandler'] as String).trim(),
+        if ((args['deleteForeverHandler'] as String? ?? '').trim().isNotEmpty)
+          'deleteForeverHandler': (args['deleteForeverHandler'] as String)
+              .trim(),
+      },
+    );
+    await _recycleBinRepository.add(item);
+    return {'ok': true, 'item': item.toJson()};
+  }
+
+  Future<Map<String, dynamic>> _recycleBinPutFile(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) async {
+    final plugins = context.plugins;
+    final plugin = context.plugin;
+    if (plugins == null || plugin == null) {
+      return _error('recycleBin.putFile 需要插件上下文');
+    }
+    final path = (args['path'] as String? ?? '').trim();
+    if (path.isEmpty) return _error('recycleBin.putFile 缺少 path');
+    if (!plugins.isEditableFile(plugin.id, path)) {
+      return _error('recycleBin.putFile 只能处理 editableFiles 中声明的文件');
+    }
+    final content = await plugins.readFile(plugin.id, path);
+    final title = (args['title'] as String? ?? '').trim();
+    final item = RecycleBinItem(
+      owner: RecycleBinOwners.plugin(plugin.id),
+      category: RecycleBinCategories.pluginFiles(plugin.id),
+      type: RecycleBinItemTypes.pluginFile,
+      title: title.isEmpty ? path.split('/').last : title,
+      preview: (args['preview'] as String? ?? '').trim(),
+      payload: {
+        'pluginId': plugin.id,
+        'path': path,
+        'content': content,
+        'encoding': 'utf8',
+      },
+    );
+    await _recycleBinRepository.add(item);
+    if (args['deleteOriginal'] == true) {
+      await plugins.deleteFile(plugin.id, path);
+    }
+    return {'ok': true, 'item': item.toJson()};
+  }
+
+  Future<Map<String, dynamic>> _recycleBinList(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) async {
+    final plugin = context.plugin;
+    if (plugin == null) return _error('recycleBin.list 需要插件上下文');
+    final category = (args['category'] as String?)?.trim();
+    final owner = RecycleBinOwners.plugin(plugin.id);
+    final items = (await _recycleBinRepository.load())
+        .where((item) => item.owner == owner)
+        .where(
+          (item) => category == null || category.isEmpty
+              ? true
+              : item.category ==
+                    RecycleBinCategories.plugin(plugin.id, category),
+        )
+        .map((item) => item.toJson())
+        .toList();
+    return {'ok': true, 'items': items};
+  }
+
+  Future<Map<String, dynamic>> _recycleBinRestore(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) async {
+    final plugins = context.plugins;
+    final plugin = context.plugin;
+    if (plugins == null || plugin == null) {
+      return _error('recycleBin.restore 需要插件上下文');
+    }
+    final id = (args['id'] as String? ?? '').trim();
+    if (id.isEmpty) return _error('recycleBin.restore 缺少 id');
+    final owner = RecycleBinOwners.plugin(plugin.id);
+    RecycleBinItem? item;
+    for (final candidate in await _recycleBinRepository.load()) {
+      if (candidate.id == id && candidate.owner == owner) {
+        item = candidate;
+        break;
+      }
+    }
+    if (item == null) return _error('回收站项目不存在');
+    if (item.type == RecycleBinItemTypes.pluginFile) {
+      final path = item.payload['path'] as String?;
+      final content = item.payload['content'] as String?;
+      if (path == null || content == null) return _error('插件文件回收站数据损坏');
+      await plugins.writeEditableFile(plugin.id, path, content);
+      await _recycleBinRepository.remove(item.id);
+      return {'ok': true, 'item': item.toJson()};
+    }
+    return {'ok': true, 'needsPluginRestore': true, 'item': item.toJson()};
+  }
+
+  Future<Map<String, dynamic>> _recycleBinDeleteForever(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) async {
+    final plugin = context.plugin;
+    if (plugin == null) return _error('recycleBin.deleteForever 需要插件上下文');
+    final id = (args['id'] as String? ?? '').trim();
+    if (id.isEmpty) return _error('recycleBin.deleteForever 缺少 id');
+    final owner = RecycleBinOwners.plugin(plugin.id);
+    final exists = (await _recycleBinRepository.load()).any(
+      (item) => item.id == id && item.owner == owner,
+    );
+    if (!exists) return _error('回收站项目不存在');
+    await _recycleBinRepository.remove(id);
     return {'ok': true};
   }
 

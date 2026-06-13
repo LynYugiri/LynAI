@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/plugin_provider.dart';
+import '../providers/recycle_bin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../widgets/plugin_feature_webview.dart';
 import 'about_page.dart';
@@ -9,6 +10,7 @@ import 'api_models_page.dart';
 import 'data_management_page.dart';
 import 'plugin_capability_management_page.dart';
 import 'plugin_management_page.dart';
+import 'recycle_bin_page.dart';
 import 'role_management_page.dart';
 import 'theme_page.dart';
 
@@ -25,9 +27,18 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   @override
+  void initState() {
+    super.initState();
+    Future.microtask(() {
+      if (mounted) context.read<RecycleBinProvider>().load();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>().settings;
     final pluginProvider = context.watch<PluginProvider>();
+    final recycleBinProvider = context.watch<RecycleBinProvider>();
     final pluginItems = _buildPluginItems(context, pluginProvider);
 
     return Scaffold(
@@ -99,6 +110,17 @@ class _SettingsPageState extends State<SettingsPage> {
             () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const DataManagementPage()),
+            ),
+          ),
+          _buildItem(
+            context,
+            Icons.delete_sweep_outlined,
+            '回收站',
+            '${recycleBinProvider.items.length} 个项目',
+            Colors.red,
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const RecycleBinPage()),
             ),
           ),
           _buildItem(

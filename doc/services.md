@@ -139,6 +139,7 @@ Agent Lua 可以通过 `lynai.call()` 调用这些函数。手机复杂操作通
 |----------|------|
 | HTTP 请求 | 受权限控制的网络请求能力。 |
 | 文件读写 | 限制在插件目录和用户授权路径内的文件操作。 |
+| 回收站 | 插件可把自己的业务数据或 editableFiles 文件写入回收站。 |
 | 日志 | Debug 日志输出，不会泄露到用户 UI。 |
 | JSON | 解析和序列化 JSON。 |
 
@@ -178,6 +179,7 @@ Agent Lua 可以通过 `lynai.call()` 调用这些函数。手机复杂操作通
 | 日程 | `FeatureProvider` 的日程方法。 |
 | 笔记 | `FeatureProvider` 的笔记、分页、修订方法。 |
 | 待办 | `FeatureProvider` 的待办清单方法。 |
+| 回收站 | `RecycleBinRepository` 与插件安全上下文。 |
 | 插件工具 | `PluginLuaRuntimeService` 的 `executePluginTool()`。 |
 | 平台能力 | 原生平台通道。 |
 

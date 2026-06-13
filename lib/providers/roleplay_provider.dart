@@ -4,7 +4,9 @@ import 'package:uuid/uuid.dart';
 import '../models/chat_role.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
+import '../models/recycle_bin_item.dart';
 import '../models/roleplay.dart';
+import '../repositories/recycle_bin_repository.dart';
 import '../repositories/roleplay_repository.dart';
 import '../services/storage_v2_service.dart';
 
@@ -28,9 +30,13 @@ class RoleplayProvider extends ChangeNotifier {
   RoleplayProvider({
     StorageV2Service? storageV2,
     RoleplayRepository? repository,
-  }) : _repository = repository ?? RoleplayRepository(storageV2: storageV2);
+    RecycleBinRepository? recycleBinRepository,
+  }) : _repository = repository ?? RoleplayRepository(storageV2: storageV2),
+       _recycleBinRepository =
+           recycleBinRepository ?? RecycleBinRepository(storageV2: storageV2);
 
   final RoleplayRepository _repository;
+  final RecycleBinRepository _recycleBinRepository;
   final _uuid = const Uuid();
   Future<void> _saveQueue = Future.value();
   List<RoleplayScenario> _scenarios = [];
@@ -235,7 +241,27 @@ class RoleplayProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void deleteScenario(String id) {
+  Future<void> deleteScenario(String id) async {
+    final scenario = getScenario(id);
+    if (scenario == null) return;
+    final deletedThreads = _threads
+        .where((thread) => thread.scenarioId == id)
+        .toList(growable: false);
+    await _recycleBinRepository.add(
+      RecycleBinItem(
+        owner: RecycleBinOwners.core,
+        category: RecycleBinCategories.roleplay,
+        type: RecycleBinItemTypes.roleplayScenario,
+        title: scenario.title.isEmpty ? '未命名情景' : scenario.title,
+        preview: scenario.description.isNotEmpty
+            ? scenario.description
+            : scenario.scenario.replaceAll(RegExp(r'\s+'), ' ').trim(),
+        payload: {
+          'scenario': scenario.toJson(),
+          'threads': deletedThreads.map((thread) => thread.toJson()).toList(),
+        },
+      ),
+    );
     final before = _scenarios.length;
     _scenarios.removeWhere((scenario) => scenario.id == id);
     if (_scenarios.length == before) return;
@@ -287,15 +313,51 @@ class RoleplayProvider extends ChangeNotifier {
     return threadId;
   }
 
-  void deleteThread(String id) {
+  Future<void> deleteThread(String id) async {
     final thread = getThread(id);
+    if (thread == null) return;
+    await _recycleBinRepository.add(
+      RecycleBinItem(
+        owner: RecycleBinOwners.core,
+        category: RecycleBinCategories.roleplay,
+        type: RecycleBinItemTypes.roleplayThread,
+        title: thread.title.isEmpty ? '未命名演绎' : thread.title,
+        preview: thread.preview,
+        payload: {'thread': thread.toJson()},
+      ),
+    );
     final before = _threads.length;
     _threads.removeWhere((item) => item.id == id);
     if (_threads.length == before) return;
     _pendingPlayerMessagesByThread.remove(id);
     if (_activeThreadId == id) setRunState(RoleplayRunState.idle);
-    if (thread != null) _touchScenario(thread.scenarioId);
+    _touchScenario(thread.scenarioId);
     _queueSave();
+    notifyListeners();
+  }
+
+  Future<void> restoreScenario(
+    RoleplayScenario scenario,
+    List<RoleplayThread> threads,
+  ) async {
+    if (!_scenarios.any((item) => item.id == scenario.id)) {
+      _scenarios.add(scenario);
+    }
+    for (final thread in threads) {
+      if (!_threads.any((item) => item.id == thread.id)) _threads.add(thread);
+    }
+    _queueSave();
+    await _saveQueue;
+    notifyListeners();
+  }
+
+  Future<void> restoreThread(RoleplayThread thread) async {
+    if (!_scenarios.any((item) => item.id == thread.scenarioId)) return;
+    if (_threads.any((item) => item.id == thread.id)) return;
+    _threads.add(thread);
+    _touchScenario(thread.scenarioId);
+    _queueSave();
+    await _saveQueue;
     notifyListeners();
   }
 

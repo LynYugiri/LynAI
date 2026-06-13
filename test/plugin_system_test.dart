@@ -8,18 +8,142 @@ import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/model_config.dart';
 import 'package:lynai/models/plugin.dart';
 import 'package:lynai/models/plugin_config_schema.dart';
+import 'package:lynai/models/recycle_bin_item.dart';
 import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/plugin_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/repositories/plugin_repository.dart';
+import 'package:lynai/repositories/recycle_bin_repository.dart';
 import 'package:lynai/services/agent_lua_script_service.dart';
+import 'package:lynai/services/lynai_call_identity.dart';
+import 'package:lynai/services/lynai_function_service.dart';
 import 'package:lynai/services/plugin_lua_runtime_service.dart';
 import 'package:lynai/services/tool_call_service.dart';
 import 'package:lynai/utils/plugin_path_utils.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  test('RecycleBinRepository serializes concurrent legacy writes', () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = RecycleBinRepository();
+
+    await Future.wait([
+      repository.add(
+        RecycleBinItem(
+          owner: RecycleBinOwners.core,
+          category: RecycleBinCategories.todos,
+          type: RecycleBinItemTypes.todoList,
+          title: 'A',
+        ),
+      ),
+      repository.add(
+        RecycleBinItem(
+          owner: RecycleBinOwners.core,
+          category: RecycleBinCategories.schedules,
+          type: RecycleBinItemTypes.schedule,
+          title: 'B',
+        ),
+      ),
+    ]);
+
+    final items = await repository.load();
+    expect(items.map((item) => item.title), containsAll(['A', 'B']));
+  });
+
+  test(
+    'Plugin recycle bin file API stores and restores editable files',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final source = await Directory.systemTemp.createTemp(
+        'lynai_recycle_src_',
+      );
+      final installedRoot = await Directory.systemTemp.createTemp(
+        'lynai_recycle_installed_',
+      );
+      try {
+        await Directory('${source.path}/prompts').create(recursive: true);
+        await File(
+          '${source.path}/prompts/system.md',
+        ).writeAsString('original');
+        await File('${source.path}/main.lua').writeAsString('return {}');
+        await File('${source.path}/plugin.json').writeAsString(
+          jsonEncode({
+            'id': 'recycle_plugin',
+            'name': 'Recycle Plugin',
+            'entry': 'main.lua',
+            'permissions': [
+              'recycleBin:write',
+              'recycleBin:read',
+              'recycleBin:restore',
+            ],
+            'editableFiles': [
+              {'path': 'prompts/system.md'},
+            ],
+          }),
+        );
+
+        final plugins = PluginProvider(
+          repository: PluginRepository(rootOverride: installedRoot),
+        );
+        await plugins.importDirectory(source.path);
+        await plugins.setEnabled('recycle_plugin', true);
+        await plugins.setGrantedPermissions('recycle_plugin', [
+          'recycleBin:write',
+          'recycleBin:read',
+          'recycleBin:restore',
+        ]);
+        final plugin = plugins.pluginById('recycle_plugin')!;
+        final service = LynAIFunctionService();
+        final context = LynAIFunctionContext(
+          identity: const LynAICallIdentity(
+            type: LynAICallerType.plugin,
+            pluginId: 'recycle_plugin',
+          ),
+          plugins: plugins,
+          plugin: plugin,
+        );
+
+        final put = await service.execute(
+          const LynAIFunctionCall(
+            name: 'recycleBin.putFile',
+            arguments: {'path': 'prompts/system.md', 'deleteOriginal': true},
+          ),
+          context,
+        );
+        expect(put['ok'], isTrue);
+        expect(File('${plugin.path}/prompts/system.md').existsSync(), isFalse);
+
+        final list = await service.execute(
+          const LynAIFunctionCall(name: 'recycleBin.list', arguments: {}),
+          context,
+        );
+        final item = (list['items'] as List).single as Map<String, dynamic>;
+
+        final restore = await service.execute(
+          LynAIFunctionCall(
+            name: 'recycleBin.restore',
+            arguments: {'id': item['id']},
+          ),
+          context,
+        );
+        expect(restore['ok'], isTrue);
+        expect(
+          await plugins.readFile('recycle_plugin', 'prompts/system.md'),
+          'original',
+        );
+        expect((await RecycleBinRepository().load()), isEmpty);
+      } finally {
+        if (await source.exists()) {
+          await source.delete(recursive: true);
+        }
+        if (await installedRoot.exists()) {
+          await installedRoot.delete(recursive: true);
+        }
+      }
+    },
+  );
+
   test('PluginManifest rejects feature page ids that break route keys', () {
     final manifest = PluginManifest.fromJson({
       'id': 'demo_plugin',

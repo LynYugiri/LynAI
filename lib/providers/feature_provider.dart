@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 import '../models/note.dart';
+import '../models/recycle_bin_item.dart';
 import '../models/schedule_item.dart';
 import '../models/todo_list.dart';
 import '../repositories/feature_repository.dart';
+import '../repositories/recycle_bin_repository.dart';
 import '../services/storage_v2_service.dart';
 import '../utils/file_name_utils.dart';
 
@@ -33,11 +35,17 @@ class FeatureProvider extends ChangeNotifier {
   final Map<String, List<NoteRevision>> _noteTimelineCache = {};
   bool _usingStorageV2 = false;
   final FeatureRepository _repository;
+  final RecycleBinRepository _recycleBinRepository;
   Map<String, List<StorageV2NotePage>> _storageV2PagesByNoteId = {};
   Map<String, String> _activeStorageV2PageIds = {};
 
-  FeatureProvider({StorageV2Service? storageV2, FeatureRepository? repository})
-    : _repository = repository ?? FeatureRepository(storageV2: storageV2);
+  FeatureProvider({
+    StorageV2Service? storageV2,
+    FeatureRepository? repository,
+    RecycleBinRepository? recycleBinRepository,
+  }) : _repository = repository ?? FeatureRepository(storageV2: storageV2),
+       _recycleBinRepository =
+           recycleBinRepository ?? RecycleBinRepository(storageV2: storageV2);
 
   List<ScheduleItem> get schedules => List.unmodifiable(_schedules);
   List<Note> get notes => List.unmodifiable(_notes);
@@ -568,6 +576,35 @@ class FeatureProvider extends ChangeNotifier {
     final index = pages.indexWhere((page) => page.id == pageId);
     if (index == -1) return false;
     final removed = pages.removeAt(index);
+    final pageContent = await _repository.readNotePage(removed);
+    await _recycleBinRepository.add(
+      RecycleBinItem(
+        owner: RecycleBinOwners.core,
+        category: RecycleBinCategories.notes,
+        type: RecycleBinItemTypes.notePage,
+        title: removed.title.isEmpty ? '未命名分页' : removed.title,
+        preview: pageContent.replaceAll(RegExp(r'\s+'), ' ').trim(),
+        payload: {
+          'noteId': noteId,
+          'page': removed.toJson(),
+          'content': pageContent,
+          'revisions': _noteRevisions
+              .where(
+                (revision) =>
+                    revision.noteId == noteId && revision.pageId == removed.id,
+              )
+              .map((revision) => revision.toJson())
+              .toList(),
+          'editProposals': _noteEditProposals.values
+              .where(
+                (proposal) =>
+                    proposal.noteId == noteId && proposal.pageId == removed.id,
+              )
+              .map((proposal) => proposal.toJson())
+              .toList(),
+        },
+      ),
+    );
     _renumberNotePages(pages);
     if (_activeStorageV2PageIds[noteId] == pageId) {
       final nextIndex = index >= pages.length ? pages.length - 1 : index;
@@ -816,6 +853,18 @@ class FeatureProvider extends ChangeNotifier {
   }
 
   Future<void> deleteSchedule(String id) async {
+    final schedule = getSchedule(id);
+    if (schedule == null) return;
+    await _recycleBinRepository.add(
+      RecycleBinItem(
+        owner: RecycleBinOwners.core,
+        category: RecycleBinCategories.schedules,
+        type: RecycleBinItemTypes.schedule,
+        title: schedule.title.isEmpty ? '未命名日程' : schedule.title,
+        preview: schedule.note ?? '',
+        payload: {'schedule': schedule.toJson()},
+      ),
+    );
     final before = _schedules.length;
     _schedules.removeWhere((s) => s.id == id);
     if (_schedules.length == before) return;
@@ -1237,6 +1286,42 @@ class FeatureProvider extends ChangeNotifier {
   }
 
   Future<void> deleteNote(String id) async {
+    final note = getNote(id);
+    if (note == null) return;
+    final pages = List<StorageV2NotePage>.from(
+      _storageV2PagesByNoteId[id] ?? const [],
+    );
+    final pageContents = <String, String>{};
+    for (final page in pages) {
+      try {
+        pageContents[page.id] = await _repository.readNotePage(page);
+      } catch (_) {
+        pageContents[page.id] = '';
+      }
+    }
+    await _recycleBinRepository.add(
+      RecycleBinItem(
+        owner: RecycleBinOwners.core,
+        category: RecycleBinCategories.notes,
+        type: RecycleBinItemTypes.note,
+        title: note.title.isEmpty ? '未命名笔记' : note.title,
+        preview: note.content.replaceAll(RegExp(r'\s+'), ' ').trim(),
+        payload: {
+          'note': note.toJson(),
+          'revisions': _noteRevisions
+              .where((revision) => revision.noteId == id)
+              .map((revision) => revision.toJson())
+              .toList(),
+          'pages': pages.map((page) => page.toJson()).toList(),
+          'pageContents': pageContents,
+          'activePageId': _activeStorageV2PageIds[id],
+          'editProposals': _noteEditProposals.values
+              .where((proposal) => proposal.noteId == id)
+              .map((proposal) => proposal.toJson())
+              .toList(),
+        },
+      ),
+    );
     final before = _notes.length;
     _notes.removeWhere((n) => n.id == id);
     if (_notes.length == before) return;
@@ -1478,10 +1563,128 @@ class FeatureProvider extends ChangeNotifier {
   }
 
   Future<void> deleteTodoList(String id) async {
+    final list = getTodoList(id);
+    if (list == null) return;
+    await _recycleBinRepository.add(
+      RecycleBinItem(
+        owner: RecycleBinOwners.core,
+        category: RecycleBinCategories.todos,
+        type: RecycleBinItemTypes.todoList,
+        title: list.title.isEmpty ? '未命名待办' : list.title,
+        preview: '${list.items.length} 个待办项',
+        payload: {'todoList': list.toJson()},
+      ),
+    );
     final before = _todoLists.length;
     _todoLists.removeWhere((n) => n.id == id);
     if (_todoLists.length == before) return;
     await _queueSaveTodoLists();
+    notifyListeners();
+  }
+
+  Future<void> restoreSchedule(ScheduleItem schedule) async {
+    if (_schedules.any((item) => item.id == schedule.id)) return;
+    _schedules.add(schedule);
+    _schedules.sort((a, b) => a.start.compareTo(b.start));
+    await _queueSaveSchedules();
+    notifyListeners();
+  }
+
+  Future<void> restoreTodoList(TodoList list) async {
+    if (_todoLists.any((item) => item.id == list.id)) return;
+    _todoLists.insert(0, list);
+    await _queueSaveTodoLists();
+    notifyListeners();
+  }
+
+  Future<void> restoreNotePayload(Map<String, dynamic> payload) async {
+    final noteRaw = payload['note'];
+    if (noteRaw is! Map) return;
+    final note = Note.fromJson(Map<String, dynamic>.from(noteRaw));
+    if (_notes.any((item) => item.id == note.id)) return;
+    _notes.insert(0, note);
+    final revisions = (payload['revisions'] as List<dynamic>? ?? const [])
+        .whereType<Map>()
+        .map((item) => NoteRevision.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+    _noteRevisions.insertAll(0, revisions);
+    final proposals = (payload['editProposals'] as List<dynamic>? ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) => NoteEditProposal.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList();
+    for (final proposal in proposals) {
+      _noteEditProposals[_noteEditProposalKey(
+            proposal.noteId,
+            proposal.pageId,
+          )] =
+          proposal;
+    }
+    if (_usingStorageV2) {
+      final pages = (payload['pages'] as List<dynamic>? ?? const [])
+          .whereType<Map>()
+          .map(
+            (item) =>
+                StorageV2NotePage.fromJson(Map<String, dynamic>.from(item)),
+          )
+          .toList();
+      final contents = Map<String, dynamic>.from(
+        payload['pageContents'] as Map? ?? const {},
+      );
+      _storageV2PagesByNoteId[note.id] = pages;
+      final activePageId = payload['activePageId'] as String?;
+      if (activePageId != null) _activeStorageV2PageIds[note.id] = activePageId;
+      for (final page in pages) {
+        await _repository.writeNotePage(
+          page,
+          contents[page.id]?.toString() ?? '',
+        );
+      }
+      await _persistStorageV2NotesData();
+    }
+    _noteRevisionContentCache.clear();
+    _clearNoteTimelineCache(note.id);
+    await _queueSaveNotes();
+    await _queueSaveNoteRevisions();
+    if (proposals.isNotEmpty) await _queueSaveNoteEditProposals();
+    notifyListeners();
+  }
+
+  Future<void> restoreNotePagePayload(Map<String, dynamic> payload) async {
+    if (!_usingStorageV2) return;
+    final pageRaw = payload['page'];
+    if (pageRaw is! Map) return;
+    final page = StorageV2NotePage.fromJson(Map<String, dynamic>.from(pageRaw));
+    if (!_notes.any((note) => note.id == page.noteId)) return;
+    final pages = _storageV2PagesByNoteId[page.noteId] ??= [];
+    if (pages.any((item) => item.id == page.id)) return;
+    pages.add(page);
+    _renumberNotePages(pages);
+    await _repository.writeNotePage(page, payload['content']?.toString() ?? '');
+    final revisions = (payload['revisions'] as List<dynamic>? ?? const [])
+        .whereType<Map>()
+        .map((item) => NoteRevision.fromJson(Map<String, dynamic>.from(item)))
+        .where(
+          (revision) => !_noteRevisions.any((item) => item.id == revision.id),
+        )
+        .toList();
+    _noteRevisions.insertAll(0, revisions);
+    final proposals = (payload['editProposals'] as List<dynamic>? ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) => NoteEditProposal.fromJson(Map<String, dynamic>.from(item)),
+        );
+    for (final proposal in proposals) {
+      _noteEditProposals[_noteEditProposalKey(
+            proposal.noteId,
+            proposal.pageId,
+          )] =
+          proposal;
+    }
+    await _persistStorageV2NotesData();
+    await _queueSaveNoteRevisions();
+    await _queueSaveNoteEditProposals();
     notifyListeners();
   }
 }

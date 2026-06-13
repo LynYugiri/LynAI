@@ -433,9 +433,16 @@ class _HistoryList extends StatelessWidget {
             child: const Text('取消'),
           ),
           TextButton(
-            onPressed: () {
-              provider.deleteConversation(c.id);
-              Navigator.pop(ctx);
+            onPressed: () async {
+              try {
+                await provider.deleteConversation(c.id);
+                if (ctx.mounted) Navigator.pop(ctx);
+              } catch (e) {
+                if (!ctx.mounted) return;
+                ScaffoldMessenger.of(
+                  ctx,
+                ).showSnackBar(SnackBar(content: Text('删除失败: $e')));
+              }
             },
             child: const Text('删除'),
           ),

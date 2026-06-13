@@ -7,7 +7,9 @@ import '../models/agent_trace.dart';
 import '../models/conversation.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
+import '../models/recycle_bin_item.dart';
 import '../repositories/conversation_repository.dart';
+import '../repositories/recycle_bin_repository.dart';
 import '../services/storage_v2_service.dart';
 
 /// 管理对话历史、消息流式更新和对话持久化。
@@ -24,12 +26,16 @@ class ConversationProvider extends ChangeNotifier {
   static const _sentinel = Object();
   static const _saveDebounceDuration = Duration(milliseconds: 500);
   final ConversationRepository _repository;
+  final RecycleBinRepository _recycleBinRepository;
   bool _usingStorageV2 = false;
 
   ConversationProvider({
     StorageV2Service? storageV2,
     ConversationRepository? repository,
-  }) : _repository = repository ?? ConversationRepository(storageV2: storageV2);
+    RecycleBinRepository? recycleBinRepository,
+  }) : _repository = repository ?? ConversationRepository(storageV2: storageV2),
+       _recycleBinRepository =
+           recycleBinRepository ?? RecycleBinRepository(storageV2: storageV2);
 
   void _touchConversation(int index) {
     final updated = _conversations.removeAt(index);
@@ -479,11 +485,29 @@ class ConversationProvider extends ChangeNotifier {
   }
 
   /// 删除对话
-  void deleteConversation(String conversationId) {
-    final before = _conversations.length;
+  Future<void> deleteConversation(String conversationId) async {
+    final conversation = getConversation(conversationId);
+    if (conversation == null) return;
+    await _recycleBinRepository.add(
+      RecycleBinItem(
+        owner: RecycleBinOwners.core,
+        category: RecycleBinCategories.conversations,
+        type: RecycleBinItemTypes.conversation,
+        title: conversation.title.isEmpty ? '未命名对话' : conversation.title,
+        preview: conversation.preview,
+        payload: {'conversation': conversation.toJson()},
+      ),
+    );
     _conversations.removeWhere((c) => c.id == conversationId);
-    if (_conversations.length == before) return;
     _queueSaveConversations();
+    notifyListeners();
+  }
+
+  Future<void> restoreConversation(Conversation conversation) async {
+    if (_conversations.any((item) => item.id == conversation.id)) return;
+    _conversations.insert(0, conversation);
+    _queueSaveConversations(immediate: true);
+    await flushPendingSaves();
     notifyListeners();
   }
 

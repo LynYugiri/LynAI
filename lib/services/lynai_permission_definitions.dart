@@ -13,6 +13,9 @@ class LynAIPermissions {
   static const filesWrite = 'files:write';
   static const storageRead = 'storage:read';
   static const storageWrite = 'storage:write';
+  static const recycleBinRead = 'recycleBin:read';
+  static const recycleBinWrite = 'recycleBin:write';
+  static const recycleBinRestore = 'recycleBin:restore';
   static const networkAccess = 'network:access';
   static const modelChat = 'model:chat';
   static const modelOcr = 'model:ocr';
@@ -113,6 +116,23 @@ const lynaiPermissionDefinitions = <LynAIPermissionDefinition>[
     id: LynAIPermissions.networkAccess,
     title: '访问网络',
     description: '允许调用 http.fetch 访问外部资源。',
+    risk: LynAIPermissionRisk.elevated,
+  ),
+  LynAIPermissionDefinition(
+    id: LynAIPermissions.recycleBinRead,
+    title: '读取回收站',
+    description: '允许插件读取自己放入回收站的项目。',
+  ),
+  LynAIPermissionDefinition(
+    id: LynAIPermissions.recycleBinWrite,
+    title: '写入回收站',
+    description: '允许插件把自己的数据或可编辑文件移入回收站。',
+    risk: LynAIPermissionRisk.elevated,
+  ),
+  LynAIPermissionDefinition(
+    id: LynAIPermissions.recycleBinRestore,
+    title: '恢复回收站项目',
+    description: '允许插件恢复或永久删除自己放入回收站的项目。',
     risk: LynAIPermissionRisk.elevated,
   ),
   LynAIPermissionDefinition(

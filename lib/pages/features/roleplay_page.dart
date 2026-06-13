@@ -1659,12 +1659,20 @@ class _RoleplayHistoryDrawerState extends State<_RoleplayHistoryDrawer> {
             child: const Text('取消'),
           ),
           TextButton(
-            onPressed: () {
-              provider.deleteThread(thread.id);
-              if (thread.id == widget.currentThreadId) {
-                widget.onSelectThread('');
+            onPressed: () async {
+              try {
+                await provider.deleteThread(thread.id);
+                if (!ctx.mounted) return;
+                if (thread.id == widget.currentThreadId) {
+                  widget.onSelectThread('');
+                }
+                Navigator.pop(ctx);
+              } catch (e) {
+                if (!ctx.mounted) return;
+                ScaffoldMessenger.of(
+                  ctx,
+                ).showSnackBar(SnackBar(content: Text('删除失败: $e')));
               }
-              Navigator.pop(ctx);
             },
             child: Text('删除', style: TextStyle(color: Colors.red[400])),
           ),
@@ -1685,9 +1693,16 @@ class _RoleplayHistoryDrawerState extends State<_RoleplayHistoryDrawer> {
             child: const Text('取消'),
           ),
           TextButton(
-            onPressed: () {
-              provider.deleteScenario(scenario.id);
-              Navigator.pop(ctx);
+            onPressed: () async {
+              try {
+                await provider.deleteScenario(scenario.id);
+                if (ctx.mounted) Navigator.pop(ctx);
+              } catch (e) {
+                if (!ctx.mounted) return;
+                ScaffoldMessenger.of(
+                  ctx,
+                ).showSnackBar(SnackBar(content: Text('删除失败: $e')));
+              }
             },
             child: Text('删除', style: TextStyle(color: Colors.red[400])),
           ),

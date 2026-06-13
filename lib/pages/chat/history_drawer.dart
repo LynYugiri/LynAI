@@ -327,10 +327,19 @@ class _HistoryDrawerState extends State<_HistoryDrawer> {
             child: const Text('取消'),
           ),
           TextButton(
-            onPressed: () {
-              context.read<ConversationProvider>().deleteConversation(c.id);
-              Navigator.pop(ctx);
-              if (c.id == widget.currentConvId) widget.onSelect('');
+            onPressed: () async {
+              final provider = context.read<ConversationProvider>();
+              try {
+                await provider.deleteConversation(c.id);
+                if (!ctx.mounted) return;
+                Navigator.pop(ctx);
+                if (c.id == widget.currentConvId) widget.onSelect('');
+              } catch (e) {
+                if (!ctx.mounted) return;
+                ScaffoldMessenger.of(
+                  ctx,
+                ).showSnackBar(SnackBar(content: Text('删除失败: $e')));
+              }
             },
             child: Text('删除', style: TextStyle(color: Colors.red[400])),
           ),
