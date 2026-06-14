@@ -1530,6 +1530,12 @@ function same_func(args) return {ok = true} end
       await rootBundle.loadString('assets/plugins/weather-query/main.lua'),
       contains('query_weather'),
     );
+    expect(
+      await rootBundle.loadString(
+        'assets/plugins/weather-query/skills/weather_research.md',
+      ),
+      contains('query_weather'),
+    );
   });
 
   test('Trusted built-in state enables and grants permissions', () async {

@@ -99,6 +99,7 @@ flutter:
     - assets/plugins/status-dashboard/
     - assets/plugins/status-dashboard/defaults/
     - assets/plugins/weather-query/
+    - assets/plugins/weather-query/skills/
     - changelogs/
     - third_party/webview_all_linux/LICENSE
     - third_party/webview_all_windows/LICENSE
