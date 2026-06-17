@@ -287,8 +287,8 @@ class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
 
   /// Version of app.db's internal SQLite schema.
   ///
-  /// This is separate from StorageMigrationService.currentSchemaVersion, which
-  /// describes the storage_v2 directory layout written by migration/export.
+  /// This is separate from [StorageV2Service.currentLayoutVersion], which
+  /// describes the storage_v2 directory layout.
   @override
   int get schemaVersion => 3;
 
@@ -364,11 +364,6 @@ class StorageV2Database {
     _db = null;
   }
 
-  Future<bool> hasImportedDataFiles() async {
-    final db = await _open();
-    return await _meta(db, 'json_imported') == 'true';
-  }
-
   Future<Map<String, dynamic>?> loadDataFile(String fileName) async {
     final db = await _open();
     return switch (fileName) {
@@ -409,50 +404,6 @@ class StorageV2Database {
         'data.$fileName.updatedAt',
         DateTime.now().toIso8601String(),
       );
-    });
-  }
-
-  Future<void> importDataFiles({bool overwrite = false}) async {
-    final db = await _open();
-    if (!overwrite && await _meta(db, 'json_imported') == 'true') return;
-    final files = [
-      'app_settings.json',
-      'model_configs.json',
-      'resources.json',
-      'conversations.json',
-      'notes.json',
-      'schedules.json',
-      'todo_lists.json',
-      'roleplay_sessions.json',
-    ];
-    await db.transaction(() async {
-      if (overwrite) await _clearAllData(db);
-      for (final fileName in files) {
-        final file = File('${storageRoot.path}/data/$fileName');
-        if (!await file.exists()) continue;
-        final data =
-            jsonDecode(await file.readAsString()) as Map<String, dynamic>;
-        switch (fileName) {
-          case 'app_settings.json':
-            await _replaceAppSettings(db, data);
-          case 'model_configs.json':
-            await _replaceModelConfigs(db, data);
-          case 'resources.json':
-            await _replaceResources(db, data);
-          case 'conversations.json':
-            await _replaceConversations(db, data);
-          case 'notes.json':
-            await _replaceNotes(db, data);
-          case 'schedules.json':
-            await _replaceSchedules(db, data);
-          case 'todo_lists.json':
-            await _replaceTodoLists(db, data);
-          default:
-            await _replaceGenericDataFile(db, fileName, data);
-        }
-      }
-      await _setMeta(db, 'json_imported', 'true');
-      await _setMeta(db, 'json_imported_at', DateTime.now().toIso8601String());
     });
   }
 
@@ -1359,26 +1310,5 @@ CREATE INDEX IF NOT EXISTS idx_resources_hash_size ON resources(sha256, size);
         .insertOnConflictUpdate(
           StorageMetaCompanion.insert(key: key, value: value),
         );
-  }
-
-  Future<void> _clearAllData(StorageV2DriftDatabase db) async {
-    await db.delete(db.messageAttachmentRows).go();
-    await db.delete(db.messageRows).go();
-    await db.delete(db.conversationRows).go();
-    await db.delete(db.noteEditBlockRows).go();
-    await db.delete(db.noteEditProposalRows).go();
-    await db.delete(db.noteRevisionRows).go();
-    await db.delete(db.notePageRows).go();
-    await db.delete(db.noteRows).go();
-    await db.delete(db.noteFolderRows).go();
-    await db.delete(db.todoItemRows).go();
-    await db.delete(db.todoListRows).go();
-    await db.delete(db.scheduleRows).go();
-    await db.delete(db.modelConfigRows).go();
-    await db.delete(db.appSettingsRows).go();
-    await db.delete(db.resourceRows).go();
-    await (db.delete(
-      db.storageMeta,
-    )..where((table) => table.key.like('datafile.%'))).go();
   }
 }

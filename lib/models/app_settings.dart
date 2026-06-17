@@ -6,7 +6,7 @@ import '../services/lynai_permission_definitions.dart';
 /// 应用级设置快照。
 ///
 /// 保存主题、背景、最近模型、OCR/文件识别开关、角色和系统提示词。
-/// 这个对象会整体序列化到 SharedPreferences，因此新增字段必须提供默认值
+/// 这个对象会整体序列化到 storage_v2，因此新增字段必须提供默认值
 /// 或旧数据 fallback。
 class AppSettings {
   final Color themeColor;

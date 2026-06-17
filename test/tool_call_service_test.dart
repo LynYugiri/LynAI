@@ -7,7 +7,6 @@ import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/plugin.dart';
 import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
-import 'package:lynai/providers/model_config_provider.dart';
 import 'package:lynai/providers/plugin_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/repositories/plugin_repository.dart';
@@ -15,12 +14,20 @@ import 'package:lynai/services/lynai_call_identity.dart';
 import 'package:lynai/services/lynai_function_service.dart';
 import 'package:lynai/services/lynai_permission_definitions.dart';
 import 'package:lynai/services/lynai_permission_service.dart';
-import 'package:lynai/services/storage_migration_service.dart';
 import 'package:lynai/services/storage_v2_service.dart';
+import 'package:lynai/services/storage_v2_upgrade_service.dart';
 import 'package:lynai/services/tool_call_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+Future<StorageV2Service> _readyStorageV2(Directory root) async {
+  final storage = StorageV2Service(rootDirectory: root);
+  await StorageV2UpgradeService(storageV2: storage).ensureReady();
+  return storage;
+}
+
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('fallback parser tolerates malformed tool arguments', () {
     final calls = ToolCallService.parseFallbackToolCalls(r'''
 ```json
@@ -63,64 +70,52 @@ void main() {
   test(
     'list_notes requires query before returning full note contents',
     () async {
-      SharedPreferences.setMockInitialValues({});
-      final features = FeatureProvider();
-      await features.load();
-      await features.addNoteWithContent('secret', 'private body');
-      final service = ToolCallService(features);
-
-      final blocked = await service.execute(
-        const ChatToolCall(
-          id: 'list-all-content',
-          name: 'list_notes',
-          arguments: {'includeContent': true},
-        ),
-        const [],
+      final root = await Directory.systemTemp.createTemp(
+        'lynai_tool_list_notes_test_',
       );
-      final allowed = await service.execute(
-        const ChatToolCall(
-          id: 'list-filtered-content',
-          name: 'list_notes',
-          arguments: {'query': 'secret', 'includeContent': true},
-        ),
-        const [],
-      );
+      try {
+        final storage = await _readyStorageV2(root);
+        final features = FeatureProvider(storageV2: storage);
+        await features.load();
+        await features.addNoteWithContent('secret', 'private body');
+        final service = ToolCallService(features);
 
-      expect(blocked['ok'], isFalse);
-      expect(allowed['ok'], isTrue);
-      expect(allowed['notes'], hasLength(1));
-      expect(allowed['notes'].single['content'], 'private body');
+        final blocked = await service.execute(
+          const ChatToolCall(
+            id: 'list-all-content',
+            name: 'list_notes',
+            arguments: {'includeContent': true},
+          ),
+          const [],
+        );
+        final allowed = await service.execute(
+          const ChatToolCall(
+            id: 'list-filtered-content',
+            name: 'list_notes',
+            arguments: {'query': 'secret', 'includeContent': true},
+          ),
+          const [],
+        );
+
+        expect(blocked['ok'], isFalse);
+        expect(allowed['ok'], isTrue);
+        expect(allowed['notes'], hasLength(1));
+        expect(allowed['notes'].single['content'], 'private body');
+      } finally {
+        await root.delete(recursive: true);
+      }
     },
   );
 
   test('save_note_page moves note pages', () async {
-    SharedPreferences.setMockInitialValues({});
-    final settingsProvider = SettingsProvider();
-    final modelProvider = ModelConfigProvider();
-    final conversationProvider = ConversationProvider();
-    final featureProvider = FeatureProvider();
-    await settingsProvider.loadSettings();
-    await modelProvider.loadModels();
-    await conversationProvider.loadConversations();
-    await featureProvider.load();
-    final noteId = await featureProvider.addNoteWithContent('note', 'body');
-
     final root = await Directory.systemTemp.createTemp(
       'lynai_tool_page_move_test_',
     );
     try {
-      await StorageMigrationService(
-        settingsProvider: settingsProvider,
-        modelConfigProvider: modelProvider,
-        conversationProvider: conversationProvider,
-        featureProvider: featureProvider,
-        rootDirectory: root,
-      ).migrate();
-
-      final features = FeatureProvider(
-        storageV2: StorageV2Service(rootDirectory: root),
-      );
+      final storage = await _readyStorageV2(root);
+      final features = FeatureProvider(storageV2: storage);
       await features.load();
+      final noteId = await features.addNoteWithContent('note', 'body');
       final service = ToolCallService(features);
       final secondPage = await features.addNotePage(noteId, 'second');
       expect(secondPage, isNotNull);

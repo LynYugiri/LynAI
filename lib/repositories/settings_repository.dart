@@ -1,12 +1,7 @@
-import 'dart:convert';
 import 'dart:io';
-
-import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/app_settings.dart';
 import '../services/storage_v2_service.dart';
-import 'app_storage_state.dart';
 
 /// 设置加载结果，包含应用设置实例与存储版本标识。
 class SettingsLoadResult {
@@ -21,55 +16,26 @@ class SettingsLoadResult {
 
 /// 应用设置仓储，负责加载和持久化用户偏好设置。
 ///
-/// 支持旧版 SharedPreferences 存储与新版存储 V2 两种模式，
 /// 包含背景图片资源同步功能。
 class SettingsRepository {
-  factory SettingsRepository({
-    StorageV2Service? storageV2,
-    AppStorageStateRepository? storageState,
-  }) {
+  factory SettingsRepository({StorageV2Service? storageV2}) {
     final storage = storageV2 ?? StorageV2Service();
-    return SettingsRepository._(
-      storage,
-      storageState ?? AppStorageStateRepository(storageV2: storage),
-    );
+    return SettingsRepository._(storage);
   }
 
-  SettingsRepository._(this._storageV2, this._storageState);
-
-  static const _storageKey = 'app_settings';
+  SettingsRepository._(this._storageV2);
 
   final StorageV2Service _storageV2;
-  final AppStorageStateRepository _storageState;
 
-  /// 加载应用设置，优先从新版 V2 存储读取。
+  /// 加载应用设置。
   ///
   /// 若存储中无数据则返回传入的默认值 [fallback]。
   Future<SettingsLoadResult> load(AppSettings fallback) async {
-    final usingStorageV2 = await _storageState.isStorageV2Active();
-    if (usingStorageV2) {
-      final json = await _storageV2.loadDataFile('app_settings.json');
-      final settings = json.isEmpty
-          ? fallback
-          : await _settingsFromStorageV2Json(json);
-      return SettingsLoadResult(settings: settings, usingStorageV2: true);
-    }
-    final prefs = await SharedPreferences.getInstance();
-    final jsonString = prefs.getString(_storageKey);
-    if (jsonString == null) {
-      return SettingsLoadResult(settings: fallback, usingStorageV2: false);
-    }
-    try {
-      return SettingsLoadResult(
-        settings: AppSettings.fromJson(
-          jsonDecode(jsonString) as Map<String, dynamic>,
-        ),
-        usingStorageV2: false,
-      );
-    } catch (e) {
-      debugPrint('解析设置数据失败: $e');
-      return SettingsLoadResult(settings: fallback, usingStorageV2: false);
-    }
+    final json = await _storageV2.loadDataFile('app_settings.json');
+    final settings = json.isEmpty
+        ? fallback
+        : await _settingsFromStorageV2Json(json);
+    return SettingsLoadResult(settings: settings, usingStorageV2: true);
   }
 
   /// 保存应用设置到当前激活的存储后端。
@@ -79,25 +45,20 @@ class SettingsRepository {
     AppSettings settings, {
     required bool usingStorageV2,
   }) async {
-    if (usingStorageV2 || await _isStorageV2Active()) {
-      final next = settings.toJson();
-      final nextStorage = <String, dynamic>{};
-      try {
-        final current = await _storageV2.loadDataFile('app_settings.json');
-        final storage = current['storageV2'];
-        if (storage is Map && storage.isNotEmpty) {
-          nextStorage.addAll(Map<String, dynamic>.from(storage));
-        }
-      } catch (_) {
-        // A missing or corrupt existing settings file should not block saving.
+    final next = settings.toJson();
+    final nextStorage = <String, dynamic>{};
+    try {
+      final current = await _storageV2.loadDataFile('app_settings.json');
+      final storage = current['storageV2'];
+      if (storage is Map && storage.isNotEmpty) {
+        nextStorage.addAll(Map<String, dynamic>.from(storage));
       }
-      await _syncBackgroundResourceId(settings, nextStorage);
-      if (nextStorage.isNotEmpty) next['storageV2'] = nextStorage;
-      await _storageV2.writeDataFile('app_settings.json', next);
-      return;
+    } catch (_) {
+      // A missing or corrupt existing settings file should not block saving.
     }
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_storageKey, jsonEncode(settings.toJson()));
+    await _syncBackgroundResourceId(settings, nextStorage);
+    if (nextStorage.isNotEmpty) next['storageV2'] = nextStorage;
+    await _storageV2.writeDataFile('app_settings.json', next);
   }
 
   Future<AppSettings> _settingsFromStorageV2Json(
@@ -117,14 +78,6 @@ class SettingsRepository {
         : await _storageV2.resourcePath(resource);
     if (path == null || path.isEmpty) return settings;
     return settings.copyWith(backgroundImagePath: path);
-  }
-
-  Future<bool> _isStorageV2Active() async {
-    try {
-      return await _storageState.isStorageV2Active();
-    } catch (_) {
-      return false;
-    }
   }
 
   Future<void> _syncBackgroundResourceId(

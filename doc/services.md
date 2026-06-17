@@ -1,6 +1,6 @@
 # 服务层、API 与工具调用
 
-`lib/services/` 负责和外部世界交互：模型 API、工具调用、平台能力、备份文件、storage_v2 和迁移。页面层只传入需要的上下文，服务层不持有 UI 状态。
+`lib/services/` 负责和外部世界交互：模型 API、工具调用、平台能力、备份文件、storage_v2 和存储升级。页面层只传入需要的上下文，服务层不持有 UI 状态。
 
 ## ApiService
 
@@ -232,18 +232,16 @@ storage_v2 是新版本地存储布局。`StorageV2Service` 是读写门面，`S
 storage_v2/
 ├── manifest.json
 ├── app.db
-├── data/*.json
 ├── notes/...md
-└── assets/...
+└── assets/blobs/{sha256Prefix}/{sha256}
 ```
 
 | 部分 | 说明 |
 |------|------|
 | `manifest.json` | 标识存储类型、schema 和布局信息。 |
 | `app.db` | 结构化数据权威源。 |
-| `data/*.json` | legacy/debug 镜像和导入来源。 |
 | `notes/*.md` | 笔记分页正文。 |
-| `assets/*` | 资源文件，按类型和哈希路径保存。 |
+| `assets/blobs/*` | 资源文件，按 SHA-256 内容寻址保存。 |
 
 ### 路径安全
 
@@ -251,39 +249,27 @@ storage_v2/
 
 ### 资源导入
 
-`importResourceFile()` 会按文件内容计算 SHA-256，相同内容和大小的资源复用同一条记录。缺失文件会记录为 missing resource，避免历史引用直接崩溃。
+`importResourceFile()` 会按文件内容计算 SHA-256，相同内容和大小的资源复用同一条记录。资源 blob 路径固定为 `assets/blobs/{sha256Prefix}/{sha256}`，展示名、MIME 类型和用途保存在资源 metadata 中。
 
-## StorageMigrationService
+## StorageV2UpgradeService
 
-文件：`lib/services/storage_migration_service.dart`
+文件：`lib/services/storage_v2_upgrade_service.dart`
 
-负责从 legacy SharedPreferences JSON 迁移到 storage_v2。迁移使用 staging 目录，成功导入数据库后再激活，失败时回滚。
+负责启动阶段创建或升级 storage_v2，只处理当前 storage_v2 布局到新版布局的安全升级。
 
 ```text
-legacy providers
-  -> storage_v2_staging/data/*.json
-  -> notes/*.md
-  -> assets/*
-  -> StorageV2Database.importDataFiles()
-  -> rename staging to storage_v2
-  -> mark migration completed
+missing storage_v2
+  -> create manifest.json
+  -> open app.db
+
+storage_v2 schemaVersion < current
+  -> copy storage_v2_backup_<timestamp>
+  -> copy old resource files into assets/blobs/{prefix}/{sha}
+  -> update resources.relativePath
+  -> write current manifest
 ```
 
-迁移状态写入 SharedPreferences，数据迁移完成后会移除体积较大的 legacy JSON 键。schema 常量以 `StorageMigrationService.currentSchemaVersion` 为准，文档不复制具体数值。
-
-## LegacyResourceMigrationService
-
-文件：`lib/services/legacy_resource_migration_service.dart`
-
-负责把旧 Documents 根目录下的长期资源复制到当前默认应用支持目录，并更新内存和落盘路径。
-
-| 资源 | 更新位置 |
-|------|----------|
-| 背景图 | `SettingsProvider.replaceSettings()` |
-| 普通聊天附件 | `ConversationProvider.replaceConversations()` |
-| 情景演绎附件 | `RoleplayProvider.replaceData()` |
-
-迁移只复制，不删除旧文件。单个资源失败会跳过并记录 debug 日志，不阻断应用启动。目标文件已存在且内容一致时直接复用，避免重复副本。
+升级前会复制整个 storage_v2 目录作为备份。升级失败时恢复备份，避免损坏当前用户数据。
 
 ## BackupService
 
@@ -310,11 +296,10 @@ todo_lists.json
 roleplay_scenarios.json
 roleplay_threads.json
 resources.json
-assets/backgrounds/...
-assets/message_images/...
+assets/blobs/{sha256Prefix}/{sha256}
 ```
 
-实际写入哪些文件由 `BackupSelection` 决定。`manifest.json` 会记录类型、schema、应用版本、创建时间、分区信息和附件映射。
+实际写入哪些文件由 `BackupSelection` 决定。`manifest.json` 会记录类型、schema、应用版本、创建时间、分区信息和附件映射。被引用的私有附件使用和 storage_v2 资源一致的 SHA blob 路径；多个旧路径引用同一内容时可共享同一个 ZIP 条目。
 
 ### 分区
 
@@ -347,7 +332,7 @@ assets/message_images/...
 
 ### 附件恢复
 
-备份只归档应用私有目录中被引用的附件。导入时附件会恢复到当前设备的应用私有目录，并把旧路径替换成新路径。
+备份只归档应用私有目录中被引用的附件。导入时附件会按 manifest 的 `archivePath` 读取并恢复为 storage_v2 blob，再把业务记录指向对应资源。旧数字前缀附件路径不再作为新版备份格式支持。
 
 如果 manifest 引用了某个附件但 ZIP 中缺失该文件，导入会记录 warning，并清除对应背景图或消息附件引用，避免导入后指向另一台设备上的无效路径。
 
@@ -384,7 +369,7 @@ assets/message_images/...
 
 1. 新增 API 协议时，先在 `ApiService` 内转换成现有 `StreamChunk` / `ChatResponse`。
 2. 新增工具时，同时更新工具 schema、参数校验、执行逻辑和文档。
-3. 新增备份字段时，更新 manifest 或分区 JSON，并保证旧备份仍能读取。
+3. 新增备份字段时，更新 manifest 或分区 JSON，并同步 bump `BackupService.currentSchemaVersion`。
 4. 涉及 API Key、位置、工具写入本地数据的功能，要在 UI 或文档中提示风险。
-5. 新增持久资源路径时，使用应用私有目录入口，并考虑备份和旧路径迁移。
+5. 新增持久资源路径时，使用 storage_v2 资源入口，并考虑备份和 SHA blob 去重。
 6. storage_v2 内部路径必须通过统一安全检查，不能拼接未校验的相对路径。

@@ -1,14 +1,9 @@
-import 'dart:convert';
-import 'dart:isolate';
-
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/agent_trace.dart';
 import '../models/conversation.dart';
 import '../models/message.dart';
 import '../services/storage_v2_service.dart';
-import 'app_storage_state.dart';
 
 /// 对话加载结果，包含对话列表与存储版本标识。
 class ConversationLoadResult {
@@ -22,72 +17,23 @@ class ConversationLoadResult {
 }
 
 /// 对话数据仓储，负责加载和持久化用户对话记录。
-///
-/// 支持旧版 SharedPreferences 存储与新版存储 V2 两种模式，
-/// 根据当前存储状态自动选择读写路径。
 class ConversationRepository {
-  factory ConversationRepository({
-    StorageV2Service? storageV2,
-    AppStorageStateRepository? storageState,
-  }) {
+  factory ConversationRepository({StorageV2Service? storageV2}) {
     final storage = storageV2 ?? StorageV2Service();
-    return ConversationRepository._(
-      storage,
-      storageState ?? AppStorageStateRepository(storageV2: storage),
-    );
+    return ConversationRepository._(storage);
   }
 
-  ConversationRepository._(this._storageV2, this._storageState);
-
-  static const _storageKey = 'conversations';
+  ConversationRepository._(this._storageV2);
 
   final StorageV2Service _storageV2;
-  final AppStorageStateRepository _storageState;
 
   /// 加载所有对话记录，按更新时间降序排列。
-  ///
-  /// 根据当前存储状态选择新版 V2 存储或旧版 SharedPreferences 进行读取。
   Future<ConversationLoadResult> load() async {
-    final usingStorageV2 = await _storageState.isStorageV2Active();
-    if (usingStorageV2) {
-      final conversations = await _loadStorageV2Conversations();
-      conversations.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-      return ConversationLoadResult(
-        conversations: conversations,
-        usingStorageV2: true,
-      );
-    }
-
-    final prefs = await SharedPreferences.getInstance();
-    final jsonString = prefs.getString(_storageKey);
-    if (jsonString == null) {
-      return const ConversationLoadResult(
-        conversations: [],
-        usingStorageV2: false,
-      );
-    }
-    List<dynamic> items;
-    try {
-      items = jsonDecode(jsonString) as List<dynamic>;
-    } catch (e) {
-      debugPrint('解析对话数据失败: $e');
-      return const ConversationLoadResult(
-        conversations: [],
-        usingStorageV2: false,
-      );
-    }
-    final conversations = <Conversation>[];
-    for (final item in items) {
-      try {
-        conversations.add(Conversation.fromJson(item as Map<String, dynamic>));
-      } catch (e) {
-        debugPrint('跳过损坏的对话记录: $e');
-      }
-    }
+    final conversations = await _loadStorageV2Conversations();
     conversations.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     return ConversationLoadResult(
       conversations: conversations,
-      usingStorageV2: false,
+      usingStorageV2: true,
     );
   }
 
@@ -96,16 +42,7 @@ class ConversationRepository {
     List<Conversation> conversations, {
     required bool usingStorageV2,
   }) async {
-    if (usingStorageV2 || await _isStorageV2Active()) {
-      await _saveStorageV2Conversations(conversations);
-      return;
-    }
-    final prefs = await SharedPreferences.getInstance();
-    final payload = conversations.map((item) => item.toJson()).toList();
-    final encoded = kIsWeb
-        ? _encodeJson(payload)
-        : await Isolate.run(() => _encodeJson(payload));
-    await prefs.setString(_storageKey, encoded);
+    await _saveStorageV2Conversations(conversations);
   }
 
   Future<List<Conversation>> _loadStorageV2Conversations() async {
@@ -173,46 +110,42 @@ class ConversationRepository {
     final conversations = <Conversation>[];
     for (final item in json['conversations'] as List<dynamic>? ?? const []) {
       if (item is! Map) continue;
-      final raw = Map<String, dynamic>.from(item);
-      final id = raw['id'] as String;
-      final messageRows = List<_StorageV2MessageRow>.from(
-        messagesByConversationId[id] ?? const [],
-      );
-      messageRows.sort((a, b) {
-        final orderA = a.sortOrder;
-        final orderB = b.sortOrder;
-        if (orderA != null && orderB != null) return orderA.compareTo(orderB);
-        if (orderA != null) return -1;
-        if (orderB != null) return 1;
-        return a.message.timestamp.compareTo(b.message.timestamp);
-      });
-      conversations.add(
-        Conversation(
-          id: id,
-          title: raw['title'] as String? ?? '',
-          messages: messageRows.map((row) => row.message).toList(),
-          modelId: raw['modelId'] as String? ?? '',
-          settings: raw['settings'] is Map
-              ? ConversationSettings.fromJson(
-                  Map<String, dynamic>.from(raw['settings'] as Map),
-                  fallbackModelId: raw['modelId'] as String? ?? '',
-                )
-              : null,
-          roleId: raw['roleId'] as String? ?? 'default',
-          createdAt: DateTime.parse(raw['createdAt'] as String),
-          updatedAt: DateTime.parse(raw['updatedAt'] as String),
-        ),
-      );
+      try {
+        final raw = Map<String, dynamic>.from(item);
+        final id = raw['id'] as String;
+        final messageRows = List<_StorageV2MessageRow>.from(
+          messagesByConversationId[id] ?? const [],
+        );
+        messageRows.sort((a, b) {
+          final orderA = a.sortOrder;
+          final orderB = b.sortOrder;
+          if (orderA != null && orderB != null) return orderA.compareTo(orderB);
+          if (orderA != null) return -1;
+          if (orderB != null) return 1;
+          return a.message.timestamp.compareTo(b.message.timestamp);
+        });
+        conversations.add(
+          Conversation(
+            id: id,
+            title: raw['title'] as String? ?? '',
+            messages: messageRows.map((row) => row.message).toList(),
+            modelId: raw['modelId'] as String? ?? '',
+            settings: raw['settings'] is Map
+                ? ConversationSettings.fromJson(
+                    Map<String, dynamic>.from(raw['settings'] as Map),
+                    fallbackModelId: raw['modelId'] as String? ?? '',
+                  )
+                : null,
+            roleId: raw['roleId'] as String? ?? 'default',
+            createdAt: DateTime.parse(raw['createdAt'] as String),
+            updatedAt: DateTime.parse(raw['updatedAt'] as String),
+          ),
+        );
+      } catch (e) {
+        debugPrint('跳过损坏的新版对话记录: $e');
+      }
     }
     return conversations;
-  }
-
-  Future<bool> _isStorageV2Active() async {
-    try {
-      return await _storageState.isStorageV2Active();
-    } catch (_) {
-      return false;
-    }
   }
 
   Future<void> _saveStorageV2Conversations(List<Conversation> snapshot) async {
@@ -272,8 +205,6 @@ class ConversationRepository {
     });
   }
 }
-
-String _encodeJson(Object? value) => jsonEncode(value);
 
 class _StorageV2MessageRow {
   const _StorageV2MessageRow({required this.message, required this.sortOrder});

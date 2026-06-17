@@ -1,41 +1,23 @@
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/recycle_bin_item.dart';
 import '../services/storage_v2_service.dart';
-import 'app_storage_state.dart';
 
 class RecycleBinRepository {
-  factory RecycleBinRepository({
-    StorageV2Service? storageV2,
-    AppStorageStateRepository? storageState,
-  }) {
+  factory RecycleBinRepository({StorageV2Service? storageV2}) {
     final storage = storageV2 ?? StorageV2Service();
-    return RecycleBinRepository._(
-      storage,
-      storageState ?? AppStorageStateRepository(storageV2: storage),
-    );
+    return RecycleBinRepository._(storage);
   }
 
-  RecycleBinRepository._(this._storageV2, this._storageState);
+  RecycleBinRepository._(this._storageV2);
 
-  static const _storageKey = 'recycle_bin_items';
   static const _fileName = 'recycle_bin.json';
   static Future<void> _mutationQueue = Future.value();
 
   final StorageV2Service _storageV2;
-  final AppStorageStateRepository _storageState;
 
   Future<List<RecycleBinItem>> load() async {
-    final usingStorageV2 = await _isStorageV2Active();
-    final rawItems = usingStorageV2
-        ? (await _storageV2.loadDataFile(_fileName))['items']
-        : jsonDecode(
-            (await SharedPreferences.getInstance()).getString(_storageKey) ??
-                '{"items":[]}',
-          )['items'];
+    final rawItems = (await _storageV2.loadDataFile(_fileName))['items'];
     final items = <RecycleBinItem>[];
     for (final item in rawItems as List<dynamic>? ?? const []) {
       try {
@@ -79,19 +61,6 @@ class RecycleBinRepository {
 
   Future<void> _writeItems(List<RecycleBinItem> items) async {
     final data = {'items': items.map((item) => item.toJson()).toList()};
-    if (await _isStorageV2Active()) {
-      await _storageV2.writeDataFile(_fileName, data);
-      return;
-    }
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_storageKey, const JsonEncoder().convert(data));
-  }
-
-  Future<bool> _isStorageV2Active() async {
-    try {
-      return await _storageState.isStorageV2Active();
-    } catch (_) {
-      return false;
-    }
+    await _storageV2.writeDataFile(_fileName, data);
   }
 }

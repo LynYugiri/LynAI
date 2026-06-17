@@ -21,10 +21,57 @@ import 'package:lynai/services/lynai_function_service.dart';
 import 'package:lynai/services/plugin_lua_runtime_service.dart';
 import 'package:lynai/services/tool_call_service.dart';
 import 'package:lynai/utils/plugin_path_utils.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+class _FakePathProviderPlatform extends PathProviderPlatform {
+  _FakePathProviderPlatform(this.root);
+
+  final Directory root;
+
+  @override
+  Future<String?> getTemporaryPath() => _path('tmp');
+
+  @override
+  Future<String?> getApplicationSupportPath() => _path('support');
+
+  @override
+  Future<String?> getApplicationDocumentsPath() => _path('documents');
+
+  @override
+  Future<String?> getApplicationCachePath() => _path('cache');
+
+  @override
+  Future<String?> getDownloadsPath() => _path('downloads');
+
+  Future<String> _path(String name) async {
+    final directory = Directory('${root.path}/$name');
+    if (!await directory.exists()) await directory.create(recursive: true);
+    return directory.path;
+  }
+}
+
 void main() {
-  test('RecycleBinRepository serializes concurrent legacy writes', () async {
+  Directory? pathProviderRoot;
+
+  setUp(() async {
+    pathProviderRoot = await Directory.systemTemp.createTemp(
+      'lynai_plugin_path_provider_test_',
+    );
+    PathProviderPlatform.instance = _FakePathProviderPlatform(
+      pathProviderRoot!,
+    );
+  });
+
+  tearDown(() async {
+    final root = pathProviderRoot;
+    pathProviderRoot = null;
+    if (root != null && await root.exists()) {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('RecycleBinRepository serializes concurrent writes', () async {
     SharedPreferences.setMockInitialValues({});
     final repository = RecycleBinRepository();
 

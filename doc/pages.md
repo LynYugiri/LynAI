@@ -160,7 +160,7 @@ HomePage
 | API | `api_models_page.dart` | 模型配置分类、编辑、排序和模型拉取。 |
 | 主题 | `theme_page.dart` | 预设色、HSV 调色板、浅色/深色/跟随系统。 |
 | 回收站 | `recycle_bin_page.dart` | 按功能分类查看已删除项目，支持恢复、永久删除和清空。 |
-| 数据管理 | `data_management_page.dart` | storage_v2 迁移、备份导出、备份预览、导入和冲突处理。 |
+| 数据管理 | `data_management_page.dart` | 备份导出、备份预览、导入和冲突处理。 |
 
 ## ApiModelsPage
 
@@ -174,12 +174,10 @@ HomePage
 
 文件：`lib/pages/data_management_page.dart`
 
-数据管理页通过 `StorageMigrationService` 和 `BackupService` 工作。
+数据管理页通过 `BackupService` 工作。storage_v2 创建和升级在启动阶段自动完成。
 
 | 步骤 | 说明 |
 |------|------|
-| 查看存储状态 | 展示 storage_v2 迁移状态、完成时间和摘要。 |
-| 执行迁移 | 把旧 JSON 数据写入 storage_v2 staging，再激活。 |
 | 选择导出内容 | 可选择设置、对话、笔记、日程、待办、情景演绎。 |
 | 导出文件 | 写入 ZIP 到用户选择的位置。 |
 | 读取备份 | 选择 ZIP 后解析 manifest、分区 JSON 和资源。 |
@@ -208,5 +206,5 @@ HomePage
 | FeaturePage | Dashboard 跳转、历史搜索、角色切换、跨天日程、笔记未保存确认、待办导入导出。 |
 | Roleplay | 情景创建、线程创建、导演/角色生成、玩家消息排队、附件、长图导出。 |
 | ApiModelsPage | 添加/删除模型、拖拽排序、获取模型、清空高级参数、子模型能力开关。 |
-| DataManagementPage | storage_v2 迁移、含 API Key 备份、旧备份读取、冲突导入、附件恢复。 |
+| DataManagementPage | 含 API Key 备份、新版备份读取、冲突导入、附件恢复。 |
 | ThemePage | 预设色、HSV 拖动、深浅色切换、重启恢复。 |

@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:lynai/models/app_settings.dart';
 import 'package:lynai/models/agent_plan.dart';
@@ -29,13 +30,94 @@ import 'package:lynai/repositories/settings_repository.dart';
 import 'package:lynai/services/api_service.dart';
 import 'package:lynai/services/backup_service.dart';
 import 'package:lynai/services/roleplay_service.dart';
-import 'package:lynai/services/storage_migration_service.dart';
 import 'package:lynai/services/storage_v2_service.dart';
+import 'package:lynai/services/storage_v2_upgrade_service.dart';
 import 'package:lynai/services/tool_call_service.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:sqlite3/sqlite3.dart';
 
+Future<StorageV2Service> _readyStorageV2(Directory root) async {
+  final storage = StorageV2Service(rootDirectory: root);
+  await StorageV2UpgradeService(storageV2: storage).ensureReady();
+  return storage;
+}
+
+Future<T> _withStorageV2<T>(
+  String prefix,
+  Future<T> Function(StorageV2Service storage, Directory root) action,
+) async {
+  final root = await Directory.systemTemp.createTemp(prefix);
+  try {
+    final storage = await _readyStorageV2(root);
+    return await action(storage, root);
+  } finally {
+    await root.delete(recursive: true);
+  }
+}
+
+Future<FeatureProvider> _loadedFeatureProvider(StorageV2Service storage) async {
+  final provider = FeatureProvider(storageV2: storage);
+  await provider.load();
+  return provider;
+}
+
+Future<T> _withFeatureProvider<T>(
+  String prefix,
+  Future<T> Function(FeatureProvider featureProvider) action,
+) async {
+  return _withStorageV2(prefix, (storage, _) async {
+    final provider = await _loadedFeatureProvider(storage);
+    return action(provider);
+  });
+}
+
+class _FakePathProviderPlatform extends PathProviderPlatform {
+  _FakePathProviderPlatform(this.root);
+
+  final Directory root;
+
+  @override
+  Future<String?> getTemporaryPath() => _path('tmp');
+
+  @override
+  Future<String?> getApplicationSupportPath() => _path('support');
+
+  @override
+  Future<String?> getApplicationDocumentsPath() => _path('documents');
+
+  @override
+  Future<String?> getApplicationCachePath() => _path('cache');
+
+  @override
+  Future<String?> getDownloadsPath() => _path('downloads');
+
+  Future<String> _path(String name) async {
+    final directory = Directory('${root.path}/$name');
+    if (!await directory.exists()) await directory.create(recursive: true);
+    return directory.path;
+  }
+}
+
 void main() {
+  Directory? pathProviderRoot;
+
+  setUp(() async {
+    pathProviderRoot = await Directory.systemTemp.createTemp(
+      'lynai_path_provider_test_',
+    );
+    PathProviderPlatform.instance = _FakePathProviderPlatform(
+      pathProviderRoot!,
+    );
+  });
+
+  tearDown(() async {
+    final root = pathProviderRoot;
+    pathProviderRoot = null;
+    if (root != null && await root.exists()) {
+      await root.delete(recursive: true);
+    }
+  });
+
   test('AppSettings preserves nullable fields through copyWith sentinel', () {
     final settings = AppSettings(
       themeColor: Colors.purple,
@@ -790,29 +872,93 @@ void main() {
   });
 
   test('Loaders skip malformed persisted items', () async {
-    SharedPreferences.setMockInitialValues({
-      'conversations':
-          '[{"id":"c1","title":"ok","messages":[],"modelId":"m1","settings":{"modelId":"m1"},"roleId":"default","createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"},{"id":"broken"}]',
-      'model_configs':
-          '[{"id":"m1","name":"Model","endpoint":"https://example.com","apiKey":"key","modelName":"model-a","apiType":"openai","priority":0},{"id":"broken"}]',
-      'schedule_items':
-          '[{"id":"s1","title":"demo","start":"2026-01-01T09:00:00.000Z","end":"2026-01-01T10:00:00.000Z"},{"id":"broken"}]',
-      'notes':
-          '[{"id":"n1","title":"note","content":"text","createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"},{"id":"broken"}]',
+    await _withStorageV2('lynai_loader_skip_test_', (storage, _) async {
+      final now = DateTime.utc(2026, 1, 1);
+      final page = StorageV2NotePage(
+        id: 'p1',
+        noteId: 'n1',
+        title: 'note',
+        fileName: 'note.md',
+        relativePath: 'notes/n1/note.md',
+        sortOrder: 0,
+        createdAt: now,
+        updatedAt: now,
+      );
+      await storage.writeNotePage(page, 'text');
+      await storage.writeDataFile('conversations.json', {
+        'conversations': [
+          {
+            'id': 'c1',
+            'title': 'ok',
+            'modelId': 'm1',
+            'settings': {'modelId': 'm1'},
+            'roleId': 'default',
+            'createdAt': now.toIso8601String(),
+            'updatedAt': now.toIso8601String(),
+          },
+          {'id': 'broken'},
+        ],
+        'messages': [],
+        'messageAttachments': [],
+      });
+      await storage.writeDataFile('model_configs.json', {
+        'models': [
+          {
+            'id': 'm1',
+            'name': 'Model',
+            'endpoint': 'https://example.com',
+            'apiKey': 'key',
+            'modelName': 'model-a',
+            'apiType': 'openai',
+            'priority': 0,
+          },
+          {'name': 'broken'},
+        ],
+      });
+      await storage.writeDataFile('schedules.json', {
+        'schedules': [
+          {
+            'id': 's1',
+            'title': 'demo',
+            'start': '2026-01-01T09:00:00.000Z',
+            'end': '2026-01-01T10:00:00.000Z',
+          },
+          {'title': 'broken'},
+        ],
+      });
+      await storage.writeDataFile('notes.json', {
+        'folders': [],
+        'notes': [
+          {
+            'id': 'n1',
+            'title': 'note',
+            'currentPageId': 'p1',
+            'createdAt': now.toIso8601String(),
+            'updatedAt': now.toIso8601String(),
+            'wrap': true,
+            'sortOrder': 0,
+          },
+          {'id': 'broken'},
+        ],
+        'pages': [page.toJson()],
+        'revisions': [],
+        'editProposals': [],
+        'editBlocks': [],
+      });
+
+      final conversationProvider = ConversationProvider(storageV2: storage);
+      final modelProvider = ModelConfigProvider(storageV2: storage);
+      final featureProvider = FeatureProvider(storageV2: storage);
+
+      await conversationProvider.loadConversations();
+      await modelProvider.loadModels();
+      await featureProvider.load();
+
+      expect(conversationProvider.conversations, hasLength(1));
+      expect(modelProvider.models, hasLength(1));
+      expect(featureProvider.schedules, hasLength(1));
+      expect(featureProvider.notes, hasLength(1));
     });
-
-    final conversationProvider = ConversationProvider();
-    final modelProvider = ModelConfigProvider();
-    final featureProvider = FeatureProvider();
-
-    await conversationProvider.loadConversations();
-    await modelProvider.loadModels();
-    await featureProvider.load();
-
-    expect(conversationProvider.conversations, hasLength(1));
-    expect(modelProvider.models, hasLength(1));
-    expect(featureProvider.schedules, hasLength(1));
-    expect(featureProvider.notes, hasLength(1));
   });
 
   test('ScheduleItem preserves task kind and keeps legacy schedules', () {
@@ -839,117 +985,146 @@ void main() {
   });
 
   test('ToolCallService creates schedule tasks with start only', () async {
-    SharedPreferences.setMockInitialValues({});
-    final featureProvider = FeatureProvider();
-    await featureProvider.load();
-    final service = ToolCallService(featureProvider);
+    await _withFeatureProvider('lynai_tool_schedule_test_', (
+      featureProvider,
+    ) async {
+      final service = ToolCallService(featureProvider);
 
-    final taskResult = await service.execute(
-      const ChatToolCall(
-        id: 'create-task',
-        name: 'create_schedule',
-        arguments: {
-          'kind': 'task',
-          'title': '交材料',
-          'start': '2026-01-01T09:00:00.000',
-        },
-      ),
-      const [],
-    );
+      final taskResult = await service.execute(
+        const ChatToolCall(
+          id: 'create-task',
+          name: 'create_schedule',
+          arguments: {
+            'kind': 'task',
+            'title': '交材料',
+            'start': '2026-01-01T09:00:00.000',
+          },
+        ),
+        const [],
+      );
 
-    expect(taskResult['ok'], isTrue);
-    expect(taskResult['schedule']['kind'], 'task');
-    expect(taskResult['schedule'].containsKey('end'), isFalse);
-    expect(featureProvider.schedules.single.isTask, isTrue);
-    expect(
-      featureProvider.schedules.single.end.difference(
-        featureProvider.schedules.single.start,
-      ),
-      const Duration(minutes: 1),
-    );
+      expect(taskResult['ok'], isTrue);
+      expect(taskResult['schedule']['kind'], 'task');
+      expect(taskResult['schedule'].containsKey('end'), isFalse);
+      expect(featureProvider.schedules.single.isTask, isTrue);
+      expect(
+        featureProvider.schedules.single.end.difference(
+          featureProvider.schedules.single.start,
+        ),
+        const Duration(minutes: 1),
+      );
+    });
   });
 
   test('ToolCallService manages todo lists and items', () async {
-    SharedPreferences.setMockInitialValues({});
-    final featureProvider = FeatureProvider();
-    await featureProvider.load();
-    final service = ToolCallService(featureProvider);
+    await _withFeatureProvider('lynai_tool_todo_test_', (
+      featureProvider,
+    ) async {
+      final service = ToolCallService(featureProvider);
 
-    final createResult = await service.execute(
-      const ChatToolCall(
-        id: 'create-list',
-        name: 'save_todo_list',
-        arguments: {
-          'title': '购物',
-          'items': [
-            {'text': '买牛奶', 'done': 'false'},
-            {'text': '  '},
-          ],
-        },
-      ),
-      const [],
-    );
+      final createResult = await service.execute(
+        const ChatToolCall(
+          id: 'create-list',
+          name: 'save_todo_list',
+          arguments: {
+            'title': '购物',
+            'items': [
+              {'text': '买牛奶', 'done': 'false'},
+              {'text': '  '},
+            ],
+          },
+        ),
+        const [],
+      );
 
-    expect(createResult['ok'], isTrue);
-    final list = createResult['todoList'] as Map<String, dynamic>;
-    expect(list['title'], '购物');
-    expect(list['items'], hasLength(1));
-    final listId = list['id'] as String;
-    final itemId = (list['items'] as List).single['id'] as String;
+      expect(createResult['ok'], isTrue);
+      final list = createResult['todoList'] as Map<String, dynamic>;
+      expect(list['title'], '购物');
+      expect(list['items'], hasLength(1));
+      final listId = list['id'] as String;
+      final itemId = (list['items'] as List).single['id'] as String;
 
-    final completeResult = await service.execute(
-      ChatToolCall(
-        id: 'complete-item',
-        name: 'save_todo_item',
-        arguments: {'listId': listId, 'itemId': itemId, 'done': 'true'},
-      ),
-      const [],
-    );
+      final completeResult = await service.execute(
+        ChatToolCall(
+          id: 'complete-item',
+          name: 'save_todo_item',
+          arguments: {'listId': listId, 'itemId': itemId, 'done': 'true'},
+        ),
+        const [],
+      );
 
-    expect(completeResult['ok'], isTrue);
-    expect(completeResult['item']['done'], isTrue);
+      expect(completeResult['ok'], isTrue);
+      expect(completeResult['item']['done'], isTrue);
 
-    final addResult = await service.execute(
-      ChatToolCall(
-        id: 'add-item',
-        name: 'save_todo_item',
-        arguments: {'listId': listId, 'text': '买面包'},
-      ),
-      const [],
-    );
+      final addResult = await service.execute(
+        ChatToolCall(
+          id: 'add-item',
+          name: 'save_todo_item',
+          arguments: {'listId': listId, 'text': '买面包'},
+        ),
+        const [],
+      );
 
-    expect(addResult['ok'], isTrue);
-    expect(addResult['todoList']['items'], hasLength(2));
-    expect(addResult['todoList']['items'].first['text'], '买面包');
+      expect(addResult['ok'], isTrue);
+      expect(addResult['todoList']['items'], hasLength(2));
+      expect(addResult['todoList']['items'].first['text'], '买面包');
 
-    final renameResult = await service.execute(
-      ChatToolCall(
-        id: 'rename-list',
-        name: 'save_todo_list',
-        arguments: {'id': listId, 'items': const []},
-      ),
-      const [],
-    );
+      final renameResult = await service.execute(
+        ChatToolCall(
+          id: 'rename-list',
+          name: 'save_todo_list',
+          arguments: {'id': listId, 'items': const []},
+        ),
+        const [],
+      );
 
-    expect(renameResult['ok'], isTrue);
-    expect(renameResult['todoList']['title'], '购物');
-    expect(renameResult['todoList']['items'], isEmpty);
+      expect(renameResult['ok'], isTrue);
+      expect(renameResult['todoList']['title'], '购物');
+      expect(renameResult['todoList']['items'], isEmpty);
+    });
   });
 
   test('Note folders persist and clean missing references', () async {
-    SharedPreferences.setMockInitialValues({
-      'notes':
-          '[{"id":"n1","title":"orphan","content":"text","folderId":"missing","createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}]',
-      'note_folders': '[]',
+    await _withStorageV2('lynai_note_folder_cleanup_test_', (storage, _) async {
+      final now = DateTime.utc(2026, 1, 1);
+      final page = StorageV2NotePage(
+        id: 'p1',
+        noteId: 'n1',
+        title: 'orphan',
+        fileName: 'orphan.md',
+        relativePath: 'notes/n1/orphan.md',
+        sortOrder: 0,
+        createdAt: now,
+        updatedAt: now,
+      );
+      await storage.writeNotePage(page, 'text');
+      await storage.writeNotesData({
+        'folders': [],
+        'notes': [
+          {
+            'id': 'n1',
+            'title': 'orphan',
+            'folderId': 'missing',
+            'currentPageId': 'p1',
+            'createdAt': now.toIso8601String(),
+            'updatedAt': now.toIso8601String(),
+            'wrap': true,
+            'sortOrder': 0,
+          },
+        ],
+        'pages': [page.toJson()],
+        'revisions': [],
+        'editProposals': [],
+        'editBlocks': [],
+      });
+      final featureProvider = await _loadedFeatureProvider(storage);
+
+      expect(featureProvider.notes.single.folderId, isNull);
+      final notesData = await storage.loadNotesData();
+      final notes = notesData['notes'] as List<dynamic>;
+      expect(notes.single['title'], 'orphan');
+      expect((notes.single as Map).containsKey('folderId'), isFalse);
     });
-    final featureProvider = FeatureProvider();
-
-    await featureProvider.load();
-
-    expect(featureProvider.notes.single.folderId, isNull);
-    final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getString('notes'), contains('"title":"orphan"'));
-    expect(prefs.getString('notes'), isNot(contains('"folderId":"missing"')));
   });
 
   test('Note copyWith can clear folder without changing updatedAt', () {
@@ -972,124 +1147,130 @@ void main() {
   test(
     'Note timeline protects current path and deletes branch descendants',
     () async {
-      SharedPreferences.setMockInitialValues({});
-      final featureProvider = FeatureProvider();
-      await featureProvider.load();
+      await _withFeatureProvider('lynai_note_timeline_test_', (
+        featureProvider,
+      ) async {
+        final noteId = await featureProvider.addNoteWithContent('note', 'root');
+        final rootId = featureProvider.getNote(noteId)!.currentRevisionId!;
+        final second = await featureProvider.saveNoteContent(noteId, 'second');
+        final secondId = second!.id;
+        final third = await featureProvider.saveNoteContent(noteId, 'third');
+        final thirdId = third!.id;
 
-      final noteId = await featureProvider.addNoteWithContent('note', 'root');
-      final rootId = featureProvider.getNote(noteId)!.currentRevisionId!;
-      final second = await featureProvider.saveNoteContent(noteId, 'second');
-      final secondId = second!.id;
-      final third = await featureProvider.saveNoteContent(noteId, 'third');
-      final thirdId = third!.id;
+        expect(featureProvider.getNoteCurrentRevisionPath(noteId), {
+          rootId,
+          secondId,
+          thirdId,
+        });
+        expect(
+          await featureProvider.deleteNoteRevision(noteId, rootId),
+          isFalse,
+        );
+        expect(
+          await featureProvider.deleteNoteRevision(noteId, thirdId),
+          isFalse,
+        );
 
-      expect(featureProvider.getNoteCurrentRevisionPath(noteId), {
-        rootId,
-        secondId,
-        thirdId,
+        final restored = await featureProvider.restoreNoteRevision(
+          noteId,
+          rootId,
+        );
+        final restoredId = restored!.id;
+
+        expect(featureProvider.getNote(noteId)!.content, 'root');
+        expect(featureProvider.getNoteCurrentRevisionPath(noteId), {
+          rootId,
+          restoredId,
+        });
+        expect(
+          await featureProvider.deleteNoteRevision(noteId, secondId),
+          isTrue,
+        );
+
+        final timelineIds = featureProvider
+            .getNoteTimeline(noteId)
+            .map((revision) => revision.id)
+            .toSet();
+        expect(timelineIds, containsAll([rootId, restoredId]));
+        expect(timelineIds, isNot(contains(secondId)));
+        expect(timelineIds, isNot(contains(thirdId)));
+        expect(
+          featureProvider.getNoteContentAtRevision(noteId, restoredId),
+          'root',
+        );
       });
-      expect(await featureProvider.deleteNoteRevision(noteId, rootId), isFalse);
-      expect(
-        await featureProvider.deleteNoteRevision(noteId, thirdId),
-        isFalse,
-      );
-
-      final restored = await featureProvider.restoreNoteRevision(
-        noteId,
-        rootId,
-      );
-      final restoredId = restored!.id;
-
-      expect(featureProvider.getNote(noteId)!.content, 'root');
-      expect(featureProvider.getNoteCurrentRevisionPath(noteId), {
-        rootId,
-        restoredId,
-      });
-      expect(
-        await featureProvider.deleteNoteRevision(noteId, secondId),
-        isTrue,
-      );
-
-      final timelineIds = featureProvider
-          .getNoteTimeline(noteId)
-          .map((revision) => revision.id)
-          .toSet();
-      expect(timelineIds, containsAll([rootId, restoredId]));
-      expect(timelineIds, isNot(contains(secondId)));
-      expect(timelineIds, isNot(contains(thirdId)));
-      expect(
-        featureProvider.getNoteContentAtRevision(noteId, restoredId),
-        'root',
-      );
     },
   );
 
   test(
     'Note timeline can delete branches from a current path fork point',
     () async {
-      SharedPreferences.setMockInitialValues({});
-      final featureProvider = FeatureProvider();
-      await featureProvider.load();
+      await _withFeatureProvider('lynai_note_branch_delete_test_', (
+        featureProvider,
+      ) async {
+        final noteId = await featureProvider.addNoteWithContent('note', 'root');
+        final rootId = featureProvider.getNote(noteId)!.currentRevisionId!;
+        final main = await featureProvider.saveNoteContent(noteId, 'main');
+        final mainId = main!.id;
+        final branch = await featureProvider.restoreNoteRevision(
+          noteId,
+          rootId,
+        );
+        final branchId = branch!.id;
+        final branchChild = await featureProvider.saveNoteContent(
+          noteId,
+          'branch child',
+        );
+        final branchChildId = branchChild!.id;
+        final mainAgain = await featureProvider.restoreNoteRevision(
+          noteId,
+          mainId,
+        );
+        final mainAgainId = mainAgain!.id;
 
-      final noteId = await featureProvider.addNoteWithContent('note', 'root');
-      final rootId = featureProvider.getNote(noteId)!.currentRevisionId!;
-      final main = await featureProvider.saveNoteContent(noteId, 'main');
-      final mainId = main!.id;
-      final branch = await featureProvider.restoreNoteRevision(noteId, rootId);
-      final branchId = branch!.id;
-      final branchChild = await featureProvider.saveNoteContent(
-        noteId,
-        'branch child',
-      );
-      final branchChildId = branchChild!.id;
-      final mainAgain = await featureProvider.restoreNoteRevision(
-        noteId,
-        mainId,
-      );
-      final mainAgainId = mainAgain!.id;
+        expect(featureProvider.getNoteCurrentRevisionPath(noteId), {
+          rootId,
+          mainId,
+          mainAgainId,
+        });
+        expect(featureProvider.countNoteBranchRevisions(noteId, rootId), 2);
 
-      expect(featureProvider.getNoteCurrentRevisionPath(noteId), {
-        rootId,
-        mainId,
-        mainAgainId,
+        final deleted = await featureProvider.deleteNoteBranchesFromRevision(
+          noteId,
+          rootId,
+        );
+
+        expect(deleted, 2);
+        final timelineIds = featureProvider
+            .getNoteTimeline(noteId)
+            .map((revision) => revision.id)
+            .toSet();
+        expect(timelineIds, containsAll([rootId, mainId, mainAgainId]));
+        expect(timelineIds, isNot(contains(branchId)));
+        expect(timelineIds, isNot(contains(branchChildId)));
+        expect(featureProvider.getNote(noteId)!.content, 'main');
       });
-      expect(featureProvider.countNoteBranchRevisions(noteId, rootId), 2);
-
-      final deleted = await featureProvider.deleteNoteBranchesFromRevision(
-        noteId,
-        rootId,
-      );
-
-      expect(deleted, 2);
-      final timelineIds = featureProvider
-          .getNoteTimeline(noteId)
-          .map((revision) => revision.id)
-          .toSet();
-      expect(timelineIds, containsAll([rootId, mainId, mainAgainId]));
-      expect(timelineIds, isNot(contains(branchId)));
-      expect(timelineIds, isNot(contains(branchChildId)));
-      expect(featureProvider.getNote(noteId)!.content, 'main');
     },
   );
 
   test('Note save falls back when base revision is missing', () async {
-    SharedPreferences.setMockInitialValues({});
-    final featureProvider = FeatureProvider();
-    await featureProvider.load();
+    await _withFeatureProvider('lynai_note_missing_base_test_', (
+      featureProvider,
+    ) async {
+      final noteId = await featureProvider.addNoteWithContent('note', 'root');
+      final first = await featureProvider.saveNoteContent(noteId, 'first');
+      final second = await featureProvider.saveNoteContent(
+        noteId,
+        'second',
+        baseRevisionId: 'missing-revision',
+      );
 
-    final noteId = await featureProvider.addNoteWithContent('note', 'root');
-    final first = await featureProvider.saveNoteContent(noteId, 'first');
-    final second = await featureProvider.saveNoteContent(
-      noteId,
-      'second',
-      baseRevisionId: 'missing-revision',
-    );
-
-    expect(first, isNotNull);
-    expect(second, isNotNull);
-    expect(featureProvider.getNote(noteId)!.content, 'second');
-    expect(second!.parentRevisionId, first!.id);
-    expect(featureProvider.getNoteTimeline(noteId), hasLength(3));
+      expect(first, isNotNull);
+      expect(second, isNotNull);
+      expect(featureProvider.getNote(noteId)!.content, 'second');
+      expect(second!.parentRevisionId, first!.id);
+      expect(featureProvider.getNoteTimeline(noteId), hasLength(3));
+    });
   });
 
   test('ToolCallService manages note folders and moves notes', () async {
@@ -1503,143 +1684,101 @@ void main() {
     },
   );
 
-  test('Storage migration writes note pages and resource index', () async {
-    SharedPreferences.setMockInitialValues({});
-    final settingsProvider = SettingsProvider();
-    final modelProvider = ModelConfigProvider();
-    final conversationProvider = ConversationProvider();
-    final featureProvider = FeatureProvider();
-    await settingsProvider.loadSettings();
-    await modelProvider.loadModels();
-    await conversationProvider.loadConversations();
-    await featureProvider.load();
-
+  test('Storage v2 writes note pages and resource index', () async {
     final root = await Directory.systemTemp.createTemp('lynai_migration_test_');
-    final image = File('${root.path}/legacy.png');
-    await image.writeAsBytes([1, 2, 3, 4], flush: true);
-    await featureProvider.addNoteWithContent('分页测试', '# 标题\n正文');
-    conversationProvider.createConversation(ConversationSettings(modelId: 'm'));
-    final conversation = conversationProvider.conversations.first;
-    conversationProvider.addMessage(
-      conversation.id,
-      'user',
-      '带图消息',
-      images: [
-        MessageImage(
-          path: image.path,
-          name: 'legacy.png',
-          size: 4,
-          mimeType: 'image/png',
-        ),
-      ],
-    );
-
-    final service = StorageMigrationService(
-      settingsProvider: settingsProvider,
-      modelConfigProvider: modelProvider,
-      conversationProvider: conversationProvider,
-      featureProvider: featureProvider,
-      rootDirectory: root,
-    );
-    final report = await service.migrate();
-
-    expect(report.notes, 1);
-    expect(report.notePages, 1);
-    expect(report.resources, 1);
-    final database = sqlite3.open('${root.path}/storage_v2/app.db');
     try {
-      expect(
-        database.select('SELECT COUNT(*) AS count FROM notes').single['count'],
-        1,
+      final storage = await _readyStorageV2(root);
+      final featureProvider = FeatureProvider(storageV2: storage);
+      final conversationProvider = ConversationProvider(storageV2: storage);
+      await featureProvider.load();
+      await conversationProvider.loadConversations();
+
+      final image = File('${root.path}/legacy.png');
+      await image.writeAsBytes([1, 2, 3, 4], flush: true);
+      await featureProvider.addNoteWithContent('分页测试', '# 标题\n正文');
+      final conversationId = conversationProvider.createConversation(
+        ConversationSettings(modelId: 'm'),
       );
-      expect(
-        database
-            .select('SELECT COUNT(*) AS count FROM message_attachments')
-            .single['count'],
-        1,
+      conversationProvider.addMessage(
+        conversationId,
+        'user',
+        '带图消息',
+        images: [
+          MessageImage(
+            path: image.path,
+            name: 'legacy.png',
+            size: 4,
+            mimeType: 'image/png',
+          ),
+        ],
       );
-      expect(
-        database
-            .select('SELECT COUNT(*) AS count FROM resources')
-            .single['count'],
-        1,
+      await conversationProvider.flushPendingSaves();
+
+      final database = sqlite3.open('${root.path}/storage_v2/app.db');
+      try {
+        expect(
+          database
+              .select('SELECT COUNT(*) AS count FROM notes')
+              .single['count'],
+          1,
+        );
+        expect(
+          database
+              .select('SELECT COUNT(*) AS count FROM message_attachments')
+              .single['count'],
+          1,
+        );
+        expect(
+          database
+              .select('SELECT COUNT(*) AS count FROM resources')
+              .single['count'],
+          1,
+        );
+      } finally {
+        database.close();
+      }
+      final notesJson = await storage.loadNotesData();
+      final page = (notesJson['pages'] as List<dynamic>).single as Map;
+      final pageFile = File('${root.path}/storage_v2/${page['relativePath']}');
+      expect(await pageFile.exists(), isTrue);
+      expect(await pageFile.readAsString(), '# 标题\n正文');
+      final resources = await storage.loadResources();
+      expect(resources, hasLength(1));
+      expect(resources.single.kind, 'images');
+      expect(resources.single.relativePath, startsWith('assets/blobs/'));
+      final conversationsJson = await storage.loadDataFile(
+        'conversations.json',
       );
+      expect(conversationsJson['messageAttachments'], hasLength(1));
     } finally {
-      database.close();
+      await root.delete(recursive: true);
     }
-    final notesJson =
-        jsonDecode(
-              await File(
-                '${root.path}/storage_v2/data/notes.json',
-              ).readAsString(),
-            )
-            as Map<String, dynamic>;
-    final page = (notesJson['pages'] as List<dynamic>).single as Map;
-    final pageFile = File('${root.path}/storage_v2/${page['relativePath']}');
-    expect(await pageFile.exists(), isTrue);
-    expect(await pageFile.readAsString(), '# 标题\n正文');
-    final resourcesJson =
-        jsonDecode(
-              await File(
-                '${root.path}/storage_v2/data/resources.json',
-              ).readAsString(),
-            )
-            as Map<String, dynamic>;
-    final resources = resourcesJson['resources'] as List<dynamic>;
-    expect(resources, hasLength(1));
-    expect(resources.single['kind'], 'images');
-    expect(resources.single['relativePath'], startsWith('assets/images/'));
-    final conversationsJson =
-        jsonDecode(
-              await File(
-                '${root.path}/storage_v2/data/conversations.json',
-              ).readAsString(),
-            )
-            as Map<String, dynamic>;
-    expect(conversationsJson['messageAttachments'], hasLength(1));
-    await root.delete(recursive: true);
   });
 
-  test('Storage migration keeps unsafe note ids inside storage root', () async {
-    SharedPreferences.setMockInitialValues({});
-    final settingsProvider = SettingsProvider();
-    final modelProvider = ModelConfigProvider();
-    final conversationProvider = ConversationProvider();
-    final featureProvider = FeatureProvider();
-    await settingsProvider.loadSettings();
-    await modelProvider.loadModels();
-    await conversationProvider.loadConversations();
-    await featureProvider.load();
-
-    final now = DateTime(2026);
-    await featureProvider.replaceFeatureData(
-      notes: [
-        Note(
-          id: '../escape',
-          title: 'unsafe',
-          content: 'secret',
-          createdAt: now,
-          updatedAt: now,
-        ),
-      ],
-      noteFolders: const [],
-      noteRevisions: const [],
-    );
-
+  test('Storage v2 keeps unsafe note ids inside storage root', () async {
     final root = await Directory.systemTemp.createTemp(
       'lynai_migration_path_test_',
     );
     try {
-      await StorageMigrationService(
-        settingsProvider: settingsProvider,
-        modelConfigProvider: modelProvider,
-        conversationProvider: conversationProvider,
-        featureProvider: featureProvider,
-        rootDirectory: root,
-      ).migrate();
+      final storage = await _readyStorageV2(root);
+      final featureProvider = FeatureProvider(storageV2: storage);
+      await featureProvider.load();
+      final now = DateTime(2026);
+      await featureProvider.replaceFeatureData(
+        notes: [
+          Note(
+            id: '../escape',
+            title: 'unsafe',
+            content: 'secret',
+            createdAt: now,
+            updatedAt: now,
+          ),
+        ],
+        noteFolders: const [],
+        noteRevisions: const [],
+      );
 
       expect(await File('${root.path}/escape/unsafe.md').exists(), isFalse);
-      final storage = StorageV2Service(rootDirectory: root);
       final notes = await storage.loadNotes();
       expect(notes.notes.single.id, '../escape');
       expect(notes.pages.single.relativePath, startsWith('notes/'));
@@ -1651,85 +1790,146 @@ void main() {
   });
 
   test('StorageV2Service reads migrated notes and resources', () async {
-    SharedPreferences.setMockInitialValues({});
-    final settingsProvider = SettingsProvider();
-    final modelProvider = ModelConfigProvider();
-    final conversationProvider = ConversationProvider();
-    final featureProvider = FeatureProvider();
-    await settingsProvider.loadSettings();
-    await modelProvider.loadModels();
-    await conversationProvider.loadConversations();
-    await featureProvider.load();
-
     final root = await Directory.systemTemp.createTemp(
       'lynai_storage_v2_test_',
     );
-    final resource = File('${root.path}/legacy.txt');
-    await resource.writeAsString('resource', flush: true);
-    final noteId = await featureProvider.addNoteWithContent(
-      'book',
-      'page body',
+    try {
+      final storage = StorageV2Service(rootDirectory: root);
+      await storage.writeManifest({
+        'type': 'lynai.storage_v2',
+        'schemaVersion': StorageV2Service.currentLayoutVersion,
+      });
+      final now = DateTime(2026);
+      final page = StorageV2NotePage(
+        id: 'p1',
+        noteId: 'n1',
+        title: 'page',
+        fileName: 'page.md',
+        relativePath: 'notes/n1/page.md',
+        sortOrder: 0,
+        createdAt: now,
+        updatedAt: now,
+      );
+      await storage.writeNotePage(page, 'page body');
+      await storage.writeDataFile('notes.json', {
+        'folders': [],
+        'notes': [
+          {
+            'id': 'n1',
+            'title': 'book',
+            'currentPageId': 'p1',
+            'createdAt': now.toIso8601String(),
+            'updatedAt': now.toIso8601String(),
+            'wrap': true,
+            'sortOrder': 0,
+          },
+        ],
+        'pages': [page.toJson()],
+        'revisions': [],
+        'editProposals': [],
+        'editBlocks': [],
+      });
+
+      final source = File('${root.path}/resource.txt');
+      await source.writeAsString('resource', flush: true);
+      await storage.importResourceFile(
+        source.path,
+        originalName: 'resource.txt',
+        mimeType: 'text/plain',
+        role: 'message_attachment',
+      );
+
+      expect(await storage.exists(), isTrue);
+      final manifest = await storage.loadManifest();
+      expect(manifest['type'], 'lynai.storage_v2');
+      final notes = await storage.loadNotes();
+      expect(notes.notes.single.id, 'n1');
+      expect(notes.pagesFor('n1'), hasLength(1));
+      expect(await storage.readNotePage(notes.pages.single), 'page body');
+      await storage.writeNotePage(notes.pages.single, 'updated body');
+      expect(await storage.readNotePage(notes.pages.single), 'updated body');
+
+      final resources = await storage.loadResources();
+      expect(resources.single.kind, 'documents');
+      expect(resources.single.relativePath, startsWith('assets/blobs/'));
+      final resourceFile = await storage.resourceFile(resources.single);
+      expect(resourceFile, isNotNull);
+      expect(await resourceFile!.exists(), isTrue);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('StorageV2UpgradeService moves resources to sha blobs', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_storage_v2_upgrade_test_',
     );
-    conversationProvider.createConversation(ConversationSettings(modelId: 'm'));
-    final conversation = conversationProvider.conversations.first;
-    conversationProvider.addMessage(
-      conversation.id,
-      'user',
-      'with file',
-      images: [
-        MessageImage(
-          path: resource.path,
-          name: 'legacy.txt',
-          size: 8,
-          mimeType: 'text/plain',
-        ),
-      ],
-    );
+    final storageRoot = Directory('${root.path}/storage_v2');
+    final hash =
+        '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81';
+    final oldRelativePath = 'assets/images/03/${hash}_photo.png';
+    try {
+      await storageRoot.create(recursive: true);
+      await File('${storageRoot.path}/manifest.json').writeAsString(
+        jsonEncode({'type': 'lynai.storage_v2', 'schemaVersion': 2}),
+      );
+      final oldFile = File('${storageRoot.path}/$oldRelativePath');
+      await oldFile.parent.create(recursive: true);
+      await oldFile.writeAsBytes([1, 2, 3], flush: true);
 
-    await StorageMigrationService(
-      settingsProvider: settingsProvider,
-      modelConfigProvider: modelProvider,
-      conversationProvider: conversationProvider,
-      featureProvider: featureProvider,
-      rootDirectory: root,
-    ).migrate();
+      final storage = StorageV2Service(rootDirectory: root);
+      await storage.writeDataFile('resources.json', {
+        'resources': [
+          {
+            'id': 'res_${hash.substring(0, 32)}',
+            'kind': 'images',
+            'role': 'message_image',
+            'originalPath': oldFile.path,
+            'originalName': 'photo.png',
+            'relativePath': oldRelativePath,
+            'mimeType': 'image/png',
+            'size': 3,
+            'sha256': hash,
+            'missing': false,
+          },
+        ],
+      });
 
-    final storage = StorageV2Service(rootDirectory: root);
-    expect(await storage.exists(), isTrue);
-    final manifest = await storage.loadManifest();
-    expect(manifest['type'], 'lynai.storage_v2');
-    final notes = await storage.loadNotes();
-    expect(notes.notes.single.id, noteId);
-    expect(notes.pagesFor(noteId), hasLength(1));
-    expect(await storage.readNotePage(notes.pages.single), 'page body');
-    await storage.writeNotePage(notes.pages.single, 'updated body');
-    expect(await storage.readNotePage(notes.pages.single), 'updated body');
+      await StorageV2UpgradeService(storageV2: storage).ensureReady();
 
-    final resources = await storage.loadResources();
-    expect(resources.single.kind, 'documents');
-    final resourceFile = await storage.resourceFile(resources.single);
-    expect(resourceFile, isNotNull);
-    expect(await resourceFile!.exists(), isTrue);
-    await root.delete(recursive: true);
+      final manifest =
+          jsonDecode(
+                await File('${storageRoot.path}/manifest.json').readAsString(),
+              )
+              as Map<String, dynamic>;
+      expect(manifest['schemaVersion'], StorageV2Service.currentLayoutVersion);
+      final resources = await storage.loadResources();
+      expect(resources.single.relativePath, 'assets/blobs/03/$hash');
+      expect(
+        await File(
+          '${storageRoot.path}/${resources.single.relativePath}',
+        ).readAsBytes(),
+        [1, 2, 3],
+      );
+    } finally {
+      await root.delete(recursive: true);
+    }
   });
 
   test('StorageV2Service tolerates orphan storage v2 references', () async {
     final root = await Directory.systemTemp.createTemp(
       'lynai_storage_v2_orphan_test_',
     );
-    final dataDir = Directory('${root.path}/storage_v2/data');
-    final noteDir = Directory('${root.path}/storage_v2/notes/n1');
-    await dataDir.create(recursive: true);
-    await noteDir.create(recursive: true);
-    await File('${root.path}/storage_v2/manifest.json').writeAsString(
-      jsonEncode({'type': 'lynai.storage_v2', 'schemaVersion': 2}),
-      flush: true,
-    );
-    await File(
-      '${dataDir.path}/resources.json',
-    ).writeAsString(jsonEncode({'resources': []}), flush: true);
-    await File('${dataDir.path}/conversations.json').writeAsString(
-      jsonEncode({
+    try {
+      final noteDir = Directory('${root.path}/storage_v2/notes/n1');
+      await noteDir.create(recursive: true);
+      final storage = StorageV2Service(rootDirectory: root);
+      await storage.writeManifest({
+        'type': 'lynai.storage_v2',
+        'schemaVersion': StorageV2Service.currentLayoutVersion,
+      });
+      await storage.writeDataFile('resources.json', {'resources': []});
+      await storage.writeDataFile('conversations.json', {
         'conversations': [
           {
             'id': 'c1',
@@ -1778,11 +1978,8 @@ void main() {
             'sortOrder': 1,
           },
         ],
-      }),
-      flush: true,
-    );
-    await File('${dataDir.path}/notes.json').writeAsString(
-      jsonEncode({
+      });
+      await storage.writeDataFile('notes.json', {
         'folders': [],
         'notes': [
           {
@@ -1819,38 +2016,23 @@ void main() {
         'revisions': [],
         'editProposals': [],
         'editBlocks': [],
-      }),
-      flush: true,
-    );
-    await File('${noteDir.path}/page.md').writeAsString('body', flush: true);
-    await File(
-      '${dataDir.path}/app_settings.json',
-    ).writeAsString(jsonEncode(AppSettings.defaults().toJson()), flush: true);
-    await File(
-      '${dataDir.path}/model_configs.json',
-    ).writeAsString(jsonEncode({'models': []}), flush: true);
-    await File(
-      '${dataDir.path}/schedules.json',
-    ).writeAsString(jsonEncode({'schedules': []}), flush: true);
-    await File('${dataDir.path}/todo_lists.json').writeAsString(
-      jsonEncode({'todoLists': [], 'todoItems': []}),
-      flush: true,
-    );
+      });
+      await File('${noteDir.path}/page.md').writeAsString('body', flush: true);
 
-    final storage = StorageV2Service(rootDirectory: root);
-    expect(await storage.databaseExists(), isFalse);
-    final conversations = await storage.loadDataFile('conversations.json');
-    expect(await storage.databaseExists(), isTrue);
-    expect(conversations['messages'], hasLength(1));
-    final attachments = conversations['messageAttachments'] as List<dynamic>;
-    expect(attachments, hasLength(1));
-    expect((attachments.single as Map).containsKey('resourceId'), isFalse);
+      final conversations = await storage.loadDataFile('conversations.json');
+      expect(await storage.databaseExists(), isTrue);
+      expect(conversations['messages'], hasLength(1));
+      final attachments = conversations['messageAttachments'] as List<dynamic>;
+      expect(attachments, hasLength(1));
+      expect((attachments.single as Map).containsKey('resourceId'), isFalse);
 
-    final notes = await storage.loadNotes();
-    expect(notes.notes.single.id, 'n1');
-    expect(notes.pages, hasLength(1));
-    expect(notes.pages.single.id, 'p1');
-    await root.delete(recursive: true);
+      final notes = await storage.loadNotes();
+      expect(notes.notes.single.id, 'n1');
+      expect(notes.pages, hasLength(1));
+      expect(notes.pages.single.id, 'p1');
+    } finally {
+      await root.delete(recursive: true);
+    }
   });
 
   test(
@@ -1860,12 +2042,15 @@ void main() {
         'lynai_storage_v2_resource_upsert_test_',
       );
       final storageRoot = Directory('${root.path}/storage_v2');
-      final dataDir = Directory('${storageRoot.path}/data');
-      await dataDir.create(recursive: true);
+      await storageRoot.create(recursive: true);
       await File('${storageRoot.path}/manifest.json').writeAsString(
-        jsonEncode({'type': 'lynai.storage_v2', 'schemaVersion': 2}),
+        jsonEncode({
+          'type': 'lynai.storage_v2',
+          'schemaVersion': StorageV2Service.currentLayoutVersion,
+        }),
         flush: true,
       );
+      final storage = StorageV2Service(rootDirectory: root);
       final resource = {
         'id': 'res_1',
         'kind': 'documents',
@@ -1878,76 +2063,43 @@ void main() {
         'sha256': 'hash',
         'missing': false,
       };
-      await File('${dataDir.path}/resources.json').writeAsString(
-        jsonEncode({
-          'resources': [resource],
-        }),
-        flush: true,
-      );
-      await File('${dataDir.path}/conversations.json').writeAsString(
-        jsonEncode({
-          'conversations': [
-            {
-              'id': 'c1',
-              'title': 'c',
-              'modelId': 'm',
-              'settings': {'modelId': 'm'},
-              'roleId': 'default',
-              'createdAt': DateTime(2026).toIso8601String(),
-              'updatedAt': DateTime(2026).toIso8601String(),
-            },
-          ],
-          'messages': [
-            {
-              'id': 'm1',
-              'conversationId': 'c1',
-              'role': 'user',
-              'content': 'hello',
-              'timestamp': DateTime(2026).toIso8601String(),
-              'sortOrder': 0,
-            },
-          ],
-          'messageAttachments': [
-            {
-              'id': 'a1',
-              'messageId': 'm1',
-              'resourceId': 'res_1',
-              'displayName': 'a.txt',
-              'mimeType': 'text/plain',
-              'size': 1,
-              'sortOrder': 0,
-            },
-          ],
-        }),
-        flush: true,
-      );
-      await File(
-        '${dataDir.path}/app_settings.json',
-      ).writeAsString(jsonEncode(AppSettings.defaults().toJson()), flush: true);
-      await File(
-        '${dataDir.path}/model_configs.json',
-      ).writeAsString(jsonEncode({'models': []}), flush: true);
-      await File('${dataDir.path}/notes.json').writeAsString(
-        jsonEncode({
-          'folders': [],
-          'notes': [],
-          'pages': [],
-          'revisions': [],
-          'editProposals': [],
-          'editBlocks': [],
-        }),
-        flush: true,
-      );
-      await File(
-        '${dataDir.path}/schedules.json',
-      ).writeAsString(jsonEncode({'schedules': []}), flush: true);
-      await File('${dataDir.path}/todo_lists.json').writeAsString(
-        jsonEncode({'todoLists': [], 'todoItems': []}),
-        flush: true,
-      );
-
-      final storage = StorageV2Service(rootDirectory: root);
-      await storage.importDataFilesToDatabase(overwrite: true);
+      await storage.writeDataFile('resources.json', {
+        'resources': [resource],
+      });
+      await storage.writeDataFile('conversations.json', {
+        'conversations': [
+          {
+            'id': 'c1',
+            'title': 'c',
+            'modelId': 'm',
+            'settings': {'modelId': 'm'},
+            'roleId': 'default',
+            'createdAt': DateTime(2026).toIso8601String(),
+            'updatedAt': DateTime(2026).toIso8601String(),
+          },
+        ],
+        'messages': [
+          {
+            'id': 'm1',
+            'conversationId': 'c1',
+            'role': 'user',
+            'content': 'hello',
+            'timestamp': DateTime(2026).toIso8601String(),
+            'sortOrder': 0,
+          },
+        ],
+        'messageAttachments': [
+          {
+            'id': 'a1',
+            'messageId': 'm1',
+            'resourceId': 'res_1',
+            'displayName': 'a.txt',
+            'mimeType': 'text/plain',
+            'size': 1,
+            'sortOrder': 0,
+          },
+        ],
+      });
       await storage.writeDataFile('resources.json', {
         'resources': [
           {...resource, 'originalName': 'renamed.txt'},
@@ -1966,254 +2118,148 @@ void main() {
   test(
     'SettingsRepository syncs storage v2 background metadata on save',
     () async {
-      SharedPreferences.setMockInitialValues({'storage_schema_version': 2});
       final root = await Directory.systemTemp.createTemp(
         'lynai_settings_storage_v2_metadata_test_',
       );
-      final storageRoot = Directory('${root.path}/storage_v2');
-      final dataDir = Directory('${storageRoot.path}/data');
-      await dataDir.create(recursive: true);
-      await File('${storageRoot.path}/manifest.json').writeAsString(
-        jsonEncode({'type': 'lynai.storage_v2', 'schemaVersion': 2}),
-        flush: true,
-      );
-      await File('${dataDir.path}/app_settings.json').writeAsString(
-        jsonEncode({
+      try {
+        final storage = await _readyStorageV2(root);
+        await storage.writeDataFile('app_settings.json', {
           ...AppSettings.defaults().toJson(),
           'storageV2': {'backgroundResourceId': 'res_bg'},
-        }),
-        flush: true,
-      );
-      final background = File('${root.path}/new_bg.png');
-      await background.writeAsBytes([1, 2, 3, 4], flush: true);
+        });
+        final background = File('${root.path}/new_bg.png');
+        await background.writeAsBytes([1, 2, 3, 4], flush: true);
 
-      final storage = StorageV2Service(rootDirectory: root);
-      final repository = SettingsRepository(storageV2: storage);
-      await repository.save(
-        AppSettings.defaults().copyWith(backgroundImagePath: background.path),
-        usingStorageV2: true,
-      );
-
-      final saved = await storage.loadDataFile('app_settings.json');
-      final savedStorage = saved['storageV2'] as Map<String, dynamic>;
-      expect(savedStorage['backgroundResourceId'], isNot('res_bg'));
-      final resources = await storage.loadResources();
-      expect(
-        resources.any(
-          (item) => item.id == savedStorage['backgroundResourceId'],
-        ),
-        isTrue,
-      );
-      await repository.save(AppSettings.defaults(), usingStorageV2: true);
-      final cleared = await storage.loadDataFile('app_settings.json');
-      expect(cleared['storageV2'], isNull);
-      await root.delete(recursive: true);
-    },
-  );
-
-  test(
-    'Storage migration recovers completed storage from running status',
-    () async {
-      SharedPreferences.setMockInitialValues({
-        'storage_schema_version': 1,
-        'storage_migration_status': 'running',
-      });
-      final root = await Directory.systemTemp.createTemp(
-        'lynai_migration_running_ready_test_',
-      );
-      try {
-        final storageRoot = Directory('${root.path}/storage_v2');
-        await Directory('${storageRoot.path}/data').create(recursive: true);
-        await File('${storageRoot.path}/manifest.json').writeAsString(
-          jsonEncode({'type': 'lynai.storage_v2', 'schemaVersion': 2}),
-          flush: true,
-        );
-        final service = StorageMigrationService(
-          settingsProvider: SettingsProvider(),
-          modelConfigProvider: ModelConfigProvider(),
-          conversationProvider: ConversationProvider(),
-          featureProvider: FeatureProvider(),
-          rootDirectory: root,
+        final repository = SettingsRepository(storageV2: storage);
+        await repository.save(
+          AppSettings.defaults().copyWith(backgroundImagePath: background.path),
+          usingStorageV2: true,
         );
 
-        final state = await service.ensureMigrationReady();
-
-        expect(state.completed, isTrue);
-        final prefs = await SharedPreferences.getInstance();
-        expect(prefs.getString('storage_migration_status'), 'completed');
-        expect(prefs.getInt('storage_schema_version'), 2);
+        final saved = await storage.loadDataFile('app_settings.json');
+        final savedStorage = saved['storageV2'] as Map<String, dynamic>;
+        expect(savedStorage['backgroundResourceId'], isNot('res_bg'));
+        final resources = await storage.loadResources();
+        expect(
+          resources.any(
+            (item) => item.id == savedStorage['backgroundResourceId'],
+          ),
+          isTrue,
+        );
+        await repository.save(AppSettings.defaults(), usingStorageV2: true);
+        final cleared = await storage.loadDataFile('app_settings.json');
+        expect(cleared['storageV2'], isNull);
       } finally {
         await root.delete(recursive: true);
       }
     },
   );
 
-  test('Storage migration marks stale running status as failed', () async {
-    SharedPreferences.setMockInitialValues({
-      'storage_schema_version': 1,
-      'storage_migration_status': 'running',
-      'conversations': '[]',
-    });
+  test('FeatureProvider uses storage v2 notes', () async {
     final root = await Directory.systemTemp.createTemp(
-      'lynai_migration_running_stale_test_',
+      'lynai_feature_v2_test_',
     );
     try {
-      await Directory(
-        '${root.path}/storage_v2_staging',
-      ).create(recursive: true);
-      final service = StorageMigrationService(
-        settingsProvider: SettingsProvider(),
-        modelConfigProvider: ModelConfigProvider(),
-        conversationProvider: ConversationProvider(),
-        featureProvider: FeatureProvider(),
-        rootDirectory: root,
+      final storage = await _readyStorageV2(root);
+      final loaded = FeatureProvider(storageV2: storage);
+      await loaded.load();
+      final noteId = await loaded.addNoteWithContent('book', 'old body');
+      expect(loaded.usingStorageV2, isTrue);
+      expect(loaded.getNote(noteId)!.content, 'old body');
+      expect(loaded.notePages(noteId), hasLength(1));
+
+      await loaded.saveNoteContent(noteId, 'new body');
+      final page = loaded.activeNotePage(noteId)!;
+      final firstPageId = page.id;
+      final firstPageRevisionId = loaded.getNote(noteId)!.currentRevisionId;
+      expect(await storage.readNotePage(page), 'new body');
+
+      final pageId = await loaded.addNotePage(noteId, 'chapter');
+      expect(pageId, isNotNull);
+      expect(loaded.notePages(noteId), hasLength(2));
+      expect(loaded.getNote(noteId)!.content, '# chapter\n');
+      final chapterRevision = await loaded.saveNoteContent(
+        noteId,
+        'chapter body',
       );
-
-      final state = await service.ensureMigrationReady();
-
-      expect(state.status, 'failed');
+      expect(chapterRevision, isNotNull);
+      expect(chapterRevision!.id, isNot(firstPageRevisionId));
+      final service = ToolCallService(loaded);
+      final pagesResult = await service.execute(
+        ChatToolCall(
+          id: 'pages',
+          name: 'list_note_pages',
+          arguments: {'id': noteId},
+        ),
+        const [],
+      );
+      expect(pagesResult['pages'], hasLength(2));
+      final readChapter = await service.execute(
+        ChatToolCall(
+          id: 'read-page',
+          name: 'read_note',
+          arguments: {'id': noteId, 'pageId': pageId},
+        ),
+        const [],
+      );
+      expect(readChapter['note']['content'], 'chapter body');
+      expect(readChapter['note']['pageId'], pageId);
+      expect(readChapter['outline'], isA<List>());
+      expect(loaded.getNoteTimeline(noteId).map((revision) => revision.id), [
+        chapterRevision.id,
+        chapterRevision.parentRevisionId,
+      ]);
+      await loaded.setNoteEditProposal(
+        NoteEditProposal(
+          id: 'chapter-proposal',
+          noteId: noteId,
+          pageId: pageId,
+          baseRevisionId: chapterRevision.id,
+          baseContentHash: 'hash',
+          createdAt: DateTime(2026),
+          blocks: const [
+            NoteEditBlock(
+              id: 'block',
+              startLine: 1,
+              deleteCount: 1,
+              deletedLines: ['chapter body'],
+              insertLines: ['updated chapter body'],
+            ),
+          ],
+        ),
+      );
+      expect(loaded.getNoteEditProposal(noteId), isNotNull);
+      await loaded.selectNotePage(noteId, firstPageId);
+      expect(loaded.getNoteEditProposal(noteId), isNull);
+      await loaded.selectNotePage(noteId, pageId!);
+      expect(loaded.getNoteEditProposal(noteId)?.id, 'chapter-proposal');
+      await loaded.renameNotePage(noteId, pageId, 'chapter renamed');
+      expect(loaded.activeNotePage(noteId)!.title, 'chapter renamed');
+      final exports = await loaded.notePageExports(noteId);
+      expect(exports.map((page) => page.fileName), contains('chapter.md'));
       expect(
-        await Directory('${root.path}/storage_v2_staging').exists(),
-        isFalse,
+        await loaded.noteExportContent(noteId),
+        contains('<!-- page: chapter renamed -->'),
+      );
+      expect(await loaded.deleteNotePage(noteId, pageId), isTrue);
+      expect(loaded.notePages(noteId), hasLength(1));
+      expect(
+        loaded.noteRevisions.map((revision) => revision.id),
+        isNot(contains(chapterRevision.id)),
+      );
+      await loaded.selectNotePage(noteId, firstPageId);
+      expect(loaded.getNote(noteId)!.content, 'new body');
+      expect(loaded.getNote(noteId)!.currentRevisionId, firstPageRevisionId);
+      expect(
+        loaded.getNoteTimeline(noteId).map((revision) => revision.id),
+        contains(firstPageRevisionId),
       );
     } finally {
       await root.delete(recursive: true);
     }
   });
 
-  test('FeatureProvider uses storage v2 notes after migration', () async {
-    SharedPreferences.setMockInitialValues({});
-    final settingsProvider = SettingsProvider();
-    final modelProvider = ModelConfigProvider();
-    final conversationProvider = ConversationProvider();
-    final featureProvider = FeatureProvider();
-    await settingsProvider.loadSettings();
-    await modelProvider.loadModels();
-    await conversationProvider.loadConversations();
-    await featureProvider.load();
-
-    final root = await Directory.systemTemp.createTemp(
-      'lynai_feature_v2_test_',
-    );
-    final noteId = await featureProvider.addNoteWithContent('book', 'old body');
-    await StorageMigrationService(
-      settingsProvider: settingsProvider,
-      modelConfigProvider: modelProvider,
-      conversationProvider: conversationProvider,
-      featureProvider: featureProvider,
-      rootDirectory: root,
-    ).migrate();
-
-    final loaded = FeatureProvider(
-      storageV2: StorageV2Service(rootDirectory: root),
-    );
-    await loaded.load();
-    expect(loaded.usingStorageV2, isTrue);
-    expect(loaded.getNote(noteId)!.content, 'old body');
-    expect(loaded.notePages(noteId), hasLength(1));
-
-    await loaded.saveNoteContent(noteId, 'new body');
-    final page = loaded.activeNotePage(noteId)!;
-    final firstPageId = page.id;
-    final firstPageRevisionId = loaded.getNote(noteId)!.currentRevisionId;
-    final storage = StorageV2Service(rootDirectory: root);
-    expect(await storage.readNotePage(page), 'new body');
-
-    final pageId = await loaded.addNotePage(noteId, 'chapter');
-    expect(pageId, isNotNull);
-    expect(loaded.notePages(noteId), hasLength(2));
-    expect(loaded.getNote(noteId)!.content, '# chapter\n');
-    final chapterRevision = await loaded.saveNoteContent(
-      noteId,
-      'chapter body',
-    );
-    expect(chapterRevision, isNotNull);
-    expect(chapterRevision!.id, isNot(firstPageRevisionId));
-    final service = ToolCallService(loaded);
-    final pagesResult = await service.execute(
-      ChatToolCall(
-        id: 'pages',
-        name: 'list_note_pages',
-        arguments: {'id': noteId},
-      ),
-      const [],
-    );
-    expect(pagesResult['pages'], hasLength(2));
-    final readChapter = await service.execute(
-      ChatToolCall(
-        id: 'read-page',
-        name: 'read_note',
-        arguments: {'id': noteId, 'pageId': pageId},
-      ),
-      const [],
-    );
-    expect(readChapter['note']['content'], 'chapter body');
-    expect(readChapter['note']['pageId'], pageId);
-    expect(readChapter['outline'], isA<List>());
-    expect(loaded.getNoteTimeline(noteId).map((revision) => revision.id), [
-      chapterRevision.id,
-      chapterRevision.parentRevisionId,
-    ]);
-    await loaded.setNoteEditProposal(
-      NoteEditProposal(
-        id: 'chapter-proposal',
-        noteId: noteId,
-        pageId: pageId,
-        baseRevisionId: chapterRevision.id,
-        baseContentHash: 'hash',
-        createdAt: DateTime(2026),
-        blocks: const [
-          NoteEditBlock(
-            id: 'block',
-            startLine: 1,
-            deleteCount: 1,
-            deletedLines: ['chapter body'],
-            insertLines: ['updated chapter body'],
-          ),
-        ],
-      ),
-    );
-    expect(loaded.getNoteEditProposal(noteId), isNotNull);
-    await loaded.selectNotePage(noteId, firstPageId);
-    expect(loaded.getNoteEditProposal(noteId), isNull);
-    await loaded.selectNotePage(noteId, pageId!);
-    expect(loaded.getNoteEditProposal(noteId)?.id, 'chapter-proposal');
-    await loaded.renameNotePage(noteId, pageId, 'chapter renamed');
-    expect(loaded.activeNotePage(noteId)!.title, 'chapter renamed');
-    final exports = await loaded.notePageExports(noteId);
-    expect(exports.map((page) => page.fileName), contains('chapter.md'));
-    expect(
-      await loaded.noteExportContent(noteId),
-      contains('<!-- page: chapter renamed -->'),
-    );
-    expect(await loaded.deleteNotePage(noteId, pageId), isTrue);
-    expect(loaded.notePages(noteId), hasLength(1));
-    expect(
-      loaded.noteRevisions.map((revision) => revision.id),
-      isNot(contains(chapterRevision.id)),
-    );
-    await loaded.selectNotePage(noteId, firstPageId);
-    expect(loaded.getNote(noteId)!.content, 'new body');
-    expect(loaded.getNote(noteId)!.currentRevisionId, firstPageRevisionId);
-    expect(
-      loaded.getNoteTimeline(noteId).map((revision) => revision.id),
-      contains(firstPageRevisionId),
-    );
-    await root.delete(recursive: true);
-  });
-
   test('BackupService round-trips storage v2 note pages', () async {
-    SharedPreferences.setMockInitialValues({});
-    final sourceSettings = SettingsProvider();
-    final sourceModels = ModelConfigProvider();
-    final sourceConversations = ConversationProvider();
-    final sourceFeatures = FeatureProvider();
-    final sourceRoleplays = RoleplayProvider();
-    await sourceSettings.loadSettings();
-    await sourceModels.loadModels();
-    await sourceConversations.loadConversations();
-    await sourceFeatures.load();
-
     final sourceRoot = await Directory.systemTemp.createTemp(
       'lynai_backup_v2_source_',
     );
@@ -2221,17 +2267,17 @@ void main() {
       'lynai_backup_v2_target_',
     );
     try {
-      await StorageMigrationService(
-        settingsProvider: sourceSettings,
-        modelConfigProvider: sourceModels,
-        conversationProvider: sourceConversations,
-        featureProvider: sourceFeatures,
-        rootDirectory: sourceRoot,
-      ).migrate();
-
-      final source = FeatureProvider(
-        storageV2: StorageV2Service(rootDirectory: sourceRoot),
+      final sourceStorage = await _readyStorageV2(sourceRoot);
+      final sourceSettings = SettingsProvider(storageV2: sourceStorage);
+      final sourceModels = ModelConfigProvider(storageV2: sourceStorage);
+      final sourceConversations = ConversationProvider(
+        storageV2: sourceStorage,
       );
+      final source = FeatureProvider(storageV2: sourceStorage);
+      final sourceRoleplays = RoleplayProvider(storageV2: sourceStorage);
+      await sourceSettings.loadSettings();
+      await sourceModels.loadModels();
+      await sourceConversations.loadConversations();
       await source.load();
       final noteId = await source.addNoteWithContent('book', 'first page');
       final firstPageId = source.activeNotePage(noteId)!.id;
@@ -2255,28 +2301,20 @@ void main() {
             BackupSelection({BackupSection.notes}, noteIds: {noteId}),
           );
 
-      SharedPreferences.setMockInitialValues({});
-      final targetSettings = SettingsProvider();
-      final targetModels = ModelConfigProvider();
-      final targetConversations = ConversationProvider();
-      final targetFeatures = FeatureProvider();
-      final targetRoleplays = RoleplayProvider();
+      final targetStorage = await _readyStorageV2(targetRoot);
+      final targetSettings = SettingsProvider(storageV2: targetStorage);
+      final targetModels = ModelConfigProvider(storageV2: targetStorage);
+      final targetConversations = ConversationProvider(
+        storageV2: targetStorage,
+      );
+      final targetFeatures = FeatureProvider(storageV2: targetStorage);
+      final targetRoleplays = RoleplayProvider(storageV2: targetStorage);
       await targetSettings.loadSettings();
       await targetModels.loadModels();
       await targetConversations.loadConversations();
       await targetFeatures.load();
-      await StorageMigrationService(
-        settingsProvider: targetSettings,
-        modelConfigProvider: targetModels,
-        conversationProvider: targetConversations,
-        featureProvider: targetFeatures,
-        rootDirectory: targetRoot,
-      ).migrate();
 
-      final target = FeatureProvider(
-        storageV2: StorageV2Service(rootDirectory: targetRoot),
-      );
-      await target.load();
+      final target = targetFeatures;
       final service = BackupService(
         settingsProvider: targetSettings,
         modelConfigProvider: targetModels,
@@ -2293,9 +2331,7 @@ void main() {
         ),
       );
 
-      final reloaded = FeatureProvider(
-        storageV2: StorageV2Service(rootDirectory: targetRoot),
-      );
+      final reloaded = FeatureProvider(storageV2: targetStorage);
       await reloaded.load();
       expect(reloaded.notePages(noteId), hasLength(2));
       expect(reloaded.activeNotePage(noteId)!.id, secondPageId);
@@ -2313,17 +2349,6 @@ void main() {
   });
 
   test('BackupService handles storage v2 note conflicts', () async {
-    SharedPreferences.setMockInitialValues({});
-    final sourceSettings = SettingsProvider();
-    final sourceModels = ModelConfigProvider();
-    final sourceConversations = ConversationProvider();
-    final sourceFeatures = FeatureProvider();
-    final sourceRoleplays = RoleplayProvider();
-    await sourceSettings.loadSettings();
-    await sourceModels.loadModels();
-    await sourceConversations.loadConversations();
-    await sourceFeatures.load();
-
     final sourceRoot = await Directory.systemTemp.createTemp(
       'lynai_backup_conflict_source_',
     );
@@ -2331,17 +2356,17 @@ void main() {
       'lynai_backup_conflict_target_',
     );
     try {
-      await StorageMigrationService(
-        settingsProvider: sourceSettings,
-        modelConfigProvider: sourceModels,
-        conversationProvider: sourceConversations,
-        featureProvider: sourceFeatures,
-        rootDirectory: sourceRoot,
-      ).migrate();
-
-      final source = FeatureProvider(
-        storageV2: StorageV2Service(rootDirectory: sourceRoot),
+      final sourceStorage = await _readyStorageV2(sourceRoot);
+      final sourceSettings = SettingsProvider(storageV2: sourceStorage);
+      final sourceModels = ModelConfigProvider(storageV2: sourceStorage);
+      final sourceConversations = ConversationProvider(
+        storageV2: sourceStorage,
       );
+      final source = FeatureProvider(storageV2: sourceStorage);
+      final sourceRoleplays = RoleplayProvider(storageV2: sourceStorage);
+      await sourceSettings.loadSettings();
+      await sourceModels.loadModels();
+      await sourceConversations.loadConversations();
       await source.load();
       final noteId = await source.addNoteWithContent('conflict', 'first page');
       final firstPageId = source.activeNotePage(noteId)!.id;
@@ -2361,27 +2386,17 @@ void main() {
             BackupSelection({BackupSection.notes}, noteIds: {noteId}),
           );
 
-      SharedPreferences.setMockInitialValues({});
-      final targetSettings = SettingsProvider();
-      final targetModels = ModelConfigProvider();
-      final targetConversations = ConversationProvider();
-      final targetFeatures = FeatureProvider();
-      final targetRoleplays = RoleplayProvider();
+      final targetStorage = await _readyStorageV2(targetRoot);
+      final targetSettings = SettingsProvider(storageV2: targetStorage);
+      final targetModels = ModelConfigProvider(storageV2: targetStorage);
+      final targetConversations = ConversationProvider(
+        storageV2: targetStorage,
+      );
+      final target = FeatureProvider(storageV2: targetStorage);
+      final targetRoleplays = RoleplayProvider(storageV2: targetStorage);
       await targetSettings.loadSettings();
       await targetModels.loadModels();
       await targetConversations.loadConversations();
-      await targetFeatures.load();
-      await StorageMigrationService(
-        settingsProvider: targetSettings,
-        modelConfigProvider: targetModels,
-        conversationProvider: targetConversations,
-        featureProvider: targetFeatures,
-        rootDirectory: targetRoot,
-      ).migrate();
-
-      final target = FeatureProvider(
-        storageV2: StorageV2Service(rootDirectory: targetRoot),
-      );
       await target.load();
       final service = BackupService(
         settingsProvider: targetSettings,
@@ -2411,9 +2426,7 @@ void main() {
         ),
       );
 
-      var reloaded = FeatureProvider(
-        storageV2: StorageV2Service(rootDirectory: targetRoot),
-      );
+      var reloaded = FeatureProvider(storageV2: targetStorage);
       await reloaded.load();
       expect(reloaded.notes, hasLength(2));
       expect(reloaded.getNote(noteId)!.content, 'local first page');
@@ -2435,9 +2448,7 @@ void main() {
         archive,
         ImportPlan(selection: selection, mode: ImportMode.replaceSection),
       );
-      reloaded = FeatureProvider(
-        storageV2: StorageV2Service(rootDirectory: targetRoot),
-      );
+      reloaded = FeatureProvider(storageV2: targetStorage);
       await reloaded.load();
       expect(reloaded.notes, hasLength(2));
       expect(reloaded.notes.map((note) => note.id).toSet(), {
@@ -2491,120 +2502,129 @@ void main() {
     }
   });
 
-  test('BackupService reads legacy schema 1 backups', () async {
+  test('BackupService exports private assets with storage v2 paths', () async {
     final root = await Directory.systemTemp.createTemp(
-      'lynai_backup_schema1_test_',
-    );
-    final service = BackupService(
-      settingsProvider: SettingsProvider(),
-      modelConfigProvider: ModelConfigProvider(),
-      conversationProvider: ConversationProvider(),
-      featureProvider: FeatureProvider(),
-      roleplayProvider: RoleplayProvider(),
+      'lynai_backup_asset_path_test_',
     );
     try {
-      final manifest = jsonEncode({
-        'type': 'lynai.backup',
-        'schemaVersion': 1,
-        'sections': {
-          'conversations': {
-            'enabled': true,
-            'files': ['conversations.json'],
-          },
-        },
-      });
-      final conversations = jsonEncode({
-        'conversations': [
-          Conversation(
-            id: 'legacy-conv',
-            title: 'legacy',
-            messages: const [],
-            modelId: 'm1',
-            settings: ConversationSettings(modelId: 'm1'),
-            createdAt: DateTime(2024),
-            updatedAt: DateTime(2024),
-          ).toJson(),
-        ],
-      });
-      final archive = Archive()
-        ..addFile(
-          ArchiveFile(
-            'manifest.json',
-            utf8.encode(manifest).length,
-            utf8.encode(manifest),
-          ),
-        )
-        ..addFile(
-          ArchiveFile(
-            'conversations.json',
-            utf8.encode(conversations).length,
-            utf8.encode(conversations),
-          ),
-        );
-      final data = await service.readZipBytes(ZipEncoder().encode(archive));
+      final storage = await _readyStorageV2(root);
+      final settingsProvider = SettingsProvider(storageV2: storage);
+      final modelProvider = ModelConfigProvider(storageV2: storage);
+      final conversationProvider = ConversationProvider(storageV2: storage);
+      final featureProvider = FeatureProvider(storageV2: storage);
+      await settingsProvider.loadSettings();
+      await modelProvider.loadModels();
+      await conversationProvider.loadConversations();
+      await featureProvider.load();
 
-      expect(data.data.conversations, hasLength(1));
-      expect(data.data.conversations!.single.id, 'legacy-conv');
+      final first = File('${root.path}/first/photo.png');
+      final second = File('${root.path}/second/photo.png');
+      await first.parent.create(recursive: true);
+      await second.parent.create(recursive: true);
+      await first.writeAsBytes([1, 2, 3], flush: true);
+      await second.writeAsBytes([1, 2, 3], flush: true);
+
+      final conversationId = conversationProvider.createConversation(
+        ConversationSettings(modelId: 'm'),
+      );
+      conversationProvider.addMessage(
+        conversationId,
+        'user',
+        'with duplicate attachments',
+        images: [
+          MessageImage(
+            path: first.path,
+            name: 'photo.png',
+            size: await first.length(),
+            mimeType: 'image/png',
+          ),
+          MessageImage(
+            path: second.path,
+            name: 'photo.png',
+            size: await second.length(),
+            mimeType: 'image/png',
+          ),
+        ],
+      );
+
+      final bytes =
+          await BackupService(
+            settingsProvider: settingsProvider,
+            modelConfigProvider: modelProvider,
+            conversationProvider: conversationProvider,
+            featureProvider: featureProvider,
+            roleplayProvider: RoleplayProvider(storageV2: storage),
+            storageV2: storage,
+            appVersionLoader: () async => '0.0.0-test',
+          ).exportZipBytes(
+            BackupSelection(
+              {BackupSection.conversations},
+              conversationIds: {conversationId},
+            ),
+          );
+
+      final archive = ZipDecoder().decodeBytes(bytes);
+      final assetPaths = archive.files
+          .where((entry) => !entry.name.endsWith('/'))
+          .map((entry) => entry.name)
+          .where((path) => path.startsWith('assets/'))
+          .toList();
+      expect(assetPaths, hasLength(1));
+      expect(
+        assetPaths.single,
+        matches(RegExp(r'^assets/blobs/[a-f0-9]{2}/[a-f0-9]{64}$')),
+      );
+      expect(assetPaths.single, isNot(contains('photo.png')));
+
+      final manifestEntry = archive.files.singleWhere(
+        (entry) => entry.name == 'manifest.json',
+      );
+      final manifest =
+          jsonDecode(utf8.decode(manifestEntry.content as List<int>))
+              as Map<String, dynamic>;
+      final assets = manifest['assets'] as List<dynamic>;
+      expect(assets, hasLength(2));
+      expect(assets.map((item) => (item as Map)['archivePath']).toSet(), {
+        assetPaths.single,
+      });
+      expect(
+        assets.every(
+          (item) =>
+              item is Map &&
+              item['sha256'] is String &&
+              item['resourceId'] is String,
+        ),
+        isTrue,
+      );
     } finally {
       await root.delete(recursive: true);
     }
   });
 
-  test(
-    'Storage migration initializes empty storage v2 when no legacy data',
-    () async {
-      SharedPreferences.setMockInitialValues({});
-      final root = await Directory.systemTemp.createTemp(
-        'lynai_empty_storage_v2_test_',
+  test('StorageV2UpgradeService initializes empty storage v2', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_empty_storage_v2_test_',
+    );
+    try {
+      final storage = await _readyStorageV2(root);
+
+      expect(await storage.exists(), isTrue);
+      expect(
+        await File('${root.path}/storage_v2/manifest.json').exists(),
+        isTrue,
       );
-      try {
-        final service = StorageMigrationService(
-          settingsProvider: SettingsProvider(),
-          modelConfigProvider: ModelConfigProvider(),
-          conversationProvider: ConversationProvider(),
-          featureProvider: FeatureProvider(),
-          rootDirectory: root,
-        );
-
-        final state = await service.ensureMigrationReady();
-
-        expect(state.completed, isTrue);
-        expect(
-          await File('${root.path}/storage_v2/manifest.json').exists(),
-          isTrue,
-        );
-      } finally {
-        await root.delete(recursive: true);
-      }
-    },
-  );
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
 
   test('Storage v2 note pages protect inactive page revisions', () async {
-    SharedPreferences.setMockInitialValues({});
-    final settingsProvider = SettingsProvider();
-    final modelProvider = ModelConfigProvider();
-    final conversationProvider = ConversationProvider();
-    final featureProvider = FeatureProvider();
-    await settingsProvider.loadSettings();
-    await modelProvider.loadModels();
-    await conversationProvider.loadConversations();
-    await featureProvider.load();
-
     final root = await Directory.systemTemp.createTemp(
       'lynai_feature_v2_revision_guard_test_',
     );
     try {
-      await StorageMigrationService(
-        settingsProvider: settingsProvider,
-        modelConfigProvider: modelProvider,
-        conversationProvider: conversationProvider,
-        featureProvider: featureProvider,
-        rootDirectory: root,
-      ).migrate();
-
-      final loaded = FeatureProvider(
-        storageV2: StorageV2Service(rootDirectory: root),
-      );
+      final storage = await _readyStorageV2(root);
+      final loaded = FeatureProvider(storageV2: storage);
       await loaded.load();
       final noteId = await loaded.addNoteWithContent('book', 'first page');
       final firstPageRevisionId = loaded.getNote(noteId)!.currentRevisionId!;
@@ -2635,31 +2655,12 @@ void main() {
   });
 
   test('Storage v2 load clears page revision from another page', () async {
-    SharedPreferences.setMockInitialValues({});
-    final settingsProvider = SettingsProvider();
-    final modelProvider = ModelConfigProvider();
-    final conversationProvider = ConversationProvider();
-    final featureProvider = FeatureProvider();
-    await settingsProvider.loadSettings();
-    await modelProvider.loadModels();
-    await conversationProvider.loadConversations();
-    await featureProvider.load();
-
     final root = await Directory.systemTemp.createTemp(
       'lynai_feature_v2_page_revision_normalize_test_',
     );
     try {
-      await StorageMigrationService(
-        settingsProvider: settingsProvider,
-        modelConfigProvider: modelProvider,
-        conversationProvider: conversationProvider,
-        featureProvider: featureProvider,
-        rootDirectory: root,
-      ).migrate();
-
-      final loaded = FeatureProvider(
-        storageV2: StorageV2Service(rootDirectory: root),
-      );
+      final storage = await _readyStorageV2(root);
+      final loaded = FeatureProvider(storageV2: storage);
       await loaded.load();
       final noteId = await loaded.addNoteWithContent('book', 'first page');
       final firstPageId = loaded.activeNotePage(noteId)!.id;
@@ -2671,7 +2672,6 @@ void main() {
       );
       expect(secondRevision, isNotNull);
 
-      final storage = StorageV2Service(rootDirectory: root);
       final data = await storage.loadNotesData();
       final notes = data['notes'] as List<dynamic>;
       final note = notes.single as Map<String, dynamic>;
@@ -2685,9 +2685,7 @@ void main() {
       firstPage['currentRevisionId'] = secondRevision.id;
       await storage.writeNotesData(data);
 
-      final reloaded = FeatureProvider(
-        storageV2: StorageV2Service(rootDirectory: root),
-      );
+      final reloaded = FeatureProvider(storageV2: storage);
       await reloaded.load();
 
       expect(reloaded.activeNotePage(noteId)!.id, firstPageId);
@@ -2699,31 +2697,12 @@ void main() {
   });
 
   test('Storage v2 note pages insert after active page and move', () async {
-    SharedPreferences.setMockInitialValues({});
-    final settingsProvider = SettingsProvider();
-    final modelProvider = ModelConfigProvider();
-    final conversationProvider = ConversationProvider();
-    final featureProvider = FeatureProvider();
-    await settingsProvider.loadSettings();
-    await modelProvider.loadModels();
-    await conversationProvider.loadConversations();
-    await featureProvider.load();
-
     final root = await Directory.systemTemp.createTemp(
       'lynai_feature_v2_page_order_test_',
     );
     try {
-      await StorageMigrationService(
-        settingsProvider: settingsProvider,
-        modelConfigProvider: modelProvider,
-        conversationProvider: conversationProvider,
-        featureProvider: featureProvider,
-        rootDirectory: root,
-      ).migrate();
-
-      final loaded = FeatureProvider(
-        storageV2: StorageV2Service(rootDirectory: root),
-      );
+      final storage = await _readyStorageV2(root);
+      final loaded = FeatureProvider(storageV2: storage);
       await loaded.load();
       final noteId = await loaded.addNoteWithContent('book', 'first');
       final firstPageId = loaded.activeNotePage(noteId)!.id;
@@ -2758,31 +2737,12 @@ void main() {
   });
 
   test('Storage v2 preserves note folder and note order', () async {
-    SharedPreferences.setMockInitialValues({});
-    final settingsProvider = SettingsProvider();
-    final modelProvider = ModelConfigProvider();
-    final conversationProvider = ConversationProvider();
-    final featureProvider = FeatureProvider();
-    await settingsProvider.loadSettings();
-    await modelProvider.loadModels();
-    await conversationProvider.loadConversations();
-    await featureProvider.load();
-
     final root = await Directory.systemTemp.createTemp(
       'lynai_feature_v2_note_order_test_',
     );
     try {
-      await StorageMigrationService(
-        settingsProvider: settingsProvider,
-        modelConfigProvider: modelProvider,
-        conversationProvider: conversationProvider,
-        featureProvider: featureProvider,
-        rootDirectory: root,
-      ).migrate();
-
-      final loaded = FeatureProvider(
-        storageV2: StorageV2Service(rootDirectory: root),
-      );
+      final storage = await _readyStorageV2(root);
+      final loaded = FeatureProvider(storageV2: storage);
       await loaded.load();
       final firstFolderId = await loaded.addNoteFolder('first folder');
       final secondFolderId = await loaded.addNoteFolder('second folder');
@@ -2800,9 +2760,7 @@ void main() {
       ]);
       expect(loaded.notes.map((note) => note.id), [firstNoteId, secondNoteId]);
 
-      final reloaded = FeatureProvider(
-        storageV2: StorageV2Service(rootDirectory: root),
-      );
+      final reloaded = FeatureProvider(storageV2: storage);
       await reloaded.load();
 
       expect(reloaded.noteFolders.map((folder) => folder.id), [
@@ -2914,76 +2872,54 @@ PRAGMA user_version = 2;
   });
 
   test('FeatureProvider batch replace persists storage v2 notes', () async {
-    SharedPreferences.setMockInitialValues({});
-    final settingsProvider = SettingsProvider();
-    final modelProvider = ModelConfigProvider();
-    final conversationProvider = ConversationProvider();
-    final featureProvider = FeatureProvider();
-    await settingsProvider.loadSettings();
-    await modelProvider.loadModels();
-    await conversationProvider.loadConversations();
-    await featureProvider.load();
-
     final root = await Directory.systemTemp.createTemp(
       'lynai_feature_v2_replace_test_',
     );
-    await StorageMigrationService(
-      settingsProvider: settingsProvider,
-      modelConfigProvider: modelProvider,
-      conversationProvider: conversationProvider,
-      featureProvider: featureProvider,
-      rootDirectory: root,
-    ).migrate();
+    try {
+      final storage = await _readyStorageV2(root);
+      final loaded = FeatureProvider(storageV2: storage);
+      await loaded.load();
+      final now = DateTime(2026, 1, 2, 3, 4, 5);
+      await loaded.replaceFeatureData(
+        notes: [
+          Note(
+            id: 'imported-note',
+            title: 'imported',
+            content: 'imported body',
+            createdAt: now,
+            updatedAt: now,
+          ),
+        ],
+        noteFolders: const [],
+        noteRevisions: const [],
+      );
 
-    final loaded = FeatureProvider(
-      storageV2: StorageV2Service(rootDirectory: root),
-    );
-    await loaded.load();
-    final now = DateTime(2026, 1, 2, 3, 4, 5);
-    await loaded.replaceFeatureData(
-      notes: [
-        Note(
-          id: 'imported-note',
-          title: 'imported',
-          content: 'imported body',
-          createdAt: now,
-          updatedAt: now,
-        ),
-      ],
-      noteFolders: const [],
-      noteRevisions: const [],
-    );
-
-    final reloaded = FeatureProvider(
-      storageV2: StorageV2Service(rootDirectory: root),
-    );
-    await reloaded.load();
-    expect(reloaded.usingStorageV2, isTrue);
-    expect(reloaded.getNote('imported-note')!.content, 'imported body');
-    expect(reloaded.notePages('imported-note'), hasLength(1));
-    expect(
-      await StorageV2Service(
-        rootDirectory: root,
-      ).readNotePage(reloaded.activeNotePage('imported-note')!),
-      'imported body',
-    );
-    await root.delete(recursive: true);
+      final reloaded = FeatureProvider(storageV2: storage);
+      await reloaded.load();
+      expect(reloaded.usingStorageV2, isTrue);
+      expect(reloaded.getNote('imported-note')!.content, 'imported body');
+      expect(reloaded.notePages('imported-note'), hasLength(1));
+      expect(
+        await storage.readNotePage(reloaded.activeNotePage('imported-note')!),
+        'imported body',
+      );
+    } finally {
+      await root.delete(recursive: true);
+    }
   });
 
-  test(
-    'Migration removes legacy large data and providers load storage v2',
-    () async {
-      SharedPreferences.setMockInitialValues({});
-      final settingsProvider = SettingsProvider();
-      final modelProvider = ModelConfigProvider();
-      final conversationProvider = ConversationProvider();
-      final featureProvider = FeatureProvider();
-      await settingsProvider.loadSettings();
+  test('Providers load storage v2 data', () async {
+    final root = await Directory.systemTemp.createTemp('lynai_full_v2_test_');
+    try {
+      final storage = await _readyStorageV2(root);
+      final modelProvider = ModelConfigProvider(storageV2: storage);
+      final conversationProvider = ConversationProvider(storageV2: storage);
+      final featureProvider = FeatureProvider(storageV2: storage);
       await modelProvider.loadModels();
       await conversationProvider.loadConversations();
       await featureProvider.load();
 
-      modelProvider.addModel(
+      await modelProvider.replaceModels([
         ModelConfig(
           id: 'm1',
           name: 'Provider',
@@ -2993,12 +2929,12 @@ PRAGMA user_version = 2;
           apiType: 'openai',
           priority: 0,
         ),
-      );
-      conversationProvider.createConversation(
+      ]);
+      final conversationId = conversationProvider.createConversation(
         ConversationSettings(modelId: 'm1'),
       );
-      final conversationId = conversationProvider.conversations.first.id;
       conversationProvider.addMessage(conversationId, 'user', 'hello');
+      await conversationProvider.flushPendingSaves();
       await featureProvider.addSchedule(
         'demo',
         DateTime(2026, 1, 1, 9),
@@ -3009,31 +2945,9 @@ PRAGMA user_version = 2;
       ]);
       await featureProvider.addNoteWithContent('note', 'body');
 
-      final root = await Directory.systemTemp.createTemp('lynai_full_v2_test_');
-      await StorageMigrationService(
-        settingsProvider: settingsProvider,
-        modelConfigProvider: modelProvider,
-        conversationProvider: conversationProvider,
-        featureProvider: featureProvider,
-        rootDirectory: root,
-      ).migrate();
-
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString('conversations'), isNull);
-      expect(prefs.getString('notes'), isNull);
-      expect(prefs.getString('schedule_items'), isNull);
-      expect(prefs.getString('todo_lists'), isNull);
-      expect(prefs.getString('model_configs'), isNull);
-
-      final loadedConversations = ConversationProvider(
-        storageV2: StorageV2Service(rootDirectory: root),
-      );
-      final loadedModels = ModelConfigProvider(
-        storageV2: StorageV2Service(rootDirectory: root),
-      );
-      final loadedFeatures = FeatureProvider(
-        storageV2: StorageV2Service(rootDirectory: root),
-      );
+      final loadedConversations = ConversationProvider(storageV2: storage);
+      final loadedModels = ModelConfigProvider(storageV2: storage);
+      final loadedFeatures = FeatureProvider(storageV2: storage);
       await loadedConversations.loadConversations();
       await loadedModels.loadModels();
       await loadedFeatures.load();
@@ -3049,131 +2963,61 @@ PRAGMA user_version = 2;
       expect(loadedFeatures.schedules.single.title, 'demo');
       expect(loadedFeatures.todoLists.single.items.single.text, 'task');
       expect(loadedFeatures.notes.single.content, 'body');
+    } finally {
       await root.delete(recursive: true);
-    },
-  );
+    }
+  });
 
   test(
     'ConversationProvider stores new storage v2 attachments as resources',
     () async {
-      SharedPreferences.setMockInitialValues({});
-      final settingsProvider = SettingsProvider();
-      final modelProvider = ModelConfigProvider();
-      final conversationProvider = ConversationProvider();
-      final featureProvider = FeatureProvider();
-      await settingsProvider.loadSettings();
-      await modelProvider.loadModels();
-      await conversationProvider.loadConversations();
-      await featureProvider.load();
-
       final root = await Directory.systemTemp.createTemp(
         'lynai_conversation_v2_attachment_test_',
       );
-      await StorageMigrationService(
-        settingsProvider: settingsProvider,
-        modelConfigProvider: modelProvider,
-        conversationProvider: conversationProvider,
-        featureProvider: featureProvider,
-        rootDirectory: root,
-      ).migrate();
-
-      final attachment = File('${root.path}/new.txt');
-      await attachment.writeAsString('new attachment', flush: true);
-      final loaded = ConversationProvider(
-        storageV2: StorageV2Service(rootDirectory: root),
-      );
-      await loaded.loadConversations();
-      final conversationId = loaded.createConversation(
-        ConversationSettings(modelId: 'm'),
-      );
-      loaded.addMessage(
-        conversationId,
-        'user',
-        'with new file',
-        images: [
-          MessageImage(
-            path: attachment.path,
-            name: 'new.txt',
-            size: await attachment.length(),
-            mimeType: 'text/plain',
-          ),
-        ],
-      );
-      await loaded.replaceConversations(loaded.conversations);
-
-      final resourcesJson =
-          jsonDecode(
-                await File(
-                  '${root.path}/storage_v2/data/resources.json',
-                ).readAsString(),
-              )
-              as Map<String, dynamic>;
-      final resources = resourcesJson['resources'] as List<dynamic>;
-      expect(resources, hasLength(1));
-      expect(resources.single['kind'], 'documents');
-      expect(resources.single['relativePath'], startsWith('assets/documents/'));
-
-      final conversationsJson =
-          jsonDecode(
-                await File(
-                  '${root.path}/storage_v2/data/conversations.json',
-                ).readAsString(),
-              )
-              as Map<String, dynamic>;
-      final attachments =
-          conversationsJson['messageAttachments'] as List<dynamic>;
-      expect(attachments.single['resourceId'], resources.single['id']);
-      expect(attachments.single.containsKey('path'), isFalse);
-
-      final reloaded = ConversationProvider(
-        storageV2: StorageV2Service(rootDirectory: root),
-      );
-      await reloaded.loadConversations();
-      final image = reloaded.conversations.single.messages.single.images.single;
-      expect(image.path, contains('/storage_v2/assets/documents/'));
-      expect(await File(image.path).readAsString(), 'new attachment');
-      await root.delete(recursive: true);
-    },
-  );
-
-  test(
-    'Migration restores existing storage v2 when activation fails',
-    () async {
-      SharedPreferences.setMockInitialValues({});
-      final settingsProvider = SettingsProvider();
-      final modelProvider = ModelConfigProvider();
-      final conversationProvider = ConversationProvider();
-      final featureProvider = FeatureProvider();
-      await settingsProvider.loadSettings();
-      await modelProvider.loadModels();
-      await conversationProvider.loadConversations();
-      await featureProvider.load();
-
-      final root = await Directory.systemTemp.createTemp(
-        'lynai_migration_restore_test_',
-      );
       try {
-        final existingStorage = Directory('${root.path}/storage_v2');
-        await existingStorage.create(recursive: true);
-        final marker = File('${existingStorage.path}/marker.txt');
-        await marker.writeAsString('old storage');
-
-        await expectLater(
-          StorageMigrationService(
-            settingsProvider: settingsProvider,
-            modelConfigProvider: modelProvider,
-            conversationProvider: conversationProvider,
-            featureProvider: featureProvider,
-            rootDirectory: root,
-            afterActivateStorageForTest: () async => throw StateError('boom'),
-          ).migrate(force: true),
-          throwsA(isA<StateError>()),
+        final storage = await _readyStorageV2(root);
+        final attachment = File('${root.path}/new.txt');
+        await attachment.writeAsString('new attachment', flush: true);
+        final loaded = ConversationProvider(storageV2: storage);
+        await loaded.loadConversations();
+        final conversationId = loaded.createConversation(
+          ConversationSettings(modelId: 'm'),
         );
+        loaded.addMessage(
+          conversationId,
+          'user',
+          'with new file',
+          images: [
+            MessageImage(
+              path: attachment.path,
+              name: 'new.txt',
+              size: await attachment.length(),
+              mimeType: 'text/plain',
+            ),
+          ],
+        );
+        await loaded.replaceConversations(loaded.conversations);
 
-        expect(await marker.exists(), isTrue);
-        expect(await marker.readAsString(), 'old storage');
-        final prefs = await SharedPreferences.getInstance();
-        expect(prefs.getString('storage_migration_status'), 'failed');
+        final resourcesJson = await storage.loadDataFile('resources.json');
+        final resources = resourcesJson['resources'] as List<dynamic>;
+        expect(resources, hasLength(1));
+        expect(resources.single['kind'], 'documents');
+        expect(resources.single['relativePath'], startsWith('assets/blobs/'));
+
+        final conversationsJson = await storage.loadDataFile(
+          'conversations.json',
+        );
+        final attachments =
+            conversationsJson['messageAttachments'] as List<dynamic>;
+        expect(attachments.single['resourceId'], resources.single['id']);
+        expect(attachments.single.containsKey('path'), isFalse);
+
+        final reloaded = ConversationProvider(storageV2: storage);
+        await reloaded.loadConversations();
+        final image =
+            reloaded.conversations.single.messages.single.images.single;
+        expect(image.path, contains('/storage_v2/assets/blobs/'));
+        expect(await File(image.path).readAsString(), 'new attachment');
       } finally {
         await root.delete(recursive: true);
       }

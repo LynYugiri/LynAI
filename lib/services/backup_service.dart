@@ -60,7 +60,7 @@ class BackupService {
   final Future<String> Function()? _appVersionLoader;
   final _uuid = const Uuid();
 
-  static const currentSchemaVersion = 4;
+  static const currentSchemaVersion = 5;
   static const _backupType = 'lynai.backup';
 
   static Set<BackupSettingsPart> settingsPartsFromManifest(
@@ -104,6 +104,7 @@ class BackupService {
     final sections = <String, dynamic>{};
     final assetRecords = <Map<String, dynamic>>[];
     final archivedAssetPaths = <String, String>{};
+    final archivedAssetContentPaths = <String, String>{};
     List<Directory>? privateRoots;
 
     void addJson(String path, Object value) {
@@ -115,8 +116,9 @@ class BackupService {
 
     Future<void> addPrivateAsset(
       String? originalPath,
-      String kind, {
+      String role, {
       String? name,
+      String? mimeType,
     }) async {
       if (originalPath == null || originalPath.isEmpty) return;
       if (archivedAssetPaths.containsKey(originalPath)) return;
@@ -124,19 +126,35 @@ class BackupService {
       if (!await file.exists()) return;
       privateRoots ??= await _privateStorageRoots();
       if (!_isInPrivateStorage(file, privateRoots!)) return;
-      final safeName = safeStorageFileName(
-        name ?? file.uri.pathSegments.last,
-        fallback: 'asset',
-      );
-      final archivePath = 'assets/$kind/${assetRecords.length}_$safeName';
+      final originalName = name ?? file.uri.pathSegments.last;
       final bytes = await file.readAsBytes();
-      archive.addFile(ArchiveFile(archivePath, bytes.length, bytes));
+      final hash = sha256.convert(bytes).toString();
+      final effectiveMimeType = mimeType ?? _mimeTypeFromName(originalName);
+      final location = storageV2ResourceLocation(
+        sha256Hash: hash,
+        originalName: originalName,
+        mimeType: effectiveMimeType,
+        role: role,
+      );
+      final contentKey = '$hash:${bytes.length}';
+      final archivePath = archivedAssetContentPaths.putIfAbsent(contentKey, () {
+        archive.addFile(
+          ArchiveFile(location.relativePath, bytes.length, bytes),
+        );
+        return location.relativePath;
+      });
       archivedAssetPaths[originalPath] = archivePath;
       assetRecords.add({
-        'kind': kind,
+        'kind': location.kind,
+        'role': role,
         'originalPath': originalPath,
         'archivePath': archivePath,
-        'name': safeName,
+        'originalName': originalName,
+        'name': location.safeName,
+        'mimeType': effectiveMimeType,
+        'size': bytes.length,
+        'resourceId': location.resourceId,
+        'sha256': hash,
       });
     }
 
@@ -160,7 +178,7 @@ class BackupService {
       if (selection.settingsParts.contains(BackupSettingsPart.appearance)) {
         await addPrivateAsset(
           settings.backgroundImagePath,
-          'backgrounds',
+          'background',
           name: 'background${_extensionFromPath(settings.backgroundImagePath)}',
         );
       }
@@ -184,8 +202,9 @@ class BackupService {
           for (final image in message.images) {
             await addPrivateAsset(
               image.path,
-              'message_images',
+              image.isImage ? 'message_image' : 'message_attachment',
               name: image.name,
+              mimeType: image.mimeType,
             );
           }
         }
@@ -482,11 +501,7 @@ class BackupService {
       };
     }
 
-    final exportedResources = await _collectExportResources(
-      selection,
-      archivedAssetPaths,
-      assetRecords,
-    );
+    final exportedResources = await _collectExportResources(assetRecords);
     if (exportedResources.isNotEmpty) {
       addJson('resources.json', {'resources': exportedResources});
     }
@@ -544,9 +559,9 @@ class BackupService {
     if (manifest['type'] != _backupType) {
       throw const FormatException('这不是 LynAI 备份文件');
     }
-    final schemaVersion = (manifest['schemaVersion'] as num?)?.toInt() ?? 1;
-    if (schemaVersion > currentSchemaVersion) {
-      throw const FormatException('备份版本过高，当前应用无法导入');
+    final schemaVersion = (manifest['schemaVersion'] as num?)?.toInt() ?? -1;
+    if (schemaVersion != currentSchemaVersion) {
+      throw const FormatException('备份版本不兼容，请使用新版备份文件');
     }
 
     final settingsJson = readMap('settings.json');
@@ -2506,7 +2521,10 @@ class BackupService {
     if (neededOriginalPaths.isEmpty) return {};
     final records = archive.manifest['assets'];
     if (records is! List) return {};
-    final dir = await StorageV2Service.defaultBaseDirectory();
+    final storage = storageV2;
+    final dir = storage == null
+        ? await StorageV2Service.defaultBaseDirectory()
+        : (await storage.storageRoot()).parent;
     final restored = <String, String>{};
     for (final raw in records) {
       if (raw is! Map) continue;
@@ -2700,7 +2718,13 @@ class BackupService {
     return conversation.copyWith(messages: messages);
   }
 
-  static Future<List<Directory>> _privateStorageRoots() async {
+  Future<List<Directory>> _privateStorageRoots() async {
+    final storage = storageV2;
+    if (storage != null) {
+      final root = await storage.storageRoot();
+      return [root, root.parent];
+    }
+
     final roots = <Directory>[await getApplicationDocumentsDirectory()];
     try {
       roots.add(await getApplicationSupportDirectory());
@@ -2761,6 +2785,19 @@ class BackupService {
     final dot = name.lastIndexOf('.');
     if (dot <= 0 || dot == name.length - 1) return '';
     return name.substring(dot);
+  }
+
+  static String _mimeTypeFromName(String name) {
+    final lower = name.toLowerCase();
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    if (lower.endsWith('.gif')) return 'image/gif';
+    if (lower.endsWith('.pdf')) return 'application/pdf';
+    if (lower.endsWith('.txt') || lower.endsWith('.md')) return 'text/plain';
+    if (lower.endsWith('.json')) return 'application/json';
+    if (lower.endsWith('.csv')) return 'text/csv';
+    return 'application/octet-stream';
   }
 
   static BackupData _filterData(BackupData data, BackupSelection selection) {
@@ -2988,8 +3025,6 @@ class BackupService {
   }
 
   Future<List<Map<String, dynamic>>> _collectExportResources(
-    BackupSelection selection,
-    Map<String, String> archivedAssetPaths,
     List<Map<String, dynamic>> assetRecords,
   ) async {
     if (storageV2 == null) return [];
@@ -3005,61 +3040,61 @@ class BackupService {
     for (final record in assetRecords) {
       final originalPath = record['originalPath'] as String? ?? '';
       if (originalPath.isEmpty) continue;
-      final matched = existing.where(
+      final hash = record['sha256'] as String?;
+      final size = (record['size'] as num?)?.toInt();
+      final matchedByPath = existing.where(
         (res) =>
             !res.missing &&
             _normalizePath(res.originalPath) == _normalizePath(originalPath),
       );
-      if (matched.isNotEmpty) {
-        final resource = matched.first;
+      final matchedByHash = hash == null || size == null
+          ? const Iterable<StorageV2Resource>.empty()
+          : existing.where(
+              (res) =>
+                  !res.missing && res.sha256Hash == hash && res.size == size,
+            );
+      final resource = matchedByPath.isNotEmpty
+          ? matchedByPath.first
+          : matchedByHash.isNotEmpty
+          ? matchedByHash.first
+          : null;
+      if (resource != null) {
         if (seenIds.add(resource.id)) {
           items.add(resource.toJson());
         }
         record['resourceId'] = resource.id;
         record['sha256'] = resource.sha256Hash;
-      } else {
-        try {
-          final file = File(originalPath);
-          if (await file.exists()) {
-            final bytes = await file.readAsBytes();
-            final hash = sha256.convert(bytes).toString();
-            final dup = existing.where(
-              (res) => !res.missing && res.sha256Hash == hash,
-            );
-            if (dup.isNotEmpty) {
-              record['resourceId'] = dup.first.id;
-              record['sha256'] = hash;
-              if (seenIds.add(dup.first.id)) {
-                items.add(dup.first.toJson());
-              }
-            } else {
-              final safeName = safeStorageFileName(
-                record['name'] as String? ?? 'asset',
-                fallback: 'asset',
-              );
-              final kind = record['kind'] as String? ?? 'unknown';
-              final prefix = hash.substring(0, 2);
-              final relativePath = 'assets/$kind/$prefix/${hash}_$safeName';
-              final resource = StorageV2Resource(
-                id: 'res_${hash.substring(0, 32)}',
-                kind: kind,
-                role: record['kind'] as String? ?? 'unknown',
-                originalPath: originalPath,
-                originalName: safeName,
-                relativePath: relativePath,
-                mimeType: record['mimeType'] as String? ?? '',
-                size: bytes.length,
-                sha256Hash: hash,
-                missing: false,
-              );
-              record['resourceId'] = resource.id;
-              record['sha256'] = hash;
-              if (seenIds.add(resource.id)) {
-                items.add(resource.toJson());
-              }
-            }
-          }
-        } catch (_) {}
+        continue;
+      }
+      if (hash == null || size == null) continue;
+      final originalName =
+          record['originalName'] as String? ??
+          record['name'] as String? ??
+          'asset';
+      final mimeType =
+          record['mimeType'] as String? ?? 'application/octet-stream';
+      final role = record['role'] as String? ?? 'unknown';
+      final location = storageV2ResourceLocation(
+        sha256Hash: hash,
+        originalName: originalName,
+        mimeType: mimeType,
+        role: role,
+      );
+      final next = StorageV2Resource(
+        id: location.resourceId,
+        kind: location.kind,
+        role: role,
+        originalPath: originalPath,
+        originalName: originalName,
+        relativePath: location.relativePath,
+        mimeType: mimeType,
+        size: size,
+        sha256Hash: hash,
+        missing: false,
+      );
+      record['resourceId'] = next.id;
+      if (seenIds.add(next.id)) {
+        items.add(next.toJson());
       }
     }
     return items;

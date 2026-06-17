@@ -18,9 +18,8 @@ import 'providers/settings_provider.dart';
 import 'repositories/plugin_repository.dart';
 import 'pages/home_page.dart';
 import 'pages/changelog_page.dart';
-import 'services/legacy_resource_migration_service.dart';
 import 'services/device_plan_overlay_service.dart';
-import 'services/storage_migration_service.dart';
+import 'services/storage_v2_upgrade_service.dart';
 import 'utils/changelog_parser.dart';
 import 'utils/open_source_licenses.dart';
 import 'widgets/changelog_dialog.dart';
@@ -129,12 +128,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       final recycleBinProvider = context.read<RecycleBinProvider>();
       final roleplayProvider = context.read<RoleplayProvider>();
 
-      await StorageMigrationService(
-        settingsProvider: settingsProvider,
-        modelConfigProvider: modelProvider,
-        conversationProvider: conversationProvider,
-        featureProvider: featureProvider,
-      ).ensureMigrationReady();
+      await StorageV2UpgradeService().ensureReady();
 
       await Future.wait([
         conversationProvider.loadConversations(),
@@ -149,12 +143,6 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       settingsProvider.repairMediaModelSelections(modelProvider.models);
       conversationProvider.repairModelReferences(modelProvider.models);
       roleplayProvider.repairModelReferences(modelProvider.models);
-      await LegacyResourceMigrationService().migrate(
-        settingsProvider: settingsProvider,
-        conversationProvider: conversationProvider,
-        roleplayProvider: roleplayProvider,
-      );
-
       await _importBuiltInPlugins(pluginProvider);
 
       if (mounted) {

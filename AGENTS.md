@@ -9,8 +9,8 @@
 - Root analyzer excludes `third_party/**`; analyze vendored packages separately from their own package roots only when intentionally editing them.
 
 ## Architecture Boundaries
-- `lib/main.dart` is the real app entrypoint: registers Providers, runs storage migration readiness, loads all data partitions, repairs model references, migrates legacy resource paths, then syncs built-in plugins.
-- Keep the app layering strict: Pages handle UI, Providers own in-memory state and save queues, Repositories hide `storage_v2` vs legacy `SharedPreferences`, Services handle APIs/platform/files/migrations, Models only define serializable data contracts.
+- `lib/main.dart` is the real app entrypoint: registers Providers, prepares storage_v2, loads all data partitions, repairs model references, then syncs built-in plugins.
+- Keep the app layering strict: Pages handle UI, Providers own in-memory state and save queues, Repositories persist to `storage_v2`, Services handle APIs/platform/files/storage upgrades, Models only define serializable data contracts.
 - Providers intentionally update memory and notify UI before queued persistence; do not make UI wait on disk writes unless the existing flow already does.
 - Historical conversations and roleplay threads keep settings/model snapshots; global settings changes must not silently rewrite old sessions.
 - `HomePage` keeps the three main tabs alive with an `IndexedStack`; avoid fixes that assume switching tabs disposes feature/chat/settings state.
@@ -21,13 +21,13 @@
 - Roleplay uses scenario templates plus per-thread snapshots; deleting or changing a global role/model must repair references without rewriting old thread state.
 
 ## Storage And Data
-- `storage_v2/app.db` is the structured source of truth; `storage_v2/data/*.json` is compatibility/debug/import mirror data, not the primary store.
+- `storage_v2/app.db` is the structured source of truth; do not reintroduce `storage_v2/data/*.json` mirrors.
 - Notes in `storage_v2` store page bodies as Markdown files; `Note.content` is legacy compatibility and is not the only note body source.
 - Long-lived attachments/resources must be copied into the app-private storage path and saved as paths/metadata, not embedded into message JSON.
 - Storage-relative paths must go through the existing `StorageV2Service` safety checks; avoid manual path joins for user/plugin/archive-controlled paths.
-- Migration constants live in code, especially `StorageMigrationService.currentSchemaVersion` and `BackupService.currentSchemaVersion`; do not duplicate schema numbers in docs.
-- `StorageMigrationService` migrates legacy `SharedPreferences` JSON through a staging directory before activating `storage_v2`; preserve rollback behavior on migration failures.
-- `LegacyResourceMigrationService` copies old private resource paths and updates Providers after startup; it intentionally does not delete old files.
+- Migration constants live in code, especially `StorageV2Service.currentLayoutVersion` and `BackupService.currentSchemaVersion`; do not duplicate schema numbers in docs.
+- `StorageV2UpgradeService` creates or upgrades current storage_v2 in place and backs up the directory before layout upgrades.
+- Resources are SHA-addressed blobs under `assets/blobs/{sha256Prefix}/{sha256}`; display names and MIME data belong in metadata.
 - Backups are ZIPs with manifest, selected JSON partitions, note page Markdown, resources, and app-private assets; import must tolerate missing assets by warning and clearing invalid references.
 - `ConversationProvider` saves through a debounced serial queue; flush pending saves on lifecycle/dispose paths instead of forcing synchronous writes from the UI.
 - Schedule and tool-provided times are normalized to local time; avoid changing date parsing without focused schedule/tool tests.
@@ -49,7 +49,7 @@
 
 ## Tests And Platform Notes
 - Tests commonly use `SharedPreferences.setMockInitialValues({})` and `Directory.systemTemp`; reset or isolate those when adding focused tests.
-- Storage, plugin, migration, and attachment tests create temp directories and must clean them in `finally`; follow that pattern for new filesystem tests.
+- Storage, plugin, and attachment tests create temp directories and must clean them in `finally`; follow that pattern for new filesystem tests.
 - Widget tests that instantiate `LynAIApp` need the same Provider set as `main.dart`; keep test provider registration in sync when adding global Providers.
 - Linux release builds need native packages from CI (`cmake`, `clang`, `ninja-build`, `pkg-config`, `libgtk-3-dev`, `libwebkit2gtk-4.1-dev`, `liblzma-dev`, `zstd`).
 - macOS CI patches `speech_to_text` in the pub cache before `flutter build macos --release`; local macOS release failures may need the same workaround.

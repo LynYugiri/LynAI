@@ -11,14 +11,15 @@ import 'storage_v2_database.dart';
 /// Reader/writer facade for the `storage_v2` filesystem layout.
 ///
 /// This keeps UI code away from raw storage paths. Structured data is backed by
-/// `app.db`; `data/*.json` remains a legacy/debug mirror and import source.
+/// `app.db`; long-lived binary resources are stored as SHA-addressed blobs.
 class StorageV2Service {
   StorageV2Service({Directory? rootDirectory}) : _rootDirectory = rootDirectory;
+
+  static const currentLayoutVersion = 3;
 
   final Directory? _rootDirectory;
   StorageV2Database? _database;
   Future<void> _resourceMutationQueue = Future.value();
-  static Future<void> _dataImportQueue = Future.value();
 
   Future<bool> exists() async {
     return (await probe()).ready;
@@ -40,14 +41,13 @@ class StorageV2Service {
         return const StorageV2ProbeResult(StorageV2ProbeStatus.invalidManifest);
       }
       final version = (json['schemaVersion'] as num?)?.toInt();
-      if (version == null || version > 2) {
+      if (version == null || version > currentLayoutVersion) {
         return const StorageV2ProbeResult(
           StorageV2ProbeStatus.incompatibleVersion,
         );
       }
       final database = File('${root.path}/app.db');
-      final dataDir = Directory('${root.path}/data');
-      if (!await database.exists() && !await dataDir.exists()) {
+      if (!await database.exists()) {
         return const StorageV2ProbeResult(StorageV2ProbeStatus.incomplete);
       }
       return StorageV2ProbeResult(StorageV2ProbeStatus.ready, version: version);
@@ -61,6 +61,14 @@ class StorageV2Service {
 
   Future<Map<String, dynamic>> loadManifest() async {
     return _readMap('manifest.json');
+  }
+
+  Future<void> writeManifest(Map<String, dynamic> manifest) async {
+    await _writeMap('manifest.json', manifest);
+  }
+
+  Future<Directory> storageRoot() {
+    return _storageRoot();
   }
 
   Future<StorageV2NotesSnapshot> loadNotes() async {
@@ -91,14 +99,7 @@ class StorageV2Service {
 
   Future<void> writeDataFile(String fileName, Map<String, dynamic> data) async {
     final database = await _storageDatabase();
-    await _ensureDataFilesImported(database);
     await database.writeDataFile(fileName, data);
-    try {
-      await _writeMap('data/$fileName', data);
-    } catch (e) {
-      // `data/*.json` is only a legacy/debug mirror; app.db is authoritative.
-      debugPrint('storage_v2 JSON mirror write failed for $fileName: $e');
-    }
   }
 
   Future<Map<String, dynamic>> loadNotesData() {
@@ -112,11 +113,6 @@ class StorageV2Service {
   Future<bool> databaseExists() async {
     final database = await _storageDatabase();
     return database.exists();
-  }
-
-  Future<void> importDataFilesToDatabase({bool overwrite = false}) async {
-    final database = await _storageDatabase();
-    await database.importDataFiles(overwrite: overwrite);
   }
 
   Future<String> readNotePage(StorageV2NotePage page) async {
@@ -242,27 +238,8 @@ class StorageV2Service {
 
   Future<Map<String, dynamic>> _loadDataFile(String fileName) async {
     final database = await _storageDatabase();
-    await _ensureDataFilesImported(database);
     final data = await database.loadDataFile(fileName);
-    if (data != null) return data;
-    final legacyFile = await _file('data/$fileName');
-    if (!await legacyFile.exists()) return const <String, dynamic>{};
-    final legacy = await _readMap('data/$fileName');
-    await database.writeDataFile(fileName, legacy);
-    return legacy;
-  }
-
-  Future<void> _ensureDataFilesImported(StorageV2Database database) {
-    // The first database read may import legacy JSON mirrors. Keep that import
-    // serialized across service instances so it cannot overwrite a concurrent
-    // repository write with stale startup data.
-    final run = _dataImportQueue.catchError((_) {}).then((_) async {
-      if (!await database.hasImportedDataFiles()) {
-        await database.importDataFiles();
-      }
-    });
-    _dataImportQueue = run;
-    return run;
+    return data ?? const <String, dynamic>{};
   }
 
   Future<void> _writeMap(
@@ -313,11 +290,13 @@ class StorageV2Service {
       }
     }
 
-    final kind = _resourceKind(mimeType, role);
-    final safeName = safeExportFileName(originalName, fallback: 'asset');
-    final prefix = hash.substring(0, 2);
-    final storedName = '${hash}_$safeName';
-    final relativePath = 'assets/$kind/$prefix/$storedName';
+    final location = storageV2ResourceLocation(
+      sha256Hash: hash,
+      originalName: originalName,
+      mimeType: mimeType,
+      role: role,
+    );
+    final relativePath = location.relativePath;
     final target = await _file(relativePath);
     final parent = target.parent;
     if (!await parent.exists()) await parent.create(recursive: true);
@@ -327,8 +306,8 @@ class StorageV2Service {
     }
 
     return StorageV2Resource(
-      id: 'res_${hash.substring(0, 32)}',
-      kind: kind,
+      id: location.resourceId,
+      kind: location.kind,
       role: role,
       originalPath: file.path,
       originalName: originalName,
@@ -362,7 +341,7 @@ class StorageV2Service {
     final hash = sha256.convert(utf8.encode('$path|$originalName')).toString();
     return StorageV2Resource(
       id: 'missing_${hash.substring(0, 32)}',
-      kind: _resourceKind(mimeType, role),
+      kind: storageV2ResourceKind(mimeType, role),
       role: role,
       originalPath: path,
       originalName: originalName,
@@ -617,7 +596,42 @@ class StorageV2Resource {
   };
 }
 
-String _resourceKind(String mimeType, String role) {
+class StorageV2ResourceLocation {
+  final String resourceId;
+  final String kind;
+  final String safeName;
+  final String storedName;
+  final String relativePath;
+
+  const StorageV2ResourceLocation({
+    required this.resourceId,
+    required this.kind,
+    required this.safeName,
+    required this.storedName,
+    required this.relativePath,
+  });
+}
+
+StorageV2ResourceLocation storageV2ResourceLocation({
+  required String sha256Hash,
+  required String originalName,
+  required String mimeType,
+  required String role,
+}) {
+  final kind = storageV2ResourceKind(mimeType, role);
+  final safeName = safeExportFileName(originalName, fallback: 'asset');
+  final prefix = sha256Hash.substring(0, 2);
+  final storedName = sha256Hash;
+  return StorageV2ResourceLocation(
+    resourceId: 'res_${sha256Hash.substring(0, 32)}',
+    kind: kind,
+    safeName: safeName,
+    storedName: storedName,
+    relativePath: 'assets/blobs/$prefix/$storedName',
+  );
+}
+
+String storageV2ResourceKind(String mimeType, String role) {
   if (role == 'background') return 'backgrounds';
   if (mimeType.startsWith('image/')) return 'images';
   if (mimeType.startsWith('audio/')) return 'audio';

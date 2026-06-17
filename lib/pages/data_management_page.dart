@@ -16,7 +16,6 @@ import '../providers/plugin_provider.dart';
 import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/backup_service.dart';
-import '../services/storage_migration_service.dart';
 import '../services/storage_v2_service.dart';
 import '../utils/file_picker_io_utils.dart';
 
@@ -39,7 +38,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
   ImportMode _mode = ImportMode.merge;
   final Map<String, ImportConflictAction> _conflictActions = {};
   bool _busy = false;
-  StorageMigrationState? _migrationState;
 
   BackupService _service(BuildContext context) {
     return BackupService(
@@ -51,24 +49,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
       pluginProvider: context.read<PluginProvider>(),
       storageV2: StorageV2Service(),
     );
-  }
-
-  StorageMigrationService _migrationService(BuildContext context) {
-    return StorageMigrationService(
-      settingsProvider: context.read<SettingsProvider>(),
-      modelConfigProvider: context.read<ModelConfigProvider>(),
-      conversationProvider: context.read<ConversationProvider>(),
-      featureProvider: context.read<FeatureProvider>(),
-    );
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _loadMigrationState();
-    });
   }
 
   BackupSelection _currentExportSelection(BuildContext context) {
@@ -103,12 +83,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
         padding: const EdgeInsets.all(16),
         children: [
           _InfoCard(),
-          const SizedBox(height: 12),
-          _MigrationCard(
-            state: _migrationState,
-            busy: _busy,
-            onMigrate: _busy ? null : _confirmAndMigrate,
-          ),
           const SizedBox(height: 12),
           _ExportCard(
             selection: exportSelection,
@@ -157,70 +131,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
         _archive != null &&
         selection != null &&
         selection.sections.isNotEmpty;
-  }
-
-  Future<void> _loadMigrationState() async {
-    try {
-      if (!mounted) return;
-      final state = await _migrationService(context).loadFullState();
-      if (!mounted) return;
-      setState(() => _migrationState = state);
-    } catch (e) {
-      _showSnack('读取迁移状态失败：$e');
-    }
-  }
-
-  Future<void> _confirmAndMigrate() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('迁移前请先备份'),
-        content: const Text(
-          '迁移会把旧版 JSON 数据写入新版 storage_v2 结构化数据库，并把笔记正文拆成 Markdown 文件、资源写入哈希索引。迁移成功后会清理旧版大数据副本，请先导出完整备份。',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx, false);
-              _showSnack('请先使用“数据导出”导出完整备份');
-            },
-            child: const Text('去备份'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('我已备份，开始迁移'),
-          ),
-        ],
-      ),
-    );
-    if (!mounted) return;
-    if (confirmed == true) await _migrateStorage();
-  }
-
-  Future<void> _migrateStorage() async {
-    setState(() => _busy = true);
-    try {
-      final report = await _migrationService(context).migrate();
-      if (!mounted) return;
-      await Future.wait([
-        context.read<ConversationProvider>().loadConversations(),
-        context.read<ModelConfigProvider>().loadModels(),
-        context.read<SettingsProvider>().loadSettings(),
-        context.read<FeatureProvider>().load(),
-      ]);
-      await _loadMigrationState();
-      _showSnack('迁移完成：${report.summary}');
-    } catch (e) {
-      if (!mounted) return;
-      _showSnack('迁移失败：$e');
-      await _loadMigrationState();
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
   }
 
   Future<void> _export(BackupSelection selection) async {
@@ -306,19 +216,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
           modelProvider.models,
         );
       }
-      final currentState = _migrationState;
-      if (currentState != null && !currentState.completed) {
-        await _migrationService(context).migrate();
-        if (!mounted) return;
-        await Future.wait([
-          context.read<ConversationProvider>().loadConversations(),
-          context.read<ModelConfigProvider>().loadModels(),
-          context.read<SettingsProvider>().loadSettings(),
-          context.read<FeatureProvider>().load(),
-        ]);
-        await _loadMigrationState();
-        if (!mounted) return;
-      }
       setState(() {
         _archive = null;
         _preview = null;
@@ -381,109 +278,6 @@ class _InfoCard extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// 存储迁移卡片。
-///
-/// 展示当前迁移状态，支持触发从旧版 JSON 到 storage_v2 的单向迁移。
-class _MigrationCard extends StatelessWidget {
-  const _MigrationCard({
-    required this.state,
-    required this.busy,
-    required this.onMigrate,
-  });
-
-  final StorageMigrationState? state;
-  final bool busy;
-  final VoidCallback? onMigrate;
-
-  @override
-  Widget build(BuildContext context) {
-    final state = this.state;
-    final report = state?.report;
-    final completed = state?.completed ?? false;
-    final scheme = Theme.of(context).colorScheme;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.storage_outlined, color: scheme.primary),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    '新版存储迁移',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-                Chip(
-                  label: Text(state?.label ?? '读取中'),
-                  visualDensity: VisualDensity.compact,
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              '将旧版 SharedPreferences JSON 迁移为可持续的 storage_v2 布局：SQLite 结构化数据库、分页 Markdown 文件、哈希资源索引。迁移成功后会清理旧版大数据副本。',
-            ),
-            if (report != null) ...[
-              const SizedBox(height: 8),
-              _MigrationReportView(report: report),
-            ],
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: completed || busy ? null : onMigrate,
-                icon: const Icon(Icons.swap_horiz),
-                label: Text(completed ? '已完成迁移' : '迁移到新版存储'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// 迁移报告展示组件。
-class _MigrationReportView extends StatelessWidget {
-  const _MigrationReportView({required this.report});
-
-  final StorageMigrationReport report;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(report.summary),
-          Text('位置：${report.rootPath}'),
-          Text(
-            '资源去重 ${report.duplicatedResources}，笔记历史 ${report.noteRevisions}，AI 建议 ${report.noteEditProposals}',
-          ),
-          if (report.warnings.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(
-              '警告：${report.warnings.take(3).join('；')}${report.warnings.length > 3 ? '；...' : ''}',
-              style: TextStyle(color: scheme.error),
-            ),
-          ],
-        ],
       ),
     );
   }

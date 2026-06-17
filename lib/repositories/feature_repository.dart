@@ -1,13 +1,9 @@
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/note.dart';
 import '../models/schedule_item.dart';
 import '../models/todo_list.dart';
 import '../services/storage_v2_service.dart';
-import 'app_storage_state.dart';
 
 /// 功能模块加载结果，包含日程、笔记、待办清单等多项数据。
 class FeatureLoadResult {
@@ -35,56 +31,49 @@ class FeatureLoadResult {
 }
 
 /// 功能模块数据仓储，负责日程、笔记、待办清单等功能的持久化。
-///
-/// 支持旧版 SharedPreferences 与新版存储 V2 两种模式，
-/// 提供各功能模块的加载与保存接口。
 class FeatureRepository {
-  factory FeatureRepository({
-    StorageV2Service? storageV2,
-    AppStorageStateRepository? storageState,
-  }) {
+  factory FeatureRepository({StorageV2Service? storageV2}) {
     final storage = storageV2 ?? StorageV2Service();
-    return FeatureRepository._(
-      storage,
-      storageState ?? AppStorageStateRepository(storageV2: storage),
-    );
+    return FeatureRepository._(storage);
   }
 
-  FeatureRepository._(this._storageV2, this._storageState);
-
-  static const _scheduleKey = 'schedule_items';
-  static const _notesKey = 'notes';
-  static const _noteRevisionsKey = 'note_revisions';
-  static const _noteFoldersKey = 'note_folders';
-  static const _noteEditProposalsKey = 'note_edit_proposals';
-  static const _todoListsKey = 'todo_lists';
+  FeatureRepository._(this._storageV2);
 
   final StorageV2Service _storageV2;
-  final AppStorageStateRepository _storageState;
 
-  /// 判断当前是否激活了新版存储 V2。
-  Future<bool> isStorageV2Active() => _storageState.isStorageV2Active();
+  /// storage_v2 is the only app data store.
+  Future<bool> isStorageV2Active() async => true;
 
   /// 读取指定笔记分页的文本内容。
   Future<String> readNotePage(StorageV2NotePage page) =>
       _storageV2.readNotePage(page);
+
   /// 写入指定笔记分页的文本内容。
   Future<void> writeNotePage(StorageV2NotePage page, String content) =>
       _storageV2.writeNotePage(page, content);
+
   /// 删除指定相对路径的文件。
   Future<void> deleteFile(String relativePath) =>
       _storageV2.deleteFile(relativePath);
 
   /// 加载所有功能模块数据，优先使用新版 V2 存储。
   Future<FeatureLoadResult> load() async {
-    final legacy = await _loadLegacy();
-    if (!await isStorageV2Active()) return legacy;
     try {
-      final storage = await _loadStorageV2(legacy);
+      final storage = await _loadStorageV2();
       return storage;
     } catch (e) {
-      debugPrint('加载新版笔记存储失败，保留旧版笔记数据: $e');
-      return legacy;
+      debugPrint('加载功能数据失败: $e');
+      return const FeatureLoadResult(
+        schedules: [],
+        notes: [],
+        noteFolders: [],
+        noteRevisions: [],
+        noteEditProposals: [],
+        todoLists: [],
+        pagesByNoteId: {},
+        activePageIds: {},
+        usingStorageV2: true,
+      );
     }
   }
 
@@ -93,17 +82,9 @@ class FeatureRepository {
     List<ScheduleItem> schedules, {
     required bool usingStorageV2,
   }) async {
-    if (usingStorageV2 || await isStorageV2Active()) {
-      await _storageV2.writeDataFile('schedules.json', {
-        'schedules': schedules.map((item) => item.toJson()).toList(),
-      });
-      return;
-    }
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _scheduleKey,
-      jsonEncode(schedules.map((item) => item.toJson()).toList()),
-    );
+    await _storageV2.writeDataFile('schedules.json', {
+      'schedules': schedules.map((item) => item.toJson()).toList(),
+    });
   }
 
   /// 保存待办清单列表到当前激活的存储后端。
@@ -111,80 +92,52 @@ class FeatureRepository {
     List<TodoList> lists, {
     required bool usingStorageV2,
   }) async {
-    if (usingStorageV2 || await isStorageV2Active()) {
-      final todoLists = <Map<String, dynamic>>[];
-      final todoItems = <Map<String, dynamic>>[];
-      for (final list in lists) {
-        todoLists.add({
-          'id': list.id,
-          'title': list.title,
-          'createdAt': list.createdAt.toIso8601String(),
-          'updatedAt': list.updatedAt.toIso8601String(),
-        });
-        for (var i = 0; i < list.items.length; i++) {
-          final item = list.items[i];
-          todoItems.add({
-            'id': item.id,
-            'listId': list.id,
-            'text': item.text,
-            'done': item.done,
-            'sortOrder': i,
-          });
-        }
-      }
-      await _storageV2.writeDataFile('todo_lists.json', {
-        'todoLists': todoLists,
-        'todoItems': todoItems,
+    final todoLists = <Map<String, dynamic>>[];
+    final todoItems = <Map<String, dynamic>>[];
+    for (final list in lists) {
+      todoLists.add({
+        'id': list.id,
+        'title': list.title,
+        'createdAt': list.createdAt.toIso8601String(),
+        'updatedAt': list.updatedAt.toIso8601String(),
       });
-      return;
+      for (var i = 0; i < list.items.length; i++) {
+        final item = list.items[i];
+        todoItems.add({
+          'id': item.id,
+          'listId': list.id,
+          'text': item.text,
+          'done': item.done,
+          'sortOrder': i,
+        });
+      }
     }
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _todoListsKey,
-      jsonEncode(lists.map((item) => item.toJson()).toList()),
-    );
+    await _storageV2.writeDataFile('todo_lists.json', {
+      'todoLists': todoLists,
+      'todoItems': todoItems,
+    });
   }
 
-  /// 以旧版 SharedPreferences 格式保存笔记文件夹列表。
-  Future<void> saveLegacyNoteFolders(List<NoteFolder> folders) async {
-    if (await isStorageV2Active()) return;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _noteFoldersKey,
-      jsonEncode(folders.map((item) => item.toJson()).toList()),
-    );
+  /// Note metadata is persisted together by [_storageV2.writeNotesData].
+  Future<void> saveNoteFoldersSnapshot(List<NoteFolder> folders) async {
+    return;
   }
 
-  /// 以旧版 SharedPreferences 格式保存笔记时间线记录。
-  Future<void> saveLegacyNoteRevisions(List<NoteRevision> revisions) async {
-    if (await isStorageV2Active()) return;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _noteRevisionsKey,
-      jsonEncode(revisions.map((item) => item.toJson()).toList()),
-    );
+  /// Note metadata is persisted together by [_storageV2.writeNotesData].
+  Future<void> saveNoteRevisionsSnapshot(List<NoteRevision> revisions) async {
+    return;
   }
 
-  /// 以旧版 SharedPreferences 格式保存笔记列表。
-  Future<void> saveLegacyNotes(List<Note> notes) async {
-    if (await isStorageV2Active()) return;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _notesKey,
-      jsonEncode(notes.map((item) => item.toJson()).toList()),
-    );
+  /// Note metadata is persisted together by [_storageV2.writeNotesData].
+  Future<void> saveNotesSnapshot(List<Note> notes) async {
+    return;
   }
 
-  /// 以旧版 SharedPreferences 格式保存笔记修改建议列表。
-  Future<void> saveLegacyNoteEditProposals(
+  /// Note metadata is persisted together by [_storageV2.writeNotesData].
+  Future<void> saveNoteEditProposalsSnapshot(
     List<NoteEditProposal> proposals,
   ) async {
-    if (await isStorageV2Active()) return;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _noteEditProposalsKey,
-      jsonEncode(proposals.map((item) => item.toJson()).toList()),
-    );
+    return;
   }
 
   /// 以新版 V2 存储格式保存笔记数据。
@@ -192,44 +145,9 @@ class FeatureRepository {
     return _storageV2.writeNotesData(data);
   }
 
-  Future<FeatureLoadResult> _loadLegacy() async {
-    final prefs = await SharedPreferences.getInstance();
-    return FeatureLoadResult(
-      schedules: _parseList(
-        prefs.getString(_scheduleKey),
-        ScheduleItem.fromJson,
-        '日程记录',
-      )..sort((a, b) => a.start.compareTo(b.start)),
-      notes: _parseList(prefs.getString(_notesKey), Note.fromJson, '笔记记录'),
-      noteFolders: _parseList(
-        prefs.getString(_noteFoldersKey),
-        NoteFolder.fromJson,
-        '笔记文件夹记录',
-      ),
-      noteRevisions: _parseList(
-        prefs.getString(_noteRevisionsKey),
-        NoteRevision.fromJson,
-        '笔记时间线记录',
-      ),
-      noteEditProposals: _parseList(
-        prefs.getString(_noteEditProposalsKey),
-        NoteEditProposal.fromJson,
-        '笔记修改建议记录',
-      ),
-      todoLists: _parseList(
-        prefs.getString(_todoListsKey),
-        TodoList.fromJson,
-        '待办清单记录',
-      ),
-      pagesByNoteId: const {},
-      activePageIds: const {},
-      usingStorageV2: false,
-    );
-  }
-
-  Future<FeatureLoadResult> _loadStorageV2(FeatureLoadResult fallback) async {
-    final schedules = await _loadStorageV2Schedules(fallback.schedules);
-    final todoLists = await _loadStorageV2TodoLists(fallback.todoLists);
+  Future<FeatureLoadResult> _loadStorageV2() async {
+    final schedules = await _loadStorageV2Schedules();
+    final todoLists = await _loadStorageV2TodoLists();
     final notes = await _loadStorageV2Notes();
     return FeatureLoadResult(
       schedules: schedules,
@@ -244,9 +162,7 @@ class FeatureRepository {
     );
   }
 
-  Future<List<ScheduleItem>> _loadStorageV2Schedules(
-    List<ScheduleItem> fallback,
-  ) async {
+  Future<List<ScheduleItem>> _loadStorageV2Schedules() async {
     try {
       final data = await _storageV2.loadDataFile('schedules.json');
       final schedules = <ScheduleItem>[];
@@ -264,13 +180,11 @@ class FeatureRepository {
       return schedules..sort((a, b) => a.start.compareTo(b.start));
     } catch (e) {
       debugPrint('加载新版日程失败: $e');
-      return fallback;
+      return const [];
     }
   }
 
-  Future<List<TodoList>> _loadStorageV2TodoLists(
-    List<TodoList> fallback,
-  ) async {
+  Future<List<TodoList>> _loadStorageV2TodoLists() async {
     try {
       final data = await _storageV2.loadDataFile('todo_lists.json');
       final itemsByListId = <String, List<TodoItem>>{};
@@ -312,7 +226,7 @@ class FeatureRepository {
       return lists;
     } catch (e) {
       debugPrint('加载新版待办清单失败: $e');
-      return fallback;
+      return const [];
     }
   }
 
@@ -461,30 +375,6 @@ class FeatureRepository {
       pagesByNoteId: pagesByNoteId,
       activePageIds: activePageIds,
     );
-  }
-
-  static List<T> _parseList<T>(
-    String? jsonString,
-    T Function(Map<String, dynamic>) parser,
-    String label,
-  ) {
-    if (jsonString == null) return [];
-    List<dynamic> items;
-    try {
-      items = jsonDecode(jsonString) as List<dynamic>;
-    } catch (e) {
-      debugPrint('解析$label 列表失败: $e');
-      return [];
-    }
-    final parsed = <T>[];
-    for (final item in items) {
-      try {
-        parsed.add(parser(item as Map<String, dynamic>));
-      } catch (e) {
-        debugPrint('跳过损坏的$label: $e');
-      }
-    }
-    return parsed;
   }
 }
 

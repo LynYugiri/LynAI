@@ -306,6 +306,7 @@ class FeatureProvider extends ChangeNotifier {
         await _queueSaveNoteRevisions();
       }
       if (normalizedRevisions || cleanedFolderRefs) {
+        await _persistStorageV2NotesData();
         await _queueSaveNotes();
       }
       notifyListeners();
@@ -401,7 +402,7 @@ class FeatureProvider extends ChangeNotifier {
 
   Future<void> _saveNoteFoldersSnapshot(List<NoteFolder> snapshot) async {
     try {
-      await _repository.saveLegacyNoteFolders(snapshot);
+      await _repository.saveNoteFoldersSnapshot(snapshot);
     } catch (e) {
       debugPrint('保存笔记文件夹失败: $e');
     }
@@ -409,7 +410,7 @@ class FeatureProvider extends ChangeNotifier {
 
   Future<void> _saveNoteRevisionsSnapshot(List<NoteRevision> snapshot) async {
     try {
-      await _repository.saveLegacyNoteRevisions(snapshot);
+      await _repository.saveNoteRevisionsSnapshot(snapshot);
     } catch (e) {
       debugPrint('保存笔记时间线失败: $e');
     }
@@ -417,7 +418,7 @@ class FeatureProvider extends ChangeNotifier {
 
   Future<void> _saveNotesSnapshot(List<Note> snapshot) async {
     try {
-      await _repository.saveLegacyNotes(snapshot);
+      await _repository.saveNotesSnapshot(snapshot);
     } catch (e) {
       debugPrint('保存笔记失败: $e');
     }
@@ -427,7 +428,7 @@ class FeatureProvider extends ChangeNotifier {
     List<NoteEditProposal> snapshot,
   ) async {
     try {
-      await _repository.saveLegacyNoteEditProposals(snapshot);
+      await _repository.saveNoteEditProposalsSnapshot(snapshot);
     } catch (e) {
       debugPrint('保存笔记修改建议失败: $e');
     }
