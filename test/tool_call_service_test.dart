@@ -192,6 +192,18 @@ void main() {
     expect(description, contains('device.waitForNode'));
     expect(description, contains('model.ocr'));
     expect(description, contains('model.recognizeFile'));
+    expect(description, contains('model.generateImage'));
+  });
+
+  test('image generation tool is appended last when enabled', () {
+    final tools = ToolCallService.openAITools(const [], false, const [], true);
+    final names = tools
+        .map((tool) => tool['function'])
+        .whereType<Map>()
+        .map((function) => function['name'])
+        .toList();
+
+    expect(names.last, 'generate_image');
   });
 
   test('model recognition functions require dedicated permissions', () async {
@@ -237,6 +249,10 @@ void main() {
     expect(
       settings.agentGrantedPermissions,
       isNot(contains(LynAIPermissions.modelOcr)),
+    );
+    expect(
+      settings.agentGrantedPermissions,
+      isNot(contains(LynAIPermissions.modelGenerateImage)),
     );
   });
 

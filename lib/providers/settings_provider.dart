@@ -70,6 +70,9 @@ class SettingsProvider extends ChangeNotifier {
     final ocrModels = models
         .where((m) => m.category == ModelConfig.categoryOcr)
         .toList(growable: false);
+    final imageGenerationModels = models
+        .where((m) => m.category == ModelConfig.categoryImageGeneration)
+        .toList(growable: false);
 
     final nextSpeechId = _firstValidModelId(
       _settings.speechModelId,
@@ -79,6 +82,10 @@ class SettingsProvider extends ChangeNotifier {
     final nextImageRecognitionId = _firstValidModelId(
       _settings.imageRecognitionModelId,
       chatModels,
+    );
+    final nextImageGenerationId = _firstValidModelId(
+      _settings.imageGenerationModelId,
+      imageGenerationModels,
     );
     final nextLastChatId = _firstValidModelId(
       _settings.lastChatModelId,
@@ -102,6 +109,7 @@ class SettingsProvider extends ChangeNotifier {
     if (nextSpeechId == _settings.speechModelId &&
         nextOcrId == _settings.imageModelId &&
         nextImageRecognitionId == _settings.imageRecognitionModelId &&
+        nextImageGenerationId == _settings.imageGenerationModelId &&
         nextLastChatId == _settings.lastChatModelId &&
         !rolesChanged) {
       return;
@@ -111,6 +119,7 @@ class SettingsProvider extends ChangeNotifier {
       speechModelId: nextSpeechId,
       imageModelId: nextOcrId,
       imageRecognitionModelId: nextImageRecognitionId,
+      imageGenerationModelId: nextImageGenerationId,
       lastChatModelId: nextLastChatId,
       roles: nextRoles,
     );
@@ -451,6 +460,20 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 设置图片生成模型配置ID
+  void setImageGenerationModelId(String? modelId) {
+    _settings = _settings.copyWith(imageGenerationModelId: modelId);
+    _queueSaveSettings();
+    notifyListeners();
+  }
+
+  /// 设置图片生成工具是否启用
+  void setImageGenerationEnabled(bool enabled) {
+    _settings = _settings.copyWith(imageGenerationEnabled: enabled);
+    _queueSaveSettings();
+    notifyListeners();
+  }
+
   /// 记录新对话默认使用的 Chat 模型配置ID
   void setLastChatModelId(String? modelId) {
     _settings = _settings.copyWith(lastChatModelId: modelId);
@@ -564,6 +587,8 @@ class SettingsProvider extends ChangeNotifier {
       imageOcrEnabled: settings.imageOcrEnabled,
       imageRecognitionModelId: settings.imageRecognitionModelId,
       imageRecognitionEnabled: settings.imageRecognitionEnabled,
+      imageGenerationModelId: settings.imageGenerationModelId,
+      imageGenerationEnabled: settings.imageGenerationEnabled,
       imageRecognitionPrompt: settings.imageRecognitionPrompt,
       systemPrompt: settings.systemPrompt,
       selectedSystemPromptId: settings.selectedSystemPromptId,

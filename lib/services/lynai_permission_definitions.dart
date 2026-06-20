@@ -20,6 +20,7 @@ class LynAIPermissions {
   static const modelChat = 'model:chat';
   static const modelOcr = 'model:ocr';
   static const modelRecognizeFile = 'model:recognizeFile';
+  static const modelGenerateImage = 'model:generateImage';
   static const webviewBridge = 'webview:bridge';
   static const deviceScreenRead = 'device:screen:read';
   static const deviceControl = 'device:control';
@@ -39,6 +40,7 @@ class LynAIPermissions {
     modelChat,
     modelOcr,
     modelRecognizeFile,
+    modelGenerateImage,
     deviceScreenRead,
     deviceControl,
     deviceOverlay,
@@ -151,6 +153,12 @@ const lynaiPermissionDefinitions = <LynAIPermissionDefinition>[
     id: LynAIPermissions.modelRecognizeFile,
     title: '调用文件识别模型',
     description: '允许通过 model.recognizeFile 调用视觉模型识别图片或文件。',
+    risk: LynAIPermissionRisk.elevated,
+  ),
+  LynAIPermissionDefinition(
+    id: LynAIPermissions.modelGenerateImage,
+    title: '调用图片生成模型',
+    description: '允许通过 model.generateImage 调用已配置图片生成模型并保存结果。',
     risk: LynAIPermissionRisk.elevated,
   ),
   LynAIPermissionDefinition(

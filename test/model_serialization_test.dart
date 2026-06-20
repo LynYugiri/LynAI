@@ -125,6 +125,7 @@ void main() {
       speechModelId: 'speech-1',
       imageModelId: 'ocr-1',
       imageRecognitionModelId: 'vision-1',
+      imageGenerationModelId: 'image-gen-1',
       lastChatModelId: 'chat-1',
     );
 
@@ -133,6 +134,10 @@ void main() {
     expect(settings.copyWith(imageModelId: null).imageModelId, isNull);
     expect(
       settings.copyWith(imageRecognitionModelId: null).imageRecognitionModelId,
+      isNull,
+    );
+    expect(
+      settings.copyWith(imageGenerationModelId: null).imageGenerationModelId,
       isNull,
     );
     expect(settings.copyWith(lastChatModelId: null).lastChatModelId, isNull);
@@ -181,11 +186,15 @@ void main() {
     final settings = ConversationSettings(
       modelId: 'model-1',
       modelName: 'sub-model',
+      imageGenerationModelId: 'image-gen-1',
+      imageGenerationEnabled: true,
     );
     final restoredSettings = ConversationSettings.fromJson(settings.toJson());
 
     expect(restoredSettings.modelId, 'model-1');
     expect(restoredSettings.modelName, 'sub-model');
+    expect(restoredSettings.imageGenerationModelId, 'image-gen-1');
+    expect(restoredSettings.imageGenerationEnabled, isTrue);
     expect(settings.copyWith(modelName: null).modelName, isNull);
   });
 
@@ -378,6 +387,106 @@ void main() {
     expect(targetRoleplays.scenarios, hasLength(1));
     expect(targetRoleplays.threads.single.messages.single.content, '别动。');
   });
+
+  test(
+    'BackupService remaps conversation image generation model IDs',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final sourceModels = ModelConfigProvider();
+      final sourceConversations = ConversationProvider();
+      const conversationId = 'conversation-1';
+      await sourceModels.replaceModels([
+        ModelConfig(
+          id: 'image-gen',
+          name: 'Imported Image Provider',
+          category: ModelConfig.categoryImageGeneration,
+          endpoint: 'https://imported.example.com',
+          apiKey: 'key',
+          modelName: 'image-model',
+          apiType: 'openai',
+          priority: 0,
+        ),
+      ]);
+      await sourceConversations.replaceConversations([
+        Conversation(
+          id: conversationId,
+          title: 'image generation chat',
+          messages: const [],
+          modelId: 'chat-model',
+          settings: ConversationSettings(
+            modelId: 'chat-model',
+            imageGenerationModelId: 'image-gen',
+            imageGenerationEnabled: true,
+          ),
+          createdAt: DateTime.utc(2026, 1, 1),
+          updatedAt: DateTime.utc(2026, 1, 1),
+        ),
+      ]);
+      final archiveBytes =
+          await BackupService(
+            settingsProvider: SettingsProvider(),
+            modelConfigProvider: sourceModels,
+            conversationProvider: sourceConversations,
+            featureProvider: FeatureProvider(),
+            roleplayProvider: RoleplayProvider(),
+            appVersionLoader: () async => '0.0.0-test',
+          ).exportZipBytes(
+            const BackupSelection(
+              {BackupSection.settings, BackupSection.conversations},
+              settingsParts: {BackupSettingsPart.apiConfigs},
+              conversationIds: {conversationId},
+            ),
+          );
+
+      final targetModels = ModelConfigProvider();
+      final targetConversations = ConversationProvider();
+      await targetModels.replaceModels([
+        ModelConfig(
+          id: 'image-gen',
+          name: 'Local Image Provider',
+          category: ModelConfig.categoryImageGeneration,
+          endpoint: 'https://local.example.com',
+          apiKey: 'key',
+          modelName: 'local-image-model',
+          apiType: 'openai',
+          priority: 0,
+        ),
+      ]);
+      final targetService = BackupService(
+        settingsProvider: SettingsProvider(),
+        modelConfigProvider: targetModels,
+        conversationProvider: targetConversations,
+        featureProvider: FeatureProvider(),
+        roleplayProvider: RoleplayProvider(),
+      );
+      final archive = await targetService.readZipBytes(archiveBytes);
+
+      await targetService.importArchive(
+        archive,
+        const ImportPlan(
+          selection: BackupSelection(
+            {BackupSection.settings, BackupSection.conversations},
+            settingsParts: {BackupSettingsPart.apiConfigs},
+            conversationIds: {conversationId},
+          ),
+          mode: ImportMode.merge,
+          conflictActions: {
+            'settings:image-gen': ImportConflictAction.keepBoth,
+          },
+        ),
+      );
+
+      final importedModel = targetModels.models.singleWhere(
+        (model) => model.name == 'Imported Image Provider',
+      );
+      final importedConversation = targetConversations.conversations.single;
+      expect(importedModel.id, isNot('image-gen'));
+      expect(
+        importedConversation.settings.imageGenerationModelId,
+        importedModel.id,
+      );
+    },
+  );
 
   test('BackupService exports and imports full plugin data', () async {
     SharedPreferences.setMockInitialValues({});

@@ -40,6 +40,12 @@ class ConversationSettings {
   /// 图片识别时使用的提示词文本。
   final String imageRecognitionPrompt;
 
+  /// 图片生成使用的模型 ID。
+  final String? imageGenerationModelId;
+
+  /// 是否启用了图片生成工具。
+  final bool imageGenerationEnabled;
+
   /// 是否启用 Agent 模式。
   final bool agentEnabled;
 
@@ -59,6 +65,8 @@ class ConversationSettings {
     this.imageRecognitionModelId,
     this.imageRecognitionEnabled = false,
     this.imageRecognitionPrompt = '请根据下面的文件内容或识别结果回答。',
+    this.imageGenerationModelId,
+    this.imageGenerationEnabled = false,
     this.agentEnabled = false,
     this.agentGrantedPermissions = const [],
   });
@@ -78,6 +86,8 @@ class ConversationSettings {
     Object? imageRecognitionModelId = _sentinel,
     bool? imageRecognitionEnabled,
     String? imageRecognitionPrompt,
+    Object? imageGenerationModelId = _sentinel,
+    bool? imageGenerationEnabled,
     bool? agentEnabled,
     List<String>? agentGrantedPermissions,
   }) {
@@ -105,6 +115,11 @@ class ConversationSettings {
           imageRecognitionEnabled ?? this.imageRecognitionEnabled,
       imageRecognitionPrompt:
           imageRecognitionPrompt ?? this.imageRecognitionPrompt,
+      imageGenerationModelId: identical(imageGenerationModelId, _sentinel)
+          ? this.imageGenerationModelId
+          : imageGenerationModelId as String?,
+      imageGenerationEnabled:
+          imageGenerationEnabled ?? this.imageGenerationEnabled,
       agentEnabled: agentEnabled ?? this.agentEnabled,
       agentGrantedPermissions:
           agentGrantedPermissions ?? this.agentGrantedPermissions,
@@ -133,6 +148,8 @@ class ConversationSettings {
           json['imageRecognitionPrompt'] as String? ??
           json['imagePrompt'] as String? ??
           '请根据下面的文件内容或识别结果回答。',
+      imageGenerationModelId: json['imageGenerationModelId'] as String?,
+      imageGenerationEnabled: json['imageGenerationEnabled'] as bool? ?? false,
       agentEnabled: json['agentEnabled'] as bool? ?? false,
       agentGrantedPermissions:
           (json['agentGrantedPermissions'] as List<dynamic>? ?? const [])
@@ -158,6 +175,9 @@ class ConversationSettings {
         'imageRecognitionModelId': imageRecognitionModelId,
       'imageRecognitionEnabled': imageRecognitionEnabled,
       'imageRecognitionPrompt': imageRecognitionPrompt,
+      if (imageGenerationModelId != null)
+        'imageGenerationModelId': imageGenerationModelId,
+      'imageGenerationEnabled': imageGenerationEnabled,
       'agentEnabled': agentEnabled,
       if (agentGrantedPermissions.isNotEmpty)
         'agentGrantedPermissions': agentGrantedPermissions,

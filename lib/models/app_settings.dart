@@ -19,6 +19,8 @@ class AppSettings {
   final bool imageOcrEnabled;
   final String? imageRecognitionModelId;
   final bool imageRecognitionEnabled;
+  final String? imageGenerationModelId;
+  final bool imageGenerationEnabled;
   final String? lastChatModelId;
   final String imageRecognitionPrompt;
   final String systemPrompt;
@@ -43,6 +45,8 @@ class AppSettings {
     this.imageOcrEnabled = false,
     this.imageRecognitionModelId,
     this.imageRecognitionEnabled = false,
+    this.imageGenerationModelId,
+    this.imageGenerationEnabled = false,
     this.lastChatModelId,
     this.imageRecognitionPrompt = '请根据下面的文件内容或识别结果回答。',
     this.systemPrompt = 'You are a helpful assistant.',
@@ -74,6 +78,8 @@ class AppSettings {
     bool? imageOcrEnabled,
     Object? imageRecognitionModelId = _sentinel,
     bool? imageRecognitionEnabled,
+    Object? imageGenerationModelId = _sentinel,
+    bool? imageGenerationEnabled,
     Object? lastChatModelId = _sentinel,
     String? imageRecognitionPrompt,
     String? systemPrompt,
@@ -107,6 +113,11 @@ class AppSettings {
           : imageRecognitionModelId as String?,
       imageRecognitionEnabled:
           imageRecognitionEnabled ?? this.imageRecognitionEnabled,
+      imageGenerationModelId: identical(imageGenerationModelId, _sentinel)
+          ? this.imageGenerationModelId
+          : imageGenerationModelId as String?,
+      imageGenerationEnabled:
+          imageGenerationEnabled ?? this.imageGenerationEnabled,
       lastChatModelId: identical(lastChatModelId, _sentinel)
           ? this.lastChatModelId
           : lastChatModelId as String?,
@@ -207,6 +218,8 @@ class AppSettings {
       imageRecognitionModelId: json['imageRecognitionModelId'] as String?,
       imageRecognitionEnabled:
           json['imageRecognitionEnabled'] as bool? ?? false,
+      imageGenerationModelId: json['imageGenerationModelId'] as String?,
+      imageGenerationEnabled: json['imageGenerationEnabled'] as bool? ?? false,
       lastChatModelId: json['lastChatModelId'] as String?,
       imageRecognitionPrompt:
           json['imageRecognitionPrompt'] as String? ??
@@ -243,6 +256,9 @@ class AppSettings {
       if (imageRecognitionModelId != null)
         'imageRecognitionModelId': imageRecognitionModelId,
       'imageRecognitionEnabled': imageRecognitionEnabled,
+      if (imageGenerationModelId != null)
+        'imageGenerationModelId': imageGenerationModelId,
+      'imageGenerationEnabled': imageGenerationEnabled,
       if (lastChatModelId != null) 'lastChatModelId': lastChatModelId,
       'imageRecognitionPrompt': imageRecognitionPrompt,
       'systemPrompt': systemPrompt,

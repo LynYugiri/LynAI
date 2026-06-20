@@ -262,7 +262,7 @@ Plan 创建和更新不需要权限，只用于当前对话的可视化状态。
 如果需要了解可用插件函数，先调用 list_plugin_functions。
 如果需要调用插件函数，先调用 list_plugin_functions 查看可用函数，再用 call_plugin_function。该能力需要 plugins.callFunction 权限。
 如果需要了解可用插件 Skill，先调用 list_plugin_skills；Skill 摘要不是完整说明，执行相关流程前调用 load_plugin_skill 加载正文。加载 Skill 不需要额外权限。
-如果需要运行 Lua，调用 execute_lua。Lua 运行在受限沙箱中：禁用 os/io/package/require/dofile/loadfile，不能访问文件系统或系统命令；所有 LynAI 能力必须通过 lynai.call(name, args) 调用；脚本最后必须 return 一个 JSON 可序列化 table。Agent Lua 支持同步读取函数、plugins.functions.list、plugins.callFunction、agent.plan.update、agent.note.add、device.app.open 和 device.* 设备函数；插件函数调用需要 plugins.callFunction 权限。打开已安装 Android 应用时在 Lua 中调用 lynai.call("device.app.open", { packageName = "目标包名" })。复杂屏幕操控应优先在 Lua 中线性编排多步 device.*：读取 screen.context 或 waitForNode，优先用 node.action，必要时才用坐标 tap/swipe。关键调用后检查 ok，失败时返回结构化 error。
+如果需要运行 Lua，调用 execute_lua。Lua 运行在受限沙箱中：禁用 os/io/package/require/dofile/loadfile，不能访问文件系统或系统命令；所有 LynAI 能力必须通过 lynai.call(name, args) 调用；脚本最后必须 return 一个 JSON 可序列化 table。Agent Lua 支持同步读取函数、plugins.functions.list、plugins.callFunction、agent.plan.update、agent.note.add、model.chat、model.ocr、model.recognizeFile、model.generateImage、device.app.open 和 device.* 设备函数；插件函数调用需要 plugins.callFunction 权限。打开已安装 Android 应用时在 Lua 中调用 lynai.call("device.app.open", { packageName = "目标包名" })。复杂屏幕操控应优先在 Lua 中线性编排多步 device.*：读取 screen.context 或 waitForNode，优先用 node.action，必要时才用坐标 tap/swipe。关键调用后检查 ok，失败时返回结构化 error。
 Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:false,error:{code,message,details?}}；读取数据时优先看 result。
 可以输出简短的中间说明，但不要把工具 JSON 原样展示给用户；最终回复应汇总执行结果。
 ''';
@@ -328,6 +328,7 @@ ${lines.join('\n')}$more''';
     Iterable<InstalledPlugin> plugins = const [],
     bool agentEnabled = false,
     Iterable<String> agentGrantedPermissions = const [],
+    bool imageGenerationEnabled = false,
   ]) {
     final tools = <Map<String, dynamic>>[
       {
@@ -739,7 +740,46 @@ ${lines.join('\n')}$more''';
         });
       }
     }
+    if (imageGenerationEnabled) _appendImageGenerationTool(tools, names);
     return tools;
+  }
+
+  static void _appendImageGenerationTool(
+    List<Map<String, dynamic>> tools,
+    Set<String> names,
+  ) {
+    if (!names.add('generate_image')) return;
+    tools.add({
+      'type': 'function',
+      'function': {
+        'name': 'generate_image',
+        'description':
+            '使用当前对话选择的图片生成模型生成图片。仅当用户明确要求画图、生成图片、出图、绘制视觉内容时调用。调用后图片会自动保存并显示在对话中。',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'prompt': {
+              'type': 'string',
+              'description': '图片生成提示词，尽量包含主体、风格、构图、光照和色彩要求。',
+            },
+            'count': {'type': 'integer', 'description': '生成数量，默认 1，建议 1-4。'},
+            'size': {
+              'type': 'string',
+              'description': '图片尺寸，例如 1024x1024、1024x1792、1792x1024。',
+            },
+            'quality': {
+              'type': 'string',
+              'description': '可选质量参数，例如 standard 或 hd。',
+            },
+            'style': {
+              'type': 'string',
+              'description': '可选风格参数，例如 vivid 或 natural。',
+            },
+          },
+          'required': ['prompt'],
+        },
+      },
+    });
   }
 
   static void _appendAgentTools(
@@ -867,7 +907,7 @@ ${lines.join('\n')}$more''';
     if (permissions.contains(LynAICapabilities.luaExecute)) {
       add(
         'execute_lua',
-        '执行 LynAI Agent Lua 脚本。脚本运行在受限 lua_dardo 沙箱中：禁用 os、io、package、require、dofile、loadfile；不能访问本地文件系统或执行系统命令；所有 LynAI 能力必须通过 lynai.call(name, args) 调用；lynai.call 返回 JSON 风格 table，通常包含 ok 字段；脚本最后必须 return 一个 JSON 可序列化 table。支持同步读取函数（如 todos.list、notes.read、schedules.list）、plugins.functions.list、plugins.callFunction、agent.plan.update、agent.note.add、model.chat、model.ocr、model.recognizeFile、device.app.open 和 device.*。打开已安装 Android 应用时调用 lynai.call("device.app.open", { packageName = "目标包名" })；device.* 支持异步线性执行，可在 Lua 中写循环、等待和多步流程；复杂屏幕操控优先使用 device.screen.context、device.waitForNode、device.node.action，必要时再用 device.screen.screenshot 配合 model.ocr/model.recognizeFile，最后才用 device.tap/device.swipe 坐标操作。关键调用应检查 ok，失败时 return { ok = false, error = result.error }。示例：local opened = lynai.call("device.app.open", { packageName = "com.example.app" }); if not opened.ok then return opened end; local n = lynai.call("device.waitForNode", { text = "发送", timeoutMs = 5000 }); if not n.ok then return n end; return lynai.call("device.node.action", { nodeId = n.result.id, action = "click" })',
+        '执行 LynAI Agent Lua 脚本。脚本运行在受限 lua_dardo 沙箱中：禁用 os、io、package、require、dofile、loadfile；不能访问本地文件系统或执行系统命令；所有 LynAI 能力必须通过 lynai.call(name, args) 调用；lynai.call 返回 JSON 风格 table，通常包含 ok 字段；脚本最后必须 return 一个 JSON 可序列化 table。支持同步读取函数（如 todos.list、notes.read、schedules.list）、plugins.functions.list、plugins.callFunction、agent.plan.update、agent.note.add、model.chat、model.ocr、model.recognizeFile、model.generateImage、device.app.open 和 device.*。打开已安装 Android 应用时调用 lynai.call("device.app.open", { packageName = "目标包名" })；device.* 支持异步线性执行，可在 Lua 中写循环、等待和多步流程；复杂屏幕操控优先使用 device.screen.context、device.waitForNode、device.node.action，必要时再用 device.screen.screenshot 配合 model.ocr/model.recognizeFile，最后才用 device.tap/device.swipe 坐标操作。关键调用应检查 ok，失败时 return { ok = false, error = result.error }。示例：local opened = lynai.call("device.app.open", { packageName = "com.example.app" }); if not opened.ok then return opened end; local n = lynai.call("device.waitForNode", { text = "发送", timeoutMs = 5000 }); if not n.ok then return n end; return lynai.call("device.node.action", { nodeId = n.result.id, action = "click" })',
         {
           'type': 'object',
           'properties': {
@@ -1085,16 +1125,24 @@ ${lines.join('\n')}$more''';
         default:
           final functionName = LynAIFunctionService.aiToolAliases[call.name];
           if (functionName != null) {
-            return _lynaiFunctions.execute(
+            final result = await _lynaiFunctions.execute(
               LynAIFunctionCall(name: functionName, arguments: call.arguments),
               LynAIFunctionContext(
-                identity: const LynAICallIdentity(type: LynAICallerType.system),
+                identity: LynAICallIdentity(
+                  type: LynAICallerType.system,
+                  conversationId: _conversationId,
+                ),
                 features: _features,
                 modelConfigs: _modelConfigs,
                 settings: _settings,
                 plugins: _plugins,
+                conversations: _conversations,
               ),
             );
+            if (functionName == 'model.generateImage') {
+              _appendGeneratedImagesToConversation(result);
+            }
+            return result;
           }
           final pluginResult = await _executePluginTool(call);
           if (pluginResult != null) return pluginResult;
@@ -1104,6 +1152,29 @@ ${lines.join('\n')}$more''';
       debugPrint('工具调用失败 ${call.name}: $e\n$st');
       return _error(e.toString());
     }
+  }
+
+  void _appendGeneratedImagesToConversation(Map<String, dynamic> result) {
+    final cid = _conversationId;
+    final conversations = _conversations;
+    if (cid == null || conversations == null || result['ok'] != true) return;
+    final rawImages = result['images'];
+    if (rawImages is! List) return;
+    final images = <MessageImage>[];
+    for (final raw in rawImages.whereType<Map>()) {
+      final json = Map<String, dynamic>.from(raw);
+      final path = (json['path'] as String? ?? '').trim();
+      if (path.isEmpty) continue;
+      images.add(
+        MessageImage(
+          path: path,
+          name: (json['name'] as String? ?? 'generated_image.png').trim(),
+          size: (json['size'] as num?)?.toInt() ?? 0,
+          mimeType: (json['mimeType'] as String? ?? 'image/png').trim(),
+        ),
+      );
+    }
+    conversations.appendImagesToLastAssistantMessage(cid, images);
   }
 
   Map<String, dynamic> _addAgentNote(Map<String, dynamic> args) {

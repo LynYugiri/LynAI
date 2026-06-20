@@ -2069,6 +2069,8 @@ class BackupService {
         imageOcrEnabled: incoming.imageOcrEnabled,
         imageRecognitionModelId: incoming.imageRecognitionModelId,
         imageRecognitionEnabled: incoming.imageRecognitionEnabled,
+        imageGenerationModelId: incoming.imageGenerationModelId,
+        imageGenerationEnabled: incoming.imageGenerationEnabled,
         lastChatModelId: incoming.lastChatModelId,
         imageRecognitionPrompt: incoming.imageRecognitionPrompt,
         systemPrompt: incoming.systemPrompt,
@@ -2122,6 +2124,10 @@ class BackupService {
         settings.imageRecognitionModelId,
         idMap.modelIds,
       ),
+      imageGenerationModelId: _remapNullable(
+        settings.imageGenerationModelId,
+        idMap.modelIds,
+      ),
       lastChatModelId: _remapNullable(settings.lastChatModelId, idMap.modelIds),
     );
   }
@@ -2140,6 +2146,10 @@ class BackupService {
       imageModelId: _keepExistingId(settings.imageModelId, modelIds),
       imageRecognitionModelId: _keepExistingId(
         settings.imageRecognitionModelId,
+        modelIds,
+      ),
+      imageGenerationModelId: _keepExistingId(
+        settings.imageGenerationModelId,
         modelIds,
       ),
       lastChatModelId: _keepExistingId(settings.lastChatModelId, modelIds),
@@ -2250,6 +2260,10 @@ class BackupService {
       ),
       imageRecognitionModelId: _remapNullable(
         conversation.settings.imageRecognitionModelId,
+        idMap.modelIds,
+      ),
+      imageGenerationModelId: _remapNullable(
+        conversation.settings.imageGenerationModelId,
         idMap.modelIds,
       ),
     );
@@ -2882,6 +2896,9 @@ class BackupService {
         if (settings.imageRecognitionModelId != null)
           'imageRecognitionModelId': settings.imageRecognitionModelId,
         'imageRecognitionEnabled': settings.imageRecognitionEnabled,
+        if (settings.imageGenerationModelId != null)
+          'imageGenerationModelId': settings.imageGenerationModelId,
+        'imageGenerationEnabled': settings.imageGenerationEnabled,
         if (settings.lastChatModelId != null)
           'lastChatModelId': settings.lastChatModelId,
         'imageRecognitionPrompt': settings.imageRecognitionPrompt,

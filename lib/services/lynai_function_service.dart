@@ -24,6 +24,7 @@ import 'device_run_controller.dart';
 import 'lynai_call_identity.dart';
 import 'lynai_permission_definitions.dart';
 import 'lynai_permission_service.dart';
+import 'image_generation_service.dart';
 import 'model_recognition_service.dart';
 import 'storage_v2_service.dart';
 
@@ -232,6 +233,7 @@ class LynAIFunctionService {
     'read_todo_list': 'todos.read',
     'save_todo_list': 'todos.saveList',
     'save_todo_item': 'todos.saveItem',
+    'generate_image': 'model.generateImage',
   };
 
   /// 异步执行 AI 函数调用。
@@ -346,6 +348,10 @@ class LynAIFunctionService {
           context,
           call.arguments,
         ),
+        'model.generateImage' => await _modelGenerateImage(
+          context,
+          call.arguments,
+        ),
         'device.app.open' => await _openApp(call.arguments),
         String name when name.startsWith('device.') =>
           await DeviceControlService.instance.execute(name, call.arguments),
@@ -426,6 +432,7 @@ class LynAIFunctionService {
       'model.chat' => LynAIPermissions.modelChat,
       'model.ocr' => LynAIPermissions.modelOcr,
       'model.recognizeFile' => LynAIPermissions.modelRecognizeFile,
+      'model.generateImage' => LynAIPermissions.modelGenerateImage,
       'device.screen.snapshot' ||
       'device.screen.context' ||
       'device.screen.screenshot' => LynAIPermissions.deviceScreenRead,
@@ -1875,6 +1882,70 @@ class LynAIFunctionService {
       'fileCount': files.length,
       if (modelId != null && modelId.isNotEmpty) 'modelId': modelId,
     };
+  }
+
+  Future<Map<String, dynamic>> _modelGenerateImage(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) async {
+    final provider = context.modelConfigs;
+    if (provider == null) throw Exception('model.generateImage 需要模型上下文');
+    final prompt = (args['prompt'] as String? ?? '').trim();
+    if (prompt.isEmpty) throw Exception('model.generateImage 缺少 prompt');
+    final modelId = (args['modelId'] as String?)?.trim().isNotEmpty == true
+        ? args['modelId'] as String
+        : context.settings?.settings.imageGenerationModelId;
+    final modelName = (args['modelName'] as String?)?.trim().isNotEmpty == true
+        ? args['modelName'] as String
+        : null;
+    final parameters = _imageGenerationParameters(args);
+    final service = ImageGenerationService();
+    try {
+      final result = await service.generate(
+        modelConfigs: provider,
+        prompt: prompt,
+        modelId: modelId,
+        modelName: modelName,
+        parameters: parameters,
+      );
+      return {
+        'ok': true,
+        'prompt': prompt,
+        'modelId': result.model.id,
+        'modelName': result.model.modelName,
+        'imageCount': result.images.length,
+        'images': result.images
+            .map(
+              (image) => {
+                'path': image.path,
+                'name': image.name,
+                'size': image.size,
+                'mimeType': image.mimeType,
+              },
+            )
+            .toList(),
+      };
+    } finally {
+      service.dispose();
+    }
+  }
+
+  Map<String, dynamic> _imageGenerationParameters(Map<String, dynamic> args) {
+    final parameters = <String, dynamic>{};
+    void add(String key, Object? value) {
+      if (value == null) return;
+      if (value is String && value.trim().isEmpty) return;
+      parameters[key] = value;
+    }
+
+    add('n', args['count'] ?? args['n']);
+    add('size', args['size']);
+    add('quality', args['quality']);
+    add('style', args['style']);
+    if (args['parameters'] is Map) {
+      parameters.addAll(Map<String, dynamic>.from(args['parameters'] as Map));
+    }
+    return parameters;
   }
 
   Future<Map<String, dynamic>> _openApp(Map<String, dynamic> args) async {

@@ -39,8 +39,7 @@ class ChatRole {
       id: json['id'] as String? ?? defaultId,
       name: json['name'] as String? ?? '默认',
       description: json['description'] as String? ?? '',
-      systemPrompt:
-          json['systemPrompt'] as String? ?? defaultSystemPrompt,
+      systemPrompt: json['systemPrompt'] as String? ?? defaultSystemPrompt,
       modelId: json['modelId'] as String?,
       modelName: json['modelName'] as String?,
       themeColor: colorValue == null ? null : Color(colorValue),

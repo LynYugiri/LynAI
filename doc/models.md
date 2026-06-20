@@ -45,7 +45,7 @@
 | `roleId` | 当前角色 ID，用于历史分组。 |
 | `createdAt` / `updatedAt` | 创建和更新时间。 |
 
-`ConversationSettings` 保存发送对话所需的模型、系统提示词、OCR、文件识别和语音配置。历史对话必须保存自己的设置快照，否则全局设置改变后旧对话上下文也会变化。
+`ConversationSettings` 保存发送对话所需的模型、系统提示词、OCR、文件识别、图片生成和语音配置。历史对话必须保存自己的设置快照，否则全局设置改变后旧对话上下文也会变化。
 
 反序列化时坏消息会被跳过；如果整条对话结构损坏，则由 Provider 跳过该对话。
 
@@ -68,7 +68,7 @@
 
 `ModelEntry` 是子模型。子模型可以独立设置启用状态、视觉能力、thinking 能力、工具能力和采样参数。
 
-Agent 可通过 `model.chat` 调用 Chat 模型，通过 `model.ocr` 调用 OCR 分类模型，通过 `model.recognizeFile` 调用开启视觉能力的 Chat 模型。`model.recognizeFile` 依赖 `supportsVision=true` 的子模型。
+Agent 可通过 `model.chat` 调用 Chat 模型，通过 `model.ocr` 调用 OCR 分类模型，通过 `model.recognizeFile` 调用开启视觉能力的 Chat 模型，通过 `model.generateImage` 调用图片生成模型。`model.recognizeFile` 依赖 `supportsVision=true` 的子模型。
 
 请求参数优先级：子模型参数高于 Provider 参数，高于接口默认值。
 
@@ -81,8 +81,8 @@ Agent 可通过 `model.chat` 调用 Chat 模型，通过 `model.ocr` 调用 OCR 
 | 类别 | 字段 |
 |------|------|
 | 外观 | `themeColor`, `baseThemeColor`, `themeMode`, `backgroundImagePath`, `blurEnabled`, `blurAmount` |
-| 模型选择 | `speechModelId`, `imageModelId`, `imageRecognitionModelId`, `lastChatModelId` |
-| 图片/文件识别 | `imageOcrEnabled`, `imageRecognitionEnabled`, `imageRecognitionPrompt` |
+| 模型选择 | `speechModelId`, `imageModelId`, `imageRecognitionModelId`, `imageGenerationModelId`, `lastChatModelId` |
+| 图片/文件识别/生成 | `imageOcrEnabled`, `imageRecognitionEnabled`, `imageGenerationEnabled`, `imageRecognitionPrompt` |
 | 提示词 | `systemPrompt`, `systemPrompts`, `selectedSystemPromptId` |
 | 角色 | `roles`, `roleGroups`, `currentRoleId` |
 | 功能页 | `lastFeature` |

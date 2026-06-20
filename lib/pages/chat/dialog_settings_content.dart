@@ -20,11 +20,13 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
   bool _showSpeechList = false;
   bool _showImageList = false;
   bool _showImageRecognitionList = false;
+  bool _showImageGenerationList = false;
   bool _showRoleList = false;
   bool _showSystemPromptList = false;
   String? _expandedSpeechId;
   String? _expandedImageId;
   String? _expandedImageRecognitionId;
+  String? _expandedImageGenerationId;
   late ConversationSettings _settings;
 
   @override
@@ -50,6 +52,9 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
         : null;
     final imageRecognitionModel = _settings.imageRecognitionModelId != null
         ? _findModelConfigById(mp.models, _settings.imageRecognitionModelId!)
+        : null;
+    final imageGenerationModel = _settings.imageGenerationModelId != null
+        ? _findModelConfigById(mp.models, _settings.imageGenerationModelId!)
         : null;
 
     return DraggableScrollableSheet(
@@ -355,6 +360,57 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                   (entry) => entry.enabled && entry.supportsVision,
                 ),
                 entryFilter: (entry) => entry.supportsVision,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                '图片生成模型',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 8),
+              _inlineModelPicker(
+                mp: mp,
+                category: ModelConfig.categoryImageGeneration,
+                currentModel: imageGenerationModel,
+                showList: _showImageGenerationList,
+                expandedId: _expandedImageGenerationId,
+                hint: '未设置（启用生图后将使用该模型）',
+                icon: Icons.auto_awesome,
+                onToggle: () => setState(() {
+                  _showSpeechList = false;
+                  _showImageList = false;
+                  _showSystemPromptList = false;
+                  _showImageRecognitionList = false;
+                  _showImageGenerationList = !_showImageGenerationList;
+                  _expandedImageGenerationId = null;
+                }),
+                onSelect: (id) {
+                  _updateSettings(
+                    _settings.copyWith(imageGenerationModelId: id),
+                  );
+                  setState(() {
+                    _showImageGenerationList = false;
+                    _expandedImageGenerationId = null;
+                  });
+                },
+                onExpandProvider: (id) {
+                  _updateSettings(
+                    _settings.copyWith(imageGenerationModelId: id),
+                  );
+                  setState(() => _expandedImageGenerationId = id);
+                },
+                onSelectSub: (config, modelName) {
+                  final c = config.copyWith(modelName: modelName);
+                  context.read<ModelConfigProvider>().updateModel(c);
+                },
+                onClear: () {
+                  _updateSettings(
+                    _settings.copyWith(imageGenerationModelId: null),
+                  );
+                },
               ),
               const SizedBox(height: 16),
               // 文件识别提示词

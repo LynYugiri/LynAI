@@ -2,10 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 const _licenseAssets = [
-  (
-    packages: ['LynAI'],
-    assetPath: 'LICENSE',
-  ),
+  (packages: ['LynAI'], assetPath: 'LICENSE'),
   (
     packages: ['webview_all_linux'],
     assetPath: 'third_party/webview_all_linux/LICENSE',

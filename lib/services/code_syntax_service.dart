@@ -204,19 +204,86 @@ class OneDarkSyntaxHighlighter extends CodeSyntaxHighlighter {
 
   // 跨语言保留字集合，用于将未识别的单词标记为关键字色
   static const _reservedWords = {
-    'abstract', 'alignas', 'alignof', 'and', 'as', 'asm', 'async',
-    'await', 'bool', 'break', 'case', 'catch', 'char', 'class',
-    'const', 'constexpr', 'continue', 'def', 'default', 'delete',
-    'do', 'double', 'dynamic', 'else', 'enum', 'export', 'extends',
-    'false', 'final', 'finally', 'float', 'for', 'from', 'func',
-    'function', 'if', 'implements', 'import', 'in', 'inline',
-    'int', 'interface', 'is', 'let', 'long', 'namespace', 'new',
-    'noexcept', 'not', 'nullptr', 'operator', 'or', 'private',
-    'protected', 'public', 'return', 'short', 'signed', 'sizeof',
-    'static', 'string', 'struct', 'super', 'switch', 'template',
-    'this', 'throw', 'true', 'try', 'typedef', 'typename', 'union',
-    'unsigned', 'using', 'var', 'virtual', 'void', 'volatile',
-    'while', 'with',
+    'abstract',
+    'alignas',
+    'alignof',
+    'and',
+    'as',
+    'asm',
+    'async',
+    'await',
+    'bool',
+    'break',
+    'case',
+    'catch',
+    'char',
+    'class',
+    'const',
+    'constexpr',
+    'continue',
+    'def',
+    'default',
+    'delete',
+    'do',
+    'double',
+    'dynamic',
+    'else',
+    'enum',
+    'export',
+    'extends',
+    'false',
+    'final',
+    'finally',
+    'float',
+    'for',
+    'from',
+    'func',
+    'function',
+    'if',
+    'implements',
+    'import',
+    'in',
+    'inline',
+    'int',
+    'interface',
+    'is',
+    'let',
+    'long',
+    'namespace',
+    'new',
+    'noexcept',
+    'not',
+    'nullptr',
+    'operator',
+    'or',
+    'private',
+    'protected',
+    'public',
+    'return',
+    'short',
+    'signed',
+    'sizeof',
+    'static',
+    'string',
+    'struct',
+    'super',
+    'switch',
+    'template',
+    'this',
+    'throw',
+    'true',
+    'try',
+    'typedef',
+    'typename',
+    'union',
+    'unsigned',
+    'using',
+    'var',
+    'virtual',
+    'void',
+    'volatile',
+    'while',
+    'with',
   };
 
   // highlight.js 分类到 OneDark 颜色的映射表
@@ -389,15 +456,13 @@ class OneDarkSyntaxHighlighter extends CodeSyntaxHighlighter {
   /// 注释类型附加 italic，strong 类型附加 bold。
   TextStyle? _styleFor(String? className) {
     if (className == null) return null;
-    final classes =
-        className.split(RegExp(r'\s+')).where((e) => e.isNotEmpty);
+    final classes = className.split(RegExp(r'\s+')).where((e) => e.isNotEmpty);
     Color? color;
     for (final cls in classes) {
       color ??= _syntaxColors[cls];
     }
     if (color == null) return null;
-    final isComment =
-        classes.any((cls) => cls == 'comment' || cls == 'quote');
+    final isComment = classes.any((cls) => cls == 'comment' || cls == 'quote');
     final isStrong = classes.any((cls) => cls == 'strong');
     return TextStyle(
       color: color,

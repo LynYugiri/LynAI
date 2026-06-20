@@ -391,6 +391,55 @@ class ConversationProvider extends ChangeNotifier {
     }
   }
 
+  void appendImagesToLastAssistantMessage(
+    String conversationId,
+    List<MessageImage> images,
+  ) {
+    if (images.isEmpty) return;
+    try {
+      final index = _conversations.indexWhere((c) => c.id == conversationId);
+      if (index == -1 || _conversations[index].messages.isEmpty) return;
+
+      final messages = List<Message>.from(_conversations[index].messages);
+      var messageIndex = -1;
+      for (var i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role == 'assistant') {
+          messageIndex = i;
+          break;
+        }
+      }
+      if (messageIndex == -1) return;
+
+      final message = messages[messageIndex];
+      messages[messageIndex] = Message(
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        images: [...message.images, ...images],
+        thinkingContent: message.thinkingContent,
+        agentTrace: message.agentTrace,
+        timestamp: message.timestamp,
+      );
+
+      _conversations[index] = Conversation(
+        id: _conversations[index].id,
+        title: _conversations[index].title,
+        messages: messages,
+        modelId: _conversations[index].modelId,
+        settings: _conversations[index].settings,
+        agentPlan: _conversations[index].agentPlan,
+        roleId: _conversations[index].roleId,
+        createdAt: _conversations[index].createdAt,
+        updatedAt: DateTime.now(),
+      );
+      _touchConversation(index);
+      _queueSaveConversations();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('追加图片到消息失败: $e');
+    }
+  }
+
   /// Appends an Agent trace event to the latest assistant message.
   void appendAgentTraceEvent(
     String conversationId,

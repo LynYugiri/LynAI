@@ -279,6 +279,10 @@ class PluginLuaRuntimeService {
         _pushFunctionCommand(ls, 'model.recognizeFile', _readJsonValue(ls, 1));
         return 1;
       },
+      'generateImage': (LuaState ls) {
+        _pushFunctionCommand(ls, 'model.generateImage', _readJsonValue(ls, 1));
+        return 1;
+      },
     });
     _setTable(state, -1, 'notes', {
       'list': (LuaState ls) {

@@ -59,16 +59,19 @@ void main() {
     });
   });
 
-  test('TreeSitterNative query highlight classifies TSX tags and attributes', () {
-    _guard('tsx', (native) {
-      final tokens = native.highlightTokens(
-        'tsx',
-        '<div className="x"><span/></div>',
-      );
-      expect(_hasKind(tokens, TreeSitterTokenKind.tag), true);
-      expect(_hasKind(tokens, TreeSitterTokenKind.attribute), true);
-    });
-  });
+  test(
+    'TreeSitterNative query highlight classifies TSX tags and attributes',
+    () {
+      _guard('tsx', (native) {
+        final tokens = native.highlightTokens(
+          'tsx',
+          '<div className="x"><span/></div>',
+        );
+        expect(_hasKind(tokens, TreeSitterTokenKind.tag), true);
+        expect(_hasKind(tokens, TreeSitterTokenKind.attribute), true);
+      });
+    },
+  );
 
   test('TreeSitterNative query highlight classifies Python functions', () {
     _guard('python', (native) {
@@ -82,10 +85,7 @@ void main() {
 
   test('TreeSitterNative query highlight classifies Python constants', () {
     _guard('python', (native) {
-      final tokens = native.highlightTokens(
-        'python',
-        'x = True',
-      );
+      final tokens = native.highlightTokens('python', 'x = True');
       expect(_hasKind(tokens, TreeSitterTokenKind.constant), true);
     });
   });

@@ -86,6 +86,20 @@ class _StreamDraft {
   const _StreamDraft({this.content = '', this.thinking, this.status});
 }
 
+class _ChatSearchMatch {
+  final String messageId;
+  final int messageIndex;
+  final int start;
+  final int end;
+
+  const _ChatSearchMatch({
+    required this.messageId,
+    required this.messageIndex,
+    required this.start,
+    required this.end,
+  });
+}
+
 /// 主对话页面。
 ///
 /// 负责输入、附件、语音、流式请求、工具调用、重试分支和对话分享。实际数据
@@ -126,8 +140,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   static const _streamWaitTimeout = Duration(minutes: 5);
 
   final _msgCtrl = TextEditingController();
+  final _searchCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
   final _focusNode = FocusNode();
+  final _searchFocusNode = FocusNode();
   final _screenshotCtrl = ScreenshotController();
   final _audioRecorder = AudioRecorder();
   final _attachmentStorage = const AttachmentStorageService();
@@ -161,13 +177,19 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   final Set<String> _expandedThinkIds = {};
   final List<_PendingImage> _pendingImages = [];
   bool _showImageRecognitionList = false;
+  bool _showImageGenerationList = false;
   bool _shareSelecting = false;
   bool _sharingImage = false;
+  bool _showSearch = false;
   bool? _agentPlanExpanded;
   final Set<String> _selectedShareMessageIds = {};
+  final Map<String, GlobalKey> _messageKeys = {};
+  final List<_ChatSearchMatch> _searchMatches = [];
   final Map<String, bool> _attachmentExistsCache = {};
   String? _expandedInputAction;
   Timer? _inputActionCollapseTimer;
+  int _currentSearchMatch = -1;
+  String _lastSearchSignature = '';
 
   int _streamGen = 0;
   String? _streamingConvId;
@@ -195,11 +217,15 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _searchCtrl.addListener(_refreshSearchMatches);
     _speech = stt.SpeechToText();
     if (widget.conversationId != null) {
       _convId = widget.conversationId;
       _applyConversationSettings(widget.conversationId!, notifyNow: false);
       widget.onConversationLoaded?.call();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _scheduleJumpToBottom(unfocusInput: true);
+      });
     }
   }
 
@@ -211,6 +237,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   }
 
   bool _handleBack() {
+    if (_showSearch) {
+      _closeSearch();
+      return true;
+    }
     if (_shareSelecting) {
       _cancelShareSelection();
       return true;
@@ -222,20 +252,32 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   void didUpdateWidget(ChatPage old) {
     super.didUpdateWidget(old);
     if (widget.conversationId != null && widget.conversationId != _convId) {
+      if (_streaming && _streamingConvId != widget.conversationId) {
+        _stopStreaming();
+      }
+      _sendGen++;
       setState(() {
+        _preparingSend = false;
         _convId = widget.conversationId;
         _clearPendingState();
         _clearRetryState();
       });
       _applyConversationSettings(widget.conversationId!, notifyNow: false);
       widget.onConversationLoaded?.call();
+      _closeSearch();
+      _scheduleJumpToBottom(unfocusInput: true);
     } else if (widget.roleChangeSerial != old.roleChangeSerial) {
       if (_streaming) _stopStreaming();
+      _sendGen++;
       setState(() {
+        _preparingSend = false;
         _convId = null;
         _clearPendingState();
         _clearRetryState();
       });
+      _closeSearch();
+    } else if (widget.active && !old.active) {
+      _scheduleJumpToBottom(unfocusInput: true);
     }
   }
 
@@ -256,6 +298,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       imageRecognitionModelId: settings.imageRecognitionModelId,
       imageRecognitionEnabled: settings.imageRecognitionEnabled,
       imageRecognitionPrompt: settings.imageRecognitionPrompt,
+      imageGenerationModelId: settings.imageGenerationModelId,
+      imageGenerationEnabled: settings.imageGenerationEnabled,
     );
   }
 
@@ -300,9 +344,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _audioRecorder.dispose();
     _streamDraft.dispose();
     _inputRevision.dispose();
+    _searchCtrl.removeListener(_refreshSearchMatches);
+    _searchCtrl.dispose();
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
     _focusNode.dispose();
+    _searchFocusNode.dispose();
     _api.dispose();
     _recognition.dispose();
     WidgetsBinding.instance.removeObserver(this);
@@ -375,6 +422,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _expandedThinkIds.clear();
     _thinkMap.clear();
     _pendingImages.clear();
+  }
+
+  void _syncBackAvailability() {
+    widget.onBackAvailabilityChanged?.call(_showSearch || _shareSelecting);
   }
 
   bool get _isNearBottom {
@@ -480,12 +531,202 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     });
   }
 
-  void _jumpToBottom() {
+  void _scheduleJumpToBottom({bool unfocusInput = false}) {
+    if (unfocusInput && _isMobilePlatform) {
+      _focusNode.unfocus();
+    }
     setState(() {
       _autoScrollToBottom = true;
       _showScrollToBottom = false;
     });
     _scrollEnd(force: true);
+  }
+
+  void _jumpToBottom() {
+    _scheduleJumpToBottom();
+  }
+
+  void _openSearch() {
+    final conv = _convId == null
+        ? null
+        : context.read<ConversationProvider>().getConversation(_convId!);
+    if (conv == null || conv.messages.isEmpty) return;
+    if (_shareSelecting) _cancelShareSelection();
+    setState(() => _showSearch = true);
+    _refreshSearchMatches();
+    _syncBackAvailability();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _searchFocusNode.requestFocus();
+    });
+  }
+
+  void _closeSearch() {
+    if (!_showSearch) return;
+    _searchFocusNode.unfocus();
+    _searchCtrl.clear();
+    setState(() {
+      _showSearch = false;
+      _searchMatches.clear();
+      _currentSearchMatch = -1;
+      _lastSearchSignature = '';
+    });
+    _syncBackAvailability();
+  }
+
+  GlobalKey _messageKeyFor(String messageId) {
+    return _messageKeys.putIfAbsent(messageId, GlobalKey.new);
+  }
+
+  void _pruneMessageKeys(List<Message> messages) {
+    final ids = messages.map((message) => message.id).toSet();
+    _messageKeys.removeWhere((id, _) => !ids.contains(id));
+  }
+
+  void _refreshSearchMatches() {
+    if (!mounted) return;
+    final query = _searchCtrl.text.trim();
+    final conv = _convId == null
+        ? null
+        : context.read<ConversationProvider>().getConversation(_convId!);
+    final messages = conv?.messages ?? const <Message>[];
+    final signature = [
+      query.toLowerCase(),
+      _convId ?? '',
+      for (final message in messages) '${message.id}:${message.content.length}',
+    ].join('|');
+    if (signature == _lastSearchSignature) return;
+
+    final matches = <_ChatSearchMatch>[];
+    if (query.isNotEmpty) {
+      final lowerQuery = query.toLowerCase();
+      for (var i = 0; i < messages.length; i++) {
+        final message = messages[i];
+        final lowerContent = message.content.toLowerCase();
+        var start = 0;
+        while (start < lowerContent.length) {
+          final index = lowerContent.indexOf(lowerQuery, start);
+          if (index == -1) break;
+          matches.add(
+            _ChatSearchMatch(
+              messageId: message.id,
+              messageIndex: i,
+              start: index,
+              end: index + query.length,
+            ),
+          );
+          start = index + query.length;
+        }
+      }
+    }
+
+    var current = _currentSearchMatch;
+    if (matches.isEmpty) {
+      current = -1;
+    } else if (current < 0 || current >= matches.length) {
+      current = 0;
+    }
+    final shouldScroll = _showSearch && query.isNotEmpty && current >= 0;
+    setState(() {
+      _lastSearchSignature = signature;
+      _searchMatches
+        ..clear()
+        ..addAll(matches);
+      _currentSearchMatch = current;
+    });
+    if (shouldScroll) _scrollToSearchMatch(current);
+  }
+
+  void _selectSearchMatch(int index) {
+    if (_searchMatches.isEmpty) return;
+    final next = index % _searchMatches.length;
+    final normalized = next < 0 ? next + _searchMatches.length : next;
+    setState(() => _currentSearchMatch = normalized);
+    _scrollToSearchMatch(normalized);
+  }
+
+  void _nextSearchMatch() => _selectSearchMatch(_currentSearchMatch + 1);
+
+  void _previousSearchMatch() => _selectSearchMatch(_currentSearchMatch - 1);
+
+  void _scrollToSearchMatch(int index) {
+    if (index < 0 || index >= _searchMatches.length) return;
+    final key = _messageKeys[_searchMatches[index].messageId];
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final context = key?.currentContext;
+      if (!mounted || context == null) return;
+      Scrollable.ensureVisible(
+        context,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+        alignment: 0.35,
+      );
+    });
+  }
+
+  bool _messageHasSearchMatch(String messageId) {
+    return _searchMatches.any((match) => match.messageId == messageId);
+  }
+
+  bool _isCurrentSearchMessage(String messageId) {
+    final index = _currentSearchMatch;
+    return index >= 0 &&
+        index < _searchMatches.length &&
+        _searchMatches[index].messageId == messageId;
+  }
+
+  bool _isCurrentTextRange(String messageId, int start, int end) {
+    final index = _currentSearchMatch;
+    if (index < 0 || index >= _searchMatches.length) return false;
+    final match = _searchMatches[index];
+    return match.messageId == messageId &&
+        match.start == start &&
+        match.end == end;
+  }
+
+  double _assistantContentMaxWidth() {
+    final width = MediaQuery.sizeOf(context).width;
+    if (width < 600) return width * 0.92;
+    if (width < 1000) return width * 0.86;
+    final maxWidth = width * 0.78;
+    return maxWidth > 900 ? 900 : maxWidth;
+  }
+
+  Widget _searchableUserText(Message msg) {
+    final query = _searchCtrl.text.trim();
+    if (!_showSearch || query.isEmpty || !_messageHasSearchMatch(msg.id)) {
+      return SelectableText(msg.content, style: const TextStyle(fontSize: 15));
+    }
+    final scheme = Theme.of(context).colorScheme;
+    final lowerContent = msg.content.toLowerCase();
+    final lowerQuery = query.toLowerCase();
+    final spans = <TextSpan>[];
+    var start = 0;
+    while (start < msg.content.length) {
+      final index = lowerContent.indexOf(lowerQuery, start);
+      if (index == -1) break;
+      if (index > start) {
+        spans.add(TextSpan(text: msg.content.substring(start, index)));
+      }
+      final end = index + query.length;
+      final current = _isCurrentTextRange(msg.id, index, end);
+      spans.add(
+        TextSpan(
+          text: msg.content.substring(index, end),
+          style: TextStyle(
+            color: current ? scheme.onPrimary : Colors.black,
+            backgroundColor: current ? scheme.primary : Colors.yellow,
+            fontWeight: current ? FontWeight.w700 : FontWeight.w600,
+          ),
+        ),
+      );
+      start = end;
+    }
+    if (start < msg.content.length) {
+      spans.add(TextSpan(text: msg.content.substring(start)));
+    }
+    return SelectableText.rich(
+      TextSpan(style: const TextStyle(fontSize: 15), children: spans),
+    );
   }
 
   @override
@@ -634,6 +875,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       imageRecognitionModelId: set.imageRecognitionModelId,
       imageRecognitionEnabled: set.imageRecognitionEnabled,
       imageRecognitionPrompt: set.imageRecognitionPrompt,
+      imageGenerationModelId: set.imageGenerationModelId,
+      imageGenerationEnabled: set.imageGenerationEnabled,
     );
   }
 
@@ -697,11 +940,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final images = _pendingImages.map((e) => e.toMessageImage()).toList();
     final conversationSettings = _currentConversationSettings(model);
     final roleId = context.read<SettingsProvider>().settings.currentRoleId;
+    final targetConvId = _convId;
     final sendGen = ++_sendGen;
     setState(() => _preparingSend = true);
     final apiUserContent = await _prepareUserContent(text, images);
     if (!mounted) return;
-    if (sendGen != _sendGen) {
+    if (sendGen != _sendGen || _convId != targetConvId) {
       _setBackgroundGenerationActive(false);
       return;
     }
@@ -737,7 +981,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     });
     _scrollEnd(force: true);
     await WidgetsBinding.instance.endOfFrame;
-    if (!mounted || !_streaming || _convId == null) return;
+    if (!mounted || !_streaming || _convId == null || sendGen != _sendGen) {
+      return;
+    }
     _doSend(
       model,
       lastUserContentOverride: apiUserContent,
@@ -763,19 +1009,22 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   }
 
   Future<void> _sendRetry(String text) async {
-    if (_streaming || _preparingSend || _convId == null) return;
+    final cid = _convId;
+    if (_streaming || _preparingSend || cid == null) return;
     final cp = context.read<ConversationProvider>();
     final mp = context.read<ModelConfigProvider>();
     final model = _getModel(mp);
     if (model == null) return;
-    final conv = cp.getConversation(_convId!);
+    final conv = cp.getConversation(cid);
     if (conv == null) return;
     final lastUser = conv.messages.where((m) => m.role == 'user').last;
     Object? apiUserContent;
+    final sendGen = ++_sendGen;
     setState(() => _preparingSend = true);
     try {
       apiUserContent = await _prepareUserContent(text, lastUser.images);
       if (!mounted) return;
+      if (sendGen != _sendGen || _convId != cid) return;
       if (apiUserContent == null) {
         setState(() => _preparingSend = false);
         return;
@@ -801,20 +1050,22 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
     _retryHistory.add(_RetryEntry(text, lastUser.images));
     _retryIdx = _retryHistory.length - 1;
-    cp.updateMessageContent(_convId!, lastUser.id, text);
+    cp.updateMessageContent(cid, lastUser.id, text);
     if (lastAssistant.isNotEmpty) {
       _thinkMap.remove(lastAssistant.last.id);
-      cp.deleteMessage(_convId!, lastAssistant.last.id);
+      cp.deleteMessage(cid, lastAssistant.last.id);
     }
     _scrollEnd(force: true);
-    cp.addMessage(_convId!, 'assistant', '', save: false);
+    cp.addMessage(cid, 'assistant', '', save: false);
     setState(() {
       _preparingSend = false;
-      _beginStreaming(_convId!);
+      _beginStreaming(cid);
       _thinkingTxt = null;
     });
     await WidgetsBinding.instance.endOfFrame;
-    if (!mounted || !_streaming || _convId == null) return;
+    if (!mounted || !_streaming || _convId != cid || sendGen != _sendGen) {
+      return;
+    }
     _doSend(model, lastUserContentOverride: apiUserContent);
   }
 
@@ -989,6 +1240,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
               context.read<PluginProvider>().plugins,
               streamSettings?.agentEnabled == true,
               context.read<SettingsProvider>().settings.agentGrantedPermissions,
+              streamSettings?.imageGenerationEnabled == true &&
+                  _imageGenerationModel(streamSettings) != null,
             )
           : const [],
       toolChoice: 'auto',
@@ -1140,15 +1393,19 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
   void _switchModel(ModelConfig model) {
     if (_convId != null) {
-      context.read<ConversationProvider>().updateConversationModelId(
-        _convId!,
-        model.id,
-      );
+      final cp = context.read<ConversationProvider>();
+      final conv = cp.getConversation(_convId!);
+      if (conv != null) {
+        cp.updateConversationSettings(
+          _convId!,
+          conv.settings.copyWith(modelId: model.id, modelName: model.modelName),
+        );
+      }
     } else {
       _pendingModelId = model.id;
       _draftSettings = _currentConversationSettings(
         model,
-      ).copyWith(modelId: model.id);
+      ).copyWith(modelId: model.id, modelName: model.modelName);
     }
     context.read<SettingsProvider>().setLastChatModelId(model.id);
     setState(() {});
@@ -1163,9 +1420,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   }
 
   Future<void> _retry() async {
-    if (_convId == null || _streaming || _preparingSend) return;
+    final cid = _convId;
+    if (cid == null || _streaming || _preparingSend) return;
     final cp = context.read<ConversationProvider>();
-    final conv = cp.getConversation(_convId!);
+    final conv = cp.getConversation(cid);
     if (conv == null) return;
     final um = conv.messages.where((m) => m.role == 'user').toList();
     if (um.isEmpty) return;
@@ -1175,6 +1433,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     if (assistantMessages.isEmpty) return;
     final lastUser = um.last;
     Object? apiUserContent;
+    final sendGen = ++_sendGen;
     setState(() => _preparingSend = true);
     try {
       apiUserContent = await _prepareUserContent(
@@ -1182,6 +1441,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         lastUser.images,
       );
       if (!mounted) return;
+      if (sendGen != _sendGen || _convId != cid) return;
       if (apiUserContent == null) {
         setState(() => _preparingSend = false);
         return;
@@ -1206,17 +1466,19 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _retryHistory.add(_RetryEntry(lastUser.content, lastUser.images));
     _retryIdx = _retryHistory.length - 1;
     _thinkMap.remove(lastAssistant.id);
-    cp.deleteMessage(_convId!, lastAssistant.id);
-    cp.addMessage(_convId!, 'assistant', '', save: false);
+    cp.deleteMessage(cid, lastAssistant.id);
+    cp.addMessage(cid, 'assistant', '', save: false);
     setState(() {
       _preparingSend = false;
-      _beginStreaming(_convId!);
+      _beginStreaming(cid);
       _thinkingTxt = null;
     });
     final retryModel = _getModel(context.read<ModelConfigProvider>());
     if (retryModel != null) {
       await WidgetsBinding.instance.endOfFrame;
-      if (!mounted || !_streaming || _convId == null) return;
+      if (!mounted || !_streaming || _convId != cid || sendGen != _sendGen) {
+        return;
+      }
       _doSend(retryModel, lastUserContentOverride: apiUserContent);
     } else {
       setState(() {
@@ -1228,9 +1490,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   }
 
   Future<void> _retryWithoutHistory() async {
-    if (_convId == null || _streaming || _preparingSend) return;
+    final cid = _convId;
+    if (cid == null || _streaming || _preparingSend) return;
     final cp = context.read<ConversationProvider>();
-    final conv = cp.getConversation(_convId!);
+    final conv = cp.getConversation(cid);
     if (conv == null) return;
     final assistantMessages = conv.messages
         .where((m) => m.role == 'assistant')
@@ -1239,7 +1502,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final lastAssistant = assistantMessages.last;
     final retryModel = _getModel(context.read<ModelConfigProvider>());
     if (retryModel != null) {
-      final conv = cp.getConversation(_convId!);
+      final conv = cp.getConversation(cid);
       final userMessages = conv?.messages
           .where((m) => m.role == 'user')
           .toList();
@@ -1247,6 +1510,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           ? null
           : userMessages.last;
       Object? apiUserContent;
+      final sendGen = ++_sendGen;
       setState(() => _preparingSend = true);
       if (lastUser != null) {
         try {
@@ -1255,6 +1519,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
             lastUser.images,
           );
           if (!mounted) return;
+          if (sendGen != _sendGen || _convId != cid) return;
           if (apiUserContent == null) {
             setState(() => _preparingSend = false);
             return;
@@ -1266,15 +1531,17 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         }
       }
       _thinkMap.remove(lastAssistant.id);
-      cp.deleteMessage(_convId!, lastAssistant.id);
-      cp.addMessage(_convId!, 'assistant', '', save: false);
+      cp.deleteMessage(cid, lastAssistant.id);
+      cp.addMessage(cid, 'assistant', '', save: false);
       setState(() {
         _preparingSend = false;
-        _beginStreaming(_convId!);
+        _beginStreaming(cid);
         _thinkingTxt = null;
       });
       await WidgetsBinding.instance.endOfFrame;
-      if (!mounted || !_streaming || _convId == null) return;
+      if (!mounted || !_streaming || _convId != cid || sendGen != _sendGen) {
+        return;
+      }
       _doSend(retryModel, lastUserContentOverride: apiUserContent);
     } else {
       setState(() {
@@ -1322,6 +1589,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         ? null
         : context.read<ConversationProvider>().getConversation(_convId!);
     if (conv == null || conv.messages.isEmpty) return;
+    if (_showSearch) _closeSearch();
     setState(() {
       _shareSelecting = true;
       _selectedShareMessageIds.clear();
@@ -1329,7 +1597,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         _selectedShareMessageIds.add(initialMessage.id);
       }
     });
-    widget.onBackAvailabilityChanged?.call(true);
+    _syncBackAvailability();
   }
 
   void _cancelShareSelection() {
@@ -1338,7 +1606,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       _shareSelecting = false;
       _selectedShareMessageIds.clear();
     });
-    widget.onBackAvailabilityChanged?.call(false);
+    _syncBackAvailability();
   }
 
   void _toggleShareMessage(Message msg) {
@@ -1867,6 +2135,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       imageRecognitionModelId: settings.imageRecognitionModelId,
       imageRecognitionEnabled: settings.imageRecognitionEnabled,
       imageRecognitionPrompt: settings.imageRecognitionPrompt,
+      imageGenerationModelId: settings.imageGenerationModelId,
+      imageGenerationEnabled: settings.imageGenerationEnabled,
     );
   }
 
@@ -2115,11 +2385,13 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     if (_streaming && cid != _streamingConvId) {
       _stopStreaming();
     }
+    _sendGen++;
     _clearRetryState();
     _pendingModelId = null;
     _expandedThinkIds.clear();
     _thinkMap.clear();
     setState(() {
+      _preparingSend = false;
       _convId = cid.isEmpty ? null : cid;
       _thinkingTxt = null;
       _thinkExpanded = false;
@@ -2127,6 +2399,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     if (cid.isNotEmpty) {
       _applyConversationSettings(cid);
     }
+    _closeSearch();
+    _scheduleJumpToBottom(unfocusInput: true);
     Navigator.pop(context);
   }
 
@@ -2143,6 +2417,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       _preparingSend = false;
       _convId = null;
     });
+    _closeSearch();
+    _scheduleJumpToBottom(unfocusInput: true);
   }
 
   String _fmtSz(int b) {
@@ -2179,9 +2455,14 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final model = _getModel(mp);
     final conv = cp.getConversation(_convId ?? '');
     return PopScope(
-      canPop: !_shareSelecting,
+      canPop: !_shareSelecting && !_showSearch,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop && _shareSelecting) _cancelShareSelection();
+        if (didPop) return;
+        if (_showSearch) {
+          _closeSearch();
+        } else if (_shareSelecting) {
+          _cancelShareSelection();
+        }
       },
       child: Scaffold(
         appBar: AppBar(
@@ -2227,12 +2508,21 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                     ? null
                     : _shareSelectedMessages,
               )
-            else if (_convId != null)
+            else ...[
               IconButton(
-                icon: const Icon(Icons.add_comment_outlined),
-                tooltip: '新建对话',
-                onPressed: _startNewConversation,
+                icon: const Icon(Icons.search),
+                tooltip: '搜索当前对话',
+                onPressed: conv == null || conv.messages.isEmpty
+                    ? null
+                    : _openSearch,
               ),
+              if (_convId != null)
+                IconButton(
+                  icon: const Icon(Icons.add_comment_outlined),
+                  tooltip: '新建对话',
+                  onPressed: _startNewConversation,
+                ),
+            ],
           ],
         ),
         drawer: _shareSelecting ? null : _drawer(context),
@@ -2247,6 +2537,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
   Widget _body(Conversation? conv, ModelConfig? model, ModelConfigProvider mp) {
     final msgs = conv != null ? conv.messages.toList() : <Message>[];
+    _pruneMessageKeys(msgs);
+    if (_showSearch) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _refreshSearchMatches();
+      });
+    }
     int lastUserIdx = -1;
     for (int i = msgs.length - 1; i >= 0; i--) {
       if (msgs[i].role == 'user') {
@@ -2256,6 +2552,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     }
     return Column(
       children: [
+        if (_showSearch) _searchBar(),
         Expanded(
           child: Stack(
             children: [
@@ -2275,10 +2572,13 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                           itemCount: msgs.length,
                           itemBuilder: (_, i) {
                             final msg = msgs[i];
-                            return _selectableBubble(
-                              msg,
-                              i == msgs.length - 1,
-                              i == lastUserIdx,
+                            return KeyedSubtree(
+                              key: _messageKeyFor(msg.id),
+                              child: _selectableBubble(
+                                msg,
+                                i == msgs.length - 1,
+                                i == lastUserIdx,
+                              ),
                             );
                           },
                         ),
@@ -2292,6 +2592,59 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         if (conv?.agentPlan != null) _agentPlanPanel(conv!.agentPlan!),
         _inputArea(model, mp),
       ],
+    );
+  }
+
+  Widget _searchBar() {
+    final scheme = Theme.of(context).colorScheme;
+    final matchText = _searchCtrl.text.trim().isEmpty
+        ? '输入关键词'
+        : _searchMatches.isEmpty
+        ? '无匹配'
+        : '${_currentSearchMatch + 1}/${_searchMatches.length}';
+    return Material(
+      color: scheme.surfaceContainerHighest,
+      child: SafeArea(
+        top: false,
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _searchCtrl,
+                  focusNode: _searchFocusNode,
+                  decoration: InputDecoration(
+                    isDense: true,
+                    hintText: '搜索当前对话...',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixText: matchText,
+                    border: const OutlineInputBorder(),
+                  ),
+                  textInputAction: TextInputAction.search,
+                  onSubmitted: (_) => _nextSearchMatch(),
+                ),
+              ),
+              IconButton(
+                tooltip: '上一个',
+                icon: const Icon(Icons.keyboard_arrow_up),
+                onPressed: _searchMatches.isEmpty ? null : _previousSearchMatch,
+              ),
+              IconButton(
+                tooltip: '下一个',
+                icon: const Icon(Icons.keyboard_arrow_down),
+                onPressed: _searchMatches.isEmpty ? null : _nextSearchMatch,
+              ),
+              IconButton(
+                tooltip: '关闭',
+                icon: const Icon(Icons.close),
+                onPressed: _closeSearch,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -2541,6 +2894,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   Widget _bubble(Message msg, bool isLastAi, bool isLastUserMsg) {
     final u = msg.role == 'user';
     if (u) {
+      final hasSearchMatch = _showSearch && _messageHasSearchMatch(msg.id);
+      final currentSearchMessage = _isCurrentSearchMessage(msg.id);
+      final scheme = Theme.of(context).colorScheme;
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
         child: Column(
@@ -2560,12 +2916,24 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                       maxWidth: MediaQuery.of(context).size.width * 0.65,
                     ),
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.primaryContainer,
+                      color: currentSearchMessage
+                          ? scheme.primaryContainer
+                          : hasSearchMatch
+                          ? scheme.secondaryContainer.withValues(alpha: 0.42)
+                          : scheme.primaryContainer,
                       borderRadius: const BorderRadius.only(
                         topLeft: Radius.circular(16),
                         topRight: Radius.circular(16),
                         bottomLeft: Radius.circular(16),
                       ),
+                      border: hasSearchMatch
+                          ? Border.all(
+                              color: currentSearchMessage
+                                  ? scheme.primary
+                                  : scheme.secondary.withValues(alpha: 0.7),
+                              width: currentSearchMessage ? 1.6 : 1,
+                            )
+                          : null,
                       boxShadow: [
                         BoxShadow(
                           color: Colors.black.withValues(alpha: 0.04),
@@ -2578,11 +2946,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (msg.content.isNotEmpty)
-                          SelectableText(
-                            msg.content,
-                            style: const TextStyle(fontSize: 15),
-                          ),
+                        if (msg.content.isNotEmpty) _searchableUserText(msg),
                         if (msg.images.isNotEmpty && msg.content.isNotEmpty)
                           const SizedBox(height: 8),
                         if (msg.images.isNotEmpty) _messageImages(msg.images),
@@ -2615,7 +2979,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         ),
       );
     }
-    if (isLastAi && _streaming) {
+    if (isLastAi && _streaming && _streamingConvId == _convId) {
       return ValueListenableBuilder<_StreamDraft>(
         valueListenable: _streamDraft,
         builder: (context, draft, _) => _assistantBubble(msg, true, draft),
@@ -2627,6 +2991,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   Widget _assistantBubble(Message msg, bool isLastAi, _StreamDraft? draft) {
     final streaming = draft != null;
     final displayContent = streaming ? draft.content : msg.content;
+    final hasSearchMatch = _showSearch && _messageHasSearchMatch(msg.id);
+    final currentSearchMessage = _isCurrentSearchMessage(msg.id);
+    final scheme = Theme.of(context).colorScheme;
     final draftThink = draft?.thinking;
     final thinkForMsg = isLastAi
         ? (draftThink != null && draftThink.isNotEmpty
@@ -2650,16 +3017,26 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         Container(
           margin: const EdgeInsets.symmetric(vertical: 4),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.85,
-          ),
+          constraints: BoxConstraints(maxWidth: _assistantContentMaxWidth()),
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            color: currentSearchMessage
+                ? scheme.primaryContainer.withValues(alpha: 0.72)
+                : hasSearchMatch
+                ? scheme.tertiaryContainer.withValues(alpha: 0.32)
+                : scheme.surfaceContainerHighest,
             borderRadius: const BorderRadius.only(
               topLeft: Radius.circular(16),
               topRight: Radius.circular(16),
               bottomRight: Radius.circular(16),
             ),
+            border: hasSearchMatch
+                ? Border.all(
+                    color: currentSearchMessage
+                        ? scheme.primary
+                        : scheme.tertiary.withValues(alpha: 0.65),
+                    width: currentSearchMessage ? 1.6 : 1,
+                  )
+                : null,
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.03),
@@ -2697,9 +3074,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final hiddenCount = trace.events.length - visibleEvents.length;
     return Container(
       margin: const EdgeInsets.only(top: 4, bottom: 4),
-      constraints: BoxConstraints(
-        maxWidth: MediaQuery.of(context).size.width * 0.85,
-      ),
+      constraints: BoxConstraints(maxWidth: _assistantContentMaxWidth()),
       child: Material(
         color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
         shape: RoundedRectangleBorder(
@@ -3411,20 +3786,23 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     Message origMsg,
     String newText,
   ) async {
+    final sourceCid = _convId;
     final cp = context.read<ConversationProvider>();
     final mp = context.read<ModelConfigProvider>();
     final editModel = _getModel(mp);
-    if (editModel == null || _convId == null) {
+    if (editModel == null || sourceCid == null) {
       if (editModel == null) _showMissingChatModelTip();
       return;
     }
-    final origConv = cp.getConversation(_convId!);
+    final origConv = cp.getConversation(sourceCid);
     if (origConv == null) return;
     final allMsgs = origConv.messages;
     final origMsgIdx = allMsgs.indexWhere((m) => m.id == origMsg.id);
     if (origMsgIdx == -1) return;
+    final sendGen = ++_sendGen;
     final apiUserContent = await _prepareUserContent(newText, origMsg.images);
     if (!mounted || apiUserContent == null) return;
+    if (sendGen != _sendGen || _convId != sourceCid) return;
     _clearRetryState();
     _pendingModelId = null;
     final newConvId = cp.createConversation(
@@ -3449,7 +3827,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _scrollEnd();
     cp.addMessage(newConvId, 'assistant', '', save: false);
     await WidgetsBinding.instance.endOfFrame;
-    if (!mounted || !_streaming || _convId == null) return;
+    if (!mounted ||
+        !_streaming ||
+        _convId != newConvId ||
+        sendGen != _sendGen) {
+      return;
+    }
     _doSend(editModel, lastUserContentOverride: apiUserContent);
   }
 
@@ -3542,6 +3925,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
               _ocrBtn(),
               const SizedBox(width: 4),
               _imageRecognitionBtn(),
+              const SizedBox(width: 4),
+              _imageGenerationBtn(),
               const Spacer(),
               _attachBtn(),
               const SizedBox(width: 4),
@@ -3713,6 +4098,67 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                     setState(() => _showImageRecognitionList = false);
                   },
                 ),
+            const Divider(height: 1),
+            ListTile(
+              dense: true,
+              leading: Icon(
+                Icons.auto_awesome,
+                size: 18,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              title: const Text('图片生成', style: TextStyle(fontSize: 14)),
+              subtitle: const Text('选择图片生成模型', style: TextStyle(fontSize: 11)),
+              trailing: Icon(
+                _showImageGenerationList
+                    ? Icons.expand_less
+                    : Icons.expand_more,
+                size: 16,
+              ),
+              onTap: () {
+                setState(() {
+                  _showImageGenerationList = !_showImageGenerationList;
+                });
+              },
+            ),
+            if (_showImageGenerationList)
+              for (final m
+                  in context.read<ModelConfigProvider>().modelsByCategory(
+                    ModelConfig.categoryImageGeneration,
+                  ))
+                ListTile(
+                  dense: true,
+                  contentPadding: const EdgeInsets.only(left: 56),
+                  leading: Icon(
+                    settings?.imageGenerationModelId == m.id
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_off,
+                    size: 14,
+                    color: settings?.imageGenerationModelId == m.id
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context).colorScheme.outline,
+                  ),
+                  title: Text(
+                    m.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                  subtitle: Text(
+                    m.hasMultipleModels
+                        ? '${m.enabledModelNames.length} 个模型'
+                        : m.modelName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                  onTap: () {
+                    final base = _currentConversationSettings(cur ?? m);
+                    _saveConversationSettings(
+                      base.copyWith(imageGenerationModelId: m.id),
+                    );
+                    setState(() => _showImageGenerationList = false);
+                  },
+                ),
           ],
         ),
       ),
@@ -3751,6 +4197,23 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     return entries.isEmpty
         ? config
         : config.copyWith(modelName: entries.first.name);
+  }
+
+  ModelConfig? _imageGenerationModel([ConversationSettings? settings]) {
+    final models = context.read<ModelConfigProvider>().modelsByCategory(
+      ModelConfig.categoryImageGeneration,
+    );
+    if (models.isEmpty) return null;
+    final modelId =
+        settings?.imageGenerationModelId ??
+        _activeSettings()?.imageGenerationModelId ??
+        context.read<SettingsProvider>().settings.imageGenerationModelId;
+    if (modelId != null && modelId.isNotEmpty) {
+      for (final model in models) {
+        if (model.id == modelId) return model;
+      }
+    }
+    return models.first;
   }
 
   Widget _modelSel(ModelConfig? cur, ModelConfigProvider mp) {
@@ -4012,6 +4475,33 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         setState(() {});
         _saveConversationSettings(settings);
       },
+    );
+  }
+
+  Widget _imageGenerationBtn() {
+    final enabled =
+        _activeSettings()?.imageGenerationEnabled ??
+        context.watch<SettingsProvider>().settings.imageGenerationEnabled;
+    final hasModel = _imageGenerationModel() != null;
+    return _inputActionButton(
+      id: 'imageGeneration',
+      icon: Icons.auto_awesome,
+      label: '生图',
+      selected: enabled && hasModel,
+      onPressed: hasModel
+          ? () {
+              final value = !enabled;
+              final model = _getModel(context.read<ModelConfigProvider>());
+              if (model == null) return;
+              final imageModel = _imageGenerationModel();
+              final settings = _currentConversationSettings(model).copyWith(
+                imageGenerationEnabled: value,
+                imageGenerationModelId: imageModel?.id,
+              );
+              setState(() {});
+              _saveConversationSettings(settings);
+            }
+          : null,
     );
   }
 
