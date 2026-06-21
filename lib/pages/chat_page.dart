@@ -105,6 +105,8 @@ class _ChatSearchMatch {
   });
 }
 
+enum _PreviewImageAction { save, copyImage, share, close }
+
 /// 主对话页面。
 ///
 /// 负责输入、附件、语音、流式请求、工具调用、重试分支和对话分享。实际数据
@@ -3296,9 +3298,13 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final content = event.content == null
         ? null
         : _compactAgentTraceText(event.content!, maxLength: 240);
-    final metadata = event.metadata == null || event.metadata!.isEmpty
+    final traceImages = _agentTraceImages(event);
+    final displayMetadata = event.metadata == null
         ? null
-        : _compactAgentTraceText(jsonEncode(event.metadata), maxLength: 320);
+        : (Map<String, dynamic>.from(event.metadata!)..remove('images'));
+    final metadata = displayMetadata == null || displayMetadata.isEmpty
+        ? null
+        : _compactAgentTraceText(jsonEncode(displayMetadata), maxLength: 320);
     return Padding(
       padding: const EdgeInsets.only(top: 8),
       child: Row(
@@ -3360,12 +3366,27 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                       ),
                     ),
                   ),
+                if (traceImages.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: _messageImages(traceImages),
+                  ),
               ],
             ),
           ),
         ],
       ),
     );
+  }
+
+  List<MessageImage> _agentTraceImages(AgentTraceEvent event) {
+    final rawImages = event.metadata?['images'];
+    if (rawImages is! List) return const [];
+    return rawImages
+        .whereType<Map>()
+        .map((item) => MessageImage.fromJson(Map<String, dynamic>.from(item)))
+        .where((image) => image.path.isNotEmpty && image.isImage)
+        .toList(growable: false);
   }
 
   String _compactAgentTraceText(String value, {required int maxLength}) {
@@ -3385,7 +3406,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         }
         return InkWell(
           onTap: exists
-              ? () => _showImagePreview(image.path, image.name)
+              ? () => _showAttachmentImagePreview(images, image)
               : null,
           child: ClipRRect(
             borderRadius: BorderRadius.circular(10),
@@ -3466,50 +3487,229 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     );
   }
 
-  void _showImagePreview(String path, String name) {
+  Future<void> _sharePreviewImage(String path, String name) async {
+    try {
+      final file = File(path);
+      if (!await file.exists()) {
+        if (mounted) _showShareImageSnack('图片文件已不存在');
+        return;
+      }
+      await SharePlus.instance.share(
+        ShareParams(files: [XFile(path)], text: name.isEmpty ? null : name),
+      );
+    } catch (e) {
+      if (mounted) _showShareImageSnack('分享失败: $e');
+    }
+  }
+
+  Future<void> _copyPreviewImageToClipboard(MessageImage image) async {
+    try {
+      final clipboard = SystemClipboard.instance;
+      if (clipboard == null) throw Exception('当前平台不支持写入剪贴板');
+      final file = File(image.path);
+      if (!await file.exists()) {
+        if (mounted) _showShareImageSnack('图片文件已不存在');
+        return;
+      }
+      final item = DataWriterItem(suggestedName: image.name);
+      final bytes = await file.readAsBytes();
+      switch (image.mimeType) {
+        case 'image/jpeg':
+          item.add(Formats.jpeg(bytes));
+        case 'image/webp':
+          item.add(Formats.webp(bytes));
+        case 'image/gif':
+          item.add(Formats.gif(bytes));
+        default:
+          item.add(Formats.png(bytes));
+      }
+      await clipboard.write([item]);
+      if (mounted) _showShareImageSnack('图片已复制到剪贴板');
+    } catch (e) {
+      if (mounted) _showShareImageSnack('复制失败: $e');
+    }
+  }
+
+  void _showAttachmentImagePreview(
+    List<MessageImage> attachments,
+    MessageImage selected,
+  ) {
+    final images = attachments
+        .where((item) => item.isImage && _attachmentExists(item.path))
+        .toList(growable: false);
+    if (images.isEmpty) return;
+    final index = images.indexWhere(
+      (item) => item.path == selected.path && item.name == selected.name,
+    );
+    _showImagePreview(images, initialIndex: index < 0 ? 0 : index);
+  }
+
+  void _showImagePreview(List<MessageImage> images, {int initialIndex = 0}) {
+    if (images.isEmpty) return;
+    var index = initialIndex.clamp(0, images.length - 1).toInt();
     showDialog(
       context: context,
-      builder: (ctx) => Dialog(
-        insetPadding: const EdgeInsets.all(12),
-        backgroundColor: Colors.black,
-        child: Stack(
-          children: [
-            InteractiveViewer(
-              child: GestureDetector(
-                onLongPress: () => _savePreviewImageToGallery(path, name),
-                child: Center(
-                  child: Image.file(File(path), fit: BoxFit.contain),
-                ),
-              ),
-            ),
-            const Positioned(
-              left: 12,
-              bottom: 12,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Colors.black54,
-                  borderRadius: BorderRadius.all(Radius.circular(12)),
-                ),
-                child: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  child: Text(
-                    '长按保存到相册',
-                    style: TextStyle(color: Colors.white, fontSize: 12),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          void showPrevious() {
+            setDialogState(
+              () => index = index == 0 ? images.length - 1 : index - 1,
+            );
+          }
+
+          void showNext() {
+            setDialogState(
+              () => index = index == images.length - 1 ? 0 : index + 1,
+            );
+          }
+
+          return Dialog(
+            insetPadding: const EdgeInsets.all(12),
+            backgroundColor: Colors.black,
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: InteractiveViewer(
+                    child: Center(
+                      child: Image.file(
+                        File(images[index].path),
+                        fit: BoxFit.contain,
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                if (images.length > 1) ...[
+                  Positioned(
+                    left: 8,
+                    top: 0,
+                    bottom: 0,
+                    child: Center(
+                      child: IconButton.filledTonal(
+                        onPressed: showPrevious,
+                        icon: const Icon(Icons.chevron_left),
+                        tooltip: '上一张',
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    right: 8,
+                    top: 0,
+                    bottom: 0,
+                    child: Center(
+                      child: IconButton.filledTonal(
+                        onPressed: showNext,
+                        icon: const Icon(Icons.chevron_right),
+                        tooltip: '下一张',
+                      ),
+                    ),
+                  ),
+                ],
+                Positioned(
+                  left: 12,
+                  right: 72,
+                  bottom: 12,
+                  child: DecoratedBox(
+                    decoration: const BoxDecoration(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.all(Radius.circular(12)),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      child: Text(
+                        images.length == 1
+                            ? images[index].name
+                            : '${index + 1}/${images.length} · ${images[index].name}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      PopupMenuButton<_PreviewImageAction>(
+                        tooltip: '图片菜单',
+                        icon: const Icon(Icons.more_vert, color: Colors.white),
+                        color: Theme.of(context).colorScheme.surface,
+                        onSelected: (action) {
+                          final image = images[index];
+                          switch (action) {
+                            case _PreviewImageAction.save:
+                              unawaited(
+                                _savePreviewImageToGallery(
+                                  image.path,
+                                  image.name,
+                                ),
+                              );
+                            case _PreviewImageAction.copyImage:
+                              unawaited(_copyPreviewImageToClipboard(image));
+                            case _PreviewImageAction.share:
+                              unawaited(
+                                _sharePreviewImage(image.path, image.name),
+                              );
+                            case _PreviewImageAction.close:
+                              Navigator.pop(ctx);
+                          }
+                        },
+                        itemBuilder: (context) => const [
+                          PopupMenuItem(
+                            value: _PreviewImageAction.save,
+                            child: ListTile(
+                              dense: true,
+                              leading: Icon(Icons.save_alt_outlined),
+                              title: Text('保存到相册'),
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: _PreviewImageAction.copyImage,
+                            child: ListTile(
+                              dense: true,
+                              leading: Icon(Icons.copy_outlined),
+                              title: Text('复制图片'),
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: _PreviewImageAction.share,
+                            child: ListTile(
+                              dense: true,
+                              leading: Icon(Icons.ios_share_outlined),
+                              title: Text('分享图片'),
+                            ),
+                          ),
+                          PopupMenuDivider(),
+                          PopupMenuItem(
+                            value: _PreviewImageAction.close,
+                            child: ListTile(
+                              dense: true,
+                              leading: Icon(Icons.close),
+                              title: Text('关闭'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        icon: const Icon(Icons.close, color: Colors.white),
+                        tooltip: '关闭',
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            Positioned(
-              right: 8,
-              top: 8,
-              child: IconButton(
-                onPressed: () => Navigator.pop(ctx),
-                icon: const Icon(Icons.close, color: Colors.white),
-                tooltip: '关闭',
-              ),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -4770,7 +4970,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
             children: [
               InkWell(
                 onTap: image.isImage
-                    ? () => _showImagePreview(image.path, image.name)
+                    ? () => _showAttachmentImagePreview(
+                        _pendingImages
+                            .map((item) => item.toMessageImage())
+                            .toList(growable: false),
+                        image.toMessageImage(),
+                      )
                     : null,
                 child: _pendingAttachmentPreview(image),
               ),

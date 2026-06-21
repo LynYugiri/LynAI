@@ -1127,6 +1127,14 @@ ${lines.join('\n')}$more''';
         default:
           final functionName = LynAIFunctionService.aiToolAliases[call.name];
           if (functionName != null) {
+            if (functionName == 'model.generateImage' && _agentEnabled) {
+              _appendAgentTrace(
+                AgentTraceEvent.toolCall,
+                '生成图片',
+                content: (call.arguments['prompt'] as String? ?? '').trim(),
+                metadata: _imageGenerationCallMetadata(call.arguments),
+              );
+            }
             final result = await _lynaiFunctions.execute(
               LynAIFunctionCall(name: functionName, arguments: call.arguments),
               LynAIFunctionContext(
@@ -1143,6 +1151,7 @@ ${lines.join('\n')}$more''';
             );
             if (functionName == 'model.generateImage') {
               _appendGeneratedImagesToConversation(result);
+              if (_agentEnabled) _appendImageGenerationTraceResult(result);
             }
             return result;
           }
@@ -1185,6 +1194,54 @@ ${lines.join('\n')}$more''';
     final generated = result['generatedImages'];
     if (generated is List) return generated;
     return null;
+  }
+
+  Map<String, dynamic> _imageGenerationCallMetadata(
+    Map<String, dynamic> arguments,
+  ) {
+    final metadata = <String, dynamic>{};
+    void add(String key, Object? value) {
+      if (value == null) return;
+      if (value is String && value.trim().isEmpty) return;
+      metadata[key] = value;
+    }
+
+    add('prompt', arguments['prompt']);
+    add('modelId', arguments['modelId']);
+    add('modelName', arguments['modelName']);
+    add('count', arguments['count'] ?? arguments['n']);
+    add('size', arguments['size']);
+    add('quality', arguments['quality']);
+    add('style', arguments['style']);
+    return metadata;
+  }
+
+  void _appendImageGenerationTraceResult(Map<String, dynamic> result) {
+    final ok = result['ok'] == true;
+    final rawImages = _generatedImageList(result);
+    final images = rawImages is List
+        ? rawImages
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .where(
+                (item) => (item['path'] as String? ?? '').trim().isNotEmpty,
+              )
+              .toList(growable: false)
+        : const <Map<String, dynamic>>[];
+    _appendAgentTrace(
+      ok ? AgentTraceEvent.toolResult : AgentTraceEvent.error,
+      ok ? '图片生成完成' : '图片生成失败',
+      content: ok ? '${images.length} 张图片' : _errorMessage(result),
+      metadata: {
+        'ok': ok,
+        if (result['prompt'] is String) 'prompt': result['prompt'],
+        if (result['modelId'] is String) 'modelId': result['modelId'],
+        if (result['modelName'] is String) 'modelName': result['modelName'],
+        if (images.isNotEmpty) 'images': images,
+        if (!ok && _errorMessage(result) != null)
+          'error': _errorMessage(result),
+      },
+    );
   }
 
   Map<String, dynamic> _addAgentNote(Map<String, dynamic> args) {
