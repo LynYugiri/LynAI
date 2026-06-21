@@ -1184,10 +1184,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       msgs.add({
         'role': m.role,
         'content': i == lastUserIndex ? lastUserContentOverride : m.content,
-        if (m.role == 'assistant' &&
-            m.thinkingContent != null &&
-            m.thinkingContent!.isNotEmpty)
-          'reasoning_content': m.thinkingContent,
+        if (m.role == 'assistant') 'reasoning_content': '',
       });
     }
     return msgs;
@@ -1205,13 +1202,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   Map<String, dynamic> _assistantToolCallMessage(
     String content,
     List<ChatToolCall> calls,
-    String? thinkingContent,
   ) {
     return {
       'role': 'assistant',
       'content': content,
-      if (thinkingContent != null && thinkingContent.isNotEmpty)
-        'reasoning_content': thinkingContent,
+      'reasoning_content': '',
       'tool_calls': calls
           .map(
             (call) => {
@@ -1231,7 +1226,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     ToolExecutionResult result, {
     required bool nativeTool,
   }) {
-    final content = _jsonEncode(result.result);
+    final content = _jsonEncode(
+      ToolCallService.modelVisibleToolResult(result.result),
+    );
     if (nativeTool) {
       return {
         'role': 'tool',
@@ -1374,7 +1371,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           conv?.messages ?? const [],
         );
         if (!mounted || gen != _streamGen) return;
-        working.add(_assistantToolCallMessage(buf, toolCalls, think));
+        working.add(_assistantToolCallMessage(buf, toolCalls));
         for (final result in results) {
           working.add(_toolResultMessage(result, nativeTool: true));
         }

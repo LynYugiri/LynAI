@@ -188,6 +188,7 @@ storage_v2 下，笔记分页元数据由存储层的 `StorageV2NotePage` 表达
 | `version` | `String` | 语义版本号。 |
 | `entry` | `String` | Lua 入口脚本相对于插件目录的路径。 |
 | `tools` | `List<PluginToolDefinition>` | 注册给 AI 模型调用的工具列表。 |
+| `skills` | `List<PluginSkillDefinition>` | Agent 可按需加载的 Markdown 工作流说明。 |
 | `functions` | `List<PluginFunctionDefinition>` | 注册给功能页 WebView 的内部函数列表。 |
 | `feature` | `String?` | 可选功能页 HTML 入口路径。没有则功能页入口不可见。 |
 | `permissions` | `List<String>` | 声明的权限列表，例如 `network`、`file_read`、`file_write`。 |
@@ -202,6 +203,7 @@ storage_v2 下，笔记分页元数据由存储层的 `StorageV2NotePage` 表达
 | `path` | `String` | 插件在应用支持目录中的安装路径。 |
 | `manifest` | `PluginManifest` | 插件的 `plugin.json` 解析结果。 |
 | `enabled` | `bool` | 是否启用。禁用的插件不加载脚本、不注册工具和函数。 |
+| `enabledSkills` | `List<String>` | 当前启用的 Skill 名称；纯 Skill 内置插件可在首次同步时自动启用。 |
 | `permissions` | `List<String>` | 用户实际授予的权限。可能少于 `manifest.permissions` 声明。 |
 
 ### PluginConfigSchema / PluginConfigFieldDefinition

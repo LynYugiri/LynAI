@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lua_dardo/lua.dart';
 import 'package:lynai/models/agent_plan.dart';
@@ -9,9 +11,12 @@ import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/services/agent_lua_script_service.dart';
 import 'package:lynai/services/device_run_controller.dart';
+import 'package:lynai/services/storage_v2_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('pCallAsync resumes Lua loop after async Dart callback', () async {
     final state = LuaState.newState();
     state.openLibs();
@@ -62,26 +67,76 @@ return { ok = true, count = count }
     );
   });
 
-  test('Agent Lua awaits model calls without starting device run', () async {
-    SharedPreferences.setMockInitialValues({});
-    final settings = SettingsProvider();
-    await settings.replaceSettings(
-      AppSettings.defaults().copyWith(agentGrantedPermissions: const []),
-    );
-    DeviceRunController.instance.reset();
-
+  test('Agent Lua does not reject long readable scripts', () async {
+    final longComment =
+        '--[[${'keep readable lua code\n'.padRight(33000, 'x')}]]';
     final result = await AgentLuaScriptService().execute(
-      purpose: 'test async model call',
-      settings: settings,
-      code: r'''
-local result = lynai.call("model.ocr", { imageBase64 = "AA==" })
-return result
+      purpose: 'long script',
+      code:
+          '''
+$longComment
+return { ok = true, value = "accepted" }
 ''',
     );
 
-    expect(result['ok'], isFalse);
-    expect(result['error'], contains('model:ocr'));
-    expect(DeviceRunController.instance.snapshot.status, DeviceRunStatus.idle);
+    expect(result['ok'], isTrue);
+    expect((result['result'] as Map)['value'], 'accepted');
+  });
+
+  test('Agent Lua does not hard-limit repeated device calls', () async {
+    DeviceRunController.instance.reset();
+    final result = await AgentLuaScriptService().execute(
+      purpose: 'many device calls',
+      code: r'''
+local count = 0
+for i = 1, 405 do
+  local result = lynai.call("device.sleep", { ms = 0 })
+  if not result.ok then return result end
+  count = count + 1
+end
+return { ok = true, count = count }
+''',
+    );
+
+    expect(result['ok'], isTrue);
+    expect(result['calls'], 405);
+    expect((result['result'] as Map)['count'], 405);
+    expect(
+      DeviceRunController.instance.snapshot.status,
+      DeviceRunStatus.completed,
+    );
+  });
+
+  test('Agent Lua awaits model calls without starting device run', () async {
+    SharedPreferences.setMockInitialValues({});
+    final root = await Directory.systemTemp.createTemp('lynai_lua_settings_');
+    DeviceRunController.instance.reset();
+    try {
+      final settings = SettingsProvider(
+        storageV2: StorageV2Service(rootDirectory: root),
+      );
+      await settings.replaceSettings(
+        AppSettings.defaults().copyWith(agentGrantedPermissions: const []),
+      );
+
+      final result = await AgentLuaScriptService().execute(
+        purpose: 'test async model call',
+        settings: settings,
+        code: r'''
+local result = lynai.call("model.ocr", { imageBase64 = "AA==" })
+return result
+''',
+      );
+
+      expect(result['ok'], isFalse);
+      expect(result['error'], contains('model:ocr'));
+      expect(
+        DeviceRunController.instance.snapshot.status,
+        DeviceRunStatus.idle,
+      );
+    } finally {
+      if (await root.exists()) await root.delete(recursive: true);
+    }
   });
 
   test('Agent Lua exposes device app open function', () async {

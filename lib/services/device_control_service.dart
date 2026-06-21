@@ -30,7 +30,9 @@ class DeviceControlService {
     if (name == 'device.service.status') return run.statusJson();
     if (name == 'device.sleep') return _sleep(args);
     if (name == 'device.node.find') return _findNode(args);
+    if (name == 'device.node.findAll') return _findNodes(args);
     if (name == 'device.waitForNode') return _waitForNode(args);
+    if (name == 'device.screen.query') return _screenQuery(args);
     final interrupted = await run.beforeAction(name);
     if (interrupted != null) return interrupted;
     final result = await backend.execute(name, args);
@@ -61,6 +63,132 @@ class DeviceControlService {
       }
     }
     return _error('node_not_found', '未找到匹配节点');
+  }
+
+  Map<String, dynamic> _findNodes(Map<String, dynamic> args) {
+    final rawSnapshot = args['snapshot'];
+    if (rawSnapshot is! Map) {
+      return _error('invalid_arguments', 'device.node.findAll 需要 snapshot');
+    }
+    final snapshot = DeviceScreenSnapshot.fromJson(
+      Map<String, dynamic>.from(rawSnapshot),
+    );
+    return _querySnapshot(snapshot, args);
+  }
+
+  Future<Map<String, dynamic>> _screenQuery(Map<String, dynamic> args) async {
+    final interrupted = await DeviceRunController.instance.beforeAction(
+      'device.screen.query',
+    );
+    if (interrupted != null) return interrupted;
+    final snapshotResult = await backend.execute(
+      'device.screen.snapshot',
+      const {},
+    );
+    final rawResult = snapshotResult['result'];
+    if (snapshotResult['ok'] == false || rawResult is! Map) {
+      return snapshotResult;
+    }
+    final snapshot = DeviceScreenSnapshot.fromJson(
+      Map<String, dynamic>.from(rawResult),
+    );
+    return _querySnapshot(snapshot, args);
+  }
+
+  Map<String, dynamic> _querySnapshot(
+    DeviceScreenSnapshot snapshot,
+    Map<String, dynamic> args,
+  ) {
+    final query = DeviceNodeQuery.fromJson(args);
+    final limit = (_intArg(args['limit']) ?? 50).clamp(1, 500).toInt();
+    final includeChildren = args['includeChildren'] == true;
+    final nodes = <Map<String, dynamic>>[];
+    for (final root in snapshot.roots) {
+      _collectMatches(
+        root,
+        query,
+        nodes,
+        ancestors: const [],
+        limit: limit,
+        includeChildren: includeChildren,
+      );
+      if (nodes.length >= limit) break;
+    }
+    return {
+      'ok': true,
+      'result': {
+        'platform': snapshot.platform,
+        if (snapshot.packageName.isNotEmpty)
+          'packageName': snapshot.packageName,
+        if (snapshot.windowTitle.isNotEmpty)
+          'windowTitle': snapshot.windowTitle,
+        'timestamp': snapshot.timestamp.toIso8601String(),
+        'count': nodes.length,
+        'nodes': nodes,
+      },
+    };
+  }
+
+  void _collectMatches(
+    DeviceNode node,
+    DeviceNodeQuery query,
+    List<Map<String, dynamic>> matches, {
+    required List<DeviceNode> ancestors,
+    required int limit,
+    required bool includeChildren,
+  }) {
+    if (matches.length >= limit) return;
+    if (query.matches(node)) {
+      matches.add(_nodeSummary(node, ancestors, includeChildren));
+      if (matches.length >= limit) return;
+    }
+    final nextAncestors = [...ancestors, node];
+    for (final child in node.children) {
+      _collectMatches(
+        child,
+        query,
+        matches,
+        ancestors: nextAncestors,
+        limit: limit,
+        includeChildren: includeChildren,
+      );
+      if (matches.length >= limit) return;
+    }
+  }
+
+  Map<String, dynamic> _nodeSummary(
+    DeviceNode node,
+    List<DeviceNode> ancestors,
+    bool includeChildren,
+  ) {
+    final target = _targetableNode(node, ancestors);
+    return {
+      'id': node.id,
+      if (node.text.isNotEmpty) 'text': node.text,
+      if (node.description.isNotEmpty) 'description': node.description,
+      if (node.className.isNotEmpty) 'className': node.className,
+      if (node.packageName.isNotEmpty) 'packageName': node.packageName,
+      if (node.viewId.isNotEmpty) 'viewId': node.viewId,
+      'bounds': node.bounds.toJson(),
+      'clickable': node.clickable,
+      'scrollable': node.scrollable,
+      'editable': node.editable,
+      'enabled': node.enabled,
+      'focused': node.focused,
+      if (target != null && target.id != node.id) 'targetNodeId': target.id,
+      if (target != null && target.id != node.id)
+        'targetBounds': target.bounds.toJson(),
+      if (includeChildren && node.children.isNotEmpty)
+        'children': node.children.map((child) => child.toJson()).toList(),
+    };
+  }
+
+  DeviceNode? _targetableNode(DeviceNode node, List<DeviceNode> ancestors) {
+    if (node.clickable) return node;
+    for (final ancestor in ancestors.reversed) {
+      if (ancestor.clickable) return ancestor;
+    }
+    return null;
   }
 
   Future<Map<String, dynamic>> _waitForNode(Map<String, dynamic> args) async {

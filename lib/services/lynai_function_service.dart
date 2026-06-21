@@ -435,7 +435,11 @@ class LynAIFunctionService {
       'model.generateImage' => LynAIPermissions.modelGenerateImage,
       'device.screen.snapshot' ||
       'device.screen.context' ||
-      'device.screen.screenshot' => LynAIPermissions.deviceScreenRead,
+      'device.screen.screenshot' ||
+      'device.screen.query' ||
+      'device.node.find' ||
+      'device.node.findAll' ||
+      'device.waitForNode' => LynAIPermissions.deviceScreenRead,
       'device.service.status' ||
       'device.service.openSettings' => LynAIPermissions.deviceOverlay,
       'device.app.open' => LynAIPermissions.deviceControl,

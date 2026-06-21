@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 
 import '../models/agent_trace.dart';
 import '../models/message.dart';
+import '../models/model_config.dart';
 import '../models/note.dart';
 import '../models/agent_plan.dart';
 import '../models/plugin.dart';
@@ -19,6 +20,7 @@ import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/conversation_provider.dart';
+import 'api_service.dart';
 import 'agent_lua_script_service.dart';
 import 'agent_runtime_service.dart';
 import 'lynai_call_identity.dart';
@@ -204,11 +206,13 @@ class ToolCallService {
     SettingsProvider? settings,
     ConversationProvider? conversations,
     String? conversationId,
+    bool allowSubagents = true,
   }) : _plugins = plugins,
        _modelConfigs = modelConfigs,
        _settings = settings,
        _conversations = conversations,
-       _conversationId = conversationId;
+       _conversationId = conversationId,
+       _allowSubagents = allowSubagents;
 
   static const _channel = MethodChannel('lynai/native_tools');
   static const _uuid = Uuid();
@@ -219,6 +223,7 @@ class ToolCallService {
   final SettingsProvider? _settings;
   final ConversationProvider? _conversations;
   final String? _conversationId;
+  final bool _allowSubagents;
   final _lynaiFunctions = LynAIFunctionService();
   final _permissionService = const LynAIPermissionService();
   final _agentRuntime = const AgentRuntimeService();
@@ -262,7 +267,8 @@ Plan 创建和更新不需要权限，只用于当前对话的可视化状态。
 如果需要了解可用插件函数，先调用 list_plugin_functions。
 如果需要调用插件函数，先调用 list_plugin_functions 查看可用函数，再用 call_plugin_function。该能力需要 plugins.callFunction 权限。
 如果需要了解可用插件 Skill，先调用 list_plugin_skills；Skill 摘要不是完整说明，执行相关流程前调用 load_plugin_skill 加载正文。加载 Skill 不需要额外权限。
-如果需要运行 Lua，调用 execute_lua。Lua 运行在受限沙箱中：禁用 os/io/package/require/dofile/loadfile，不能访问文件系统或系统命令；所有 LynAI 能力必须通过 lynai.call(name, args) 调用；脚本最后必须 return 一个 JSON 可序列化 table。Agent Lua 支持同步读取函数、plugins.functions.list、plugins.callFunction、agent.plan.update、agent.note.add、model.chat、model.ocr、model.recognizeFile、model.generateImage、device.app.open 和 device.* 设备函数；插件函数调用需要 plugins.callFunction 权限。打开已安装 Android 应用时在 Lua 中调用 lynai.call("device.app.open", { packageName = "目标包名" })。复杂屏幕操控应优先在 Lua 中线性编排多步 device.*：读取 screen.context 或 waitForNode，优先用 node.action，必要时才用坐标 tap/swipe。关键调用后检查 ok，失败时返回结构化 error。
+如果需要运行 Lua，调用 execute_lua。Lua 运行在受限沙箱中：禁用 os/io/package/require/dofile/loadfile，不能访问文件系统或系统命令；所有 LynAI 能力必须通过 lynai.call(name, args) 调用；脚本最后必须 return 一个 JSON 可序列化 table。Agent Lua 支持同步读取函数、plugins.functions.list、plugins.callFunction、agent.plan.update、agent.note.add、model.chat、model.ocr、model.recognizeFile、model.generateImage、device.app.open 和 device.* 设备函数；插件函数调用需要 plugins.callFunction 权限。打开已安装 Android 应用时在 Lua 中调用 lynai.call("device.app.open", { packageName = "目标包名" })。复杂屏幕操控应优先在 Lua 中线性编排多步 device.*：读取 screen.query、screen.context 或 waitForNode，优先用 node.action，必要时才用坐标 tap/swipe。关键调用后检查 ok，失败时返回结构化 error。截图只能作为 OCR/识图输入，不要把截图 base64 返回给模型。
+如果手机自动化子任务会产生很多中间屏幕信息，优先调用 run_subagent。Subagent 使用独立上下文执行多轮工具，只把最终结构化结果返回当前对话。需要读取聊天上下文再生成回复时，先让 Subagent 返回 peer、messages、summary、confidence；用户已经明确要求发送且目标明确时，可让 Subagent/Lua 直接发送，不要二次确认。
 Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:false,error:{code,message,details?}}；读取数据时优先看 result。
 可以输出简短的中间说明，但不要把工具 JSON 原样展示给用户；最终回复应汇总执行结果。
 ''';
@@ -885,6 +891,28 @@ ${lines.join('\n')}$more''';
         'required': ['content'],
       },
     );
+    add(
+      'run_subagent',
+      '运行隔离的 Agent 子任务。适合手机自动化、读取屏幕、OCR/识图等会产生大量中间信息的任务；主上下文只接收最终结构化结果。',
+      {
+        'type': 'object',
+        'properties': {
+          'purpose': {'type': 'string', 'description': '子任务目的，展示给用户和日志'},
+          'task': {'type': 'string', 'description': '给 Subagent 的具体任务'},
+          'skills': {
+            'type': 'array',
+            'description':
+                '建议先加载的 Skill qualifiedName 列表，例如 mobile-agent-skills__qq',
+            'items': {'type': 'string'},
+          },
+          'expectedResult': {
+            'type': 'string',
+            'description': '期望返回结构，例如 peer、messages、summary、confidence',
+          },
+        },
+        'required': ['purpose', 'task'],
+      },
+    );
     if (permissions.contains(LynAICapabilities.pluginCallFunction)) {
       add(
         'call_plugin_function',
@@ -907,7 +935,7 @@ ${lines.join('\n')}$more''';
     if (permissions.contains(LynAICapabilities.luaExecute)) {
       add(
         'execute_lua',
-        '执行 LynAI Agent Lua 脚本。脚本运行在受限 lua_dardo 沙箱中：禁用 os、io、package、require、dofile、loadfile；不能访问本地文件系统或执行系统命令；所有 LynAI 能力必须通过 lynai.call(name, args) 调用；lynai.call 返回 JSON 风格 table，通常包含 ok 字段；脚本最后必须 return 一个 JSON 可序列化 table。支持同步读取函数（如 todos.list、notes.read、schedules.list）、plugins.functions.list、plugins.callFunction、agent.plan.update、agent.note.add、model.chat、model.ocr、model.recognizeFile、model.generateImage、device.app.open 和 device.*。打开已安装 Android 应用时调用 lynai.call("device.app.open", { packageName = "目标包名" })；device.* 支持异步线性执行，可在 Lua 中写循环、等待和多步流程；复杂屏幕操控优先使用 device.screen.context、device.waitForNode、device.node.action，必要时再用 device.screen.screenshot 配合 model.ocr/model.recognizeFile，最后才用 device.tap/device.swipe 坐标操作。关键调用应检查 ok，失败时 return { ok = false, error = result.error }。示例：local opened = lynai.call("device.app.open", { packageName = "com.example.app" }); if not opened.ok then return opened end; local n = lynai.call("device.waitForNode", { text = "发送", timeoutMs = 5000 }); if not n.ok then return n end; return lynai.call("device.node.action", { nodeId = n.result.id, action = "click" })',
+        '执行 LynAI Agent Lua 脚本。脚本运行在受限 lua_dardo 沙箱中：禁用 os、io、package、require、dofile、loadfile；不能访问本地文件系统或执行系统命令；所有 LynAI 能力必须通过 lynai.call(name, args) 调用；lynai.call 返回 JSON 风格 table，通常包含 ok 字段；脚本最后必须 return 一个 JSON 可序列化 table。支持同步读取函数（如 todos.list、notes.read、schedules.list）、plugins.functions.list、plugins.callFunction、agent.plan.update、agent.note.add、model.chat、model.ocr、model.recognizeFile、model.generateImage、device.app.open 和 device.*。打开已安装 Android 应用时调用 lynai.call("device.app.open", { packageName = "目标包名" })；device.* 支持异步线性执行，可在 Lua 中写循环、等待和多步流程；复杂屏幕操控优先使用 device.screen.query、device.screen.context、device.waitForNode、device.node.action，必要时再用 device.screen.screenshot 配合 model.ocr/model.recognizeFile，最后才用 device.tap/device.swipe 坐标操作。截图 base64 只作为 OCR/识图输入，不要返回给模型。关键调用应检查 ok，失败时 return { ok = false, error = result.error }。示例：local opened = lynai.call("device.app.open", { packageName = "com.example.app" }); if not opened.ok then return opened end; local n = lynai.call("device.screen.query", { text = "发送", clickable = true, limit = 5 }); if not n.ok then return n end; local node = n.result.nodes[1]; if not node then return { ok = false, error = { code = "node_not_found", message = "未找到发送" } } end; return lynai.call("device.node.action", { nodeId = node.targetNodeId or node.id, action = "click" })',
         {
           'type': 'object',
           'properties': {
@@ -1120,6 +1148,8 @@ ${lines.join('\n')}$more''';
           return _addAgentNote(call.arguments);
         case 'call_plugin_function':
           return _callPluginFunction(call.arguments);
+        case 'run_subagent':
+          return _runSubagent(call.arguments);
         case 'execute_lua':
           final result = await _executeAgentLua(call.arguments);
           _appendGeneratedImagesToConversation(result);
@@ -1163,6 +1193,231 @@ ${lines.join('\n')}$more''';
       debugPrint('工具调用失败 ${call.name}: $e\n$st');
       return _error(e.toString());
     }
+  }
+
+  static Object? modelVisibleToolResult(Object? value) {
+    var stripped = false;
+
+    bool isBinaryKey(String key) {
+      final normalized = key
+          .replaceAll(RegExp(r'[^a-zA-Z0-9]'), '')
+          .toLowerCase();
+      return normalized == 'base64' ||
+          normalized == 'database64' ||
+          normalized == 'imagebase64' ||
+          normalized == 'b64json' ||
+          normalized == 'bytes' ||
+          normalized == 'binary' ||
+          normalized == 'blob';
+    }
+
+    Object? visit(Object? raw) {
+      if (raw is List) return raw.map(visit).toList(growable: false);
+      if (raw is! Map) return raw;
+      final next = <String, dynamic>{};
+      for (final entry in raw.entries) {
+        final key = entry.key.toString();
+        if (isBinaryKey(key)) {
+          stripped = true;
+          continue;
+        }
+        next[key] = visit(entry.value);
+      }
+      return next;
+    }
+
+    final result = visit(value);
+    if (!stripped || result is! Map) return result;
+    return {...result, 'binaryContentOmitted': true};
+  }
+
+  Future<Map<String, dynamic>> _runSubagent(Map<String, dynamic> args) async {
+    if (!_allowSubagents) {
+      return _agentError(
+        'subagent_recursion_blocked',
+        'Subagent 内不能再启动 Subagent',
+      );
+    }
+    if (!_agentEnabled) {
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
+    }
+    final model = _subagentModel();
+    if (model == null) return _agentError('model_not_found', '未找到当前对话模型');
+    if (!_supportsNativeTools(model)) {
+      return _agentError(
+        'model_tools_unsupported',
+        '当前模型不支持原生工具调用，无法运行 Subagent',
+      );
+    }
+    final purpose = (args['purpose'] as String? ?? 'Agent Subtask').trim();
+    final task = (args['task'] as String? ?? '').trim();
+    if (task.isEmpty) {
+      return _agentError('invalid_arguments', 'run_subagent 缺少 task');
+    }
+    final skills = (args['skills'] as List<dynamic>? ?? const [])
+        .map((item) => item.toString().trim())
+        .where((item) => item.isNotEmpty)
+        .toList(growable: false);
+    final expected = (args['expectedResult'] as String? ?? '').trim();
+    _appendAgentTrace(
+      AgentTraceEvent.toolCall,
+      '启动 Agent Subagent',
+      content: purpose,
+      metadata: {
+        'skills': skills,
+        if (expected.isNotEmpty) 'expected': expected,
+      },
+    );
+
+    final api = ApiService();
+    final subTools = ToolCallService(
+      _features,
+      plugins: _plugins,
+      modelConfigs: _modelConfigs,
+      settings: _settings,
+      conversations: _conversations,
+      conversationId: _conversationId,
+      allowSubagents: false,
+    );
+    final working = <Map<String, dynamic>>[
+      {
+        'role': 'system',
+        'content': '''你是 LynAI Agent Subagent，负责在隔离上下文中完成一个子任务。
+不要向用户最终回答；完成后只输出一个 JSON 对象，形如 {"ok":true,"result":{...}} 或 {"ok":false,"error":{"code":"...","message":"..."}}。
+中间屏幕信息、截图、OCR 原始过程不要返回主上下文；只返回必要摘要和结构化结果。
+如需手机自动化，优先加载相关 Skill，再使用 execute_lua，并让 Lua 自己循环读取 screen.query/context、滚动、点击、OCR/识图。
+如果任务是读取消息再回复，先返回结构化上下文给主模型生成回复；如果用户已给出明确目标和发送内容，可直接发送。
+截图 base64 只能作为 OCR/识图输入，不能出现在最终结果。
+如果提供了 skills，先加载相关 Skill 正文再执行。''',
+      },
+      {
+        'role': 'user',
+        'content': jsonEncode({
+          'purpose': purpose,
+          'task': task,
+          if (skills.isNotEmpty) 'skills': skills,
+          if (expected.isNotEmpty) 'expectedResult': expected,
+        }),
+      },
+    ];
+    final tools =
+        openAITools(
+              _plugins?.plugins ?? const [],
+              true,
+              _settings?.settings.agentGrantedPermissions ?? const [],
+              false,
+            )
+            .where((tool) => _toolName(tool) != 'run_subagent')
+            .toList(growable: false);
+
+    try {
+      while (true) {
+        final response = await api.sendChatRequest(
+          model,
+          working,
+          thinking: false,
+          tools: tools,
+          toolChoice: 'auto',
+        );
+        if (response.toolCalls.isEmpty) {
+          final result = _subagentFinalResult(response.content);
+          _appendAgentTrace(
+            result['ok'] == false
+                ? AgentTraceEvent.error
+                : AgentTraceEvent.toolResult,
+            result['ok'] == false ? 'Agent Subagent 失败' : 'Agent Subagent 完成',
+            content: purpose,
+          );
+          return result;
+        }
+        working.add(
+          _subagentAssistantToolCall(response.content, response.toolCalls),
+        );
+        final results = await subTools.executeAll(response.toolCalls, const []);
+        for (final result in results) {
+          working.add(_subagentToolResult(result));
+        }
+      }
+    } finally {
+      api.dispose();
+    }
+  }
+
+  ModelConfig? _subagentModel() {
+    final cid = _conversationId;
+    final conversations = _conversations;
+    final modelConfigs = _modelConfigs;
+    if (cid == null || conversations == null || modelConfigs == null) {
+      return null;
+    }
+    final settings = conversations.getConversation(cid)?.settings;
+    if (settings == null) {
+      return null;
+    }
+    for (final model in modelConfigs.models) {
+      if (model.id == settings.modelId) {
+        final name = settings.modelName;
+        return name == null || name.isEmpty
+            ? model
+            : model.copyWith(modelName: name);
+      }
+    }
+    return null;
+  }
+
+  bool _supportsNativeTools(ModelConfig model) {
+    return model.apiType != 'ollama' &&
+        model.apiType != 'anthropic' &&
+        model.supportsTools &&
+        model.extraParams['disableTools'] != true;
+  }
+
+  Map<String, dynamic> _subagentFinalResult(String content) {
+    final trimmed = content.trim();
+    if (trimmed.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(_stripCodeFence(trimmed));
+        if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      } catch (_) {}
+    }
+    return _agentOk({'content': content});
+  }
+
+  Map<String, dynamic> _subagentAssistantToolCall(
+    String content,
+    List<ChatToolCall> calls,
+  ) {
+    return {
+      'role': 'assistant',
+      'content': content,
+      'reasoning_content': '',
+      'tool_calls': calls
+          .map(
+            (call) => {
+              'id': call.id,
+              'type': 'function',
+              'function': {
+                'name': call.name,
+                'arguments': jsonEncode(call.arguments),
+              },
+            },
+          )
+          .toList(growable: false),
+    };
+  }
+
+  Map<String, dynamic> _subagentToolResult(ToolExecutionResult result) {
+    return {
+      'role': 'tool',
+      'tool_call_id': result.toolCallId,
+      'content': jsonEncode(modelVisibleToolResult(result.result)),
+    };
+  }
+
+  static String _toolName(Map<String, dynamic> tool) {
+    final function = tool['function'];
+    if (function is Map) return function['name']?.toString() ?? '';
+    return '';
   }
 
   void _appendGeneratedImagesToConversation(Map<String, dynamic> result) {

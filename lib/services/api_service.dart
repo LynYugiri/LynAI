@@ -360,8 +360,13 @@ class ApiService {
   ) {
     return messages.map((message) {
       final content = message['content'];
-      if (content is! List) return message;
-      return {...message, 'content': _openAIContentToChatContent(content)};
+      final normalized = content is! List
+          ? Map<String, dynamic>.from(message)
+          : {...message, 'content': _openAIContentToChatContent(content)};
+      if (normalized['role'] == 'assistant') {
+        normalized['reasoning_content'] = '';
+      }
+      return normalized;
     }).toList();
   }
 

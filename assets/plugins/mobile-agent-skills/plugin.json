@@ -1,0 +1,35 @@
+{
+  "id": "mobile-agent-skills",
+  "name": "移动端 Agent 技能",
+  "version": "1.0.0",
+  "author": "LynAI",
+  "description": "为 Agent 提供 Android 无障碍、消息应用和 QQ 自动化工作流说明。",
+  "entry": "main.lua",
+  "permissions": [],
+  "skills": [
+    {
+      "name": "android_accessibility",
+      "title": "Android 无障碍自动化",
+      "description": "使用 device.* 读取屏幕、查找节点、点击、输入、滚动和 OCR/识图 fallback。",
+      "whenToUse": "Android 手机自动化、无障碍节点、点击输入、读取屏幕、OCR fallback",
+      "tags": ["android", "accessibility", "device", "automation"]
+    },
+    {
+      "name": "messaging",
+      "title": "消息应用自动化",
+      "description": "在外部消息应用中定位联系人、读取上下文、输入并发送消息。",
+      "whenToUse": "回复消息、发送消息、读取聊天上下文、连续发送多条消息",
+      "tags": ["messaging", "chat", "send", "automation"]
+    },
+    {
+      "name": "qq",
+      "title": "QQ 自动回复工作流",
+      "description": "打开 Android QQ，查找联系人或会话，读取最近聊天上下文，并直接发送回复。",
+      "whenToUse": "QQ、腾讯 QQ、回复 QQ 消息、查找 QQ 联系人、读取 QQ 上下文",
+      "tags": ["qq", "tencent", "messaging", "android"]
+    }
+  ],
+  "lynai": {
+    "autoEnable": true
+  }
+}

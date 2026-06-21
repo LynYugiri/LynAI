@@ -19,7 +19,11 @@ class PluginRepository {
   static const maxTextFileBytes = 512 * 1024;
   static final _windowsAbsolutePathPattern = RegExp(r'^[a-zA-Z]:/');
 
-  static const builtInPluginIds = ['status-dashboard', 'weather-query'];
+  static const builtInPluginIds = [
+    'status-dashboard',
+    'weather-query',
+    'mobile-agent-skills',
+  ];
   static const builtInPluginFiles = {
     'status-dashboard': [
       'plugin.json',
@@ -29,6 +33,13 @@ class PluginRepository {
       'defaults/status.css',
     ],
     'weather-query': ['plugin.json', 'main.lua', 'skills/weather_research.md'],
+    'mobile-agent-skills': [
+      'plugin.json',
+      'main.lua',
+      'skills/android_accessibility.md',
+      'skills/messaging.md',
+      'skills/qq.md',
+    ],
   };
 
   final Directory? _rootOverride;

@@ -658,12 +658,25 @@ class PluginProvider extends ChangeNotifier {
   Future<void> _upsert(InstalledPlugin imported) async {
     final current = pluginById(imported.id);
     final plugin = current == null
-        ? imported
+        ? _initialBuiltInPlugin(imported)
         : _mergeImported(imported, current);
     final next = [..._plugins.where((item) => item.id != plugin.id), plugin];
     _plugins = _sortPlugins(next);
     await _save();
     notifyListeners();
+  }
+
+  InstalledPlugin _initialBuiltInPlugin(InstalledPlugin imported) {
+    if (!PluginRepository.builtInPluginIds.contains(imported.id)) {
+      return imported;
+    }
+    final autoEnable = imported.manifest.lynai['autoEnable'] == true;
+    final safeAutoEnable =
+        autoEnable &&
+        imported.manifest.permissions.isEmpty &&
+        imported.manifest.tools.isEmpty &&
+        imported.manifest.functions.isEmpty;
+    return safeAutoEnable ? imported.copyWith(enabled: true) : imported;
   }
 
   /// 替换列表中指定 ID 的插件并保存。

@@ -71,6 +71,58 @@ void main() {
     }
   });
 
+  test('built-in mobile agent skills plugin is declared', () {
+    expect(PluginRepository.builtInPluginIds, contains('mobile-agent-skills'));
+    expect(
+      PluginRepository.builtInPluginFiles['mobile-agent-skills'],
+      containsAll([
+        'plugin.json',
+        'main.lua',
+        'skills/android_accessibility.md',
+        'skills/messaging.md',
+        'skills/qq.md',
+      ]),
+    );
+  });
+
+  test('user imported skill-only plugins are not auto-enabled', () async {
+    final source = await Directory.systemTemp.createTemp(
+      'lynai_skill_only_plugin_',
+    );
+    final installedRoot = await Directory.systemTemp.createTemp(
+      'lynai_skill_only_installed_',
+    );
+    try {
+      await Directory('${source.path}/skills').create(recursive: true);
+      await File('${source.path}/main.lua').writeAsString('-- no handlers');
+      await File('${source.path}/skills/sample.md').writeAsString('# Sample');
+      await File('${source.path}/plugin.json').writeAsString(
+        jsonEncode({
+          'id': 'user-skill-only',
+          'name': 'User Skill Only',
+          'entry': 'main.lua',
+          'permissions': const [],
+          'skills': [
+            {'name': 'sample', 'title': 'Sample'},
+          ],
+          'lynai': {'autoEnable': true},
+        }),
+      );
+
+      final plugins = PluginProvider(
+        repository: PluginRepository(rootOverride: installedRoot),
+      );
+      await plugins.importDirectory(source.path);
+
+      expect(plugins.pluginById('user-skill-only')?.enabled, isFalse);
+    } finally {
+      if (await source.exists()) await source.delete(recursive: true);
+      if (await installedRoot.exists()) {
+        await installedRoot.delete(recursive: true);
+      }
+    }
+  });
+
   test('RecycleBinRepository serializes concurrent writes', () async {
     SharedPreferences.setMockInitialValues({});
     final repository = RecycleBinRepository();

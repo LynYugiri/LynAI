@@ -189,6 +189,7 @@ class DeviceNodeQuery {
   final bool? clickable;
   final bool? scrollable;
   final bool? editable;
+  final bool regex;
 
   const DeviceNodeQuery({
     this.text = '',
@@ -199,6 +200,7 @@ class DeviceNodeQuery {
     this.clickable,
     this.scrollable,
     this.editable,
+    this.regex = false,
   });
 
   factory DeviceNodeQuery.fromJson(Map<String, dynamic> json) {
@@ -211,22 +213,30 @@ class DeviceNodeQuery {
       clickable: _boolArg(json['clickable']),
       scrollable: _boolArg(json['scrollable']),
       editable: _boolArg(json['editable']),
+      regex: _boolArg(json['regex']) ?? false,
     );
   }
 
   bool matches(DeviceNode node) {
-    return _contains(node.text, text) &&
-        _contains(node.description, description) &&
-        _contains(node.className, className) &&
-        _contains(node.packageName, packageName) &&
-        _contains(node.viewId, viewId) &&
+    return _matches(node.text, text) &&
+        _matches(node.description, description) &&
+        _matches(node.className, className) &&
+        _matches(node.packageName, packageName) &&
+        _matches(node.viewId, viewId) &&
         (clickable == null || node.clickable == clickable) &&
         (scrollable == null || node.scrollable == scrollable) &&
         (editable == null || node.editable == editable);
   }
 
-  static bool _contains(String value, String query) {
+  bool _matches(String value, String query) {
     if (query.trim().isEmpty) return true;
+    if (regex) {
+      try {
+        return RegExp(query, caseSensitive: false).hasMatch(value);
+      } catch (_) {
+        return false;
+      }
+    }
     return value.toLowerCase().contains(query.trim().toLowerCase());
   }
 

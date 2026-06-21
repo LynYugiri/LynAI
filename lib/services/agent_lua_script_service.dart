@@ -18,8 +18,6 @@ import 'plugin_lua_runtime_service.dart';
 
 /// Executes model-provided Agent Lua scripts in a restricted sandbox.
 class AgentLuaScriptService {
-  static const maxCodeLength = 32000;
-  static const maxCallCount = 40;
   static const _maxContinuationDepth = 8;
 
   Future<Map<String, dynamic>> execute({
@@ -35,9 +33,6 @@ class AgentLuaScriptService {
   }) async {
     final trimmed = code.trim();
     if (trimmed.isEmpty) return _error('empty_code', 'Lua 脚本为空');
-    if (trimmed.length > maxCodeLength) {
-      return _error('code_too_long', 'Lua 脚本过长，最多 $maxCodeLength 字符');
-    }
     final isDeviceScript = trimmed.contains('device.');
     if (isDeviceScript) {
       DeviceRunController.instance.start(purpose: purpose);
@@ -53,10 +48,6 @@ class AgentLuaScriptService {
         asyncCalls: true,
         onCall: (method, args) {
           callCount++;
-          final limit = isDeviceScript ? maxCallCount * 10 : maxCallCount;
-          if (callCount > limit) {
-            return _error('call_limit_exceeded', 'lynai.call 超过最大次数: $limit');
-          }
           return _call(
             method,
             args,

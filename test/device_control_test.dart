@@ -33,6 +33,22 @@ void main() {
     expect(match.bounds.bottom, 4);
   });
 
+  test('DeviceNodeQuery supports case-insensitive regex matching', () {
+    final node = DeviceNode(
+      id: '0.1',
+      text: 'Foo Bar',
+      description: 'recent contact',
+      bounds: const DeviceBounds(left: 0, top: 0, right: 1, bottom: 1),
+      clickable: true,
+    );
+
+    expect(
+      DeviceNodeQuery(text: r'^foo\s+bar$', regex: true).matches(node),
+      isTrue,
+    );
+    expect(DeviceNodeQuery(text: r'[', regex: true).matches(node), isFalse);
+  });
+
   test('DeviceRunController pauses and resumes action checkpoints', () async {
     final controller = DeviceRunController.instance;
     controller.reset();

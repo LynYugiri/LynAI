@@ -207,6 +207,7 @@ void main() {
       expect(baseNames, contains('list_plugin_functions'));
       expect(baseNames, contains('list_plugin_skills'));
       expect(baseNames, contains('load_plugin_skill'));
+      expect(baseNames, contains('run_subagent'));
       expect(baseNames, isNot(contains('call_plugin_function')));
 
       final grantedTools = ToolCallService.openAITools(const [], true, const [
@@ -219,6 +220,69 @@ void main() {
       expect(grantedNames, contains('call_plugin_function'));
     },
   );
+
+  test('modelVisibleToolResult strips nested binary payloads', () {
+    final visible =
+        ToolCallService.modelVisibleToolResult({
+              'ok': true,
+              'result': {
+                'text': 'OCR text',
+                'image': {
+                  'mimeType': 'image/png',
+                  'dataBase64': _tinyPngBase64,
+                },
+                'items': [
+                  {'content': 'vision result', 'base64': 'secret'},
+                  {'content': 'image result', 'b64_json': 'secret'},
+                  {'content': 'upper result', 'ImageBase64': 'secret'},
+                ],
+              },
+            })
+            as Map;
+
+    expect(visible['binaryContentOmitted'], isTrue);
+    final result = visible['result'] as Map;
+    expect(result['text'], 'OCR text');
+    expect((result['image'] as Map), isNot(contains('dataBase64')));
+    expect(((result['items'] as List).first as Map), isNot(contains('base64')));
+    expect(((result['items'] as List)[1] as Map), isNot(contains('b64_json')));
+    expect(
+      ((result['items'] as List)[2] as Map),
+      isNot(contains('ImageBase64')),
+    );
+  });
+
+  test('read-only device queries use screen-read permission', () async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsProvider();
+    await settings.replaceSettings(
+      AppSettings.defaults().copyWith(
+        agentGrantedPermissions: const [LynAIPermissions.deviceScreenRead],
+      ),
+    );
+    final service = LynAIFunctionService();
+    final context = LynAIFunctionContext(
+      identity: const LynAICallIdentity(type: LynAICallerType.agentLua),
+      settings: settings,
+    );
+
+    final query = await service.execute(
+      const LynAIFunctionCall(name: 'device.node.find', arguments: {}),
+      context,
+    );
+    final action = await service.execute(
+      const LynAIFunctionCall(name: 'device.inputText', arguments: {}),
+      context,
+    );
+
+    expect(query['ok'], isFalse);
+    expect(query['error'].toString(), isNot(contains('未授权')));
+    expect(action['ok'], isFalse);
+    expect(
+      action['error'].toString(),
+      contains(LynAIPermissions.deviceControl),
+    );
+  });
 
   test('execute_lua tool describes async multi-step device scripts', () {
     final tools = ToolCallService.openAITools(const [], true, const [

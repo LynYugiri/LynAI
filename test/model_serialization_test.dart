@@ -782,7 +782,7 @@ void main() {
     expect(settings.imageRecognitionPrompt, 'legacy prompt');
   });
 
-  test('OpenAI messages preserve assistant reasoning content', () {
+  test('OpenAI messages clear assistant reasoning content', () {
     final messages = ApiService.openAICompatibleMessagesForTest([
       {
         'role': 'assistant',
@@ -799,7 +799,7 @@ void main() {
       {'role': 'tool', 'tool_call_id': 'call-1', 'content': '{"ok":true}'},
     ]);
 
-    expect(messages.first['reasoning_content'], '先判断是否需要调用工具');
+    expect(messages.first['reasoning_content'], '');
     expect(messages.first.containsKey('tool_calls'), isTrue);
     expect(messages.first.containsKey('reasoningContent'), isFalse);
   });
