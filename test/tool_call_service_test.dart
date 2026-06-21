@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/app_settings.dart';
 import 'package:lynai/models/conversation.dart';
+import 'package:lynai/models/message.dart';
 import 'package:lynai/models/plugin.dart';
 import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
@@ -17,7 +18,32 @@ import 'package:lynai/services/lynai_permission_service.dart';
 import 'package:lynai/services/storage_v2_service.dart';
 import 'package:lynai/services/storage_v2_upgrade_service.dart';
 import 'package:lynai/services/tool_call_service.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+const _tinyPngBase64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+class _FakePathProviderPlatform extends PathProviderPlatform {
+  _FakePathProviderPlatform(this.root);
+
+  final Directory root;
+
+  @override
+  Future<String?> getApplicationDocumentsPath() => _path('documents');
+
+  @override
+  Future<String?> getApplicationSupportPath() => _path('support');
+
+  @override
+  Future<String?> getTemporaryPath() => _path('temp');
+
+  Future<String> _path(String name) async {
+    final directory = Directory('${root.path}/$name');
+    if (!await directory.exists()) await directory.create(recursive: true);
+    return directory.path;
+  }
+}
 
 Future<StorageV2Service> _readyStorageV2(Directory root) async {
   final storage = StorageV2Service(rootDirectory: root);
@@ -27,6 +53,24 @@ Future<StorageV2Service> _readyStorageV2(Directory root) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  Directory? pathProviderRoot;
+
+  setUp(() async {
+    pathProviderRoot = await Directory.systemTemp.createTemp(
+      'lynai_tool_path_provider_test_',
+    );
+    PathProviderPlatform.instance = _FakePathProviderPlatform(
+      pathProviderRoot!,
+    );
+  });
+
+  tearDown(() async {
+    final root = pathProviderRoot;
+    pathProviderRoot = null;
+    if (root != null && await root.exists()) {
+      await root.delete(recursive: true);
+    }
+  });
 
   test('fallback parser tolerates malformed tool arguments', () {
     final calls = ToolCallService.parseFallbackToolCalls(r'''
@@ -322,6 +366,82 @@ void main() {
     final trace = conversations.getConversation(cid)!.messages.last.agentTrace;
     expect(trace?.events, hasLength(1));
     expect(trace?.events.single.content, '我先查看可用插件。');
+  });
+
+  test('generated images append to latest assistant message', () async {
+    SharedPreferences.setMockInitialValues({});
+    final conversations = ConversationProvider();
+    final cid = conversations.createConversation(
+      ConversationSettings(modelId: 'm1'),
+    );
+    conversations.addMessage(cid, 'user', 'draw a cat');
+    conversations.addMessage(cid, 'assistant', 'working', save: false);
+
+    conversations.appendImagesToLastAssistantMessage(cid, const [
+      MessageImage(path: '/tmp/generated.png', name: 'generated.png', size: 12),
+    ]);
+
+    final message = conversations.getConversation(cid)!.messages.last;
+    expect(message.role, 'assistant');
+    expect(message.images, hasLength(1));
+    expect(message.images.single.name, 'generated.png');
+  });
+
+  test('execute_lua ignores arbitrary generated image payloads', () async {
+    SharedPreferences.setMockInitialValues({});
+    final imageFile = File('${Directory.systemTemp.path}/lynai_generated.png');
+    await imageFile.writeAsBytes(base64Decode(_tinyPngBase64));
+    try {
+      final conversations = ConversationProvider();
+      final cid = conversations.createConversation(
+        ConversationSettings(modelId: 'chat-1', agentEnabled: true),
+      );
+      conversations.addMessage(cid, 'user', 'draw a cat');
+      conversations.addMessage(cid, 'assistant', '', save: false);
+      final settings = SettingsProvider();
+      await settings.replaceSettings(
+        AppSettings.defaults().copyWith(
+          agentGrantedPermissions: const [LynAIPermissions.luaExecute],
+        ),
+      );
+      final service = ToolCallService(
+        FeatureProvider(),
+        settings: settings,
+        conversations: conversations,
+        conversationId: cid,
+      );
+
+      final result = await service.execute(
+        ChatToolCall(
+          id: 'lua-image',
+          name: 'execute_lua',
+          arguments: {
+            'purpose': 'generate image',
+            'code':
+                '''
+return {
+  ok = true,
+  generatedImages = {
+    {
+      path = "${imageFile.path}",
+      name = "generated_image.png",
+      size = 12,
+      mimeType = "image/png"
+    }
+  }
+}
+''',
+          },
+        ),
+        const [],
+      );
+
+      expect(result['ok'], isTrue);
+      final message = conversations.getConversation(cid)!.messages.last;
+      expect(message.images, isEmpty);
+    } finally {
+      if (await imageFile.exists()) await imageFile.delete();
+    }
   });
 
   test('Agent tools use structured success and error payloads', () async {

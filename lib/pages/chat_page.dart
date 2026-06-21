@@ -51,8 +51,12 @@ class _RetryEntry {
   List<MessageImage> userImages;
   String? assistantId;
   String? assistantContent;
+  List<MessageImage> assistantImages = const [];
   String? thinkingContent;
   _RetryEntry(this.userContent, [this.userImages = const []]);
+
+  bool get hasAssistantSnapshot =>
+      (assistantContent?.isNotEmpty ?? false) || assistantImages.isNotEmpty;
 }
 
 /// 待发送图片的数据模型。
@@ -1107,12 +1111,15 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final lastAssistant = conv.messages
         .where((m) => m.role == 'assistant')
         .toList();
-    if (lastAssistant.isNotEmpty && lastAssistant.last.content.isNotEmpty) {
+    if (lastAssistant.isNotEmpty &&
+        (lastAssistant.last.content.isNotEmpty ||
+            lastAssistant.last.images.isNotEmpty)) {
       _saveRetryHistoryEntry(
         lastUser.content,
         lastUser.images,
         lastAssistant.last.id,
         lastAssistant.last.content,
+        lastAssistant.last.images,
         lastAssistant.last.thinkingContent,
       );
     }
@@ -1397,6 +1404,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         if (_retryHistory.isNotEmpty && _retryIdx < _retryHistory.length) {
           _retryHistory[_retryIdx].assistantId = lastMsg.id;
           _retryHistory[_retryIdx].assistantContent = content;
+          _retryHistory[_retryIdx].assistantImages = List<MessageImage>.from(
+            lastMsg.images,
+          );
           _retryHistory[_retryIdx].thinkingContent = think;
         }
       }
@@ -1522,12 +1532,13 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _retryMsgId = lastUser.id;
 
     final lastAssistant = assistantMessages.last;
-    if (lastAssistant.content.isNotEmpty) {
+    if (lastAssistant.content.isNotEmpty || lastAssistant.images.isNotEmpty) {
       _saveRetryHistoryEntry(
         lastUser.content,
         lastUser.images,
         lastAssistant.id,
         lastAssistant.content,
+        lastAssistant.images,
         lastAssistant.thinkingContent,
       );
     }
@@ -1626,6 +1637,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     List<MessageImage> userImages,
     String assistantId,
     String assistantContent,
+    List<MessageImage> assistantImages,
     String? assistantThinkingContent,
   ) {
     final thinkingContent =
@@ -1634,12 +1646,16 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       final oldEntry = _RetryEntry(userContent, userImages);
       oldEntry.assistantId = assistantId;
       oldEntry.assistantContent = assistantContent;
+      oldEntry.assistantImages = List<MessageImage>.from(assistantImages);
       oldEntry.thinkingContent = thinkingContent;
       _retryHistory.add(oldEntry);
     } else if (_retryIdx < _retryHistory.length) {
       _retryHistory[_retryIdx].userImages = userImages;
       _retryHistory[_retryIdx].assistantId = assistantId;
       _retryHistory[_retryIdx].assistantContent = assistantContent;
+      _retryHistory[_retryIdx].assistantImages = List<MessageImage>.from(
+        assistantImages,
+      );
       _retryHistory[_retryIdx].thinkingContent = thinkingContent;
     }
   }
@@ -3108,6 +3124,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   Widget _assistantBubble(Message msg, bool isLastAi, _StreamDraft? draft) {
     final streaming = draft != null;
     final displayContent = streaming ? draft.content : msg.content;
+    final showImages = msg.images.isNotEmpty;
     final hasSearchMatch = _showSearch && _messageHasSearchMatch(msg.id);
     final currentSearchMessage = _isCurrentSearchMessage(msg.id);
     final scheme = Theme.of(context).colorScheme;
@@ -3162,16 +3179,28 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
               ),
             ],
           ),
-          child: displayContent.isEmpty && streaming
-              ? const SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : MarkdownWithLatex(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (displayContent.isNotEmpty)
+                MarkdownWithLatex(
                   content: displayContent,
                   renderMermaid: !streaming,
                 ),
+              if (showImages && displayContent.isNotEmpty)
+                const SizedBox(height: 8),
+              if (showImages) _messageImages(msg.images),
+              if (displayContent.isEmpty && streaming) ...[
+                if (showImages) const SizedBox(height: 8),
+                const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ],
+            ],
+          ),
         ),
         if (!streaming && !_shareSelecting) _bubbleActions(msg, isLastAi),
       ],
@@ -3767,13 +3796,18 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final lastAssistant = conv.messages
         .where((m) => m.role == 'assistant')
         .toList();
-    if (entry.assistantContent != null && entry.assistantContent!.isNotEmpty) {
+    if (entry.hasAssistantSnapshot) {
       if (lastAssistant.isNotEmpty) {
         cp.updateMessageContent(
           _convId!,
           lastAssistant.last.id,
-          entry.assistantContent!,
+          entry.assistantContent ?? '',
           thinkingContent: entry.thinkingContent,
+        );
+        cp.updateMessageImages(
+          _convId!,
+          lastAssistant.last.id,
+          entry.assistantImages,
         );
         if (entry.thinkingContent != null) {
           _thinkMap[lastAssistant.last.id] = entry.thinkingContent;
@@ -3784,7 +3818,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         cp.addMessage(
           _convId!,
           'assistant',
-          entry.assistantContent!,
+          entry.assistantContent ?? '',
+          images: entry.assistantImages,
           thinkingContent: entry.thinkingContent,
         );
       }
@@ -3797,6 +3832,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           '',
           thinkingContent: null,
         );
+        cp.updateMessageImages(_convId!, lastAssistant.last.id, const []);
         _thinkMap.remove(lastAssistant.last.id);
       }
       _thinkingTxt = null;

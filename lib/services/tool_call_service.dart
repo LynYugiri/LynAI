@@ -1121,7 +1121,9 @@ ${lines.join('\n')}$more''';
         case 'call_plugin_function':
           return _callPluginFunction(call.arguments);
         case 'execute_lua':
-          return _executeAgentLua(call.arguments);
+          final result = await _executeAgentLua(call.arguments);
+          _appendGeneratedImagesToConversation(result);
+          return result;
         default:
           final functionName = LynAIFunctionService.aiToolAliases[call.name];
           if (functionName != null) {
@@ -1158,7 +1160,7 @@ ${lines.join('\n')}$more''';
     final cid = _conversationId;
     final conversations = _conversations;
     if (cid == null || conversations == null || result['ok'] != true) return;
-    final rawImages = result['images'];
+    final rawImages = _generatedImageList(result);
     if (rawImages is! List) return;
     final images = <MessageImage>[];
     for (final raw in rawImages.whereType<Map>()) {
@@ -1175,6 +1177,14 @@ ${lines.join('\n')}$more''';
       );
     }
     conversations.appendImagesToLastAssistantMessage(cid, images);
+  }
+
+  Object? _generatedImageList(Map<String, dynamic> result) {
+    final direct = result['images'];
+    if (direct is List) return direct;
+    final generated = result['generatedImages'];
+    if (generated is List) return generated;
+    return null;
   }
 
   Map<String, dynamic> _addAgentNote(Map<String, dynamic> args) {

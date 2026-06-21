@@ -587,11 +587,11 @@ class ApiService {
           body: jsonEncode(body),
         )
         .timeout(_timeout);
-    final data =
-        jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    final responseBody = utf8.decode(response.bodyBytes);
     if (response.statusCode != 200) {
-      throw Exception('图片生成失败: ${response.statusCode} ${response.body}');
+      throw Exception('图片生成失败: ${response.statusCode} $responseBody');
     }
+    final data = jsonDecode(responseBody) as Map<String, dynamic>;
     final images = data['data'] as List? ?? [];
     return images
         .map((e) {
@@ -632,10 +632,13 @@ class ApiService {
           body: jsonEncode(body),
         )
         .timeout(_timeout);
-    final data =
-        jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-    if (response.statusCode != 200 || data['code'] != 0) {
-      throw Exception('图片生成失败: ${response.statusCode} ${response.body}');
+    final responseBody = utf8.decode(response.bodyBytes);
+    if (response.statusCode != 200) {
+      throw Exception('图片生成失败: ${response.statusCode} $responseBody');
+    }
+    final data = jsonDecode(responseBody) as Map<String, dynamic>;
+    if (data['code'] != 0) {
+      throw Exception('图片生成失败: ${response.statusCode} $responseBody');
     }
     final resultData = data['data'];
     final images = resultData is Map ? resultData['images'] as List? ?? [] : [];

@@ -47,6 +47,7 @@ class AgentLuaScriptService {
       state.openLibs();
       removeDangerousLuaGlobals(state);
       var callCount = 0;
+      final generatedImages = <Map<String, dynamic>>[];
       _installLynAI(
         state,
         asyncCalls: true,
@@ -83,6 +84,7 @@ class AgentLuaScriptService {
         (request) => _handleYieldedCommand(
           request,
           state: state,
+          generatedImages: generatedImages,
           features: features,
           modelConfigs: modelConfigs,
           plugins: plugins,
@@ -104,6 +106,7 @@ class AgentLuaScriptService {
         result,
         state: state,
         depth: 0,
+        generatedImages: generatedImages,
         features: features,
         modelConfigs: modelConfigs,
         plugins: plugins,
@@ -118,6 +121,7 @@ class AgentLuaScriptService {
           'purpose': purpose,
           'calls': callCount,
           'result': commandResult,
+          if (generatedImages.isNotEmpty) 'generatedImages': generatedImages,
           if (commandResult['ok'] == false) 'error': commandResult['error'],
         }, isDeviceScript);
       }
@@ -131,6 +135,7 @@ class AgentLuaScriptService {
             'purpose': purpose,
             'calls': callCount,
             'result': mapped,
+            if (generatedImages.isNotEmpty) 'generatedImages': generatedImages,
             'error': mapped['error'],
           }, isDeviceScript);
         }
@@ -139,6 +144,7 @@ class AgentLuaScriptService {
           'purpose': purpose,
           'calls': callCount,
           'result': mapped,
+          if (generatedImages.isNotEmpty) 'generatedImages': generatedImages,
         }, isDeviceScript);
       }
       return _finishDeviceRun({
@@ -146,6 +152,7 @@ class AgentLuaScriptService {
         'purpose': purpose,
         'calls': callCount,
         'result': result,
+        if (generatedImages.isNotEmpty) 'generatedImages': generatedImages,
       }, isDeviceScript);
     } catch (e) {
       return _finishDeviceRun(
@@ -287,6 +294,7 @@ class AgentLuaScriptService {
   Future<Map<String, dynamic>> _handleYieldedCommand(
     Object? request, {
     required LuaState state,
+    required List<Map<String, dynamic>> generatedImages,
     FeatureProvider? features,
     ModelConfigProvider? modelConfigs,
     PluginProvider? plugins,
@@ -311,6 +319,7 @@ class AgentLuaScriptService {
     return _executeAgentCommand(
       name,
       args,
+      generatedImages: generatedImages,
       features: features,
       modelConfigs: modelConfigs,
       plugins: plugins,
@@ -325,6 +334,7 @@ class AgentLuaScriptService {
     Object? raw, {
     required LuaState state,
     required int depth,
+    required List<Map<String, dynamic>> generatedImages,
     FeatureProvider? features,
     ModelConfigProvider? modelConfigs,
     PluginProvider? plugins,
@@ -351,6 +361,7 @@ class AgentLuaScriptService {
     final result = await _executeAgentCommand(
       name,
       args,
+      generatedImages: generatedImages,
       features: features,
       modelConfigs: modelConfigs,
       plugins: plugins,
@@ -381,6 +392,7 @@ class AgentLuaScriptService {
       continuationResult,
       state: state,
       depth: depth + 1,
+      generatedImages: generatedImages,
       features: features,
       modelConfigs: modelConfigs,
       plugins: plugins,
@@ -401,6 +413,7 @@ class AgentLuaScriptService {
   Future<Map<String, dynamic>> _executeAgentCommand(
     String name,
     Map<String, dynamic> args, {
+    List<Map<String, dynamic>>? generatedImages,
     FeatureProvider? features,
     ModelConfigProvider? modelConfigs,
     PluginProvider? plugins,
@@ -410,7 +423,7 @@ class AgentLuaScriptService {
     LynAICallIdentity? identity,
   }) async {
     if (name != 'plugins.callFunction') {
-      return LynAIFunctionService().execute(
+      final result = await LynAIFunctionService().execute(
         LynAIFunctionCall(name: name, arguments: args),
         LynAIFunctionContext(
           identity:
@@ -426,6 +439,10 @@ class AgentLuaScriptService {
           settings: settings,
         ),
       );
+      if (name == 'model.generateImage') {
+        generatedImages?.addAll(_generatedImageMaps(result));
+      }
+      return result;
     }
     final conv = conversationId == null
         ? null
@@ -491,6 +508,16 @@ class AgentLuaScriptService {
       plugins: plugins,
       settings: settings,
     );
+  }
+
+  List<Map<String, dynamic>> _generatedImageMaps(Map<String, dynamic> result) {
+    if (result['ok'] != true) return const [];
+    final rawImages = result['images'];
+    if (rawImages is! List) return const [];
+    return rawImages
+        .whereType<Map>()
+        .map((image) => Map<String, dynamic>.from(image))
+        .toList(growable: false);
   }
 
   Map<String, dynamic> _listPluginFunctions(Iterable<dynamic> plugins) {
