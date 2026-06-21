@@ -28,13 +28,18 @@ import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/repositories/plugin_repository.dart';
 import 'package:lynai/repositories/settings_repository.dart';
 import 'package:lynai/services/api_service.dart';
+import 'package:lynai/services/attachment_storage_service.dart';
 import 'package:lynai/services/backup_service.dart';
+import 'package:lynai/services/image_generation_service.dart';
 import 'package:lynai/services/roleplay_service.dart';
 import 'package:lynai/services/storage_v2_service.dart';
 import 'package:lynai/services/storage_v2_upgrade_service.dart';
 import 'package:lynai/services/tool_call_service.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:sqlite3/sqlite3.dart';
+
+const _tinyPngBase64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
 Future<StorageV2Service> _readyStorageV2(Directory root) async {
   final storage = StorageV2Service(rootDirectory: root);
@@ -797,6 +802,157 @@ void main() {
     expect(messages.first.containsKey('tool_calls'), isTrue);
     expect(messages.first.containsKey('reasoningContent'), isFalse);
   });
+
+  test('ImageGenerationService sends OpenAI response format default', () async {
+    SharedPreferences.setMockInitialValues({});
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_openai_image_generation_test_',
+    );
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    Map<String, dynamic>? requestBody;
+    unawaited(() async {
+      await for (final request in server) {
+        requestBody =
+            jsonDecode(await utf8.decoder.bind(request).join())
+                as Map<String, dynamic>;
+        expect(request.uri.path, '/v1/images/generations');
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({
+            'data': [
+              {'b64_json': _tinyPngBase64},
+            ],
+          }),
+        );
+        await request.response.close();
+      }
+    }());
+
+    try {
+      final provider = ModelConfigProvider();
+      await provider.replaceModels([
+        ModelConfig(
+          id: 'image-openai',
+          name: 'OpenAI Images',
+          category: ModelConfig.categoryImageGeneration,
+          endpoint: 'http://${server.address.host}:${server.port}/v1',
+          apiKey: 'key',
+          modelName: 'gpt-image-1',
+          apiType: 'openai_image',
+          priority: 0,
+        ),
+      ]);
+      final service = ImageGenerationService(
+        attachmentStorage: AttachmentStorageService(baseDirectory: root),
+      );
+      try {
+        final result = await service.generate(
+          modelConfigs: provider,
+          prompt: 'cat',
+        );
+        expect(result.images, hasLength(1));
+      } finally {
+        service.dispose();
+      }
+
+      expect(requestBody?['model'], 'gpt-image-1');
+      expect(requestBody?['prompt'], 'cat');
+      expect(requestBody?['response_format'], 'b64_json');
+      expect(requestBody?.containsKey('parameters'), isFalse);
+    } finally {
+      await server.close(force: true);
+      await root.delete(recursive: true);
+    }
+  });
+
+  test(
+    'ImageGenerationService sends vivo parameters without response format',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final root = await Directory.systemTemp.createTemp(
+        'lynai_vivo_image_generation_test_',
+      );
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      Map<String, dynamic>? requestBody;
+      Uri? requestUri;
+      unawaited(() async {
+        await for (final request in server) {
+          if (request.uri.path == '/generated.png') {
+            request.response.headers.contentType = ContentType('image', 'png');
+            request.response.add(base64Decode(_tinyPngBase64));
+            await request.response.close();
+            continue;
+          }
+          requestUri = request.uri;
+          requestBody =
+              jsonDecode(await utf8.decoder.bind(request).join())
+                  as Map<String, dynamic>;
+          request.response.headers.contentType = ContentType.json;
+          request.response.write(
+            jsonEncode({
+              'code': 0,
+              'message': 'success',
+              'data': {
+                'images': [
+                  {
+                    'url':
+                        'http://${server.address.host}:${server.port}/generated.png',
+                    'size': '2048x2048',
+                  },
+                ],
+              },
+            }),
+          );
+          await request.response.close();
+        }
+      }());
+
+      try {
+        final provider = ModelConfigProvider();
+        await provider.replaceModels([
+          ModelConfig(
+            id: 'image-vivo',
+            name: 'vivo Images',
+            category: ModelConfig.categoryImageGeneration,
+            endpoint:
+                'http://${server.address.host}:${server.port}/api/v1/image_generation',
+            apiKey: 'key',
+            modelName: 'Doubao-Seedream-4.5',
+            apiType: 'vivo_image',
+            priority: 0,
+          ),
+        ]);
+        final service = ImageGenerationService(
+          attachmentStorage: AttachmentStorageService(baseDirectory: root),
+        );
+        try {
+          final result = await service.generate(
+            modelConfigs: provider,
+            prompt: 'cat',
+            parameters: {'size': '2048x2048'},
+          );
+          expect(result.images, hasLength(1));
+        } finally {
+          service.dispose();
+        }
+
+        expect(requestUri?.path, '/api/v1/image_generation');
+        expect(requestUri?.queryParameters['module'], 'aigc');
+        expect(requestUri?.queryParameters['request_id'], isNotEmpty);
+        expect(requestUri?.queryParameters['system_time'], isNotEmpty);
+        expect(requestBody?['model'], 'Doubao-Seedream-4.5');
+        expect(requestBody?['prompt'], 'cat');
+        expect(requestBody?['parameters'], {'size': '2048x2048'});
+        expect(
+          (requestBody?['parameters'] as Map).containsKey('response_format'),
+          isFalse,
+        );
+      } finally {
+        await server.close(force: true);
+        await root.delete(recursive: true);
+      }
+    },
+  );
 
   test('OpenAI response accepts structured content parts', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);

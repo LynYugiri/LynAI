@@ -44,7 +44,7 @@ class ImageGenerationService {
     final cleanPrompt = prompt.trim();
     if (cleanPrompt.isEmpty) throw Exception('图片生成缺少 prompt');
     final model = _selectImageModel(modelConfigs, modelId, modelName);
-    final normalizedParameters = _normalizeParameters(parameters);
+    final normalizedParameters = _normalizeParameters(model, parameters);
     final results = await _api.generateImages(
       model,
       cleanPrompt,
@@ -113,7 +113,15 @@ class ImageGenerationService {
     throw Exception('未找到图片生成子模型: $modelName');
   }
 
-  Map<String, dynamic>? _normalizeParameters(Map<String, dynamic>? parameters) {
+  Map<String, dynamic>? _normalizeParameters(
+    ModelConfig model,
+    Map<String, dynamic>? parameters,
+  ) {
+    if (model.apiType == 'vivo_image') {
+      return parameters == null || parameters.isEmpty
+          ? null
+          : Map<String, dynamic>.from(parameters);
+    }
     if (parameters == null || parameters.isEmpty) {
       return {'response_format': 'b64_json'};
     }

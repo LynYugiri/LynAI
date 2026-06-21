@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:uuid/uuid.dart';
 import '../models/model_config.dart';
 import 'tool_call_service.dart';
 
@@ -610,7 +611,7 @@ class ApiService {
     final uri = Uri.parse(config.endpoint).replace(
       queryParameters: {
         'module': 'aigc',
-        'request_id': DateTime.now().microsecondsSinceEpoch.toString(),
+        'request_id': const Uuid().v4(),
         'system_time': '${DateTime.now().millisecondsSinceEpoch ~/ 1000}',
       },
     );
@@ -636,11 +637,15 @@ class ApiService {
     if (response.statusCode != 200 || data['code'] != 0) {
       throw Exception('图片生成失败: ${response.statusCode} ${response.body}');
     }
-    final images = data['data']?['images'] as List? ?? [];
-    return images
+    final resultData = data['data'];
+    final images = resultData is Map ? resultData['images'] as List? ?? [] : [];
+    final urls = images
         .map((e) => (e as Map)['url'] as String? ?? '')
         .where((e) => e.isNotEmpty)
         .toList();
+    if (urls.isNotEmpty) return urls;
+    final imageUrl = resultData is Map ? resultData['image'] as String? : null;
+    return imageUrl == null || imageUrl.isEmpty ? const [] : [imageUrl];
   }
 
   Map<String, String> _speechCommonQuery(ModelConfig config) {

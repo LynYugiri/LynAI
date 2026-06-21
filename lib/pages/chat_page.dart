@@ -32,6 +32,7 @@ import '../services/system_scroll_capture_service.dart';
 import '../services/tool_call_service.dart';
 import '../services/lynai_permission_definitions.dart';
 import '../utils/file_picker_io_utils.dart';
+import '../utils/chat_search_matcher.dart';
 import '../utils/share_image_utils.dart';
 import '../utils/snackbar_utils.dart';
 import '../widgets/latex_renderer.dart';
@@ -185,11 +186,13 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   final Set<String> _selectedShareMessageIds = {};
   final Map<String, GlobalKey> _messageKeys = {};
   final List<_ChatSearchMatch> _searchMatches = [];
+  final Set<String> _searchMatchedMessageIds = {};
   final Map<String, bool> _attachmentExistsCache = {};
   String? _expandedInputAction;
   Timer? _inputActionCollapseTimer;
   int _currentSearchMatch = -1;
   String _lastSearchSignature = '';
+  String? _searchRegexError;
 
   int _streamGen = 0;
   String? _streamingConvId;
@@ -567,8 +570,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     setState(() {
       _showSearch = false;
       _searchMatches.clear();
+      _searchMatchedMessageIds.clear();
       _currentSearchMatch = -1;
       _lastSearchSignature = '';
+      _searchRegexError = null;
     });
     _syncBackAvailability();
   }
@@ -585,52 +590,86 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   void _refreshSearchMatches() {
     if (!mounted) return;
     final query = _searchCtrl.text.trim();
+    final matcher = ChatSearchMatcher.fromQuery(query);
     final conv = _convId == null
         ? null
         : context.read<ConversationProvider>().getConversation(_convId!);
     final messages = conv?.messages ?? const <Message>[];
     final signature = [
-      query.toLowerCase(),
+      query,
       _convId ?? '',
+      matcher.regexError ?? '',
       for (final message in messages) '${message.id}:${message.content.length}',
+      for (final message in messages) message.content.hashCode,
+      for (final message in messages)
+        message.images.map((image) => image.name).join('\u{1f}'),
     ].join('|');
     if (signature == _lastSearchSignature) return;
 
     final matches = <_ChatSearchMatch>[];
-    if (query.isNotEmpty) {
-      final lowerQuery = query.toLowerCase();
+    final matchedMessageIds = <String>{};
+    if (!matcher.isEmpty && !matcher.hasError) {
       for (var i = 0; i < messages.length; i++) {
         final message = messages[i];
-        final lowerContent = message.content.toLowerCase();
-        var start = 0;
-        while (start < lowerContent.length) {
-          final index = lowerContent.indexOf(lowerQuery, start);
-          if (index == -1) break;
+        for (final range in matcher.rangesIn(message.content)) {
           matches.add(
             _ChatSearchMatch(
               messageId: message.id,
               messageIndex: i,
-              start: index,
-              end: index + query.length,
+              start: range.start,
+              end: range.end,
             ),
           );
-          start = index + query.length;
+          matchedMessageIds.add(message.id);
+        }
+        for (final image in message.images) {
+          if (!matcher.matches(image.name)) continue;
+          matches.add(
+            _ChatSearchMatch(
+              messageId: message.id,
+              messageIndex: i,
+              start: -1,
+              end: -1,
+            ),
+          );
+          matchedMessageIds.add(message.id);
         }
       }
     }
 
+    final previous =
+        _currentSearchMatch >= 0 && _currentSearchMatch < _searchMatches.length
+        ? _searchMatches[_currentSearchMatch]
+        : null;
     var current = _currentSearchMatch;
     if (matches.isEmpty) {
       current = -1;
-    } else if (current < 0 || current >= matches.length) {
+    } else if (previous != null) {
+      final retained = matches.indexWhere(
+        (match) =>
+            match.messageId == previous.messageId &&
+            match.start == previous.start &&
+            match.end == previous.end,
+      );
+      current = retained >= 0 ? retained : current;
+    }
+    if (matches.isNotEmpty && (current < 0 || current >= matches.length)) {
       current = 0;
     }
-    final shouldScroll = _showSearch && query.isNotEmpty && current >= 0;
+    final shouldScroll =
+        _showSearch &&
+        query.isNotEmpty &&
+        matcher.regexError == null &&
+        current >= 0;
     setState(() {
       _lastSearchSignature = signature;
+      _searchRegexError = matcher.regexError;
       _searchMatches
         ..clear()
         ..addAll(matches);
+      _searchMatchedMessageIds
+        ..clear()
+        ..addAll(matchedMessageIds);
       _currentSearchMatch = current;
     });
     if (shouldScroll) _scrollToSearchMatch(current);
@@ -650,21 +689,51 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
   void _scrollToSearchMatch(int index) {
     if (index < 0 || index >= _searchMatches.length) return;
-    final key = _messageKeys[_searchMatches[index].messageId];
+    final match = _searchMatches[index];
+    final key = _messageKeyFor(match.messageId);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final context = key?.currentContext;
-      if (!mounted || context == null) return;
-      Scrollable.ensureVisible(
-        context,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOut,
-        alignment: 0.35,
-      );
+      if (!mounted) return;
+      if (_ensureSearchMatchVisible(key)) return;
+      final conv = _convId == null
+          ? null
+          : context.read<ConversationProvider>().getConversation(_convId!);
+      final count = conv?.messages.length ?? 0;
+      if (!_scrollCtrl.hasClients || count <= 1) return;
+      final maxScroll = _scrollCtrl.position.maxScrollExtent;
+      final estimatedOffset = (maxScroll * match.messageIndex / (count - 1))
+          .clamp(_scrollCtrl.position.minScrollExtent, maxScroll);
+      final scrollGen = ++_scrollGen;
+      _scrollCtrl
+          .animateTo(
+            estimatedOffset,
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOut,
+          )
+          .then((_) {
+            if (!mounted || scrollGen != _scrollGen) return;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted && scrollGen == _scrollGen) {
+                _ensureSearchMatchVisible(key);
+              }
+            });
+          });
     });
   }
 
+  bool _ensureSearchMatchVisible(GlobalKey? key) {
+    final targetContext = key?.currentContext;
+    if (targetContext == null) return false;
+    Scrollable.ensureVisible(
+      targetContext,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOut,
+      alignment: 0.35,
+    );
+    return true;
+  }
+
   bool _messageHasSearchMatch(String messageId) {
-    return _searchMatches.any((match) => match.messageId == messageId);
+    return _searchMatchedMessageIds.contains(messageId);
   }
 
   bool _isCurrentSearchMessage(String messageId) {
@@ -696,22 +765,22 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     if (!_showSearch || query.isEmpty || !_messageHasSearchMatch(msg.id)) {
       return SelectableText(msg.content, style: const TextStyle(fontSize: 15));
     }
+    final matcher = ChatSearchMatcher.fromQuery(query);
+    final ranges = matcher.rangesIn(msg.content);
+    if (ranges.isEmpty) {
+      return SelectableText(msg.content, style: const TextStyle(fontSize: 15));
+    }
     final scheme = Theme.of(context).colorScheme;
-    final lowerContent = msg.content.toLowerCase();
-    final lowerQuery = query.toLowerCase();
     final spans = <TextSpan>[];
     var start = 0;
-    while (start < msg.content.length) {
-      final index = lowerContent.indexOf(lowerQuery, start);
-      if (index == -1) break;
-      if (index > start) {
-        spans.add(TextSpan(text: msg.content.substring(start, index)));
+    for (final range in ranges) {
+      if (range.start > start) {
+        spans.add(TextSpan(text: msg.content.substring(start, range.start)));
       }
-      final end = index + query.length;
-      final current = _isCurrentTextRange(msg.id, index, end);
+      final current = _isCurrentTextRange(msg.id, range.start, range.end);
       spans.add(
         TextSpan(
-          text: msg.content.substring(index, end),
+          text: msg.content.substring(range.start, range.end),
           style: TextStyle(
             color: current ? scheme.onPrimary : Colors.black,
             backgroundColor: current ? scheme.primary : Colors.yellow,
@@ -719,7 +788,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           ),
         ),
       );
-      start = end;
+      start = range.end;
     }
     if (start < msg.content.length) {
       spans.add(TextSpan(text: msg.content.substring(start)));
@@ -1827,6 +1896,50 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     return '长图已拆分为 ${files.length} 张，保存到 ${files.first.parent.path}';
   }
 
+  String _previewImageFileName(String name) {
+    final dot = name.lastIndexOf('.');
+    final extension = dot >= 0 ? name.substring(dot).toLowerCase() : '.png';
+    final safeExtension = RegExp(r'^\.[a-z0-9]{1,8}$').hasMatch(extension)
+        ? extension
+        : '.png';
+    return 'lynai_image_${DateTime.now().millisecondsSinceEpoch}$safeExtension';
+  }
+
+  Future<void> _savePreviewImageToGallery(String path, String name) async {
+    try {
+      final file = File(path);
+      if (!await file.exists()) {
+        if (mounted) _showShareImageSnack('图片文件已不存在');
+        return;
+      }
+      final bytes = await file.readAsBytes();
+      final fileName = _previewImageFileName(name);
+      if (Platform.isAndroid || Platform.isIOS) {
+        final result = await _nativeToolsChannel
+            .invokeMapMethod<String, dynamic>('saveImageToGallery', {
+              'bytes': bytes,
+              'fileName': fileName,
+            });
+        if (result?['ok'] != true) {
+          throw Exception(result?['error'] ?? '保存到图库失败');
+        }
+        if (mounted) _showShareImageSnack('图片已保存到图库');
+        return;
+      }
+
+      Directory? dir;
+      if (isDesktopPlatform) {
+        dir = await getDownloadsDirectory();
+      }
+      dir ??= await getApplicationDocumentsDirectory();
+      final saved = File('${dir.path}/$fileName');
+      await saved.writeAsBytes(bytes, flush: true);
+      if (mounted) _showShareImageSnack('图片已保存到 ${saved.path}');
+    } catch (e) {
+      if (mounted) _showShareImageSnack('保存失败: $e');
+    }
+  }
+
   void _showShareImageSnack(String message) {
     showShortSnackBar(context, message);
   }
@@ -2597,7 +2710,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
   Widget _searchBar() {
     final scheme = Theme.of(context).colorScheme;
-    final matchText = _searchCtrl.text.trim().isEmpty
+    final hasSearchError = _searchRegexError != null;
+    final matchText = hasSearchError
+        ? '正则错误'
+        : _searchCtrl.text.trim().isEmpty
         ? '输入关键词'
         : _searchMatches.isEmpty
         ? '无匹配'
@@ -2617,9 +2733,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                   focusNode: _searchFocusNode,
                   decoration: InputDecoration(
                     isDense: true,
-                    hintText: '搜索当前对话...',
+                    hintText: '搜索当前对话，支持 re:正则 或 /正则/i',
                     prefixIcon: const Icon(Icons.search),
                     suffixText: matchText,
+                    errorText: hasSearchError ? _searchRegexError : null,
                     border: const OutlineInputBorder(),
                   ),
                   textInputAction: TextInputAction.search,
@@ -3329,7 +3446,29 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         child: Stack(
           children: [
             InteractiveViewer(
-              child: Center(child: Image.file(File(path), fit: BoxFit.contain)),
+              child: GestureDetector(
+                onLongPress: () => _savePreviewImageToGallery(path, name),
+                child: Center(
+                  child: Image.file(File(path), fit: BoxFit.contain),
+                ),
+              ),
+            ),
+            const Positioned(
+              left: 12,
+              bottom: 12,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.all(Radius.circular(12)),
+                ),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  child: Text(
+                    '长按保存到相册',
+                    style: TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                ),
+              ),
             ),
             Positioned(
               right: 8,
