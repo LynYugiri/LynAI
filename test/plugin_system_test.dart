@@ -9,10 +9,8 @@ import 'package:lynai/models/model_config.dart';
 import 'package:lynai/models/plugin.dart';
 import 'package:lynai/models/plugin_config_schema.dart';
 import 'package:lynai/models/recycle_bin_item.dart';
-import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/plugin_provider.dart';
-import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/repositories/plugin_repository.dart';
 import 'package:lynai/repositories/recycle_bin_repository.dart';
 import 'package:lynai/services/agent_lua_script_service.dart';
@@ -23,6 +21,8 @@ import 'package:lynai/services/tool_call_service.dart';
 import 'package:lynai/utils/plugin_path_utils.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'support/memory_repositories.dart';
 
 class _FakePathProviderPlatform extends PathProviderPlatform {
   _FakePathProviderPlatform(this.root);
@@ -743,8 +743,8 @@ end
       await plugins.importDirectory(source.path);
       await plugins.setEnabled('agent_function_plugin', true);
       await plugins.setFunctionEnabled('agent_function_plugin', 'lookup', true);
-      final conversations = ConversationProvider();
-      final settings = SettingsProvider();
+      final conversations = memoryConversationProvider();
+      final settings = memorySettingsProvider();
       final cid = conversations.createConversation(
         ConversationSettings(modelId: 'm1', agentEnabled: true),
       );
@@ -783,8 +783,8 @@ return lynai.call("plugins.callFunction", {
     'Agent Lua returns structured error without plugin permission',
     () async {
       SharedPreferences.setMockInitialValues({});
-      final conversations = ConversationProvider();
-      final settings = SettingsProvider();
+      final conversations = memoryConversationProvider();
+      final settings = memorySettingsProvider();
       await settings.replaceSettings(
         settings.settings.copyWith(agentGrantedPermissions: const []),
       );
@@ -850,8 +850,8 @@ end
           'lookup',
           true,
         );
-        final conversations = ConversationProvider();
-        final settings = SettingsProvider();
+        final conversations = memoryConversationProvider();
+        final settings = memorySettingsProvider();
         final cid = conversations.createConversation(
           ConversationSettings(modelId: 'm1', agentEnabled: true),
         );
@@ -911,8 +911,8 @@ end
       await plugins.importDirectory(source.path);
       await plugins.setEnabled('agent_loop_plugin', true);
       await plugins.setFunctionEnabled('agent_loop_plugin', 'lookup', true);
-      final conversations = ConversationProvider();
-      final settings = SettingsProvider();
+      final conversations = memoryConversationProvider();
+      final settings = memorySettingsProvider();
       final cid = conversations.createConversation(
         ConversationSettings(modelId: 'm1', agentEnabled: true),
       );
@@ -954,8 +954,8 @@ return lynai.call("plugins.callFunction", {
     () async {
       SharedPreferences.setMockInitialValues({});
       final features = FeatureProvider();
-      final settings = SettingsProvider();
-      final conversations = ConversationProvider();
+      final settings = memorySettingsProvider();
+      final conversations = memoryConversationProvider();
       final cid = conversations.createConversation(
         ConversationSettings(modelId: 'm1', agentEnabled: true),
       );
@@ -990,8 +990,8 @@ return lynai.call("notes.save", {
     SharedPreferences.setMockInitialValues({});
     final features = FeatureProvider();
     final noteId = await features.addNoteWithContent('Delete Me', 'content');
-    final settings = SettingsProvider();
-    final conversations = ConversationProvider();
+    final settings = memorySettingsProvider();
+    final conversations = memoryConversationProvider();
     final cid = conversations.createConversation(
       ConversationSettings(modelId: 'm1', agentEnabled: true),
     );

@@ -1,18 +1,15 @@
-import 'dart:io';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lua_dardo/lua.dart';
 import 'package:lynai/models/agent_plan.dart';
 import 'package:lynai/models/app_settings.dart';
 import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/device_control.dart';
-import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
-import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/services/agent_lua_script_service.dart';
 import 'package:lynai/services/device_run_controller.dart';
-import 'package:lynai/services/storage_v2_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'support/memory_repositories.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -109,12 +106,9 @@ return { ok = true, count = count }
 
   test('Agent Lua awaits model calls without starting device run', () async {
     SharedPreferences.setMockInitialValues({});
-    final root = await Directory.systemTemp.createTemp('lynai_lua_settings_');
     DeviceRunController.instance.reset();
     try {
-      final settings = SettingsProvider(
-        storageV2: StorageV2Service(rootDirectory: root),
-      );
+      final settings = memorySettingsProvider();
       await settings.replaceSettings(
         AppSettings.defaults().copyWith(agentGrantedPermissions: const []),
       );
@@ -135,7 +129,7 @@ return result
         DeviceRunStatus.idle,
       );
     } finally {
-      if (await root.exists()) await root.delete(recursive: true);
+      DeviceRunController.instance.reset();
     }
   });
 
@@ -159,7 +153,7 @@ return result
   test('Agent Lua preserves continuations on async LynAI commands', () async {
     SharedPreferences.setMockInitialValues({});
     final features = FeatureProvider();
-    final settings = SettingsProvider();
+    final settings = memorySettingsProvider();
 
     final result = await AgentLuaScriptService().execute(
       purpose: 'async continuation command',
@@ -187,7 +181,7 @@ return lynai.call("notes.save", {
 
   test('Agent Lua can update plan during async device script', () async {
     SharedPreferences.setMockInitialValues({});
-    final conversations = ConversationProvider();
+    final conversations = memoryConversationProvider();
     final cid = conversations.createConversation(
       ConversationSettings(modelId: 'm1', agentEnabled: true),
     );

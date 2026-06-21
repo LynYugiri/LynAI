@@ -6,10 +6,8 @@ import 'package:lynai/models/app_settings.dart';
 import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/message.dart';
 import 'package:lynai/models/plugin.dart';
-import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/plugin_provider.dart';
-import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/repositories/plugin_repository.dart';
 import 'package:lynai/services/lynai_call_identity.dart';
 import 'package:lynai/services/lynai_function_service.dart';
@@ -20,6 +18,8 @@ import 'package:lynai/services/storage_v2_upgrade_service.dart';
 import 'package:lynai/services/tool_call_service.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'support/memory_repositories.dart';
 
 const _tinyPngBase64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
@@ -254,7 +254,7 @@ void main() {
 
   test('read-only device queries use screen-read permission', () async {
     SharedPreferences.setMockInitialValues({});
-    final settings = SettingsProvider();
+    final settings = memorySettingsProvider();
     await settings.replaceSettings(
       AppSettings.defaults().copyWith(
         agentGrantedPermissions: const [LynAIPermissions.deviceScreenRead],
@@ -316,7 +316,7 @@ void main() {
 
   test('model recognition functions require dedicated permissions', () async {
     SharedPreferences.setMockInitialValues({});
-    final settings = SettingsProvider();
+    final settings = memorySettingsProvider();
     await settings.replaceSettings(
       AppSettings.defaults().copyWith(agentGrantedPermissions: const []),
     );
@@ -404,7 +404,7 @@ void main() {
 
   test('add_agent_note appends assistant trace without permissions', () async {
     SharedPreferences.setMockInitialValues({});
-    final conversations = ConversationProvider();
+    final conversations = memoryConversationProvider();
     final cid = conversations.createConversation(
       ConversationSettings(modelId: 'm1', agentEnabled: true),
     );
@@ -434,7 +434,7 @@ void main() {
 
   test('generated images append to latest assistant message', () async {
     SharedPreferences.setMockInitialValues({});
-    final conversations = ConversationProvider();
+    final conversations = memoryConversationProvider();
     final cid = conversations.createConversation(
       ConversationSettings(modelId: 'm1'),
     );
@@ -456,13 +456,13 @@ void main() {
     final imageFile = File('${Directory.systemTemp.path}/lynai_generated.png');
     await imageFile.writeAsBytes(base64Decode(_tinyPngBase64));
     try {
-      final conversations = ConversationProvider();
+      final conversations = memoryConversationProvider();
       final cid = conversations.createConversation(
         ConversationSettings(modelId: 'chat-1', agentEnabled: true),
       );
       conversations.addMessage(cid, 'user', 'draw a cat');
       conversations.addMessage(cid, 'assistant', '', save: false);
-      final settings = SettingsProvider();
+      final settings = memorySettingsProvider();
       await settings.replaceSettings(
         AppSettings.defaults().copyWith(
           agentGrantedPermissions: const [LynAIPermissions.luaExecute],
@@ -510,7 +510,7 @@ return {
 
   test('Agent tools use structured success and error payloads', () async {
     SharedPreferences.setMockInitialValues({});
-    final conversations = ConversationProvider();
+    final conversations = memoryConversationProvider();
     final disabledCid = conversations.createConversation(
       ConversationSettings(modelId: 'm1'),
     );
@@ -595,7 +595,7 @@ return {
         );
         await plugins.importDirectory(source.path);
         await plugins.setEnabled('skill-plugin', true);
-        final conversations = ConversationProvider();
+        final conversations = memoryConversationProvider();
         final cid = conversations.createConversation(
           ConversationSettings(modelId: 'm1', agentEnabled: true),
         );

@@ -39,6 +39,8 @@ import 'package:lynai/services/tool_call_service.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:sqlite3/sqlite3.dart';
 
+import 'support/memory_repositories.dart';
+
 const _tinyPngBase64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
@@ -686,7 +688,7 @@ void main() {
     'ConversationProvider can replace and clear message thinking content',
     () {
       SharedPreferences.setMockInitialValues({});
-      final provider = ConversationProvider();
+      final provider = memoryConversationProvider();
       final conversationId = provider.createConversation(
         ConversationSettings(modelId: 'm1'),
       );
@@ -733,7 +735,7 @@ void main() {
     'ConversationProvider appends Agent trace to latest assistant message',
     () {
       SharedPreferences.setMockInitialValues({});
-      final provider = ConversationProvider();
+      final provider = memoryConversationProvider();
       final conversationId = provider.createConversation(
         ConversationSettings(modelId: 'm1'),
       );
@@ -830,7 +832,7 @@ void main() {
     }());
 
     try {
-      final provider = ModelConfigProvider();
+      final provider = memoryModelConfigProvider();
       await provider.replaceModels([
         ModelConfig(
           id: 'image-openai',
@@ -948,7 +950,7 @@ void main() {
       }());
 
       try {
-        final provider = ModelConfigProvider();
+        final provider = memoryModelConfigProvider();
         await provider.replaceModels([
           ModelConfig(
             id: 'image-vivo',
@@ -1013,7 +1015,7 @@ void main() {
     }());
 
     try {
-      final conversations = ConversationProvider();
+      final conversations = memoryConversationProvider();
       final cid = conversations.createConversation(
         ConversationSettings(
           modelId: 'chat-1',
@@ -1024,7 +1026,7 @@ void main() {
       );
       conversations.addMessage(cid, 'user', 'draw a cat');
       conversations.addMessage(cid, 'assistant', '', save: false);
-      final models = ModelConfigProvider();
+      final models = memoryModelConfigProvider();
       await models.replaceModels([
         ModelConfig(
           id: 'image-1',
@@ -1037,7 +1039,7 @@ void main() {
           priority: 0,
         ),
       ]);
-      final settings = SettingsProvider();
+      final settings = memorySettingsProvider();
       await settings.replaceSettings(
         AppSettings.defaults().copyWith(
           imageGenerationModelId: 'image-1',
