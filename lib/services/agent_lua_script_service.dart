@@ -192,6 +192,12 @@ class AgentLuaScriptService {
     if (method == 'agent.plan.update' || method == 'update_plan') {
       return _updateAgentPlan(args, conversations, conversationId);
     }
+    if (method == 'agent.memory.read' || method == 'read_agent_memory') {
+      return _readAgentMemory(conversations, conversationId);
+    }
+    if (method == 'agent.memory.update' || method == 'update_agent_memory') {
+      return _updateAgentMemory(args, conversations, conversationId);
+    }
     if (method == 'agent.note.add' || method == 'add_agent_note') {
       return _addAgentNote(args, conversations, conversationId);
     }
@@ -276,6 +282,34 @@ class AgentLuaScriptService {
       return _error('missing_context', '缺少对话上下文');
     }
     return const AgentRuntimeService().addNote(
+      conversations,
+      conversationId,
+      args,
+    );
+  }
+
+  Map<String, dynamic> _readAgentMemory(
+    ConversationProvider? conversations,
+    String? conversationId,
+  ) {
+    if (conversations == null || conversationId == null) {
+      return _error('missing_context', '缺少对话上下文');
+    }
+    return const AgentRuntimeService().readMemory(
+      conversations,
+      conversationId,
+    );
+  }
+
+  Map<String, dynamic> _updateAgentMemory(
+    Map<String, dynamic> args,
+    ConversationProvider? conversations,
+    String? conversationId,
+  ) {
+    if (conversations == null || conversationId == null) {
+      return _error('missing_context', '缺少对话上下文');
+    }
+    return const AgentRuntimeService().updateMemory(
       conversations,
       conversationId,
       args,

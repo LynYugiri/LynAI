@@ -30,9 +30,17 @@ class AgentTraceEvent {
   static const toolCall = 'tool_call';
   static const toolResult = 'tool_result';
   static const planUpdate = 'plan_update';
+  static const memoryUpdate = 'memory_update';
   static const error = 'error';
 
-  static const types = {assistantNote, toolCall, toolResult, planUpdate, error};
+  static const types = {
+    assistantNote,
+    toolCall,
+    toolResult,
+    planUpdate,
+    memoryUpdate,
+    error,
+  };
 
   final String id;
   final String type;

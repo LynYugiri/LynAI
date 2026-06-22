@@ -69,6 +69,9 @@ class ConversationRows extends Table {
   TextColumn get title => text()();
   TextColumn get modelId => text().named('model_id')();
   TextColumn get settingsJson => text().named('settings_json')();
+  TextColumn get agentPlanJson => text().named('agent_plan_json').nullable()();
+  TextColumn get agentWorkingMemoryJson =>
+      text().named('agent_working_memory_json').nullable()();
   TextColumn get roleId => text().named('role_id')();
   TextColumn get createdAt => text().named('created_at')();
   TextColumn get updatedAt => text().named('updated_at')();
@@ -87,6 +90,8 @@ class MessageRows extends Table {
   TextColumn get content => text()();
   TextColumn get thinkingContent =>
       text().named('thinking_content').nullable()();
+  TextColumn get agentTraceJson =>
+      text().named('agent_trace_json').nullable()();
   TextColumn get timestamp => text()();
   IntColumn get sortOrder =>
       integer().named('sort_order').withDefault(const Constant(0))();
@@ -290,7 +295,7 @@ class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
   /// This is separate from [StorageV2Service.currentLayoutVersion], which
   /// describes the storage_v2 directory layout.
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -314,6 +319,15 @@ class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
           'INTEGER NOT NULL DEFAULT 0',
         );
       }
+      if (from < 4) {
+        await _addColumnIfMissing('conversations', 'agent_plan_json', 'TEXT');
+        await _addColumnIfMissing(
+          'conversations',
+          'agent_working_memory_json',
+          'TEXT',
+        );
+        await _addColumnIfMissing('messages', 'agent_trace_json', 'TEXT');
+      }
     },
   );
 
@@ -323,6 +337,7 @@ class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
     String definition,
   ) async {
     final existing = await customSelect('PRAGMA table_info($table)').get();
+    if (existing.isEmpty) return;
     final hasColumn = existing.any((row) => row.data['name'] == column);
     if (!hasColumn) {
       await customStatement(
@@ -480,6 +495,8 @@ CREATE TABLE IF NOT EXISTS conversations (
   title TEXT NOT NULL,
   model_id TEXT NOT NULL,
   settings_json TEXT NOT NULL,
+  agent_plan_json TEXT,
+  agent_working_memory_json TEXT,
   role_id TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -490,6 +507,7 @@ CREATE TABLE IF NOT EXISTS messages (
   role TEXT NOT NULL,
   content TEXT NOT NULL,
   thinking_content TEXT,
+  agent_trace_json TEXT,
   timestamp TEXT NOT NULL,
   sort_order INTEGER NOT NULL,
   FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
@@ -642,6 +660,10 @@ CREATE INDEX IF NOT EXISTS idx_resources_hash_size ON resources(sha256, size);
               'title': row.title,
               'modelId': row.modelId,
               'settings': jsonDecode(row.settingsJson),
+              if (row.agentPlanJson != null)
+                'agentPlan': jsonDecode(row.agentPlanJson!),
+              if (row.agentWorkingMemoryJson != null)
+                'agentWorkingMemory': jsonDecode(row.agentWorkingMemoryJson!),
               'roleId': row.roleId,
               'createdAt': row.createdAt,
               'updatedAt': row.updatedAt,
@@ -662,6 +684,8 @@ CREATE INDEX IF NOT EXISTS idx_resources_hash_size ON resources(sha256, size);
                 'content': row.content,
                 if (row.thinkingContent != null)
                   'thinkingContent': row.thinkingContent,
+                if (row.agentTraceJson != null)
+                  'agentTrace': jsonDecode(row.agentTraceJson!),
                 'timestamp': row.timestamp,
                 'sortOrder': row.sortOrder,
               };
@@ -971,6 +995,16 @@ CREATE INDEX IF NOT EXISTS idx_resources_hash_size ON resources(sha256, size);
               title: json['title'] as String? ?? '',
               modelId: json['modelId'] as String? ?? '',
               settingsJson: jsonEncode(json['settings'] ?? const {}),
+              agentPlanJson: Value(
+                json['agentPlan'] == null
+                    ? null
+                    : jsonEncode(json['agentPlan']),
+              ),
+              agentWorkingMemoryJson: Value(
+                json['agentWorkingMemory'] == null
+                    ? null
+                    : jsonEncode(json['agentWorkingMemory']),
+              ),
               roleId: json['roleId'] as String? ?? 'default',
               createdAt: json['createdAt'] as String? ?? '',
               updatedAt: json['updatedAt'] as String? ?? '',
@@ -998,6 +1032,11 @@ CREATE INDEX IF NOT EXISTS idx_resources_hash_size ON resources(sha256, size);
               role: json['role'] as String? ?? '',
               content: json['content'] as String? ?? '',
               thinkingContent: Value(json['thinkingContent'] as String?),
+              agentTraceJson: Value(
+                json['agentTrace'] == null
+                    ? null
+                    : jsonEncode(json['agentTrace']),
+              ),
               timestamp: json['timestamp'] as String? ?? '',
               sortOrder: Value((json['sortOrder'] as num?)?.toInt() ?? 0),
             ),

@@ -44,7 +44,7 @@ HomePage
 
 文件：`lib/pages/chat_page.dart`
 
-`ChatPage` 协调模型选择、附件、语音、文件识别、OCR、工具调用、Agent/Subagent、流式响应、失败恢复和分享。
+`ChatPage` 协调模型选择、附件、语音、文件识别、OCR、工具调用、Agent/Subagent、Agent 工作记忆、流式响应、失败恢复和分享。
 
 ### 输入区
 

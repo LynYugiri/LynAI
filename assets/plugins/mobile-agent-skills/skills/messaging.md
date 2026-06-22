@@ -18,6 +18,8 @@
 - 如果用户说“帮我回复”但没有给出回复内容，先读取上下文并返回给主模型生成回复，再发送。
 - 如果用户说“给某人发某内容”或“回复某内容”，目标和内容明确时直接发送。
 - 联系人、群聊或当前会话不确定时，不发送，返回 `peer_uncertain` 或 `conversation_uncertain`。
+- 定位会话、读取最近消息、输入和点击发送能在同一屏内完成时，优先使用一次 `execute_lua` 编排。
+- 读取到的联系人、最近消息摘要、置信度和是否已发送，应写入 `agent.memory.update` 供主 Agent 继续使用。
 
 ## Lua 发送函数建议
 
@@ -47,6 +49,24 @@ end
 ```
 
 发送前不要复用旧节点。进入会话、等待键盘、发送按钮状态变化后，都应重新 `device.screen.query`。
+
+## 一次读取或发送流程
+
+```lua
+local function remember(kind, content, details)
+  return lynai.call("agent.memory.update", {
+    entries = {{ kind = kind, source = "lua", content = content, details = details }}
+  })
+end
+
+local ctx = lynai.call("device.screen.context", { limit = 80 })
+if not ctx.ok then return ctx end
+remember("fact", "已读取当前消息应用上下文", { phase = "message_context" })
+
+-- 如果用户已明确要求发送具体内容，在确认会话后继续调用 send_message(text)。
+-- 如果需要主模型生成回复，直接 return 最近消息摘要，不要发送。
+return { ok = true, phase = "message_context", context = ctx.result }
+```
 
 ## 失败处理
 

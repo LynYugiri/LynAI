@@ -1,61 +1,58 @@
 # Repository Instructions
 
 ## Commands
-- Install deps before verification: `flutter pub get`.
-- CI quality gate is `flutter pub get` -> `flutter analyze` -> `flutter test`.
-- If deps are already current, use faster checks: `flutter analyze --no-pub` and `flutter test --no-pub`.
-- Run one test file with `flutter test test/<name>_test.dart`; add `--plain-name '<test name>'` for a single test case.
-- After changing Drift tables or database annotations in `lib/services/storage_v2_database.dart`, regenerate committed code with `dart run build_runner build --delete-conflicting-outputs`.
-- Root analyzer excludes `third_party/**`; analyze vendored packages separately from their own package roots only when intentionally editing them.
+- CI quality gate is `flutter pub get` -> `flutter analyze` -> `flutter test` on Flutter stable.
+- If dependencies are already current, use `flutter analyze --no-pub` and `flutter test --no-pub`.
+- Run focused tests with `flutter test test/<name>_test.dart`; add `--plain-name '<test name>'` for one case.
+- After Drift table/database annotation changes in `lib/services/storage_v2_database.dart`, run `dart run build_runner build --delete-conflicting-outputs` and commit `storage_v2_database.g.dart`.
+- Root analysis excludes `third_party/**`; analyze vendored packages only from their own package roots when editing them.
 
-## Architecture Boundaries
-- `lib/main.dart` is the real app entrypoint: registers Providers, prepares storage_v2, loads all data partitions, repairs model references, then syncs built-in plugins.
-- Keep the app layering strict: Pages handle UI, Providers own in-memory state and save queues, Repositories persist to `storage_v2`, Services handle APIs/platform/files/storage upgrades, Models only define serializable data contracts.
-- Providers intentionally update memory and notify UI before queued persistence; do not make UI wait on disk writes unless the existing flow already does.
-- Historical conversations and roleplay threads keep settings/model snapshots; global settings changes must not silently rewrite old sessions.
-- `HomePage` keeps the three main tabs alive with an `IndexedStack`; avoid fixes that assume switching tabs disposes feature/chat/settings state.
-- `HomePage` also owns root back handling and double-tap navigation: feature tab double-tap jumps to its dashboard, chat tab double-tap starts a new conversation.
-- `ApiService` normalizes protocol differences into `StreamChunk`/`ChatResponse`; keep OpenAI/Ollama/Anthropic request quirks inside the service instead of scattering protocol handling into pages.
-- `ChatPage` owns streaming UI, attachments, speech, screenshot export, tool-call loops, and model-recognition pre-send work; do not move protocol or device logic into widget helpers unless it stays page-local.
-- Tool calls flow through `ToolCallService` and plugin tools through `PluginLuaRuntimeService`; add schema, validation, execution, permissions, and tests together.
-- Roleplay uses scenario templates plus per-thread snapshots; deleting or changing a global role/model must repair references without rewriting old thread state.
+## App Shape
+- `lib/main.dart` is the real entrypoint: registers global Providers, runs `StorageV2UpgradeService.ensureReady()`, loads all data partitions, repairs model references, syncs built-in plugins, then builds `HomePage`.
+- Preserve the layers: Pages handle UI/lifecycle, Providers own in-memory state and save queues, Repositories persist to `storage_v2`, Services handle API/platform/files/storage upgrades, Models define serializable contracts only.
+- Providers notify from memory before queued persistence; do not make UI wait for disk unless the existing flow already does.
+- Flush `ConversationProvider.flushPendingSaves()` on lifecycle/dispose paths instead of forcing synchronous writes from UI code.
+- Historical conversations and roleplay threads keep settings/model snapshots; global setting/model changes must not silently rewrite old sessions.
+- `HomePage` keeps Feature/Chat/Settings alive with an `IndexedStack`; tab switching does not dispose child state.
+- `HomePage` owns root back handling and bottom-nav double-tap behavior: Feature -> dashboard, Chat -> new conversation.
+- `ChatPage` owns streaming UI, attachments, speech, screenshot export, tool-call loops, and pre-send model recognition; keep protocol/device logic page-local or in Services.
+- `ApiService` normalizes OpenAI/Ollama/Anthropic/custom quirks into `StreamChunk`/`ChatResponse`; avoid scattering protocol handling into pages.
+- Tool calls route through `ToolCallService`; plugin Lua handlers execute through `PluginLuaRuntimeService`; update schema, validation, permissions, execution, and tests together.
+- Roleplay separates reusable scenarios from per-thread snapshots; repair references without mutating old thread state.
 
 ## Storage And Data
-- `storage_v2/app.db` is the structured source of truth; do not reintroduce `storage_v2/data/*.json` mirrors.
-- Notes in `storage_v2` store page bodies as Markdown files; `Note.content` is legacy compatibility and is not the only note body source.
-- Long-lived attachments/resources must be copied into the app-private storage path and saved as paths/metadata, not embedded into message JSON.
-- Storage-relative paths must go through the existing `StorageV2Service` safety checks; avoid manual path joins for user/plugin/archive-controlled paths.
-- Migration constants live in code, especially `StorageV2Service.currentLayoutVersion` and `BackupService.currentSchemaVersion`; do not duplicate schema numbers in docs.
-- `StorageV2UpgradeService` creates or upgrades current storage_v2 in place and backs up the directory before layout upgrades.
-- Resources are SHA-addressed blobs under `assets/blobs/{sha256Prefix}/{sha256}`; display names and MIME data belong in metadata.
-- Backups are ZIPs with manifest, selected JSON partitions, note page Markdown, resources, and app-private assets; import must tolerate missing assets by warning and clearing invalid references.
-- `ConversationProvider` saves through a debounced serial queue; flush pending saves on lifecycle/dispose paths instead of forcing synchronous writes from the UI.
-- Schedule and tool-provided times are normalized to local time; avoid changing date parsing without focused schedule/tool tests.
+- `storage_v2/app.db` is the structured source of truth; do not reintroduce `storage_v2/data/*.json` mirrors or back up raw `app.db`.
+- Note page bodies live as Markdown files under `storage_v2/notes`; `Note.content` is legacy compatibility.
+- Long-lived attachments/resources must be imported into app-private storage through `StorageV2Service.importResourceFile()` and saved as resource IDs/paths/metadata, not embedded message JSON.
+- Storage-relative paths must go through `StorageV2Service` safety checks; avoid manual joins for user/plugin/archive-controlled paths.
+- Layout and backup schema numbers live in code constants (`StorageV2Service.currentLayoutVersion`, `BackupService.currentSchemaVersion`); do not duplicate numbers in docs.
+- `StorageV2UpgradeService` upgrades current storage in place and creates a sibling backup before layout changes.
+- Resources are SHA blobs under `assets/blobs/{sha256Prefix}/{sha256}`; display names and MIME data belong in metadata.
+- Backups are ZIP partition exports with manifest, note Markdown, resources, and app-private assets; imports should tolerate missing assets by warning and clearing invalid refs.
+- Schedule and tool-provided times are normalized to local time; add focused schedule/tool tests when changing date parsing.
 
 ## Generated And Vendored Code
-- `lib/services/storage_v2_database.g.dart` is generated Drift code and is committed; update it only via build_runner after database source changes.
-- `third_party/**` is excluded from root analyzer checks, but root `pubspec.yaml` overrides `webview_all_linux`, `webview_all_windows`, and `lua_dardo` to local vendored packages.
-- `third_party/lua_dardo` is a LynAI fork with async Dart callback support used by Agent Lua; do not replace it with upstream assumptions.
+- `lib/services/storage_v2_database.g.dart` is committed Drift output; do not hand-edit it.
+- Root `pubspec.yaml` overrides `webview_all_linux`, `webview_all_windows`, and `lua_dardo` to local `third_party/**` packages.
+- `third_party/lua_dardo` is a LynAI fork with async Dart callback support for Agent Lua; do not replace it with upstream sync-only assumptions.
 - Native tree-sitter code lives under `native/tree_sitter/`; Dart uses FFI when available and falls back to stub/Dart highlighting on unsupported platforms.
 
 ## Plugins And Assets
-- Built-in plugins live under `assets/plugins/status-dashboard/` and `assets/plugins/weather-query/`; keep their directories listed in `pubspec.yaml` assets when adding or moving plugin files.
-- Plugin manifests enforce safe route/file identifiers and permission-gated tools/functions; update manifest parsing, runtime registration, permissions, and tests together.
-- Feature-page plugin files can be user-editable only when declared in `editableFiles`; do not add generic plugin file writes that bypass this allowlist.
-- Built-in plugins are synced on startup from Flutter assets into the app plugin directory; changing shipped plugin files affects both first install and sync of existing installs.
-- Plugin WebView functions are not model tools; keep `functions`, `tools`, `skills`, feature pages, and permissions distinct when editing manifests or runtime registration.
-- Plugin path handling should use existing safe path helpers; reject absolute paths, `..`, route-breaking IDs, and URLs where a local plugin file is expected.
-- `PluginProvider` only tracks plugin metadata, enabled state, permissions, and manifest sync; the runtime executes Lua/WebView code elsewhere, and enabling/disabling must respect existing API-conflict checks.
+- Built-in plugins are `assets/plugins/status-dashboard/`, `assets/plugins/weather-query/`, and `assets/plugins/mobile-agent-skills/`; keep `pubspec.yaml` assets and `PluginRepository.builtInPluginFiles` in sync.
+- Built-ins sync from Flutter assets on startup; shipped file changes affect first installs and existing installs, while user-editable files/config should remain preserved where declared.
+- Plugin manifest concepts are distinct: `tools` are model tools, `functions` are UI/Agent-callable functions, `skills` are loadable docs, and `featurePages` are WebViews.
+- Manifest parsing enforces safe route/file identifiers and permission-gated APIs; add tests with schema, validation, runtime, or permission changes.
+- Plugin file writes must respect `editableFiles`; use existing safe path helpers and reject absolute paths, `..`, route-breaking IDs, and URLs where local files are expected.
+- `PluginProvider` tracks metadata, enabled state, permissions, config, and API conflicts; Lua/WebView execution lives in Services/widgets.
 
 ## Tests And Platform Notes
-- Tests commonly use `SharedPreferences.setMockInitialValues({})` and `Directory.systemTemp`; reset or isolate those when adding focused tests.
-- Storage, plugin, and attachment tests create temp directories and must clean them in `finally`; follow that pattern for new filesystem tests.
-- Widget tests that instantiate `LynAIApp` need the same Provider set as `main.dart`; keep test provider registration in sync when adding global Providers.
-- Linux release builds need native packages from CI (`cmake`, `clang`, `ninja-build`, `pkg-config`, `libgtk-3-dev`, `libwebkit2gtk-4.1-dev`, `liblzma-dev`, `zstd`).
-- macOS CI patches `speech_to_text` in the pub cache before `flutter build macos --release`; local macOS release failures may need the same workaround.
-- CI builds Android APKs, Linux packages, Windows ZIPs, and macOS x64/arm64 artifacts only after the quality job passes.
+- Tests commonly call `SharedPreferences.setMockInitialValues({})` and create temp dirs under `Directory.systemTemp`; isolate and clean filesystem tests in `finally`.
+- Widget tests that pump `LynAIApp` need the full `main.dart` Provider set, including `RecycleBinProvider` and `PluginProvider`.
+- Linux release builds need CI packages: `cmake`, `clang`, `ninja-build`, `pkg-config`, `libgtk-3-dev`, `libwebkit2gtk-4.1-dev`, `liblzma-dev`, `zstd`.
+- macOS release CI patches `speech_to_text` in the pub cache before `flutter build macos --release`; local macOS release failures may need the same patch.
+- CI builds Android split APKs, Linux deb/Arch packages, Windows x64 ZIP, and macOS x64/arm64 only after the quality job passes.
 
 ## Documentation Sync
-- Keep `doc/architecture.md` in sync with startup flow, storage authority, or layer boundary changes.
-- Keep `doc/models.md`, `doc/providers.md`, and `doc/services.md` in sync when changing model fields, provider save/load behavior, API/tool/plugin behavior, backup, or migrations.
+- Keep `doc/architecture.md` and `doc/README.md` in sync with startup flow, storage authority, or layer boundary changes.
+- Keep `doc/models.md`, `doc/providers.md`, and `doc/services.md` in sync with model fields, provider persistence/load behavior, API/tool/plugin behavior, backup, or migrations.
 - Keep `doc/pages.md` in sync when adding pages, routes, feature entries, or user-visible manual test paths.

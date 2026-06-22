@@ -14,6 +14,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:super_clipboard/super_clipboard.dart';
 import '../models/agent_plan.dart';
 import '../models/agent_trace.dart';
+import '../models/agent_working_memory.dart';
 import '../models/conversation.dart';
 import '../models/chat_role.dart';
 import '../models/message.dart';
@@ -1212,17 +1213,23 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final toolPrompt = conv.settings.agentEnabled
         ? '${ToolCallService.nativeSystemPrompt}\n\n${ToolCallService.agentSystemPromptWithSkills(context.read<PluginProvider>().plugins)}'
         : ToolCallService.nativeSystemPrompt;
+    final agentContext = conv.settings.agentEnabled
+        ? ToolCallService.agentContextPrompt(conv)
+        : '';
+    final fullToolPrompt = agentContext.isEmpty
+        ? toolPrompt
+        : '$toolPrompt\n\n$agentContext';
     if (promptContent.isNotEmpty) {
       msgs.add({
         'role': 'system',
         'content': enableTools
-            ? '$promptContent\n\n$toolPrompt\n\n${ToolCallService.currentTimeContext()}'
+            ? '$promptContent\n\n$fullToolPrompt\n\n${ToolCallService.currentTimeContext()}'
             : promptContent,
       });
     } else if (enableTools) {
       msgs.add({
         'role': 'system',
-        'content': '$toolPrompt\n\n${ToolCallService.currentTimeContext()}',
+        'content': '$fullToolPrompt\n\n${ToolCallService.currentTimeContext()}',
       });
     }
     final lastUserIndex = lastUserContentOverride == null
@@ -2768,6 +2775,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           ),
         ),
         if (conv?.agentPlan != null) _agentPlanPanel(conv!.agentPlan!),
+        if (conv?.agentWorkingMemory != null &&
+            !conv!.agentWorkingMemory!.isEmpty)
+          _agentMemoryPanel(conv.agentWorkingMemory!),
         _inputArea(model, mp),
       ],
     );
@@ -3000,6 +3010,65 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _agentMemoryPanel(AgentWorkingMemory memory) {
+    final scheme = Theme.of(context).colorScheme;
+    final recent = memory.entries.length > 3
+        ? memory.entries.sublist(memory.entries.length - 3)
+        : memory.entries;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 2),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: scheme.outlineVariant.withValues(alpha: 0.45),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.psychology_alt, size: 15, color: scheme.primary),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    memory.goal.trim().isEmpty
+                        ? 'Agent 工作记忆 · ${memory.entries.length} 条'
+                        : 'Agent 工作记忆：${memory.goal.trim()}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            for (final entry in recent)
+              Padding(
+                padding: const EdgeInsets.only(top: 3, left: 21),
+                child: Text(
+                  '${entry.kind}: ${entry.content}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: scheme.onSurfaceVariant.withValues(alpha: 0.72),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -3332,6 +3401,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         Icons.account_tree_outlined,
         scheme.secondary,
       ),
+      AgentTraceEvent.memoryUpdate => (Icons.psychology_alt, scheme.primary),
       AgentTraceEvent.error => (Icons.error_outline, scheme.error),
       _ => (Icons.notes_outlined, scheme.onSurfaceVariant),
     };
@@ -3339,6 +3409,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       AgentTraceEvent.toolCall => '工具调用',
       AgentTraceEvent.toolResult => '工具结果',
       AgentTraceEvent.planUpdate => '计划更新',
+      AgentTraceEvent.memoryUpdate => '记忆更新',
       AgentTraceEvent.error => '错误',
       _ => '中间说明',
     };

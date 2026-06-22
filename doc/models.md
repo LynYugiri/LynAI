@@ -42,12 +42,16 @@
 | `messages` | 消息列表。 |
 | `modelId` | 当前对话绑定的 Chat 模型 ID。 |
 | `settings` | 对话设置快照。 |
+| `agentPlan` | 当前 Agent 可视化计划。 |
+| `agentWorkingMemory` | 当前对话持久化 Agent 工作记忆，保存目标、关键事实、决策、已加载 Skill 和子任务结果。 |
 | `roleId` | 当前角色 ID，用于历史分组。 |
 | `createdAt` / `updatedAt` | 创建和更新时间。 |
 
 `ConversationSettings` 保存发送对话所需的模型、系统提示词、OCR、文件识别、图片生成和语音配置。历史对话必须保存自己的设置快照，否则全局设置改变后旧对话上下文也会变化。
 
-反序列化时坏消息会被跳过；如果整条对话结构损坏，则由 Provider 跳过该对话。
+反序列化时坏消息、坏 Agent 计划或坏工作记忆会被跳过；如果整条对话结构损坏，则由 Provider 跳过该对话。
+
+`AgentWorkingMemory` 位于 `lib/models/agent_working_memory.dart`。记忆条目使用 `kind` 区分 `fact`、`decision`、`subagent_result`、`skill_loaded`、`blocker`、`artifact` 和普通 `note`，并限制为短文本，避免把长屏幕快照或二进制内容写入对话上下文。
 
 ## ModelConfig 与 ModelEntry
 

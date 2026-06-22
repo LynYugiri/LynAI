@@ -1586,6 +1586,28 @@ class $ConversationRowsTable extends ConversationRows
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _agentPlanJsonMeta = const VerificationMeta(
+    'agentPlanJson',
+  );
+  @override
+  late final GeneratedColumn<String> agentPlanJson = GeneratedColumn<String>(
+    'agent_plan_json',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _agentWorkingMemoryJsonMeta =
+      const VerificationMeta('agentWorkingMemoryJson');
+  @override
+  late final GeneratedColumn<String> agentWorkingMemoryJson =
+      GeneratedColumn<String>(
+        'agent_working_memory_json',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
   static const VerificationMeta _roleIdMeta = const VerificationMeta('roleId');
   @override
   late final GeneratedColumn<String> roleId = GeneratedColumn<String>(
@@ -1623,6 +1645,8 @@ class $ConversationRowsTable extends ConversationRows
     title,
     modelId,
     settingsJson,
+    agentPlanJson,
+    agentWorkingMemoryJson,
     roleId,
     createdAt,
     updatedAt,
@@ -1670,6 +1694,24 @@ class $ConversationRowsTable extends ConversationRows
       );
     } else if (isInserting) {
       context.missing(_settingsJsonMeta);
+    }
+    if (data.containsKey('agent_plan_json')) {
+      context.handle(
+        _agentPlanJsonMeta,
+        agentPlanJson.isAcceptableOrUnknown(
+          data['agent_plan_json']!,
+          _agentPlanJsonMeta,
+        ),
+      );
+    }
+    if (data.containsKey('agent_working_memory_json')) {
+      context.handle(
+        _agentWorkingMemoryJsonMeta,
+        agentWorkingMemoryJson.isAcceptableOrUnknown(
+          data['agent_working_memory_json']!,
+          _agentWorkingMemoryJsonMeta,
+        ),
+      );
     }
     if (data.containsKey('role_id')) {
       context.handle(
@@ -1720,6 +1762,14 @@ class $ConversationRowsTable extends ConversationRows
         DriftSqlType.string,
         data['${effectivePrefix}settings_json'],
       )!,
+      agentPlanJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}agent_plan_json'],
+      ),
+      agentWorkingMemoryJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}agent_working_memory_json'],
+      ),
       roleId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}role_id'],
@@ -1746,6 +1796,8 @@ class ConversationRow extends DataClass implements Insertable<ConversationRow> {
   final String title;
   final String modelId;
   final String settingsJson;
+  final String? agentPlanJson;
+  final String? agentWorkingMemoryJson;
   final String roleId;
   final String createdAt;
   final String updatedAt;
@@ -1754,6 +1806,8 @@ class ConversationRow extends DataClass implements Insertable<ConversationRow> {
     required this.title,
     required this.modelId,
     required this.settingsJson,
+    this.agentPlanJson,
+    this.agentWorkingMemoryJson,
     required this.roleId,
     required this.createdAt,
     required this.updatedAt,
@@ -1765,6 +1819,14 @@ class ConversationRow extends DataClass implements Insertable<ConversationRow> {
     map['title'] = Variable<String>(title);
     map['model_id'] = Variable<String>(modelId);
     map['settings_json'] = Variable<String>(settingsJson);
+    if (!nullToAbsent || agentPlanJson != null) {
+      map['agent_plan_json'] = Variable<String>(agentPlanJson);
+    }
+    if (!nullToAbsent || agentWorkingMemoryJson != null) {
+      map['agent_working_memory_json'] = Variable<String>(
+        agentWorkingMemoryJson,
+      );
+    }
     map['role_id'] = Variable<String>(roleId);
     map['created_at'] = Variable<String>(createdAt);
     map['updated_at'] = Variable<String>(updatedAt);
@@ -1777,6 +1839,12 @@ class ConversationRow extends DataClass implements Insertable<ConversationRow> {
       title: Value(title),
       modelId: Value(modelId),
       settingsJson: Value(settingsJson),
+      agentPlanJson: agentPlanJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(agentPlanJson),
+      agentWorkingMemoryJson: agentWorkingMemoryJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(agentWorkingMemoryJson),
       roleId: Value(roleId),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
@@ -1793,6 +1861,10 @@ class ConversationRow extends DataClass implements Insertable<ConversationRow> {
       title: serializer.fromJson<String>(json['title']),
       modelId: serializer.fromJson<String>(json['modelId']),
       settingsJson: serializer.fromJson<String>(json['settingsJson']),
+      agentPlanJson: serializer.fromJson<String?>(json['agentPlanJson']),
+      agentWorkingMemoryJson: serializer.fromJson<String?>(
+        json['agentWorkingMemoryJson'],
+      ),
       roleId: serializer.fromJson<String>(json['roleId']),
       createdAt: serializer.fromJson<String>(json['createdAt']),
       updatedAt: serializer.fromJson<String>(json['updatedAt']),
@@ -1806,6 +1878,10 @@ class ConversationRow extends DataClass implements Insertable<ConversationRow> {
       'title': serializer.toJson<String>(title),
       'modelId': serializer.toJson<String>(modelId),
       'settingsJson': serializer.toJson<String>(settingsJson),
+      'agentPlanJson': serializer.toJson<String?>(agentPlanJson),
+      'agentWorkingMemoryJson': serializer.toJson<String?>(
+        agentWorkingMemoryJson,
+      ),
       'roleId': serializer.toJson<String>(roleId),
       'createdAt': serializer.toJson<String>(createdAt),
       'updatedAt': serializer.toJson<String>(updatedAt),
@@ -1817,6 +1893,8 @@ class ConversationRow extends DataClass implements Insertable<ConversationRow> {
     String? title,
     String? modelId,
     String? settingsJson,
+    Value<String?> agentPlanJson = const Value.absent(),
+    Value<String?> agentWorkingMemoryJson = const Value.absent(),
     String? roleId,
     String? createdAt,
     String? updatedAt,
@@ -1825,6 +1903,12 @@ class ConversationRow extends DataClass implements Insertable<ConversationRow> {
     title: title ?? this.title,
     modelId: modelId ?? this.modelId,
     settingsJson: settingsJson ?? this.settingsJson,
+    agentPlanJson: agentPlanJson.present
+        ? agentPlanJson.value
+        : this.agentPlanJson,
+    agentWorkingMemoryJson: agentWorkingMemoryJson.present
+        ? agentWorkingMemoryJson.value
+        : this.agentWorkingMemoryJson,
     roleId: roleId ?? this.roleId,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
@@ -1837,6 +1921,12 @@ class ConversationRow extends DataClass implements Insertable<ConversationRow> {
       settingsJson: data.settingsJson.present
           ? data.settingsJson.value
           : this.settingsJson,
+      agentPlanJson: data.agentPlanJson.present
+          ? data.agentPlanJson.value
+          : this.agentPlanJson,
+      agentWorkingMemoryJson: data.agentWorkingMemoryJson.present
+          ? data.agentWorkingMemoryJson.value
+          : this.agentWorkingMemoryJson,
       roleId: data.roleId.present ? data.roleId.value : this.roleId,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
@@ -1850,6 +1940,8 @@ class ConversationRow extends DataClass implements Insertable<ConversationRow> {
           ..write('title: $title, ')
           ..write('modelId: $modelId, ')
           ..write('settingsJson: $settingsJson, ')
+          ..write('agentPlanJson: $agentPlanJson, ')
+          ..write('agentWorkingMemoryJson: $agentWorkingMemoryJson, ')
           ..write('roleId: $roleId, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
@@ -1863,6 +1955,8 @@ class ConversationRow extends DataClass implements Insertable<ConversationRow> {
     title,
     modelId,
     settingsJson,
+    agentPlanJson,
+    agentWorkingMemoryJson,
     roleId,
     createdAt,
     updatedAt,
@@ -1875,6 +1969,8 @@ class ConversationRow extends DataClass implements Insertable<ConversationRow> {
           other.title == this.title &&
           other.modelId == this.modelId &&
           other.settingsJson == this.settingsJson &&
+          other.agentPlanJson == this.agentPlanJson &&
+          other.agentWorkingMemoryJson == this.agentWorkingMemoryJson &&
           other.roleId == this.roleId &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
@@ -1885,6 +1981,8 @@ class ConversationRowsCompanion extends UpdateCompanion<ConversationRow> {
   final Value<String> title;
   final Value<String> modelId;
   final Value<String> settingsJson;
+  final Value<String?> agentPlanJson;
+  final Value<String?> agentWorkingMemoryJson;
   final Value<String> roleId;
   final Value<String> createdAt;
   final Value<String> updatedAt;
@@ -1894,6 +1992,8 @@ class ConversationRowsCompanion extends UpdateCompanion<ConversationRow> {
     this.title = const Value.absent(),
     this.modelId = const Value.absent(),
     this.settingsJson = const Value.absent(),
+    this.agentPlanJson = const Value.absent(),
+    this.agentWorkingMemoryJson = const Value.absent(),
     this.roleId = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
@@ -1904,6 +2004,8 @@ class ConversationRowsCompanion extends UpdateCompanion<ConversationRow> {
     required String title,
     required String modelId,
     required String settingsJson,
+    this.agentPlanJson = const Value.absent(),
+    this.agentWorkingMemoryJson = const Value.absent(),
     required String roleId,
     required String createdAt,
     required String updatedAt,
@@ -1920,6 +2022,8 @@ class ConversationRowsCompanion extends UpdateCompanion<ConversationRow> {
     Expression<String>? title,
     Expression<String>? modelId,
     Expression<String>? settingsJson,
+    Expression<String>? agentPlanJson,
+    Expression<String>? agentWorkingMemoryJson,
     Expression<String>? roleId,
     Expression<String>? createdAt,
     Expression<String>? updatedAt,
@@ -1930,6 +2034,9 @@ class ConversationRowsCompanion extends UpdateCompanion<ConversationRow> {
       if (title != null) 'title': title,
       if (modelId != null) 'model_id': modelId,
       if (settingsJson != null) 'settings_json': settingsJson,
+      if (agentPlanJson != null) 'agent_plan_json': agentPlanJson,
+      if (agentWorkingMemoryJson != null)
+        'agent_working_memory_json': agentWorkingMemoryJson,
       if (roleId != null) 'role_id': roleId,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
@@ -1942,6 +2049,8 @@ class ConversationRowsCompanion extends UpdateCompanion<ConversationRow> {
     Value<String>? title,
     Value<String>? modelId,
     Value<String>? settingsJson,
+    Value<String?>? agentPlanJson,
+    Value<String?>? agentWorkingMemoryJson,
     Value<String>? roleId,
     Value<String>? createdAt,
     Value<String>? updatedAt,
@@ -1952,6 +2061,9 @@ class ConversationRowsCompanion extends UpdateCompanion<ConversationRow> {
       title: title ?? this.title,
       modelId: modelId ?? this.modelId,
       settingsJson: settingsJson ?? this.settingsJson,
+      agentPlanJson: agentPlanJson ?? this.agentPlanJson,
+      agentWorkingMemoryJson:
+          agentWorkingMemoryJson ?? this.agentWorkingMemoryJson,
       roleId: roleId ?? this.roleId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -1973,6 +2085,14 @@ class ConversationRowsCompanion extends UpdateCompanion<ConversationRow> {
     }
     if (settingsJson.present) {
       map['settings_json'] = Variable<String>(settingsJson.value);
+    }
+    if (agentPlanJson.present) {
+      map['agent_plan_json'] = Variable<String>(agentPlanJson.value);
+    }
+    if (agentWorkingMemoryJson.present) {
+      map['agent_working_memory_json'] = Variable<String>(
+        agentWorkingMemoryJson.value,
+      );
     }
     if (roleId.present) {
       map['role_id'] = Variable<String>(roleId.value);
@@ -1996,6 +2116,8 @@ class ConversationRowsCompanion extends UpdateCompanion<ConversationRow> {
           ..write('title: $title, ')
           ..write('modelId: $modelId, ')
           ..write('settingsJson: $settingsJson, ')
+          ..write('agentPlanJson: $agentPlanJson, ')
+          ..write('agentWorkingMemoryJson: $agentWorkingMemoryJson, ')
           ..write('roleId: $roleId, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
@@ -2062,6 +2184,17 @@ class $MessageRowsTable extends MessageRows
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _agentTraceJsonMeta = const VerificationMeta(
+    'agentTraceJson',
+  );
+  @override
+  late final GeneratedColumn<String> agentTraceJson = GeneratedColumn<String>(
+    'agent_trace_json',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _timestampMeta = const VerificationMeta(
     'timestamp',
   );
@@ -2092,6 +2225,7 @@ class $MessageRowsTable extends MessageRows
     role,
     content,
     thinkingContent,
+    agentTraceJson,
     timestamp,
     sortOrder,
   ];
@@ -2148,6 +2282,15 @@ class $MessageRowsTable extends MessageRows
         ),
       );
     }
+    if (data.containsKey('agent_trace_json')) {
+      context.handle(
+        _agentTraceJsonMeta,
+        agentTraceJson.isAcceptableOrUnknown(
+          data['agent_trace_json']!,
+          _agentTraceJsonMeta,
+        ),
+      );
+    }
     if (data.containsKey('timestamp')) {
       context.handle(
         _timestampMeta,
@@ -2191,6 +2334,10 @@ class $MessageRowsTable extends MessageRows
         DriftSqlType.string,
         data['${effectivePrefix}thinking_content'],
       ),
+      agentTraceJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}agent_trace_json'],
+      ),
       timestamp: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}timestamp'],
@@ -2214,6 +2361,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
   final String role;
   final String content;
   final String? thinkingContent;
+  final String? agentTraceJson;
   final String timestamp;
   final int sortOrder;
   const MessageRow({
@@ -2222,6 +2370,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
     required this.role,
     required this.content,
     this.thinkingContent,
+    this.agentTraceJson,
     required this.timestamp,
     required this.sortOrder,
   });
@@ -2234,6 +2383,9 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
     map['content'] = Variable<String>(content);
     if (!nullToAbsent || thinkingContent != null) {
       map['thinking_content'] = Variable<String>(thinkingContent);
+    }
+    if (!nullToAbsent || agentTraceJson != null) {
+      map['agent_trace_json'] = Variable<String>(agentTraceJson);
     }
     map['timestamp'] = Variable<String>(timestamp);
     map['sort_order'] = Variable<int>(sortOrder);
@@ -2249,6 +2401,9 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
       thinkingContent: thinkingContent == null && nullToAbsent
           ? const Value.absent()
           : Value(thinkingContent),
+      agentTraceJson: agentTraceJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(agentTraceJson),
       timestamp: Value(timestamp),
       sortOrder: Value(sortOrder),
     );
@@ -2265,6 +2420,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
       role: serializer.fromJson<String>(json['role']),
       content: serializer.fromJson<String>(json['content']),
       thinkingContent: serializer.fromJson<String?>(json['thinkingContent']),
+      agentTraceJson: serializer.fromJson<String?>(json['agentTraceJson']),
       timestamp: serializer.fromJson<String>(json['timestamp']),
       sortOrder: serializer.fromJson<int>(json['sortOrder']),
     );
@@ -2278,6 +2434,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
       'role': serializer.toJson<String>(role),
       'content': serializer.toJson<String>(content),
       'thinkingContent': serializer.toJson<String?>(thinkingContent),
+      'agentTraceJson': serializer.toJson<String?>(agentTraceJson),
       'timestamp': serializer.toJson<String>(timestamp),
       'sortOrder': serializer.toJson<int>(sortOrder),
     };
@@ -2289,6 +2446,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
     String? role,
     String? content,
     Value<String?> thinkingContent = const Value.absent(),
+    Value<String?> agentTraceJson = const Value.absent(),
     String? timestamp,
     int? sortOrder,
   }) => MessageRow(
@@ -2299,6 +2457,9 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
     thinkingContent: thinkingContent.present
         ? thinkingContent.value
         : this.thinkingContent,
+    agentTraceJson: agentTraceJson.present
+        ? agentTraceJson.value
+        : this.agentTraceJson,
     timestamp: timestamp ?? this.timestamp,
     sortOrder: sortOrder ?? this.sortOrder,
   );
@@ -2313,6 +2474,9 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
       thinkingContent: data.thinkingContent.present
           ? data.thinkingContent.value
           : this.thinkingContent,
+      agentTraceJson: data.agentTraceJson.present
+          ? data.agentTraceJson.value
+          : this.agentTraceJson,
       timestamp: data.timestamp.present ? data.timestamp.value : this.timestamp,
       sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
     );
@@ -2326,6 +2490,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
           ..write('role: $role, ')
           ..write('content: $content, ')
           ..write('thinkingContent: $thinkingContent, ')
+          ..write('agentTraceJson: $agentTraceJson, ')
           ..write('timestamp: $timestamp, ')
           ..write('sortOrder: $sortOrder')
           ..write(')'))
@@ -2339,6 +2504,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
     role,
     content,
     thinkingContent,
+    agentTraceJson,
     timestamp,
     sortOrder,
   );
@@ -2351,6 +2517,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
           other.role == this.role &&
           other.content == this.content &&
           other.thinkingContent == this.thinkingContent &&
+          other.agentTraceJson == this.agentTraceJson &&
           other.timestamp == this.timestamp &&
           other.sortOrder == this.sortOrder);
 }
@@ -2361,6 +2528,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
   final Value<String> role;
   final Value<String> content;
   final Value<String?> thinkingContent;
+  final Value<String?> agentTraceJson;
   final Value<String> timestamp;
   final Value<int> sortOrder;
   final Value<int> rowid;
@@ -2370,6 +2538,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
     this.role = const Value.absent(),
     this.content = const Value.absent(),
     this.thinkingContent = const Value.absent(),
+    this.agentTraceJson = const Value.absent(),
     this.timestamp = const Value.absent(),
     this.sortOrder = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -2380,6 +2549,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
     required String role,
     required String content,
     this.thinkingContent = const Value.absent(),
+    this.agentTraceJson = const Value.absent(),
     required String timestamp,
     this.sortOrder = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -2394,6 +2564,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
     Expression<String>? role,
     Expression<String>? content,
     Expression<String>? thinkingContent,
+    Expression<String>? agentTraceJson,
     Expression<String>? timestamp,
     Expression<int>? sortOrder,
     Expression<int>? rowid,
@@ -2404,6 +2575,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
       if (role != null) 'role': role,
       if (content != null) 'content': content,
       if (thinkingContent != null) 'thinking_content': thinkingContent,
+      if (agentTraceJson != null) 'agent_trace_json': agentTraceJson,
       if (timestamp != null) 'timestamp': timestamp,
       if (sortOrder != null) 'sort_order': sortOrder,
       if (rowid != null) 'rowid': rowid,
@@ -2416,6 +2588,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
     Value<String>? role,
     Value<String>? content,
     Value<String?>? thinkingContent,
+    Value<String?>? agentTraceJson,
     Value<String>? timestamp,
     Value<int>? sortOrder,
     Value<int>? rowid,
@@ -2426,6 +2599,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
       role: role ?? this.role,
       content: content ?? this.content,
       thinkingContent: thinkingContent ?? this.thinkingContent,
+      agentTraceJson: agentTraceJson ?? this.agentTraceJson,
       timestamp: timestamp ?? this.timestamp,
       sortOrder: sortOrder ?? this.sortOrder,
       rowid: rowid ?? this.rowid,
@@ -2450,6 +2624,9 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
     if (thinkingContent.present) {
       map['thinking_content'] = Variable<String>(thinkingContent.value);
     }
+    if (agentTraceJson.present) {
+      map['agent_trace_json'] = Variable<String>(agentTraceJson.value);
+    }
     if (timestamp.present) {
       map['timestamp'] = Variable<String>(timestamp.value);
     }
@@ -2470,6 +2647,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
           ..write('role: $role, ')
           ..write('content: $content, ')
           ..write('thinkingContent: $thinkingContent, ')
+          ..write('agentTraceJson: $agentTraceJson, ')
           ..write('timestamp: $timestamp, ')
           ..write('sortOrder: $sortOrder, ')
           ..write('rowid: $rowid')
@@ -7946,6 +8124,8 @@ typedef $$ConversationRowsTableCreateCompanionBuilder =
       required String title,
       required String modelId,
       required String settingsJson,
+      Value<String?> agentPlanJson,
+      Value<String?> agentWorkingMemoryJson,
       required String roleId,
       required String createdAt,
       required String updatedAt,
@@ -7957,6 +8137,8 @@ typedef $$ConversationRowsTableUpdateCompanionBuilder =
       Value<String> title,
       Value<String> modelId,
       Value<String> settingsJson,
+      Value<String?> agentPlanJson,
+      Value<String?> agentWorkingMemoryJson,
       Value<String> roleId,
       Value<String> createdAt,
       Value<String> updatedAt,
@@ -7989,6 +8171,16 @@ class $$ConversationRowsTableFilterComposer
 
   ColumnFilters<String> get settingsJson => $composableBuilder(
     column: $table.settingsJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get agentPlanJson => $composableBuilder(
+    column: $table.agentPlanJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get agentWorkingMemoryJson => $composableBuilder(
+    column: $table.agentWorkingMemoryJson,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8037,6 +8229,16 @@ class $$ConversationRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get agentPlanJson => $composableBuilder(
+    column: $table.agentPlanJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get agentWorkingMemoryJson => $composableBuilder(
+    column: $table.agentWorkingMemoryJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get roleId => $composableBuilder(
     column: $table.roleId,
     builder: (column) => ColumnOrderings(column),
@@ -8073,6 +8275,16 @@ class $$ConversationRowsTableAnnotationComposer
 
   GeneratedColumn<String> get settingsJson => $composableBuilder(
     column: $table.settingsJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get agentPlanJson => $composableBuilder(
+    column: $table.agentPlanJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get agentWorkingMemoryJson => $composableBuilder(
+    column: $table.agentWorkingMemoryJson,
     builder: (column) => column,
   );
 
@@ -8127,6 +8339,8 @@ class $$ConversationRowsTableTableManager
                 Value<String> title = const Value.absent(),
                 Value<String> modelId = const Value.absent(),
                 Value<String> settingsJson = const Value.absent(),
+                Value<String?> agentPlanJson = const Value.absent(),
+                Value<String?> agentWorkingMemoryJson = const Value.absent(),
                 Value<String> roleId = const Value.absent(),
                 Value<String> createdAt = const Value.absent(),
                 Value<String> updatedAt = const Value.absent(),
@@ -8136,6 +8350,8 @@ class $$ConversationRowsTableTableManager
                 title: title,
                 modelId: modelId,
                 settingsJson: settingsJson,
+                agentPlanJson: agentPlanJson,
+                agentWorkingMemoryJson: agentWorkingMemoryJson,
                 roleId: roleId,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
@@ -8147,6 +8363,8 @@ class $$ConversationRowsTableTableManager
                 required String title,
                 required String modelId,
                 required String settingsJson,
+                Value<String?> agentPlanJson = const Value.absent(),
+                Value<String?> agentWorkingMemoryJson = const Value.absent(),
                 required String roleId,
                 required String createdAt,
                 required String updatedAt,
@@ -8156,6 +8374,8 @@ class $$ConversationRowsTableTableManager
                 title: title,
                 modelId: modelId,
                 settingsJson: settingsJson,
+                agentPlanJson: agentPlanJson,
+                agentWorkingMemoryJson: agentWorkingMemoryJson,
                 roleId: roleId,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
@@ -8197,6 +8417,7 @@ typedef $$MessageRowsTableCreateCompanionBuilder =
       required String role,
       required String content,
       Value<String?> thinkingContent,
+      Value<String?> agentTraceJson,
       required String timestamp,
       Value<int> sortOrder,
       Value<int> rowid,
@@ -8208,6 +8429,7 @@ typedef $$MessageRowsTableUpdateCompanionBuilder =
       Value<String> role,
       Value<String> content,
       Value<String?> thinkingContent,
+      Value<String?> agentTraceJson,
       Value<String> timestamp,
       Value<int> sortOrder,
       Value<int> rowid,
@@ -8244,6 +8466,11 @@ class $$MessageRowsTableFilterComposer
 
   ColumnFilters<String> get thinkingContent => $composableBuilder(
     column: $table.thinkingContent,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get agentTraceJson => $composableBuilder(
+    column: $table.agentTraceJson,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8292,6 +8519,11 @@ class $$MessageRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get agentTraceJson => $composableBuilder(
+    column: $table.agentTraceJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get timestamp => $composableBuilder(
     column: $table.timestamp,
     builder: (column) => ColumnOrderings(column),
@@ -8328,6 +8560,11 @@ class $$MessageRowsTableAnnotationComposer
 
   GeneratedColumn<String> get thinkingContent => $composableBuilder(
     column: $table.thinkingContent,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get agentTraceJson => $composableBuilder(
+    column: $table.agentTraceJson,
     builder: (column) => column,
   );
 
@@ -8380,6 +8617,7 @@ class $$MessageRowsTableTableManager
                 Value<String> role = const Value.absent(),
                 Value<String> content = const Value.absent(),
                 Value<String?> thinkingContent = const Value.absent(),
+                Value<String?> agentTraceJson = const Value.absent(),
                 Value<String> timestamp = const Value.absent(),
                 Value<int> sortOrder = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -8389,6 +8627,7 @@ class $$MessageRowsTableTableManager
                 role: role,
                 content: content,
                 thinkingContent: thinkingContent,
+                agentTraceJson: agentTraceJson,
                 timestamp: timestamp,
                 sortOrder: sortOrder,
                 rowid: rowid,
@@ -8400,6 +8639,7 @@ class $$MessageRowsTableTableManager
                 required String role,
                 required String content,
                 Value<String?> thinkingContent = const Value.absent(),
+                Value<String?> agentTraceJson = const Value.absent(),
                 required String timestamp,
                 Value<int> sortOrder = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -8409,6 +8649,7 @@ class $$MessageRowsTableTableManager
                 role: role,
                 content: content,
                 thinkingContent: thinkingContent,
+                agentTraceJson: agentTraceJson,
                 timestamp: timestamp,
                 sortOrder: sortOrder,
                 rowid: rowid,

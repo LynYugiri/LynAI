@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lynai/models/agent_trace.dart';
 import 'package:lynai/models/app_settings.dart';
 import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/message.dart';
@@ -204,6 +205,8 @@ void main() {
       expect(baseNames, contains('add_agent_note'));
       expect(baseNames, contains('create_plan'));
       expect(baseNames, contains('update_plan'));
+      expect(baseNames, contains('read_agent_memory'));
+      expect(baseNames, contains('update_agent_memory'));
       expect(baseNames, contains('list_plugin_functions'));
       expect(baseNames, contains('list_plugin_skills'));
       expect(baseNames, contains('load_plugin_skill'));
@@ -296,6 +299,8 @@ void main() {
 
     expect(description, contains('异步线性执行'));
     expect(description, contains('agent.plan.update'));
+    expect(description, contains('agent.memory.update'));
+    expect(description, contains('一次 execute_lua'));
     expect(description, contains('agent.note.add'));
     expect(description, contains('device.waitForNode'));
     expect(description, contains('model.ocr'));
@@ -430,6 +435,59 @@ void main() {
     final trace = conversations.getConversation(cid)!.messages.last.agentTrace;
     expect(trace?.events, hasLength(1));
     expect(trace?.events.single.content, '我先查看可用插件。');
+  });
+
+  test('Agent memory tools persist conversation working memory', () async {
+    SharedPreferences.setMockInitialValues({});
+    final conversations = memoryConversationProvider();
+    final cid = conversations.createConversation(
+      ConversationSettings(modelId: 'm1', agentEnabled: true),
+    );
+    conversations.addMessage(cid, 'user', 'reply qq');
+    conversations.addMessage(cid, 'assistant', '', save: false);
+    final service = ToolCallService(
+      FeatureProvider(),
+      conversations: conversations,
+      conversationId: cid,
+    );
+
+    final updated = await service.execute(
+      const ChatToolCall(
+        id: 'memory-update',
+        name: 'update_agent_memory',
+        arguments: {
+          'goal': '回复 QQ 消息',
+          'entries': [
+            {'kind': 'fact', 'content': '目标联系人是 foo'},
+          ],
+        },
+      ),
+      const [],
+    );
+    final read = await service.execute(
+      const ChatToolCall(
+        id: 'memory-read',
+        name: 'read_agent_memory',
+        arguments: {},
+      ),
+      const [],
+    );
+
+    expect(updated['ok'], isTrue);
+    expect(read['ok'], isTrue);
+    final memory = conversations.getConversation(cid)!.agentWorkingMemory!;
+    expect(memory.goal, '回复 QQ 消息');
+    expect(memory.entries.single.content, '目标联系人是 foo');
+    expect(
+      conversations
+          .getConversation(cid)!
+          .messages
+          .last
+          .agentTrace
+          ?.events
+          .where((event) => event.type == AgentTraceEvent.memoryUpdate),
+      isNotEmpty,
+    );
   });
 
   test('generated images append to latest assistant message', () async {

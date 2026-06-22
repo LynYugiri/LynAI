@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import '../models/agent_plan.dart';
 import '../models/agent_trace.dart';
+import '../models/agent_working_memory.dart';
 import '../models/conversation.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
@@ -263,6 +264,7 @@ class ConversationProvider extends ChangeNotifier {
         modelId: _conversations[index].modelId,
         settings: _conversations[index].settings,
         agentPlan: _conversations[index].agentPlan,
+        agentWorkingMemory: _conversations[index].agentWorkingMemory,
         roleId: _conversations[index].roleId,
         createdAt: _conversations[index].createdAt,
         updatedAt: now,
@@ -290,6 +292,7 @@ class ConversationProvider extends ChangeNotifier {
       modelId: _conversations[index].modelId,
       settings: _conversations[index].settings,
       agentPlan: _conversations[index].agentPlan,
+      agentWorkingMemory: _conversations[index].agentWorkingMemory,
       roleId: _conversations[index].roleId,
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
@@ -313,6 +316,7 @@ class ConversationProvider extends ChangeNotifier {
         modelName: null,
       ),
       agentPlan: _conversations[index].agentPlan,
+      agentWorkingMemory: _conversations[index].agentWorkingMemory,
       roleId: _conversations[index].roleId,
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
@@ -394,6 +398,7 @@ class ConversationProvider extends ChangeNotifier {
         modelId: _conversations[index].modelId,
         settings: _conversations[index].settings,
         agentPlan: _conversations[index].agentPlan,
+        agentWorkingMemory: _conversations[index].agentWorkingMemory,
         roleId: _conversations[index].roleId,
         createdAt: _conversations[index].createdAt,
         updatedAt: DateTime.now(),
@@ -447,6 +452,7 @@ class ConversationProvider extends ChangeNotifier {
         modelId: _conversations[index].modelId,
         settings: _conversations[index].settings,
         agentPlan: _conversations[index].agentPlan,
+        agentWorkingMemory: _conversations[index].agentWorkingMemory,
         roleId: _conversations[index].roleId,
         createdAt: _conversations[index].createdAt,
         updatedAt: DateTime.now(),
@@ -494,6 +500,7 @@ class ConversationProvider extends ChangeNotifier {
       modelId: _conversations[index].modelId,
       settings: _conversations[index].settings,
       agentPlan: _conversations[index].agentPlan,
+      agentWorkingMemory: _conversations[index].agentWorkingMemory,
       roleId: _conversations[index].roleId,
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
@@ -518,6 +525,7 @@ class ConversationProvider extends ChangeNotifier {
       modelId: _conversations[index].modelId,
       settings: _conversations[index].settings,
       agentPlan: _conversations[index].agentPlan,
+      agentWorkingMemory: _conversations[index].agentWorkingMemory,
       roleId: _conversations[index].roleId,
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
@@ -543,6 +551,7 @@ class ConversationProvider extends ChangeNotifier {
       modelId: _conversations[index].modelId,
       settings: _conversations[index].settings,
       agentPlan: _conversations[index].agentPlan,
+      agentWorkingMemory: _conversations[index].agentWorkingMemory,
       roleId: _conversations[index].roleId,
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
@@ -602,6 +611,7 @@ class ConversationProvider extends ChangeNotifier {
       modelId: settings.modelId,
       settings: settings,
       agentPlan: _conversations[index].agentPlan,
+      agentWorkingMemory: _conversations[index].agentWorkingMemory,
       roleId: _conversations[index].roleId,
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
@@ -616,6 +626,21 @@ class ConversationProvider extends ChangeNotifier {
     if (index == -1) return;
     _conversations[index] = _conversations[index].copyWith(
       agentPlan: plan,
+      updatedAt: DateTime.now(),
+    );
+    _touchConversation(index);
+    _queueSaveConversations();
+    notifyListeners();
+  }
+
+  void updateAgentWorkingMemory(
+    String conversationId,
+    AgentWorkingMemory? memory,
+  ) {
+    final index = _conversations.indexWhere((c) => c.id == conversationId);
+    if (index == -1) return;
+    _conversations[index] = _conversations[index].copyWith(
+      agentWorkingMemory: memory,
       updatedAt: DateTime.now(),
     );
     _touchConversation(index);
@@ -654,6 +679,7 @@ class ConversationProvider extends ChangeNotifier {
       modelId: _conversations[index].modelId,
       settings: _conversations[index].settings,
       agentPlan: _conversations[index].agentPlan,
+      agentWorkingMemory: _conversations[index].agentWorkingMemory,
       roleId: _conversations[index].roleId,
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),
@@ -692,6 +718,7 @@ class ConversationProvider extends ChangeNotifier {
       modelId: _conversations[index].modelId,
       settings: _conversations[index].settings,
       agentPlan: _conversations[index].agentPlan,
+      agentWorkingMemory: _conversations[index].agentWorkingMemory,
       roleId: _conversations[index].roleId,
       createdAt: _conversations[index].createdAt,
       updatedAt: DateTime.now(),

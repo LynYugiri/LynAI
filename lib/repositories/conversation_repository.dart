@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 
 import '../models/agent_trace.dart';
+import '../models/agent_plan.dart';
+import '../models/agent_working_memory.dart';
 import '../models/conversation.dart';
 import '../models/message.dart';
 import '../services/storage_v2_service.dart';
@@ -136,6 +138,10 @@ class ConversationRepository {
                     fallbackModelId: raw['modelId'] as String? ?? '',
                   )
                 : null,
+            agentPlan: _parseAgentPlan(raw['agentPlan']),
+            agentWorkingMemory: _parseAgentWorkingMemory(
+              raw['agentWorkingMemory'],
+            ),
             roleId: raw['roleId'] as String? ?? 'default',
             createdAt: DateTime.parse(raw['createdAt'] as String),
             updatedAt: DateTime.parse(raw['updatedAt'] as String),
@@ -158,6 +164,11 @@ class ConversationRepository {
         'title': conversation.title,
         'modelId': conversation.modelId,
         'settings': conversation.settings.toJson(),
+        if (conversation.agentPlan != null)
+          'agentPlan': conversation.agentPlan!.toJson(),
+        if (conversation.agentWorkingMemory != null &&
+            !conversation.agentWorkingMemory!.isEmpty)
+          'agentWorkingMemory': conversation.agentWorkingMemory!.toJson(),
         'roleId': conversation.roleId,
         'createdAt': conversation.createdAt.toIso8601String(),
         'updatedAt': conversation.updatedAt.toIso8601String(),
@@ -203,6 +214,30 @@ class ConversationRepository {
       'messages': messages,
       'messageAttachments': attachments,
     });
+  }
+
+  AgentPlan? _parseAgentPlan(Object? raw) {
+    if (raw is! Map) return null;
+    try {
+      final parsed = AgentPlan.fromJson(Map<String, dynamic>.from(raw));
+      return parsed.id.isNotEmpty && parsed.items.isNotEmpty ? parsed : null;
+    } catch (e) {
+      debugPrint('跳过损坏的 Agent 计划: $e');
+      return null;
+    }
+  }
+
+  AgentWorkingMemory? _parseAgentWorkingMemory(Object? raw) {
+    if (raw is! Map) return null;
+    try {
+      final parsed = AgentWorkingMemory.fromJson(
+        Map<String, dynamic>.from(raw),
+      );
+      return parsed.isEmpty ? null : parsed;
+    } catch (e) {
+      debugPrint('跳过损坏的 Agent 工作记忆: $e');
+      return null;
+    }
   }
 }
 

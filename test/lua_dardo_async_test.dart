@@ -231,4 +231,35 @@ return lynai.call("agent.plan.update", {
       hasLength(2),
     );
   });
+
+  test('Agent Lua can update shared working memory', () async {
+    SharedPreferences.setMockInitialValues({});
+    final conversations = memoryConversationProvider();
+    final cid = conversations.createConversation(
+      ConversationSettings(modelId: 'm1', agentEnabled: true),
+    );
+    conversations.addMessage(cid, 'user', 'remember target');
+    conversations.addMessage(cid, 'assistant', '', save: false);
+
+    final result = await AgentLuaScriptService().execute(
+      purpose: 'update memory from lua',
+      conversations: conversations,
+      conversationId: cid,
+      code: r'''
+local updated = lynai.call("agent.memory.update", {
+  goal = "回复 QQ 消息",
+  entries = {
+    { kind = "fact", source = "lua", content = "目标联系人是 foo" }
+  }
+})
+if not updated.ok then return updated end
+return lynai.call("agent.memory.read", {})
+''',
+    );
+
+    expect(result['ok'], isTrue);
+    final memory = conversations.getConversation(cid)!.agentWorkingMemory!;
+    expect(memory.goal, '回复 QQ 消息');
+    expect(memory.entries.single.source, 'lua');
+  });
 }

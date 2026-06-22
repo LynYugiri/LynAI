@@ -1,4 +1,5 @@
 import 'agent_plan.dart';
+import 'agent_working_memory.dart';
 import 'message.dart';
 import 'package:flutter/foundation.dart';
 
@@ -219,6 +220,9 @@ class Conversation {
   /// 当前对话的 Agent 计划状态。
   final AgentPlan? agentPlan;
 
+  /// 当前对话的 Agent 工作记忆。
+  final AgentWorkingMemory? agentWorkingMemory;
+
   /// 对话所属角色 ID，用于历史页按角色分组。
   final String roleId;
 
@@ -236,6 +240,7 @@ class Conversation {
     required this.modelId,
     ConversationSettings? settings,
     this.agentPlan,
+    this.agentWorkingMemory,
     this.roleId = 'default',
     required this.createdAt,
     required this.updatedAt,
@@ -297,6 +302,18 @@ class Conversation {
         debugPrint('跳过损坏的 Agent 计划: $e');
       }
     }
+    AgentWorkingMemory? agentWorkingMemory;
+    final rawMemory = json['agentWorkingMemory'];
+    if (rawMemory is Map) {
+      try {
+        final parsed = AgentWorkingMemory.fromJson(
+          Map<String, dynamic>.from(rawMemory),
+        );
+        if (!parsed.isEmpty) agentWorkingMemory = parsed;
+      } catch (e) {
+        debugPrint('跳过损坏的 Agent 工作记忆: $e');
+      }
+    }
     return Conversation(
       id: id,
       title: title,
@@ -309,6 +326,7 @@ class Conversation {
             )
           : ConversationSettings(modelId: modelId),
       agentPlan: agentPlan,
+      agentWorkingMemory: agentWorkingMemory,
       roleId: json['roleId'] as String? ?? 'default',
       createdAt: createdAt,
       updatedAt: updatedAt,
@@ -324,6 +342,8 @@ class Conversation {
       'modelId': modelId,
       'settings': settings.toJson(),
       if (agentPlan != null) 'agentPlan': agentPlan!.toJson(),
+      if (agentWorkingMemory != null && !agentWorkingMemory!.isEmpty)
+        'agentWorkingMemory': agentWorkingMemory!.toJson(),
       'roleId': roleId,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
@@ -338,6 +358,7 @@ class Conversation {
     String? modelId,
     ConversationSettings? settings,
     Object? agentPlan = _sentinel,
+    Object? agentWorkingMemory = _sentinel,
     String? roleId,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -351,6 +372,9 @@ class Conversation {
       agentPlan: identical(agentPlan, _sentinel)
           ? this.agentPlan
           : agentPlan as AgentPlan?,
+      agentWorkingMemory: identical(agentWorkingMemory, _sentinel)
+          ? this.agentWorkingMemory
+          : agentWorkingMemory as AgentWorkingMemory?,
       roleId: roleId ?? this.roleId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,

@@ -16,6 +16,7 @@
 4. 优先点击匹配节点的 `targetNodeId`，否则点击节点自身。
 5. 找不到时滚动会话列表或使用 QQ 搜索入口。
 6. 每次滚动后重新查询屏幕。
+7. 打开 QQ、查找会话、读取上下文或发送明确内容时，优先合并为一次 `execute_lua`，不要每点一步都返回主模型。
 
 ```lua
 local function query_text(text, limit)
@@ -53,6 +54,7 @@ end
 2. 用户要求回复或发送时，直接发送，不需要二次确认。
 3. 连续多条消息可在 Lua 中定义 `send_message(text)` 并重复调用。
 4. 发送后返回发送数量、目标、摘要和是否成功。
+5. 成功读取或发送后，用 `agent.memory.update` 记录目标、最近消息摘要、置信度或发送结果。
 
 发送前必须重新确认仍在目标 QQ 会话中。可用目标昵称、会话标题、最近消息关键字或包名判断。确认失败时返回 `conversation_uncertain`。
 
@@ -77,3 +79,31 @@ return {
 - 不要在无法确认联系人时盲目发送。
 - 不要跨屏幕刷新后继续使用旧 nodeId。
 - 不要把截图 base64 返回给模型。
+
+## 一次 Lua 工作流骨架
+
+```lua
+local function remember(content, details)
+  return lynai.call("agent.memory.update", {
+    entries = {{ kind = "subagent_result", source = "lua", content = content, details = details }}
+  })
+end
+
+local opened = lynai.call("device.app.open", { packageName = "com.tencent.mobileqq" })
+if not opened.ok then return opened end
+
+local target = lynai.call("device.screen.query", { text = "目标昵称", limit = 20 })
+if not target.ok then return target end
+local node = target.result and target.result.nodes and target.result.nodes[1]
+if not node then
+  return { ok = false, error = { code = "peer_uncertain", message = "未找到目标 QQ 会话" } }
+end
+
+local clicked = lynai.call("device.node.action", { nodeId = node.targetNodeId or node.id, action = "click" })
+if not clicked.ok then return clicked end
+
+local context = lynai.call("device.screen.context", { limit = 80 })
+if not context.ok then return context end
+remember("已读取目标 QQ 会话上下文", { peer = "目标昵称", confidence = 0.8 })
+return { ok = true, phase = "qq_context", peer = "目标昵称", context = context.result, confidence = 0.8 }
+```

@@ -9,7 +9,9 @@ import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/app_settings.dart';
+import '../models/agent_plan.dart';
 import '../models/agent_trace.dart';
+import '../models/agent_working_memory.dart';
 import '../models/backup_models.dart';
 import '../models/chat_role.dart';
 import '../models/conversation.dart';
@@ -219,6 +221,11 @@ class BackupService {
             'title': conversation.title,
             'modelId': conversation.modelId,
             'settings': conversation.settings.toJson(),
+            if (conversation.agentPlan != null)
+              'agentPlan': conversation.agentPlan!.toJson(),
+            if (conversation.agentWorkingMemory != null &&
+                !conversation.agentWorkingMemory!.isEmpty)
+              'agentWorkingMemory': conversation.agentWorkingMemory!.toJson(),
             'roleId': conversation.roleId,
             'createdAt': conversation.createdAt.toIso8601String(),
             'updatedAt': conversation.updatedAt.toIso8601String(),
@@ -233,6 +240,9 @@ class BackupService {
               if (message.thinkingContent != null &&
                   message.thinkingContent!.isNotEmpty)
                 'thinkingContent': message.thinkingContent,
+              if (message.agentTrace != null &&
+                  message.agentTrace!.events.isNotEmpty)
+                'agentTrace': message.agentTrace!.toJson(),
               'timestamp': message.timestamp.toIso8601String(),
               'sortOrder': i,
             });
@@ -786,6 +796,11 @@ class BackupService {
                     fallbackModelId: raw['modelId'] as String? ?? '',
                   )
                 : null,
+            agentPlan: _parseAgentPlan(raw['agentPlan'], warnings),
+            agentWorkingMemory: _parseAgentWorkingMemory(
+              raw['agentWorkingMemory'],
+              warnings,
+            ),
             roleId: raw['roleId'] as String? ?? 'default',
             createdAt: DateTime.parse(raw['createdAt'] as String),
             updatedAt: DateTime.parse(raw['updatedAt'] as String),
@@ -796,6 +811,33 @@ class BackupService {
       }
     }
     return conversations;
+  }
+
+  static AgentPlan? _parseAgentPlan(Object? raw, List<String> warnings) {
+    if (raw is! Map) return null;
+    try {
+      final parsed = AgentPlan.fromJson(Map<String, dynamic>.from(raw));
+      return parsed.id.isNotEmpty && parsed.items.isNotEmpty ? parsed : null;
+    } catch (e) {
+      warnings.add('跳过损坏的 Agent 计划: $e');
+      return null;
+    }
+  }
+
+  static AgentWorkingMemory? _parseAgentWorkingMemory(
+    Object? raw,
+    List<String> warnings,
+  ) {
+    if (raw is! Map) return null;
+    try {
+      final parsed = AgentWorkingMemory.fromJson(
+        Map<String, dynamic>.from(raw),
+      );
+      return parsed.isEmpty ? null : parsed;
+    } catch (e) {
+      warnings.add('跳过损坏的 Agent 工作记忆: $e');
+      return null;
+    }
   }
 
   static List<TodoList>? _parseTodoLists(
