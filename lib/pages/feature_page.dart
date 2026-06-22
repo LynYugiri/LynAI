@@ -41,6 +41,7 @@ import '../services/storage_v2_service.dart';
 import '../services/system_scroll_capture_service.dart';
 import '../utils/file_share_utils.dart';
 import '../utils/file_name_utils.dart';
+import '../utils/chat_search_matcher.dart';
 import '../utils/share_image_utils.dart';
 import '../utils/snackbar_utils.dart';
 import '../widgets/latex_renderer.dart';

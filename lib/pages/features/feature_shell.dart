@@ -81,17 +81,13 @@ class _HistoryList extends StatelessWidget {
     );
     final results = cp.searchConversations(searchQuery);
     final currentResults = results
-        .where(
-          (r) => (r['conversation'] as Conversation).roleId == currentRoleId,
-        )
+        .where((r) => r.conversation.roleId == currentRoleId)
         .toList();
     final otherResults = results
-        .where(
-          (r) => (r['conversation'] as Conversation).roleId != currentRoleId,
-        )
+        .where((r) => r.conversation.roleId != currentRoleId)
         .toList();
     final otherRoleIds = otherResults
-        .map((r) => (r['conversation'] as Conversation).roleId)
+        .map((r) => r.conversation.roleId)
         .toSet()
         .toList();
     final hasAnyConversation = cp.conversations.isNotEmpty;
@@ -137,11 +133,7 @@ class _HistoryList extends StatelessWidget {
                           ChatRole.defaultRole().copyWith(name: roleId),
                     );
                     final list = otherResults
-                        .where(
-                          (r) =>
-                              (r['conversation'] as Conversation).roleId ==
-                              roleId,
-                        )
+                        .where((r) => r.conversation.roleId == roleId)
                         .toList();
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -264,13 +256,14 @@ class _HistoryList extends StatelessWidget {
 
   Widget _conversationItem(
     BuildContext context,
-    Map<String, dynamic> result,
+    ConversationSearchResult result,
     ConversationProvider provider,
     Color? roleColor,
   ) {
-    final conversation = result['conversation'] as Conversation;
-    final matchInTitle = result['matchInTitle'] as bool? ?? false;
-    final matchContent = result['matchContent'] as String? ?? '';
+    final conversation = result.conversation;
+    final matchInTitle = result.matchInTitle;
+    final matchContent = result.snippet;
+    final matchLabel = _matchTypeLabel(result.matchType);
     final color = roleColor ?? Theme.of(context).colorScheme.primary;
     return Card(
       color: roleColor == null ? null : color.withValues(alpha: 0.06),
@@ -283,6 +276,7 @@ class _HistoryList extends StatelessWidget {
             ? _highlight(
                 context,
                 conversation.title,
+                result.snippetRanges,
                 Theme.of(context).textTheme.titleMedium,
               )
             : Text(
@@ -293,7 +287,10 @@ class _HistoryList extends StatelessWidget {
         subtitle: searchQuery.isNotEmpty && !matchInTitle
             ? _highlight(
                 context,
-                matchContent.isNotEmpty ? matchContent : conversation.preview,
+                matchContent.isNotEmpty
+                    ? '$matchLabel$matchContent'
+                    : conversation.preview,
+                _shiftRanges(result.snippetRanges, matchLabel.length),
                 Theme.of(context).textTheme.bodySmall,
               )
             : Text(
@@ -321,32 +318,52 @@ class _HistoryList extends StatelessWidget {
     );
   }
 
-  Widget _highlight(BuildContext context, String text, TextStyle? style) {
-    if (searchQuery.isEmpty) return Text(text, style: style);
-    final lowerText = text.toLowerCase();
-    final lowerQuery = searchQuery.toLowerCase();
+  String _matchTypeLabel(ConversationSearchMatchType type) {
+    return switch (type) {
+      ConversationSearchMatchType.message => '正文：',
+      ConversationSearchMatchType.attachment => '附件：',
+      _ => '',
+    };
+  }
+
+  List<ChatSearchRange> _shiftRanges(List<ChatSearchRange> ranges, int offset) {
+    if (offset == 0) return ranges;
+    return ranges
+        .map(
+          (range) => ChatSearchRange(
+            start: range.start + offset,
+            end: range.end + offset,
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  Widget _highlight(
+    BuildContext context,
+    String text,
+    List<ChatSearchRange> ranges,
+    TextStyle? style,
+  ) {
+    if (searchQuery.isEmpty || ranges.isEmpty) return Text(text, style: style);
     final spans = <TextSpan>[];
     var start = 0;
-    while (true) {
-      final index = lowerText.indexOf(lowerQuery, start);
-      if (index == -1) {
-        spans.add(TextSpan(text: text.substring(start)));
-        break;
-      }
-      if (index > start) {
-        spans.add(TextSpan(text: text.substring(start, index)));
+    for (final range in ranges) {
+      if (range.start < start || range.end > text.length) continue;
+      if (range.start > start) {
+        spans.add(TextSpan(text: text.substring(start, range.start)));
       }
       spans.add(
         TextSpan(
-          text: text.substring(index, index + searchQuery.length),
+          text: text.substring(range.start, range.end),
           style: const TextStyle(
             backgroundColor: Colors.yellow,
             color: Colors.black,
           ),
         ),
       );
-      start = index + searchQuery.length;
+      start = range.end;
     }
+    if (start < text.length) spans.add(TextSpan(text: text.substring(start)));
     return RichText(
       text: TextSpan(
         style: style ?? DefaultTextStyle.of(context).style,

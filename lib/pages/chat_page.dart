@@ -198,6 +198,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   Timer? _inputActionCollapseTimer;
   int _currentSearchMatch = -1;
   String _lastSearchSignature = '';
+  String _lastSearchQuery = '';
   String? _searchRegexError;
 
   int _streamGen = 0;
@@ -233,7 +234,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       _applyConversationSettings(widget.conversationId!, notifyNow: false);
       widget.onConversationLoaded?.call();
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _scheduleJumpToBottom(unfocusInput: true);
+        if (mounted) {
+          _scheduleJumpToBottom(unfocusInput: true, waitForStableLayout: true);
+        }
       });
     }
   }
@@ -274,7 +277,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       _applyConversationSettings(widget.conversationId!, notifyNow: false);
       widget.onConversationLoaded?.call();
       _closeSearch();
-      _scheduleJumpToBottom(unfocusInput: true);
+      _scheduleJumpToBottom(unfocusInput: true, waitForStableLayout: true);
     } else if (widget.roleChangeSerial != old.roleChangeSerial) {
       if (_streaming) _stopStreaming();
       _sendGen++;
@@ -286,7 +289,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       });
       _closeSearch();
     } else if (widget.active && !old.active) {
-      _scheduleJumpToBottom(unfocusInput: true);
+      _scheduleJumpToBottom(unfocusInput: true, waitForStableLayout: true);
     }
   }
 
@@ -377,6 +380,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   }
 
   void _beginStreaming(String conversationId) {
+    _unfocusComposerOnMobile();
     _streamingConvId = conversationId;
     _lastStreamUiUpdate = null;
     _updateStreamDraft(const _StreamDraft());
@@ -455,6 +459,13 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     if (!_isMobilePlatform) return;
     _keyboardLiftRequestedByInputTap = _lastBottomInset <= 0;
     _keyboardShouldLiftMessages = _autoScrollToBottom && _isNearBottom;
+  }
+
+  void _unfocusComposerOnMobile() {
+    if (!_isMobilePlatform) return;
+    _focusNode.unfocus();
+    _keyboardLiftRequestedByInputTap = false;
+    _keyboardShouldLiftMessages = false;
   }
 
   // 根据滚动位置同步“是否接近底部”状态，控制自动跟随和回底按钮。
@@ -540,15 +551,49 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     });
   }
 
-  void _scheduleJumpToBottom({bool unfocusInput = false}) {
+  void _scheduleJumpToBottom({
+    bool unfocusInput = false,
+    bool waitForStableLayout = false,
+  }) {
     if (unfocusInput && _isMobilePlatform) {
-      _focusNode.unfocus();
+      _unfocusComposerOnMobile();
     }
     setState(() {
       _autoScrollToBottom = true;
       _showScrollToBottom = false;
     });
+    if (waitForStableLayout) {
+      _jumpToBottomAfterStableLayout();
+      return;
+    }
     _scrollEnd(force: true);
+  }
+
+  void _jumpToBottomAfterStableLayout() {
+    final scrollGen = ++_scrollGen;
+
+    void jump(int remaining, double previousMaxExtent) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || scrollGen != _scrollGen) return;
+        if (!_scrollCtrl.hasClients) {
+          if (remaining > 0) jump(remaining - 1, previousMaxExtent);
+          return;
+        }
+        final position = _scrollCtrl.position;
+        final target = position.maxScrollExtent;
+        if ((target - position.pixels).abs() > 0.5) {
+          position.jumpTo(target);
+        }
+        final layoutChanged = (target - previousMaxExtent).abs() > 0.5;
+        if (remaining > 0 && (layoutChanged || !_isNearBottom)) {
+          jump(remaining - 1, target);
+          return;
+        }
+        _syncBottomState();
+      });
+    }
+
+    jump(8, -1);
   }
 
   void _jumpToBottom() {
@@ -579,6 +624,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       _searchMatchedMessageIds.clear();
       _currentSearchMatch = -1;
       _lastSearchSignature = '';
+      _lastSearchQuery = '';
       _searchRegexError = null;
     });
     _syncBackAvailability();
@@ -611,6 +657,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         message.images.map((image) => image.name).join('\u{1f}'),
     ].join('|');
     if (signature == _lastSearchSignature) return;
+    final queryChanged = query != _lastSearchQuery;
 
     final matches = <_ChatSearchMatch>[];
     final matchedMessageIds = <String>{};
@@ -650,7 +697,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     var current = _currentSearchMatch;
     if (matches.isEmpty) {
       current = -1;
-    } else if (previous != null) {
+    } else if (!queryChanged && previous != null) {
       final retained = matches.indexWhere(
         (match) =>
             match.messageId == previous.messageId &&
@@ -658,9 +705,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
             match.end == previous.end,
       );
       current = retained >= 0 ? retained : current;
+    } else {
+      current = matches.length - 1;
     }
     if (matches.isNotEmpty && (current < 0 || current >= matches.length)) {
-      current = 0;
+      current = matches.length - 1;
     }
     final shouldScroll =
         _showSearch &&
@@ -669,6 +718,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         current >= 0;
     setState(() {
       _lastSearchSignature = signature;
+      _lastSearchQuery = query;
       _searchRegexError = matcher.regexError;
       _searchMatches
         ..clear()
@@ -2528,7 +2578,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       _applyConversationSettings(cid);
     }
     _closeSearch();
-    _scheduleJumpToBottom(unfocusInput: true);
+    _scheduleJumpToBottom(unfocusInput: true, waitForStableLayout: true);
     Navigator.pop(context);
   }
 

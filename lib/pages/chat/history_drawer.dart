@@ -31,8 +31,9 @@ class _HistoryEmptyItem extends _HistoryListItem {
 class _HistoryConversationItem extends _HistoryListItem {
   final Conversation conversation;
   final Color? roleColor;
+  final ConversationSearchResult? result;
 
-  _HistoryConversationItem(this.conversation, this.roleColor);
+  _HistoryConversationItem(this.conversation, this.roleColor, {this.result});
 }
 
 class _HistoryDrawerState extends State<_HistoryDrawer> {
@@ -66,17 +67,13 @@ class _HistoryDrawerState extends State<_HistoryDrawer> {
       orElse: ChatRole.defaultRole,
     );
     final currentResults = results
-        .where(
-          (r) => (r['conversation'] as Conversation).roleId == currentRoleId,
-        )
+        .where((r) => r.conversation.roleId == currentRoleId)
         .toList();
     final otherResults = results
-        .where(
-          (r) => (r['conversation'] as Conversation).roleId != currentRoleId,
-        )
+        .where((r) => r.conversation.roleId != currentRoleId)
         .toList();
     final otherRoleIds = otherResults
-        .map((r) => (r['conversation'] as Conversation).roleId)
+        .map((r) => r.conversation.roleId)
         .toSet()
         .toList();
     final items = <_HistoryListItem>[
@@ -85,8 +82,9 @@ class _HistoryDrawerState extends State<_HistoryDrawer> {
         _HistoryEmptyItem(_q.isEmpty ? '当前角色暂无对话' : '未找到匹配的对话'),
       for (final result in currentResults)
         _HistoryConversationItem(
-          result['conversation'] as Conversation,
+          result.conversation,
           currentRole.themeColor,
+          result: result,
         ),
       for (final roleId in otherRoleIds) ...[
         _HistoryRoleHeaderItem(
@@ -105,16 +103,17 @@ class _HistoryDrawerState extends State<_HistoryDrawer> {
           roleId: roleId,
         ),
         for (final result in otherResults.where(
-          (r) => (r['conversation'] as Conversation).roleId == roleId,
+          (r) => r.conversation.roleId == roleId,
         ))
           _HistoryConversationItem(
-            result['conversation'] as Conversation,
+            result.conversation,
             roles
                 .firstWhere(
                   (role) => role.id == roleId,
                   orElse: () => ChatRole.defaultRole().copyWith(name: roleId),
                 )
                 .themeColor,
+            result: result,
           ),
       ],
     ];
@@ -212,6 +211,7 @@ class _HistoryDrawerState extends State<_HistoryDrawer> {
                       context,
                       conversationItem.conversation,
                       conversationItem.roleColor,
+                      conversationItem.result,
                     );
                   },
                 ),
@@ -237,28 +237,53 @@ class _HistoryDrawerState extends State<_HistoryDrawer> {
     BuildContext context,
     Conversation c,
     Color? roleColor,
+    ConversationSearchResult? result,
   ) {
     final active = c.id == widget.currentConvId;
+    final matchType = result?.matchType ?? ConversationSearchMatchType.none;
+    final snippet = result?.snippet ?? '';
+    final showSnippetSubtitle =
+        _q.isNotEmpty && snippet.isNotEmpty && result?.matchInTitle != true;
+    final subtitle = showSnippetSubtitle
+        ? '${_matchTypeLabel(matchType)}$snippet'
+        : c.preview;
     return ListTile(
       selected: active,
       selectedTileColor: Theme.of(
         context,
       ).colorScheme.primaryContainer.withValues(alpha: 0.3),
       leading: Icon(Icons.chat, size: 20, color: roleColor),
-      title: Text(
-        c.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontWeight: active ? FontWeight.bold : FontWeight.normal,
-        ),
-      ),
-      subtitle: Text(
-        c.preview,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontSize: 12),
-      ),
+      title: result?.matchInTitle == true
+          ? _highlightText(
+              c.title,
+              result!.snippetRanges,
+              TextStyle(
+                fontWeight: active ? FontWeight.bold : FontWeight.normal,
+              ),
+            )
+          : Text(
+              c.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontWeight: active ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
+      subtitle: showSnippetSubtitle
+          ? _highlightText(
+              subtitle,
+              _shiftRanges(
+                result!.snippetRanges,
+                _matchTypeLabel(matchType).length,
+              ),
+              const TextStyle(fontSize: 12),
+            )
+          : Text(
+              subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12),
+            ),
       trailing: IconButton(
         icon: const Icon(Icons.delete_outline, size: 18),
         onPressed: () => _deleteDialog(context, c),
@@ -268,6 +293,70 @@ class _HistoryDrawerState extends State<_HistoryDrawer> {
         context.read<SettingsProvider>().selectRole(c.roleId);
         widget.onSelect(c.id);
       },
+    );
+  }
+
+  String _matchTypeLabel(ConversationSearchMatchType type) {
+    return switch (type) {
+      ConversationSearchMatchType.message => '正文：',
+      ConversationSearchMatchType.attachment => '附件：',
+      _ => '',
+    };
+  }
+
+  List<ChatSearchRange> _shiftRanges(List<ChatSearchRange> ranges, int offset) {
+    if (offset == 0) return ranges;
+    return ranges
+        .map(
+          (range) => ChatSearchRange(
+            start: range.start + offset,
+            end: range.end + offset,
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  Widget _highlightText(
+    String text,
+    List<ChatSearchRange> ranges,
+    TextStyle? style,
+  ) {
+    if (ranges.isEmpty) {
+      return Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: style,
+      );
+    }
+    final scheme = Theme.of(context).colorScheme;
+    final spans = <TextSpan>[];
+    var start = 0;
+    for (final range in ranges) {
+      if (range.start < start || range.end > text.length) continue;
+      if (range.start > start) {
+        spans.add(TextSpan(text: text.substring(start, range.start)));
+      }
+      spans.add(
+        TextSpan(
+          text: text.substring(range.start, range.end),
+          style: TextStyle(
+            color: scheme.onPrimary,
+            backgroundColor: scheme.primary,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      );
+      start = range.end;
+    }
+    if (start < text.length) spans.add(TextSpan(text: text.substring(start)));
+    return RichText(
+      text: TextSpan(
+        style: style ?? DefaultTextStyle.of(context).style,
+        children: spans,
+      ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
     );
   }
 

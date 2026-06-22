@@ -11,6 +11,25 @@ import '../models/recycle_bin_item.dart';
 import '../repositories/conversation_repository.dart';
 import '../repositories/recycle_bin_repository.dart';
 import '../services/storage_v2_service.dart';
+import '../utils/chat_search_matcher.dart';
+
+enum ConversationSearchMatchType { none, title, message, attachment }
+
+class ConversationSearchResult {
+  final Conversation conversation;
+  final ConversationSearchMatchType matchType;
+  final String snippet;
+  final List<ChatSearchRange> snippetRanges;
+
+  const ConversationSearchResult({
+    required this.conversation,
+    this.matchType = ConversationSearchMatchType.none,
+    this.snippet = '',
+    this.snippetRanges = const [],
+  });
+
+  bool get matchInTitle => matchType == ConversationSearchMatchType.title;
+}
 
 /// 管理对话历史、消息流式更新和对话持久化。
 ///
@@ -682,56 +701,79 @@ class ConversationProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 搜索对话（匹配标题和消息内容）
-  /// 返回匹配的对话列表，每个对话附带匹配的文本片段
-  List<Map<String, dynamic>> searchConversations(String query) {
-    if (query.isEmpty) {
-      return _conversations.map((c) => {'conversation': c}).toList();
+  /// 搜索对话（匹配标题、消息内容和附件名）。
+  List<ConversationSearchResult> searchConversations(String query) {
+    final matcher = ChatSearchMatcher.fromQuery(query);
+    if (matcher.isEmpty) {
+      return _conversations
+          .map((c) => ConversationSearchResult(conversation: c))
+          .toList();
     }
+    if (matcher.hasError) return const [];
 
-    final lowerQuery = query.toLowerCase();
-    final results = <Map<String, dynamic>>[];
-
+    final results = <ConversationSearchResult>[];
     for (final conv in _conversations) {
-      // 检查标题是否匹配
-      if (conv.title.toLowerCase().contains(lowerQuery)) {
-        results.add({
-          'conversation': conv,
-          'matchInTitle': true,
-          'matchContent': '',
-        });
+      final titleRanges = matcher.rangesIn(conv.title);
+      if (titleRanges.isNotEmpty) {
+        results.add(
+          ConversationSearchResult(
+            conversation: conv,
+            matchType: ConversationSearchMatchType.title,
+            snippet: conv.title,
+            snippetRanges: titleRanges,
+          ),
+        );
         continue;
       }
 
-      // 检查消息内容和附件名是否匹配
-      for (final msg in conv.messages) {
-        final attachmentMatch = msg.images.any(
-          (image) => image.name.toLowerCase().contains(lowerQuery),
-        );
-        if (msg.content.toLowerCase().contains(lowerQuery) || attachmentMatch) {
-          results.add({
-            'conversation': conv,
-            'matchInTitle': false,
-            'matchContent': msg.content.isNotEmpty
-                ? msg.content
-                : msg.images.map((image) => image.name).join(', '),
-          });
+      ConversationSearchResult? match;
+      for (final msg in conv.messages.reversed) {
+        final content = msg.content.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
+        final contentRanges = matcher.rangesIn(content);
+        if (contentRanges.isNotEmpty) {
+          final snippet = _searchSnippet(content, contentRanges.last);
+          match = ConversationSearchResult(
+            conversation: conv,
+            matchType: ConversationSearchMatchType.message,
+            snippet: snippet,
+            snippetRanges: matcher.rangesIn(snippet),
+          );
           break;
         }
+        for (final image in msg.images.reversed) {
+          final imageRanges = matcher.rangesIn(image.name);
+          if (imageRanges.isEmpty) continue;
+          match = ConversationSearchResult(
+            conversation: conv,
+            matchType: ConversationSearchMatchType.attachment,
+            snippet: image.name,
+            snippetRanges: imageRanges,
+          );
+          break;
+        }
+        if (match != null) break;
       }
+      if (match != null) results.add(match);
     }
 
     return results;
   }
 
-  List<Map<String, dynamic>> searchConversationsByRole(
+  String _searchSnippet(String text, ChatSearchRange range) {
+    const contextLength = 56;
+    final start = (range.start - contextLength).clamp(0, text.length).toInt();
+    final end = (range.end + contextLength).clamp(0, text.length).toInt();
+    final prefix = start > 0 ? '...' : '';
+    final suffix = end < text.length ? '...' : '';
+    return '$prefix${text.substring(start, end)}$suffix';
+  }
+
+  List<ConversationSearchResult> searchConversationsByRole(
     String query,
     String roleId,
   ) {
-    return searchConversations(query)
-        .where(
-          (result) => (result['conversation'] as Conversation).roleId == roleId,
-        )
-        .toList();
+    return searchConversations(
+      query,
+    ).where((result) => result.conversation.roleId == roleId).toList();
   }
 }
