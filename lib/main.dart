@@ -17,6 +17,7 @@ import 'repositories/plugin_repository.dart';
 import 'pages/home_page.dart';
 import 'pages/changelog_page.dart';
 import 'services/device_plan_overlay_service.dart';
+import 'services/floating_assistant_service.dart';
 import 'services/storage_v2_upgrade_service.dart';
 import 'utils/changelog_parser.dart';
 import 'utils/open_source_licenses.dart';
@@ -78,6 +79,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   bool _hasError = false;
   String _errorMessage = '';
   ConversationProvider? _conversationProvider;
+  SettingsProvider? _settingsProvider;
   final _navigatorKey = GlobalKey<NavigatorState>();
 
   @override
@@ -93,6 +95,10 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _conversationProvider ??= context.read<ConversationProvider>();
+    _settingsProvider ??= context.read<SettingsProvider>();
+    if (_settingsProvider != null) {
+      FloatingAssistantService.instance.start(_settingsProvider!);
+    }
   }
 
   @override
@@ -119,6 +125,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     DevicePlanOverlayService.instance.dispose();
+    FloatingAssistantService.instance.dispose();
     unawaited(_flushCriticalSaves());
     super.dispose();
   }

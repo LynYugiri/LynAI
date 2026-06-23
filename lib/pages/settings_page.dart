@@ -8,6 +8,7 @@ import 'about_page.dart';
 import 'background_page.dart';
 import 'api_models_page.dart';
 import 'data_management_page.dart';
+import 'floating_assistant_settings_page.dart';
 import 'plugin_capability_management_page.dart';
 import 'plugin_management_page.dart';
 import 'recycle_bin_page.dart';
@@ -77,6 +78,21 @@ class _SettingsPageState extends State<SettingsPage> {
             () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const ApiModelsPage()),
+            ),
+          ),
+          _buildItem(
+            context,
+            Icons.bubble_chart_outlined,
+            '悬浮窗',
+            settings.floatingAssistant.enabled
+                ? '已启用悬浮助手'
+                : '悬浮聊天、Agent 面板和漫画翻译',
+            Colors.cyan,
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const FloatingAssistantSettingsPage(),
+              ),
             ),
           ),
           _buildItem(

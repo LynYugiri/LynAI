@@ -488,6 +488,12 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void updateFloatingAssistant(FloatingAssistantSettings settings) {
+    _settings = _settings.copyWith(floatingAssistant: settings);
+    _queueSaveSettings();
+    notifyListeners();
+  }
+
   String? _firstValidModelId(String? currentId, List<ModelConfig> models) {
     if (currentId != null && currentId.isNotEmpty) {
       final exists = models.any((m) => m.id == currentId);

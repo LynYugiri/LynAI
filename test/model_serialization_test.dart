@@ -179,6 +179,44 @@ void main() {
     expect(restored.roleGroups.single.roleIds, ['role-1']);
   });
 
+  test('AppSettings serializes floating assistant settings', () {
+    final settings = AppSettings(
+      themeColor: Colors.purple,
+      baseThemeColor: Colors.purple,
+      floatingAssistant: const FloatingAssistantSettings(
+        enabled: true,
+        allowScreenContext: true,
+        screenContextMode: FloatingAssistantSettings.screenContextAsk,
+        voiceInputMode: FloatingAssistantSettings.voiceInputServer,
+        mangaLayoutMode: FloatingAssistantSettings.mangaLayoutVertical,
+        mangaOverlayStyle: FloatingAssistantSettings.mangaOverlayStroke,
+        mangaOverlayOpacity: 0.7,
+        blockedPackages: ['com.reader.app'],
+      ),
+    );
+
+    final restored = AppSettings.fromJson(settings.toJson());
+    final floating = restored.floatingAssistant;
+
+    expect(floating.enabled, isTrue);
+    expect(floating.allowScreenContext, isTrue);
+    expect(
+      floating.screenContextMode,
+      FloatingAssistantSettings.screenContextAsk,
+    );
+    expect(floating.voiceInputMode, FloatingAssistantSettings.voiceInputServer);
+    expect(
+      floating.mangaLayoutMode,
+      FloatingAssistantSettings.mangaLayoutVertical,
+    );
+    expect(
+      floating.mangaOverlayStyle,
+      FloatingAssistantSettings.mangaOverlayStroke,
+    );
+    expect(floating.mangaOverlayOpacity, 0.7);
+    expect(floating.blockedPackages, ['com.reader.app']);
+  });
+
   test('role and conversation settings serialize sub model names', () {
     const role = ChatRole(
       id: 'role-1',

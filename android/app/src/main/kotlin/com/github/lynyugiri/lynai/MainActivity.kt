@@ -92,6 +92,10 @@ class MainActivity : FlutterActivity() {
             this,
             MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "lynai/device_overlay")
         )
+        FloatingAssistantOverlay.install(
+            this,
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "lynai/floating_assistant")
+        )
     }
 
     private fun startGenerationService() {

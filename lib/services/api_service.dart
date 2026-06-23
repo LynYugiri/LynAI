@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import '../models/model_config.dart';
+import '../models/ocr_text_block.dart';
 import 'tool_call_service.dart';
 
 /// 发送给模型前的附件输入。
@@ -196,6 +198,31 @@ class ApiService {
     ModelConfig config,
     Uint8List imageBytes,
   ) async {
+    final data = await _sendVivoOcrRequest(config, imageBytes);
+    return _extractOcrText(data);
+  }
+
+  Future<OcrRecognitionResult> recognizeImageTextBlocks(
+    ModelConfig config,
+    Uint8List imageBytes,
+  ) async {
+    final image = await _decodeImageSize(imageBytes);
+    try {
+      final data = await _sendVivoOcrRequest(config, imageBytes);
+      return OcrRecognitionResult.fromVivoJson(
+        data,
+        imageWidth: image.width.toDouble(),
+        imageHeight: image.height.toDouble(),
+      );
+    } finally {
+      image.dispose();
+    }
+  }
+
+  Future<Map<String, dynamic>> _sendVivoOcrRequest(
+    ModelConfig config,
+    Uint8List imageBytes,
+  ) async {
     final appId = config.extraParams['appId'] as String? ?? '';
     if (appId.isEmpty) throw Exception('OCR 配置缺少 AppID');
     final uri = Uri.parse(config.endpoint).replace(
@@ -222,7 +249,13 @@ class ApiService {
     if (response.statusCode != 200 || data['error_code'] != 0) {
       throw Exception('OCR 识别失败: ${response.statusCode} ${response.body}');
     }
-    return _extractOcrText(data);
+    return data;
+  }
+
+  Future<ui.Image> _decodeImageSize(Uint8List imageBytes) {
+    final completer = Completer<ui.Image>();
+    ui.decodeImageFromList(imageBytes, completer.complete);
+    return completer.future;
   }
 
   Future<String> recognizeImageTextWithChatModel(

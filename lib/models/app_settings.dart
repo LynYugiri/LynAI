@@ -3,6 +3,151 @@ import 'chat_role.dart';
 import 'system_prompt.dart';
 import '../services/lynai_permission_definitions.dart';
 
+class FloatingAssistantSettings {
+  static const screenContextManual = 'manual';
+  static const screenContextAsk = 'ask';
+  static const screenContextDisabled = 'disabled';
+  static const voiceInputSystem = 'system';
+  static const voiceInputServer = 'server';
+  static const voiceInputDisabled = 'disabled';
+  static const mangaLayoutAuto = 'auto';
+  static const mangaLayoutHorizontal = 'horizontal';
+  static const mangaLayoutVertical = 'vertical';
+  static const mangaOverlayAuto = 'auto';
+  static const mangaOverlayLight = 'light';
+  static const mangaOverlayDark = 'dark';
+  static const mangaOverlayStroke = 'stroke';
+
+  final bool enabled;
+  final bool showBubbleInBackground;
+  final bool showAgentPlan;
+  final bool allowScreenContext;
+  final String screenContextMode;
+  final String voiceInputMode;
+  final bool showMangaTranslationAction;
+  final String mangaTargetLanguage;
+  final String mangaLayoutMode;
+  final String mangaOverlayStyle;
+  final double mangaOverlayOpacity;
+  final List<String> blockedPackages;
+
+  const FloatingAssistantSettings({
+    this.enabled = false,
+    this.showBubbleInBackground = true,
+    this.showAgentPlan = true,
+    this.allowScreenContext = false,
+    this.screenContextMode = screenContextManual,
+    this.voiceInputMode = voiceInputSystem,
+    this.showMangaTranslationAction = true,
+    this.mangaTargetLanguage = 'zh-CN',
+    this.mangaLayoutMode = mangaLayoutAuto,
+    this.mangaOverlayStyle = mangaOverlayAuto,
+    this.mangaOverlayOpacity = 0.92,
+    this.blockedPackages = const [],
+  });
+
+  factory FloatingAssistantSettings.fromJson(Object? raw) {
+    if (raw is! Map) return const FloatingAssistantSettings();
+    final json = Map<String, dynamic>.from(raw);
+    return FloatingAssistantSettings(
+      enabled: json['enabled'] as bool? ?? false,
+      showBubbleInBackground: json['showBubbleInBackground'] as bool? ?? true,
+      showAgentPlan: json['showAgentPlan'] as bool? ?? true,
+      allowScreenContext: json['allowScreenContext'] as bool? ?? false,
+      screenContextMode: _enumString(json['screenContextMode'], const {
+        screenContextManual,
+        screenContextAsk,
+        screenContextDisabled,
+      }, screenContextManual),
+      voiceInputMode: _enumString(json['voiceInputMode'], const {
+        voiceInputSystem,
+        voiceInputServer,
+        voiceInputDisabled,
+      }, voiceInputSystem),
+      showMangaTranslationAction:
+          json['showMangaTranslationAction'] as bool? ?? true,
+      mangaTargetLanguage:
+          (json['mangaTargetLanguage'] as String?)?.trim().isNotEmpty == true
+          ? (json['mangaTargetLanguage'] as String).trim()
+          : 'zh-CN',
+      mangaLayoutMode: _enumString(json['mangaLayoutMode'], const {
+        mangaLayoutAuto,
+        mangaLayoutHorizontal,
+        mangaLayoutVertical,
+      }, mangaLayoutAuto),
+      mangaOverlayStyle: _enumString(json['mangaOverlayStyle'], const {
+        mangaOverlayAuto,
+        mangaOverlayLight,
+        mangaOverlayDark,
+        mangaOverlayStroke,
+      }, mangaOverlayAuto),
+      mangaOverlayOpacity:
+          ((json['mangaOverlayOpacity'] as num?)?.toDouble() ?? 0.92).clamp(
+            0.2,
+            1.0,
+          ),
+      blockedPackages: (json['blockedPackages'] as List<dynamic>? ?? const [])
+          .map((item) => item.toString().trim())
+          .where((item) => item.isNotEmpty)
+          .toSet()
+          .toList(growable: false),
+    );
+  }
+
+  FloatingAssistantSettings copyWith({
+    bool? enabled,
+    bool? showBubbleInBackground,
+    bool? showAgentPlan,
+    bool? allowScreenContext,
+    String? screenContextMode,
+    String? voiceInputMode,
+    bool? showMangaTranslationAction,
+    String? mangaTargetLanguage,
+    String? mangaLayoutMode,
+    String? mangaOverlayStyle,
+    double? mangaOverlayOpacity,
+    List<String>? blockedPackages,
+  }) {
+    return FloatingAssistantSettings(
+      enabled: enabled ?? this.enabled,
+      showBubbleInBackground:
+          showBubbleInBackground ?? this.showBubbleInBackground,
+      showAgentPlan: showAgentPlan ?? this.showAgentPlan,
+      allowScreenContext: allowScreenContext ?? this.allowScreenContext,
+      screenContextMode: screenContextMode ?? this.screenContextMode,
+      voiceInputMode: voiceInputMode ?? this.voiceInputMode,
+      showMangaTranslationAction:
+          showMangaTranslationAction ?? this.showMangaTranslationAction,
+      mangaTargetLanguage: mangaTargetLanguage ?? this.mangaTargetLanguage,
+      mangaLayoutMode: mangaLayoutMode ?? this.mangaLayoutMode,
+      mangaOverlayStyle: mangaOverlayStyle ?? this.mangaOverlayStyle,
+      mangaOverlayOpacity: mangaOverlayOpacity ?? this.mangaOverlayOpacity,
+      blockedPackages: blockedPackages ?? this.blockedPackages,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'enabled': enabled,
+    'showBubbleInBackground': showBubbleInBackground,
+    'showAgentPlan': showAgentPlan,
+    'allowScreenContext': allowScreenContext,
+    'screenContextMode': screenContextMode,
+    'voiceInputMode': voiceInputMode,
+    'showMangaTranslationAction': showMangaTranslationAction,
+    'mangaTargetLanguage': mangaTargetLanguage,
+    'mangaLayoutMode': mangaLayoutMode,
+    'mangaOverlayStyle': mangaOverlayStyle,
+    'mangaOverlayOpacity': mangaOverlayOpacity,
+    'blockedPackages': blockedPackages,
+  };
+
+  static String _enumString(Object? raw, Set<String> allowed, String fallback) {
+    final value = raw?.toString();
+    if (value != null && allowed.contains(value)) return value;
+    return fallback;
+  }
+}
+
 /// 应用级设置快照。
 ///
 /// 保存主题、背景、最近模型、OCR/文件识别开关、角色和系统提示词。
@@ -33,6 +178,7 @@ class AppSettings {
   final String lastFeature;
   final String? lastSeenChangelogVersion;
   final List<String> agentGrantedPermissions;
+  final FloatingAssistantSettings floatingAssistant;
 
   AppSettings({
     required this.themeColor,
@@ -59,6 +205,7 @@ class AppSettings {
     this.lastFeature = 'dashboard',
     this.lastSeenChangelogVersion,
     this.agentGrantedPermissions = LynAIPermissions.defaultAgent,
+    this.floatingAssistant = const FloatingAssistantSettings(),
   }) : roles = roles ?? [ChatRole.defaultRole()];
 
   factory AppSettings.defaults() {
@@ -92,6 +239,7 @@ class AppSettings {
     String? lastFeature,
     Object? lastSeenChangelogVersion = _sentinel,
     List<String>? agentGrantedPermissions,
+    FloatingAssistantSettings? floatingAssistant,
   }) {
     return AppSettings(
       themeColor: themeColor ?? this.themeColor,
@@ -138,6 +286,7 @@ class AppSettings {
           : lastSeenChangelogVersion as String?,
       agentGrantedPermissions:
           agentGrantedPermissions ?? this.agentGrantedPermissions,
+      floatingAssistant: floatingAssistant ?? this.floatingAssistant,
     );
   }
 
@@ -240,6 +389,9 @@ class AppSettings {
       agentGrantedPermissions: _agentPermissionsFromJson(
         json['agentGrantedPermissions'],
       ),
+      floatingAssistant: FloatingAssistantSettings.fromJson(
+        json['floatingAssistant'],
+      ),
     );
   }
 
@@ -273,6 +425,7 @@ class AppSettings {
       if (lastSeenChangelogVersion != null)
         'lastSeenChangelogVersion': lastSeenChangelogVersion,
       'agentGrantedPermissions': agentGrantedPermissions,
+      'floatingAssistant': floatingAssistant.toJson(),
     };
   }
 

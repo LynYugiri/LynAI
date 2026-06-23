@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import '../models/conversation.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
+import '../models/ocr_text_block.dart';
 import '../providers/model_config_provider.dart';
 import 'api_service.dart';
 
@@ -81,6 +82,25 @@ class ModelRecognitionService {
       }
     }
     return results.join('\n');
+  }
+
+  Future<List<OcrRecognitionResult>> recognizeImageBlocksWithOcr({
+    required ModelConfigProvider modelConfigs,
+    required String? modelId,
+    required List<ModelRecognitionFileInput> files,
+  }) async {
+    if (files.isEmpty) return const [];
+    final id = modelId?.trim();
+    if (id == null || id.isEmpty) throw Exception('请先选择 OCR 模型');
+    final model = findModelConfigById(modelConfigs.models, id);
+    if (model == null) throw Exception('OCR 模型已不存在，请在设置中重新选择');
+    final results = <OcrRecognitionResult>[];
+    for (final file in files.where(
+      (item) => item.mimeType.startsWith('image/'),
+    )) {
+      results.add(await _api.recognizeImageTextBlocks(model, file.bytes));
+    }
+    return results;
   }
 
   Future<String> recognizeFilesWithModel({
