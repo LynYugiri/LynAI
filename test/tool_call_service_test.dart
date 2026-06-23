@@ -46,6 +46,15 @@ class _FakePathProviderPlatform extends PathProviderPlatform {
   }
 }
 
+class _RealHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) {
+    final client = super.createHttpClient(context);
+    client.connectionTimeout = const Duration(seconds: 5);
+    return client;
+  }
+}
+
 Future<StorageV2Service> _readyStorageV2(Directory root) async {
   final storage = StorageV2Service(rootDirectory: root);
   await StorageV2UpgradeService(storageV2: storage).ensureReady();
@@ -223,6 +232,72 @@ void main() {
       expect(grantedNames, contains('call_plugin_function'));
     },
   );
+
+  test('web_fetch is exposed as a regular built-in tool', () {
+    final tools = ToolCallService.openAITools();
+    final webFetch = tools
+        .map((tool) => tool['function'])
+        .whereType<Map>()
+        .firstWhere((function) => function['name'] == 'web_fetch');
+
+    expect(webFetch['description'], contains('GET'));
+    expect(webFetch['parameters'], isA<Map>());
+    expect((webFetch['parameters'] as Map)['required'], contains('url'));
+  });
+
+  test('web_fetch rejects non-http URLs', () async {
+    final service = ToolCallService(FeatureProvider());
+    final result = await service.execute(
+      const ChatToolCall(
+        id: 'fetch-file',
+        name: 'web_fetch',
+        arguments: {'url': 'file:///etc/passwd'},
+      ),
+      const [],
+    );
+
+    expect(result['ok'], isFalse);
+    expect(result['error'], contains('http/https'));
+  });
+
+  test('web_fetch fetches and truncates response body', () async {
+    HttpServer? server;
+    await HttpOverrides.runZoned(() async {
+      try {
+        server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        final methods = <String>[];
+        server!.listen((request) async {
+          methods.add(request.method);
+          request.response.headers.contentType = ContentType.text;
+          request.response.write('abcdef');
+          await request.response.close();
+        });
+
+        final service = ToolCallService(FeatureProvider());
+        final result = await service.execute(
+          ChatToolCall(
+            id: 'fetch-local',
+            name: 'web_fetch',
+            arguments: {
+              'url': 'http://${server!.address.host}:${server!.port}/page',
+              'maxChars': 4,
+            },
+          ),
+          const [],
+        );
+
+        expect(result['ok'], isTrue);
+        expect(result['status'], 200);
+        expect(result['body'], 'abcd');
+        expect(result['bodyLength'], 6);
+        expect(result['truncated'], isTrue);
+        expect(result['contentType'], contains('text/plain'));
+        expect(methods, ['GET']);
+      } finally {
+        await server?.close(force: true);
+      }
+    }, createHttpClient: _RealHttpOverrides().createHttpClient);
+  });
 
   test('modelVisibleToolResult strips nested binary payloads', () {
     final visible =

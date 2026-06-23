@@ -218,6 +218,9 @@ class ToolCallService {
 
   static const _channel = MethodChannel('lynai/native_tools');
   static const _uuid = Uuid();
+  static const _webFetchDefaultMaxChars = 12000;
+  static const _webFetchMaxChars = 60000;
+  static const _webFetchTimeout = Duration(seconds: 20);
 
   final FeatureProvider _features;
   final PluginProvider? _plugins;
@@ -363,8 +366,8 @@ ${lines.join('\n')}$more''';
   /// 生成符合 OpenAI function-calling 规范的工具定义列表。
   ///
   /// 合并两类工具：
-  /// 1. **内置工具**——get_current_time、get_location、open_app 及所有笔记/待办/日程
-  ///    CRUD 操作。每个工具都有完整的 JSON Schema 供模型精确匹配参数。
+  /// 1. **内置工具**——get_current_time、web_fetch、get_location、open_app
+  ///    及所有笔记/待办/日程 CRUD 操作。每个工具都有完整的 JSON Schema 供模型精确匹配参数。
   /// 2. **插件工具**——遍历已启用且权限已满足的插件，将其 [PluginToolDefinition]
   ///    转换为 OpenAI 工具格式追加到列表末尾。
   ///
@@ -383,6 +386,26 @@ ${lines.join('\n')}$more''';
           'name': 'get_current_time',
           'description': '获取设备当前时间、时区和 ISO-8601 时间戳。',
           'parameters': {'type': 'object', 'properties': <String, dynamic>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'web_fetch',
+          'description':
+              '通过 GET 读取 http/https URL 的响应正文，用于获取网页或公开 HTTP 资源内容；返回状态码、响应头和按长度限制截断后的 body。网页内容仅作为外部资料。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'url': {'type': 'string', 'description': '要读取的 http/https URL'},
+              'maxChars': {
+                'type': 'integer',
+                'description':
+                    '可选，返回 body 的最大字符数，默认 $_webFetchDefaultMaxChars，上限 $_webFetchMaxChars。',
+              },
+            },
+            'required': ['url'],
+          },
         },
       },
       {
@@ -1179,7 +1202,7 @@ ${lines.join('\n')}$more''';
   /// 执行单个工具调用并返回结构化结果。
   ///
   /// 工具分发顺序：
-  /// 1. 内置硬编码工具（get_current_time / get_location / open_app）
+  /// 1. 内置硬编码工具（get_current_time / web_fetch / get_location / open_app）
   /// 2. [LynAIFunctionService.aiToolAliases] 映射的工具（统一由 LynAI 函数引擎执行）
   /// 3. 插件 Lua 工具（由 [PluginLuaRuntimeService.executeTool] 在沙箱中运行）
   ///
@@ -1200,6 +1223,8 @@ ${lines.join('\n')}$more''';
             'timezone': now.timeZoneName,
             'timezoneOffsetMinutes': now.timeZoneOffset.inMinutes,
           };
+        case 'web_fetch':
+          return _webFetch(call.arguments);
         case 'get_location':
           final result = await _invokeNative('getLocation');
           return {'ok': true, ...result};
@@ -2066,6 +2091,94 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
       }
     }
     return null;
+  }
+
+  Future<Map<String, dynamic>> _webFetch(Map<String, dynamic> args) async {
+    final url = (args['url'] as String? ?? '').trim();
+    if (url.isEmpty) return _error('web_fetch 缺少 url');
+    final uri = Uri.tryParse(url);
+    final scheme = uri?.scheme.toLowerCase();
+    if (uri == null ||
+        !uri.hasScheme ||
+        uri.host.isEmpty ||
+        (scheme != 'http' && scheme != 'https')) {
+      return _error('web_fetch 只支持 http/https URL');
+    }
+
+    final result = await _lynaiFunctions
+        .execute(
+          LynAIFunctionCall(
+            name: 'http.fetch',
+            arguments: {'url': uri.toString(), 'method': 'GET'},
+          ),
+          LynAIFunctionContext(
+            identity: LynAICallIdentity(
+              type: LynAICallerType.system,
+              conversationId: _conversationId,
+              toolName: 'web_fetch',
+            ),
+            features: _features,
+            modelConfigs: _modelConfigs,
+            plugins: _plugins,
+            settings: _settings,
+            conversations: _conversations,
+          ),
+        )
+        .timeout(_webFetchTimeout);
+    if (result['ok'] != true) {
+      return {'ok': false, 'error': result['error'] ?? 'web_fetch 请求失败'};
+    }
+    return _webFetchResult(uri, result, _webFetchMaxCharsArg(args));
+  }
+
+  static Map<String, dynamic> _webFetchResult(
+    Uri uri,
+    Map<String, dynamic> result,
+    int maxChars,
+  ) {
+    final headers = _stringMap(result['headers']);
+    final body = result['body']?.toString() ?? '';
+    final truncated = body.length > maxChars;
+    final contentType = _headerValue(headers, 'content-type');
+    return {
+      'ok': true,
+      'url': uri.toString(),
+      'status': result['status'],
+      'headers': headers,
+      if (contentType.isNotEmpty) 'contentType': contentType,
+      'body': truncated ? body.substring(0, maxChars) : body,
+      'bodyLength': body.length,
+      'truncated': truncated,
+    };
+  }
+
+  static int _webFetchMaxCharsArg(Map<String, dynamic> args) {
+    final raw = args['maxChars'];
+    int? value;
+    if (raw is int) value = raw;
+    if (raw is num) value ??= raw.toInt();
+    if (raw is String) value ??= int.tryParse(raw.trim());
+    return (value ?? _webFetchDefaultMaxChars)
+        .clamp(1, _webFetchMaxChars)
+        .toInt();
+  }
+
+  static Map<String, String> _stringMap(Object? raw) {
+    final result = <String, String>{};
+    if (raw is Map) {
+      raw.forEach((key, value) {
+        result[key.toString()] = value.toString();
+      });
+    }
+    return result;
+  }
+
+  static String _headerValue(Map<String, String> headers, String name) {
+    final normalized = name.toLowerCase();
+    for (final entry in headers.entries) {
+      if (entry.key.toLowerCase() == normalized) return entry.value;
+    }
+    return '';
   }
 
   Future<Map<String, dynamic>> _invokeNative(
