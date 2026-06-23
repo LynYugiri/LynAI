@@ -284,6 +284,7 @@ class PluginLuaRuntimeService {
         return 1;
       },
     });
+    _installDeviceTable(state, -1);
     _setTable(state, -1, 'notes', {
       'list': (LuaState ls) {
         _pushJsonValue(
@@ -380,6 +381,142 @@ class PluginLuaRuntimeService {
       },
     });
     state.setGlobal('lynai');
+  }
+
+  void _installDeviceTable(LuaState state, int parentIndex) {
+    void pushCommand(LuaState ls, String method, Object? args) {
+      _pushFunctionCommand(
+        ls,
+        method,
+        args is Map ? args : <String, dynamic>{},
+      );
+    }
+
+    DartFunction direct(String method) {
+      return (LuaState ls) {
+        pushCommand(ls, method, _readJsonValue(ls, 1));
+        return 1;
+      };
+    }
+
+    DartFunction noArgs(String method) {
+      return (LuaState ls) {
+        pushCommand(ls, method, const <String, dynamic>{});
+        return 1;
+      };
+    }
+
+    _setTable(state, parentIndex, 'device', {
+      'status': noArgs('device.service.status'),
+      'snapshot': noArgs('device.screen.snapshot'),
+      'context': direct('device.screen.context'),
+      'query': direct('device.screen.query'),
+      'find': direct('device.node.find'),
+      'findAll': direct('device.node.findAll'),
+      'wait': direct('device.waitForNode'),
+      'waitText': direct('device.screen.waitText'),
+      'clickFirst': direct('device.screen.clickText'),
+      'waitAndClick': direct('device.screen.waitAndClick'),
+      'inputInto': (LuaState ls) {
+        final args = _mapArg(ls, 1);
+        final text = ls.checkString(2) ?? args['text']?.toString() ?? '';
+        pushCommand(ls, 'device.screen.inputText', {...args, 'text': text});
+        return 1;
+      },
+      'scrollUntil': direct('device.screen.scrollUntil'),
+      'readVisibleText': direct('device.screen.readVisibleText'),
+      'extractMessages': direct('device.screen.extractMessages'),
+      'screenshot': noArgs('device.screen.screenshot'),
+      'back': noArgs('device.pressBack'),
+      'swipe': direct('device.swipe'),
+      'openSettings': direct('device.service.openSettings'),
+      'openApp': (LuaState ls) {
+        final raw = _readJsonValue(ls, 1);
+        final args = raw is Map
+            ? raw.map((key, value) => MapEntry(key.toString(), value))
+            : {'packageName': raw?.toString() ?? ''};
+        pushCommand(ls, 'device.app.open', args);
+        return 1;
+      },
+      'sleep': (LuaState ls) {
+        final raw = _readJsonValue(ls, 1);
+        pushCommand(ls, 'device.sleep', {'ms': raw is Map ? raw['ms'] : raw});
+        return 1;
+      },
+      'tap': (LuaState ls) {
+        final raw = _readJsonValue(ls, 1);
+        pushCommand(
+          ls,
+          'device.tap',
+          raw is Map ? raw : {'x': raw, 'y': _readJsonValue(ls, 2)},
+        );
+        return 1;
+      },
+      'action': (LuaState ls) {
+        final target = _readJsonValue(ls, 1);
+        final action = ls.checkString(2) ?? 'click';
+        final extra = _mapArg(ls, 3);
+        pushCommand(ls, 'device.node.action', {
+          ...extra,
+          'nodeId': _nodeId(target),
+          'action': action,
+        });
+        return 1;
+      },
+      'click': (LuaState ls) => _pushDeviceNodeAction(ls, 'click'),
+      'focus': (LuaState ls) => _pushDeviceNodeAction(ls, 'focus'),
+      'longClick': (LuaState ls) => _pushDeviceNodeAction(ls, 'longClick'),
+      'clearText': (LuaState ls) => _pushDeviceNodeAction(ls, 'clearText'),
+      'setText': (LuaState ls) {
+        final target = _readJsonValue(ls, 1);
+        _pushFunctionCommand(ls, 'device.node.action', {
+          'nodeId': _nodeId(target),
+          'action': 'setText',
+          'text': ls.checkString(2) ?? '',
+        });
+        return 1;
+      },
+      'inputText': (LuaState ls) {
+        final text = ls.checkString(1) ?? '';
+        final target = _readJsonValue(ls, 2);
+        _pushFunctionCommand(ls, 'device.inputText', {
+          'text': text,
+          if (_nodeId(target).isNotEmpty) 'nodeId': _nodeId(target),
+        });
+        return 1;
+      },
+      'first': (LuaState ls) {
+        _pushJsonValue(ls, _firstNode(_readJsonValue(ls, 1)));
+        return 1;
+      },
+    });
+  }
+
+  int _pushDeviceNodeAction(LuaState ls, String action) {
+    final target = _readJsonValue(ls, 1);
+    _pushFunctionCommand(ls, 'device.node.action', {
+      'nodeId': _nodeId(target),
+      'action': action,
+    });
+    return 1;
+  }
+
+  String _nodeId(Object? target) {
+    if (target is Map) {
+      final targetId = target['targetNodeId']?.toString() ?? '';
+      if (targetId.isNotEmpty) return targetId;
+      return target['id']?.toString() ?? target['nodeId']?.toString() ?? '';
+    }
+    return target?.toString() ?? '';
+  }
+
+  Object? _firstNode(Object? raw) {
+    if (raw is! Map) return null;
+    final result = raw['result'];
+    if (result is! Map) return null;
+    final nodes = result['nodes'];
+    if (nodes is! List || nodes.isEmpty) return null;
+    return nodes.first;
   }
 
   void _setTable(

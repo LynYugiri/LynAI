@@ -6,6 +6,7 @@ import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/device_control.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/services/agent_lua_script_service.dart';
+import 'package:lynai/services/device_control_service.dart';
 import 'package:lynai/services/device_run_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -62,6 +63,118 @@ return { ok = true, count = count }
       DeviceRunController.instance.snapshot.status,
       DeviceRunStatus.completed,
     );
+  });
+
+  test('Agent Lua exposes lynai.device sleep helper', () async {
+    DeviceRunController.instance.reset();
+    final result = await AgentLuaScriptService().execute(
+      purpose: 'test device helper sleep',
+      code: r'''
+local slept = lynai.device.sleep(1)
+if not slept.ok then return slept end
+return { ok = true, ms = slept.ms }
+''',
+    );
+
+    expect(result['ok'], isTrue);
+    expect((result['result'] as Map)['ms'], 1);
+  });
+
+  test('Agent Lua exposes lynai.device query helper', () async {
+    final backend = _LuaFakeDeviceBackend({
+      'ok': true,
+      'result': {
+        'platform': 'android',
+        'packageName': 'com.example',
+        'timestamp': DateTime(2026).toIso8601String(),
+        'roots': [
+          {
+            'id': '0',
+            'text': '',
+            'bounds': {'left': 0, 'top': 0, 'right': 100, 'bottom': 100},
+            'enabled': true,
+            'visibleToUser': true,
+            'children': [
+              {
+                'id': 'send',
+                'text': '发送',
+                'clickable': true,
+                'bounds': {'left': 1, 'top': 1, 'right': 80, 'bottom': 40},
+                'enabled': true,
+                'visibleToUser': true,
+                'children': [],
+              },
+            ],
+          },
+        ],
+      },
+    });
+    DeviceControlService.instance.setBackendForTesting(backend);
+    try {
+      final result = await AgentLuaScriptService().execute(
+        purpose: 'test device helper query',
+        code: r'''
+local result = lynai.device.query({ textExact = "发送" })
+if not result.ok then return result end
+local node = lynai.device.first(result)
+return { ok = true, nodeId = node.id, text = node.text }
+''',
+      );
+
+      expect(result['ok'], isTrue);
+      expect((result['result'] as Map)['nodeId'], 'send');
+    } finally {
+      DeviceControlService.instance.setBackendForTesting(null);
+      DeviceRunController.instance.reset();
+    }
+  });
+
+  test('Agent Lua waitAndClick helper performs a click', () async {
+    final backend = _LuaFakeDeviceBackend({
+      'ok': true,
+      'result': {
+        'platform': 'android',
+        'packageName': 'com.example',
+        'timestamp': DateTime(2026).toIso8601String(),
+        'roots': [
+          {
+            'id': '0',
+            'bounds': {'left': 0, 'top': 0, 'right': 100, 'bottom': 100},
+            'enabled': true,
+            'visibleToUser': true,
+            'children': [
+              {
+                'id': 'send',
+                'text': '发送',
+                'clickable': true,
+                'bounds': {'left': 1, 'top': 1, 'right': 80, 'bottom': 40},
+                'enabled': true,
+                'visibleToUser': true,
+                'children': [],
+              },
+            ],
+          },
+        ],
+      },
+    });
+    DeviceControlService.instance.setBackendForTesting(backend);
+    try {
+      final result = await AgentLuaScriptService().execute(
+        purpose: 'test wait and click helper',
+        code: r'''
+local clicked = lynai.device.waitAndClick({ textExact = "发送", timeoutMs = 100 })
+if not clicked.ok then return clicked end
+return { ok = true, clicked = true }
+''',
+      );
+
+      expect(result['ok'], isTrue);
+      expect(backend.calls.last.name, 'device.node.action');
+      expect(backend.calls.last.args['nodeId'], 'send');
+    } finally {
+      DeviceControlService.instance.setBackendForTesting(null);
+      DeviceRunController.instance.reset();
+    }
   });
 
   test('Agent Lua does not reject long readable scripts', () async {
@@ -262,4 +375,28 @@ return lynai.call("agent.memory.read", {})
     expect(memory.goal, '回复 QQ 消息');
     expect(memory.entries.single.source, 'lua');
   });
+}
+
+class _LuaFakeDeviceBackend implements DeviceControlBackend {
+  final Map<String, dynamic> snapshot;
+  final calls = <_LuaBackendCall>[];
+
+  _LuaFakeDeviceBackend(this.snapshot);
+
+  @override
+  Future<Map<String, dynamic>> execute(
+    String name,
+    Map<String, dynamic> args,
+  ) async {
+    calls.add(_LuaBackendCall(name, args));
+    if (name == 'device.screen.snapshot') return snapshot;
+    return {'ok': true, 'name': name, 'args': args};
+  }
+}
+
+class _LuaBackendCall {
+  final String name;
+  final Map<String, dynamic> args;
+
+  const _LuaBackendCall(this.name, this.args);
 }

@@ -623,7 +623,173 @@ class AgentLuaScriptService {
         }
       },
     });
+    _installDeviceTable(state, -1, onCall, asyncCalls: asyncCalls);
     state.setGlobal('lynai');
+  }
+
+  void _installDeviceTable(
+    LuaState state,
+    int parentIndex,
+    Map<String, dynamic> Function(String method, Map<String, dynamic> args)
+    onCall, {
+    required bool asyncCalls,
+  }) {
+    int callDevice(LuaState ls, String method, Object? args) {
+      final normalizedArgs = args is Map
+          ? args.map((key, item) => MapEntry(key.toString(), item))
+          : <String, dynamic>{};
+      final result = onCall(method, normalizedArgs);
+      final isCommand =
+          result['__lynai_function'] is String ||
+          result['__lynai_agent_function'] is String;
+      final hasContinuation = result['__lynai_next'] is String;
+      if (isCommand && !hasContinuation) {
+        if (asyncCalls) ls.yieldAsync(result);
+      }
+      _pushJsonValue(ls, result);
+      return 1;
+    }
+
+    DartFunction direct(String method) {
+      return (LuaState ls) => callDevice(ls, method, _readJsonValue(ls, 1));
+    }
+
+    DartFunction noArgs(String method) {
+      return (LuaState ls) => callDevice(ls, method, const <String, dynamic>{});
+    }
+
+    final parent = state.absIndex(parentIndex);
+    state.newTable();
+    final deviceIndex = state.absIndex(-1);
+    final functions = <String, DartFunction>{
+      'status': noArgs('device.service.status'),
+      'snapshot': noArgs('device.screen.snapshot'),
+      'context': direct('device.screen.context'),
+      'query': direct('device.screen.query'),
+      'find': direct('device.node.find'),
+      'findAll': direct('device.node.findAll'),
+      'wait': direct('device.waitForNode'),
+      'waitText': direct('device.screen.waitText'),
+      'clickFirst': direct('device.screen.clickText'),
+      'waitAndClick': direct('device.screen.waitAndClick'),
+      'inputInto': (LuaState ls) {
+        final args = _mapArg(ls, 1);
+        final text = ls.checkString(2) ?? args['text']?.toString() ?? '';
+        return callDevice(ls, 'device.screen.inputText', {
+          ...args,
+          'text': text,
+        });
+      },
+      'scrollUntil': direct('device.screen.scrollUntil'),
+      'readVisibleText': direct('device.screen.readVisibleText'),
+      'extractMessages': direct('device.screen.extractMessages'),
+      'screenshot': noArgs('device.screen.screenshot'),
+      'back': noArgs('device.pressBack'),
+      'swipe': direct('device.swipe'),
+      'openSettings': direct('device.service.openSettings'),
+      'openApp': (LuaState ls) {
+        final raw = _readJsonValue(ls, 1);
+        final args = raw is Map
+            ? raw.map((key, value) => MapEntry(key.toString(), value))
+            : {'packageName': raw?.toString() ?? ''};
+        return callDevice(ls, 'device.app.open', args);
+      },
+      'sleep': (LuaState ls) {
+        final raw = _readJsonValue(ls, 1);
+        return callDevice(ls, 'device.sleep', {
+          'ms': raw is Map ? raw['ms'] : raw,
+        });
+      },
+      'tap': (LuaState ls) {
+        final raw = _readJsonValue(ls, 1);
+        if (raw is Map) return callDevice(ls, 'device.tap', raw);
+        return callDevice(ls, 'device.tap', {
+          'x': raw,
+          'y': _readJsonValue(ls, 2),
+        });
+      },
+      'action': (LuaState ls) {
+        final target = _readJsonValue(ls, 1);
+        final action = ls.checkString(2) ?? 'click';
+        final extra = _mapArg(ls, 3);
+        return callDevice(ls, 'device.node.action', {
+          ...extra,
+          'nodeId': _nodeId(target),
+          'action': action,
+        });
+      },
+      'click': (LuaState ls) => _deviceNodeAction(ls, callDevice, 'click'),
+      'focus': (LuaState ls) => _deviceNodeAction(ls, callDevice, 'focus'),
+      'longClick': (LuaState ls) =>
+          _deviceNodeAction(ls, callDevice, 'longClick'),
+      'clearText': (LuaState ls) =>
+          _deviceNodeAction(ls, callDevice, 'clearText'),
+      'setText': (LuaState ls) {
+        final target = _readJsonValue(ls, 1);
+        return callDevice(ls, 'device.node.action', {
+          'nodeId': _nodeId(target),
+          'action': 'setText',
+          'text': ls.checkString(2) ?? '',
+        });
+      },
+      'inputText': (LuaState ls) {
+        final text = ls.checkString(1) ?? '';
+        final target = _readJsonValue(ls, 2);
+        return callDevice(ls, 'device.inputText', {
+          'text': text,
+          if (_nodeId(target).isNotEmpty) 'nodeId': _nodeId(target),
+        });
+      },
+      'first': (LuaState ls) {
+        _pushJsonValue(ls, _firstNode(_readJsonValue(ls, 1)));
+        return 1;
+      },
+    };
+    for (final entry in functions.entries) {
+      if (asyncCalls) {
+        _setAsyncFunction(state, deviceIndex, entry.key, entry.value);
+      } else {
+        _setFunction(state, deviceIndex, entry.key, entry.value);
+      }
+    }
+    state.setField(parent, 'device');
+  }
+
+  int _deviceNodeAction(
+    LuaState ls,
+    int Function(LuaState, String, Object?) callDevice,
+    String action,
+  ) {
+    final target = _readJsonValue(ls, 1);
+    return callDevice(ls, 'device.node.action', {
+      'nodeId': _nodeId(target),
+      'action': action,
+    });
+  }
+
+  Map<String, dynamic> _mapArg(LuaState state, int index) {
+    final value = _readJsonValue(state, index);
+    return value is Map
+        ? value.map((key, item) => MapEntry(key.toString(), item))
+        : <String, dynamic>{};
+  }
+
+  String _nodeId(Object? target) {
+    if (target is Map) {
+      final targetId = target['targetNodeId']?.toString() ?? '';
+      if (targetId.isNotEmpty) return targetId;
+      return target['id']?.toString() ?? target['nodeId']?.toString() ?? '';
+    }
+    return target?.toString() ?? '';
+  }
+
+  Object? _firstNode(Object? raw) {
+    if (raw is! Map) return null;
+    final result = raw['result'];
+    if (result is! Map) return null;
+    final nodes = result['nodes'];
+    if (nodes is! List || nodes.isEmpty) return null;
+    return nodes.first;
   }
 
   void _setTable(

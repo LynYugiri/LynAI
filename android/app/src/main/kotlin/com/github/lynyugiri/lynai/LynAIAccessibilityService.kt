@@ -174,19 +174,29 @@ class LynAIAccessibilityService : AccessibilityService() {
         val node = nodeArg(args) ?: return error("node_not_found", "节点不存在或已过期")
         val ok = when (action) {
             "click" -> node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            "longClick" -> node.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK)
             "focus" -> node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            "clearFocus" -> node.performAction(AccessibilityNodeInfo.ACTION_CLEAR_FOCUS)
+            "accessibilityFocus" -> node.performAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS)
+            "clearAccessibilityFocus" -> node.performAction(AccessibilityNodeInfo.ACTION_CLEAR_ACCESSIBILITY_FOCUS)
             "scrollForward" -> node.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
             "scrollBackward" -> node.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
-            "setText" -> {
+            "scrollDown" -> node.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+            "scrollUp" -> node.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
+            "setText", "clearText" -> {
                 val text = args["text"]?.toString() ?: ""
                 val bundle = Bundle().apply {
-                    putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+                    putCharSequence(
+                        AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                        if (action == "clearText") "" else text
+                    )
                 }
                 node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, bundle)
             }
-            else -> false
+            else -> return error("unsupported_action", "不支持的节点动作: $action")
         }
-        return mapOf("ok" to ok, "action" to action)
+        if (!ok) return error("action_failed", "节点动作执行失败: $action")
+        return mapOf("ok" to true, "action" to action)
     }
 
     private fun runTapRepeat(
@@ -254,10 +264,17 @@ class LynAIAccessibilityService : AccessibilityService() {
                 "bottom" to bounds.bottom
             ),
             "clickable" to node.isClickable,
+            "longClickable" to node.isLongClickable,
             "scrollable" to node.isScrollable,
             "editable" to node.isEditable,
             "enabled" to node.isEnabled,
             "focused" to node.isFocused,
+            "selected" to node.isSelected,
+            "checked" to node.isChecked,
+            "checkable" to node.isCheckable,
+            "password" to node.isPassword,
+            "visibleToUser" to node.isVisibleToUser,
+            "actions" to actionNames(node),
             "children" to children
         )
     }
@@ -293,8 +310,27 @@ class LynAIAccessibilityService : AccessibilityService() {
             "description" to node["description"],
             "className" to node["className"],
             "viewId" to node["viewId"],
-            "bounds" to node["bounds"]
+            "bounds" to node["bounds"],
+            "actions" to node["actions"]
         )
+    }
+
+    private fun actionNames(node: AccessibilityNodeInfo): List<String> {
+        val actions = mutableListOf<String>()
+        node.actionList.forEach { action ->
+            when (action.id) {
+                AccessibilityNodeInfo.ACTION_CLICK -> actions.add("click")
+                AccessibilityNodeInfo.ACTION_LONG_CLICK -> actions.add("longClick")
+                AccessibilityNodeInfo.ACTION_FOCUS -> actions.add("focus")
+                AccessibilityNodeInfo.ACTION_CLEAR_FOCUS -> actions.add("clearFocus")
+                AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS -> actions.add("accessibilityFocus")
+                AccessibilityNodeInfo.ACTION_CLEAR_ACCESSIBILITY_FOCUS -> actions.add("clearAccessibilityFocus")
+                AccessibilityNodeInfo.ACTION_SET_TEXT -> actions.add("setText")
+                AccessibilityNodeInfo.ACTION_SCROLL_FORWARD -> actions.add("scrollForward")
+                AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD -> actions.add("scrollBackward")
+            }
+        }
+        return actions.distinct()
     }
 
     private fun findFocusedEditable(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {

@@ -10,7 +10,7 @@
 
 ## 查找联系人或会话
 
-1. 调用 `lynai.call("device.app.open", { packageName = "com.tencent.mobileqq" })`。
+1. 调用 `lynai.device.openApp("com.tencent.mobileqq")`。
 2. 等待页面加载后调用 `device.screen.query` 查找目标名称。
 3. 查找参数可使用 `{ text = "foo", regex = true, limit = 20 }`。
 4. 优先点击匹配节点的 `targetNodeId`，否则点击节点自身。
@@ -19,21 +19,8 @@
 7. 打开 QQ、查找会话、读取上下文或发送明确内容时，优先合并为一次 `execute_lua`，不要每点一步都返回主模型。
 
 ```lua
-local function query_text(text, limit)
-  return lynai.call("device.screen.query", { text = text, limit = limit or 20 })
-end
-
-local function click_first(result)
-  if not result.ok then return result end
-  local nodes = result.result and result.result.nodes or {}
-  local node = nodes[1]
-  if not node then
-    return { ok = false, error = { code = "node_not_found", message = "未找到目标节点" } }
-  end
-  return lynai.call("device.node.action", {
-    nodeId = node.targetNodeId or node.id,
-    action = "click"
-  })
+local function click_text(text)
+  return lynai.device.waitAndClick({ text = text, limit = 20, timeoutMs = 5000 })
 end
 ```
 
@@ -41,9 +28,9 @@ end
 
 ## 读取聊天上下文
 
-1. 进入会话后重新调用 `device.screen.query` 或 `device.screen.context`。
+1. 进入会话后优先调用 `device.screen.extractMessages` 或 `lynai.device.extractMessages`，直接从无障碍节点读取可见文本消息。
 2. 只收集最近可见消息、目标昵称、我方消息和时间线索。
-3. 无障碍文本不足时，调用 `device.screen.screenshot` 后使用 `model.ocr` 或 `model.recognizeFile`。
+3. 无障碍文本不足、图片/表情/语音无法读出时，调用 `lynai.device.screenshot()` 后使用 `model.ocr` 或 `model.recognizeFile`。
 4. 返回给主模型的内容应是结构化摘要，不返回完整 snapshot 或截图 base64。
 
 建议返回最近 5 到 12 条可见消息。不能可靠区分说话人时，使用 `speaker = "unknown"` 并降低 `confidence`。
@@ -89,21 +76,14 @@ local function remember(content, details)
   })
 end
 
-local opened = lynai.call("device.app.open", { packageName = "com.tencent.mobileqq" })
+local opened = lynai.device.openApp("com.tencent.mobileqq")
 if not opened.ok then return opened end
 
-local target = lynai.call("device.screen.query", { text = "目标昵称", limit = 20 })
-if not target.ok then return target end
-local node = target.result and target.result.nodes and target.result.nodes[1]
-if not node then
-  return { ok = false, error = { code = "peer_uncertain", message = "未找到目标 QQ 会话" } }
-end
-
-local clicked = lynai.call("device.node.action", { nodeId = node.targetNodeId or node.id, action = "click" })
+local clicked = lynai.device.waitAndClick({ text = "目标昵称", limit = 20, timeoutMs = 5000 })
 if not clicked.ok then return clicked end
 
-local context = lynai.call("device.screen.context", { limit = 80 })
+local context = lynai.device.extractMessages({ app = "qq", packageName = "com.tencent.mobileqq", limit = 12 })
 if not context.ok then return context end
 remember("已读取目标 QQ 会话上下文", { peer = "目标昵称", confidence = 0.8 })
-return { ok = true, phase = "qq_context", peer = "目标昵称", context = context.result, confidence = 0.8 }
+return { ok = true, phase = "qq_context", peer = "目标昵称", messages = context.result.messages, confidence = context.result.confidence }
 ```

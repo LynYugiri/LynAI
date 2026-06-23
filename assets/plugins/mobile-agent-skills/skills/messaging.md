@@ -7,7 +7,7 @@
 1. 打开目标应用或确认当前应用。
 2. 定位联系人、群聊或会话。
 3. 进入会话后重新读取屏幕确认目标。
-4. 读取最近可见消息；如果无障碍文本不足，使用截图加 OCR 或识图。
+4. 优先用 `device.screen.extractMessages` 或 `lynai.device.extractMessages` 从无障碍节点读取最近可见消息；如果无障碍文本不足，再使用截图加 OCR 或识图。
 5. 把最近消息压缩成结构化上下文返回给主模型。
 6. 主模型生成回复文本后，重新定位输入框和发送按钮。
 7. 用户任务目标包含回复或发送时，直接发送，不需要二次确认。
@@ -24,27 +24,10 @@
 ## Lua 发送函数建议
 
 ```lua
-local function first_node(result)
-  if not result.ok then return nil end
-  local nodes = result.result and result.result.nodes or {}
-  return nodes[1]
-end
-
-local function click_node(node)
-  local id = node.targetNodeId or node.id
-  return lynai.call("device.node.action", { nodeId = id, action = "click" })
-end
-
 local function send_message(text)
-  local input = first_node(lynai.call("device.screen.query", { editable = true, limit = 5 }))
-  if not input then return { ok = false, error = { code = "input_not_found", message = "未找到输入框" } } end
-  local focused = click_node(input)
-  if not focused.ok then return focused end
-  local typed = lynai.call("device.inputText", { text = text })
+  local typed = lynai.device.inputInto({ editable = true, limit = 5 }, text)
   if not typed.ok then return typed end
-  local send = first_node(lynai.call("device.screen.query", { text = "发送", clickable = true, limit = 5 }))
-  if not send then return { ok = false, error = { code = "send_button_not_found", message = "未找到发送按钮" } } end
-  return click_node(send)
+  return lynai.device.waitAndClick({ text = "发送", clickable = true, timeoutMs = 3000 })
 end
 ```
 
@@ -59,7 +42,8 @@ local function remember(kind, content, details)
   })
 end
 
-local ctx = lynai.call("device.screen.context", { limit = 80 })
+local ctx = lynai.device.extractMessages({ limit = 12 })
+if not ctx.ok then ctx = lynai.device.context({ limit = 80 }) end
 if not ctx.ok then return ctx end
 remember("fact", "已读取当前消息应用上下文", { phase = "message_context" })
 

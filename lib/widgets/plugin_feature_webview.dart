@@ -133,7 +133,7 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (_) {
-            _injectBridge();
+            unawaited(_injectBridge(controller, generation));
           },
           onWebResourceError: (error) {
             if (error.isForMainFrame == false) return;
@@ -155,8 +155,27 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
                 : NavigationDecision.prevent;
           },
         ),
-      )
-      ..loadFile(renderEntry.file.absolute.path);
+      );
+    try {
+      await controller.loadFile(renderEntry.file.absolute.path);
+    } catch (e) {
+      await WebViewDisposeUtils.disposeDesktop(controller);
+      if (!mounted || generation != _loadGeneration) {
+        unawaited(_deleteDirectory(renderEntry.root));
+        return;
+      }
+      setState(() {
+        _controller = null;
+        _error = '插件页面加载失败: $e';
+      });
+      unawaited(_deleteDirectory(renderEntry.root));
+      return;
+    }
+    if (!mounted || generation != _loadGeneration) {
+      await WebViewDisposeUtils.disposeDesktop(controller);
+      unawaited(_deleteDirectory(renderEntry.root));
+      return;
+    }
     _activeRenderRoot = renderEntry.root;
     setState(() {
       _controller = controller;
@@ -307,10 +326,15 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
   }
 
   /// 向 WebView 注入 LynAI JS Bridge 脚本。
-  Future<void> _injectBridge() async {
-    final controller = _controller;
-    if (controller == null) return;
-    await controller.runJavaScript(r'''
+  Future<void> _injectBridge(
+    WebViewController controller,
+    int generation,
+  ) async {
+    if (!mounted || generation != _loadGeneration || _controller != controller) {
+      return;
+    }
+    try {
+      await controller.runJavaScript(r'''
 (function () {
   if (window.lynai && window.lynai.call) return;
   var seq = 0;
@@ -345,6 +369,11 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
   window.dispatchEvent(new Event('lynai-ready'));
 })();
 ''');
+    } catch (e) {
+      if (mounted && generation == _loadGeneration && _controller == controller) {
+        debugPrint('注入插件 WebView Bridge 失败: $e');
+      }
+    }
   }
 
   /// 处理来自 WebView 的 Bridge 调用请求。
@@ -416,9 +445,15 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     final controller = _controller;
     if (controller == null) return;
     final json = jsonEncode(payload);
-    await controller.runJavaScript(
-      'if (window.__lynaiBridgeResolve) window.__lynaiBridgeResolve($json);',
-    );
+    try {
+      await controller.runJavaScript(
+        'if (window.__lynaiBridgeResolve) window.__lynaiBridgeResolve($json);',
+      );
+    } catch (e) {
+      if (mounted && _controller == controller) {
+        debugPrint('发送插件 WebView Bridge 响应失败: $e');
+      }
+    }
   }
 
   /// 将动态值转换为 JSON 安全的 Map 结构。

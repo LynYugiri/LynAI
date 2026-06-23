@@ -437,9 +437,16 @@ class LynAIFunctionService {
       'device.screen.context' ||
       'device.screen.screenshot' ||
       'device.screen.query' ||
+      'device.screen.waitText' ||
+      'device.screen.readVisibleText' ||
+      'device.screen.extractMessages' ||
       'device.node.find' ||
       'device.node.findAll' ||
       'device.waitForNode' => LynAIPermissions.deviceScreenRead,
+      'device.screen.clickText' ||
+      'device.screen.waitAndClick' ||
+      'device.screen.inputText' ||
+      'device.screen.scrollUntil' => LynAIPermissions.deviceControl,
       'device.service.status' ||
       'device.service.openSettings' => LynAIPermissions.deviceOverlay,
       'device.app.open' => LynAIPermissions.deviceControl,

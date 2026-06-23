@@ -46,7 +46,7 @@ object DeviceControlBridge : EventChannel.StreamHandler {
 
     private fun openSettings(args: Map<String, Any?>): Map<String, Any?> {
         val target = args["target"]?.toString().orEmpty()
-        val ctx = activity ?: return mapOf("ok" to false, "error" to "Activity 不可用")
+        val ctx = activity ?: return error("activity_unavailable", "Activity 不可用")
         val intent = if (target == "overlay") {
             Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
                 data = Uri.parse("package:${ctx.packageName}")
@@ -65,12 +65,10 @@ object DeviceControlBridge : EventChannel.StreamHandler {
     }
 
     private fun unavailable(): Map<String, Any?> {
-        return mapOf(
-            "ok" to false,
-            "error" to mapOf(
-                "code" to "accessibility_unavailable",
-                "message" to "LynAI 无障碍服务未启用"
-            )
-        )
+        return error("accessibility_unavailable", "LynAI 无障碍服务未启用")
+    }
+
+    private fun error(code: String, message: String): Map<String, Any?> {
+        return mapOf("ok" to false, "error" to mapOf("code" to code, "message" to message))
     }
 }
