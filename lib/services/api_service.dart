@@ -900,145 +900,140 @@ class ApiService {
       );
     }
 
-    try {
-      final streamedResponse = await client.send(request).timeout(_timeout);
+    final streamedResponse = await client.send(request).timeout(_timeout);
 
+    if (logSse) {
+      _logSseDiagnostic(
+        'response',
+        jsonEncode({'statusCode': streamedResponse.statusCode}),
+      );
+    }
+
+    if (streamedResponse.statusCode != 200) {
+      final errorBody = await streamedResponse.stream.bytesToString();
       if (logSse) {
-        _logSseDiagnostic(
-          'response',
-          jsonEncode({'statusCode': streamedResponse.statusCode}),
-        );
+        _logSseDiagnostic('error-body', errorBody);
       }
+      throw Exception(
+        '流式请求失败: ${streamedResponse.statusCode} ${_truncateErrorBody(errorBody)}',
+      );
+    }
 
-      if (streamedResponse.statusCode != 200) {
-        final errorBody = await streamedResponse.stream.bytesToString();
-        if (logSse) {
-          _logSseDiagnostic('error-body', errorBody);
-        }
-        throw Exception(
-          '流式请求失败: ${streamedResponse.statusCode} ${_truncateErrorBody(errorBody)}',
-        );
+    final toolCallParts = <int, _OpenAIStreamToolCallAccumulator>{};
+    var doneEmitted = false;
+
+    await for (final chunk
+        in streamedResponse.stream
+            .transform(utf8.decoder)
+            .transform(const LineSplitter())
+            .timeout(_streamTimeout)) {
+      if (logSse) {
+        _logSseDiagnostic('raw-chunk', chunk);
       }
-
-      final toolCallParts = <int, _OpenAIStreamToolCallAccumulator>{};
-      var doneEmitted = false;
-
-      await for (final chunk
-          in streamedResponse.stream
-              .transform(utf8.decoder)
-              .transform(const LineSplitter())
-              .timeout(_streamTimeout)) {
-        if (logSse) {
-          _logSseDiagnostic('raw-chunk', chunk);
+      if (chunk.startsWith('data:')) {
+        final data = chunk.substring(5).trim();
+        if (data == '[DONE]') {
+          doneEmitted = true;
+          final finalizedToolCalls = _finalizeOpenAIToolCalls(toolCallParts);
+          if (logSse) {
+            _logSseDiagnostic(
+              'done-summary',
+              jsonEncode(
+                _streamChunkSummary(null, null, null, finalizedToolCalls),
+              ),
+            );
+          }
+          yield StreamChunk(toolCalls: finalizedToolCalls, isDone: true);
+          break;
         }
-        if (chunk.startsWith('data:')) {
-          final data = chunk.substring(5).trim();
-          if (data == '[DONE]') {
-            doneEmitted = true;
-            final finalizedToolCalls = _finalizeOpenAIToolCalls(toolCallParts);
+        Object? finishReason;
+        try {
+          final json = jsonDecode(data);
+          if (json is Map && json['error'] != null) {
             if (logSse) {
+              _logSseDiagnostic('api-error', jsonEncode(json['error']));
+            }
+            throw Exception(_formatApiError(json['error']));
+          }
+          final choice = json['choices']?[0];
+          if (choice != null) {
+            final delta = choice['delta'];
+            final content = _streamContentText(delta?['content']);
+            final reasoning = _extractReasoning(delta);
+            _accumulateOpenAIToolCalls(delta, toolCallParts);
+            if (logSse) {
+              final finalizedToolCalls =
+                  choice?['finish_reason'] == 'tool_calls'
+                  ? _finalizeOpenAIToolCalls(toolCallParts)
+                  : const <ChatToolCall>[];
               _logSseDiagnostic(
-                'done-summary',
+                'parsed-chunk',
                 jsonEncode(
-                  _streamChunkSummary(null, null, null, finalizedToolCalls),
+                  _streamChunkSummary(
+                    choice,
+                    content,
+                    reasoning,
+                    finalizedToolCalls,
+                  ),
                 ),
               );
             }
-            yield StreamChunk(toolCalls: finalizedToolCalls, isDone: true);
-            break;
+            if (content != null || reasoning != null) {
+              yield StreamChunk(content: content, reasoningContent: reasoning);
+            }
           }
-          Object? finishReason;
-          try {
-            final json = jsonDecode(data);
-            if (json is Map && json['error'] != null) {
-              if (logSse) {
-                _logSseDiagnostic('api-error', jsonEncode(json['error']));
-              }
-              throw Exception(_formatApiError(json['error']));
-            }
-            final choice = json['choices']?[0];
-            if (choice != null) {
-              final delta = choice['delta'];
-              final content = _streamContentText(delta?['content']);
-              final reasoning = _extractReasoning(delta);
-              _accumulateOpenAIToolCalls(delta, toolCallParts);
-              if (logSse) {
-                final finalizedToolCalls =
-                    choice?['finish_reason'] == 'tool_calls'
-                    ? _finalizeOpenAIToolCalls(toolCallParts)
-                    : const <ChatToolCall>[];
-                _logSseDiagnostic(
-                  'parsed-chunk',
-                  jsonEncode(
-                    _streamChunkSummary(
-                      choice,
-                      content,
-                      reasoning,
-                      finalizedToolCalls,
-                    ),
-                  ),
-                );
-              }
-              if (content != null || reasoning != null) {
-                yield StreamChunk(
-                  content: content,
-                  reasoningContent: reasoning,
-                );
-              }
-            }
-            finishReason = choice?['finish_reason'];
-          } on FormatException {
-            if (logSse) {
-              _logSseDiagnostic('malformed-data', data);
-            }
-            // malformed chunk, skip
+          finishReason = choice?['finish_reason'];
+        } on FormatException {
+          if (logSse) {
+            _logSseDiagnostic('malformed-data', data);
           }
-          if (finishReason != null && finishReason != '') {
-            doneEmitted = true;
-            final finalizedToolCalls = _finalizeOpenAIToolCalls(toolCallParts);
-            if (logSse) {
-              _logSseDiagnostic(
-                'finish-summary',
-                jsonEncode({
-                  'finishReason': finishReason,
-                  'finalizedToolCalls': finalizedToolCalls
-                      .map(
-                        (call) => {
-                          'id': call.id,
-                          'name': call.name,
-                          'argumentKeys': call.arguments.keys.toList(),
-                        },
-                      )
-                      .toList(),
-                }),
-              );
-            }
-            yield StreamChunk(toolCalls: finalizedToolCalls, isDone: true);
-            break;
+          // malformed chunk, skip
+        }
+        if (finishReason != null && finishReason != '') {
+          doneEmitted = true;
+          final finalizedToolCalls = _finalizeOpenAIToolCalls(toolCallParts);
+          if (logSse) {
+            _logSseDiagnostic(
+              'finish-summary',
+              jsonEncode({
+                'finishReason': finishReason,
+                'finalizedToolCalls': finalizedToolCalls
+                    .map(
+                      (call) => {
+                        'id': call.id,
+                        'name': call.name,
+                        'argumentKeys': call.arguments.keys.toList(),
+                      },
+                    )
+                    .toList(),
+              }),
+            );
           }
+          yield StreamChunk(toolCalls: finalizedToolCalls, isDone: true);
+          break;
         }
       }
-      if (!doneEmitted) {
-        final finalizedToolCalls = _finalizeOpenAIToolCalls(toolCallParts);
-        if (logSse) {
-          _logSseDiagnostic(
-            'implicit-done-summary',
-            jsonEncode({
-              'finalizedToolCalls': finalizedToolCalls
-                  .map(
-                    (call) => {
-                      'id': call.id,
-                      'name': call.name,
-                      'argumentKeys': call.arguments.keys.toList(),
-                    },
-                  )
-                  .toList(),
-            }),
-          );
-        }
-        yield StreamChunk(toolCalls: finalizedToolCalls, isDone: true);
+    }
+    if (!doneEmitted) {
+      final finalizedToolCalls = _finalizeOpenAIToolCalls(toolCallParts);
+      if (logSse) {
+        _logSseDiagnostic(
+          'implicit-done-summary',
+          jsonEncode({
+            'finalizedToolCalls': finalizedToolCalls
+                .map(
+                  (call) => {
+                    'id': call.id,
+                    'name': call.name,
+                    'argumentKeys': call.arguments.keys.toList(),
+                  },
+                )
+                .toList(),
+          }),
+        );
       }
-    } finally {}
+      yield StreamChunk(toolCalls: finalizedToolCalls, isDone: true);
+    }
   }
 
   void _accumulateOpenAIToolCalls(
@@ -1204,123 +1199,121 @@ class ApiService {
     request.headers.addAll({'Content-Type': 'application/json'});
     request.body = jsonEncode(body);
 
-    try {
-      final streamedResponse = await client.send(request).timeout(_timeout);
+    final streamedResponse = await client.send(request).timeout(_timeout);
 
-      if (streamedResponse.statusCode != 200) {
-        final errorBody = await streamedResponse.stream.bytesToString();
-        throw Exception(
-          'Ollama 流式请求失败: ${streamedResponse.statusCode} $errorBody',
-        );
+    if (streamedResponse.statusCode != 200) {
+      final errorBody = await streamedResponse.stream.bytesToString();
+      throw Exception(
+        'Ollama 流式请求失败: ${streamedResponse.statusCode} $errorBody',
+      );
+    }
+
+    String ollamaBuf = '';
+    bool inThink = false;
+
+    int safeLengthForPartialTag(String text, List<String> prefixes) {
+      for (var i = text.length - 1; i >= 0; i--) {
+        final suffix = text.substring(i).toLowerCase();
+        if (prefixes.any((prefix) => prefix.startsWith(suffix))) return i;
       }
+      return text.length;
+    }
 
-      String ollamaBuf = '';
-      bool inThink = false;
-
-      int safeLengthForPartialTag(String text, List<String> prefixes) {
-        for (var i = text.length - 1; i >= 0; i--) {
-          final suffix = text.substring(i).toLowerCase();
-          if (prefixes.any((prefix) => prefix.startsWith(suffix))) return i;
-        }
-        return text.length;
-      }
-
-      List<StreamChunk> processBuffer({bool flush = false}) {
-        final result = <StreamChunk>[];
-        while (ollamaBuf.isNotEmpty) {
-          if (!inThink) {
-            final lower = ollamaBuf.toLowerCase();
-            final start = lower.indexOf('<think');
-            if (start == -1) {
-              final safeLength = flush
-                  ? ollamaBuf.length
-                  : safeLengthForPartialTag(ollamaBuf, const [
-                      '<think',
-                      '<think>',
-                    ]);
-              if (safeLength == 0) break;
-              final content = ollamaBuf.substring(0, safeLength);
-              if (content.isNotEmpty) result.add(StreamChunk(content: content));
-              ollamaBuf = ollamaBuf.substring(safeLength);
-              continue;
-            }
-            if (start > 0) {
-              result.add(StreamChunk(content: ollamaBuf.substring(0, start)));
-              ollamaBuf = ollamaBuf.substring(start);
-              continue;
-            }
-            final tagEnd = ollamaBuf.indexOf('>');
-            if (tagEnd == -1) {
-              if (flush) ollamaBuf = '';
-              break;
-            }
-            ollamaBuf = ollamaBuf.substring(tagEnd + 1);
-            inThink = true;
-          } else {
-            final lower = ollamaBuf.toLowerCase();
-            final end = lower.indexOf('</think>');
-            if (end == -1) {
-              final safeLength = flush
-                  ? ollamaBuf.length
-                  : safeLengthForPartialTag(ollamaBuf, const ['</think>']);
-              if (safeLength == 0) break;
-              final reasoning = ollamaBuf.substring(0, safeLength);
-              if (reasoning.isNotEmpty) {
-                result.add(StreamChunk(reasoningContent: reasoning));
-              }
-              ollamaBuf = ollamaBuf.substring(safeLength);
-              continue;
-            }
-            if (end > 0) {
-              result.add(
-                StreamChunk(reasoningContent: ollamaBuf.substring(0, end)),
-              );
-            }
-            ollamaBuf = ollamaBuf.substring(end + '</think>'.length);
-            inThink = false;
+    List<StreamChunk> processBuffer({bool flush = false}) {
+      final result = <StreamChunk>[];
+      while (ollamaBuf.isNotEmpty) {
+        if (!inThink) {
+          final lower = ollamaBuf.toLowerCase();
+          final start = lower.indexOf('<think');
+          if (start == -1) {
+            final safeLength = flush
+                ? ollamaBuf.length
+                : safeLengthForPartialTag(ollamaBuf, const [
+                    '<think',
+                    '<think>',
+                  ]);
+            if (safeLength == 0) break;
+            final content = ollamaBuf.substring(0, safeLength);
+            if (content.isNotEmpty) result.add(StreamChunk(content: content));
+            ollamaBuf = ollamaBuf.substring(safeLength);
+            continue;
           }
-        }
-        return result;
-      }
-
-      var doneEmitted = false;
-      await for (final chunk
-          in streamedResponse.stream
-              .transform(utf8.decoder)
-              .transform(const LineSplitter())
-              .timeout(_streamTimeout)) {
-        if (chunk.trim().isEmpty) continue;
-        try {
-          final json = jsonDecode(chunk);
-          final error = json['error'];
-          if (error != null) throw Exception('Ollama 流式返回错误: $error');
-          final rawContent = json['message']?['content'] as String?;
-          final done = json['done'] as bool? ?? false;
-          if (rawContent != null) {
-            ollamaBuf += rawContent;
-            for (final c in processBuffer()) {
-              yield c;
-            }
+          if (start > 0) {
+            result.add(StreamChunk(content: ollamaBuf.substring(0, start)));
+            ollamaBuf = ollamaBuf.substring(start);
+            continue;
           }
-          if (done) {
-            for (final c in processBuffer(flush: true)) {
-              yield c;
-            }
-            doneEmitted = true;
-            yield StreamChunk(isDone: true);
+          final tagEnd = ollamaBuf.indexOf('>');
+          if (tagEnd == -1) {
+            if (flush) ollamaBuf = '';
             break;
           }
-        } catch (e) {
-          throw Exception('Ollama 流式解析失败: $e');
+          ollamaBuf = ollamaBuf.substring(tagEnd + 1);
+          inThink = true;
+        } else {
+          final lower = ollamaBuf.toLowerCase();
+          final end = lower.indexOf('</think>');
+          if (end == -1) {
+            final safeLength = flush
+                ? ollamaBuf.length
+                : safeLengthForPartialTag(ollamaBuf, const ['</think>']);
+            if (safeLength == 0) break;
+            final reasoning = ollamaBuf.substring(0, safeLength);
+            if (reasoning.isNotEmpty) {
+              result.add(StreamChunk(reasoningContent: reasoning));
+            }
+            ollamaBuf = ollamaBuf.substring(safeLength);
+            continue;
+          }
+          if (end > 0) {
+            result.add(
+              StreamChunk(reasoningContent: ollamaBuf.substring(0, end)),
+            );
+          }
+          ollamaBuf = ollamaBuf.substring(end + '</think>'.length);
+          inThink = false;
         }
       }
-      if (!doneEmitted) {
-        for (final c in processBuffer(flush: true)) {
-          yield c;
+      return result;
+    }
+
+    var doneEmitted = false;
+    await for (final chunk
+        in streamedResponse.stream
+            .transform(utf8.decoder)
+            .transform(const LineSplitter())
+            .timeout(_streamTimeout)) {
+      if (chunk.trim().isEmpty) continue;
+      try {
+        final json = jsonDecode(chunk);
+        final error = json['error'];
+        if (error != null) throw Exception('Ollama 流式返回错误: $error');
+        final rawContent = json['message']?['content'] as String?;
+        final done = json['done'] as bool? ?? false;
+        if (rawContent != null) {
+          ollamaBuf += rawContent;
+          for (final c in processBuffer()) {
+            yield c;
+          }
         }
-        yield StreamChunk(isDone: true);
+        if (done) {
+          for (final c in processBuffer(flush: true)) {
+            yield c;
+          }
+          doneEmitted = true;
+          yield StreamChunk(isDone: true);
+          break;
+        }
+      } catch (e) {
+        throw Exception('Ollama 流式解析失败: $e');
       }
-    } finally {}
+    }
+    if (!doneEmitted) {
+      for (final c in processBuffer(flush: true)) {
+        yield c;
+      }
+      yield StreamChunk(isDone: true);
+    }
   }
 
   Stream<StreamChunk> _sendAnthropicStreamRequest(
@@ -1329,40 +1322,12 @@ class ApiService {
     bool thinking = false,
   }) async* {
     final uri = _endpointUri(config, '/messages');
-
-    final anthropicMessages = <Map<String, dynamic>>[];
-    String? systemPrompt;
-
-    for (final m in messages) {
-      if (m['role'] == 'system') {
-        systemPrompt = m['content'] as String;
-      } else {
-        anthropicMessages.add({'role': m['role'], 'content': m['content']});
-      }
-    }
-
-    final maxTokens = config.effectiveMaxTokens ?? 4096;
-    final body = <String, dynamic>{
-      'model': config.modelName,
-      'messages': anthropicMessages,
-      'max_tokens': maxTokens,
-      'stream': true,
-      // ignore: use_null_aware_elements
-      if (systemPrompt != null) 'system': systemPrompt,
-      if (config.effectiveTemperature != null)
-        'temperature': config.effectiveTemperature,
-      if (config.effectiveTopP != null) 'top_p': config.effectiveTopP,
-      if (thinking && !config.extraParams.containsKey('thinking'))
-        'thinking': {
-          'type': 'enabled',
-          'budget_tokens': _anthropicThinkingBudget(config, maxTokens),
-        },
-    };
-    for (final entry in config.extraParams.entries) {
-      if (!body.containsKey(entry.key)) {
-        body[entry.key] = entry.value;
-      }
-    }
+    final body = _anthropicRequestBody(
+      config,
+      messages,
+      stream: true,
+      thinking: thinking,
+    );
 
     final request = http.Request('POST', uri);
     request.headers.addAll({
@@ -1372,58 +1337,56 @@ class ApiService {
     });
     request.body = jsonEncode(body);
 
-    try {
-      final streamedResponse = await client.send(request).timeout(_timeout);
+    final streamedResponse = await client.send(request).timeout(_timeout);
 
-      if (streamedResponse.statusCode != 200) {
-        final errorBody = await streamedResponse.stream.bytesToString();
-        throw Exception(
-          'Anthropic 流式请求失败: ${streamedResponse.statusCode} $errorBody',
-        );
-      }
+    if (streamedResponse.statusCode != 200) {
+      final errorBody = await streamedResponse.stream.bytesToString();
+      throw Exception(
+        'Anthropic 流式请求失败: ${streamedResponse.statusCode} $errorBody',
+      );
+    }
 
-      var doneEmitted = false;
-      await for (final chunk
-          in streamedResponse.stream
-              .transform(utf8.decoder)
-              .transform(const LineSplitter())
-              .timeout(_streamTimeout)) {
-        // Anthropic SSE format: "event: <type>\ndata: <json>"
-        if (chunk.startsWith('data:')) {
-          final data = chunk.substring(5).trim();
-          try {
-            final json = jsonDecode(data);
-            final type = json['type'] as String?;
-            if (type == 'error') {
-              throw Exception(_formatApiError(json['error']));
-            }
-
-            if (type == 'content_block_delta') {
-              final delta = json['delta'];
-              if (delta != null) {
-                final deltaType = delta['type'] as String?;
-                if (deltaType == 'text_delta') {
-                  yield StreamChunk(content: delta['text'] as String?);
-                } else if (deltaType == 'thinking_delta') {
-                  yield StreamChunk(
-                    reasoningContent: delta['thinking'] as String?,
-                  );
-                }
-              }
-            } else if (type == 'message_stop') {
-              doneEmitted = true;
-              yield StreamChunk(isDone: true);
-              break;
-            }
-          } on FormatException {
-            // malformed chunk, skip
+    var doneEmitted = false;
+    await for (final chunk
+        in streamedResponse.stream
+            .transform(utf8.decoder)
+            .transform(const LineSplitter())
+            .timeout(_streamTimeout)) {
+      // Anthropic SSE format: "event: <type>\ndata: <json>"
+      if (chunk.startsWith('data:')) {
+        final data = chunk.substring(5).trim();
+        try {
+          final json = jsonDecode(data);
+          final type = json['type'] as String?;
+          if (type == 'error') {
+            throw Exception(_formatApiError(json['error']));
           }
+
+          if (type == 'content_block_delta') {
+            final delta = json['delta'];
+            if (delta != null) {
+              final deltaType = delta['type'] as String?;
+              if (deltaType == 'text_delta') {
+                yield StreamChunk(content: delta['text'] as String?);
+              } else if (deltaType == 'thinking_delta') {
+                yield StreamChunk(
+                  reasoningContent: delta['thinking'] as String?,
+                );
+              }
+            }
+          } else if (type == 'message_stop') {
+            doneEmitted = true;
+            yield StreamChunk(isDone: true);
+            break;
+          }
+        } on FormatException {
+          // malformed chunk, skip
         }
       }
-      if (!doneEmitted) {
-        yield StreamChunk(isDone: true);
-      }
-    } finally {}
+    }
+    if (!doneEmitted) {
+      yield StreamChunk(isDone: true);
+    }
   }
 
   Future<ChatResponse> _sendAnthropicRequest(
@@ -1432,40 +1395,12 @@ class ApiService {
     bool thinking = false,
   }) async {
     final uri = _endpointUri(config, '/messages');
-
-    final anthropicMessages = <Map<String, dynamic>>[];
-    String? systemPrompt;
-
-    for (final m in messages) {
-      if (m['role'] == 'system') {
-        systemPrompt = m['content'] as String;
-      } else {
-        anthropicMessages.add({'role': m['role'], 'content': m['content']});
-      }
-    }
-
-    final maxTokens = config.effectiveMaxTokens ?? 4096;
-    final body = <String, dynamic>{
-      'model': config.modelName,
-      'messages': anthropicMessages,
-      'max_tokens': maxTokens,
-      'stream': false,
-      // ignore: use_null_aware_elements
-      if (systemPrompt != null) 'system': systemPrompt,
-      if (config.effectiveTemperature != null)
-        'temperature': config.effectiveTemperature,
-      if (config.effectiveTopP != null) 'top_p': config.effectiveTopP,
-      if (thinking && !config.extraParams.containsKey('thinking'))
-        'thinking': {
-          'type': 'enabled',
-          'budget_tokens': _anthropicThinkingBudget(config, maxTokens),
-        },
-    };
-    for (final entry in config.extraParams.entries) {
-      if (!body.containsKey(entry.key)) {
-        body[entry.key] = entry.value;
-      }
-    }
+    final body = _anthropicRequestBody(
+      config,
+      messages,
+      stream: false,
+      thinking: thinking,
+    );
 
     final response = await http
         .post(
@@ -1507,6 +1442,45 @@ class ApiService {
         'Anthropic 请求失败: ${response.statusCode} ${response.body}',
       );
     }
+  }
+
+  Map<String, dynamic> _anthropicRequestBody(
+    ModelConfig config,
+    List<Map<String, dynamic>> messages, {
+    required bool stream,
+    required bool thinking,
+  }) {
+    final anthropicMessages = <Map<String, dynamic>>[];
+    String? systemPrompt;
+
+    for (final m in messages) {
+      if (m['role'] == 'system') {
+        systemPrompt = m['content'] as String;
+      } else {
+        anthropicMessages.add({'role': m['role'], 'content': m['content']});
+      }
+    }
+
+    final maxTokens = config.effectiveMaxTokens ?? 4096;
+    final body = <String, dynamic>{
+      'model': config.modelName,
+      'messages': anthropicMessages,
+      'max_tokens': maxTokens,
+      'stream': stream,
+      if (config.effectiveTemperature != null)
+        'temperature': config.effectiveTemperature,
+      if (config.effectiveTopP != null) 'top_p': config.effectiveTopP,
+      if (thinking && !config.extraParams.containsKey('thinking'))
+        'thinking': {
+          'type': 'enabled',
+          'budget_tokens': _anthropicThinkingBudget(config, maxTokens),
+        },
+    };
+    if (systemPrompt != null) {
+      body['system'] = systemPrompt;
+    }
+    _applyExtraRequestParams(body, config);
+    return body;
   }
 
   List<ChatToolCall> _parseOpenAIToolCalls(dynamic message) {

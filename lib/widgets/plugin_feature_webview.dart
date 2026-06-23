@@ -330,7 +330,9 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
     WebViewController controller,
     int generation,
   ) async {
-    if (!mounted || generation != _loadGeneration || _controller != controller) {
+    if (!mounted ||
+        generation != _loadGeneration ||
+        _controller != controller) {
       return;
     }
     try {
@@ -370,7 +372,9 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
 })();
 ''');
     } catch (e) {
-      if (mounted && generation == _loadGeneration && _controller == controller) {
+      if (mounted &&
+          generation == _loadGeneration &&
+          _controller == controller) {
         debugPrint('注入插件 WebView Bridge 失败: $e');
       }
     }

@@ -1268,6 +1268,12 @@ return { ok = true, note = "image generated" }
           apiType: 'anthropic',
           priority: 0,
           maxTokens: 128,
+          extraParams: {
+            'thinkingBudgetTokens': 64,
+            'debugSse': true,
+            'metadata': {'source': 'test'},
+            'max_tokens': 999,
+          },
         ),
         const [
           {'role': 'system', 'content': 'system'},
@@ -1280,9 +1286,13 @@ return { ok = true, note = "image generated" }
       expect(response.reasoning, '先思考');
       expect(requestBody?['thinking'], {
         'type': 'enabled',
-        'budget_tokens': 127,
+        'budget_tokens': 64,
       });
       expect(requestBody?['system'], 'system');
+      expect(requestBody?['metadata'], {'source': 'test'});
+      expect(requestBody?['max_tokens'], 128);
+      expect(requestBody?.containsKey('thinkingBudgetTokens'), isFalse);
+      expect(requestBody?.containsKey('debugSse'), isFalse);
     } finally {
       await server.close(force: true);
     }

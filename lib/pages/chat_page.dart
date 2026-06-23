@@ -2407,8 +2407,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           requestGen != _recordingRequestGen ||
           _recordingStartCancelled) {
         await _audioRecorder.stop();
-        // ignore: invalid_return_type_for_catch_error
-        unawaited(File(path).delete().catchError((_) => null));
+        unawaited(_deleteTemporaryFile(path));
         return;
       }
       setState(() {
@@ -2534,8 +2533,15 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       ).showSnackBar(SnackBar(content: Text('语音转文字失败: $e')));
     } finally {
       if (mounted) setState(() => _transcribingSpeech = false);
-      // ignore: invalid_return_type_for_catch_error
-      unawaited(File(path).delete().catchError((_) => null));
+      unawaited(_deleteTemporaryFile(path));
+    }
+  }
+
+  Future<void> _deleteTemporaryFile(String path) async {
+    try {
+      await File(path).delete();
+    } on FileSystemException {
+      // Best-effort cleanup for recorder temp files.
     }
   }
 

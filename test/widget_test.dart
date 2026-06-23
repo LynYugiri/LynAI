@@ -1,3 +1,5 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
@@ -33,5 +35,14 @@ void main() {
     await tester.pump();
 
     expect(find.byType(LynAIApp), findsOneWidget);
+    final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
+    expect(app.supportedLocales, const [
+      Locale('zh', 'CN'),
+      Locale('en', 'US'),
+    ]);
+    expect(
+      app.localizationsDelegates,
+      contains(GlobalMaterialLocalizations.delegate),
+    );
   });
 }

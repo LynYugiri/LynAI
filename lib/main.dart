@@ -2,8 +2,6 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
-// flutter_localizations is used on Windows via FluentApp builder.
-// ignore: unused_import
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:fluent_ui/fluent_ui.dart' as fluent;
 import 'package:package_info_plus/package_info_plus.dart';
@@ -60,6 +58,22 @@ class LynAIApp extends StatefulWidget {
 }
 
 class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
+  static const List<Locale> _supportedLocales = [
+    Locale('zh', 'CN'),
+    Locale('en', 'US'),
+  ];
+  static const List<LocalizationsDelegate<dynamic>>
+  _materialLocalizationDelegates = [
+    GlobalMaterialLocalizations.delegate,
+    GlobalCupertinoLocalizations.delegate,
+    GlobalWidgetsLocalizations.delegate,
+  ];
+  static const List<LocalizationsDelegate<dynamic>>
+  _windowsLocalizationDelegates = [
+    fluent.FluentLocalizations.delegate,
+    ..._materialLocalizationDelegates,
+  ];
+
   bool _isLoading = true;
   bool _hasError = false;
   String _errorMessage = '';
@@ -276,12 +290,8 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         brightness: Brightness.dark,
       ),
       themeMode: settingsProvider.themeModeEnum,
-      localizationsDelegates: const [
-        fluent.FluentLocalizations.delegate,
-        DefaultMaterialLocalizations.delegate,
-        DefaultWidgetsLocalizations.delegate,
-      ],
-      supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+      localizationsDelegates: _windowsLocalizationDelegates,
+      supportedLocales: _supportedLocales,
       home: home,
       builder: (context, child) {
         final fluentTheme = fluent.FluentTheme.of(context);
@@ -338,6 +348,8 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         ),
       ),
       themeMode: settingsProvider.themeModeEnum,
+      localizationsDelegates: _materialLocalizationDelegates,
+      supportedLocales: _supportedLocales,
       home: home,
     );
   }
