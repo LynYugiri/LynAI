@@ -25,6 +25,7 @@ import '../providers/conversation_provider.dart';
 import 'api_service.dart';
 import 'agent_lua_script_service.dart';
 import 'agent_runtime_service.dart';
+import 'device_control_service.dart';
 import 'lynai_call_identity.dart';
 import 'lynai_function_service.dart';
 import 'lynai_permission_service.dart';
@@ -208,12 +209,14 @@ class ToolCallService {
     SettingsProvider? settings,
     ConversationProvider? conversations,
     String? conversationId,
+    bool allowScreenContextTool = false,
     bool allowSubagents = true,
   }) : _plugins = plugins,
        _modelConfigs = modelConfigs,
        _settings = settings,
        _conversations = conversations,
        _conversationId = conversationId,
+       _allowScreenContextTool = allowScreenContextTool,
        _allowSubagents = allowSubagents;
 
   static const _channel = MethodChannel('lynai/native_tools');
@@ -228,6 +231,7 @@ class ToolCallService {
   final SettingsProvider? _settings;
   final ConversationProvider? _conversations;
   final String? _conversationId;
+  final bool _allowScreenContextTool;
   final bool _allowSubagents;
   final _lynaiFunctions = LynAIFunctionService();
   final _permissionService = const LynAIPermissionService();
@@ -378,6 +382,7 @@ ${lines.join('\n')}$more''';
     bool agentEnabled = false,
     Iterable<String> agentGrantedPermissions = const [],
     bool imageGenerationEnabled = false,
+    bool screenContextEnabled = false,
   ]) {
     final tools = <Map<String, dynamic>>[
       {
@@ -782,6 +787,9 @@ ${lines.join('\n')}$more''';
         .map((tool) => tool['function']?['name']?.toString())
         .whereType<String>()
         .toSet();
+    if (screenContextEnabled) {
+      _appendScreenContextTool(tools, names);
+    }
     if (agentEnabled) {
       _appendAgentTools(tools, names, agentGrantedPermissions.toSet());
     }
@@ -811,6 +819,22 @@ ${lines.join('\n')}$more''';
     }
     if (imageGenerationEnabled) _appendImageGenerationTool(tools, names);
     return tools;
+  }
+
+  static void _appendScreenContextTool(
+    List<Map<String, dynamic>> tools,
+    Set<String> names,
+  ) {
+    if (!names.add('get_current_screen')) return;
+    tools.add({
+      'type': 'function',
+      'function': {
+        'name': 'get_current_screen',
+        'description':
+            '读取 Android 当前前台页面的可见文本和无障碍节点摘要。仅当用户问题依赖当前应用界面时调用；不要每轮自动读取。',
+        'parameters': {'type': 'object', 'properties': <String, dynamic>{}},
+      },
+    });
   }
 
   static void _appendImageGenerationTool(
@@ -1235,6 +1259,14 @@ ${lines.join('\n')}$more''';
             'packageName': packageName,
           });
           return {'ok': true, ...result};
+        case 'get_current_screen':
+          if (!_allowScreenContextTool) {
+            return _error('当前对话未允许模型读取当前页面');
+          }
+          return DeviceControlService.instance.execute(
+            'device.screen.context',
+            const {},
+          );
         case 'create_plan':
           return _createPlan(call.arguments);
         case 'update_plan':

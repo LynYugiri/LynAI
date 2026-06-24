@@ -16,7 +16,6 @@ import 'providers/settings_provider.dart';
 import 'repositories/plugin_repository.dart';
 import 'pages/home_page.dart';
 import 'pages/changelog_page.dart';
-import 'services/device_plan_overlay_service.dart';
 import 'services/floating_assistant_service.dart';
 import 'services/storage_v2_upgrade_service.dart';
 import 'utils/changelog_parser.dart';
@@ -86,7 +85,6 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    DevicePlanOverlayService.instance.start();
     // Provider 已在父级注册；延后到 microtask 后再读取 context。
     Future.microtask(() => _loadData());
   }
@@ -97,7 +95,13 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
     _conversationProvider ??= context.read<ConversationProvider>();
     _settingsProvider ??= context.read<SettingsProvider>();
     if (_settingsProvider != null) {
-      FloatingAssistantService.instance.start(_settingsProvider!);
+      FloatingAssistantService.instance.start(
+        settings: _settingsProvider!,
+        conversations: context.read<ConversationProvider>(),
+        models: context.read<ModelConfigProvider>(),
+        features: context.read<FeatureProvider>(),
+        plugins: context.read<PluginProvider>(),
+      );
     }
   }
 
@@ -124,7 +128,6 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    DevicePlanOverlayService.instance.dispose();
     FloatingAssistantService.instance.dispose();
     unawaited(_flushCriticalSaves());
     super.dispose();

@@ -5,9 +5,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import '../providers/settings_provider.dart';
-import 'device_control_service.dart';
+import '../providers/conversation_provider.dart';
+import '../providers/feature_provider.dart';
+import '../providers/model_config_provider.dart';
+import '../providers/plugin_provider.dart';
 import 'device_run_controller.dart';
 import 'floating_assistant_bridge.dart';
+import 'floating_chat_session_controller.dart';
 
 class FloatingAssistantService with WidgetsBindingObserver {
   FloatingAssistantService._();
@@ -15,16 +19,34 @@ class FloatingAssistantService with WidgetsBindingObserver {
   static final FloatingAssistantService instance = FloatingAssistantService._();
 
   SettingsProvider? _settings;
+  ConversationProvider? _conversations;
+  FloatingChatSessionController? _chat;
   bool _started = false;
   bool _foreground = true;
   bool _translationRunning = false;
 
-  void start(SettingsProvider settings) {
+  void start({
+    required SettingsProvider settings,
+    required ConversationProvider conversations,
+    required ModelConfigProvider models,
+    required FeatureProvider features,
+    required PluginProvider plugins,
+  }) {
     if (_started || !Platform.isAndroid) return;
     _started = true;
     _settings = settings;
+    _conversations = conversations;
+    _chat = FloatingChatSessionController(
+      settings: settings,
+      conversations: conversations,
+      models: models,
+      features: features,
+      plugins: plugins,
+      onChanged: _syncChatState,
+    );
     WidgetsBinding.instance.addObserver(this);
     settings.addListener(_sync);
+    conversations.addListener(_syncChatState);
     DeviceRunController.instance.addListener(_sync);
     FloatingAssistantBridge.instance.setHandler(_handleCall);
     _sync();
@@ -35,9 +57,13 @@ class FloatingAssistantService with WidgetsBindingObserver {
     _started = false;
     WidgetsBinding.instance.removeObserver(this);
     _settings?.removeListener(_sync);
+    _conversations?.removeListener(_syncChatState);
     DeviceRunController.instance.removeListener(_sync);
     FloatingAssistantBridge.instance.setHandler(null);
+    unawaited(_chat?.dispose());
+    _chat = null;
     _settings = null;
+    _conversations = null;
     unawaited(FloatingAssistantBridge.instance.hideBubble());
   }
 
@@ -50,26 +76,42 @@ class FloatingAssistantService with WidgetsBindingObserver {
   Future<dynamic> _handleCall(MethodCall call) async {
     switch (call.method) {
       case 'attachScreenContext':
-        final floating = _settings?.settings.floatingAssistant;
-        if (floating?.allowScreenContext != true) {
-          return {'ok': false, 'error': '悬浮助手未允许读取当前页面'};
-        }
-        unawaited(
-          DeviceControlService.instance.execute(
-            'device.screen.context',
-            const {},
-          ),
-        );
+        return {'ok': false, 'error': '模型会在聊天中按需读取当前页面'};
+      case 'sendMessage':
+        final text = _callArgs(call)['text']?.toString() ?? '';
+        unawaited(_chat?.send(text));
+        return {'ok': true};
+      case 'stopGeneration':
+        _chat?.stop();
         return {'ok': true};
       case 'toggleMangaTranslation':
         final floating = _settings?.settings.floatingAssistant;
         if (floating?.showMangaTranslationAction != true) {
-          return {'ok': false, 'error': '漫画翻译按钮已关闭'};
+          return {'ok': false, 'error': '翻译按钮已关闭'};
         }
-        _translationRunning = !_translationRunning;
-        await FloatingAssistantBridge.instance.setTranslationRunning(
-          _translationRunning,
+        _translationRunning = true;
+        await FloatingAssistantBridge.instance.setTranslationRunning(true);
+        unawaited(
+          _chat?.translateCurrentScreen().whenComplete(() {
+            _translationRunning = false;
+            unawaited(
+              FloatingAssistantBridge.instance.setTranslationRunning(false),
+            );
+          }),
         );
+        return {'ok': true};
+      case 'clearTranslation':
+        _translationRunning = false;
+        _chat?.clearTranslation();
+        await FloatingAssistantBridge.instance.setTranslationRunning(false);
+        return {'ok': true};
+      case 'transcribeAudio':
+        final path = _callArgs(call)['path']?.toString() ?? '';
+        return await _chat?.transcribeAudioPath(path) ??
+            {'ok': false, 'error': '悬浮聊天尚未初始化'};
+      case 'openConversation':
+        // Native side brings the existing Activity to front; HomePage navigation
+        // is intentionally left to the in-app affordance for now.
         return {'ok': true};
       case 'resumeAgent':
         DeviceRunController.instance.resume();
@@ -78,6 +120,7 @@ class FloatingAssistantService with WidgetsBindingObserver {
         DeviceRunController.instance.stop();
         return {'ok': true};
       case 'panelOpened':
+        _syncChatState();
         return {'ok': true};
       default:
         throw MissingPluginException(
@@ -101,6 +144,7 @@ class FloatingAssistantService with WidgetsBindingObserver {
         'allowScreenContext': settings.allowScreenContext,
         'showMangaTranslationAction': settings.showMangaTranslationAction,
         'translationRunning': _translationRunning,
+        'voiceInputMode': settings.voiceInputMode,
       }),
     );
     final run = DeviceRunController.instance.snapshot;
@@ -115,6 +159,7 @@ class FloatingAssistantService with WidgetsBindingObserver {
     if (settings.showAgentPlan && run.isActive) {
       unawaited(
         FloatingAssistantBridge.instance.updateAgentPlan({
+          'active': true,
           'status': run.status.name,
           'purpose': run.purpose,
           'currentStep': run.currentStep,
@@ -124,6 +169,25 @@ class FloatingAssistantService with WidgetsBindingObserver {
           if (run.pauseReason != null) 'pauseReason': run.pauseReason,
         }),
       );
+    } else {
+      unawaited(
+        FloatingAssistantBridge.instance.updateAgentPlan({'active': false}),
+      );
     }
+    _syncChatState();
+  }
+
+  void _syncChatState() {
+    final chat = _chat;
+    if (chat == null) return;
+    unawaited(
+      FloatingAssistantBridge.instance.updateChatState(chat.stateJson()),
+    );
+  }
+
+  Map<String, dynamic> _callArgs(MethodCall call) {
+    final arguments = call.arguments;
+    if (arguments is Map) return Map<String, dynamic>.from(arguments);
+    return const {};
   }
 }

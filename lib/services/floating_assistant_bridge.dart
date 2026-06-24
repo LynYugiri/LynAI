@@ -29,6 +29,10 @@ class FloatingAssistantBridge {
     return _invoke('updateAgentPlan', payload);
   }
 
+  Future<void> updateChatState(Map<String, dynamic> payload) {
+    return _invoke('updateChatState', payload);
+  }
+
   Future<void> setTranslationRunning(bool running) {
     return _invoke('setTranslationRunning', {'running': running});
   }

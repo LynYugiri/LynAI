@@ -86,7 +86,7 @@ class _SettingsPageState extends State<SettingsPage> {
             '悬浮窗',
             settings.floatingAssistant.enabled
                 ? '已启用悬浮助手'
-                : '悬浮聊天、Agent 面板和漫画翻译',
+                : '系统悬浮聊天、Agent Plan 和屏幕翻译',
             Colors.cyan,
             () => Navigator.push(
               context,

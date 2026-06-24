@@ -7,9 +7,14 @@ import 'package:lynai/models/app_settings.dart';
 import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/message.dart';
 import 'package:lynai/models/plugin.dart';
+import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
+import 'package:lynai/providers/model_config_provider.dart';
 import 'package:lynai/providers/plugin_provider.dart';
+import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/repositories/plugin_repository.dart';
+import 'package:lynai/services/device_control_service.dart';
+import 'package:lynai/services/floating_chat_session_controller.dart';
 import 'package:lynai/services/lynai_call_identity.dart';
 import 'package:lynai/services/lynai_function_service.dart';
 import 'package:lynai/services/lynai_permission_definitions.dart';
@@ -52,6 +57,19 @@ class _RealHttpOverrides extends HttpOverrides {
     final client = super.createHttpClient(context);
     client.connectionTimeout = const Duration(seconds: 5);
     return client;
+  }
+}
+
+class _FakeDeviceBackend implements DeviceControlBackend {
+  @override
+  Future<Map<String, dynamic>> execute(
+    String name,
+    Map<String, dynamic> args,
+  ) async {
+    return {
+      'ok': true,
+      'result': {'text': '当前页面文本', 'packageName': 'com.example'},
+    };
   }
 }
 
@@ -243,6 +261,87 @@ void main() {
     expect(webFetch['description'], contains('GET'));
     expect(webFetch['parameters'], isA<Map>());
     expect((webFetch['parameters'] as Map)['required'], contains('url'));
+  });
+
+  test('get_current_screen is exposed only for floating screen context', () {
+    final regularTools = ToolCallService.openAITools();
+    final floatingTools = ToolCallService.openAITools(
+      const [],
+      false,
+      const [],
+      false,
+      true,
+    );
+
+    String toolName(Map<String, dynamic> tool) {
+      return (tool['function'] as Map)['name'] as String;
+    }
+
+    expect(regularTools.map(toolName), isNot(contains('get_current_screen')));
+    expect(floatingTools.map(toolName), contains('get_current_screen'));
+  });
+
+  test(
+    'get_current_screen execution requires floating authorization',
+    () async {
+      DeviceControlService.instance.setBackendForTesting(_FakeDeviceBackend());
+      try {
+        final denied = await ToolCallService(FeatureProvider()).execute(
+          const ChatToolCall(
+            id: 'screen-denied',
+            name: 'get_current_screen',
+            arguments: {},
+          ),
+          const [],
+        );
+        final allowed =
+            await ToolCallService(
+              FeatureProvider(),
+              allowScreenContextTool: true,
+            ).execute(
+              const ChatToolCall(
+                id: 'screen-allowed',
+                name: 'get_current_screen',
+                arguments: {},
+              ),
+              const [],
+            );
+
+        expect(denied['ok'], isFalse);
+        expect(denied['error'], contains('未允许'));
+        expect(allowed['ok'], isTrue);
+        expect((allowed['result'] as Map)['text'], '当前页面文本');
+      } finally {
+        DeviceControlService.instance.setBackendForTesting(null);
+      }
+    },
+  );
+
+  test('floating chat respects disabled screen context mode', () async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsProvider();
+    await settings.replaceSettings(
+      AppSettings.defaults().copyWith(
+        floatingAssistant: const FloatingAssistantSettings(
+          allowScreenContext: true,
+          screenContextMode: FloatingAssistantSettings.screenContextDisabled,
+        ),
+      ),
+    );
+    final controller = FloatingChatSessionController(
+      settings: settings,
+      conversations: ConversationProvider(),
+      models: ModelConfigProvider(),
+      features: FeatureProvider(),
+      plugins: PluginProvider(),
+      onChanged: () {},
+    );
+    try {
+      expect(controller.screenContextToolAllowed, isFalse);
+      expect(controller.stateJson()['screenContextEnabled'], isFalse);
+    } finally {
+      await controller.dispose();
+    }
   });
 
   test('web_fetch rejects non-http URLs', () async {

@@ -90,6 +90,7 @@ Agent 可通过 `model.chat` 调用 Chat 模型，通过 `model.ocr` 调用 OCR 
 | 提示词 | `systemPrompt`, `systemPrompts`, `selectedSystemPromptId` |
 | 角色 | `roles`, `roleGroups`, `currentRoleId` |
 | 功能页 | `lastFeature` |
+| 悬浮助手 | `floatingAssistant`，包含 Android 悬浮聊天、按需读屏、语音输入、翻译入口、Agent Plan 显示和覆盖样式设置。 |
 | 更新日志 | `lastSeenChangelogVersion` |
 
 `AppSettings.fromJson()` 会跳过坏角色、坏角色分组和坏提示词。缺失默认角色时自动补回；当前角色不存在时回退到默认角色。

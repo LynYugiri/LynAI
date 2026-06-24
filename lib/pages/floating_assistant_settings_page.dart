@@ -46,7 +46,7 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
               ),
               SwitchListTile(
                 title: const Text('显示 Agent 任务面板'),
-                subtitle: const Text('Agent 执行时展示 Plan、当前步骤和控制按钮'),
+                subtitle: const Text('仅 Agent 执行时展示 Plan；暂停时才显示继续'),
                 value: settings.showAgentPlan,
                 onChanged: settings.enabled
                     ? (value) => _update(
@@ -74,7 +74,7 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.accessibility_new_outlined),
                 title: const Text('无障碍服务'),
-                subtitle: const Text('读取当前页面和漫画截图翻译需要开启'),
+                subtitle: const Text('模型按需读取当前页面和屏幕翻译需要开启'),
                 trailing: const Icon(Icons.open_in_new),
                 enabled: Platform.isAndroid,
                 onTap: Platform.isAndroid
@@ -88,8 +88,8 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
             '聊天',
             children: [
               SwitchListTile(
-                title: const Text('允许读取当前页面'),
-                subtitle: const Text('手动把其他应用的可见文本附加到聊天上下文'),
+                title: const Text('允许模型按需读取当前页面'),
+                subtitle: const Text('悬浮聊天中，模型只在问题依赖当前页面时调用读取接口'),
                 value: settings.allowScreenContext,
                 onChanged: settings.enabled
                     ? (value) => _update(
@@ -128,11 +128,11 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
           ),
           _section(
             context,
-            '漫画翻译',
+            '翻译',
             children: [
               SwitchListTile(
-                title: const Text('显示漫画翻译按钮'),
-                subtitle: const Text('展开悬浮窗后手动开启或停止实时覆盖翻译'),
+                title: const Text('显示翻译按钮'),
+                subtitle: const Text('在悬浮聊天中翻译当前屏幕可读取文本'),
                 value: settings.showMangaTranslationAction,
                 onChanged: settings.enabled
                     ? (value) => _update(
@@ -196,7 +196,7 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
               ListTile(
                 leading: Icon(Icons.privacy_tip_outlined),
                 title: Text('页面内容和截图只在你主动触发时处理'),
-                subtitle: Text('读取页面、语音转写和漫画翻译可能会把内容发送给已配置的模型服务。'),
+                subtitle: Text('模型读取当前页面、语音转写和翻译可能会把内容发送给已配置的模型服务。'),
               ),
             ],
           ),
@@ -254,7 +254,7 @@ class _UnsupportedPlatformCard extends StatelessWidget {
       child: ListTile(
         leading: Icon(Icons.info_outline),
         title: Text('当前平台暂不支持'),
-        subtitle: Text('系统级悬浮窗、页面读取和漫画覆盖翻译只在 Android 上实现。'),
+        subtitle: Text('系统级悬浮聊天、页面读取和屏幕翻译只在 Android 上实现。'),
       ),
     );
   }
