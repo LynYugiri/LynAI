@@ -1,9 +1,12 @@
 package com.github.lynyugiri.lynai
 
+import android.animation.ValueAnimator
 import android.app.Activity
 import android.Manifest
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -22,12 +25,14 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.plugin.common.MethodChannel
@@ -60,9 +65,51 @@ object FloatingAssistantOverlay {
     private var chatState: Map<String, Any?> = emptyMap()
     private var agentState: Map<String, Any?> = emptyMap()
 
+    private var mangaLayoutMode = "auto"
+    private var mangaOverlayStyle = "auto"
+    private var mangaOverlayOpacity = 0.92
+    private var persistedBubbleX = -1
+    private var persistedBubbleY = -1
+    private var persistedPanelX = -1
+    private var persistedPanelY = -1
+    private var persistedPanelWidth = -1
+    private var persistedPanelHeight = -1
+    private var pulseAnimator: ValueAnimator? = null
+    private var bubbleState: BubbleState = BubbleState.IDLE
+    private var scrollMessageHeight = -1
+    private var screenOffReceiver: BroadcastReceiver? = null
+
+    private enum class BubbleState {
+        IDLE, STREAMING, AGENT_RUNNING, TRANSLATING, RECORDING
+    }
+
+    private val screenStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_OFF -> {
+                    TranslationOverlayManager.clear()
+                    stopPulse()
+                }
+                Intent.ACTION_SCREEN_ON -> {
+                    // User needs to re-trigger translation after screen on
+                }
+            }
+        }
+    }
+
     fun install(activity: Activity, channel: MethodChannel) {
         this.activity = activity
         this.channel = channel
+        screenOffReceiver = screenStateReceiver
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_SCREEN_ON)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            activity.registerReceiver(screenOffReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            activity.registerReceiver(screenOffReceiver, filter)
+        }
         channel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "configure" -> {
@@ -80,20 +127,34 @@ object FloatingAssistantOverlay {
                 "updateAgentPlan" -> {
                     agentState = arguments(call.arguments)
                     updatePanelViews()
+                    updateBubbleState()
                     result.success(null)
                 }
                 "updateChatState" -> {
                     chatState = arguments(call.arguments)
                     updatePanelViews()
+                    updateBubbleState()
                     result.success(null)
                 }
                 "setTranslationRunning" -> {
                     translationRunning = arguments(call.arguments)["running"] == true
                     updatePanelViews()
+                    updateBubbleState()
                     result.success(null)
                 }
                 "clearTranslationBlocks" -> {
                     channel.invokeMethod("clearTranslation", emptyMap<String, Any>())
+                    result.success(null)
+                }
+                "updateTranslationOverlay" -> {
+                    val args = arguments(call.arguments)
+                    TranslationOverlayManager.setBlocks(
+                        activity!!, args, mangaOverlayStyle, mangaOverlayOpacity, mangaLayoutMode
+                    )
+                    result.success(null)
+                }
+                "clearTranslationOverlay" -> {
+                    TranslationOverlayManager.clear()
                     result.success(null)
                 }
                 else -> result.notImplemented()
@@ -106,12 +167,27 @@ object FloatingAssistantOverlay {
         showTranslationAction = args["showMangaTranslationAction"] != false
         translationRunning = args["translationRunning"] == true
         voiceInputMode = args["voiceInputMode"]?.toString() ?: "system"
+        mangaLayoutMode = args["mangaLayoutMode"]?.toString() ?: "auto"
+        mangaOverlayStyle = args["mangaOverlayStyle"]?.toString() ?: "auto"
+        mangaOverlayOpacity = (args["mangaOverlayOpacity"] as? Number)?.toDouble() ?: 0.92
+        persistedBubbleX = (args["bubbleX"] as? Number)?.toInt() ?: -1
+        persistedBubbleY = (args["bubbleY"] as? Number)?.toInt() ?: -1
+        persistedPanelX = (args["panelX"] as? Number)?.toInt() ?: -1
+        persistedPanelY = (args["panelY"] as? Number)?.toInt() ?: -1
+        persistedPanelWidth = (args["panelWidth"] as? Number)?.toInt() ?: -1
+        persistedPanelHeight = (args["panelHeight"] as? Number)?.toInt() ?: -1
         updatePanelViews()
     }
 
     private fun showBubble() {
         val ctx = activity ?: return
-        if (!canDrawOverlays(ctx)) return
+        if (!canDrawOverlays(ctx)) {
+            if (bubble != null || panel != null) {
+                hideAll()
+                channel?.invokeMethod("overlayPermissionLost", emptyMap<String, Any>())
+            }
+            return
+        }
         val manager = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         if (bubble != null) return
         val nextParams = bubbleLayoutParams(ctx)
@@ -122,12 +198,24 @@ object FloatingAssistantOverlay {
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
-            background = rounded(0xFF2563EB.toInt(), dp(ctx, 22))
+            background = rounded(bubbleColorForState(bubbleState), dp(ctx, 22))
             elevation = dp(ctx, 8).toFloat()
             setPadding(dp(ctx, 14), 0, dp(ctx, 14), 0)
-            setOnTouchListener(DragTouchListener(ctx, nextParams) { togglePanel() })
+            setOnTouchListener(DragTouchListener(ctx, nextParams, {
+                val h = ctx.resources.displayMetrics.heightPixels
+                val bh = nextParams.height
+                0 to h - bh
+            }, {
+                togglePanel()
+            }, {
+                channel?.invokeMethod(
+                    "bubbleMoved",
+                    mapOf("x" to nextParams.x, "y" to nextParams.y)
+                )
+            }))
         }
         manager.addView(bubble, nextParams)
+        updateBubbleState()
     }
 
     private fun togglePanel() {
@@ -175,6 +263,8 @@ object FloatingAssistantOverlay {
         hidePanel()
         stopSpeechRecognition()
         releaseRecorder()
+        stopPulse()
+        TranslationOverlayManager.clear()
         val ctx = activity ?: return
         val current = bubble ?: return
         val manager = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -205,9 +295,28 @@ object FloatingAssistantOverlay {
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(0xFF0F172A.toInt())
         }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        header.addView(chip(ctx, "新建", false) {
+            channel?.invokeMethod("newConversation", emptyMap<String, Any>())
+        })
+        header.addView(space(ctx, 8, 1))
         header.addView(chip(ctx, "打开", false) { openLynAI() })
         header.addView(space(ctx, 8, 1))
         header.addView(chip(ctx, "收起", false) { hidePanel() })
+        val panelParamRef = panelParams
+        if (panelParamRef != null) {
+            header.setOnTouchListener(DragTouchListener(ctx, panelParamRef, {
+                val h = ctx.resources.displayMetrics.heightPixels
+                val ph = panelParamRef.height
+                0 to (h - ph).coerceAtLeast(0)
+            }, {
+                // tap on header does nothing
+            }, {
+                channel?.invokeMethod(
+                    "panelMoved",
+                    mapOf("x" to panelParamRef.x, "y" to panelParamRef.y)
+                )
+            }, edgeSnap = false))
+        }
         root.addView(header)
 
         statusText = TextView(ctx).apply {
@@ -224,9 +333,11 @@ object FloatingAssistantOverlay {
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(ctx, 8), 0, dp(ctx, 4))
         }.also { scroll.addView(it) }
+        val scrollHeight = if (persistedPanelHeight > 0) persistedPanelHeight else dp(ctx, 280)
+        scrollMessageHeight = scrollHeight
         root.addView(scroll, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
-            dp(ctx, 280)
+            scrollHeight
         ))
 
         translationCard = TextView(ctx).apply {
@@ -234,6 +345,16 @@ object FloatingAssistantOverlay {
             setTextColor(0xFF0F172A.toInt())
             setPadding(dp(ctx, 12), dp(ctx, 10), dp(ctx, 12), dp(ctx, 10))
             background = rounded(0xFFEFF6FF.toInt(), dp(ctx, 16), 0x332563EB, 1)
+            setOnClickListener {
+                channel?.invokeMethod("clearTranslation", emptyMap<String, Any>())
+            }
+            setOnLongClickListener {
+                val t = text?.toString().orEmpty()
+                if (t.isNotEmpty()) {
+                    copyToClipboard(ctx, t, "译文已复制")
+                }
+                true
+            }
         }.also { root.addView(it) }
 
         agentCard = LinearLayout(ctx).apply {
@@ -251,7 +372,10 @@ object FloatingAssistantOverlay {
             channel?.invokeMethod("toggleMangaTranslation", emptyMap<String, Any>())
         }.also { quickRow.addView(it) }
         quickRow.addView(space(ctx, 8, 1))
-        quickRow.addView(chip(ctx, if (allowScreenContext) "可读页面" else "未授权页面", allowScreenContext) {})
+        val contextChip = chip(ctx, if (allowScreenContext) "可读页面" else "未授权页面", allowScreenContext) {
+            channel?.invokeMethod("openAccessibilitySettings", emptyMap<String, Any>())
+        }
+        quickRow.addView(contextChip)
         root.addView(quickRow)
 
         val composer = LinearLayout(ctx).apply {
@@ -280,6 +404,40 @@ object FloatingAssistantOverlay {
             inputEdit?.setText("")
         })
         root.addView(composer)
+
+        val resizeHandle = View(ctx).apply {
+            background = rounded(0x33000000.toInt(), dp(ctx, 3))
+            setOnTouchListener(ResizeTouchListener(ctx, root, panelParams, scroll, {
+                val w = ctx.resources.displayMetrics.widthPixels
+                val h = ctx.resources.displayMetrics.heightPixels
+                (dp(ctx, 240) to min(w - dp(ctx, 32), dp(ctx, 480))) to
+                    (dp(ctx, 200) to (h * 7 / 10))
+            }) { width, height ->
+                scrollMessageHeight = height - dp(ctx, 180)
+                val sc = scroll
+                if (sc != null && scrollMessageHeight > 0) {
+                    val lp = sc.layoutParams
+                    lp.height = scrollMessageHeight
+                    sc.layoutParams = lp
+                }
+                channel?.invokeMethod(
+                    "panelResized",
+                    mapOf(
+                        "width" to width,
+                        "height" to height,
+                        "x" to (panelParams?.x ?: -1),
+                        "y" to (panelParams?.y ?: -1)
+                    )
+                )
+            })
+        }
+        root.addView(resizeHandle, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            dp(ctx, 16)
+        ).apply {
+            topMargin = dp(ctx, 4)
+        })
+
         return root
     }
 
@@ -296,6 +454,61 @@ object FloatingAssistantOverlay {
         }
         translationButton?.visibility = if (showTranslationAction) View.VISIBLE else View.GONE
         translationButton?.text = if (translationRunning) "翻译中" else "翻译"
+        updateBubbleState()
+    }
+
+    private fun updateBubbleState() {
+        val newState = when {
+            recordingPath != null || speechRecognizer != null -> BubbleState.RECORDING
+            translationRunning -> BubbleState.TRANSLATING
+            agentState["active"] == true -> BubbleState.AGENT_RUNNING
+            chatState["streaming"] == true -> BubbleState.STREAMING
+            else -> BubbleState.IDLE
+        }
+        if (newState != bubbleState) {
+            bubbleState = newState
+            val ctx = activity ?: return
+            val bub = bubble ?: return
+            bub.background = rounded(bubbleColorForState(newState), dp(ctx, 22))
+            if (newState != BubbleState.IDLE) {
+                startPulse(bub)
+            } else {
+                stopPulse()
+            }
+        }
+    }
+
+    private fun bubbleColorForState(state: BubbleState): Int {
+        return when (state) {
+            BubbleState.IDLE -> 0xFF2563EB.toInt()
+            BubbleState.STREAMING -> 0xFF3B82F6.toInt()
+            BubbleState.AGENT_RUNNING -> 0xFFF59E0B.toInt()
+            BubbleState.TRANSLATING -> 0xFF22C55E.toInt()
+            BubbleState.RECORDING -> 0xFFEF4444.toInt()
+        }
+    }
+
+    private fun startPulse(view: View) {
+        stopPulse()
+        pulseAnimator = ValueAnimator.ofFloat(0.8f, 1.2f).apply {
+            duration = 800
+            repeatMode = ValueAnimator.REVERSE
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = AccelerateDecelerateInterpolator()
+            addUpdateListener { animator ->
+                val scale = animator.animatedValue as Float
+                view.scaleX = scale
+                view.scaleY = scale
+            }
+            start()
+        }
+    }
+
+    private fun stopPulse() {
+        pulseAnimator?.cancel()
+        pulseAnimator = null
+        bubble?.scaleX = 1f
+        bubble?.scaleY = 1f
     }
 
     private fun updateStatus() {
@@ -424,7 +637,20 @@ object FloatingAssistantOverlay {
                 width = min(ctx.resources.displayMetrics.widthPixels - dp(ctx, 96), dp(ctx, 300))
             }
             layoutParams = lp
+            setOnLongClickListener {
+                copyToClipboard(ctx, content, "消息已复制")
+                true
+            }
         }
+    }
+
+    private fun copyToClipboard(ctx: Context, text: String, label: String) {
+        val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE)
+                as android.content.ClipboardManager
+        clipboard.setPrimaryClip(
+            android.content.ClipData.newPlainText(label, text)
+        )
+        Toast.makeText(ctx, label, Toast.LENGTH_SHORT).show()
     }
 
     private fun chip(ctx: Context, label: String, selected: Boolean, action: () -> Unit): TextView {
@@ -463,6 +689,7 @@ object FloatingAssistantOverlay {
             return
         }
         voiceButton?.text = "聆听中"
+        updateBubbleState()
         speechRecognizer = SpeechRecognizer.createSpeechRecognizer(ctx).apply {
             setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) = Unit
@@ -475,6 +702,7 @@ object FloatingAssistantOverlay {
 
                 override fun onError(error: Int) {
                     stopSpeechRecognition()
+                    updateBubbleState()
                 }
 
                 override fun onResults(results: Bundle?) {
@@ -484,6 +712,7 @@ object FloatingAssistantOverlay {
                         .orEmpty()
                     stopSpeechRecognition()
                     appendInputText(text)
+                    updateBubbleState()
                 }
             })
             startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -531,12 +760,14 @@ object FloatingAssistantOverlay {
             mediaRecorder = recorder
             recordingPath = file.absolutePath
             voiceButton?.text = "停止"
+            updateBubbleState()
             statusText?.apply {
                 text = "正在录音，再点一次转文字"
                 setTextColor(0xFFDC2626.toInt())
             }
         } catch (e: Exception) {
             releaseRecorder()
+            updateBubbleState()
             file.delete()
             statusText?.apply {
                 text = "录音启动失败: ${e.message ?: e.javaClass.simpleName}"
@@ -553,6 +784,7 @@ object FloatingAssistantOverlay {
             releaseRecorder()
         }
         voiceButton?.text = "转写中"
+        updateBubbleState()
         statusText?.apply {
             text = "正在转文字..."
             setTextColor(0xFF64748B.toInt())
@@ -604,6 +836,7 @@ object FloatingAssistantOverlay {
         } finally {
             mediaRecorder = null
             recordingPath = null
+            updateBubbleState()
         }
     }
 
@@ -615,6 +848,7 @@ object FloatingAssistantOverlay {
         } finally {
             speechRecognizer = null
             voiceButton?.text = "语音"
+            updateBubbleState()
         }
     }
 
@@ -641,6 +875,9 @@ object FloatingAssistantOverlay {
     }
 
     private fun bubbleLayoutParams(ctx: Context): WindowManager.LayoutParams {
+        val dm = ctx.resources.displayMetrics
+        val defaultX = dm.widthPixels - dp(ctx, 72)
+        val defaultY = dm.heightPixels / 3
         return WindowManager.LayoutParams(
             dp(ctx, 56),
             dp(ctx, 56),
@@ -649,13 +886,19 @@ object FloatingAssistantOverlay {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = ctx.resources.displayMetrics.widthPixels - dp(ctx, 72)
-            y = ctx.resources.displayMetrics.heightPixels / 3
+            x = if (persistedBubbleX >= 0) persistedBubbleX.coerceIn(0, dm.widthPixels) else defaultX
+            y = if (persistedBubbleY >= 0) persistedBubbleY.coerceIn(0, dm.heightPixels) else defaultY
         }
     }
 
     private fun panelLayoutParams(ctx: Context): WindowManager.LayoutParams {
-        val width = min(ctx.resources.displayMetrics.widthPixels - dp(ctx, 32), dp(ctx, 390))
+        val dm = ctx.resources.displayMetrics
+        val defaultWidth = min(dm.widthPixels - dp(ctx, 32), dp(ctx, 390))
+        val width = if (persistedPanelWidth > 0) {
+            persistedPanelWidth.coerceIn(dp(ctx, 240), min(dm.widthPixels - dp(ctx, 32), dp(ctx, 480)))
+        } else {
+            defaultWidth
+        }
         return WindowManager.LayoutParams(
             width,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -664,8 +907,8 @@ object FloatingAssistantOverlay {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = dp(ctx, 16)
-            y = dp(ctx, 72)
+            x = if (persistedPanelX >= 0) persistedPanelX.coerceIn(0, dm.widthPixels - width) else dp(ctx, 16)
+            y = if (persistedPanelY >= 0) persistedPanelY.coerceIn(0, dm.heightPixels - dp(ctx, 100)) else dp(ctx, 72)
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
         }
     }
@@ -728,7 +971,10 @@ object FloatingAssistantOverlay {
     private class DragTouchListener(
         private val ctx: Context,
         private val params: WindowManager.LayoutParams,
-        private val click: () -> Unit
+        private val clampProvider: () -> Pair<Int, Int>,
+        private val click: () -> Unit,
+        private val onDragEnd: (() -> Unit)? = null,
+        private val edgeSnap: Boolean = true
     ) : View.OnTouchListener {
         private var startX = 0
         private var startY = 0
@@ -746,8 +992,12 @@ object FloatingAssistantOverlay {
                     return true
                 }
                 MotionEvent.ACTION_MOVE -> {
+                    val (maxY, _) = clampProvider()
                     params.x = startX + (event.rawX - downX).toInt()
                     params.y = startY + (event.rawY - downY).toInt()
+                    val dm = ctx.resources.displayMetrics
+                    params.x = params.x.coerceIn(0, dm.widthPixels - view.width)
+                    params.y = params.y.coerceIn(0, maxY.coerceAtLeast(0))
                     manager.updateViewLayout(view, params)
                     return true
                 }
@@ -756,14 +1006,73 @@ object FloatingAssistantOverlay {
                     if (moved < 12) {
                         click()
                     } else {
-                        val width = ctx.resources.displayMetrics.widthPixels
-                        params.x = if (params.x < width / 2) 12 else width - view.width - 12
-                        manager.updateViewLayout(view, params)
+                        if (edgeSnap) {
+                            val width = ctx.resources.displayMetrics.widthPixels
+                            params.x = if (params.x < width / 2) 12 else width - view.width - 12
+                            manager.updateViewLayout(view, params)
+                        }
+                        onDragEnd?.invoke()
                     }
                     return true
                 }
             }
             return false
+        }
+    }
+
+    private class ResizeTouchListener(
+        private val ctx: Context,
+        private val targetView: View,
+        private val panelParams: WindowManager.LayoutParams?,
+        private val scrollView: ScrollView,
+        private val sizeBoundsProvider: () -> Pair<Pair<Int, Int>, Pair<Int, Int>>,
+        private val onResized: (Int, Int) -> Unit
+    ) : View.OnTouchListener {
+        private var downX = 0f
+        private var downY = 0f
+        private var startWidth = 0
+        private var startHeight = 0
+        private var lastUpdate = 0L
+
+        override fun onTouch(view: View, event: MotionEvent): Boolean {
+            val params = panelParams ?: return false
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.rawX
+                    downY = event.rawY
+                    startWidth = params.width
+                    startHeight = scrollView.height + dp(ctx, 180)
+                    return true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val now = System.currentTimeMillis()
+                    if (now - lastUpdate < 16) return true
+                    lastUpdate = now
+                    val (widthRange, heightRange) = sizeBoundsProvider()
+                    val (minW, maxW) = widthRange
+                    val (minH, maxH) = heightRange
+                    params.width = (startWidth + (event.rawX - downX).toInt())
+                        .coerceIn(minW, maxW)
+                    val newHeight = (startHeight + (event.rawY - downY).toInt())
+                        .coerceIn(minH, maxH)
+                    val manager = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                    try {
+                        manager.updateViewLayout(targetView, params)
+                    } catch (_: Exception) {
+                    }
+                    onResized(params.width, newHeight)
+                    return true
+                }
+                MotionEvent.ACTION_UP -> {
+                    onResized(params.width, scrollView.height + dp(ctx, 180))
+                    return true
+                }
+            }
+            return false
+        }
+
+        private fun dp(ctx: Context, value: Int): Int {
+            return (value * ctx.resources.displayMetrics.density).toInt()
         }
     }
 }

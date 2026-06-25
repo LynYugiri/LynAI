@@ -158,7 +158,7 @@ HomePage
 | 关于 | `about_page.dart` | 应用信息、项目链接、许可证和更新日志入口。 |
 | 背景 | `background_page.dart` | 背景图、清除背景、模糊开关和强度。 |
 | API | `api_models_page.dart` | 模型配置分类、编辑、排序和模型拉取。 |
-| 悬浮窗 | `floating_assistant_settings_page.dart` | Android 系统悬浮聊天、模型按需读取当前页面、语音输入、屏幕翻译和 Agent Plan 显示。 |
+| 悬浮窗 | `floating_assistant_settings_page.dart` | Android 系统悬浮聊天、模型按需读取当前页面、语音输入、屏幕翻译（多目标语言、覆盖样式）、Agent Plan 显示、悬浮窗位置重置。 |
 | 主题 | `theme_page.dart` | 预设色、HSV 调色板、浅色/深色/跟随系统。 |
 | 回收站 | `recycle_bin_page.dart` | 按功能分类查看已删除项目，支持恢复、永久删除和清空。 |
 | 数据管理 | `data_management_page.dart` | 备份导出、备份预览、导入和冲突处理。 |
@@ -204,7 +204,7 @@ HomePage
 | 页面 | 重点路径 |
 |------|----------|
 | ChatPage | 普通发送、停止、失败重试、编辑重发、附件重试、语音快速松手、工具调用、Agent Lua、Subagent、移动端自动化。 |
-| 悬浮窗 | Android 悬浮权限、无障碍权限、后台气泡、悬浮聊天输入/发送/停止、语音识别、当前页面读取、翻译、Agent Plan 运行/暂停。 |
+| 悬浮窗 | Android 悬浮权限、无障碍权限、后台气泡、悬浮聊天输入/发送/停止/新建对话、语音识别、当前页面读取、翻译（多语言、屏幕区域覆盖、滚动跟随）、气泡拖动+状态指示、面板拖动+缩放、消息长按复制、Agent Plan 运行/暂停。 |
 | FeaturePage | Dashboard 跳转、历史搜索、角色切换、跨天日程、笔记未保存确认、待办导入导出。 |
 | Roleplay | 情景创建、线程创建、导演/角色生成、玩家消息排队、附件、长图导出。 |
 | ApiModelsPage | 添加/删除模型、拖拽排序、获取模型、清空高级参数、子模型能力开关。 |

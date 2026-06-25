@@ -9,6 +9,7 @@ import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
+import 'device_control_service.dart';
 import 'device_run_controller.dart';
 import 'floating_assistant_bridge.dart';
 import 'floating_chat_session_controller.dart';
@@ -49,6 +50,8 @@ class FloatingAssistantService with WidgetsBindingObserver {
     conversations.addListener(_syncChatState);
     DeviceRunController.instance.addListener(_sync);
     FloatingAssistantBridge.instance.setHandler(_handleCall);
+    DeviceControlService.instance.onTranslationScrollSettled = _onScrollSettled;
+    DeviceControlService.instance.onAccessibilityServiceReconnected = _onServiceReconnected;
     _sync();
   }
 
@@ -60,6 +63,8 @@ class FloatingAssistantService with WidgetsBindingObserver {
     _conversations?.removeListener(_syncChatState);
     DeviceRunController.instance.removeListener(_sync);
     FloatingAssistantBridge.instance.setHandler(null);
+    DeviceControlService.instance.onTranslationScrollSettled = null;
+    DeviceControlService.instance.onAccessibilityServiceReconnected = null;
     unawaited(_chat?.dispose());
     _chat = null;
     _settings = null;
@@ -84,6 +89,9 @@ class FloatingAssistantService with WidgetsBindingObserver {
       case 'stopGeneration':
         _chat?.stop();
         return {'ok': true};
+      case 'newConversation':
+        _chat?.startNewConversation();
+        return {'ok': true};
       case 'toggleMangaTranslation':
         final floating = _settings?.settings.floatingAssistant;
         if (floating?.showMangaTranslationAction != true) {
@@ -104,14 +112,21 @@ class FloatingAssistantService with WidgetsBindingObserver {
         _translationRunning = false;
         _chat?.clearTranslation();
         await FloatingAssistantBridge.instance.setTranslationRunning(false);
+        unawaited(
+          FloatingAssistantBridge.instance.clearTranslationOverlay(),
+        );
         return {'ok': true};
       case 'transcribeAudio':
         final path = _callArgs(call)['path']?.toString() ?? '';
         return await _chat?.transcribeAudioPath(path) ??
             {'ok': false, 'error': '悬浮聊天尚未初始化'};
       case 'openConversation':
-        // Native side brings the existing Activity to front; HomePage navigation
-        // is intentionally left to the in-app affordance for now.
+        return {'ok': true};
+      case 'openAccessibilitySettings':
+        DeviceControlService.instance.execute(
+          'device.service.openSettings',
+          {'target': 'accessibility'},
+        );
         return {'ok': true};
       case 'resumeAgent':
         DeviceRunController.instance.resume();
@@ -122,11 +137,57 @@ class FloatingAssistantService with WidgetsBindingObserver {
       case 'panelOpened':
         _syncChatState();
         return {'ok': true};
+      case 'overlayPermissionLost':
+        _translationRunning = false;
+        _chat?.clearTranslation();
+        return {'ok': true};
+      case 'bubbleMoved':
+        _persistPosition(
+          bubbleX: _callArgs(call)['x'] as int?,
+          bubbleY: _callArgs(call)['y'] as int?,
+        );
+        return {'ok': true};
+      case 'panelMoved':
+        _persistPosition(
+          panelX: _callArgs(call)['x'] as int?,
+          panelY: _callArgs(call)['y'] as int?,
+        );
+        return {'ok': true};
+      case 'panelResized':
+        _persistPosition(
+          panelWidth: _callArgs(call)['width'] as int?,
+          panelHeight: _callArgs(call)['height'] as int?,
+          panelX: _callArgs(call)['x'] as int?,
+          panelY: _callArgs(call)['y'] as int?,
+        );
+        return {'ok': true};
       default:
         throw MissingPluginException(
           'Unknown floating assistant call: ${call.method}',
         );
     }
+  }
+
+  void _persistPosition({
+    int? bubbleX,
+    int? bubbleY,
+    int? panelX,
+    int? panelY,
+    int? panelWidth,
+    int? panelHeight,
+  }) {
+    final settings = _settings;
+    if (settings == null) return;
+    final current = settings.settings.floatingAssistant;
+    final updated = current.copyWith(
+      bubbleX: bubbleX,
+      bubbleY: bubbleY,
+      panelX: panelX,
+      panelY: panelY,
+      panelWidth: panelWidth,
+      panelHeight: panelHeight,
+    );
+    settings.updateFloatingAssistant(updated);
   }
 
   void _sync() {
@@ -145,6 +206,16 @@ class FloatingAssistantService with WidgetsBindingObserver {
         'showMangaTranslationAction': settings.showMangaTranslationAction,
         'translationRunning': _translationRunning,
         'voiceInputMode': settings.voiceInputMode,
+        'mangaTargetLanguage': settings.mangaTargetLanguage,
+        'mangaLayoutMode': settings.mangaLayoutMode,
+        'mangaOverlayStyle': settings.mangaOverlayStyle,
+        'mangaOverlayOpacity': settings.mangaOverlayOpacity,
+        'bubbleX': settings.bubbleX,
+        'bubbleY': settings.bubbleY,
+        'panelX': settings.panelX,
+        'panelY': settings.panelY,
+        'panelWidth': settings.panelWidth,
+        'panelHeight': settings.panelHeight,
       }),
     );
     final run = DeviceRunController.instance.snapshot;
@@ -183,6 +254,14 @@ class FloatingAssistantService with WidgetsBindingObserver {
     unawaited(
       FloatingAssistantBridge.instance.updateChatState(chat.stateJson()),
     );
+  }
+
+  void _onScrollSettled() {
+    unawaited(_chat?.onTranslationScrollSettled());
+  }
+
+  void _onServiceReconnected() {
+    _sync();
   }
 
   Map<String, dynamic> _callArgs(MethodCall call) {

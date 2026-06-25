@@ -20,12 +20,20 @@ class LynAIAccessibilityService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private val nodeCache = linkedMapOf<String, AccessibilityNodeInfo>()
     private var suppressTouchUntil = 0L
+    private var lastScrollY = Int.MIN_VALUE
+    private var lastScrollX = Int.MIN_VALUE
+    private var lastScrollUpdateTime = 0L
+    private val scrollSettledRunnable = Runnable {
+        DeviceControlBridge.emit(mapOf("type" to "translation_scroll_settled"))
+    }
 
     override fun onServiceConnected() {
         instance = this
+        DeviceControlBridge.emit(mapOf("type" to "accessibility_service_reconnected"))
     }
 
     override fun onDestroy() {
+        handler.removeCallbacks(scrollSettledRunnable)
         if (instance == this) instance = null
         clearNodeCache()
         super.onDestroy()
@@ -33,14 +41,47 @@ class LynAIAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val type = event?.eventType ?: return
-        if (type == AccessibilityEvent.TYPE_TOUCH_INTERACTION_START &&
-            System.currentTimeMillis() > suppressTouchUntil
-        ) {
-            DeviceControlBridge.emit(mapOf("type" to "user_touch"))
+        when (type) {
+            AccessibilityEvent.TYPE_TOUCH_INTERACTION_START -> {
+                if (System.currentTimeMillis() > suppressTouchUntil) {
+                    DeviceControlBridge.emit(mapOf("type" to "user_touch"))
+                }
+            }
+            AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
+                handleScrollEvent(event)
+            }
         }
     }
 
-    override fun onInterrupt() = Unit
+    private fun handleScrollEvent(event: AccessibilityEvent) {
+        val deltaY: Int
+        val deltaX: Int
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            deltaY = event.scrollDeltaY.toInt()
+            deltaX = event.scrollDeltaX.toInt()
+        } else {
+            val currentY = event.scrollY
+            val currentX = event.scrollX
+            deltaY = if (lastScrollY != Int.MIN_VALUE) currentY - lastScrollY else 0
+            deltaX = if (lastScrollX != Int.MIN_VALUE) currentX - lastScrollX else 0
+            lastScrollY = currentY
+            lastScrollX = currentX
+        }
+        if (deltaX == 0 && deltaY == 0) return
+
+        val now = System.currentTimeMillis()
+        if (now - lastScrollUpdateTime >= 16) {
+            lastScrollUpdateTime = now
+            TranslationOverlayManager.onScrollDelta(deltaX, deltaY)
+        }
+
+        handler.removeCallbacks(scrollSettledRunnable)
+        handler.postDelayed(scrollSettledRunnable, 500)
+    }
+
+    override fun onInterrupt() {
+        handler.removeCallbacks(scrollSettledRunnable)
+    }
 
     fun snapshot(): Map<String, Any?> {
         val root = rootInActiveWindow ?: return error("no_active_window", "当前没有可读取窗口")

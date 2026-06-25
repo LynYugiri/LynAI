@@ -27,6 +27,14 @@ object DeviceControlBridge : EventChannel.StreamHandler {
                 "inputText" -> result.success(service?.inputText(arguments(call.arguments)) ?: unavailable())
                 "nodeAction" -> result.success(service?.nodeAction(arguments(call.arguments)) ?: unavailable())
                 "openSettings" -> result.success(openSettings(arguments(call.arguments)))
+                "ocr" -> {
+                    val imageBase64 = arguments(call.arguments)["imageBase64"]?.toString().orEmpty()
+                    if (imageBase64.isEmpty()) {
+                        result.success(error("invalid_arguments", "缺少 imageBase64"))
+                    } else {
+                        OnDeviceOcrRecognizer.recognize(imageBase64, result)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }

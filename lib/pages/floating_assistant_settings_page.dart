@@ -142,6 +142,27 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
                     : null,
               ),
               _OptionTile(
+                title: '目标语言',
+                value: settings.mangaTargetLanguage,
+                values: const {
+                  'zh-CN': '简体中文',
+                  'zh-TW': '繁體中文',
+                  'en': 'English',
+                  'ja': '日本語',
+                  'ko': '한국어',
+                  'fr': 'Français',
+                  'de': 'Deutsch',
+                  'es': 'Español',
+                  'ru': 'Русский',
+                },
+                enabled:
+                    settings.enabled && settings.showMangaTranslationAction,
+                onChanged: (value) => _update(
+                  context,
+                  settings.copyWith(mangaTargetLanguage: value),
+                ),
+              ),
+              _OptionTile(
                 title: '译文排版',
                 value: settings.mangaLayoutMode,
                 values: const {
@@ -186,6 +207,31 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
                         )
                       : null,
                 ),
+              ),
+            ],
+          ),
+          _section(
+            context,
+            '位置与尺寸',
+            children: [
+              ListTile(
+                leading: const Icon(Icons.restart_alt),
+                title: const Text('重置悬浮窗位置'),
+                subtitle: const Text('清除记住的气泡和面板位置，恢复默认'),
+                enabled: Platform.isAndroid,
+                onTap: Platform.isAndroid
+                    ? () => _update(
+                        context,
+                        settings.copyWith(
+                          bubbleX: FloatingAssistantSettings.defaultPosition,
+                          bubbleY: FloatingAssistantSettings.defaultPosition,
+                          panelX: FloatingAssistantSettings.defaultPosition,
+                          panelY: FloatingAssistantSettings.defaultPosition,
+                          panelWidth: FloatingAssistantSettings.defaultPosition,
+                          panelHeight: FloatingAssistantSettings.defaultPosition,
+                        ),
+                      )
+                    : null,
               ),
             ],
           ),

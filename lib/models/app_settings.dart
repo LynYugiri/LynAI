@@ -30,6 +30,15 @@ class FloatingAssistantSettings {
   final String mangaOverlayStyle;
   final double mangaOverlayOpacity;
   final List<String> blockedPackages;
+  final int bubbleX;
+  final int bubbleY;
+  final int panelX;
+  final int panelY;
+  final int panelWidth;
+  final int panelHeight;
+  final String? translationModelId;
+
+  static const defaultPosition = -1;
 
   const FloatingAssistantSettings({
     this.enabled = false,
@@ -44,6 +53,13 @@ class FloatingAssistantSettings {
     this.mangaOverlayStyle = mangaOverlayAuto,
     this.mangaOverlayOpacity = 0.92,
     this.blockedPackages = const [],
+    this.bubbleX = defaultPosition,
+    this.bubbleY = defaultPosition,
+    this.panelX = defaultPosition,
+    this.panelY = defaultPosition,
+    this.panelWidth = defaultPosition,
+    this.panelHeight = defaultPosition,
+    this.translationModelId,
   });
 
   factory FloatingAssistantSettings.fromJson(Object? raw) {
@@ -91,6 +107,17 @@ class FloatingAssistantSettings {
           .where((item) => item.isNotEmpty)
           .toSet()
           .toList(growable: false),
+      bubbleX: (json['bubbleX'] as num?)?.toInt() ?? defaultPosition,
+      bubbleY: (json['bubbleY'] as num?)?.toInt() ?? defaultPosition,
+      panelX: (json['panelX'] as num?)?.toInt() ?? defaultPosition,
+      panelY: (json['panelY'] as num?)?.toInt() ?? defaultPosition,
+      panelWidth: (json['panelWidth'] as num?)?.toInt() ?? defaultPosition,
+      panelHeight: (json['panelHeight'] as num?)?.toInt() ?? defaultPosition,
+      translationModelId: (json['translationModelId'] as String?)
+          ?.trim()
+          .isEmpty == true
+          ? null
+          : json['translationModelId'] as String?,
     );
   }
 
@@ -107,6 +134,14 @@ class FloatingAssistantSettings {
     String? mangaOverlayStyle,
     double? mangaOverlayOpacity,
     List<String>? blockedPackages,
+    int? bubbleX,
+    int? bubbleY,
+    int? panelX,
+    int? panelY,
+    int? panelWidth,
+    int? panelHeight,
+    String? translationModelId,
+    bool clearTranslationModel = false,
   }) {
     return FloatingAssistantSettings(
       enabled: enabled ?? this.enabled,
@@ -123,23 +158,39 @@ class FloatingAssistantSettings {
       mangaOverlayStyle: mangaOverlayStyle ?? this.mangaOverlayStyle,
       mangaOverlayOpacity: mangaOverlayOpacity ?? this.mangaOverlayOpacity,
       blockedPackages: blockedPackages ?? this.blockedPackages,
+      bubbleX: bubbleX ?? this.bubbleX,
+      bubbleY: bubbleY ?? this.bubbleY,
+      panelX: panelX ?? this.panelX,
+      panelY: panelY ?? this.panelY,
+      panelWidth: panelWidth ?? this.panelWidth,
+      panelHeight: panelHeight ?? this.panelHeight,
+      translationModelId: clearTranslationModel
+          ? null
+          : translationModelId ?? this.translationModelId,
     );
   }
 
   Map<String, dynamic> toJson() => {
-    'enabled': enabled,
-    'showBubbleInBackground': showBubbleInBackground,
-    'showAgentPlan': showAgentPlan,
-    'allowScreenContext': allowScreenContext,
-    'screenContextMode': screenContextMode,
-    'voiceInputMode': voiceInputMode,
-    'showMangaTranslationAction': showMangaTranslationAction,
-    'mangaTargetLanguage': mangaTargetLanguage,
-    'mangaLayoutMode': mangaLayoutMode,
-    'mangaOverlayStyle': mangaOverlayStyle,
-    'mangaOverlayOpacity': mangaOverlayOpacity,
-    'blockedPackages': blockedPackages,
-  };
+        'enabled': enabled,
+        'showBubbleInBackground': showBubbleInBackground,
+        'showAgentPlan': showAgentPlan,
+        'allowScreenContext': allowScreenContext,
+        'screenContextMode': screenContextMode,
+        'voiceInputMode': voiceInputMode,
+        'showMangaTranslationAction': showMangaTranslationAction,
+        'mangaTargetLanguage': mangaTargetLanguage,
+        'mangaLayoutMode': mangaLayoutMode,
+        'mangaOverlayStyle': mangaOverlayStyle,
+        'mangaOverlayOpacity': mangaOverlayOpacity,
+        'blockedPackages': blockedPackages,
+        'bubbleX': bubbleX,
+        'bubbleY': bubbleY,
+        'panelX': panelX,
+        'panelY': panelY,
+        'panelWidth': panelWidth,
+        'panelHeight': panelHeight,
+        'translationModelId': translationModelId,
+      };
 
   static String _enumString(Object? raw, Set<String> allowed, String fallback) {
     final value = raw?.toString();

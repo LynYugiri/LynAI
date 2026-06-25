@@ -131,16 +131,20 @@ Agent Lua 可以通过 `lynai.call()` 调用这些函数，也可以用 `lynai.d
 | `lynai/schedule_widget` | `refresh` | Android | 日程变更后刷新小组件。 |
 | `lynai/schedule_widget` | `rescheduleNotifications` | Android | 日程变更后重新安排通知。 |
 | `lynai/background_service` | start/stop | Android | 长时间生成时控制前台服务。 |
-| `lynai/device_control` | snapshot/context/query/screenshot/tap/swipe/inputText/nodeAction | Android | 通过无障碍读取屏幕、筛选节点、截屏并执行手机操作。节点包含可见性、选中、勾选、长按和可用动作等元数据。 |
-| `lynai/floating_assistant` | showBubble/hideBubble/configure/updateChatState/updateAgentPlan | Android | 系统级悬浮聊天窗，接收 Dart 聊天状态、发送用户输入、语音填充输入框、触发翻译和 Agent 控制。 |
+| `lynai/device_control` | snapshot/context/query/screenshot/ocr/tap/swipe/inputText/nodeAction | Android | 通过无障碍读取屏幕、筛选节点、截屏并执行手机操作。节点包含可见性、选中、勾选、长按和可用动作等元数据。`ocr` 使用 ML Kit 离线识别截图中的文本及位置。 |
+| `lynai/floating_assistant` | showBubble/hideBubble/configure/updateChatState/updateAgentPlan/updateTranslationOverlay/clearTranslationOverlay | Android | 系统级悬浮聊天窗，接收 Dart 聊天状态、发送用户输入、语音填充输入框、触发翻译和 Agent 控制。支持气泡/面板拖动、面板缩放、位置持久化、气泡状态指示（脉冲动画）、消息长按复制、新建对话。 |
 
 读屏类函数 `device.screen.query`、`device.screen.waitText`、`device.screen.readVisibleText`、`device.screen.extractMessages`、`device.node.find`、`device.node.findAll` 和 `device.waitForNode` 需要 `device:screen:read`。动作类函数如 `device.app.open`、`device.screen.clickText`、`device.screen.waitAndClick`、`device.screen.inputText`、`device.screen.scrollUntil`、`device.tap`、`device.swipe`、`device.inputText` 和 `device.node.action` 需要 `device:control`。
 
 ### FloatingAssistantService
 
-文件：`lib/services/floating_assistant_service.dart`、`lib/services/floating_chat_session_controller.dart`、`android/app/src/main/kotlin/com/github/lynyugiri/lynai/FloatingAssistantOverlay.kt`
+文件：`lib/services/floating_assistant_service.dart`、`lib/services/floating_chat_session_controller.dart`、`android/app/src/main/kotlin/com/github/lynyugiri/lynai/FloatingAssistantOverlay.kt`、`android/app/src/main/kotlin/com/github/lynyugiri/lynai/TranslationOverlayManager.kt`、`android/app/src/main/kotlin/com/github/lynyugiri/lynai/OnDeviceOcrRecognizer.kt`
 
 Android 悬浮助手由原生 `WindowManager` 渲染系统级气泡和聊天卡片，Dart 侧 `FloatingChatSessionController` 负责创建真实 Conversation、流式请求、工具调用、翻译当前屏幕文本和状态回推。悬浮窗只在后台显示或 Agent 运行时显示；展开后可以直接聊天，语音按钮使用 Android 系统语音识别把结果填入输入框。Agent 计划并入同一个悬浮窗，只有运行/暂停状态才显示控制，暂停时显示继续，运行或暂停时显示停止。
+
+气泡可拖动（垂直边界限制）并记忆位置；面板 header 可拖动、右下角可缩放，位置和尺寸持久化到 `FloatingAssistantSettings`。气泡根据状态变色并脉冲动画：蓝色空闲、橙色 Agent 运行、绿色翻译中、红色录音中。面板消息和译文长按可复制到剪贴板。
+
+翻译功能支持多目标语言、源语言检测（已是目标语言则原样返回）、app 上下文附带。文本来源优先使用无障碍快照节点（有 bounds 的叶子节点），无文本时降级到 on-device OCR（ML Kit 中文识别器，离线工作）。批量翻译流式输出，结果通过 `TranslationOverlayManager` 在屏幕原位渲染覆盖层（触摸穿透），支持 light/dark/stroke 样式和不透明度。用户滚动目标 app 时，无障碍 `TYPE_VIEW_SCROLLED` 事件实时驱动覆盖层跟随（含横向滚动和 fling 节流），滚动停止 500ms 后自动增量翻译新内容。翻译历史缓存到 SharedPreferences，最近 20 条可在面板查看。
 
 ### Agent Subagent
 

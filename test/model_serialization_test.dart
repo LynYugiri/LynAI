@@ -192,6 +192,13 @@ void main() {
         mangaOverlayStyle: FloatingAssistantSettings.mangaOverlayStroke,
         mangaOverlayOpacity: 0.7,
         blockedPackages: ['com.reader.app'],
+        bubbleX: 100,
+        bubbleY: 200,
+        panelX: 50,
+        panelY: 80,
+        panelWidth: 360,
+        panelHeight: 320,
+        translationModelId: 'model-ocr-1',
       ),
     );
 
@@ -215,6 +222,26 @@ void main() {
     );
     expect(floating.mangaOverlayOpacity, 0.7);
     expect(floating.blockedPackages, ['com.reader.app']);
+    expect(floating.bubbleX, 100);
+    expect(floating.bubbleY, 200);
+    expect(floating.panelX, 50);
+    expect(floating.panelY, 80);
+    expect(floating.panelWidth, 360);
+    expect(floating.panelHeight, 320);
+    expect(floating.translationModelId, 'model-ocr-1');
+  });
+
+  test('floating assistant settings default positions are -1', () {
+    const settings = FloatingAssistantSettings();
+    final restored = FloatingAssistantSettings.fromJson(settings.toJson());
+
+    expect(restored.bubbleX, FloatingAssistantSettings.defaultPosition);
+    expect(restored.bubbleY, FloatingAssistantSettings.defaultPosition);
+    expect(restored.panelX, FloatingAssistantSettings.defaultPosition);
+    expect(restored.panelY, FloatingAssistantSettings.defaultPosition);
+    expect(restored.panelWidth, FloatingAssistantSettings.defaultPosition);
+    expect(restored.panelHeight, FloatingAssistantSettings.defaultPosition);
+    expect(restored.translationModelId, isNull);
   });
 
   test('role and conversation settings serialize sub model names', () {

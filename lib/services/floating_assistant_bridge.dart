@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 class FloatingAssistantBridge {
@@ -39,10 +40,18 @@ class FloatingAssistantBridge {
 
   Future<void> clearTranslationBlocks() => _invoke('clearTranslationBlocks');
 
+  Future<void> updateTranslationOverlay(
+    Map<String, dynamic> payload,
+  ) => _invoke('updateTranslationOverlay', payload);
+
+  Future<void> clearTranslationOverlay() => _invoke('clearTranslationOverlay');
+
   Future<void> _invoke(String method, [Map<String, dynamic>? arguments]) async {
     if (!isSupported) return;
     try {
       await _channel.invokeMethod<void>(method, arguments ?? const {});
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('FloatingAssistantBridge.$method failed: $e');
+    }
   }
 }
