@@ -63,6 +63,7 @@ dependencies:
   lua_dardo: ^0.0.5
   ffi: ^2.1.4
   fluent_ui: ^4.15.1
+  shared_preferences: ^2.3.4
 
 dev_dependencies:
   flutter_test:
@@ -74,7 +75,6 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
-  shared_preferences: ^2.3.4
   path_provider_platform_interface: ^2.1.2
   build_runner: ^2.10.4
   drift_dev: ^2.29.0
