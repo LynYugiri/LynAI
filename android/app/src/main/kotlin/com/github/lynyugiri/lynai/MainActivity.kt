@@ -27,6 +27,12 @@ class MainActivity : FlutterActivity() {
         super.onCreate(savedInstanceState)
     }
 
+    override fun onDestroy() {
+        // 释放悬浮窗持有的广播接收器和 Activity 引用，避免内存泄漏。
+        FloatingAssistantOverlay.uninstall()
+        super.onDestroy()
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(

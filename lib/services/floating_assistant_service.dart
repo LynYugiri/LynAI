@@ -26,6 +26,10 @@ class FloatingAssistantService with WidgetsBindingObserver {
   bool _foreground = true;
   bool _translationRunning = false;
 
+  /// Exposed for pages that need access to the live controller (e.g. the
+  /// translation history page reads `_chat.translationHistory`).
+  FloatingChatSessionController? get chatController => _chat;
+
   void start({
     required SettingsProvider settings,
     required ConversationProvider conversations,
@@ -43,8 +47,8 @@ class FloatingAssistantService with WidgetsBindingObserver {
       models: models,
       features: features,
       plugins: plugins,
-      onChanged: _syncChatState,
     );
+    _chat!.addListener(_syncChatState);
     WidgetsBinding.instance.addObserver(this);
     settings.addListener(_sync);
     conversations.addListener(_syncChatState);
@@ -52,6 +56,7 @@ class FloatingAssistantService with WidgetsBindingObserver {
     FloatingAssistantBridge.instance.setHandler(_handleCall);
     DeviceControlService.instance.onTranslationScrollSettled = _onScrollSettled;
     DeviceControlService.instance.onAccessibilityServiceReconnected = _onServiceReconnected;
+    unawaited(_chat?.loadTranslationHistory());
     _sync();
   }
 
@@ -61,6 +66,7 @@ class FloatingAssistantService with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _settings?.removeListener(_sync);
     _conversations?.removeListener(_syncChatState);
+    _chat?.removeListener(_syncChatState);
     DeviceRunController.instance.removeListener(_sync);
     FloatingAssistantBridge.instance.setHandler(null);
     DeviceControlService.instance.onTranslationScrollSettled = null;
@@ -80,8 +86,6 @@ class FloatingAssistantService with WidgetsBindingObserver {
 
   Future<dynamic> _handleCall(MethodCall call) async {
     switch (call.method) {
-      case 'attachScreenContext':
-        return {'ok': false, 'error': '模型会在聊天中按需读取当前页面'};
       case 'sendMessage':
         final text = _callArgs(call)['text']?.toString() ?? '';
         unawaited(_chat?.send(text));
@@ -97,6 +101,14 @@ class FloatingAssistantService with WidgetsBindingObserver {
         if (floating?.showMangaTranslationAction != true) {
           return {'ok': false, 'error': '翻译按钮已关闭'};
         }
+        // A2: real toggle — if translation is in flight, stop it; otherwise start.
+        if (_translationRunning || (_chat?.isTranslationStreaming ?? false)) {
+          _translationRunning = false;
+          await _chat?.stopTranslation();
+          await FloatingAssistantBridge.instance.setTranslationRunning(false);
+          unawaited(FloatingAssistantBridge.instance.clearTranslationOverlay());
+          return {'ok': true, 'action': 'stopped'};
+        }
         _translationRunning = true;
         await FloatingAssistantBridge.instance.setTranslationRunning(true);
         unawaited(
@@ -107,7 +119,7 @@ class FloatingAssistantService with WidgetsBindingObserver {
             );
           }),
         );
-        return {'ok': true};
+        return {'ok': true, 'action': 'started'};
       case 'clearTranslation':
         _translationRunning = false;
         _chat?.clearTranslation();

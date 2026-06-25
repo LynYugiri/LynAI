@@ -334,7 +334,6 @@ void main() {
       models: ModelConfigProvider(),
       features: FeatureProvider(),
       plugins: PluginProvider(),
-      onChanged: () {},
     );
     try {
       expect(controller.screenContextToolAllowed, isFalse);

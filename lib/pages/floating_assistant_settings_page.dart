@@ -4,8 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/app_settings.dart';
+import '../models/model_config.dart';
+import '../providers/model_config_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/device_control_service.dart';
+import '../services/floating_assistant_service.dart';
+import 'translation_history_page.dart';
 
 class FloatingAssistantSettingsPage extends StatelessWidget {
   const FloatingAssistantSettingsPage({super.key});
@@ -103,7 +107,6 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
                 value: settings.screenContextMode,
                 values: const {
                   FloatingAssistantSettings.screenContextManual: '手动附带',
-                  FloatingAssistantSettings.screenContextAsk: '发送前询问',
                   FloatingAssistantSettings.screenContextDisabled: '关闭',
                 },
                 enabled: settings.enabled && settings.allowScreenContext,
@@ -208,6 +211,31 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
                       : null,
                 ),
               ),
+              _TranslationModelTile(settings),
+              ListTile(
+                leading: const Icon(Icons.block),
+                title: const Text('屏蔽应用包名'),
+                subtitle: Text(
+                  settings.blockedPackages.isEmpty
+                      ? '不屏蔽任何应用'
+                      : '已屏蔽 ${settings.blockedPackages.length} 个应用',
+                ),
+                enabled: Platform.isAndroid &&
+                    settings.enabled &&
+                    settings.showMangaTranslationAction,
+                onTap: Platform.isAndroid
+                    ? () => _editBlockedPackages(context, settings)
+                    : null,
+              ),
+              ListTile(
+                leading: const Icon(Icons.history),
+                title: const Text('翻译历史'),
+                subtitle: Text(
+                  Platform.isAndroid ? '查看最近的屏幕翻译记录' : '仅 Android 可用',
+                ),
+                enabled: Platform.isAndroid,
+                onTap: Platform.isAndroid ? () => _openHistory(context) : null,
+              ),
             ],
           ),
           _section(
@@ -287,6 +315,117 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
     DeviceControlService.instance.execute('device.service.openSettings', {
       'target': target,
     });
+  }
+
+  static Future<void> _editBlockedPackages(
+    BuildContext context,
+    FloatingAssistantSettings settings,
+  ) async {
+    final controller = TextEditingController(
+      text: settings.blockedPackages.join('\n'),
+    );
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('屏蔽应用包名'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: TextField(
+            controller: controller,
+            maxLines: 8,
+            minLines: 4,
+            decoration: const InputDecoration(
+              hintText: '每行一个包名，如\ncom.example.app',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    if (result == null) return;
+    final packages = result
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (context.mounted) {
+      _update(context, settings.copyWith(blockedPackages: packages));
+    }
+  }
+
+  static void _openHistory(BuildContext context) {
+    final chat = FloatingAssistantService.instance.chatController;
+    if (chat == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => TranslationHistoryPage(controller: chat),
+      ),
+    );
+  }
+}
+
+class _TranslationModelTile extends StatelessWidget {
+  const _TranslationModelTile(this.settings);
+
+  final FloatingAssistantSettings settings;
+
+  @override
+  Widget build(BuildContext context) {
+    final models = context.watch<ModelConfigProvider>().models;
+    final chatModels =
+        models.where((m) => m.category == ModelConfig.categoryChat).toList();
+    final currentId = settings.translationModelId;
+    final selected = currentId == null || currentId.isEmpty
+        ? null
+        : chatModels.firstWhere(
+            (m) => m.id == currentId,
+            orElse: () => chatModels.first,
+          );
+    final enabled = settings.enabled && settings.showMangaTranslationAction;
+    return ListTile(
+      leading: const Icon(Icons.translate),
+      title: const Text('翻译模型'),
+      subtitle: Text(
+        selected == null
+            ? '跟随当前聊天模型'
+            : (selected.modelName.isEmpty ? selected.id : selected.modelName),
+      ),
+      enabled: enabled,
+      trailing: DropdownButton<String?>(
+        value: currentId,
+        hint: const Text('跟随聊天模型'),
+        items: [
+          const DropdownMenuItem<String?>(value: null, child: Text('跟随聊天模型')),
+          ...chatModels.map(
+            (m) => DropdownMenuItem<String?>(
+              value: m.id,
+              child: Text(m.modelName.isEmpty ? m.id : m.modelName),
+            ),
+          ),
+        ],
+        onChanged: enabled
+            ? (next) {
+                FloatingAssistantSettingsPage._update(
+                  context,
+                  next == null
+                      ? settings.copyWith(clearTranslationModel: true)
+                      : settings.copyWith(translationModelId: next),
+                );
+              }
+            : null,
+      ),
+    );
   }
 }
 

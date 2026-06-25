@@ -186,7 +186,7 @@ void main() {
       floatingAssistant: const FloatingAssistantSettings(
         enabled: true,
         allowScreenContext: true,
-        screenContextMode: FloatingAssistantSettings.screenContextAsk,
+        screenContextMode: FloatingAssistantSettings.screenContextManual,
         voiceInputMode: FloatingAssistantSettings.voiceInputServer,
         mangaLayoutMode: FloatingAssistantSettings.mangaLayoutVertical,
         mangaOverlayStyle: FloatingAssistantSettings.mangaOverlayStroke,
@@ -209,7 +209,7 @@ void main() {
     expect(floating.allowScreenContext, isTrue);
     expect(
       floating.screenContextMode,
-      FloatingAssistantSettings.screenContextAsk,
+      FloatingAssistantSettings.screenContextManual,
     );
     expect(floating.voiceInputMode, FloatingAssistantSettings.voiceInputServer);
     expect(

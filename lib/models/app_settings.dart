@@ -5,7 +5,6 @@ import '../services/lynai_permission_definitions.dart';
 
 class FloatingAssistantSettings {
   static const screenContextManual = 'manual';
-  static const screenContextAsk = 'ask';
   static const screenContextDisabled = 'disabled';
   static const voiceInputSystem = 'system';
   static const voiceInputServer = 'server';
@@ -72,7 +71,6 @@ class FloatingAssistantSettings {
       allowScreenContext: json['allowScreenContext'] as bool? ?? false,
       screenContextMode: _enumString(json['screenContextMode'], const {
         screenContextManual,
-        screenContextAsk,
         screenContextDisabled,
       }, screenContextManual),
       voiceInputMode: _enumString(json['voiceInputMode'], const {

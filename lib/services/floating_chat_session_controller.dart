@@ -20,20 +20,18 @@ import 'device_control_service.dart';
 import 'floating_assistant_bridge.dart';
 import 'tool_call_service.dart';
 
-class FloatingChatSessionController {
+class FloatingChatSessionController extends ChangeNotifier {
   FloatingChatSessionController({
     required SettingsProvider settings,
     required ConversationProvider conversations,
     required ModelConfigProvider models,
     required FeatureProvider features,
     required PluginProvider plugins,
-    required VoidCallback onChanged,
   }) : _settings = settings,
        _conversations = conversations,
        _models = models,
        _features = features,
-       _plugins = plugins,
-       _onChanged = onChanged;
+       _plugins = plugins;
 
   static const _emptyAssistantReply = '模型没有返回内容，请稍后重试或检查模型配置。';
   static const _maxToolDepth = 6;
@@ -63,7 +61,6 @@ class FloatingChatSessionController {
   final ModelConfigProvider _models;
   final FeatureProvider _features;
   final PluginProvider _plugins;
-  final VoidCallback _onChanged;
   final ApiService _api = ApiService();
 
   StreamSubscription<StreamChunk>? _subscription;
@@ -79,9 +76,12 @@ class FloatingChatSessionController {
   final Map<String, String> _translatedCache = {};
   final List<Map<String, dynamic>> _translationHistory = [];
   bool _translationOverlayActive = false;
+  bool _translationStreaming = false;
+  int _currentTotalBlocks = 0;
 
   String? get conversationId => _conversationId;
   bool get isStreaming => _streaming;
+  bool get isTranslationStreaming => _translationStreaming;
   bool get screenContextToolAllowed => _screenContextToolAllowed;
 
   void startNewConversation() {
@@ -91,7 +91,7 @@ class FloatingChatSessionController {
     _draftThinking = '';
     _status = '新对话已开始';
     _error = '';
-    _onChanged();
+    notifyListeners();
   }
 
   Map<String, dynamic> stateJson() {
@@ -156,7 +156,7 @@ class FloatingChatSessionController {
     _status = '正在生成...';
     _draftContent = '';
     _draftThinking = '';
-    _onChanged();
+    notifyListeners();
 
     final conversation = _conversations.getConversation(_conversationId!);
     if (conversation == null) return;
@@ -197,35 +197,56 @@ class FloatingChatSessionController {
         }
       }
     }
-    _onChanged();
+    notifyListeners();
+  }
+
+  Future<void> stopTranslation() async {
+    if (!_translationStreaming && !_translationOverlayActive) return;
+    await _subscription?.cancel();
+    _subscription = null;
+    _translationStreaming = false;
+    _translationOverlayActive = false;
+    _status = '已停止翻译';
+    _translationText = '';
+    FloatingAssistantBridge.instance.clearTranslationOverlay();
+    notifyListeners();
   }
 
   Future<void> translateCurrentScreen() async {
-    if (_streaming) return;
+    if (_translationStreaming) return;
     _clearTransientStatus();
     _status = '正在读取当前页面...';
     _translatedCache.clear();
-    _onChanged();
+    _translationText = '';
+    notifyListeners();
     final floating = _settings.settings.floatingAssistant;
     final targetLanguage = _languageNames[floating.mangaTargetLanguage] ?? '简体中文';
-    final blocks = await _extractTextBlocks();
+    final allBlocks = await _extractTextBlocks();
+    _currentTotalBlocks = allBlocks.length;
+    final blocks = allBlocks.take(_maxOverlayBlocks).toList();
     if (blocks.isEmpty) {
+      _currentTotalBlocks = 0;
       _setError('当前页面没有可读取文本');
       return;
     }
-    final model = _currentModel();
+    final model = _translationModel();
     if (model == null) {
       _setError('请先在设置中添加 AI 模型');
       return;
     }
     _translationOverlayActive = true;
-    _status = '正在翻译...';
-    _onChanged();
+    _translationStreaming = true;
+    final truncated = _currentTotalBlocks > _maxOverlayBlocks;
+    final effective = truncated ? _maxOverlayBlocks : blocks.length;
+    _status = truncated
+        ? '正在翻译 $effective/$_currentTotalBlocks 段（已截断）...'
+        : '正在翻译 $effective 段...';
+    notifyListeners();
     await _batchTranslateAndOverlay(model, blocks, targetLanguage);
   }
 
   Future<void> onTranslationScrollSettled() async {
-    if (!_translationOverlayActive || _streaming) return;
+    if (!_translationOverlayActive || _translationStreaming) return;
     final floating = _settings.settings.floatingAssistant;
     final targetLanguage = _languageNames[floating.mangaTargetLanguage] ?? '简体中文';
     final blocks = await _extractTextBlocks();
@@ -240,7 +261,7 @@ class FloatingChatSessionController {
       });
     }
     if (newBlocks.isNotEmpty) {
-      final model = _currentModel();
+      final model = _translationModel();
       if (model == null) return;
       final translations = await _batchTranslate(model, newBlocks, targetLanguage);
       for (final b in newBlocks) {
@@ -252,7 +273,13 @@ class FloatingChatSessionController {
       }
     }
     _updateOverlay(allBlocks, floating);
-    _onChanged();
+    _status = '已翻译 ${allBlocks.length}/${blocks.length} 段';
+    notifyListeners();
+  }
+
+  bool _isPackageBlocked_(String pkg) {
+    final blocked = _settings.settings.floatingAssistant.blockedPackages;
+    return pkg.isNotEmpty && blocked.contains(pkg);
   }
 
   Future<List<Map<String, dynamic>>> _extractTextBlocks() async {
@@ -261,7 +288,7 @@ class FloatingChatSessionController {
     // browsers) where OCR may struggle but the accessibility tree has exact
     // text + bounds.
     final ocrBlocks = await _extractOcrBlocks();
-    if (ocrBlocks.isNotEmpty) return ocrBlocks.take(_maxOverlayBlocks).toList();
+    if (ocrBlocks.isNotEmpty) return ocrBlocks;
 
     final snapshot = await DeviceControlService.instance.execute(
       'device.screen.snapshot',
@@ -271,6 +298,7 @@ class FloatingChatSessionController {
     final result = snapshot['result'];
     if (result is! Map) return const [];
     final packageName = result['packageName']?.toString() ?? '';
+    if (_isPackageBlocked_(packageName)) return const [];
     final roots = (result['roots'] as List?) ?? const [];
     final blocks = <Map<String, dynamic>>[];
     for (final root in roots) {
@@ -278,7 +306,7 @@ class FloatingChatSessionController {
         _collectTextBlocks(root, blocks, packageName);
       }
     }
-    return blocks.take(_maxOverlayBlocks).toList();
+    return blocks;
   }
 
   void _collectTextBlocks(
@@ -295,7 +323,7 @@ class FloatingChatSessionController {
       final bottom = (bounds['bottom'] as num?)?.toInt() ?? 0;
       if (right > left && bottom > top) {
         blocks.add({
-          'id': '${text.hashCode}_${left}_$top',
+          'id': _blockId(text, left, top, right, bottom),
           'originalText': text,
           'bounds': {'left': left, 'top': top, 'right': right, 'bottom': bottom},
           'packageName': packageName,
@@ -308,10 +336,43 @@ class FloatingChatSessionController {
     }
   }
 
+  String _blockId(String text, int left, int top, int right, int bottom) {
+    return '$text|$left,$top,$right,$bottom';
+  }
+
+  @visibleForTesting
+  static String blockIdForTest(String text, int left, int top, int right, int bottom) {
+    return '$text|$left,$top,$right,$bottom';
+  }
+
+  @visibleForTesting
+  bool isLikelyUiLabel(String text) => _isLikelyUiLabel(text);
+
   bool _isLikelyUiLabel(String text) {
-    if (text.length <= 2) return true;
-    final uiLabels = {'确定', '取消', '返回', '关闭', '搜索', '更多', '设置', '分享', '编辑', '删除', 'OK', 'ok'};
+    // CJK 单/双字在漫画语境里常带真实含义（拟声词、对白），所以仅剔除明显的
+    // 位 UI 控件标签和纯 ASCII 短串。
+    if (text.isEmpty) return true;
+    final uiLabels = {
+      '确定',
+      '取消',
+      '返回',
+      '关闭',
+      '搜索',
+      '更多',
+      '设置',
+      '分享',
+      '编辑',
+      '删除',
+      'OK',
+      'ok',
+    };
     if (uiLabels.contains(text)) return true;
+    // 仅 1 个字符：纯 ASCII 剔除，CJK（含其它非拉丁）保留。
+    if (text.length == 1) {
+      return RegExp(r'^[A-Za-z0-9]$').hasMatch(text);
+    }
+    // 2 个字符：纯 ASCII 视作按钮短词剔除，其余保留。
+    if (text.length == 2 && RegExp(r'^[A-Za-z0-9]+$').hasMatch(text)) return true;
     return false;
   }
 
@@ -323,6 +384,8 @@ class FloatingChatSessionController {
     if (screenshot['ok'] != true) return const [];
     final result = screenshot['result'];
     if (result is! Map) return const [];
+    final screenshotPkg = result['packageName']?.toString() ?? '';
+    if (_isPackageBlocked_(screenshotPkg)) return const [];
     final dataBase64 = result['dataBase64']?.toString() ?? '';
     if (dataBase64.isEmpty) return const [];
     final ocr = await DeviceControlService.instance.execute(
@@ -338,17 +401,24 @@ class FloatingChatSessionController {
         })
         .map((b) {
       final bounds = (b['bounds'] as Map?) ?? {};
+      final left = (bounds['left'] as num?)?.toInt() ?? 0;
+      final top = (bounds['top'] as num?)?.toInt() ?? 0;
+      final right = (bounds['right'] as num?)?.toInt() ?? 0;
+      final bottom = (bounds['bottom'] as num?)?.toInt() ?? 0;
+      final text = b['text']?.toString() ?? '';
       return <String, dynamic>{
-        'id': b['id']?.toString() ?? 'ocr_${blocks.indexOf(b)}',
-        'originalText': b['text']?.toString() ?? '',
+        'id': b['id']?.toString().isNotEmpty == true
+            ? b['id'].toString()
+            : _blockId(text, left, top, right, bottom),
+        'originalText': text,
         'bounds': {
-          'left': (bounds['left'] as num?)?.toInt() ?? 0,
-          'top': (bounds['top'] as num?)?.toInt() ?? 0,
-          'right': (bounds['right'] as num?)?.toInt() ?? 0,
-          'bottom': (bounds['bottom'] as num?)?.toInt() ?? 0,
+          'left': left,
+          'top': top,
+          'right': right,
+          'bottom': bottom,
         },
         'orientation': b['orientation'] ?? 0,
-        'packageName': '',
+        'packageName': screenshotPkg,
       };
     }).toList();
   }
@@ -379,21 +449,26 @@ class FloatingChatSessionController {
       _subscription = stream.listen(
         (chunk) {
           if (chunk.content != null) fullResponse += chunk.content!;
-          _translationText = fullResponse;
+          // A1: do NOT surface raw JSON/fenced output to the panel card while
+          // the stream is incomplete; show a compact progress indicator only.
+          _translationText = '';
           _status = '正在翻译...';
-          _onChanged();
+          notifyListeners();
         },
         onError: (Object error) {
-          _setError('翻译失败: $error');
+          _translationStreaming = false;
           _translationOverlayActive = false;
+          _setError('翻译失败: $error');
         },
         onDone: () {
+          _translationStreaming = false;
           _parseAndApplyTranslations(fullResponse, blocks, targetLanguage);
         },
       );
     } catch (e) {
-      _setError('翻译失败: $e');
+      _translationStreaming = false;
       _translationOverlayActive = false;
+      _setError('翻译失败: $e');
     }
   }
 
@@ -419,12 +494,17 @@ class FloatingChatSessionController {
         thinking: false,
       );
       return _parseTranslations(response.content, blocks);
-    } catch (_) {
+    } catch (e) {
+      // C15: surface scroll-triggered failures instead of swallowing them.
+      debugPrint('Scroll translation failed: $e');
+      _status = '滚动翻译失败，已保留旧译文';
+      notifyListeners();
       return {};
     }
   }
 
-  String _buildTranslationPrompt(String targetLanguage, String packageName) {
+  @visibleForTesting
+  static String buildTranslationPrompt(String targetLanguage, String packageName) {
     final contextHint = packageName.isNotEmpty ? '当前页面来自应用: $packageName。' : '';
     return '你是屏幕文本翻译助手。$contextHint'
         '将用户提供的文本翻译成$targetLanguage。'
@@ -436,6 +516,9 @@ class FloatingChatSessionController {
         '保留原始分段，不要合并或拆分文本块。';
   }
 
+  String _buildTranslationPrompt(String targetLanguage, String packageName) =>
+      buildTranslationPrompt(targetLanguage, packageName);
+
   void _parseAndApplyTranslations(
     String response,
     List<Map<String, dynamic>> blocks,
@@ -443,11 +526,14 @@ class FloatingChatSessionController {
   ) {
     final translations = _parseTranslations(response, blocks);
     final allBlocks = <Map<String, dynamic>>[];
+    var skipped = 0;
     for (final block in blocks) {
       final translated = translations[block['id']] ?? '';
       if (translated.isNotEmpty) {
         _translatedCache[block['id']] = translated;
         allBlocks.add({...block, 'translatedText': translated});
+      } else {
+        skipped++;
       }
     }
     final floating = _settings.settings.floatingAssistant;
@@ -456,10 +542,28 @@ class FloatingChatSessionController {
         .map((b) => b['translatedText']?.toString() ?? '')
         .where((t) => t.isNotEmpty)
         .join('\n');
-    _status = allBlocks.isEmpty ? '未获得译文' : '已翻译当前页面';
+    final total = blocks.length;
+    final rendered = allBlocks.length;
+    final fullScreenTotal = _currentTotalBlocks;
+    final wasTruncated = fullScreenTotal > _maxOverlayBlocks;
+    final statusParts = <String>['已翻译 $rendered/$total 段'];
+    if (wasTruncated && fullScreenTotal > total) {
+      statusParts.add('超出 $_maxOverlayBlocks 段已截断（共 $fullScreenTotal 段）');
+    }
+    if (skipped > 0) {
+      statusParts.add('$skipped 段模型未返回');
+    }
+    _status = allBlocks.isEmpty ? '未获得译文' : statusParts.join('，');
+    _currentTotalBlocks = 0;
     _saveToHistory(allBlocks);
-    _onChanged();
+    notifyListeners();
   }
+
+  @visibleForTesting
+  Map<String, String> parseTranslations(
+    String response,
+    List<Map<String, dynamic>> blocks,
+  ) => _parseTranslations(response, blocks);
 
   Map<String, String> _parseTranslations(
     String response,
@@ -522,6 +626,7 @@ class FloatingChatSessionController {
       _translationHistory.removeRange(_maxHistoryEntries, _translationHistory.length);
     }
     try {
+      if (!Platform.isAndroid) return;
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_translationHistoryKey, jsonEncode(_translationHistory));
     } catch (e) {
@@ -530,6 +635,7 @@ class FloatingChatSessionController {
   }
 
   Future<void> loadTranslationHistory() async {
+    if (!Platform.isAndroid) return;
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_translationHistoryKey);
@@ -546,14 +652,31 @@ class FloatingChatSessionController {
   List<Map<String, dynamic>> get translationHistory =>
       List.unmodifiable(_translationHistory);
 
+  Future<void> clearTranslationHistory() async {
+    _translationHistory.clear();
+    notifyListeners();
+    if (!Platform.isAndroid) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_translationHistoryKey);
+    } catch (e) {
+      debugPrint('Failed to clear translation history: $e');
+    }
+  }
+
   void clearTranslation() {
     if (_translationText.isEmpty && !_translationOverlayActive) return;
     _translationText = '';
     _status = '';
     _translatedCache.clear();
     _translationOverlayActive = false;
+    if (_translationStreaming) {
+      _subscription?.cancel();
+      _subscription = null;
+      _translationStreaming = false;
+    }
     FloatingAssistantBridge.instance.clearTranslationOverlay();
-    _onChanged();
+    notifyListeners();
   }
 
   Future<Map<String, dynamic>> transcribeAudioPath(String path) async {
@@ -590,9 +713,23 @@ class FloatingChatSessionController {
     }
   }
 
+  @override
   Future<void> dispose() async {
     await _subscription?.cancel();
     _api.dispose();
+    super.dispose();
+  }
+
+  /// B7: pick the dedicated translation model when configured; fall back to
+  /// the current chat model when it is missing/unavailable.
+  ModelConfig? _translationModel() {
+    final floating = _settings.settings.floatingAssistant;
+    final id = floating.translationModelId;
+    if (id != null && id.isNotEmpty) {
+      final dedicated = _findModel(_models.models, id);
+      if (dedicated != null) return dedicated;
+    }
+    return _currentModel();
   }
 
   ModelConfig? _currentModel() {
@@ -770,7 +907,7 @@ class FloatingChatSessionController {
       );
       if (toolCalls.isNotEmpty && allowTools && depth < _maxToolDepth) {
         _status = '正在调用工具...';
-        _onChanged();
+        notifyListeners();
         final service = ToolCallService(
           _features,
           plugins: _plugins,
@@ -814,7 +951,7 @@ class FloatingChatSessionController {
       if (createTitle) {
         unawaited(_maybeCreateConversationTitle(model, conversationId));
       }
-      _onChanged();
+      notifyListeners();
     }
 
     unawaited(_subscription?.cancel());
@@ -832,7 +969,7 @@ class FloatingChatSessionController {
         _draftContent = buffer;
         _draftThinking = thinkingBuffer;
         _status = buffer.isEmpty ? '正在等待模型...' : '正在生成...';
-        _onChanged();
+        notifyListeners();
       },
       onError: (Object error) {
         if (generation != _generation) return;
@@ -886,7 +1023,7 @@ class FloatingChatSessionController {
           conversationId,
           title.length > 24 ? title.substring(0, 24) : title,
         );
-        _onChanged();
+        notifyListeners();
       }
     } catch (_) {}
   }
@@ -962,6 +1099,6 @@ class FloatingChatSessionController {
   void _setError(String message) {
     _error = message;
     _status = '';
-    _onChanged();
+    notifyListeners();
   }
 }

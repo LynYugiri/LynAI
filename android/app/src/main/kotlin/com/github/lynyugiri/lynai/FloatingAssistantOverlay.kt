@@ -105,10 +105,12 @@ object FloatingAssistantOverlay {
             addAction(Intent.ACTION_SCREEN_OFF)
             addAction(Intent.ACTION_SCREEN_ON)
         }
+        // 用 applicationContext 注册广播接收器，避免持有 Activity 引用导致泄漏。
+        val appContext = activity.applicationContext
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            activity.registerReceiver(screenOffReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            appContext.registerReceiver(screenOffReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
-            activity.registerReceiver(screenOffReceiver, filter)
+            appContext.registerReceiver(screenOffReceiver, filter)
         }
         channel.setMethodCallHandler { call, result ->
             when (call.method) {
@@ -142,8 +144,69 @@ object FloatingAssistantOverlay {
                     updateBubbleState()
                     result.success(null)
                 }
-                "clearTranslationBlocks" -> {
-                    channel.invokeMethod("clearTranslation", emptyMap<String, Any>())
+                "updateTranslationOverlay" -> {
+                    val args = arguments(call.arguments)
+                    TranslationOverlayManager.setBlocks(
+                        activity!!, args, mangaOverlayStyle, mangaOverlayOpacity, mangaLayoutMode
+                    )
+                    result.success(null)
+                }
+                "clearTranslationOverlay" -> {
+                    TranslationOverlayManager.clear()
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    fun uninstall() {
+        try {
+            val ctx = activity?.applicationContext ?: activity
+            ctx?.unregisterReceiver(screenOffReceiver)
+        } catch (_: Exception) {
+            // receiver was not registered or already unregistered
+        }
+        screenOffReceiver = null
+        hideAll()
+        stopSpeechRecognition()
+        releaseRecorder()
+        stopPulse()
+        TranslationOverlayManager.dispose()
+        activity = null
+        channel = null
+        screenOffReceiver = null
+    }
+        channel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "configure" -> {
+                    configure(arguments(call.arguments))
+                    result.success(null)
+                }
+                "showBubble" -> {
+                    showBubble()
+                    result.success(null)
+                }
+                "hideBubble" -> {
+                    hideAll()
+                    result.success(null)
+                }
+                "updateAgentPlan" -> {
+                    agentState = arguments(call.arguments)
+                    updatePanelViews()
+                    updateBubbleState()
+                    result.success(null)
+                }
+                "updateChatState" -> {
+                    chatState = arguments(call.arguments)
+                    updatePanelViews()
+                    updateBubbleState()
+                    result.success(null)
+                }
+                "setTranslationRunning" -> {
+                    translationRunning = arguments(call.arguments)["running"] == true
+                    updatePanelViews()
+                    updateBubbleState()
                     result.success(null)
                 }
                 "updateTranslationOverlay" -> {
@@ -346,7 +409,7 @@ object FloatingAssistantOverlay {
             setPadding(dp(ctx, 12), dp(ctx, 10), dp(ctx, 12), dp(ctx, 10))
             background = rounded(0xFFEFF6FF.toInt(), dp(ctx, 16), 0x332563EB, 1)
             setOnClickListener {
-                channel?.invokeMethod("clearTranslation", emptyMap<String, Any>())
+                showTranslationCardMenu(ctx)
             }
             setOnLongClickListener {
                 val t = text?.toString().orEmpty()
@@ -406,12 +469,13 @@ object FloatingAssistantOverlay {
         root.addView(composer)
 
         val resizeHandle = View(ctx).apply {
-            background = rounded(0x33000000.toInt(), dp(ctx, 3))
+            background = rounded(0xFFCBD5E1.toInt(), dp(ctx, 3))
             setOnTouchListener(ResizeTouchListener(ctx, root, panelParams, scroll, {
                 val w = ctx.resources.displayMetrics.widthPixels
                 val h = ctx.resources.displayMetrics.heightPixels
-                (dp(ctx, 240) to min(w - dp(ctx, 32), dp(ctx, 480))) to
-                    (dp(ctx, 200) to (h * 7 / 10))
+                // F2: maxW 受面板当前 x 限制，避免缩放后向右溢出屏幕。
+                val maxW = min(w - dp(ctx, 32), dp(ctx, 480))
+                (dp(ctx, 240) to maxW) to (dp(ctx, 200) to (h * 7 / 10))
             }) { width, height ->
                 scrollMessageHeight = height - dp(ctx, 180)
                 val sc = scroll
@@ -431,11 +495,25 @@ object FloatingAssistantOverlay {
                 )
             })
         }
-        root.addView(resizeHandle, LinearLayout.LayoutParams(
+        // F3: 居中、更明显的拖拽手柄。
+        val handleRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(0, dp(ctx, 6), 0, dp(ctx, 2))
+        }
+        val handleBar = View(ctx).apply {
+            background = rounded(0xCC475569.toInt(), dp(ctx, 3))
+        }
+        handleRow.addView(handleBar, LinearLayout.LayoutParams(dp(ctx, 44), dp(ctx, 6)))
+        handleRow.addView(resizeHandle, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
-            dp(ctx, 16)
+            dp(ctx, 18)
+        ))
+        root.addView(handleRow, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply {
-            topMargin = dp(ctx, 4)
+            topMargin = dp(ctx, 2)
         })
 
         return root
@@ -549,9 +627,31 @@ object FloatingAssistantOverlay {
             visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
             this.text = if (text.isEmpty()) "" else "译文\n$text"
             setOnClickListener {
-                channel?.invokeMethod("clearTranslation", emptyMap<String, Any>())
+                showTranslationCardMenu(context)
             }
         }
+    }
+
+    private fun showTranslationCardMenu(ctx: Context) {
+        val card = translationCard ?: return
+        val popup = android.widget.PopupMenu(ctx, card)
+        popup.menu.add(0, 1, 0, "复制译文")
+        popup.menu.add(0, 2, 1, "清空译文")
+        popup.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                1 -> {
+                    val t = card.text?.toString().orEmpty()
+                    if (t.isNotEmpty()) copyToClipboard(ctx, t, "译文已复制")
+                    true
+                }
+                2 -> {
+                    channel?.invokeMethod("clearTranslation", emptyMap<String, Any>())
+                    true
+                }
+                else -> false
+            }
+        }
+        popup.show()
     }
 
     private fun updateAgent(ctx: Context) {
@@ -1051,8 +1151,12 @@ object FloatingAssistantOverlay {
                     val (widthRange, heightRange) = sizeBoundsProvider()
                     val (minW, maxW) = widthRange
                     val (minH, maxH) = heightRange
+                    val dm = ctx.resources.displayMetrics
+                    // F2: 受面板当前 x 限制，避免向右溢出屏幕。
+                    val maxXWidth = (dm.widthPixels - dp(ctx, 8)) - params.x
+                    val effectiveMaxW = minOf(maxW, maxXWidth.coerceAtLeast(minW))
                     params.width = (startWidth + (event.rawX - downX).toInt())
-                        .coerceIn(minW, maxW)
+                        .coerceIn(minW, effectiveMaxW)
                     val newHeight = (startHeight + (event.rawY - downY).toInt())
                         .coerceIn(minH, maxH)
                     val manager = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager

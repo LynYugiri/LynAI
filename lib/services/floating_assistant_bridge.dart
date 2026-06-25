@@ -38,8 +38,6 @@ class FloatingAssistantBridge {
     return _invoke('setTranslationRunning', {'running': running});
   }
 
-  Future<void> clearTranslationBlocks() => _invoke('clearTranslationBlocks');
-
   Future<void> updateTranslationOverlay(
     Map<String, dynamic> payload,
   ) => _invoke('updateTranslationOverlay', payload);

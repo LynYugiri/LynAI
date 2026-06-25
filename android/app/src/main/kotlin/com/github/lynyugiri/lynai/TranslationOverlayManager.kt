@@ -156,7 +156,6 @@ object TranslationOverlayManager {
     ) {
         view.text = text
         view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-        view.gravity = Gravity.CENTER
         view.setPadding(dp(view.context, 4), dp(view.context, 2), dp(view.context, 4), dp(view.context, 2))
         view.alpha = opacity.toFloat()
         when (style) {
@@ -171,13 +170,31 @@ object TranslationOverlayManager {
                 view.setShadowLayer(3f, 0f, 0f, Color.BLACK)
             }
             else -> {
+                // `auto` 样式没有额外信息可拟合，退化为浅色实底。
                 view.setBackgroundColor(Color.argb(220, 255, 255, 255))
                 view.setTextColor(Color.parseColor("#0F172A"))
                 view.setShadowLayer(0f, 0f, 0f, Color.TRANSPARENT)
             }
         }
-        if (layoutMode == "vertical") {
-            view.rotation = 0f
+        // A5: 让译文排布真正按横排/竖排改变呈现方式。
+        // auto：以块宽高比自动决定；vertical：窄列单行居中；horizontal：宽松多行换行。
+        val portrait = height > width
+        val asVertical = when (layoutMode) {
+            "vertical" -> true
+            "horizontal" -> false
+            else -> portrait
+        }
+        if (asVertical) {
+            view.gravity = Gravity.CENTER
+            view.maxLines = 1
+            view.ellipsize = null
+            // 强制单列，避免译文溢出到相邻文本块
+            view.setLines(1)
+        } else {
+            view.gravity = Gravity.CENTER
+            view.maxLines = 0
+            view.setLines(0)
+            view.ellipsize = null
         }
     }
 
