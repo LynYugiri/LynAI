@@ -58,6 +58,8 @@ jobs:
           key: ncnn-deps-20260526-opencv-4.13.0-v35
       - name: Fetch ncnn/opencv/PPOCRv5 native deps
         run: bash scripts/fetch-ncnn-deps.sh
+      - name: Install Rust Android targets
+        run: rustup target add armv7-linux-androideabi aarch64-linux-android i686-linux-android x86_64-linux-android
       - run: flutter build apk --split-per-abi
       - name: Rename artifacts
         run: |
