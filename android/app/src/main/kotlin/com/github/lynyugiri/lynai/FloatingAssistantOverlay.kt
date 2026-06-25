@@ -177,53 +177,6 @@ object FloatingAssistantOverlay {
         channel = null
         screenOffReceiver = null
     }
-        channel.setMethodCallHandler { call, result ->
-            when (call.method) {
-                "configure" -> {
-                    configure(arguments(call.arguments))
-                    result.success(null)
-                }
-                "showBubble" -> {
-                    showBubble()
-                    result.success(null)
-                }
-                "hideBubble" -> {
-                    hideAll()
-                    result.success(null)
-                }
-                "updateAgentPlan" -> {
-                    agentState = arguments(call.arguments)
-                    updatePanelViews()
-                    updateBubbleState()
-                    result.success(null)
-                }
-                "updateChatState" -> {
-                    chatState = arguments(call.arguments)
-                    updatePanelViews()
-                    updateBubbleState()
-                    result.success(null)
-                }
-                "setTranslationRunning" -> {
-                    translationRunning = arguments(call.arguments)["running"] == true
-                    updatePanelViews()
-                    updateBubbleState()
-                    result.success(null)
-                }
-                "updateTranslationOverlay" -> {
-                    val args = arguments(call.arguments)
-                    TranslationOverlayManager.setBlocks(
-                        activity!!, args, mangaOverlayStyle, mangaOverlayOpacity, mangaLayoutMode
-                    )
-                    result.success(null)
-                }
-                "clearTranslationOverlay" -> {
-                    TranslationOverlayManager.clear()
-                    result.success(null)
-                }
-                else -> result.notImplemented()
-            }
-        }
-    }
 
     private fun configure(args: Map<String, Any?>) {
         allowScreenContext = args["allowScreenContext"] == true

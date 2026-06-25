@@ -48,6 +48,16 @@ jobs:
         with:
           channel: stable
       - run: flutter pub get
+      - name: Cache ncnn/opencv/ocr deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            android/app/src/main/jni/ncnn-android
+            android/app/src/main/jni/opencv-mobile
+            android/app/src/main/assets/ocr_models
+          key: ncnn-deps-20260526-opencv-4.13.0-v35
+      - name: Fetch ncnn/opencv/PPOCRv5 native deps
+        run: bash scripts/fetch-ncnn-deps.sh
       - run: flutter build apk --split-per-abi
       - name: Rename artifacts
         run: |
