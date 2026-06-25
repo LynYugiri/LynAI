@@ -32,7 +32,9 @@ object DeviceControlBridge : EventChannel.StreamHandler {
                     if (imageBase64.isEmpty()) {
                         result.success(error("invalid_arguments", "缺少 imageBase64"))
                     } else {
-                        OnDeviceOcrRecognizer.recognize(imageBase64, result)
+                        val ctx = activity
+                        if (ctx != null) NcnnOcrRecognizer.ensureLoaded(ctx)
+                        NcnnOcrRecognizer.recognize(imageBase64, result)
                     }
                 }
                 else -> result.notImplemented()

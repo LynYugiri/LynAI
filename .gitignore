@@ -47,3 +47,10 @@ app.*.map.json
 # Shared CMake FetchContent cache for tree-sitter grammars (one copy per tag,
 # reused across ABIs and build types instead of cloned per ABI).
 /native/tree_sitter/.fetch-cache/
+
+# ncnn + opencv-mobile prebuilt Android libraries (fetched by scripts/fetch-ncnn-deps.sh).
+/android/app/src/main/jni/ncnn-android/
+/android/app/src/main/jni/opencv-mobile/
+
+# PPOCRv5 ncnn models (fetched by scripts/fetch-ncnn-deps.sh).
+/android/app/src/main/assets/ocr_models/

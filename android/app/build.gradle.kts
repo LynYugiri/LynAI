@@ -46,6 +46,11 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    // ncnn models are memory-mapped from assets; keep them uncompressed.
+    androidResources {
+        noCompress += listOf("bin", "param")
+    }
+
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.github.lynyugiri.lynai"
@@ -59,14 +64,14 @@ android {
         versionName = flutter.versionName
         externalNativeBuild {
             cmake {
-                targets += listOf("lynai_tree_sitter")
+                targets += listOf("lynai_tree_sitter", "lynai_ocr")
             }
         }
     }
 
     externalNativeBuild {
         cmake {
-            path = file("../../native/tree_sitter/CMakeLists.txt")
+            path = file("../../native/CMakeLists.txt")
         }
     }
 
@@ -108,9 +113,6 @@ flutter {
 }
 
 dependencies {
-    implementation("com.google.mlkit:text-recognition:16.0.1")
-    implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
-    implementation("com.google.mlkit:text-recognition-japanese:16.0.1")
 }
 
 kotlin {

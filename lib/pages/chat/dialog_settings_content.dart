@@ -29,6 +29,25 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
   String? _expandedImageGenerationId;
   late ConversationSettings _settings;
 
+  /// 内置本地 OCR 虚拟配置（仅 Android 可用，不持久化）。
+  static final _localOcrConfig = ModelConfig(
+    id: ModelConfig.localOcrId,
+    name: '本地 OCR (PPOCRv5)',
+    category: ModelConfig.categoryOcr,
+    endpoint: '',
+    apiKey: '',
+    modelName: 'PP-OCRv5 mobile',
+    apiType: 'local_ncnn',
+    priority: -1,
+  );
+
+  /// 当 `imageModelId` 指向本地 OCR sentinel 时返回虚拟配置。
+  ModelConfig? _resolveOcrModel(List<ModelConfig> models, String? id) {
+    if (id == null) return null;
+    if (id == ModelConfig.localOcrId) return _localOcrConfig;
+    return _findModelConfigById(models, id);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -47,9 +66,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
     final speechModel = _settings.speechModelId != null
         ? _findModelConfigById(mp.models, _settings.speechModelId!)
         : null;
-    final ocrModel = _settings.imageModelId != null
-        ? _findModelConfigById(mp.models, _settings.imageModelId!)
-        : null;
+    final ocrModel = _resolveOcrModel(mp.models, _settings.imageModelId);
     final imageRecognitionModel = _settings.imageRecognitionModelId != null
         ? _findModelConfigById(mp.models, _settings.imageRecognitionModelId!)
         : null;
@@ -273,6 +290,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
                 expandedId: _expandedImageId,
                 hint: '未设置（非图片文件将跳过 OCR，仅保留附件信息）',
                 icon: Icons.image,
+                prependModels: Platform.isAndroid ? [_localOcrConfig] : null,
                 onToggle: () => setState(() {
                   _showImageList = !_showImageList;
                   _showSpeechList = false;
@@ -485,6 +503,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
     required VoidCallback onClear,
     bool Function(ModelConfig)? filter,
     bool Function(ModelEntry)? entryFilter,
+    List<ModelConfig>? prependModels,
   }) {
     final compact = MediaQuery.sizeOf(context).width < 380;
     return Column(
@@ -619,6 +638,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
             },
             filter,
             entryFilter,
+            prependModels,
           ),
         ],
       ],
@@ -635,13 +655,17 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
     void Function(String) onExpandToggle,
     bool Function(ModelConfig)? filter,
     bool Function(ModelEntry)? entryFilter,
+    List<ModelConfig>? prependModels,
   ) {
-    final models = mp
+    final baseModels = mp
         .modelsByCategory(category)
         .where((model) {
           return filter == null || filter(model);
         })
         .toList(growable: false);
+    final models = prependModels != null && prependModels.isNotEmpty
+        ? [...prependModels, ...baseModels]
+        : baseModels;
     return Material(
       color: Theme.of(context).colorScheme.surfaceContainerHighest,
       borderRadius: BorderRadius.circular(10),

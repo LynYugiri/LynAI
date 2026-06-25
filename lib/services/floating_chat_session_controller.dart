@@ -256,6 +256,13 @@ class FloatingChatSessionController {
   }
 
   Future<List<Map<String, dynamic>>> _extractTextBlocks() async {
+    // OCR-first: screenshot → PPOCRv5 ncnn OCR.
+    // Accessibility snapshot is the fallback for pure-text UIs (chat apps,
+    // browsers) where OCR may struggle but the accessibility tree has exact
+    // text + bounds.
+    final ocrBlocks = await _extractOcrBlocks();
+    if (ocrBlocks.isNotEmpty) return ocrBlocks.take(_maxOverlayBlocks).toList();
+
     final snapshot = await DeviceControlService.instance.execute(
       'device.screen.snapshot',
       const {},
@@ -271,9 +278,7 @@ class FloatingChatSessionController {
         _collectTextBlocks(root, blocks, packageName);
       }
     }
-    if (blocks.isNotEmpty) return blocks.take(_maxOverlayBlocks).toList();
-    final ocrBlocks = await _extractOcrBlocks();
-    return ocrBlocks.take(_maxOverlayBlocks).toList();
+    return blocks.take(_maxOverlayBlocks).toList();
   }
 
   void _collectTextBlocks(
@@ -326,10 +331,15 @@ class FloatingChatSessionController {
     );
     if (ocr['ok'] != true) return const [];
     final blocks = (ocr['result'] as List?) ?? const [];
-    return blocks.cast<Map>().map((b) {
+    return blocks.cast<Map>()
+        .where((b) {
+          final text = b['text']?.toString().trim() ?? '';
+          return text.isNotEmpty && !_isLikelyUiLabel(text);
+        })
+        .map((b) {
       final bounds = (b['bounds'] as Map?) ?? {};
       return <String, dynamic>{
-        'id': 'ocr_${b['id'] ?? blocks.indexOf(b)}',
+        'id': b['id']?.toString() ?? 'ocr_${blocks.indexOf(b)}',
         'originalText': b['text']?.toString() ?? '',
         'bounds': {
           'left': (bounds['left'] as num?)?.toInt() ?? 0,
@@ -337,6 +347,7 @@ class FloatingChatSessionController {
           'right': (bounds['right'] as num?)?.toInt() ?? 0,
           'bottom': (bounds['bottom'] as num?)?.toInt() ?? 0,
         },
+        'orientation': b['orientation'] ?? 0,
         'packageName': '',
       };
     }).toList();
@@ -419,6 +430,7 @@ class FloatingChatSessionController {
         '将用户提供的文本翻译成$targetLanguage。'
         '如果文本已经是$targetLanguage，则原样返回。'
         '用户会提供多段文本，每段前有 [序号] 标记。'
+        '部分文本可能来自竖排文字（如漫画），其中的换行符表示竖排阅读顺序，翻译时请保持自然语序。'
         '请以 JSON 数组格式返回翻译结果，每个元素包含 "index" 和 "translation" 字段。'
         '只输出 JSON，不要额外解释。'
         '保留原始分段，不要合并或拆分文本块。';

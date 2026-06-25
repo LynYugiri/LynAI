@@ -74,6 +74,8 @@
 
 Agent 可通过 `model.chat` 调用 Chat 模型，通过 `model.ocr` 调用 OCR 分类模型，通过 `model.recognizeFile` 调用开启视觉能力的 Chat 模型，通过 `model.generateImage` 调用图片生成模型。`model.recognizeFile` 依赖 `supportsVision=true` 的子模型。
 
+`ModelConfig.localOcrId`（`'__local_ppocrv5__'`）是内置本地 OCR 的保留 sentinel ID。当 `imageModelId` 等于此值时，OCR 路径跳过云端 API，直接调用 Android 端 ncnn + PPOCRv5 本地推理（离线、免费、支持 17+ 语言和竖排文字）。该 ID 不对应持久化的 `ModelConfig`，仅在对话设置 UI 中作为虚拟条目显示（仅 Android）。
+
 请求参数优先级：子模型参数高于 Provider 参数，高于接口默认值。
 
 ## AppSettings、角色和提示词

@@ -120,6 +120,13 @@ class ModelConfig {
     categoryImageGeneration,
   ];
 
+  /// 内置本地 OCR 的保留模型 ID（sentinel）。
+  ///
+  /// 该 ID 不对应持久化的 [ModelConfig]，仅用于在对话设置和 OCR 服务层
+  /// 标识"使用 on-device ncnn + PPOCRv5 推理"。当 `imageModelId` 等于此
+  /// 值时，OCR 路径跳过云端 API，直接调用本地推理。
+  static const localOcrId = '__local_ppocrv5__';
+
   /// 配置唯一标识符。
   final String id;
 

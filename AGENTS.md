@@ -38,6 +38,7 @@
 - Root `pubspec.yaml` overrides `webview_all_linux`, `webview_all_windows`, and `lua_dardo` to local `third_party/**` packages.
 - `third_party/lua_dardo` is a LynAI fork with async Dart callback support for Agent Lua; do not replace it with upstream sync-only assumptions.
 - Native tree-sitter code lives under `native/tree_sitter/`; Dart uses FFI when available and falls back to stub/Dart highlighting on unsupported platforms.
+- Native OCR code lives under `native/ocr/`; it uses ncnn + PPOCRv5 (BSD-3 + Apache-2.0) for on-device text recognition. Prebuilt ncnn and opencv-mobile libraries are fetched by `scripts/fetch-ncnn-deps.sh` into `android/app/src/main/jni/` (gitignored). PPOCRv5 mobile models are fetched into `android/app/src/main/assets/ocr_models/` (gitignored). Run the fetch script before building the Android OCR target.
 
 ## Plugins And Assets
 - Built-in plugins are `assets/plugins/status-dashboard/`, `assets/plugins/weather-query/`, and `assets/plugins/mobile-agent-skills/`; keep `pubspec.yaml` assets and `PluginRepository.builtInPluginFiles` in sync.
