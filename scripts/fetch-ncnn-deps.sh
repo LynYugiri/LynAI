@@ -8,6 +8,7 @@
 #
 set -euo pipefail
 
+mkdir -p "$(dirname "$0")/../android/app/src/main/jni"
 JNI_DIR="$(cd "$(dirname "$0")/../android/app/src/main/jni" && pwd)"
 ASSETS_DIR="$(dirname "$0")/../android/app/src/main/assets/ocr_models"
 NCNN_VERSION="20260526"
