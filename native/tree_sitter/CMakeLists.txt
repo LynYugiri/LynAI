@@ -10,9 +10,21 @@ include(FetchContent)
 
 set(FETCHCONTENT_QUIET FALSE)
 
+# FetchContent sources are shared across ABIs and build types so a clean
+# multi-ABI release build clones each grammar exactly once instead of once per
+# ABI. The cache lives next to CMakeLists.txt (ignored by git) and is keyed by
+# the content name, so different tags still land in separate subdirectories.
+set(LYNAI_TS_FETCH_CACHE "${CMAKE_CURRENT_SOURCE_DIR}/.fetch-cache")
+set(FETCHCONTENT_BASE_DIR "${LYNAI_TS_FETCH_CACHE}")
+file(MAKE_DIRECTORY "${LYNAI_TS_FETCH_CACHE}")
+
 # Grammars are fetched at configure time instead of vendored into the Flutter
 # tree. The facade exports one stable library for Dart FFI, while unsupported
 # languages safely fall back to the existing Dart highlighter.
+#
+# FetchContent_Populate is guarded by a per-name content lock so concurrent
+# Ninja jobs (one per ABI) never race on the same git clone. The lock is
+# released automatically when the function returns.
 function(lynai_fetch_tree_sitter NAME REPOSITORY TAG)
   FetchContent_Declare(
     ${NAME}
@@ -20,7 +32,11 @@ function(lynai_fetch_tree_sitter NAME REPOSITORY TAG)
     GIT_TAG ${TAG}
     GIT_SHALLOW TRUE
   )
+  file(LOCK "${LYNAI_TS_FETCH_CACHE}/${NAME}.lock" GUARD PROCESS RESULT_VARIABLE _lock_result)
   FetchContent_Populate(${NAME})
+  if(_lock_result EQUAL 0)
+    file(LOCK "${LYNAI_TS_FETCH_CACHE}/${NAME}.lock" RELEASE)
+  endif()
   set(${NAME}_SOURCE_DIR "${${NAME}_SOURCE_DIR}" PARENT_SCOPE)
 endfunction()
 

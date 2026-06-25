@@ -43,3 +43,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Shared CMake FetchContent cache for tree-sitter grammars (one copy per tag,
+# reused across ABIs and build types instead of cloned per ABI).
+/native/tree_sitter/.fetch-cache/

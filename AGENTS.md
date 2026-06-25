@@ -6,6 +6,8 @@
 - Run focused tests with `flutter test test/<name>_test.dart`; add `--plain-name '<test name>'` for one case.
 - After Drift table/database annotation changes in `lib/services/storage_v2_database.dart`, run `dart run build_runner build --delete-conflicting-outputs` and commit `storage_v2_database.g.dart`.
 - Root analysis excludes `third_party/**`; analyze vendored packages only from their own package roots when editing them.
+- Local Android builds default to a single ABI for speed: `flutter build apk --release --target-platform android-arm64`; CI still uses `--split-per-abi`.
+- Tree-sitter grammar sources are fetched once into `native/tree_sitter/.fetch-cache/` (gitignored) and shared across ABIs/build types; do not commit that cache.
 
 ## App Shape
 - `lib/main.dart` is the real entrypoint: registers global Providers, runs `StorageV2UpgradeService.ensureReady()`, loads all data partitions, repairs model references, syncs built-in plugins, then builds `HomePage`.
