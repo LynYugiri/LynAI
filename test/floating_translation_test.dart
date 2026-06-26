@@ -31,16 +31,28 @@ void main() {
       expect(a, b);
     });
 
-    test('differs when text or bounds change', () {
+    test('differs when text or bounds change meaningfully', () {
+      // G2: ~8px tolerance keeps the id stable across minor jitter but changes
+      // it for blocks at a clearly different position.
       final a = FloatingChatSessionController.blockIdForTest('Hi', 1, 2, 3, 4);
+      // Far-away bounds should not collide.
       expect(
         a,
-        isNot(FloatingChatSessionController.blockIdForTest('Hi', 1, 2, 3, 5)),
+        isNot(FloatingChatSessionController.blockIdForTest('Hi', 1, 2, 3, 200)),
       );
+      // Different text should not collide.
       expect(
         a,
         isNot(FloatingChatSessionController.blockIdForTest('Hi!', 1, 2, 3, 4)),
       );
+    });
+
+    test('tolerates sub-8px bounds drift', () {
+      // G2: blocks within the same 8px bucket share an id so minor scroll/jitter
+      // reuses the cache instead of re-translating identical content.
+      final a = FloatingChatSessionController.blockIdForTest('Hi', 1, 2, 3, 4);
+      final b = FloatingChatSessionController.blockIdForTest('Hi', 1, 2, 3, 5);
+      expect(a, b);
     });
   });
 
@@ -187,6 +199,42 @@ void main() {
       final controller = _buildController(settings);
       try {
         expect(controller.screenContextToolAllowed, isTrue);
+      } finally {
+        await controller.dispose();
+      }
+    });
+  });
+
+  // F1: stopTranslation should be a no-op when nothing is active and must not
+  // throw on the platform bridge; clearTranslation likewise serves as the
+  // "tear the session down" exit. The settle mutex starts released.
+  group('translation session lifecycle', () {
+    test('stopTranslation is a no-op when idle', () async {
+      final controller = _buildController(SettingsProvider());
+      try {
+        await controller.stopTranslation();
+        expect(controller.isTranslationStreaming, isFalse);
+      } finally {
+        await controller.dispose();
+      }
+    });
+
+    test('clearTranslation is a no-op when idle', () async {
+      final controller = _buildController(SettingsProvider());
+      try {
+        controller.clearTranslation();
+        expect(controller.isTranslationStreaming, isFalse);
+      } finally {
+        await controller.dispose();
+      }
+    });
+
+    test('onTranslationScrollSettled is a no-op when inactive', () async {
+      final controller = _buildController(SettingsProvider());
+      try {
+        // Guard at top must short-circuit before any OCR/network call.
+        await controller.onTranslationScrollSettled();
+        expect(controller.isTranslationStreaming, isFalse);
       } finally {
         await controller.dispose();
       }

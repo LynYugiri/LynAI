@@ -29,6 +29,26 @@
       "tags": ["qq", "tencent", "messaging", "android"]
     }
   ],
+  "editableFiles": [
+    {
+      "path": "skills/android_accessibility.md",
+      "title": "Android 无障碍自动化 Skill",
+      "type": "markdown",
+      "defaultPath": "defaults/skills/android_accessibility.md"
+    },
+    {
+      "path": "skills/messaging.md",
+      "title": "消息应用自动化 Skill",
+      "type": "markdown",
+      "defaultPath": "defaults/skills/messaging.md"
+    },
+    {
+      "path": "skills/qq.md",
+      "title": "QQ 自动回复工作流 Skill",
+      "type": "markdown",
+      "defaultPath": "defaults/skills/qq.md"
+    }
+  ],
   "lynai": {
     "autoEnable": true
   }

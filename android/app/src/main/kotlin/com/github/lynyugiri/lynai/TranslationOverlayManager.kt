@@ -11,6 +11,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
+import android.text.TextUtils
 import kotlin.math.min
 
 object TranslationOverlayManager {
@@ -18,12 +19,14 @@ object TranslationOverlayManager {
     private val activeOverlays = mutableListOf<OverlayEntry>()
     private val viewPool = mutableListOf<TextView>()
     private var maxBlocks = 30
+    private const val maxHidden = 60
 
     private data class OverlayEntry(
         val view: TextView,
         val params: WindowManager.LayoutParams,
         val originalText: String,
         val blockId: String,
+        var hidden: Boolean = false,
     )
 
     fun setBlocks(
@@ -56,11 +59,17 @@ object TranslationOverlayManager {
             val blockId = block["id"]?.toString() ?: text.hashCode().toString()
 
             val view = obtainView(context)
-            applyStyle(view, text, overlayStyle, opacity, layoutMode, w, h)
+            val asVertical = when (layoutMode) {
+                "vertical" -> true
+                "horizontal" -> false
+                else -> h > w
+            }
+            applyStyle(view, text, overlayStyle, opacity, asVertical)
 
+            val heightSpec = if (asVertical) h else WindowManager.LayoutParams.WRAP_CONTENT
             val params = WindowManager.LayoutParams(
                 w,
-                h,
+                heightSpec,
                 overlayType(),
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                     or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
@@ -73,7 +82,7 @@ object TranslationOverlayManager {
 
             try {
                 wm.addView(view, params)
-                activeOverlays.add(OverlayEntry(view, params, text, blockId))
+                activeOverlays.add(OverlayEntry(view, params, text, blockId, hidden = false))
             } catch (_: Exception) {
                 recycleView(view)
             }
@@ -82,9 +91,7 @@ object TranslationOverlayManager {
 
     fun onScrollDelta(deltaX: Int, deltaY: Int) {
         val wm = windowManager ?: return
-        val iterator = activeOverlays.iterator()
-        while (iterator.hasNext()) {
-            val entry = iterator.next()
+        for (entry in activeOverlays) {
             entry.params.x -= deltaX
             entry.params.y -= deltaY
             val dm = entry.view.context.resources.displayMetrics
@@ -93,18 +100,43 @@ object TranslationOverlayManager {
                 entry.params.y + entry.params.height > 0 &&
                 entry.params.y < dm.heightPixels
             if (onScreen) {
+                if (entry.hidden) {
+                    entry.hidden = false
+                    entry.view.visibility = View.VISIBLE
+                }
                 try {
                     wm.updateViewLayout(entry.view, entry.params)
                 } catch (_: Exception) {
-                    iterator.remove()
+                    // window lost (e.g. overlay permission revoked); drop entry.
+                    activeOverlays.remove(entry)
                     recycleView(entry.view)
                 }
             } else {
+                if (!entry.hidden) {
+                    entry.hidden = true
+                    entry.view.visibility = View.INVISIBLE
+                    try {
+                        wm.updateViewLayout(entry.view, entry.params)
+                    } catch (_: Exception) {
+                        activeOverlays.remove(entry)
+                        recycleView(entry.view)
+                    }
+                }
+            }
+        }
+        // H2: cap retained (hidden) entries so long scrolls do not leak memory.
+        val hiddenCount = activeOverlays.count { it.hidden }
+        if (hiddenCount > maxHidden) {
+            val toDrop = activeOverlays
+                .filter { it.hidden }
+                .sortedBy { it.params.y }
+                .take(hiddenCount - maxHidden)
+            for (entry in toDrop) {
                 try {
                     wm.removeView(entry.view)
                 } catch (_: Exception) {
                 }
-                iterator.remove()
+                activeOverlays.remove(entry)
                 recycleView(entry.view)
             }
         }
@@ -150,9 +182,7 @@ object TranslationOverlayManager {
         text: String,
         style: String,
         opacity: Double,
-        layoutMode: String,
-        width: Int,
-        height: Int,
+        asVertical: Boolean,
     ) {
         view.text = text
         view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
@@ -170,29 +200,21 @@ object TranslationOverlayManager {
                 view.setShadowLayer(3f, 0f, 0f, Color.BLACK)
             }
             else -> {
-                // `auto` 样式没有额外信息可拟合，退化为浅色实底。
                 view.setBackgroundColor(Color.argb(220, 255, 255, 255))
                 view.setTextColor(Color.parseColor("#0F172A"))
                 view.setShadowLayer(0f, 0f, 0f, Color.TRANSPARENT)
             }
         }
-        // A5: 让译文排布真正按横排/竖排改变呈现方式。
-        // auto：以块宽高比自动决定；vertical：窄列单行居中；horizontal：宽松多行换行。
-        val portrait = height > width
-        val asVertical = when (layoutMode) {
-            "vertical" -> true
-            "horizontal" -> false
-            else -> portrait
-        }
+        view.gravity = Gravity.CENTER
         if (asVertical) {
-            view.gravity = Gravity.CENTER
+            // B2: single row; ellipsize so long text does not crash layout.
             view.maxLines = 1
-            view.ellipsize = null
-            // 强制单列，避免译文溢出到相邻文本块
             view.setLines(1)
+            view.ellipsize = TextUtils.TruncateAt.END
         } else {
-            view.gravity = Gravity.CENTER
-            view.maxLines = 0
+            // B1: long translations extend downward (WRAP_CONTENT height) instead
+            // of being clipped to the original block height.
+            view.maxLines = 9
             view.setLines(0)
             view.ellipsize = null
         }

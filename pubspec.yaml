@@ -100,9 +100,11 @@ flutter:
     - assets/plugins/status-dashboard/
     - assets/plugins/status-dashboard/defaults/
     - assets/plugins/weather-query/
-    - assets/plugins/weather-query/skills/
+    - assets/plugins/weather-query/defaults/
+    - assets/plugins/weather-query/defaults/skills/
     - assets/plugins/mobile-agent-skills/
-    - assets/plugins/mobile-agent-skills/skills/
+    - assets/plugins/mobile-agent-skills/defaults/
+    - assets/plugins/mobile-agent-skills/defaults/skills/
     - changelogs/
     - third_party/webview_all_linux/LICENSE
     - third_party/webview_all_windows/LICENSE

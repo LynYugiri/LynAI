@@ -276,7 +276,7 @@ Plan 创建和更新不需要权限，只用于当前对话的可视化状态。
 工作记忆是当前对话内持久保存的共享上下文。跨主 Agent、Subagent 和 Lua 协作的目标、关键事实、决策、已加载 Skill、子任务结果应写入工作记忆；不要把长屏幕快照或截图写入记忆。
 如果需要了解可用插件函数，先调用 list_plugin_functions。
 如果需要调用插件函数，先调用 list_plugin_functions 查看可用函数，再用 call_plugin_function。该能力需要 plugins.callFunction 权限。
-如果需要了解可用插件 Skill，先调用 list_plugin_skills；Skill 摘要不是完整说明，执行相关流程前调用 load_plugin_skill 加载正文。加载 Skill 不需要额外权限。
+如果需要了解可用插件 Skill，先调用 list_plugin_skills；Skill 摘要不是完整说明，执行相关流程前调用 load_plugin_skill 加载正文。加载 Skill 不需要额外权限；需要按用户要求沉淀或修正可编辑 Skill 时调用 save_plugin_skill 保存正文。
 如果需要运行 Lua，调用 execute_lua。Lua 运行在受限沙箱中：禁用 os/io/package/require/dofile/loadfile，不能访问文件系统或系统命令；所有 LynAI 能力可通过 lynai.call(name, args) 调用，设备能力优先用 lynai.device.* 便捷接口；脚本最后必须 return 一个 JSON 可序列化 table。Agent Lua 支持同步读取函数、plugins.functions.list、plugins.callFunction、agent.plan.update、agent.memory.read、agent.memory.update、agent.note.add、model.chat、model.ocr、model.recognizeFile、model.generateImage、device.app.open、device.* 和 lynai.device.status/query/wait/clickFirst/waitAndClick/inputInto/scrollUntil/readVisibleText/extractMessages。插件函数调用需要 plugins.callFunction 权限。同一应用内的打开、查找、点击、滚动、读取、输入、发送等确定性步骤，能合并就优先放进一次 execute_lua 线性编排，不要拆成多轮工具调用。打开已安装 Android 应用时在 Lua 中调用 lynai.device.openApp("目标包名")。复杂屏幕操控优先使用 lynai.device.query、lynai.device.waitAndClick、lynai.device.inputInto、lynai.device.scrollUntil 和 device.screen.extractMessages；必要时才用坐标 tap/swipe。读取 QQ/消息应用时优先用无障碍节点和 device.screen.extractMessages，不足时再截图配合 OCR/识图。关键调用后检查 ok，失败时返回结构化 error。截图只能作为 OCR/识图输入，不要把截图 base64 返回给模型。
 如果手机自动化子任务会产生很多中间屏幕信息，优先调用 run_subagent。Subagent 使用独立上下文执行多轮工具，只把最终结构化结果返回当前对话。需要读取聊天上下文再生成回复时，先让 Subagent 返回 peer、messages、summary、confidence；用户已经明确要求发送且目标明确时，可让 Subagent/Lua 直接发送，不要二次确认。
 Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:false,error:{code,message,details?}}；读取数据时优先看 result。
@@ -1007,6 +1007,23 @@ ${lines.join('\n')}$more''';
       },
     );
     add(
+      'save_plugin_skill',
+      '保存可编辑插件 Skill 正文。仅能修改清单中声明且 editable 未关闭的 Skill。',
+      {
+        'type': 'object',
+        'properties': {
+          'pluginId': {'type': 'string', 'description': '插件 ID'},
+          'skillName': {'type': 'string', 'description': '插件 Skill 名'},
+          'qualifiedName': {
+            'type': 'string',
+            'description': '可选，形如 pluginId__skillName；解析时只切第一个 __',
+          },
+          'content': {'type': 'string', 'description': '新的 Markdown 正文'},
+        },
+        'required': ['content'],
+      },
+    );
+    add(
       'add_agent_note',
       '向当前 assistant 消息追加一条简短的用户可见 Agent 中间说明。不需要权限，不要用于最终回答或输出工具 JSON。',
       {
@@ -1284,6 +1301,8 @@ ${lines.join('\n')}$more''';
           return _listPluginSkillsForAgent(call.arguments);
         case 'load_plugin_skill':
           return _loadPluginSkill(call.arguments);
+        case 'save_plugin_skill':
+          return _savePluginSkill(call.arguments);
         case 'add_agent_note':
           return _addAgentNote(call.arguments);
         case 'call_plugin_function':
@@ -1843,6 +1862,96 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
       _appendAgentTrace(
         AgentTraceEvent.error,
         '插件 Skill 加载失败',
+        content: _errorMessage(result),
+        metadata: {'pluginId': plugin.id, 'skillName': skill.name},
+      );
+      return result;
+    }
+  }
+
+  Future<Map<String, dynamic>> _savePluginSkill(
+    Map<String, dynamic> args,
+  ) async {
+    if (!_agentEnabled) {
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
+    }
+    final plugins = _plugins;
+    if (plugins == null) {
+      return _agentError('plugin_system_unavailable', '插件系统不可用');
+    }
+    final parsed = _parseQualifiedName(args['qualifiedName'] as String? ?? '');
+    final pluginId = (args['pluginId'] as String? ?? parsed?.$1 ?? '').trim();
+    final skillName = (args['skillName'] as String? ?? parsed?.$2 ?? '').trim();
+    final content = args['content']?.toString() ?? '';
+    if (pluginId.isEmpty || skillName.isEmpty || content.isEmpty) {
+      return _agentError(
+        'invalid_arguments',
+        'save_plugin_skill 缺少 pluginId、skillName 或 content',
+      );
+    }
+    InstalledPlugin? plugin;
+    for (final item in plugins.plugins) {
+      if (item.id == pluginId) {
+        plugin = item;
+        break;
+      }
+    }
+    if (plugin == null || !plugin.enabled || plugin.hasError) {
+      return _agentError('plugin_not_found', '插件不可用: $pluginId');
+    }
+    PluginSkillDefinition? skill;
+    for (final item in plugin.manifest.skills) {
+      if (item.name == skillName) {
+        skill = item;
+        break;
+      }
+    }
+    if (skill == null || !plugin.enabledSkills.contains(skill.name)) {
+      return _agentError(
+        'plugin_skill_not_found',
+        '插件 Skill 不可用: $pluginId.$skillName',
+      );
+    }
+    if (!skill.editable) {
+      return _agentError(
+        'plugin_skill_readonly',
+        '插件 Skill 不允许修改: $pluginId.$skillName',
+      );
+    }
+    final path = 'skills/${skill.name}.md';
+    _appendAgentTrace(
+      AgentTraceEvent.toolCall,
+      '保存插件 Skill',
+      content: '${plugin.displayName}.${skill.name}',
+      metadata: {'pluginId': plugin.id, 'skillName': skill.name},
+    );
+    try {
+      await plugins.writeEditableFile(plugin.id, path, content);
+      final result = {
+        ..._skillSummaryJson(plugin, skill),
+        'path': path,
+        'length': content.length,
+      };
+      _appendAgentTrace(
+        AgentTraceEvent.toolResult,
+        '插件 Skill 已保存',
+        content: '${plugin.displayName}.${skill.name}',
+        metadata: {
+          'pluginId': plugin.id,
+          'skillName': skill.name,
+          'length': content.length,
+        },
+      );
+      return _agentOk(result);
+    } catch (e) {
+      final result = _agentError(
+        'plugin_skill_save_failed',
+        '保存插件 Skill 失败: $e',
+        details: {'pluginId': plugin.id, 'skillName': skill.name, 'path': path},
+      );
+      _appendAgentTrace(
+        AgentTraceEvent.error,
+        '插件 Skill 保存失败',
         content: _errorMessage(result),
         metadata: {'pluginId': plugin.id, 'skillName': skill.name},
       );

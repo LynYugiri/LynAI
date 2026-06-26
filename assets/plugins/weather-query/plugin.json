@@ -36,5 +36,13 @@
       "whenToUse": "天气、温度、下雨、出门、旅行天气、穿衣建议、户外活动安排",
       "tags": ["weather", "travel", "planning"]
     }
+  ],
+  "editableFiles": [
+    {
+      "path": "skills/weather_research.md",
+      "title": "天气查询工作流 Skill",
+      "type": "markdown",
+      "defaultPath": "defaults/skills/weather_research.md"
+    }
   ]
 }

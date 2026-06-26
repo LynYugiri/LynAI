@@ -148,6 +148,9 @@ class PluginSkillDefinition {
   /// 是否允许用户手动调用。
   final bool userInvocable;
 
+  /// Skill 正文是否允许用户或模型修改。
+  final bool editable;
+
   /// 创建一个插件 Skill 定义实例。
   const PluginSkillDefinition({
     required this.name,
@@ -157,6 +160,7 @@ class PluginSkillDefinition {
     this.tags = const [],
     this.modelInvocable = true,
     this.userInvocable = true,
+    this.editable = true,
   });
 
   /// 从 JSON 数据创建 [PluginSkillDefinition] 实例。
@@ -176,6 +180,7 @@ class PluginSkillDefinition {
           json['modelInvocable'] as bool? ??
           !(json['disableModelInvocation'] as bool? ?? false),
       userInvocable: json['userInvocable'] as bool? ?? true,
+      editable: json['editable'] as bool? ?? true,
     );
   }
 
@@ -188,6 +193,7 @@ class PluginSkillDefinition {
     if (tags.isNotEmpty) 'tags': tags,
     if (!modelInvocable) 'modelInvocable': false,
     if (!userInvocable) 'userInvocable': false,
+    if (!editable) 'editable': false,
   };
 
   /// 校验 Skill 定义的合法性，返回错误信息或 null。

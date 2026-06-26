@@ -2252,36 +2252,46 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final otherFiles = files
         .where((file) => !file.isImage && !_isReadableTextAttachment(file))
         .toList();
-    final recognized = <String>[];
     final directFiles = <MessageImage>[
       if (!set.imageOcrEnabled) ...imageFiles,
       if (!set.imageRecognitionEnabled) ...otherFiles,
     ];
 
-    if (textFiles.isNotEmpty) {
-      recognized.add(await _readTextAttachments(textFiles));
-    }
-    if (set.imageOcrEnabled && imageFiles.isNotEmpty) {
-      recognized.add(await _recognizeImagesWithOcr(imageFiles, set));
-    }
-    if (set.imageRecognitionEnabled && otherFiles.isNotEmpty) {
-      recognized.add(await _recognizeFilesWithModel(otherFiles, set));
-    }
+    final ocrText = (set.imageOcrEnabled && imageFiles.isNotEmpty)
+        ? await _recognizeImagesWithOcr(imageFiles, set)
+        : '';
+    final fileText = (set.imageRecognitionEnabled && otherFiles.isNotEmpty)
+        ? await _recognizeFilesWithModel(otherFiles, set)
+        : '';
+    final inlineText = textFiles.isNotEmpty
+        ? await _readTextAttachments(textFiles)
+        : '';
 
     final buffer = StringBuffer(text.trim());
     if (files.isEmpty) return buffer.toString();
     if (buffer.isNotEmpty) buffer.writeln('\n');
-    for (final file in files) {
+    // C: only describe files still sent as raw multimodal inputs; recognized
+    // images/files are replaced by their extracted text below with a clear
+    // "OCR/识别" label so the model knows it is reading recognition output
+    // (possibly lossy) and not byte-for-byte source content.
+    for (final file in directFiles) {
       buffer.writeln(
         '[文件: ${file.name} (${_fmtSz(file.size)}, ${file.mimeType})]',
       );
     }
-    final recognizedText = recognized
-        .map((e) => e.trim())
-        .where((e) => e.isNotEmpty)
-        .join('\n');
-    if (recognizedText.isNotEmpty) {
-      buffer.writeln(recognizedText);
+    final recognizedParts = <String>[
+      if (inlineText.trim().isNotEmpty) inlineText.trim(),
+      if (ocrText.trim().isNotEmpty)
+        '[图片 OCR 识别结果（来源: '
+            '${imageFiles.map((f) => f.name).join(", ")}，可能含识别误差）]\n'
+            '${ocrText.trim()}',
+      if (fileText.trim().isNotEmpty)
+        '[文件识别结果（来源: '
+            '${otherFiles.map((f) => f.name).join(", ")}，可能含识别误差）]\n'
+            '${fileText.trim()}',
+    ];
+    if (recognizedParts.isNotEmpty) {
+      buffer.writeln(recognizedParts.join('\n'));
     }
 
     return _directModelContent(buffer.toString().trim(), directFiles);

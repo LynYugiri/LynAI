@@ -44,6 +44,9 @@ class FloatingAssistantBridge {
 
   Future<void> clearTranslationOverlay() => _invoke('clearTranslationOverlay');
 
+  Future<void> hideForScreenshot() => _invoke('hideForScreenshot');
+  Future<void> restoreAfterScreenshot() => _invoke('restoreAfterScreenshot');
+
   Future<void> _invoke(String method, [Map<String, dynamic>? arguments]) async {
     if (!isSupported) return;
     try {

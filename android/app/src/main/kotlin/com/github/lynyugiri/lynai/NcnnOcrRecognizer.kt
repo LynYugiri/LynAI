@@ -92,7 +92,12 @@ object NcnnOcrRecognizer {
             )
 
             val block = mutableMapOf<String, Any?>(
-                "id" to obj.optString("id", "ocr_$i"),
+                // G1: do not emit positional id ("ocr_$i") here; the positional
+                // scheme collides across OCR calls once content scrolls and lets
+                // the Dart cache silently reuse a stale translation for a brand
+                // new block. Empty forces Dart to derive a stable id from
+                // text + bounds.
+                "id" to "",
                 "text" to text,
                 "bounds" to boundsMap,
                 "orientation" to orientation,

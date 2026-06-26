@@ -23,6 +23,9 @@ class LynAIAccessibilityService : AccessibilityService() {
     private var lastScrollY = Int.MIN_VALUE
     private var lastScrollX = Int.MIN_VALUE
     private var lastScrollUpdateTime = 0L
+    private var lastScrollSourcePkg: String? = null
+    private var pendingDeltaX = 0
+    private var pendingDeltaY = 0
     private val scrollSettledRunnable = Runnable {
         DeviceControlBridge.emit(mapOf("type" to "translation_scroll_settled"))
     }
@@ -54,19 +57,42 @@ class LynAIAccessibilityService : AccessibilityService() {
     }
 
     private fun handleScrollEvent(event: AccessibilityEvent) {
+        // H3 #5: ignore scrolls originating from this app itself (the floating
+        // panel's own message list) so they don't reposition the translation
+        // overlay.
+        val pkg = event.packageName?.toString()
+        if (pkg == packageName) return
         val deltaY: Int
         val deltaX: Int
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            deltaY = event.scrollDeltaY.toInt()
-            deltaX = event.scrollDeltaX.toInt()
-        } else {
-            val currentY = event.scrollY
-            val currentX = event.scrollX
-            deltaY = if (lastScrollY != Int.MIN_VALUE) currentY - lastScrollY else 0
-            deltaX = if (lastScrollX != Int.MIN_VALUE) currentX - lastScrollX else 0
-            lastScrollY = currentY
-            lastScrollX = currentX
+            // H3 #7: accumulate per-event deltas so the 16ms throttle does not
+            // drop deltas during fast flings.
+            pendingDeltaX += event.scrollDeltaX.toInt()
+            pendingDeltaY += event.scrollDeltaY.toInt()
+            val now = System.currentTimeMillis()
+            if (now - lastScrollUpdateTime >= 16) {
+                lastScrollUpdateTime = now
+                TranslationOverlayManager.onScrollDelta(pendingDeltaX, pendingDeltaY)
+                pendingDeltaX = 0
+                pendingDeltaY = 0
+            }
+            handler.removeCallbacks(scrollSettledRunnable)
+            handler.postDelayed(scrollSettledRunnable, 500)
+            return
         }
+        val currentY = event.scrollY
+        val currentX = event.scrollX
+        // H3 #6: reset baseline when the source window changes to avoid mixing
+        // unrelated windows on older Android.
+        if (lastScrollSourcePkg != null && lastScrollSourcePkg != pkg) {
+            lastScrollY = Int.MIN_VALUE
+            lastScrollX = Int.MIN_VALUE
+        }
+        lastScrollSourcePkg = pkg
+        deltaY = if (lastScrollY != Int.MIN_VALUE) currentY - lastScrollY else 0
+        deltaX = if (lastScrollX != Int.MIN_VALUE) currentX - lastScrollX else 0
+        lastScrollY = currentY
+        lastScrollX = currentX
         if (deltaX == 0 && deltaY == 0) return
 
         val now = System.currentTimeMillis()
@@ -151,7 +177,11 @@ class LynAIAccessibilityService : AccessibilityService() {
                                     "width" to bitmap.width,
                                     "height" to bitmap.height,
                                     "dataBase64" to Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP),
-                                    "timestamp" to System.currentTimeMillis().toString()
+                                    "timestamp" to System.currentTimeMillis().toString(),
+                                    // D: surface the current foreground package so OCR
+                                    // paths (translation prompt, history) and package
+                                    // filters can use it. Empty when unknown.
+                                    "packageName" to (rootInActiveWindow?.packageName ?: "")
                                 )
                             )
                         )

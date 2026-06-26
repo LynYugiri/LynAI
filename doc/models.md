@@ -195,7 +195,7 @@ storage_v2 下，笔记分页元数据由存储层的 `StorageV2NotePage` 表达
 | `version` | `String` | 语义版本号。 |
 | `entry` | `String` | Lua 入口脚本相对于插件目录的路径。 |
 | `tools` | `List<PluginToolDefinition>` | 注册给 AI 模型调用的工具列表。 |
-| `skills` | `List<PluginSkillDefinition>` | Agent 可按需加载的 Markdown 工作流说明。 |
+| `skills` | `List<PluginSkillDefinition>` | Agent 可按需加载的 Markdown 工作流说明；`editable` 默认 true，允许用户和模型通过插件文件 overlay 修改 `skills/<name>.md`。 |
 | `functions` | `List<PluginFunctionDefinition>` | 注册给功能页 WebView 的内部函数列表。 |
 | `feature` | `String?` | 可选功能页 HTML 入口路径。没有则功能页入口不可见。 |
 | `permissions` | `List<String>` | 声明的权限列表，例如 `network`、`file_read`、`file_write`。 |

@@ -78,9 +78,9 @@ void main() {
       containsAll([
         'plugin.json',
         'main.lua',
-        'skills/android_accessibility.md',
-        'skills/messaging.md',
-        'skills/qq.md',
+        'defaults/skills/android_accessibility.md',
+        'defaults/skills/messaging.md',
+        'defaults/skills/qq.md',
       ]),
     );
   });
@@ -311,6 +311,7 @@ void main() {
       expect(manifest.validate(), isNull);
       expect(manifest.skills.single.name, 'assist');
       expect(manifest.skills.single.whenToUse, 'assistant workflows');
+      expect(manifest.skills.single.editable, isTrue);
       final plugin = InstalledPlugin.fromJson({
         'manifest': manifest.toJson(),
         'path': '/tmp/skill_plugin',
@@ -321,6 +322,23 @@ void main() {
       expect(plugin.enabledSkills, contains('assist'));
     },
   );
+
+  test('PluginManifest parses read-only skill declarations', () {
+    final manifest = PluginManifest.fromJson({
+      'id': 'readonly_skill_plugin',
+      'name': 'Read-only Skill Plugin',
+      'entry': 'main.lua',
+      'skills': [
+        {'name': 'policy', 'title': 'Policy', 'editable': false},
+      ],
+    });
+
+    expect(manifest.validate(), isNull);
+    expect(manifest.skills.single.editable, isFalse);
+    expect(manifest.toJson()['skills'], [
+      {'name': 'policy', 'title': 'Policy', 'editable': false},
+    ]);
+  });
 
   test('PluginManifest rejects unsafe config paths', () {
     final manifest = PluginManifest.fromJson({
@@ -1631,7 +1649,7 @@ function same_func(args) return {ok = true} end
     );
     expect(
       await rootBundle.loadString(
-        'assets/plugins/weather-query/skills/weather_research.md',
+        'assets/plugins/weather-query/defaults/skills/weather_research.md',
       ),
       contains('query_weather'),
     );

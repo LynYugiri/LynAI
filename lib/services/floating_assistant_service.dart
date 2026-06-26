@@ -25,6 +25,7 @@ class FloatingAssistantService with WidgetsBindingObserver {
   bool _started = false;
   bool _foreground = true;
   bool _translationRunning = false;
+  Timer? _persistPositionTimer;
 
   /// Exposed for pages that need access to the live controller (e.g. the
   /// translation history page reads `_chat.translationHistory`).
@@ -80,8 +81,22 @@ class FloatingAssistantService with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    final wasForeground = _foreground;
     _foreground = state == AppLifecycleState.resumed;
+    // F2: returning to the LynAI app clears the translation session so stale
+    // overlays are not left floating over our own UI; the in-flight stream is
+    // cancelled too.
+    if (!wasForeground && _foreground) {
+      _clearTranslationSession();
+    }
     _sync();
+  }
+
+  void _clearTranslationSession() {
+    _translationRunning = false;
+    _chat?.clearTranslation();
+    unawaited(FloatingAssistantBridge.instance.setTranslationRunning(false));
+    unawaited(FloatingAssistantBridge.instance.clearTranslationOverlay());
   }
 
   Future<dynamic> _handleCall(MethodCall call) async {
@@ -133,6 +148,15 @@ class FloatingAssistantService with WidgetsBindingObserver {
         return await _chat?.transcribeAudioPath(path) ??
             {'ok': false, 'error': '悬浮聊天尚未初始化'};
       case 'openConversation':
+        // F2: user tapped "打开" to return to LynAI — clear translation.
+        _clearTranslationSession();
+        return {'ok': true};
+      case 'screenOff':
+        // F3: stop in-flight translation (keep cache so a quick screen-on
+        // could resume). The native side already cleared the overlay.
+        _translationRunning = false;
+        _chat?.stopTranslation();
+        unawaited(FloatingAssistantBridge.instance.setTranslationRunning(false));
         return {'ok': true};
       case 'openAccessibilitySettings':
         DeviceControlService.instance.execute(
@@ -188,10 +212,9 @@ class FloatingAssistantService with WidgetsBindingObserver {
     int? panelWidth,
     int? panelHeight,
   }) {
-    final settings = _settings;
-    if (settings == null) return;
-    final current = settings.settings.floatingAssistant;
-    final updated = current.copyWith(
+    // A5: debounce persist + settings sync so a live drag does not cascade
+    // configure/agentPlan/chatState channel calls every move frame.
+    _pendingPersist = (
       bubbleX: bubbleX,
       bubbleY: bubbleY,
       panelX: panelX,
@@ -199,18 +222,40 @@ class FloatingAssistantService with WidgetsBindingObserver {
       panelWidth: panelWidth,
       panelHeight: panelHeight,
     );
-    settings.updateFloatingAssistant(updated);
+    _persistPositionTimer?.cancel();
+    _persistPositionTimer = Timer(const Duration(milliseconds: 150), () {
+      _persistPositionTimer = null;
+      final p = _pendingPersist;
+      if (p == null) return;
+      _pendingPersist = null;
+      final settings = _settings;
+      if (settings == null) return;
+      final current = settings.settings.floatingAssistant;
+      settings.updateFloatingAssistant(current.copyWith(
+        bubbleX: p.bubbleX,
+        bubbleY: p.bubbleY,
+        panelX: p.panelX,
+        panelY: p.panelY,
+        panelWidth: p.panelWidth,
+        panelHeight: p.panelHeight,
+      ));
+    });
   }
+
+  ({int? bubbleX, int? bubbleY, int? panelX, int? panelY, int? panelWidth, int? panelHeight})? _pendingPersist;
 
   void _sync() {
     final settings = _settings?.settings.floatingAssistant;
     if (settings == null || !settings.enabled) {
-      _translationRunning = false;
+      // F2: feature disabled — stop any in-flight translation before hiding
+      // the bubble so a late stream completion cannot re-add overlays.
+      _clearTranslationSession();
       unawaited(FloatingAssistantBridge.instance.hideBubble());
       return;
     }
     if (!settings.showMangaTranslationAction && _translationRunning) {
-      _translationRunning = false;
+      // F2: translation action disabled mid-stream — stop + clear overlay.
+      _clearTranslationSession();
     }
     unawaited(
       FloatingAssistantBridge.instance.configure({

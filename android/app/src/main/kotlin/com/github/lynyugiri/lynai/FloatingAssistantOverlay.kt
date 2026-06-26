@@ -78,6 +78,9 @@ object FloatingAssistantOverlay {
     private var bubbleState: BubbleState = BubbleState.IDLE
     private var scrollMessageHeight = -1
     private var screenOffReceiver: BroadcastReceiver? = null
+    private var screenshotBubbleVisible = false
+    private var screenshotSavedExpanded = false
+    private var screenshotHiding = false
 
     private enum class BubbleState {
         IDLE, STREAMING, AGENT_RUNNING, TRANSLATING, RECORDING
@@ -89,6 +92,8 @@ object FloatingAssistantOverlay {
                 Intent.ACTION_SCREEN_OFF -> {
                     TranslationOverlayManager.clear()
                     stopPulse()
+                    // Bug G: let the Dart side stop in-flight translation streams.
+                    channel?.invokeMethod("screenOff", emptyMap<String, Any>())
                 }
                 Intent.ACTION_SCREEN_ON -> {
                     // User needs to re-trigger translation after screen on
@@ -155,6 +160,14 @@ object FloatingAssistantOverlay {
                     TranslationOverlayManager.clear()
                     result.success(null)
                 }
+                "hideForScreenshot" -> {
+                    hideForScreenshot()
+                    result.success(null)
+                }
+                "restoreAfterScreenshot" -> {
+                    restoreAfterScreenshot()
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -218,9 +231,7 @@ object FloatingAssistantOverlay {
             elevation = dp(ctx, 8).toFloat()
             setPadding(dp(ctx, 14), 0, dp(ctx, 14), 0)
             setOnTouchListener(DragTouchListener(ctx, nextParams, {
-                val h = ctx.resources.displayMetrics.heightPixels
-                val bh = nextParams.height
-                0 to h - bh
+                ctx.resources.displayMetrics.heightPixels - nextParams.height
             }, {
                 togglePanel()
             }, {
@@ -293,6 +304,73 @@ object FloatingAssistantOverlay {
         }
     }
 
+    // E1: temporarily remove bubble/panel/translation overlays from the
+    // framebuffer so an accessibility screenshot does not capture them and
+    // pollute OCR. Preserves drag position (params) and panel-open state so
+    // restoreAfterScreenshot can put everything back exactly where it was.
+    private fun hideForScreenshot() {
+        if (screenshotHiding) return
+        screenshotHiding = true
+        screenshotBubbleVisible = bubble != null
+        screenshotSavedExpanded = expanded
+        TranslationOverlayManager.clear()
+        if (panel != null) hidePanel()
+        val current = bubble
+        if (current != null) {
+            val ctx = activity
+            if (ctx != null) {
+                try {
+                    (ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager)
+                        .removeView(current)
+                } catch (_: Exception) {
+                }
+            }
+            bubble = null
+            // Keep `params` (preserved position) for restore.
+        }
+    }
+
+    private fun restoreAfterScreenshot() {
+        if (!screenshotHiding) return
+        screenshotHiding = false
+        val ctx = activity ?: return
+        if (!canDrawOverlays(ctx)) return
+        val manager = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        if (screenshotBubbleVisible) {
+            val nextParams = params ?: bubbleLayoutParams(ctx).also { params = it }
+            params = nextParams
+            bubble = TextView(ctx).apply {
+                text = "AI"
+                textSize = 15f
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                setTextColor(Color.WHITE)
+                background = rounded(bubbleColorForState(bubbleState), dp(ctx, 22))
+                elevation = dp(ctx, 8).toFloat()
+                setPadding(dp(ctx, 14), 0, dp(ctx, 14), 0)
+                setOnTouchListener(DragTouchListener(ctx, nextParams, {
+                    ctx.resources.displayMetrics.heightPixels - nextParams.height
+                }, { togglePanel() }, {
+                    channel?.invokeMethod(
+                        "bubbleMoved",
+                        mapOf("x" to nextParams.x, "y" to nextParams.y)
+                    )
+                }))
+            }
+            try {
+                manager.addView(bubble, nextParams)
+            } catch (_: Exception) {
+                bubble = null
+            }
+            updateBubbleState()
+        }
+        if (screenshotSavedExpanded && panel == null) {
+            showPanel()
+        }
+        screenshotBubbleVisible = false
+        screenshotSavedExpanded = false
+    }
+
     private fun buildPanel(ctx: Context): LinearLayout {
         val root = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
@@ -321,9 +399,7 @@ object FloatingAssistantOverlay {
         val panelParamRef = panelParams
         if (panelParamRef != null) {
             header.setOnTouchListener(DragTouchListener(ctx, panelParamRef, {
-                val h = ctx.resources.displayMetrics.heightPixels
-                val ph = panelParamRef.height
-                0 to (h - ph).coerceAtLeast(0)
+                (ctx.resources.displayMetrics.heightPixels - panelParamRef.height).coerceAtLeast(0)
             }, {
                 // tap on header does nothing
             }, {
@@ -915,6 +991,8 @@ object FloatingAssistantOverlay {
 
     private fun openLynAI() {
         val ctx = activity ?: return
+        hidePanel()
+        TranslationOverlayManager.clear()
         val intent = Intent(ctx, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         }
@@ -939,8 +1017,8 @@ object FloatingAssistantOverlay {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = if (persistedBubbleX >= 0) persistedBubbleX.coerceIn(0, dm.widthPixels) else defaultX
-            y = if (persistedBubbleY >= 0) persistedBubbleY.coerceIn(0, dm.heightPixels) else defaultY
+            x = if (persistedBubbleX >= 0) persistedBubbleX.coerceIn(0, dm.widthPixels - dp(ctx, 56)) else defaultX
+            y = if (persistedBubbleY >= 0) persistedBubbleY.coerceIn(0, dm.heightPixels - dp(ctx, 56)) else defaultY
         }
     }
 
@@ -961,7 +1039,7 @@ object FloatingAssistantOverlay {
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = if (persistedPanelX >= 0) persistedPanelX.coerceIn(0, dm.widthPixels - width) else dp(ctx, 16)
-            y = if (persistedPanelY >= 0) persistedPanelY.coerceIn(0, dm.heightPixels - dp(ctx, 100)) else dp(ctx, 72)
+            y = if (persistedPanelY >= 0) persistedPanelY.coerceIn(0, (dm.heightPixels - dp(ctx, 240)).coerceAtLeast(0)) else dp(ctx, 72)
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
         }
     }
@@ -1024,7 +1102,7 @@ object FloatingAssistantOverlay {
     private class DragTouchListener(
         private val ctx: Context,
         private val params: WindowManager.LayoutParams,
-        private val clampProvider: () -> Pair<Int, Int>,
+        private val maxYProvider: () -> Int,
         private val click: () -> Unit,
         private val onDragEnd: (() -> Unit)? = null,
         private val edgeSnap: Boolean = true
@@ -1045,7 +1123,7 @@ object FloatingAssistantOverlay {
                     return true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val (maxY, _) = clampProvider()
+                    val maxY = maxYProvider()
                     params.x = startX + (event.rawX - downX).toInt()
                     params.y = startY + (event.rawY - downY).toInt()
                     val dm = ctx.resources.displayMetrics

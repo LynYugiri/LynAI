@@ -237,6 +237,7 @@ void main() {
       expect(baseNames, contains('list_plugin_functions'));
       expect(baseNames, contains('list_plugin_skills'));
       expect(baseNames, contains('load_plugin_skill'));
+      expect(baseNames, contains('save_plugin_skill'));
       expect(baseNames, contains('run_subagent'));
       expect(baseNames, isNot(contains('call_plugin_function')));
 

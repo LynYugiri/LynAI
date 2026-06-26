@@ -32,13 +32,17 @@ class PluginRepository {
       'defaults/status.html',
       'defaults/status.css',
     ],
-    'weather-query': ['plugin.json', 'main.lua', 'skills/weather_research.md'],
+    'weather-query': [
+      'plugin.json',
+      'main.lua',
+      'defaults/skills/weather_research.md',
+    ],
     'mobile-agent-skills': [
       'plugin.json',
       'main.lua',
-      'skills/android_accessibility.md',
-      'skills/messaging.md',
-      'skills/qq.md',
+      'defaults/skills/android_accessibility.md',
+      'defaults/skills/messaging.md',
+      'defaults/skills/qq.md',
     ],
   };
 
@@ -912,7 +916,18 @@ class PluginRepository {
     )) {
       return true;
     }
+    if (_isEditableSkillPath(plugin, normalized)) return true;
     return plugin.grantedPermissions.contains('files:write');
+  }
+
+  bool _isEditableSkillPath(InstalledPlugin plugin, String normalizedPath) {
+    final match = RegExp(r'^skills/([A-Za-z0-9_-]{1,64})\.md$')
+        .firstMatch(normalizedPath);
+    if (match == null) return false;
+    final skillName = match.group(1);
+    return plugin.manifest.skills.any(
+      (skill) => skill.name == skillName && skill.editable,
+    );
   }
 
   /// 判断文件是否有对应的 defaults 模板。

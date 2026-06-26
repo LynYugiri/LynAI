@@ -77,6 +77,7 @@ class FloatingChatSessionController extends ChangeNotifier {
   final List<Map<String, dynamic>> _translationHistory = [];
   bool _translationOverlayActive = false;
   bool _translationStreaming = false;
+  bool _settleInFlight = false;
   int _currentTotalBlocks = 0;
 
   String? get conversationId => _conversationId;
@@ -201,22 +202,30 @@ class FloatingChatSessionController extends ChangeNotifier {
   }
 
   Future<void> stopTranslation() async {
-    if (!_translationStreaming && !_translationOverlayActive) return;
     await _subscription?.cancel();
     _subscription = null;
+    final wasActive = _translationStreaming || _translationOverlayActive;
     _translationStreaming = false;
     _translationOverlayActive = false;
+    _settleInFlight = false;
+    if (!wasActive) return;
     _status = '已停止翻译';
     _translationText = '';
+    // F1: stop keeps the cache so a subsequent resume can reuse it.
     FloatingAssistantBridge.instance.clearTranslationOverlay();
     notifyListeners();
   }
 
-  Future<void> translateCurrentScreen() async {
+  Future<void> resumeTranslation() async {
+    if (_translationStreaming || _translationOverlayActive) return;
+    await translateCurrentScreen(clearCache: false);
+  }
+
+  Future<void> translateCurrentScreen({bool clearCache = true}) async {
     if (_translationStreaming) return;
     _clearTransientStatus();
     _status = '正在读取当前页面...';
-    _translatedCache.clear();
+    if (clearCache) _translatedCache.clear();
     _translationText = '';
     notifyListeners();
     final floating = _settings.settings.floatingAssistant;
@@ -246,35 +255,46 @@ class FloatingChatSessionController extends ChangeNotifier {
   }
 
   Future<void> onTranslationScrollSettled() async {
-    if (!_translationOverlayActive || _translationStreaming) return;
-    final floating = _settings.settings.floatingAssistant;
-    final targetLanguage = _languageNames[floating.mangaTargetLanguage] ?? '简体中文';
-    final blocks = await _extractTextBlocks();
-    if (blocks.isEmpty) return;
-    final newBlocks = blocks.where((b) => !_translatedCache.containsKey(b['id'])).toList();
-    final cachedBlocks = blocks.where((b) => _translatedCache.containsKey(b['id'])).toList();
-    final allBlocks = <Map<String, dynamic>>[];
-    for (final b in cachedBlocks) {
-      allBlocks.add({
-        ...b,
-        'translatedText': _translatedCache[b['id']],
-      });
-    }
-    if (newBlocks.isNotEmpty) {
-      final model = _translationModel();
-      if (model == null) return;
-      final translations = await _batchTranslate(model, newBlocks, targetLanguage);
-      for (final b in newBlocks) {
-        final translated = translations[b['id']] ?? '';
-        if (translated.isNotEmpty) {
-          _translatedCache[b['id']] = translated;
-          allBlocks.add({...b, 'translatedText': translated});
+    if (!_translationOverlayActive || _translationStreaming || _settleInFlight) return;
+    _settleInFlight = true;
+    try {
+      final floating = _settings.settings.floatingAssistant;
+      final targetLanguage = _languageNames[floating.mangaTargetLanguage] ?? '简体中文';
+      final blocks = await _extractTextBlocks();
+      if (blocks.isEmpty) return;
+      // Double-check the session is still active after the await chain.
+      if (!_translationOverlayActive) return;
+      final newBlocks = blocks.where((b) => !_translatedCache.containsKey(b['id'])).toList();
+      final cachedBlocks = blocks.where((b) => _translatedCache.containsKey(b['id'])).toList();
+      // H1: cap new translations so total overlay never exceeds the limit.
+      final remaining = _maxOverlayBlocks - cachedBlocks.length;
+      final newBlocksCapped = remaining > 0 ? newBlocks.take(remaining).toList() : const <Map<String, dynamic>>[];
+      final allBlocks = <Map<String, dynamic>>[];
+      for (final b in cachedBlocks) {
+        allBlocks.add({
+          ...b,
+          'translatedText': _translatedCache[b['id']],
+        });
+      }
+      if (newBlocksCapped.isNotEmpty) {
+        final model = _translationModel();
+        if (model == null) return;
+        final translations = await _batchTranslate(model, newBlocksCapped, targetLanguage);
+        if (!_translationOverlayActive) return;
+        for (final b in newBlocksCapped) {
+          final translated = translations[b['id']] ?? '';
+          if (translated.isNotEmpty) {
+            _translatedCache[b['id']] = translated;
+            allBlocks.add({...b, 'translatedText': translated});
+          }
         }
       }
+      _updateOverlay(allBlocks, floating);
+      _status = '已翻译 ${allBlocks.length}/${blocks.length} 段';
+      notifyListeners();
+    } finally {
+      _settleInFlight = false;
     }
-    _updateOverlay(allBlocks, floating);
-    _status = '已翻译 ${allBlocks.length}/${blocks.length} 段';
-    notifyListeners();
   }
 
   bool _isPackageBlocked_(String pkg) {
@@ -337,12 +357,15 @@ class FloatingChatSessionController extends ChangeNotifier {
   }
 
   String _blockId(String text, int left, int top, int right, int bottom) {
-    return '$text|$left,$top,$right,$bottom';
+    // G2: quantize bounds to ~8px so minor scroll/jitter keeps the same id and
+    // lets the cache hit across small position drift (without colliding across
+    // genuinely different blocks).
+    return '$text|${left ~/ 8},${top ~/ 8},${right ~/ 8},${bottom ~/ 8}';
   }
 
   @visibleForTesting
   static String blockIdForTest(String text, int left, int top, int right, int bottom) {
-    return '$text|$left,$top,$right,$bottom';
+    return '$text|${left ~/ 8},${top ~/ 8},${right ~/ 8},${bottom ~/ 8}';
   }
 
   @visibleForTesting
@@ -377,42 +400,51 @@ class FloatingChatSessionController extends ChangeNotifier {
   }
 
   Future<List<Map<String, dynamic>>> _extractOcrBlocks() async {
-    final screenshot = await DeviceControlService.instance.execute(
-      'device.screen.screenshot',
-      const {},
-    );
-    if (screenshot['ok'] != true) return const [];
-    final result = screenshot['result'];
-    if (result is! Map) return const [];
-    final screenshotPkg = result['packageName']?.toString() ?? '';
-    if (_isPackageBlocked_(screenshotPkg)) return const [];
-    final dataBase64 = result['dataBase64']?.toString() ?? '';
-    if (dataBase64.isEmpty) return const [];
-    final ocr = await DeviceControlService.instance.execute(
-      'device.screen.ocr',
-      {'imageBase64': dataBase64},
-    );
-    if (ocr['ok'] != true) return const [];
-    final blocks = (ocr['result'] as List?) ?? const [];
-    return blocks.cast<Map>()
-        .where((b) {
-          final text = b['text']?.toString().trim() ?? '';
-          return text.isNotEmpty && !_isLikelyUiLabel(text);
-        })
-        .map((b) {
-      final bounds = (b['bounds'] as Map?) ?? {};
-      final left = (bounds['left'] as num?)?.toInt() ?? 0;
-      final top = (bounds['top'] as num?)?.toInt() ?? 0;
-      final right = (bounds['right'] as num?)?.toInt() ?? 0;
-      final bottom = (bounds['bottom'] as num?)?.toInt() ?? 0;
-      final text = b['text']?.toString() ?? '';
-      return <String, dynamic>{
-        'id': b['id']?.toString().isNotEmpty == true
-            ? b['id'].toString()
-            : _blockId(text, left, top, right, bottom),
-        'originalText': text,
-        'bounds': {
-          'left': left,
+    // E3: hide our own overlays before the screenshot so OCR does not capture
+    // the bubble/panel/previous translation overlays and feed them back as
+    // "source text" (which would compound into a self-translate loop).
+    await FloatingAssistantBridge.instance.hideForScreenshot();
+    try {
+      // Let the framebuffer cycle so the removeView calls land on screen.
+      await _waitTwoFrames();
+      final screenshot = await DeviceControlService.instance.execute(
+        'device.screen.screenshot',
+        const {},
+      );
+      if (screenshot['ok'] != true) return const [];
+      final result = screenshot['result'];
+      if (result is! Map) return const [];
+      final screenshotPkg = result['packageName']?.toString() ?? '';
+      if (_isPackageBlocked_(screenshotPkg)) return const [];
+      final dataBase64 = result['dataBase64']?.toString() ?? '';
+      if (dataBase64.isEmpty) return const [];
+      final ocr = await DeviceControlService.instance.execute(
+        'device.screen.ocr',
+        {'imageBase64': dataBase64},
+      );
+      if (ocr['ok'] != true) return const [];
+      final blocks = (ocr['result'] as List?) ?? const [];
+      return blocks.cast<Map>()
+          .where((b) {
+            final text = b['text']?.toString().trim() ?? '';
+            return text.isNotEmpty && !_isLikelyUiLabel(text);
+          })
+          .map((b) {
+        final bounds = (b['bounds'] as Map?) ?? {};
+        final left = (bounds['left'] as num?)?.toInt() ?? 0;
+        final top = (bounds['top'] as num?)?.toInt() ?? 0;
+        final right = (bounds['right'] as num?)?.toInt() ?? 0;
+        final bottom = (bounds['bottom'] as num?)?.toInt() ?? 0;
+        final text = b['text']?.toString() ?? '';
+        return <String, dynamic>{
+          // G1: derive the id from text+bounds instead of the positional
+          // "ocr_$i" native sends. Positional ids collide across OCR calls
+          // once content scrolls and let the cache silently reuse stale
+          // translations for brand new blocks.
+          'id': _blockId(text, left, top, right, bottom),
+          'originalText': text,
+          'bounds': {
+            'left': left,
           'top': top,
           'right': right,
           'bottom': bottom,
@@ -420,7 +452,20 @@ class FloatingChatSessionController extends ChangeNotifier {
         'orientation': b['orientation'] ?? 0,
         'packageName': screenshotPkg,
       };
-    }).toList();
+        }).toList();
+    } finally {
+      // Always restore overlays; an exception mid-OCR would otherwise leave
+      // the bubble/panel permanently gone.
+      await FloatingAssistantBridge.instance.restoreAfterScreenshot();
+    }
+  }
+
+  Future<void> _waitTwoFrames() async {
+    // Two microtask delays give native WindowManager.removeView time to land
+    // on the framebuffer before AccessibilityService.takeScreenshot samples it.
+    for (var i = 0; i < 2; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
   }
 
   Future<void> _batchTranslateAndOverlay(
@@ -524,6 +569,9 @@ class FloatingChatSessionController extends ChangeNotifier {
     List<Map<String, dynamic>> blocks,
     String targetLanguage,
   ) {
+    // F1: a stream completed after stopTranslation/clearTranslation must not
+    // resurrect overlays over a now-inactive session.
+    if (!_translationStreaming && !_translationOverlayActive) return;
     final translations = _parseTranslations(response, blocks);
     final allBlocks = <Map<String, dynamic>>[];
     var skipped = 0;
@@ -715,7 +763,15 @@ class FloatingChatSessionController extends ChangeNotifier {
 
   @override
   Future<void> dispose() async {
+    // F1: full teardown of translation state so a disposing controller cannot
+    // leave stray overlays or resume activity later.
     await _subscription?.cancel();
+    _subscription = null;
+    _translationStreaming = false;
+    _translationOverlayActive = false;
+    _settleInFlight = false;
+    _translatedCache.clear();
+    FloatingAssistantBridge.instance.clearTranslationOverlay();
     _api.dispose();
     super.dispose();
   }
