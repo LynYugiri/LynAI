@@ -35,6 +35,11 @@ struct Object
     std::vector<Character> text;
 };
 
+// Both axes of rrect.size are multiplied by kEnlargeRatio during detection;
+// glyph-direction size can be recovered by reversing this factor. Declared in
+// the header so JNI serialization can reverse it without duplicating the enum.
+static constexpr float kEnlargeRatio = 1.95f;
+
 class PPOCRv5
 {
 public:

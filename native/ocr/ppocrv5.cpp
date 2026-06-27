@@ -268,7 +268,7 @@ int PPOCRv5::detect(const cv::Mat& rgb, std::vector<Object>& objects)
         // https://github.com/MhLiao/DB/blob/master/structure/representers/seg_detector_representer.py
 
         const float box_thresh = 0.6f;
-        const float enlarge_ratio = 1.95f;
+        const float enlarge_ratio = kEnlargeRatio;
 
         const float min_size = 3 * scale;
         const int max_candidates = 1000;

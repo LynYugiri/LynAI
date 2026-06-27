@@ -151,8 +151,15 @@ object FloatingAssistantOverlay {
                 }
                 "updateTranslationOverlay" -> {
                     val args = arguments(call.arguments)
+                    // Prefer per-call payload (carry the live settings each
+                    // command) so runtime style/opacity/layout changes take effect
+                    // immediately; fall back to the last `configure` cache for
+                    // callers that rely on defaults.
+                    val style = (args["style"] as? String)?.takeIf { it.isNotEmpty() } ?: mangaOverlayStyle
+                    val opacity = (args["opacity"] as? Number)?.toDouble() ?: mangaOverlayOpacity
+                    val layout = (args["layoutMode"] as? String)?.takeIf { it.isNotEmpty() } ?: mangaLayoutMode
                     TranslationOverlayManager.setBlocks(
-                        activity!!, args, mangaOverlayStyle, mangaOverlayOpacity, mangaLayoutMode
+                        activity!!, args, style, opacity, layout
                     )
                     result.success(null)
                 }
@@ -1129,7 +1136,12 @@ object FloatingAssistantOverlay {
                     val dm = ctx.resources.displayMetrics
                     params.x = params.x.coerceIn(0, dm.widthPixels - view.width)
                     params.y = params.y.coerceIn(0, maxY.coerceAtLeast(0))
-                    manager.updateViewLayout(view, params)
+                    try {
+                        manager.updateViewLayout(view, params)
+                    } catch (_: Exception) {
+                        // View was detached asynchronously (screen off, hide,
+                        // permission revoked) mid-gesture. Abort silently.
+                    }
                     return true
                 }
                 MotionEvent.ACTION_UP -> {
@@ -1140,7 +1152,10 @@ object FloatingAssistantOverlay {
                         if (edgeSnap) {
                             val width = ctx.resources.displayMetrics.widthPixels
                             params.x = if (params.x < width / 2) 12 else width - view.width - 12
-                            manager.updateViewLayout(view, params)
+                            try {
+                                manager.updateViewLayout(view, params)
+                            } catch (_: Exception) {
+                            }
                         }
                         onDragEnd?.invoke()
                     }
@@ -1183,13 +1198,22 @@ object FloatingAssistantOverlay {
                     val (minW, maxW) = widthRange
                     val (minH, maxH) = heightRange
                     val dm = ctx.resources.displayMetrics
-                    // F2: 受面板当前 x 限制，避免向右溢出屏幕。
+                    // F2: cap width against the panel's current x so it cannot
+                    // overflow the right edge. If the panel is already pinned
+                    // to the right (so cap would fall below minW), allow shrinking
+                    // down to minW only — never silently lift the cap above minW
+                    // which would make minW == effectiveMaxW and lock resizing.
                     val maxXWidth = (dm.widthPixels - dp(ctx, 8)) - params.x
-                    val effectiveMaxW = minOf(maxW, maxXWidth.coerceAtLeast(minW))
+                    val cap = maxXWidth.coerceIn(minW, maxW)
+                    val effectiveMaxW = if (cap >= minW) cap else minOf(minW, maxW)
                     params.width = (startWidth + (event.rawX - downX).toInt())
                         .coerceIn(minW, effectiveMaxW)
+                    // Same clamp on height: never let onResized be called with a
+                    // height that would push the panel past the screen bottom.
+                    val maxScreenH = (dm.heightPixels - dp(ctx, 8)) - params.y
+                    val effectiveMaxH = minOf(maxH, maxScreenH.coerceAtLeast(minH))
                     val newHeight = (startHeight + (event.rawY - downY).toInt())
-                        .coerceIn(minH, maxH)
+                        .coerceIn(minH, effectiveMaxH)
                     val manager = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
                     try {
                         manager.updateViewLayout(targetView, params)

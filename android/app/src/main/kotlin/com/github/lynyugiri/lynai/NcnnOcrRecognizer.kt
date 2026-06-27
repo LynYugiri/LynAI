@@ -83,6 +83,10 @@ object NcnnOcrRecognizer {
 
             val bounds = obj.optJSONObject("bounds")
             val orientation = obj.optInt("orientation", 0)
+            val boxW = obj.optInt("boxW", 0)
+            val boxH = obj.optInt("boxH", 0)
+            val fontSize = obj.optInt("fontSize", 0)
+            val angle = obj.optInt("angle", 0)
 
             val boundsMap = mutableMapOf<String, Any>(
                 "left" to (bounds?.optInt("left", 0) ?: 0),
@@ -101,6 +105,10 @@ object NcnnOcrRecognizer {
                 "text" to text,
                 "bounds" to boundsMap,
                 "orientation" to orientation,
+                "boxW" to boxW,
+                "boxH" to boxH,
+                "fontSize" to fontSize,
+                "angle" to angle,
             )
             blocks.add(block)
         }

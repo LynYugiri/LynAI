@@ -6,7 +6,7 @@
 // The JNI interface in this file is licensed under GPL-3.0-or-later (LynAI).
 //
 // Inputs:  Android Bitmap + AssetManager
-// Output:  JSON string [{text, bounds, orientation, prob}, ...]
+// Output:  JSON string [{text, bounds, boxW, boxH, fontSize, angle, orientation, prob}, ...]
 
 #include <android/bitmap.h>
 #include <android/asset_manager.h>
@@ -128,6 +128,18 @@ static std::string objects_to_json(const std::vector<Object>& objects)
             oss << ',';
         first = false;
 
+        // Dimensions in original-image pixel space. detect() enlarged rrect by
+        // kEnlargeRatio on both axes; reverse to recover the true text-line box.
+        // After detect()'s rotation/swap, rrect.size.width always ends up oriented
+        // along the glyph direction (perpendicular to the reading direction), and
+        // rrect.size.height along the reading direction. Enlarge multiplied width
+        // by kEnlargeRatio and added w0*(k-1) padding to height; reverse that.
+        float w0 = obj.rrect.size.width / kEnlargeRatio;
+        float h0 = obj.rrect.size.height - w0 * (kEnlargeRatio - 1.f);
+        if (h0 < 0.f) h0 = obj.rrect.size.height;
+        // w0 = glyph height (perpendicular to reading direction); used for font size.
+        float glyphPx = (w0 < 0.f) ? 0.f : w0;
+
         oss << '{';
         oss << "\"id\":\"ocr_" << i << "\",";
         oss << "\"text\":\"" << escape_json(text) << "\",";
@@ -137,6 +149,10 @@ static std::string objects_to_json(const std::vector<Object>& objects)
         oss << "\"right\":"  << right  << ',';
         oss << "\"bottom\":" << bottom;
         oss << "},";
+        oss << "\"boxW\":"    << (int)(w0 + 0.5f) << ',';
+        oss << "\"boxH\":"    << (int)(h0 + 0.5f) << ',';
+        oss << "\"fontSize\":" << (int)(glyphPx + 0.5f) << ',';
+        oss << "\"angle\":"   << (int)(obj.rrect.angle + 0.5f) << ',';
         oss << "\"orientation\":" << obj.orientation << ',';
         oss << "\"prob\":" << obj.prob;
         oss << '}';

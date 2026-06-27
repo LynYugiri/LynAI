@@ -12,7 +12,6 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
 import android.text.TextUtils
-import kotlin.math.min
 
 object TranslationOverlayManager {
     private var windowManager: WindowManager? = null
@@ -57,14 +56,17 @@ object TranslationOverlayManager {
             val w = (right - left).coerceAtLeast(dp(context, 40))
             val h = (bottom - top).coerceAtLeast(dp(context, 24))
             val blockId = block["id"]?.toString() ?: text.hashCode().toString()
+            val orientationFlag = (block["orientation"] as? Number)?.toInt()
+            val fontSizePx = (block["fontSize"] as? Number)?.toFloat() ?: 0f
+            val boxH = (block["boxH"] as? Number)?.toFloat() ?: 0f
 
             val view = obtainView(context)
             val asVertical = when (layoutMode) {
                 "vertical" -> true
                 "horizontal" -> false
-                else -> h > w
+                else -> orientationFlag == 1 || h > w
             }
-            applyStyle(view, text, overlayStyle, opacity, asVertical)
+            applyStyle(view, text, overlayStyle, opacity, asVertical, fontSizePx, boxH)
 
             val heightSpec = if (asVertical) h else WindowManager.LayoutParams.WRAP_CONTENT
             val params = WindowManager.LayoutParams(
@@ -183,9 +185,20 @@ object TranslationOverlayManager {
         style: String,
         opacity: Double,
         asVertical: Boolean,
+        fontSizePx: Float,
+        boxH: Float,
     ) {
         view.text = text
-        view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+        val dm = view.context.resources.displayMetrics
+        // Sans OCR fontSize (legacy path / accessibility-tree blocks), fall back
+        // to 13sp. Otherwise convert original-glyph px → sp and clamp to a sane
+        // visual range.
+        val sp = if (fontSizePx > 0f) {
+            (fontSizePx / dm.scaledDensity).coerceIn(8f, 32f)
+        } else {
+            13f
+        }
+        view.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
         view.setPadding(dp(view.context, 4), dp(view.context, 2), dp(view.context, 4), dp(view.context, 2))
         view.alpha = opacity.toFloat()
         when (style) {
@@ -213,10 +226,16 @@ object TranslationOverlayManager {
             view.ellipsize = TextUtils.TruncateAt.END
         } else {
             // B1: long translations extend downward (WRAP_CONTENT height) instead
-            // of being clipped to the original block height.
-            view.maxLines = 9
-            view.setLines(0)
-            view.ellipsize = null
+            // of being clipped to the original block height. Fence against the
+            // original glyph-line hint so the overlay never spills past one
+            // neighbor balloon; ellipsize as a safety net. NOTE: setLines(0) is
+            // not called because it forces the TextView to take exactly 0 lines
+            // and negates maxLines — leaving the text invisible.
+            val spPx = sp * dm.density
+            val hint = if (boxH > 0f) (boxH / spPx).toInt() else 0
+            val cap = if (hint > 0) (hint + 2).coerceIn(1, 9) else 9
+            view.maxLines = cap
+            view.ellipsize = TextUtils.TruncateAt.END
         }
     }
 

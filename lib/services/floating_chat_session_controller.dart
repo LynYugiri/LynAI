@@ -368,6 +368,39 @@ class FloatingChatSessionController extends ChangeNotifier {
     return '$text|${left ~/ 8},${top ~/ 8},${right ~/ 8},${bottom ~/ 8}';
   }
 
+  /// Same mapping _extractOcrBlocks applies: forward the raw block straight off
+  /// the native OCR (or accessibility fallback) into the in-memory block the
+  /// translation pipeline consumes. Exposed so new fields (boxW, boxH, fontSize,
+  /// angle) can be tested without a live DeviceControlService.
+  @visibleForTesting
+  static Map<String, dynamic> normalizeOcrBlock(
+    Map<String, dynamic> raw,
+    String packageName,
+  ) {
+    final bounds = (raw['bounds'] as Map?) ?? {};
+    final left = (bounds['left'] as num?)?.toInt() ?? 0;
+    final top = (bounds['top'] as num?)?.toInt() ?? 0;
+    final right = (bounds['right'] as num?)?.toInt() ?? 0;
+    final bottom = (bounds['bottom'] as num?)?.toInt() ?? 0;
+    final text = raw['text']?.toString() ?? '';
+    return <String, dynamic>{
+      'id': '$text|${left ~/ 8},${top ~/ 8},${right ~/ 8},${bottom ~/ 8}',
+      'originalText': text,
+      'bounds': {
+        'left': left,
+        'top': top,
+        'right': right,
+        'bottom': bottom,
+      },
+      'orientation': raw['orientation'] ?? 0,
+      'boxW': (raw['boxW'] as num?)?.toInt() ?? 0,
+      'boxH': (raw['boxH'] as num?)?.toInt() ?? 0,
+      'fontSize': (raw['fontSize'] as num?)?.toInt() ?? 0,
+      'angle': (raw['angle'] as num?)?.toInt() ?? 0,
+      'packageName': packageName,
+    };
+  }
+
   @visibleForTesting
   bool isLikelyUiLabel(String text) => _isLikelyUiLabel(text);
 
@@ -429,30 +462,11 @@ class FloatingChatSessionController extends ChangeNotifier {
             final text = b['text']?.toString().trim() ?? '';
             return text.isNotEmpty && !_isLikelyUiLabel(text);
           })
-          .map((b) {
-        final bounds = (b['bounds'] as Map?) ?? {};
-        final left = (bounds['left'] as num?)?.toInt() ?? 0;
-        final top = (bounds['top'] as num?)?.toInt() ?? 0;
-        final right = (bounds['right'] as num?)?.toInt() ?? 0;
-        final bottom = (bounds['bottom'] as num?)?.toInt() ?? 0;
-        final text = b['text']?.toString() ?? '';
-        return <String, dynamic>{
-          // G1: derive the id from text+bounds instead of the positional
-          // "ocr_$i" native sends. Positional ids collide across OCR calls
-          // once content scrolls and let the cache silently reuse stale
-          // translations for brand new blocks.
-          'id': _blockId(text, left, top, right, bottom),
-          'originalText': text,
-          'bounds': {
-            'left': left,
-          'top': top,
-          'right': right,
-          'bottom': bottom,
-        },
-        'orientation': b['orientation'] ?? 0,
-        'packageName': screenshotPkg,
-      };
-        }).toList();
+          .map((b) => normalizeOcrBlock(
+              Map<String, dynamic>.from(b.cast<String, dynamic>()),
+              screenshotPkg,
+            ))
+        .toList();
     } finally {
       // Always restore overlays; an exception mid-OCR would otherwise leave
       // the bubble/panel permanently gone.

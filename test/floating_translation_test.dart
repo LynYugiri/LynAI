@@ -240,4 +240,87 @@ void main() {
       }
     });
   });
+
+  group('normalizeOcrBlock', () {
+    test('forwards new size/angle fields from native OCR', () {
+      final raw = <String, dynamic>{
+        'text': 'こんにちは',
+        'bounds': {'left': 100, 'top': 200, 'right': 240, 'bottom': 232},
+        'orientation': 1,
+        'boxW': 30,
+        'boxH': 320,
+        'fontSize': 28,
+        'angle': 89,
+        'prob': 0.93,
+      };
+      final normalized = FloatingChatSessionController.normalizeOcrBlock(raw, 'com.example.manga');
+      expect(normalized['originalText'], 'こんにちは');
+      expect((normalized['bounds'] as Map)['left'], 100);
+      expect((normalized['bounds'] as Map)['bottom'], 232);
+      expect(normalized['orientation'], 1);
+      expect(normalized['boxW'], 30);
+      expect(normalized['boxH'], 320);
+      expect(normalized['fontSize'], 28);
+      expect(normalized['angle'], 89);
+      expect(normalized['packageName'], 'com.example.manga');
+    });
+
+    test('id is stable and does not depend on the new fields', () {
+      final raw = <String, dynamic>{
+        'text': 'Hi',
+        'bounds': {'left': 100, 'top': 200, 'right': 240, 'bottom': 232},
+        'fontSize': 99,
+        'boxW': 99,
+        'boxH': 99,
+        'angle': 99,
+      };
+      final a = FloatingChatSessionController.normalizeOcrBlock(raw, 'pkg.a');
+      final b = FloatingChatSessionController.normalizeOcrBlock(
+        <String, dynamic>{
+          'text': 'Hi',
+          'bounds': {'left': 100, 'top': 200, 'right': 240, 'bottom': 232},
+        },
+        'pkg.b',
+      );
+      expect(a['id'], b['id']);
+      expect(
+        a['id'],
+        FloatingChatSessionController.blockIdForTest('Hi', 100, 200, 240, 232),
+      );
+    });
+
+    test('missing size fields default to 0, not null', () {
+      final normalized = FloatingChatSessionController.normalizeOcrBlock(
+        <String, dynamic>{
+          'text': 'x',
+          'bounds': {'left': 0, 'top': 0, 'right': 10, 'bottom': 10},
+        },
+        '',
+      );
+      expect(normalized['boxW'], 0);
+      expect(normalized['boxH'], 0);
+      expect(normalized['fontSize'], 0);
+      expect(normalized['angle'], 0);
+      expect(normalized['orientation'], 0);
+    });
+
+    test('tolerates bounds as double-typed numbers', () {
+      final normalized = FloatingChatSessionController.normalizeOcrBlock(
+        <String, dynamic>{
+          'text': 'x',
+          'bounds': {
+            'left': 10.0,
+            'top': 20.5,
+            'right': 30.4,
+            'bottom': 40.9,
+          },
+          'fontSize': 16.0,
+        },
+        '',
+      );
+      expect((normalized['bounds'] as Map)['top'], 20);
+      expect((normalized['bounds'] as Map)['right'], 30);
+      expect(normalized['fontSize'], 16);
+    });
+  });
 }
