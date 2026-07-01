@@ -228,6 +228,7 @@ class AppSettings {
   final String? lastSeenChangelogVersion;
   final List<String> agentGrantedPermissions;
   final FloatingAssistantSettings floatingAssistant;
+  final String? backendUrl;
 
   AppSettings({
     required this.themeColor,
@@ -255,6 +256,7 @@ class AppSettings {
     this.lastSeenChangelogVersion,
     this.agentGrantedPermissions = LynAIPermissions.defaultAgent,
     this.floatingAssistant = const FloatingAssistantSettings(),
+    this.backendUrl,
   }) : roles = roles ?? [ChatRole.defaultRole()];
 
   factory AppSettings.defaults() {
@@ -289,6 +291,7 @@ class AppSettings {
     Object? lastSeenChangelogVersion = _sentinel,
     List<String>? agentGrantedPermissions,
     FloatingAssistantSettings? floatingAssistant,
+    Object? backendUrl = _sentinel,
   }) {
     return AppSettings(
       themeColor: themeColor ?? this.themeColor,
@@ -336,6 +339,9 @@ class AppSettings {
       agentGrantedPermissions:
           agentGrantedPermissions ?? this.agentGrantedPermissions,
       floatingAssistant: floatingAssistant ?? this.floatingAssistant,
+      backendUrl: identical(backendUrl, _sentinel)
+          ? this.backendUrl
+          : backendUrl as String?,
     );
   }
 
@@ -441,6 +447,7 @@ class AppSettings {
       floatingAssistant: FloatingAssistantSettings.fromJson(
         json['floatingAssistant'],
       ),
+      backendUrl: json['backendUrl'] as String?,
     );
   }
 
@@ -475,6 +482,7 @@ class AppSettings {
         'lastSeenChangelogVersion': lastSeenChangelogVersion,
       'agentGrantedPermissions': agentGrantedPermissions,
       'floatingAssistant': floatingAssistant.toJson(),
+      if (backendUrl != null) 'backendUrl': backendUrl,
     };
   }
 

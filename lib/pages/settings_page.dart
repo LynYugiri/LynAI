@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../providers/account_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/recycle_bin_provider.dart';
 import '../providers/settings_provider.dart';
+import '../services/backend_client.dart';
+import '../widgets/account_header_card.dart';
 import '../widgets/plugin_feature_webview.dart';
+import '../widgets/text_editing_controller_host.dart';
+import '../providers/sync_provider.dart';
 import 'about_page.dart';
+import 'admin_review_page.dart';
 import 'background_page.dart';
 import 'api_models_page.dart';
 import 'data_management_page.dart';
@@ -40,6 +46,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final settings = context.watch<SettingsProvider>().settings;
     final pluginProvider = context.watch<PluginProvider>();
     final recycleBinProvider = context.watch<RecycleBinProvider>();
+    final account = context.watch<AccountProvider>();
     final pluginItems = _buildPluginItems(context, pluginProvider);
 
     return Scaffold(
@@ -47,6 +54,37 @@ class _SettingsPageState extends State<SettingsPage> {
       body: ListView(
         padding: const EdgeInsets.symmetric(vertical: 8),
         children: [
+          const AccountHeaderCard(),
+          if (account.isLoggedIn && account.user!.isAdmin)
+            _buildItem(
+              context,
+              Icons.admin_panel_settings,
+              '审核管理',
+              '审核用户提交的插件',
+              Colors.deepOrange,
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AdminReviewPage()),
+              ),
+            ),
+          _buildItem(
+            context,
+            Icons.dns_outlined,
+            '后端连接',
+            settings.backendUrl != null && settings.backendUrl!.isNotEmpty
+                ? settings.backendUrl!
+                : '未连接',
+            Colors.blueGrey,
+            () => _showBackendDialog(context),
+          ),
+          _buildItem(
+            context,
+            Icons.sync,
+            '数据同步',
+            _syncSubtitle(context),
+            Colors.indigo,
+            () => _showSyncDialog(context),
+          ),
           _buildItem(
             context,
             Icons.info_outline,
@@ -143,7 +181,7 @@ class _SettingsPageState extends State<SettingsPage> {
             context,
             Icons.extension,
             '插件',
-            '管理插件、权限和功能页',
+            '权限与配置',
             Colors.deepPurple,
             () => Navigator.push(
               context,
@@ -164,6 +202,108 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
           ...pluginItems,
+        ],
+      ),
+    );
+  }
+
+  /// 弹出后端地址配置对话框。
+  Future<void> _showBackendDialog(BuildContext context) async {
+    final settingsProvider = context.read<SettingsProvider>();
+    final backend = context.read<BackendClient>();
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => TextEditingControllerHost(
+        initialTexts: [settingsProvider.settings.backendUrl ?? ''],
+        builder: (ctx, controllers) {
+          final controller = controllers.single;
+          return AlertDialog(
+            title: const Text('后端连接'),
+            content: TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                labelText: '后端地址',
+                hintText: 'https://api.lynai.com',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.link),
+              ),
+              keyboardType: TextInputType.url,
+              autofocus: true,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  backend.configure('');
+                  settingsProvider.updateBackendUrl(null);
+                  Navigator.pop(ctx, null);
+                },
+                child: const Text('断开'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+                child: const Text('保存'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    if (result == null) return;
+    if (!context.mounted) return;
+
+    final url = result.isEmpty ? null : result;
+    backend.configure(url ?? '');
+    settingsProvider.updateBackendUrl(url);
+  }
+
+  /// 数据同步副标题。
+  String _syncSubtitle(BuildContext context) {
+    final sync = context.watch<SyncProvider>();
+    if (!sync.canSync) return '未连接后端';
+    if (sync.syncing) return '同步中…';
+    final last = sync.lastSyncAt;
+    if (last == null) return '尚未同步';
+    return '上次同步: ${last.month}/${last.day} ${last.hour}:${last.minute.toString().padLeft(2, '0')}';
+  }
+
+  /// 弹出数据同步对话框。
+  Future<void> _showSyncDialog(BuildContext context) async {
+    final sync = context.read<SyncProvider>();
+    if (!sync.canSync) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请先连接后端并登录')));
+      return;
+    }
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('数据同步'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('上次同步: ${sync.lastSyncAt ?? "尚未同步"}'),
+            const SizedBox(height: 8),
+            const Text('点击「立即同步」将从云端拉取增量并上传本地变更。'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('关闭'),
+          ),
+          FilledButton(
+            onPressed: sync.syncing
+                ? null
+                : () {
+                    Navigator.pop(ctx);
+                    sync.manualSync();
+                  },
+            child: const Text('立即同步'),
+          ),
         ],
       ),
     );

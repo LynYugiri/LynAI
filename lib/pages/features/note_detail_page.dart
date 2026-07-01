@@ -3150,7 +3150,7 @@ class _NoteDetailState extends State<_NoteDetail> {
         },
       );
     } finally {
-      ctrl.dispose();
+      WidgetsBinding.instance.addPostFrameCallback((_) => ctrl.dispose());
     }
   }
 
@@ -3232,7 +3232,7 @@ class _NoteDetailState extends State<_NoteDetail> {
         },
       );
     } finally {
-      ctrl.dispose();
+      WidgetsBinding.instance.addPostFrameCallback((_) => ctrl.dispose());
     }
   }
 

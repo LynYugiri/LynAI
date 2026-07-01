@@ -15,6 +15,7 @@ import '../utils/snackbar_utils.dart';
 import '../widgets/model_config_picker.dart';
 import '../widgets/plugin_feature_webview.dart';
 import '../widgets/plugin_icon.dart';
+import '../widgets/text_editing_controller_host.dart';
 
 /// 插件管理页面。
 ///
@@ -400,15 +401,6 @@ class PluginDetailPage extends StatelessWidget {
                   icon: const Icon(Icons.refresh),
                   label: const Text('重新加载插件'),
                 ),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Theme.of(context).colorScheme.error,
-                  ),
-                  onPressed: () => _confirmDelete(context, plugin),
-                  icon: const Icon(Icons.delete_outline),
-                  label: const Text('删除插件'),
-                ),
               ],
             ),
           ),
@@ -421,32 +413,36 @@ class PluginDetailPage extends StatelessWidget {
     BuildContext context,
     InstalledPlugin plugin,
   ) async {
-    final controller = TextEditingController(text: plugin.displayName);
     final result = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('修改显示名'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: '显示名',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text),
-            child: const Text('保存'),
-          ),
-        ],
+      builder: (context) => TextEditingControllerHost(
+        initialTexts: [plugin.displayName],
+        builder: (context, controllers) {
+          final controller = controllers.single;
+          return AlertDialog(
+            title: const Text('修改显示名'),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: '显示名',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, controller.text),
+                child: const Text('保存'),
+              ),
+            ],
+          );
+        },
       ),
     );
-    controller.dispose();
     if (result == null || !context.mounted) return;
     await _runAction(
       context,
@@ -459,65 +455,68 @@ class PluginDetailPage extends StatelessWidget {
     BuildContext context,
     InstalledPlugin plugin,
   ) async {
-    final idController = TextEditingController(text: plugin.id);
-    final nameController = TextEditingController(text: plugin.manifest.name);
     String? error;
     final result = await showDialog<({String id, String name})>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('修改快照 ID/Name'),
-          content: SizedBox(
-            width: 480,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: idController,
-                  decoration: InputDecoration(
-                    labelText: '插件 ID',
-                    border: const OutlineInputBorder(),
-                    errorText: error,
-                  ),
+      builder: (context) => TextEditingControllerHost(
+        initialTexts: [plugin.id, plugin.manifest.name],
+        builder: (context, controllers) {
+          final idController = controllers[0];
+          final nameController = controllers[1];
+          return StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+              title: const Text('修改快照 ID/Name'),
+              content: SizedBox(
+                width: 480,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: idController,
+                      decoration: InputDecoration(
+                        labelText: '插件 ID',
+                        border: const OutlineInputBorder(),
+                        errorText: error,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: nameController,
+                      decoration: const InputDecoration(
+                        labelText: '插件 name',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: nameController,
-                  decoration: const InputDecoration(
-                    labelText: '插件 name',
-                    border: OutlineInputBorder(),
-                  ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('取消'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final id = idController.text.trim();
+                    final name = nameController.text.trim();
+                    if (!RegExp(r'^[a-zA-Z0-9_.-]+$').hasMatch(id)) {
+                      setDialogState(() => error = 'ID 只能包含字母、数字、下划线、点和横线');
+                      return;
+                    }
+                    if (name.isEmpty) {
+                      setDialogState(() => error = 'Name 不能为空');
+                      return;
+                    }
+                    Navigator.pop(context, (id: id, name: name));
+                  },
+                  child: const Text('保存'),
                 ),
               ],
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final id = idController.text.trim();
-                final name = nameController.text.trim();
-                if (!RegExp(r'^[a-zA-Z0-9_.-]+$').hasMatch(id)) {
-                  setDialogState(() => error = 'ID 只能包含字母、数字、下划线、点和横线');
-                  return;
-                }
-                if (name.isEmpty) {
-                  setDialogState(() => error = 'Name 不能为空');
-                  return;
-                }
-                Navigator.pop(context, (id: id, name: name));
-              },
-              child: const Text('保存'),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
-    idController.dispose();
-    nameController.dispose();
     if (result == null || !context.mounted) return;
     await _runAction(
       context,
@@ -610,37 +609,6 @@ class PluginDetailPage extends StatelessWidget {
   String _safeFileName(String value) {
     final cleaned = value.trim().replaceAll(RegExp(r'[\\/:*?"<>|]+'), '_');
     return cleaned.isEmpty ? 'plugin' : cleaned;
-  }
-
-  /// 弹出确认对话框后删除指定插件，删除成功后自动返回上一页。
-  Future<void> _confirmDelete(
-    BuildContext context,
-    InstalledPlugin plugin,
-  ) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('删除插件'),
-        content: Text('确定删除 ${plugin.displayName}？插件文件会从应用私有目录移除。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !context.mounted) return;
-    await _runAction(
-      context,
-      () => context.read<PluginProvider>().deletePlugin(plugin.id),
-      success: '插件已删除',
-    );
-    if (context.mounted) Navigator.pop(context);
   }
 }
 
@@ -776,29 +744,33 @@ class _PluginSettingTile extends StatelessWidget {
   }
 
   Future<void> _editTextSetting(BuildContext context) async {
-    final controller = TextEditingController(text: value?.toString() ?? '');
     final result = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(setting.title),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: InputDecoration(labelText: setting.key),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text),
-            child: const Text('保存'),
-          ),
-        ],
+      builder: (context) => TextEditingControllerHost(
+        initialTexts: [value?.toString() ?? ''],
+        builder: (context, controllers) {
+          final controller = controllers.single;
+          return AlertDialog(
+            title: Text(setting.title),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: InputDecoration(labelText: setting.key),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, controller.text),
+                child: const Text('保存'),
+              ),
+            ],
+          );
+        },
       ),
     );
-    controller.dispose();
     if (result == null || !context.mounted) return;
     await context.read<PluginProvider>().updateSetting(
       pluginId,
@@ -1099,46 +1071,48 @@ class _PluginConfigCardState extends State<_PluginConfigCard> {
   }
 
   Future<Object?> _showJsonDialog(String title, Object value) async {
-    final controller = TextEditingController(
-      text: const JsonEncoder.withIndent('  ').convert(value),
-    );
     String? error;
     final result = await showDialog<Object?>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text(title),
-          content: SizedBox(
-            width: 560,
-            child: TextField(
-              controller: controller,
-              maxLines: 16,
-              decoration: InputDecoration(
-                border: const OutlineInputBorder(),
-                errorText: error,
+      builder: (context) => TextEditingControllerHost(
+        initialTexts: [const JsonEncoder.withIndent('  ').convert(value)],
+        builder: (context, controllers) {
+          final controller = controllers.single;
+          return StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+              title: Text(title),
+              content: SizedBox(
+                width: 560,
+                child: TextField(
+                  controller: controller,
+                  maxLines: 16,
+                  decoration: InputDecoration(
+                    border: const OutlineInputBorder(),
+                    errorText: error,
+                  ),
+                ),
               ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('取消'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    try {
+                      Navigator.pop(context, jsonDecode(controller.text));
+                    } catch (e) {
+                      setDialogState(() => error = 'JSON 格式错误');
+                    }
+                  },
+                  child: const Text('确定'),
+                ),
+              ],
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () {
-                try {
-                  Navigator.pop(context, jsonDecode(controller.text));
-                } catch (e) {
-                  setDialogState(() => error = 'JSON 格式错误');
-                }
-              },
-              child: const Text('确定'),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
-    controller.dispose();
     return result;
   }
 
@@ -1363,32 +1337,36 @@ class _PluginFilesCardState extends State<_PluginFilesCard> {
   }
 
   Future<void> _renameFile(PluginFileEntry file) async {
-    final controller = TextEditingController(text: file.path);
     final next = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('重命名文件'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: '新路径',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('重命名'),
-          ),
-        ],
+      builder: (context) => TextEditingControllerHost(
+        initialTexts: [file.path],
+        builder: (context, controllers) {
+          final controller = controllers.single;
+          return AlertDialog(
+            title: const Text('重命名文件'),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: '新路径',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, controller.text.trim()),
+                child: const Text('重命名'),
+              ),
+            ],
+          );
+        },
       ),
     );
-    controller.dispose();
     if (next == null || next.isEmpty || !mounted) return;
     try {
       final provider = context.read<PluginProvider>();
@@ -1504,54 +1482,58 @@ class _PluginFilesCardState extends State<_PluginFilesCard> {
 
   /// 输入路径后打开独立编辑页，保存时才创建文件。
   Future<void> _createFile() async {
-    final nameController = TextEditingController();
+    String? error;
     final result = await showDialog<String>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          String? error;
-          return AlertDialog(
-            title: const Text('新建文件'),
-            content: SizedBox(
-              width: 480,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: nameController,
-                    decoration: InputDecoration(
-                      labelText: '文件名',
-                      hintText: '例如 style.css',
-                      border: const OutlineInputBorder(),
-                      errorText: error,
-                    ),
+      builder: (context) => TextEditingControllerHost(
+        initialTexts: const [''],
+        builder: (context, controllers) {
+          final nameController = controllers.single;
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              return AlertDialog(
+                title: const Text('新建文件'),
+                content: SizedBox(
+                  width: 480,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: nameController,
+                        decoration: InputDecoration(
+                          labelText: '文件名',
+                          hintText: '例如 style.css',
+                          border: const OutlineInputBorder(),
+                          errorText: error,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('取消'),
+                  ),
+                  FilledButton(
+                    onPressed: () {
+                      final name = nameController.text.trim();
+                      if (name.isEmpty) {
+                        setDialogState(() => error = '文件名不能为空');
+                        return;
+                      }
+                      Navigator.pop(context, name);
+                    },
+                    child: const Text('创建'),
                   ),
                 ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('取消'),
-              ),
-              FilledButton(
-                onPressed: () {
-                  final name = nameController.text.trim();
-                  if (name.isEmpty) {
-                    setDialogState(() => error = '文件名不能为空');
-                    return;
-                  }
-                  Navigator.pop(context, name);
-                },
-                child: const Text('创建'),
-              ),
-            ],
+              );
+            },
           );
         },
       ),
     );
     final resultPath = result;
-    nameController.dispose();
     if (resultPath == null || !mounted) return;
     await Navigator.push(
       context,
@@ -1573,32 +1555,36 @@ class _PluginFilesCardState extends State<_PluginFilesCard> {
   Future<void> _uploadFile() async {
     final file = await pickSingleFilePayload();
     if (file == null || !mounted) return;
-    final controller = TextEditingController(text: file.name);
     final targetPath = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('上传文件'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: '目标路径',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('上传'),
-          ),
-        ],
+      builder: (context) => TextEditingControllerHost(
+        initialTexts: [file.name],
+        builder: (context, controllers) {
+          final controller = controllers.single;
+          return AlertDialog(
+            title: const Text('上传文件'),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: '目标路径',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, controller.text.trim()),
+                child: const Text('上传'),
+              ),
+            ],
+          );
+        },
       ),
     );
-    controller.dispose();
     if (targetPath == null || targetPath.isEmpty || !mounted) return;
     final provider = context.read<PluginProvider>();
     final pluginId = widget.plugin.id;

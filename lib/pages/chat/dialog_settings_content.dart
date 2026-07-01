@@ -760,35 +760,39 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
     BuildContext context,
     String current,
   ) async {
-    final ctrl = TextEditingController(text: current);
     final result = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('自定义提示词'),
-        content: TextField(
-          controller: ctrl,
-          maxLines: 3,
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(),
-            hintText: '请根据下面的文件内容或识别结果回答。',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () {
-              final text = ctrl.text.trim();
-              Navigator.pop(ctx, text);
-            },
-            child: const Text('保存'),
-          ),
-        ],
+      builder: (ctx) => TextEditingControllerHost(
+        initialTexts: [current],
+        builder: (ctx, controllers) {
+          final ctrl = controllers.single;
+          return AlertDialog(
+            title: const Text('自定义提示词'),
+            content: TextField(
+              controller: ctrl,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: '请根据下面的文件内容或识别结果回答。',
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () {
+                  final text = ctrl.text.trim();
+                  Navigator.pop(ctx, text);
+                },
+                child: const Text('保存'),
+              ),
+            ],
+          );
+        },
       ),
     );
-    ctrl.dispose();
     return result;
   }
 

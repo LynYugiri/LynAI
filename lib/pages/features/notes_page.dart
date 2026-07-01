@@ -619,31 +619,35 @@ class _NotesPageState extends State<_NotesPage> {
     required String label,
     String initialText = '',
   }) async {
-    final ctrl = TextEditingController(text: initialText);
     final text = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          textInputAction: TextInputAction.done,
-          onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
-          decoration: InputDecoration(labelText: label),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-            child: const Text('保存'),
-          ),
-        ],
+      builder: (ctx) => TextEditingControllerHost(
+        initialTexts: [initialText],
+        builder: (ctx, controllers) {
+          final ctrl = controllers.single;
+          return AlertDialog(
+            title: Text(title),
+            content: TextField(
+              controller: ctrl,
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
+              decoration: InputDecoration(labelText: label),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+                child: const Text('保存'),
+              ),
+            ],
+          );
+        },
       ),
     );
-    ctrl.dispose();
     return text;
   }
 

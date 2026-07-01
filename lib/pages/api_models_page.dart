@@ -1522,9 +1522,11 @@ class _EditModelPageState extends State<EditModelPage> {
         ),
       ),
     );
-    maxTokens.dispose();
-    temperature.dispose();
-    topP.dispose();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      maxTokens.dispose();
+      temperature.dispose();
+      topP.dispose();
+    });
     if (result == null || !mounted) return;
     setState(() => _modelEntries[index] = result);
   }

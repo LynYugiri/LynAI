@@ -625,4 +625,11 @@ class SettingsProvider extends ChangeNotifier {
         return ThemeMode.light;
     }
   }
+
+  /// 更新后端连接地址。传入 null 断开连接。
+  void updateBackendUrl(String? url) {
+    _settings = _settings.copyWith(backendUrl: url);
+    _queueSaveSettings();
+    notifyListeners();
+  }
 }

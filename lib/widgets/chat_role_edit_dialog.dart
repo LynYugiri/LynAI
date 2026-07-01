@@ -311,7 +311,7 @@ class _ChatRoleEditDialogState extends State<ChatRoleEditDialog> {
         ],
       ),
     );
-    ctrl.dispose();
+    WidgetsBinding.instance.addPostFrameCallback((_) => ctrl.dispose());
     if (!mounted || name == null || name.trim().isEmpty) return;
     final id = context.read<SettingsProvider>().addRoleGroup(name);
     if (id.isEmpty) return;

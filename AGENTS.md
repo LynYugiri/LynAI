@@ -15,8 +15,10 @@
 - Providers notify from memory before queued persistence; do not make UI wait for disk unless the existing flow already does.
 - Flush `ConversationProvider.flushPendingSaves()` on lifecycle/dispose paths instead of forcing synchronous writes from UI code.
 - Historical conversations and roleplay threads keep settings/model snapshots; global setting/model changes must not silently rewrite old sessions.
-- `HomePage` keeps Feature/Chat/Settings alive with an `IndexedStack`; tab switching does not dispose child state.
-- `HomePage` owns root back handling and bottom-nav double-tap behavior: Feature -> dashboard, Chat -> new conversation.
+- `HomePage` keeps Feature/Market/Chat/Community/Settings alive with an `IndexedStack`; tab switching does not dispose child state. Tab order is defined by the `AppTab` enum in `home_page.dart` (feature=0, market=1, chat=2, community=3, settings=4); avoid hardcoding numeric indices.
+- `HomePage` owns root back handling and bottom-nav double-tap behavior: Feature -> dashboard, Chat -> new conversation. `AppTab.chat` is the default tab and the system-back fallback target.
+- Plugin market is the full-lifecycle entry for remote plugins (browse/install/update/uninstall); settings-plugin-management is being scoped down to permissions and config. Community tab is a placeholder until backend social APIs ship.
+- Account login entry is in settings page top (`AccountHeaderCard`); market/community tabs prompt login when needed. `AccountProvider` owns login state and delegates to `RemoteAccountService` through `BackendClient`; login requires a configured backend.
 - `ChatPage` owns streaming UI, attachments, speech, screenshot export, tool-call loops, and pre-send model recognition; keep protocol/device logic page-local or in Services.
 - `ApiService` normalizes OpenAI/Ollama/Anthropic/custom quirks into `StreamChunk`/`ChatResponse`; avoid scattering protocol handling into pages.
 - Tool calls route through `ToolCallService`; plugin Lua handlers execute through `PluginLuaRuntimeService`; update schema, validation, permissions, execution, and tests together.

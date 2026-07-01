@@ -9,6 +9,7 @@ import '../providers/model_config_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/device_control_service.dart';
 import '../services/floating_assistant_service.dart';
+import '../widgets/text_editing_controller_host.dart';
 import 'translation_history_page.dart';
 
 class FloatingAssistantSettingsPage extends StatelessWidget {
@@ -220,7 +221,8 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
                       ? '不屏蔽任何应用'
                       : '已屏蔽 ${settings.blockedPackages.length} 个应用',
                 ),
-                enabled: Platform.isAndroid &&
+                enabled:
+                    Platform.isAndroid &&
                     settings.enabled &&
                     settings.showMangaTranslationAction,
                 onTap: Platform.isAndroid
@@ -256,7 +258,8 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
                           panelX: FloatingAssistantSettings.defaultPosition,
                           panelY: FloatingAssistantSettings.defaultPosition,
                           panelWidth: FloatingAssistantSettings.defaultPosition,
-                          panelHeight: FloatingAssistantSettings.defaultPosition,
+                          panelHeight:
+                              FloatingAssistantSettings.defaultPosition,
                         ),
                       )
                     : null,
@@ -321,35 +324,38 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
     BuildContext context,
     FloatingAssistantSettings settings,
   ) async {
-    final controller = TextEditingController(
-      text: settings.blockedPackages.join('\n'),
-    );
     final result = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('屏蔽应用包名'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: TextField(
-            controller: controller,
-            maxLines: 8,
-            minLines: 4,
-            decoration: const InputDecoration(
-              hintText: '每行一个包名，如\ncom.example.app',
-              border: OutlineInputBorder(),
+      builder: (ctx) => TextEditingControllerHost(
+        initialTexts: [settings.blockedPackages.join('\n')],
+        builder: (ctx, controllers) {
+          final controller = controllers.single;
+          return AlertDialog(
+            title: const Text('屏蔽应用包名'),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: TextField(
+                controller: controller,
+                maxLines: 8,
+                minLines: 4,
+                decoration: const InputDecoration(
+                  hintText: '每行一个包名，如\ncom.example.app',
+                  border: OutlineInputBorder(),
+                ),
+              ),
             ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, controller.text),
-            child: const Text('保存'),
-          ),
-        ],
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, controller.text),
+                child: const Text('保存'),
+              ),
+            ],
+          );
+        },
       ),
     );
     if (result == null) return;
@@ -383,8 +389,9 @@ class _TranslationModelTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final models = context.watch<ModelConfigProvider>().models;
-    final chatModels =
-        models.where((m) => m.category == ModelConfig.categoryChat).toList();
+    final chatModels = models
+        .where((m) => m.category == ModelConfig.categoryChat)
+        .toList();
     final currentId = settings.translationModelId;
     final selected = currentId == null || currentId.isEmpty
         ? null

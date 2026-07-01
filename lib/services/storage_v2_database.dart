@@ -262,6 +262,51 @@ class TodoItemRows extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+/// 角色演绎场景（可复用模板）。从 storage_meta JSON 迁移到专用表，
+/// 支持按行 upsert/delete 用于增量同步。
+class RoleplayScenarioRows extends Table {
+  @override
+  String get tableName => 'roleplay_scenarios';
+
+  TextColumn get id => text()();
+  TextColumn get dataJson => text().named('data_json')();
+  TextColumn get updatedAt => text().named('updated_at')();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+/// 角色演绎线程（独立会话快照）。从 storage_meta JSON 迁移到专用表。
+class RoleplayThreadRows extends Table {
+  @override
+  String get tableName => 'roleplay_threads';
+
+  TextColumn get id => text()();
+  TextColumn get dataJson => text().named('data_json')();
+  TextColumn get updatedAt => text().named('updated_at')();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+/// 回收站条目。从 storage_meta JSON 迁移到专用表。
+class RecycleBinRows extends Table {
+  @override
+  String get tableName => 'recycle_bin';
+
+  TextColumn get id => text()();
+  TextColumn get owner => text()();
+  TextColumn get category => text()();
+  TextColumn get type => text()();
+  TextColumn get title => text()();
+  TextColumn get preview => text()();
+  TextColumn get payloadJson => text().named('payload_json')();
+  TextColumn get deletedAt => text().named('deleted_at')();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
 @DriftDatabase(
   tables: [
     StorageMeta,
@@ -280,6 +325,9 @@ class TodoItemRows extends Table {
     ScheduleRows,
     TodoListRows,
     TodoItemRows,
+    RoleplayScenarioRows,
+    RoleplayThreadRows,
+    RecycleBinRows,
   ],
 )
 class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
@@ -295,7 +343,7 @@ class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
   /// This is separate from [StorageV2Service.currentLayoutVersion], which
   /// describes the storage_v2 directory layout.
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -327,6 +375,14 @@ class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
           'TEXT',
         );
         await _addColumnIfMissing('messages', 'agent_trace_json', 'TEXT');
+      }
+      // v5: add dedicated tables for roleplay and recycle bin.
+      // Data is migrated lazily — the load methods fall back to
+      // storage_meta JSON if the new tables are empty.
+      if (from < 5) {
+        await m.createTable(roleplayScenarioRows);
+        await m.createTable(roleplayThreadRows);
+        await m.createTable(recycleBinRows);
       }
     },
   );
@@ -419,6 +475,326 @@ class StorageV2Database {
         'data.$fileName.updatedAt',
         DateTime.now().toIso8601String(),
       );
+    });
+  }
+
+  // ─── Incremental per-row operations ───
+  //
+  // These methods complement the full-replace writeDataFile. They use
+  // INSERT ON CONFLICT UPDATE (upsert) and targeted DELETE to avoid
+  // wiping entire tables on every save. The full-replace methods remain
+  // for backup/restore/first-sync; normal runtime mutations go through
+  // these incremental methods.
+
+  Future<void> upsertConversationRow(Map<String, dynamic> json) async {
+    final db = await _open();
+    final id = json['id'] as String?;
+    if (id == null || id.isEmpty) return;
+    await db
+        .into(db.conversationRows)
+        .insertOnConflictUpdate(
+          ConversationRowsCompanion.insert(
+            id: id,
+            title: json['title'] as String? ?? '',
+            modelId: json['modelId'] as String? ?? '',
+            settingsJson: jsonEncode(json['settings'] ?? const {}),
+            agentPlanJson: Value(
+              json['agentPlan'] == null ? null : jsonEncode(json['agentPlan']),
+            ),
+            agentWorkingMemoryJson: Value(
+              json['agentWorkingMemory'] == null
+                  ? null
+                  : jsonEncode(json['agentWorkingMemory']),
+            ),
+            roleId: json['roleId'] as String? ?? 'default',
+            createdAt: json['createdAt'] as String? ?? '',
+            updatedAt: json['updatedAt'] as String? ?? '',
+          ),
+        );
+  }
+
+  Future<void> deleteConversationRow(String id) async {
+    final db = await _open();
+    await (db.delete(db.conversationRows)..where((t) => t.id.equals(id))).go();
+  }
+
+  Future<void> upsertMessageRow(Map<String, dynamic> json) async {
+    final db = await _open();
+    final id = json['id'] as String?;
+    if (id == null || id.isEmpty) return;
+    await db
+        .into(db.messageRows)
+        .insertOnConflictUpdate(
+          MessageRowsCompanion.insert(
+            id: id,
+            conversationId: json['conversationId'] as String? ?? '',
+            role: json['role'] as String? ?? '',
+            content: json['content'] as String? ?? '',
+            thinkingContent: Value(json['thinkingContent'] as String?),
+            agentTraceJson: Value(
+              json['agentTrace'] == null ? null : jsonEncode(json['agentTrace']),
+            ),
+            timestamp: json['timestamp'] as String? ?? '',
+            sortOrder: Value((json['sortOrder'] as num?)?.toInt() ?? 0),
+          ),
+        );
+  }
+
+  Future<void> deleteMessageRow(String id) async {
+    final db = await _open();
+    await (db.delete(db.messageRows)..where((t) => t.id.equals(id))).go();
+  }
+
+  Future<void> upsertMessageAttachmentRow(Map<String, dynamic> json) async {
+    final db = await _open();
+    final id = json['id'] as String?;
+    if (id == null || id.isEmpty) return;
+    await db
+        .into(db.messageAttachmentRows)
+        .insertOnConflictUpdate(
+          MessageAttachmentRowsCompanion.insert(
+            id: id,
+            messageId: json['messageId'] as String? ?? '',
+            resourceId: Value(json['resourceId'] as String?),
+            displayName: (json['displayName'] as String?) ??
+                (json['name'] as String?) ??
+                'file',
+            mimeType: json['mimeType'] as String? ?? 'application/octet-stream',
+            size: (json['size'] as num?)?.toInt() ?? 0,
+            sortOrder: Value((json['sortOrder'] as num?)?.toInt() ?? 0),
+            legacyPath: Value(json['path'] as String?),
+          ),
+        );
+  }
+
+  Future<void> deleteMessageAttachmentRow(String id) async {
+    final db = await _open();
+    await (db.delete(db.messageAttachmentRows)
+          ..where((t) => t.id.equals(id)))
+        .go();
+  }
+
+  Future<void> upsertScheduleRow(Map<String, dynamic> json) async {
+    final db = await _open();
+    final id = json['id'] as String?;
+    if (id == null || id.isEmpty) return;
+    await db
+        .into(db.scheduleRows)
+        .insertOnConflictUpdate(
+          ScheduleRowsCompanion.insert(
+            id: id,
+            title: json['title'] as String? ?? '',
+            startTime: json['startTime'] as String? ?? '',
+            endTime: json['endTime'] as String? ?? '',
+            note: Value(json['note'] as String?),
+            kind: json['kind'] as String? ?? '',
+          ),
+        );
+  }
+
+  Future<void> deleteScheduleRow(String id) async {
+    final db = await _open();
+    await (db.delete(db.scheduleRows)..where((t) => t.id.equals(id))).go();
+  }
+
+  Future<void> upsertTodoListRow(Map<String, dynamic> json) async {
+    final db = await _open();
+    final id = json['id'] as String?;
+    if (id == null || id.isEmpty) return;
+    await db
+        .into(db.todoListRows)
+        .insertOnConflictUpdate(
+          TodoListRowsCompanion.insert(
+            id: id,
+            title: json['title'] as String? ?? '',
+            createdAt: json['createdAt'] as String? ?? '',
+            updatedAt: json['updatedAt'] as String? ?? '',
+          ),
+        );
+  }
+
+  Future<void> deleteTodoListRow(String id) async {
+    final db = await _open();
+    await (db.delete(db.todoListRows)..where((t) => t.id.equals(id))).go();
+  }
+
+  Future<void> upsertTodoItemRow(Map<String, dynamic> json) async {
+    final db = await _open();
+    final id = json['id'] as String?;
+    if (id == null || id.isEmpty) return;
+    await db
+        .into(db.todoItemRows)
+        .insertOnConflictUpdate(
+          TodoItemRowsCompanion.insert(
+            id: id,
+            listId: json['listId'] as String? ?? '',
+            itemText: json['text'] as String? ?? json['itemText'] as String? ?? '',
+            done: (json['done'] as num?)?.toInt() ?? 0,
+            sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
+          ),
+        );
+  }
+
+  Future<void> deleteTodoItemRow(String id) async {
+    final db = await _open();
+    await (db.delete(db.todoItemRows)..where((t) => t.id.equals(id))).go();
+  }
+
+  Future<void> upsertRoleplayScenarioRow(
+    String id,
+    Map<String, dynamic> data,
+    String updatedAt,
+  ) async {
+    final db = await _open();
+    await db
+        .into(db.roleplayScenarioRows)
+        .insertOnConflictUpdate(
+          RoleplayScenarioRowsCompanion.insert(
+            id: id,
+            dataJson: jsonEncode(data),
+            updatedAt: updatedAt,
+          ),
+        );
+  }
+
+  Future<void> deleteRoleplayScenarioRow(String id) async {
+    final db = await _open();
+    await (db.delete(db.roleplayScenarioRows)
+          ..where((t) => t.id.equals(id)))
+        .go();
+  }
+
+  Future<void> upsertRoleplayThreadRow(
+    String id,
+    Map<String, dynamic> data,
+    String updatedAt,
+  ) async {
+    final db = await _open();
+    await db
+        .into(db.roleplayThreadRows)
+        .insertOnConflictUpdate(
+          RoleplayThreadRowsCompanion.insert(
+            id: id,
+            dataJson: jsonEncode(data),
+            updatedAt: updatedAt,
+          ),
+        );
+  }
+
+  Future<void> deleteRoleplayThreadRow(String id) async {
+    final db = await _open();
+    await (db.delete(db.roleplayThreadRows)
+          ..where((t) => t.id.equals(id)))
+        .go();
+  }
+
+  Future<void> upsertRecycleBinRow(Map<String, dynamic> json) async {
+    final db = await _open();
+    final id = json['id'] as String?;
+    if (id == null || id.isEmpty) return;
+    await db
+        .into(db.recycleBinRows)
+        .insertOnConflictUpdate(
+          RecycleBinRowsCompanion.insert(
+            id: id,
+            owner: json['owner'] as String? ?? 'core',
+            category: json['category'] as String? ?? '',
+            type: json['type'] as String? ?? '',
+            title: json['title'] as String? ?? '',
+            preview: json['preview'] as String? ?? '',
+            payloadJson: jsonEncode(json['payload'] ?? const {}),
+            deletedAt: json['deletedAt'] as String? ?? '',
+          ),
+        );
+  }
+
+  Future<void> deleteRecycleBinRow(String id) async {
+    final db = await _open();
+    await (db.delete(db.recycleBinRows)..where((t) => t.id.equals(id))).go();
+  }
+
+  Future<void> clearRecycleBinRows() async {
+    final db = await _open();
+    await db.delete(db.recycleBinRows).go();
+  }
+
+  /// 批量执行增量操作（一个事务内）。
+  ///
+  /// [ops] 是 `(tableName, json, op)` 元组列表，op 为 'upsert' 或 'delete'。
+  /// 由 Provider 的防抖 flush 调用，替代全量 writeDataFile。
+  Future<void> batchIncremental(
+    List<({String table, String op, Map<String, dynamic>? data})> ops,
+  ) async {
+    final db = await _open();
+    await db.transaction(() async {
+      for (final op in ops) {
+        switch (op.table) {
+          case 'conversations':
+            if (op.op == 'upsert' && op.data != null) {
+              await upsertConversationRow(op.data!);
+            } else if (op.op == 'delete') {
+              await deleteConversationRow(op.data!['id'] as String);
+            }
+          case 'messages':
+            if (op.op == 'upsert' && op.data != null) {
+              await upsertMessageRow(op.data!);
+            } else if (op.op == 'delete') {
+              await deleteMessageRow(op.data!['id'] as String);
+            }
+          case 'message_attachments':
+            if (op.op == 'upsert' && op.data != null) {
+              await upsertMessageAttachmentRow(op.data!);
+            } else if (op.op == 'delete') {
+              await deleteMessageAttachmentRow(op.data!['id'] as String);
+            }
+          case 'schedules':
+            if (op.op == 'upsert' && op.data != null) {
+              await upsertScheduleRow(op.data!);
+            } else if (op.op == 'delete') {
+              await deleteScheduleRow(op.data!['id'] as String);
+            }
+          case 'todo_lists':
+            if (op.op == 'upsert' && op.data != null) {
+              await upsertTodoListRow(op.data!);
+            } else if (op.op == 'delete') {
+              await deleteTodoListRow(op.data!['id'] as String);
+            }
+          case 'todo_items':
+            if (op.op == 'upsert' && op.data != null) {
+              await upsertTodoItemRow(op.data!);
+            } else if (op.op == 'delete') {
+              await deleteTodoItemRow(op.data!['id'] as String);
+            }
+          case 'roleplay_scenarios':
+            if (op.op == 'upsert' && op.data != null) {
+              final id = op.data!['id'] as String? ?? '';
+              await upsertRoleplayScenarioRow(
+                id,
+                op.data!,
+                op.data!['updatedAt'] as String? ?? '',
+              );
+            } else if (op.op == 'delete') {
+              await deleteRoleplayScenarioRow(op.data!['id'] as String);
+            }
+          case 'roleplay_threads':
+            if (op.op == 'upsert' && op.data != null) {
+              final id = op.data!['id'] as String? ?? '';
+              await upsertRoleplayThreadRow(
+                id,
+                op.data!,
+                op.data!['updatedAt'] as String? ?? '',
+              );
+            } else if (op.op == 'delete') {
+              await deleteRoleplayThreadRow(op.data!['id'] as String);
+            }
+          case 'recycle_bin':
+            if (op.op == 'upsert' && op.data != null) {
+              await upsertRecycleBinRow(op.data!);
+            } else if (op.op == 'delete') {
+              await deleteRecycleBinRow(op.data!['id'] as String);
+            }
+        }
+      }
     });
   }
 

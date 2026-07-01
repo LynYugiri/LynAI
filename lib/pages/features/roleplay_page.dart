@@ -1150,7 +1150,9 @@ class _RoleplayPageState extends State<_RoleplayPage> {
           ),
         ],
       ),
-    ).then((_) => ctrl.dispose());
+    ).then((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => ctrl.dispose());
+    });
   }
 
   Future<void> _openThreadSettings(RoleplayThread thread) async {
@@ -1644,7 +1646,9 @@ class _RoleplayHistoryDrawerState extends State<_RoleplayHistoryDrawer> {
           ),
         ],
       ),
-    ).then((_) => ctrl.dispose());
+    ).then((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => ctrl.dispose());
+    });
   }
 
   void _deleteThread(RoleplayProvider provider, RoleplayThread thread) {
@@ -2468,7 +2472,7 @@ class _RoleplayRolesDialogState extends State<_RoleplayRolesDialog> {
         ],
       ),
     );
-    ctrl.dispose();
+    WidgetsBinding.instance.addPostFrameCallback((_) => ctrl.dispose());
     if (name == null || name.isEmpty) return;
     if (!mounted) return;
     setState(

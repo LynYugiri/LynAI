@@ -373,6 +373,12 @@ class PluginProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 卸载指定插件。
+  ///
+  /// 语义别名，等价于 [deletePlugin]。供插件市场页使用，表达「从市场视角
+  /// 移除已安装插件」的意图，与市场页的「安装」操作对称。
+  Future<void> uninstall(String id) => deletePlugin(id);
+
   /// 加载指定插件的设置数据（带缓存）。
   Future<Map<String, dynamic>> loadSettings(String pluginId) async {
     final cached = _settingsCache[pluginId];

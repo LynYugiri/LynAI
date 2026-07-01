@@ -225,6 +225,43 @@ Subagent 适合 QQ/消息应用这类流程：主 Agent 只描述目标，Subage
 
 `LynAIFunctionService` 本身不实现工具逻辑，它只负责根据工具名查找注册表和参数校验后转发到正确的执行器。新增功能类工具只需在注册表中添加条目，调用方无需改动。
 
+## AccountService
+
+文件：`lib/services/account_service.dart`、`lib/services/remote_account_service.dart`
+
+`AccountService` 是账号系统的抽象，定义注册、登录、登出、当前用户查询和会话恢复能力。前端页面和 Provider 只依赖抽象接口，不绑定具体后端实现。
+
+| 方法 | 说明 |
+|------|------|
+| `register({username, password, displayName})` | 手机号和密码注册新用户，返回 `AuthSession`。 |
+| `login({username, password})` | 手机号和密码登录，返回 `AuthSession`。 |
+| `logout()` | 登出当前用户，清理本地凭证。 |
+| `getCurrentUser()` | 获取当前登录用户，未登录返回 null。 |
+| `loadStoredSession()` | 从本地持久化加载会话状态（启动时调用）。 |
+| `isBackendConnected` | 当前服务是否已连接到真实后端。 |
+
+账号服务通过 `RemoteAccountService` 访问配置的后端 `/auth/*` 端点；未配置后端地址时 `AccountProvider` 不创建账号服务，登录/注册返回「未连接后端」。`RemoteAccountService` 负责把登录会话保存到 SharedPreferences，启动时在 `BackendClient` 配置完成后恢复 user 和 token。
+
+数据模型定义在 `lib/models/account.dart`：`AccountUser` 承载用户可见的展示信息，`AuthToken` 承载后端返回的访问令牌，`AuthSession` 组合两者。
+
+## MarketService
+
+文件：`lib/services/market_service.dart`、`lib/services/local_market_service.dart`
+
+`MarketService` 是插件市场的远端目录抽象，定义浏览、详情、下载和更新查询能力。前端页面只依赖抽象接口，不绑定具体后端实现。
+
+| 方法 | 说明 |
+|------|------|
+| `listPlugins(MarketQuery)` | 按分类、关键词、分页查询市场插件，返回 `MarketQueryResult`。 |
+| `getPluginDetail(id)` | 获取指定插件的详情条目。 |
+| `downloadPlugin(id)` | 下载指定插件的 ZIP 字节内容，调用方负责交给 `PluginProvider.importZipBytes` 安装。 |
+| `getInstalledUpdates()` | 查询当前已安装插件中可更新的条目。 |
+| `isBackendConnected` | 当前服务是否已连接到真实后端。页面据此决定显示空态文案还是真实数据。 |
+
+当前阶段使用 `LocalMarketService` 桩实现：`isBackendConnected` 返回 `false`，所有远端调用抛出 `MarketUnavailableException`，让页面渲染空态文案并提供「从 ZIP 导入」入口。后端就绪后用 `RemoteMarketService` 替换，无需改动页面代码。
+
+`MarketPluginEntry` 是市场目录条目模型，字段对齐 `PluginManifest` 中用户可见的元数据，但只承载目录信息，不承载本地启用状态或文件路径——那些属于 `InstalledPlugin` 的运行时视图。
+
 ## CodeSyntaxService
 
 文件：`lib/services/code_syntax_service.dart`

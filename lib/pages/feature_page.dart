@@ -48,6 +48,7 @@ import '../widgets/latex_renderer.dart';
 import '../widgets/model_config_picker.dart';
 import '../widgets/plugin_feature_webview.dart';
 import '../widgets/plugin_icon.dart';
+import '../widgets/text_editing_controller_host.dart';
 import '../utils/file_picker_io_utils.dart';
 part 'features/shared.dart';
 part 'features/feature_shell.dart';
@@ -517,31 +518,35 @@ class _FeaturePageState extends State<FeaturePage> {
   }
 
   Future<void> _newNote({String? folderId}) async {
-    final ctrl = TextEditingController();
     final title = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('新建笔记'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          textInputAction: TextInputAction.done,
-          onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
-          decoration: const InputDecoration(labelText: '标题'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-            child: const Text('创建'),
-          ),
-        ],
+      builder: (ctx) => TextEditingControllerHost(
+        initialTexts: const [''],
+        builder: (ctx, controllers) {
+          final ctrl = controllers.single;
+          return AlertDialog(
+            title: const Text('新建笔记'),
+            content: TextField(
+              controller: ctrl,
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
+              decoration: const InputDecoration(labelText: '标题'),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+                child: const Text('创建'),
+              ),
+            ],
+          );
+        },
       ),
     );
-    ctrl.dispose();
     if (!mounted || title == null || title.isEmpty) return;
     final id = await context.read<FeatureProvider>().addNote(
       title,
@@ -555,31 +560,35 @@ class _FeaturePageState extends State<FeaturePage> {
   }
 
   Future<void> _newNoteFolder() async {
-    final ctrl = TextEditingController();
     final title = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('新建文件夹'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          textInputAction: TextInputAction.done,
-          onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
-          decoration: const InputDecoration(labelText: '名称'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-            child: const Text('创建'),
-          ),
-        ],
+      builder: (ctx) => TextEditingControllerHost(
+        initialTexts: const [''],
+        builder: (ctx, controllers) {
+          final ctrl = controllers.single;
+          return AlertDialog(
+            title: const Text('新建文件夹'),
+            content: TextField(
+              controller: ctrl,
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
+              decoration: const InputDecoration(labelText: '名称'),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+                child: const Text('创建'),
+              ),
+            ],
+          );
+        },
       ),
     );
-    ctrl.dispose();
     if (!mounted || title == null || title.isEmpty) return;
     await context.read<FeatureProvider>().addNoteFolder(title);
     if (!mounted) return;
@@ -620,31 +629,35 @@ class _FeaturePageState extends State<FeaturePage> {
   }
 
   Future<void> _newTodoList() async {
-    final ctrl = TextEditingController();
     final title = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('新建待办清单'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          textInputAction: TextInputAction.done,
-          onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
-          decoration: const InputDecoration(labelText: '标题'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-            child: const Text('创建'),
-          ),
-        ],
+      builder: (ctx) => TextEditingControllerHost(
+        initialTexts: const [''],
+        builder: (ctx, controllers) {
+          final ctrl = controllers.single;
+          return AlertDialog(
+            title: const Text('新建待办清单'),
+            content: TextField(
+              controller: ctrl,
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
+              decoration: const InputDecoration(labelText: '标题'),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+                child: const Text('创建'),
+              ),
+            ],
+          );
+        },
       ),
     );
-    ctrl.dispose();
     if (!mounted || title == null || title.isEmpty) return;
     await context.read<FeatureProvider>().addTodoList(title);
     if (!mounted) return;

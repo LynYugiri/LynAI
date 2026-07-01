@@ -5,6 +5,7 @@ import '../models/chat_role.dart';
 import '../models/app_settings.dart';
 import '../providers/settings_provider.dart';
 import '../widgets/chat_role_edit_dialog.dart';
+import '../widgets/text_editing_controller_host.dart';
 
 class RoleManagementPage extends StatefulWidget {
   const RoleManagementPage({super.key});
@@ -325,30 +326,34 @@ class _RoleManagementPageState extends State<RoleManagementPage> {
     required String label,
     String initialValue = '',
   }) async {
-    final ctrl = TextEditingController(text: initialValue);
     final value = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: InputDecoration(labelText: label),
-          onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-            child: const Text('保存'),
-          ),
-        ],
+      builder: (ctx) => TextEditingControllerHost(
+        initialTexts: [initialValue],
+        builder: (ctx, controllers) {
+          final ctrl = controllers.single;
+          return AlertDialog(
+            title: Text(title),
+            content: TextField(
+              controller: ctrl,
+              autofocus: true,
+              decoration: InputDecoration(labelText: label),
+              onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+                child: const Text('保存'),
+              ),
+            ],
+          );
+        },
       ),
     );
-    ctrl.dispose();
     if (value == null || value.trim().isEmpty) return null;
     return value.trim();
   }

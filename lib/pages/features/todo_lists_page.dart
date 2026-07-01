@@ -304,31 +304,35 @@ class _TodoListsPageState extends State<_TodoListsPage> {
     required String title,
     String initialText = '',
   }) async {
-    final ctrl = TextEditingController(text: initialText);
     final text = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          textInputAction: TextInputAction.done,
-          onSubmitted: (value) => Navigator.pop(ctx, value.trim()),
-          decoration: const InputDecoration(labelText: '内容'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-            child: const Text('保存'),
-          ),
-        ],
+      builder: (ctx) => TextEditingControllerHost(
+        initialTexts: [initialText],
+        builder: (ctx, controllers) {
+          final ctrl = controllers.single;
+          return AlertDialog(
+            title: Text(title),
+            content: TextField(
+              controller: ctrl,
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (value) => Navigator.pop(ctx, value.trim()),
+              decoration: const InputDecoration(labelText: '内容'),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+                child: const Text('保存'),
+              ),
+            ],
+          );
+        },
       ),
     );
-    ctrl.dispose();
     return text;
   }
 
@@ -343,31 +347,35 @@ class _TodoListsPageState extends State<_TodoListsPage> {
   }
 
   Future<void> _rename(TodoList list) async {
-    final ctrl = TextEditingController(text: list.title);
     final title = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('重命名'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          textInputAction: TextInputAction.done,
-          onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
-          decoration: const InputDecoration(labelText: '标题'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-            child: const Text('保存'),
-          ),
-        ],
+      builder: (ctx) => TextEditingControllerHost(
+        initialTexts: [list.title],
+        builder: (ctx, controllers) {
+          final ctrl = controllers.single;
+          return AlertDialog(
+            title: const Text('重命名'),
+            content: TextField(
+              controller: ctrl,
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
+              decoration: const InputDecoration(labelText: '标题'),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+                child: const Text('保存'),
+              ),
+            ],
+          );
+        },
       ),
     );
-    ctrl.dispose();
     if (!mounted) return;
     if (title != null && title.isNotEmpty) {
       await _features.updateTodoList(list.copyWith(title: title));

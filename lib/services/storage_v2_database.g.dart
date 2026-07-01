@@ -7185,6 +7185,1048 @@ class TodoItemRowsCompanion extends UpdateCompanion<TodoItemRow> {
   }
 }
 
+class $RoleplayScenarioRowsTable extends RoleplayScenarioRows
+    with TableInfo<$RoleplayScenarioRowsTable, RoleplayScenarioRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $RoleplayScenarioRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _dataJsonMeta = const VerificationMeta(
+    'dataJson',
+  );
+  @override
+  late final GeneratedColumn<String> dataJson = GeneratedColumn<String>(
+    'data_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [id, dataJson, updatedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'roleplay_scenarios';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<RoleplayScenarioRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('data_json')) {
+      context.handle(
+        _dataJsonMeta,
+        dataJson.isAcceptableOrUnknown(data['data_json']!, _dataJsonMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_dataJsonMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  RoleplayScenarioRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return RoleplayScenarioRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      dataJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}data_json'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $RoleplayScenarioRowsTable createAlias(String alias) {
+    return $RoleplayScenarioRowsTable(attachedDatabase, alias);
+  }
+}
+
+class RoleplayScenarioRow extends DataClass
+    implements Insertable<RoleplayScenarioRow> {
+  final String id;
+  final String dataJson;
+  final String updatedAt;
+  const RoleplayScenarioRow({
+    required this.id,
+    required this.dataJson,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['data_json'] = Variable<String>(dataJson);
+    map['updated_at'] = Variable<String>(updatedAt);
+    return map;
+  }
+
+  RoleplayScenarioRowsCompanion toCompanion(bool nullToAbsent) {
+    return RoleplayScenarioRowsCompanion(
+      id: Value(id),
+      dataJson: Value(dataJson),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory RoleplayScenarioRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return RoleplayScenarioRow(
+      id: serializer.fromJson<String>(json['id']),
+      dataJson: serializer.fromJson<String>(json['dataJson']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'dataJson': serializer.toJson<String>(dataJson),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+    };
+  }
+
+  RoleplayScenarioRow copyWith({
+    String? id,
+    String? dataJson,
+    String? updatedAt,
+  }) => RoleplayScenarioRow(
+    id: id ?? this.id,
+    dataJson: dataJson ?? this.dataJson,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  RoleplayScenarioRow copyWithCompanion(RoleplayScenarioRowsCompanion data) {
+    return RoleplayScenarioRow(
+      id: data.id.present ? data.id.value : this.id,
+      dataJson: data.dataJson.present ? data.dataJson.value : this.dataJson,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RoleplayScenarioRow(')
+          ..write('id: $id, ')
+          ..write('dataJson: $dataJson, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, dataJson, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is RoleplayScenarioRow &&
+          other.id == this.id &&
+          other.dataJson == this.dataJson &&
+          other.updatedAt == this.updatedAt);
+}
+
+class RoleplayScenarioRowsCompanion
+    extends UpdateCompanion<RoleplayScenarioRow> {
+  final Value<String> id;
+  final Value<String> dataJson;
+  final Value<String> updatedAt;
+  final Value<int> rowid;
+  const RoleplayScenarioRowsCompanion({
+    this.id = const Value.absent(),
+    this.dataJson = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  RoleplayScenarioRowsCompanion.insert({
+    required String id,
+    required String dataJson,
+    required String updatedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       dataJson = Value(dataJson),
+       updatedAt = Value(updatedAt);
+  static Insertable<RoleplayScenarioRow> custom({
+    Expression<String>? id,
+    Expression<String>? dataJson,
+    Expression<String>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (dataJson != null) 'data_json': dataJson,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  RoleplayScenarioRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? dataJson,
+    Value<String>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return RoleplayScenarioRowsCompanion(
+      id: id ?? this.id,
+      dataJson: dataJson ?? this.dataJson,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (dataJson.present) {
+      map['data_json'] = Variable<String>(dataJson.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RoleplayScenarioRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('dataJson: $dataJson, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $RoleplayThreadRowsTable extends RoleplayThreadRows
+    with TableInfo<$RoleplayThreadRowsTable, RoleplayThreadRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $RoleplayThreadRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _dataJsonMeta = const VerificationMeta(
+    'dataJson',
+  );
+  @override
+  late final GeneratedColumn<String> dataJson = GeneratedColumn<String>(
+    'data_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [id, dataJson, updatedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'roleplay_threads';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<RoleplayThreadRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('data_json')) {
+      context.handle(
+        _dataJsonMeta,
+        dataJson.isAcceptableOrUnknown(data['data_json']!, _dataJsonMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_dataJsonMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  RoleplayThreadRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return RoleplayThreadRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      dataJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}data_json'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $RoleplayThreadRowsTable createAlias(String alias) {
+    return $RoleplayThreadRowsTable(attachedDatabase, alias);
+  }
+}
+
+class RoleplayThreadRow extends DataClass
+    implements Insertable<RoleplayThreadRow> {
+  final String id;
+  final String dataJson;
+  final String updatedAt;
+  const RoleplayThreadRow({
+    required this.id,
+    required this.dataJson,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['data_json'] = Variable<String>(dataJson);
+    map['updated_at'] = Variable<String>(updatedAt);
+    return map;
+  }
+
+  RoleplayThreadRowsCompanion toCompanion(bool nullToAbsent) {
+    return RoleplayThreadRowsCompanion(
+      id: Value(id),
+      dataJson: Value(dataJson),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory RoleplayThreadRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return RoleplayThreadRow(
+      id: serializer.fromJson<String>(json['id']),
+      dataJson: serializer.fromJson<String>(json['dataJson']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'dataJson': serializer.toJson<String>(dataJson),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+    };
+  }
+
+  RoleplayThreadRow copyWith({
+    String? id,
+    String? dataJson,
+    String? updatedAt,
+  }) => RoleplayThreadRow(
+    id: id ?? this.id,
+    dataJson: dataJson ?? this.dataJson,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  RoleplayThreadRow copyWithCompanion(RoleplayThreadRowsCompanion data) {
+    return RoleplayThreadRow(
+      id: data.id.present ? data.id.value : this.id,
+      dataJson: data.dataJson.present ? data.dataJson.value : this.dataJson,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RoleplayThreadRow(')
+          ..write('id: $id, ')
+          ..write('dataJson: $dataJson, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, dataJson, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is RoleplayThreadRow &&
+          other.id == this.id &&
+          other.dataJson == this.dataJson &&
+          other.updatedAt == this.updatedAt);
+}
+
+class RoleplayThreadRowsCompanion extends UpdateCompanion<RoleplayThreadRow> {
+  final Value<String> id;
+  final Value<String> dataJson;
+  final Value<String> updatedAt;
+  final Value<int> rowid;
+  const RoleplayThreadRowsCompanion({
+    this.id = const Value.absent(),
+    this.dataJson = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  RoleplayThreadRowsCompanion.insert({
+    required String id,
+    required String dataJson,
+    required String updatedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       dataJson = Value(dataJson),
+       updatedAt = Value(updatedAt);
+  static Insertable<RoleplayThreadRow> custom({
+    Expression<String>? id,
+    Expression<String>? dataJson,
+    Expression<String>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (dataJson != null) 'data_json': dataJson,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  RoleplayThreadRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? dataJson,
+    Value<String>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return RoleplayThreadRowsCompanion(
+      id: id ?? this.id,
+      dataJson: dataJson ?? this.dataJson,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (dataJson.present) {
+      map['data_json'] = Variable<String>(dataJson.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RoleplayThreadRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('dataJson: $dataJson, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $RecycleBinRowsTable extends RecycleBinRows
+    with TableInfo<$RecycleBinRowsTable, RecycleBinRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $RecycleBinRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _ownerMeta = const VerificationMeta('owner');
+  @override
+  late final GeneratedColumn<String> owner = GeneratedColumn<String>(
+    'owner',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _categoryMeta = const VerificationMeta(
+    'category',
+  );
+  @override
+  late final GeneratedColumn<String> category = GeneratedColumn<String>(
+    'category',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _typeMeta = const VerificationMeta('type');
+  @override
+  late final GeneratedColumn<String> type = GeneratedColumn<String>(
+    'type',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _titleMeta = const VerificationMeta('title');
+  @override
+  late final GeneratedColumn<String> title = GeneratedColumn<String>(
+    'title',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _previewMeta = const VerificationMeta(
+    'preview',
+  );
+  @override
+  late final GeneratedColumn<String> preview = GeneratedColumn<String>(
+    'preview',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _payloadJsonMeta = const VerificationMeta(
+    'payloadJson',
+  );
+  @override
+  late final GeneratedColumn<String> payloadJson = GeneratedColumn<String>(
+    'payload_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _deletedAtMeta = const VerificationMeta(
+    'deletedAt',
+  );
+  @override
+  late final GeneratedColumn<String> deletedAt = GeneratedColumn<String>(
+    'deleted_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    owner,
+    category,
+    type,
+    title,
+    preview,
+    payloadJson,
+    deletedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'recycle_bin';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<RecycleBinRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('owner')) {
+      context.handle(
+        _ownerMeta,
+        owner.isAcceptableOrUnknown(data['owner']!, _ownerMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_ownerMeta);
+    }
+    if (data.containsKey('category')) {
+      context.handle(
+        _categoryMeta,
+        category.isAcceptableOrUnknown(data['category']!, _categoryMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_categoryMeta);
+    }
+    if (data.containsKey('type')) {
+      context.handle(
+        _typeMeta,
+        type.isAcceptableOrUnknown(data['type']!, _typeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_typeMeta);
+    }
+    if (data.containsKey('title')) {
+      context.handle(
+        _titleMeta,
+        title.isAcceptableOrUnknown(data['title']!, _titleMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_titleMeta);
+    }
+    if (data.containsKey('preview')) {
+      context.handle(
+        _previewMeta,
+        preview.isAcceptableOrUnknown(data['preview']!, _previewMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_previewMeta);
+    }
+    if (data.containsKey('payload_json')) {
+      context.handle(
+        _payloadJsonMeta,
+        payloadJson.isAcceptableOrUnknown(
+          data['payload_json']!,
+          _payloadJsonMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_payloadJsonMeta);
+    }
+    if (data.containsKey('deleted_at')) {
+      context.handle(
+        _deletedAtMeta,
+        deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_deletedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  RecycleBinRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return RecycleBinRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      owner: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner'],
+      )!,
+      category: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}category'],
+      )!,
+      type: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}type'],
+      )!,
+      title: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}title'],
+      )!,
+      preview: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}preview'],
+      )!,
+      payloadJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}payload_json'],
+      )!,
+      deletedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}deleted_at'],
+      )!,
+    );
+  }
+
+  @override
+  $RecycleBinRowsTable createAlias(String alias) {
+    return $RecycleBinRowsTable(attachedDatabase, alias);
+  }
+}
+
+class RecycleBinRow extends DataClass implements Insertable<RecycleBinRow> {
+  final String id;
+  final String owner;
+  final String category;
+  final String type;
+  final String title;
+  final String preview;
+  final String payloadJson;
+  final String deletedAt;
+  const RecycleBinRow({
+    required this.id,
+    required this.owner,
+    required this.category,
+    required this.type,
+    required this.title,
+    required this.preview,
+    required this.payloadJson,
+    required this.deletedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['owner'] = Variable<String>(owner);
+    map['category'] = Variable<String>(category);
+    map['type'] = Variable<String>(type);
+    map['title'] = Variable<String>(title);
+    map['preview'] = Variable<String>(preview);
+    map['payload_json'] = Variable<String>(payloadJson);
+    map['deleted_at'] = Variable<String>(deletedAt);
+    return map;
+  }
+
+  RecycleBinRowsCompanion toCompanion(bool nullToAbsent) {
+    return RecycleBinRowsCompanion(
+      id: Value(id),
+      owner: Value(owner),
+      category: Value(category),
+      type: Value(type),
+      title: Value(title),
+      preview: Value(preview),
+      payloadJson: Value(payloadJson),
+      deletedAt: Value(deletedAt),
+    );
+  }
+
+  factory RecycleBinRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return RecycleBinRow(
+      id: serializer.fromJson<String>(json['id']),
+      owner: serializer.fromJson<String>(json['owner']),
+      category: serializer.fromJson<String>(json['category']),
+      type: serializer.fromJson<String>(json['type']),
+      title: serializer.fromJson<String>(json['title']),
+      preview: serializer.fromJson<String>(json['preview']),
+      payloadJson: serializer.fromJson<String>(json['payloadJson']),
+      deletedAt: serializer.fromJson<String>(json['deletedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'owner': serializer.toJson<String>(owner),
+      'category': serializer.toJson<String>(category),
+      'type': serializer.toJson<String>(type),
+      'title': serializer.toJson<String>(title),
+      'preview': serializer.toJson<String>(preview),
+      'payloadJson': serializer.toJson<String>(payloadJson),
+      'deletedAt': serializer.toJson<String>(deletedAt),
+    };
+  }
+
+  RecycleBinRow copyWith({
+    String? id,
+    String? owner,
+    String? category,
+    String? type,
+    String? title,
+    String? preview,
+    String? payloadJson,
+    String? deletedAt,
+  }) => RecycleBinRow(
+    id: id ?? this.id,
+    owner: owner ?? this.owner,
+    category: category ?? this.category,
+    type: type ?? this.type,
+    title: title ?? this.title,
+    preview: preview ?? this.preview,
+    payloadJson: payloadJson ?? this.payloadJson,
+    deletedAt: deletedAt ?? this.deletedAt,
+  );
+  RecycleBinRow copyWithCompanion(RecycleBinRowsCompanion data) {
+    return RecycleBinRow(
+      id: data.id.present ? data.id.value : this.id,
+      owner: data.owner.present ? data.owner.value : this.owner,
+      category: data.category.present ? data.category.value : this.category,
+      type: data.type.present ? data.type.value : this.type,
+      title: data.title.present ? data.title.value : this.title,
+      preview: data.preview.present ? data.preview.value : this.preview,
+      payloadJson: data.payloadJson.present
+          ? data.payloadJson.value
+          : this.payloadJson,
+      deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RecycleBinRow(')
+          ..write('id: $id, ')
+          ..write('owner: $owner, ')
+          ..write('category: $category, ')
+          ..write('type: $type, ')
+          ..write('title: $title, ')
+          ..write('preview: $preview, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('deletedAt: $deletedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    owner,
+    category,
+    type,
+    title,
+    preview,
+    payloadJson,
+    deletedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is RecycleBinRow &&
+          other.id == this.id &&
+          other.owner == this.owner &&
+          other.category == this.category &&
+          other.type == this.type &&
+          other.title == this.title &&
+          other.preview == this.preview &&
+          other.payloadJson == this.payloadJson &&
+          other.deletedAt == this.deletedAt);
+}
+
+class RecycleBinRowsCompanion extends UpdateCompanion<RecycleBinRow> {
+  final Value<String> id;
+  final Value<String> owner;
+  final Value<String> category;
+  final Value<String> type;
+  final Value<String> title;
+  final Value<String> preview;
+  final Value<String> payloadJson;
+  final Value<String> deletedAt;
+  final Value<int> rowid;
+  const RecycleBinRowsCompanion({
+    this.id = const Value.absent(),
+    this.owner = const Value.absent(),
+    this.category = const Value.absent(),
+    this.type = const Value.absent(),
+    this.title = const Value.absent(),
+    this.preview = const Value.absent(),
+    this.payloadJson = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  RecycleBinRowsCompanion.insert({
+    required String id,
+    required String owner,
+    required String category,
+    required String type,
+    required String title,
+    required String preview,
+    required String payloadJson,
+    required String deletedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       owner = Value(owner),
+       category = Value(category),
+       type = Value(type),
+       title = Value(title),
+       preview = Value(preview),
+       payloadJson = Value(payloadJson),
+       deletedAt = Value(deletedAt);
+  static Insertable<RecycleBinRow> custom({
+    Expression<String>? id,
+    Expression<String>? owner,
+    Expression<String>? category,
+    Expression<String>? type,
+    Expression<String>? title,
+    Expression<String>? preview,
+    Expression<String>? payloadJson,
+    Expression<String>? deletedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (owner != null) 'owner': owner,
+      if (category != null) 'category': category,
+      if (type != null) 'type': type,
+      if (title != null) 'title': title,
+      if (preview != null) 'preview': preview,
+      if (payloadJson != null) 'payload_json': payloadJson,
+      if (deletedAt != null) 'deleted_at': deletedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  RecycleBinRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? owner,
+    Value<String>? category,
+    Value<String>? type,
+    Value<String>? title,
+    Value<String>? preview,
+    Value<String>? payloadJson,
+    Value<String>? deletedAt,
+    Value<int>? rowid,
+  }) {
+    return RecycleBinRowsCompanion(
+      id: id ?? this.id,
+      owner: owner ?? this.owner,
+      category: category ?? this.category,
+      type: type ?? this.type,
+      title: title ?? this.title,
+      preview: preview ?? this.preview,
+      payloadJson: payloadJson ?? this.payloadJson,
+      deletedAt: deletedAt ?? this.deletedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (owner.present) {
+      map['owner'] = Variable<String>(owner.value);
+    }
+    if (category.present) {
+      map['category'] = Variable<String>(category.value);
+    }
+    if (type.present) {
+      map['type'] = Variable<String>(type.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (preview.present) {
+      map['preview'] = Variable<String>(preview.value);
+    }
+    if (payloadJson.present) {
+      map['payload_json'] = Variable<String>(payloadJson.value);
+    }
+    if (deletedAt.present) {
+      map['deleted_at'] = Variable<String>(deletedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RecycleBinRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('owner: $owner, ')
+          ..write('category: $category, ')
+          ..write('type: $type, ')
+          ..write('title: $title, ')
+          ..write('preview: $preview, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
   _$StorageV2DriftDatabase(QueryExecutor e) : super(e);
   $StorageV2DriftDatabaseManager get managers =>
@@ -7216,6 +8258,11 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
   late final $ScheduleRowsTable scheduleRows = $ScheduleRowsTable(this);
   late final $TodoListRowsTable todoListRows = $TodoListRowsTable(this);
   late final $TodoItemRowsTable todoItemRows = $TodoItemRowsTable(this);
+  late final $RoleplayScenarioRowsTable roleplayScenarioRows =
+      $RoleplayScenarioRowsTable(this);
+  late final $RoleplayThreadRowsTable roleplayThreadRows =
+      $RoleplayThreadRowsTable(this);
+  late final $RecycleBinRowsTable recycleBinRows = $RecycleBinRowsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -7237,6 +8284,9 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
     scheduleRows,
     todoListRows,
     todoItemRows,
+    roleplayScenarioRows,
+    roleplayThreadRows,
+    recycleBinRows,
   ];
 }
 
@@ -11144,6 +12194,628 @@ typedef $$TodoItemRowsTableProcessedTableManager =
       TodoItemRow,
       PrefetchHooks Function()
     >;
+typedef $$RoleplayScenarioRowsTableCreateCompanionBuilder =
+    RoleplayScenarioRowsCompanion Function({
+      required String id,
+      required String dataJson,
+      required String updatedAt,
+      Value<int> rowid,
+    });
+typedef $$RoleplayScenarioRowsTableUpdateCompanionBuilder =
+    RoleplayScenarioRowsCompanion Function({
+      Value<String> id,
+      Value<String> dataJson,
+      Value<String> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$RoleplayScenarioRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $RoleplayScenarioRowsTable> {
+  $$RoleplayScenarioRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get dataJson => $composableBuilder(
+    column: $table.dataJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$RoleplayScenarioRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $RoleplayScenarioRowsTable> {
+  $$RoleplayScenarioRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get dataJson => $composableBuilder(
+    column: $table.dataJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$RoleplayScenarioRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $RoleplayScenarioRowsTable> {
+  $$RoleplayScenarioRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get dataJson =>
+      $composableBuilder(column: $table.dataJson, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$RoleplayScenarioRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $RoleplayScenarioRowsTable,
+          RoleplayScenarioRow,
+          $$RoleplayScenarioRowsTableFilterComposer,
+          $$RoleplayScenarioRowsTableOrderingComposer,
+          $$RoleplayScenarioRowsTableAnnotationComposer,
+          $$RoleplayScenarioRowsTableCreateCompanionBuilder,
+          $$RoleplayScenarioRowsTableUpdateCompanionBuilder,
+          (
+            RoleplayScenarioRow,
+            BaseReferences<
+              _$StorageV2DriftDatabase,
+              $RoleplayScenarioRowsTable,
+              RoleplayScenarioRow
+            >,
+          ),
+          RoleplayScenarioRow,
+          PrefetchHooks Function()
+        > {
+  $$RoleplayScenarioRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $RoleplayScenarioRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$RoleplayScenarioRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$RoleplayScenarioRowsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$RoleplayScenarioRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> dataJson = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => RoleplayScenarioRowsCompanion(
+                id: id,
+                dataJson: dataJson,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String dataJson,
+                required String updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => RoleplayScenarioRowsCompanion.insert(
+                id: id,
+                dataJson: dataJson,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$RoleplayScenarioRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $RoleplayScenarioRowsTable,
+      RoleplayScenarioRow,
+      $$RoleplayScenarioRowsTableFilterComposer,
+      $$RoleplayScenarioRowsTableOrderingComposer,
+      $$RoleplayScenarioRowsTableAnnotationComposer,
+      $$RoleplayScenarioRowsTableCreateCompanionBuilder,
+      $$RoleplayScenarioRowsTableUpdateCompanionBuilder,
+      (
+        RoleplayScenarioRow,
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $RoleplayScenarioRowsTable,
+          RoleplayScenarioRow
+        >,
+      ),
+      RoleplayScenarioRow,
+      PrefetchHooks Function()
+    >;
+typedef $$RoleplayThreadRowsTableCreateCompanionBuilder =
+    RoleplayThreadRowsCompanion Function({
+      required String id,
+      required String dataJson,
+      required String updatedAt,
+      Value<int> rowid,
+    });
+typedef $$RoleplayThreadRowsTableUpdateCompanionBuilder =
+    RoleplayThreadRowsCompanion Function({
+      Value<String> id,
+      Value<String> dataJson,
+      Value<String> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$RoleplayThreadRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $RoleplayThreadRowsTable> {
+  $$RoleplayThreadRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get dataJson => $composableBuilder(
+    column: $table.dataJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$RoleplayThreadRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $RoleplayThreadRowsTable> {
+  $$RoleplayThreadRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get dataJson => $composableBuilder(
+    column: $table.dataJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$RoleplayThreadRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $RoleplayThreadRowsTable> {
+  $$RoleplayThreadRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get dataJson =>
+      $composableBuilder(column: $table.dataJson, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$RoleplayThreadRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $RoleplayThreadRowsTable,
+          RoleplayThreadRow,
+          $$RoleplayThreadRowsTableFilterComposer,
+          $$RoleplayThreadRowsTableOrderingComposer,
+          $$RoleplayThreadRowsTableAnnotationComposer,
+          $$RoleplayThreadRowsTableCreateCompanionBuilder,
+          $$RoleplayThreadRowsTableUpdateCompanionBuilder,
+          (
+            RoleplayThreadRow,
+            BaseReferences<
+              _$StorageV2DriftDatabase,
+              $RoleplayThreadRowsTable,
+              RoleplayThreadRow
+            >,
+          ),
+          RoleplayThreadRow,
+          PrefetchHooks Function()
+        > {
+  $$RoleplayThreadRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $RoleplayThreadRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$RoleplayThreadRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$RoleplayThreadRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$RoleplayThreadRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> dataJson = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => RoleplayThreadRowsCompanion(
+                id: id,
+                dataJson: dataJson,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String dataJson,
+                required String updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => RoleplayThreadRowsCompanion.insert(
+                id: id,
+                dataJson: dataJson,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$RoleplayThreadRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $RoleplayThreadRowsTable,
+      RoleplayThreadRow,
+      $$RoleplayThreadRowsTableFilterComposer,
+      $$RoleplayThreadRowsTableOrderingComposer,
+      $$RoleplayThreadRowsTableAnnotationComposer,
+      $$RoleplayThreadRowsTableCreateCompanionBuilder,
+      $$RoleplayThreadRowsTableUpdateCompanionBuilder,
+      (
+        RoleplayThreadRow,
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $RoleplayThreadRowsTable,
+          RoleplayThreadRow
+        >,
+      ),
+      RoleplayThreadRow,
+      PrefetchHooks Function()
+    >;
+typedef $$RecycleBinRowsTableCreateCompanionBuilder =
+    RecycleBinRowsCompanion Function({
+      required String id,
+      required String owner,
+      required String category,
+      required String type,
+      required String title,
+      required String preview,
+      required String payloadJson,
+      required String deletedAt,
+      Value<int> rowid,
+    });
+typedef $$RecycleBinRowsTableUpdateCompanionBuilder =
+    RecycleBinRowsCompanion Function({
+      Value<String> id,
+      Value<String> owner,
+      Value<String> category,
+      Value<String> type,
+      Value<String> title,
+      Value<String> preview,
+      Value<String> payloadJson,
+      Value<String> deletedAt,
+      Value<int> rowid,
+    });
+
+class $$RecycleBinRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $RecycleBinRowsTable> {
+  $$RecycleBinRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get owner => $composableBuilder(
+    column: $table.owner,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get category => $composableBuilder(
+    column: $table.category,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get type => $composableBuilder(
+    column: $table.type,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get preview => $composableBuilder(
+    column: $table.preview,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get payloadJson => $composableBuilder(
+    column: $table.payloadJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$RecycleBinRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $RecycleBinRowsTable> {
+  $$RecycleBinRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get owner => $composableBuilder(
+    column: $table.owner,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get category => $composableBuilder(
+    column: $table.category,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get type => $composableBuilder(
+    column: $table.type,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get preview => $composableBuilder(
+    column: $table.preview,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get payloadJson => $composableBuilder(
+    column: $table.payloadJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$RecycleBinRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $RecycleBinRowsTable> {
+  $$RecycleBinRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get owner =>
+      $composableBuilder(column: $table.owner, builder: (column) => column);
+
+  GeneratedColumn<String> get category =>
+      $composableBuilder(column: $table.category, builder: (column) => column);
+
+  GeneratedColumn<String> get type =>
+      $composableBuilder(column: $table.type, builder: (column) => column);
+
+  GeneratedColumn<String> get title =>
+      $composableBuilder(column: $table.title, builder: (column) => column);
+
+  GeneratedColumn<String> get preview =>
+      $composableBuilder(column: $table.preview, builder: (column) => column);
+
+  GeneratedColumn<String> get payloadJson => $composableBuilder(
+    column: $table.payloadJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get deletedAt =>
+      $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+}
+
+class $$RecycleBinRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $RecycleBinRowsTable,
+          RecycleBinRow,
+          $$RecycleBinRowsTableFilterComposer,
+          $$RecycleBinRowsTableOrderingComposer,
+          $$RecycleBinRowsTableAnnotationComposer,
+          $$RecycleBinRowsTableCreateCompanionBuilder,
+          $$RecycleBinRowsTableUpdateCompanionBuilder,
+          (
+            RecycleBinRow,
+            BaseReferences<
+              _$StorageV2DriftDatabase,
+              $RecycleBinRowsTable,
+              RecycleBinRow
+            >,
+          ),
+          RecycleBinRow,
+          PrefetchHooks Function()
+        > {
+  $$RecycleBinRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $RecycleBinRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$RecycleBinRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$RecycleBinRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$RecycleBinRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> owner = const Value.absent(),
+                Value<String> category = const Value.absent(),
+                Value<String> type = const Value.absent(),
+                Value<String> title = const Value.absent(),
+                Value<String> preview = const Value.absent(),
+                Value<String> payloadJson = const Value.absent(),
+                Value<String> deletedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => RecycleBinRowsCompanion(
+                id: id,
+                owner: owner,
+                category: category,
+                type: type,
+                title: title,
+                preview: preview,
+                payloadJson: payloadJson,
+                deletedAt: deletedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String owner,
+                required String category,
+                required String type,
+                required String title,
+                required String preview,
+                required String payloadJson,
+                required String deletedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => RecycleBinRowsCompanion.insert(
+                id: id,
+                owner: owner,
+                category: category,
+                type: type,
+                title: title,
+                preview: preview,
+                payloadJson: payloadJson,
+                deletedAt: deletedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$RecycleBinRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $RecycleBinRowsTable,
+      RecycleBinRow,
+      $$RecycleBinRowsTableFilterComposer,
+      $$RecycleBinRowsTableOrderingComposer,
+      $$RecycleBinRowsTableAnnotationComposer,
+      $$RecycleBinRowsTableCreateCompanionBuilder,
+      $$RecycleBinRowsTableUpdateCompanionBuilder,
+      (
+        RecycleBinRow,
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $RecycleBinRowsTable,
+          RecycleBinRow
+        >,
+      ),
+      RecycleBinRow,
+      PrefetchHooks Function()
+    >;
 
 class $StorageV2DriftDatabaseManager {
   final _$StorageV2DriftDatabase _db;
@@ -11180,4 +12852,10 @@ class $StorageV2DriftDatabaseManager {
       $$TodoListRowsTableTableManager(_db, _db.todoListRows);
   $$TodoItemRowsTableTableManager get todoItemRows =>
       $$TodoItemRowsTableTableManager(_db, _db.todoItemRows);
+  $$RoleplayScenarioRowsTableTableManager get roleplayScenarioRows =>
+      $$RoleplayScenarioRowsTableTableManager(_db, _db.roleplayScenarioRows);
+  $$RoleplayThreadRowsTableTableManager get roleplayThreadRows =>
+      $$RoleplayThreadRowsTableTableManager(_db, _db.roleplayThreadRows);
+  $$RecycleBinRowsTableTableManager get recycleBinRows =>
+      $$RecycleBinRowsTableTableManager(_db, _db.recycleBinRows);
 }

@@ -14,7 +14,9 @@ HomePage
 │   ├── 待办清单
 │   ├── 情景演绎
 │   └── 插件
+├── 插件市场
 ├── 对话
+├── 社区
 └── 设置
     ├── 关于
     ├── 背景
@@ -24,7 +26,7 @@ HomePage
     └── 回收站
 ```
 
-主 Tab 由 `HomePage` 的 `IndexedStack` 保持状态。设置子页、笔记详情、公式编辑和更新日志页面使用命令式 `Navigator.push(MaterialPageRoute)`。
+主 Tab 由 `HomePage` 的 `IndexedStack` 保持状态，顺序由 `AppTab` 枚举定义（feature → market → chat → community → settings）。设置子页、笔记详情、公式编辑和更新日志页面使用命令式 `Navigator.push(MaterialPageRoute)`。
 
 ## HomePage
 
@@ -34,11 +36,14 @@ HomePage
 
 | 行为 | 说明 |
 |------|------|
-| Tab 保活 | 功能、对话、设置三个 Tab 不因切换销毁。 |
+| Tab 保活 | 功能、插件市场、对话、社区、设置五个 Tab 不因切换销毁。 |
 | 历史跳转 | 功能页点历史对话后切到对话 Tab，并默认定位到消息末尾。 |
 | 角色切换 | 从历史页切换角色时同步角色上下文。 |
 | 返回键 | 优先退出局部状态，例如消息选择、笔记详情、非对话 Tab。 |
 | 背景图 | 读取 `AppSettings.backgroundImagePath` 并叠加模糊和遮罩。 |
+| 双击手势 | 双击功能 Tab 回到仪表盘，双击对话 Tab 新建对话。 |
+
+`AppTab` 枚举把 Tab 索引从魔法数字抽出来，避免 `_currentIndex == 1` 这类硬编码扩散。默认 Tab 和系统返回键兜底目标都是 `AppTab.chat`。
 
 ## ChatPage
 
@@ -115,16 +120,43 @@ HomePage
 
 可重点手测：创建情景、从情景开新线程、修改线程设置、上传附件、AI 自动轮次、等待用户、导出长图和删除情景。
 
+## PluginMarketPage
+
+文件：`lib/pages/plugin_market_page.dart`
+
+插件市场页是插件全生命周期的入口，包含两个分段：
+
+| 分段 | 功能 |
+|------|------|
+| 市场 | 从 `MarketService` 浏览远端插件目录，查看详情，下载安装。后端未连接时显示空态文案与「从 ZIP 导入」入口。 |
+| 已安装 | 列出本地已安装插件，支持卸载和跳转到权限/配置详情。 |
+
+市场分段的远端数据由 `MarketService` 抽象提供。当前阶段使用 `LocalMarketService` 桩实现，所有远端调用抛出 `MarketUnavailableException`，页面显示「尚未连接后端」空态。后端就绪后替换为 `RemoteMarketService` 即可启用真实浏览和安装。
+
+已安装分段直接读取 `PluginProvider.plugins`。每个插件卡片提供「权限与配置」（跳转到 `PluginDetailPage`）和「卸载」（调用 `PluginProvider.uninstall`）两个操作。
+
+## PluginMarketDetailPage
+
+文件：`lib/pages/plugin_market_detail_page.dart`
+
+展示单个 `MarketPluginEntry` 的完整信息：截图、描述、权限清单、版本和作者。提供安装按钮，点击后通过 `MarketService.downloadPlugin` 下载 ZIP 字节并交给 `PluginProvider.importZipBytes` 完成本地安装。后端未连接时安装按钮禁用并显示提示。
+
+## CommunityPage
+
+文件：`lib/pages/community_page.dart`
+
+社区页是未来的内容分享入口。首版仅展示「敬请期待」占位与未来能力说明，不发起任何服务调用。根据登录态显示不同文案：已登录时提示「社区上线后将自动同步你的内容」，未登录时显示「去登录」按钮引导跳转设置页。后端社区 API 就绪后替换为真实的分享、点赞、评论和订阅界面。
+
 ## PluginManagementPage
 
 文件：`lib/pages/plugin_management_page.dart`
 
-插件管理页负责浏览、安装、卸载、启用/禁用和配置插件。
+插件管理页负责已安装插件的权限管理、配置和文件编辑。插件的浏览、安装和卸载已迁移到插件市场页（`PluginMarketPage`），本页聚焦于本地配置。
 
 | 行为 | 说明 |
 |------|------|
 | 浏览插件 | 展示内置和用户安装的插件列表，显示名称、版本、启用状态和权限。 |
-| 安装/卸载 | 从文件选择器加载 `.zip` 插件包或删除已安装插件。 |
+| 导入 ZIP | 从文件选择器加载 `.zip` 插件包（离线导入，与市场页的远端安装互补）。 |
 | 启用/禁用 | 切换插件启用状态，禁用插件不会触发其工具或函数挂载。 |
 | 权限管理 | 查看和修改插件声明的权限，例如网络、文件读写、平台能力。 |
 | 代码编辑器 | 打开插件 Lua 入口脚本进行编辑，支持语法高亮和保存。 |
@@ -132,7 +164,7 @@ HomePage
 | 快照导出 | 生成当前插件状态的压缩包，保存到用户选择的位置。 |
 | 配置表单 | 根据 `plugin.json` 中 `config` 定义的 schema 字段渲染配置 UI。 |
 
-插件入口脚本、工具和函数由 `PluginLuaRuntimeService` 在沙箱中加载执行。
+设置页入口名称保留「插件管理」，副标题为「权限与配置」。插件入口脚本、工具和函数由 `PluginLuaRuntimeService` 在沙箱中加载执行。
 
 ## PluginFeaturePage
 
@@ -151,7 +183,7 @@ HomePage
 
 文件：`lib/pages/settings_page.dart`
 
-设置页本身是入口卡片，具体配置由子页面承担。
+设置页本身是入口卡片，具体配置由子页面承担。顶部显示 `AccountHeaderCard` 账号卡片：已登录时显示头像、用户名和退出登录按钮；未登录时显示登录按钮，点击后弹出 `LoginDialog`（手机号+密码，可切换注册模式）。后端未连接时登录/注册不可用，并提示先配置后端地址。
 
 | 页面 | 文件 | 说明 |
 |------|------|------|

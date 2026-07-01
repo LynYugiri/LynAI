@@ -31,31 +31,37 @@ main()
   -> 注册 FeatureProvider
   -> 注册 ModelConfigProvider
   -> 注册 PluginProvider
+  -> 注册 AccountProvider
+  -> 注册 RecycleBinProvider
   -> 注册 RoleplayProvider
   -> 注册 SettingsProvider
   -> StorageV2UpgradeService.ensureReady()
-  -> 并行加载对话、功能数据、插件、情景演绎、模型、设置
+  -> 并行加载对话、功能数据、插件、回收站、情景演绎、模型、设置
   -> 修复悬空模型引用
+  -> 根据设置配置 BackendClient
+  -> 恢复账号会话并加载同步序号
   -> 同步内置插件
   -> 构建 MaterialApp / HomePage
   -> 检查更新日志
 ```
 
-启动加载由 `LynAIApp` 控制。加载中显示启动页；失败显示可重试错误页。Provider 会尽量跳过单条损坏数据，让应用仍可进入主界面。
+启动加载由 `LynAIApp` 控制。加载中显示启动页；失败显示可重试错误页。Provider 会尽量跳过单条损坏数据，让应用仍可进入主界面。`AccountProvider.load()` 在 `BackendClient` 按保存的后端地址配置完成后从本地持久化恢复登录会话，未登录时不阻塞启动。
 
 ## 主界面结构
 
 ```text
-HomePage
-├── FeaturePage
+HomePage (NavigationBar, 5 tabs)
+├── FeaturePage (功能)
 │   ├── Dashboard
 │   ├── History
 │   ├── Schedule
 │   ├── Notes
 │   ├── Todo Lists
 │   └── Roleplay
-├── ChatPage
-└── SettingsPage
+├── PluginMarketPage (插件市场)
+├── ChatPage (对话)
+├── CommunityPage (社区)
+└── SettingsPage (设置)
     ├── AboutPage
     ├── BackgroundPage
     ├── ApiModelsPage
@@ -64,7 +70,7 @@ HomePage
     └── PluginManagementPage
 ```
 
-`HomePage` 使用 `IndexedStack` 保留三个主 Tab 状态。对话生成中、功能页打开笔记详情、或设置页返回时，不会因为 Tab 切换销毁状态。
+`HomePage` 使用 `IndexedStack` 保留五个主 Tab 的状态，Tab 顺序由 `AppTab` 枚举定义（feature → market → chat → community → settings）。对话生成中、功能页打开笔记详情、或设置页返回时，不会因为 Tab 切换销毁状态。`AppTab.chat` 是默认 Tab 和系统返回键的兜底目标。
 
 ## 对话链路
 

@@ -1407,8 +1407,10 @@ class _SchedulePageState extends State<_SchedulePage> {
     );
     final title = titleCtrl.text.trim();
     final note = noteCtrl.text.trim();
-    titleCtrl.dispose();
-    noteCtrl.dispose();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      titleCtrl.dispose();
+      noteCtrl.dispose();
+    });
     if (!mounted || result != true || title.isEmpty) return;
     await context.read<FeatureProvider>().addSchedule(
       title,
@@ -1583,8 +1585,10 @@ class _SchedulePageState extends State<_SchedulePage> {
       ),
     );
     if (!mounted || action == null) {
-      titleCtrl.dispose();
-      noteCtrl.dispose();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        titleCtrl.dispose();
+        noteCtrl.dispose();
+      });
       return;
     }
     if (action == 'delete') {
@@ -1608,8 +1612,10 @@ class _SchedulePageState extends State<_SchedulePage> {
       if (ok == true) {
         await fp.deleteSchedule(schedule.id);
       }
-      titleCtrl.dispose();
-      noteCtrl.dispose();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        titleCtrl.dispose();
+        noteCtrl.dispose();
+      });
       return;
     }
     final title = titleCtrl.text.trim();
@@ -1622,7 +1628,9 @@ class _SchedulePageState extends State<_SchedulePage> {
         note: note.isEmpty ? null : note,
       ),
     );
-    titleCtrl.dispose();
-    noteCtrl.dispose();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      titleCtrl.dispose();
+      noteCtrl.dispose();
+    });
   }
 }

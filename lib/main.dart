@@ -10,6 +10,7 @@ import 'providers/conversation_provider.dart';
 import 'providers/feature_provider.dart';
 import 'providers/model_config_provider.dart';
 import 'providers/plugin_provider.dart';
+import 'providers/account_provider.dart';
 import 'providers/recycle_bin_provider.dart';
 import 'providers/roleplay_provider.dart';
 import 'providers/settings_provider.dart';
@@ -18,6 +19,8 @@ import 'pages/home_page.dart';
 import 'pages/changelog_page.dart';
 import 'services/floating_assistant_service.dart';
 import 'services/storage_v2_upgrade_service.dart';
+import 'services/backend_client.dart';
+import 'providers/sync_provider.dart';
 import 'utils/changelog_parser.dart';
 import 'utils/open_source_licenses.dart';
 import 'widgets/changelog_dialog.dart';
@@ -33,10 +36,17 @@ Future<void> main() async {
   runApp(
     MultiProvider(
       providers: [
+        ChangeNotifierProvider(create: (_) => BackendClient()),
         ChangeNotifierProvider(create: (_) => ConversationProvider()),
         ChangeNotifierProvider(create: (_) => FeatureProvider()),
         ChangeNotifierProvider(create: (_) => ModelConfigProvider()),
         ChangeNotifierProvider(create: (_) => PluginProvider()),
+        ChangeNotifierProvider(
+          create: (ctx) => AccountProvider(backend: ctx.read<BackendClient>()),
+        ),
+        ChangeNotifierProvider(
+          create: (ctx) => SyncProvider(backend: ctx.read<BackendClient>()),
+        ),
         ChangeNotifierProvider(create: (_) => RecycleBinProvider()),
         ChangeNotifierProvider(create: (_) => RoleplayProvider()),
         ChangeNotifierProvider(create: (_) => SettingsProvider()),
@@ -79,6 +89,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   String _errorMessage = '';
   ConversationProvider? _conversationProvider;
   SettingsProvider? _settingsProvider;
+  SyncProvider? _syncProvider;
   final _navigatorKey = GlobalKey<NavigatorState>();
 
   @override
@@ -94,6 +105,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
     super.didChangeDependencies();
     _conversationProvider ??= context.read<ConversationProvider>();
     _settingsProvider ??= context.read<SettingsProvider>();
+    _syncProvider ??= context.read<SyncProvider>();
     if (_settingsProvider != null) {
       FloatingAssistantService.instance.start(
         settings: _settingsProvider!,
@@ -117,11 +129,10 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
 
   Future<void> _flushCriticalSaves() async {
     try {
-      // Conversation saves are debounced during streaming; lifecycle changes
-      // should push the last snapshot to disk before the process is suspended.
       await _conversationProvider?.flushPendingSaves();
+      await _syncProvider?.flushUpload();
     } catch (e) {
-      debugPrint('后台保存对话失败: $e');
+      debugPrint('后台保存失败: $e');
     }
   }
 
@@ -149,8 +160,11 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       final settingsProvider = context.read<SettingsProvider>();
       final featureProvider = context.read<FeatureProvider>();
       final pluginProvider = context.read<PluginProvider>();
+      final accountProvider = context.read<AccountProvider>();
       final recycleBinProvider = context.read<RecycleBinProvider>();
       final roleplayProvider = context.read<RoleplayProvider>();
+      final backendClient = context.read<BackendClient>();
+      final syncProvider = context.read<SyncProvider>();
 
       await StorageV2UpgradeService().ensureReady();
 
@@ -167,6 +181,21 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       settingsProvider.repairMediaModelSelections(modelProvider.models);
       conversationProvider.repairModelReferences(modelProvider.models);
       roleplayProvider.repairModelReferences(modelProvider.models);
+
+      // Configure backend client from saved settings.
+      final savedUrl = settingsProvider.settings.backendUrl;
+      if (savedUrl != null && savedUrl.isNotEmpty) {
+        backendClient.configure(savedUrl);
+      }
+
+      await accountProvider.load();
+
+      // Load sync state and auto-download if logged in.
+      await syncProvider.loadLastSeq();
+      if (backendClient.isConnected && backendClient.accessToken != null) {
+        unawaited(syncProvider.autoDownload());
+      }
+
       await _importBuiltInPlugins(pluginProvider);
 
       if (mounted) {

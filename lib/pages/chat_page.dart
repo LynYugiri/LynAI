@@ -38,6 +38,7 @@ import '../utils/share_image_utils.dart';
 import '../utils/snackbar_utils.dart';
 import '../widgets/latex_renderer.dart';
 import '../widgets/chat_role_edit_dialog.dart';
+import '../widgets/text_editing_controller_host.dart';
 import 'role_management_page.dart';
 part 'chat/share_conversation_image.dart';
 part 'chat/dialog_settings_content.dart';

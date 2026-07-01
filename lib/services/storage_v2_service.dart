@@ -425,6 +425,10 @@ class StorageV2Service {
     return database;
   }
 
+  /// 获取已初始化的 Drift 数据库，用于增量操作。
+  /// 必须在 [ensureReady] 之后调用。
+  Future<StorageV2Database> storageDatabase() async => _storageDatabase();
+
   static String _normalizePath(String path) => path.replaceAll('\\', '/');
 }
 
