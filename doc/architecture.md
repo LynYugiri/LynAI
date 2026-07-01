@@ -40,12 +40,13 @@ main()
   -> 修复悬空模型引用
   -> 根据设置配置 BackendClient
   -> 恢复账号会话并加载同步序号
+  -> 若已登录则同步 LynAI 托管 Provider
   -> 同步内置插件
   -> 构建 MaterialApp / HomePage
   -> 检查更新日志
 ```
 
-启动加载由 `LynAIApp` 控制。加载中显示启动页；失败显示可重试错误页。Provider 会尽量跳过单条损坏数据，让应用仍可进入主界面。`AccountProvider.load()` 在 `BackendClient` 按保存的后端地址配置完成后从本地持久化恢复登录会话，未登录时不阻塞启动。
+启动加载由 `LynAIApp` 控制。加载中显示启动页；失败显示可重试错误页。Provider 会尽量跳过单条损坏数据，让应用仍可进入主界面。`AccountProvider.load()` 在 `BackendClient` 按保存的后端地址配置完成后从本地持久化恢复登录会话，未登录时不阻塞启动。若恢复出 access token，`ModelConfigProvider.syncLynaiManagedProvider()` 会从 `/relay/models` 同步内置 LynAI 中转模型。
 
 ## 主界面结构
 
@@ -97,6 +98,8 @@ Input + Attachments
 ```
 
 历史对话保存自己的 `ConversationSettings`。全局设置变化不会悄悄改变旧对话的模型、提示词或文件识别上下文。
+
+当选中的模型配置是 LynAI 托管 Provider 时，`ApiService` 使用同一条标准化链路，但请求目标改为后端 `/relay/chat`，并由 `BackendClient` 当前 JWT 做鉴权。服务端按 body 中的 `api_type` 和 `model` 路由到管理员配置的上游。
 
 ## 情景演绎链路
 

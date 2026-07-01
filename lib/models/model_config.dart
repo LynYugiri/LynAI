@@ -166,6 +166,9 @@ class ModelConfig {
   /// 额外的自定义请求参数。
   final Map<String, dynamic> extraParams;
 
+  /// 是否由 LynAI 托管同步。托管配置不可被用户改写 endpoint/API key。
+  final bool managed;
+
   /// 创建一个模型配置实例。
   ModelConfig({
     required this.id,
@@ -179,6 +182,7 @@ class ModelConfig {
     this.maxTokens,
     this.temperature,
     this.topP,
+    this.managed = false,
     Map<String, dynamic>? extraParams,
     List<ModelEntry>? models,
   }) : extraParams = extraParams ?? {},
@@ -232,6 +236,7 @@ class ModelConfig {
     Object? maxTokens = _sentinel,
     Object? temperature = _sentinel,
     Object? topP = _sentinel,
+    bool? managed,
     Map<String, dynamic>? extraParams,
     List<ModelEntry>? models,
   }) {
@@ -251,6 +256,7 @@ class ModelConfig {
           ? this.temperature
           : temperature as double?,
       topP: identical(topP, _sentinel) ? this.topP : topP as double?,
+      managed: managed ?? this.managed,
       extraParams: extraParams ?? this.extraParams,
       models: models ?? this.models,
     );
@@ -305,6 +311,7 @@ class ModelConfig {
       maxTokens: maxTokens,
       temperature: temperature,
       topP: topP,
+      managed: json['managed'] == true,
       extraParams: json['extraParams'] is Map
           ? Map<String, dynamic>.from(json['extraParams'])
           : {},
@@ -327,6 +334,7 @@ class ModelConfig {
       if (maxTokens != null) 'maxTokens': maxTokens,
       if (temperature != null) 'temperature': temperature,
       if (topP != null) 'topP': topP,
+      if (managed) 'managed': managed,
       if (extraParams.isNotEmpty) 'extraParams': extraParams,
     };
   }

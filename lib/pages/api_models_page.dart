@@ -7,6 +7,7 @@ import '../models/model_config.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/settings_provider.dart';
+import '../services/backend_client.dart';
 
 const _endpointPresets = [
   {'name': 'OpenAI', 'url': 'https://api.openai.com/v1', 'type': 'openai'},
@@ -244,22 +245,24 @@ class ApiCategoryPage extends StatelessWidget {
           model.name,
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '${model.apiType.toUpperCase()} - ${model.endpoint}',
-              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            if (!isInterfaceOnly && model.hasMultipleModels)
-              Text(
-                '已启用 $enabledCount / ${model.models.length} 个模型',
-                style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+        subtitle: model.managed
+            ? null
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${model.apiType.toUpperCase()} - ${model.endpoint}',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (!isInterfaceOnly && model.hasMultipleModels)
+                    Text(
+                      '已启用 $enabledCount / ${model.models.length} 个模型',
+                      style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                    ),
+                ],
               ),
-          ],
-        ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -351,9 +354,13 @@ class _EditModelPageState extends State<EditModelPage> {
   bool _debugSse = false;
   bool _saved = false;
   bool _closing = false;
+  bool _refreshingManaged = false;
+  ModelConfig? _managedDisplayModel;
   List<Map<String, dynamic>> _filteredPresets = [];
 
   bool get isEditing => widget.model != null;
+  bool get _isManaged => widget.model?.managed == true;
+  ModelConfig get _managedModel => _managedDisplayModel ?? widget.model!;
   bool get isChat => widget.category.id == ModelConfig.categoryChat;
   bool get isImageGeneration =>
       widget.category.id == ModelConfig.categoryImageGeneration;
@@ -370,6 +377,9 @@ class _EditModelPageState extends State<EditModelPage> {
   void initState() {
     super.initState();
     final model = widget.model;
+    if (model?.managed == true) {
+      _managedDisplayModel = model;
+    }
     _nameController = TextEditingController(
       text: model?.name ?? _defaultName(),
     );
@@ -467,6 +477,7 @@ class _EditModelPageState extends State<EditModelPage> {
   }
 
   bool _saveModel() {
+    if (_isManaged) return false;
     if (!_formKey.currentState!.validate()) return false;
     final entries = isInterfaceOnly
         ? [ModelEntry(name: _fixedInterfaceModelName, enabled: true)]
@@ -571,6 +582,7 @@ class _EditModelPageState extends State<EditModelPage> {
   }
 
   bool get _hasUnsavedChanges {
+    if (_isManaged) return false;
     final original = widget.model;
     final currentEntries = isInterfaceOnly
         ? [ModelEntry(name: _fixedInterfaceModelName, enabled: true)]
@@ -883,7 +895,7 @@ class _EditModelPageState extends State<EditModelPage> {
           ),
           centerTitle: true,
           actions: [
-            if (isEditing)
+            if (isEditing && !_isManaged)
               IconButton(
                 icon: const Icon(Icons.delete, color: Colors.red),
                 tooltip: '删除模型',
@@ -904,100 +916,248 @@ class _EditModelPageState extends State<EditModelPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                TextFormField(
-                  controller: _nameController,
-                  decoration: const InputDecoration(
-                    labelText: '模型提供商名称',
-                    hintText: '例如：DeepSeek',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.label),
-                  ),
-                  validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? '请输入名称' : null,
-                ),
-                const SizedBox(height: 16),
-                if (hasChatStyleOptions) ...[
-                  _apiTypeField(),
-                  const SizedBox(height: 16),
-                ],
-                _endpointField(),
-                const SizedBox(height: 16),
-                if (needsAppId) ...[
+                if (_isManaged)
+                  _managedProviderDetails()
+                else ...[
                   TextFormField(
-                    controller: _appIdController,
+                    controller: _nameController,
                     decoration: const InputDecoration(
-                      labelText: 'AppID',
-                      hintText: '例如：123456',
+                      labelText: '模型提供商名称',
+                      hintText: '例如：DeepSeek',
                       border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.badge_outlined),
+                      prefixIcon: Icon(Icons.label),
                     ),
                     validator: (v) =>
-                        (v == null || v.trim().isEmpty) ? '请输入 AppID' : null,
+                        (v == null || v.trim().isEmpty) ? '请输入名称' : null,
                   ),
                   const SizedBox(height: 16),
-                ],
-                TextFormField(
-                  controller: _apiKeyController,
-                  decoration: InputDecoration(
-                    labelText: apiKeyLabel,
-                    hintText: apiKeyOptional ? '可选（Ollama 无需 Key）' : 'sk-...',
-                    border: const OutlineInputBorder(),
-                    prefixIcon: const Icon(Icons.key),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscureApiKey
-                            ? Icons.visibility_off
-                            : Icons.visibility,
+                  if (hasChatStyleOptions) ...[
+                    _apiTypeField(),
+                    const SizedBox(height: 16),
+                  ],
+                  _endpointField(),
+                  const SizedBox(height: 16),
+                  if (needsAppId) ...[
+                    TextFormField(
+                      controller: _appIdController,
+                      decoration: const InputDecoration(
+                        labelText: 'AppID',
+                        hintText: '例如：123456',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.badge_outlined),
                       ),
-                      onPressed: () =>
-                          setState(() => _obscureApiKey = !_obscureApiKey),
+                      validator: (v) =>
+                          (v == null || v.trim().isEmpty) ? '请输入 AppID' : null,
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  TextFormField(
+                    controller: _apiKeyController,
+                    decoration: InputDecoration(
+                      labelText: apiKeyLabel,
+                      hintText: apiKeyOptional ? '可选（Ollama 无需 Key）' : 'sk-...',
+                      border: const OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.key),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscureApiKey
+                              ? Icons.visibility_off
+                              : Icons.visibility,
+                        ),
+                        onPressed: () =>
+                            setState(() => _obscureApiKey = !_obscureApiKey),
+                      ),
+                    ),
+                    obscureText: _obscureApiKey,
+                    validator: apiKeyOptional
+                        ? null
+                        : (v) => (v == null || v.trim().isEmpty)
+                              ? '请输入 $apiKeyLabel'
+                              : null,
+                  ),
+                  const SizedBox(height: 16),
+                  if (isChat)
+                    OutlinedButton.icon(
+                      onPressed: _isFetchingModels ? null : _fetchModels,
+                      icon: _isFetchingModels
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.download),
+                      label: Text(
+                        _isFetchingModels ? '获取中...' : '从 Endpoint 获取模型列表',
+                      ),
+                    ),
+                  if (isChat) const SizedBox(height: 12),
+                  if (isChat) ...[
+                    _advancedOptionsSection(),
+                    const SizedBox(height: 12),
+                  ],
+                  if (!isInterfaceOnly) _modelList(),
+                  const SizedBox(height: 32),
+                  ElevatedButton(
+                    onPressed: _saveModel,
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                    child: Text(
+                      isEditing ? '保存修改' : '添加模型',
+                      style: const TextStyle(fontSize: 16),
                     ),
                   ),
-                  obscureText: _obscureApiKey,
-                  validator: apiKeyOptional
-                      ? null
-                      : (v) => (v == null || v.trim().isEmpty)
-                            ? '请输入 $apiKeyLabel'
-                            : null,
-                ),
-                const SizedBox(height: 16),
-                if (isChat)
-                  OutlinedButton.icon(
-                    onPressed: _isFetchingModels ? null : _fetchModels,
-                    icon: _isFetchingModels
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.download),
-                    label: Text(
-                      _isFetchingModels ? '获取中...' : '从 Endpoint 获取模型列表',
-                    ),
-                  ),
-                if (isChat) const SizedBox(height: 12),
-                if (isChat) ...[
-                  _advancedOptionsSection(),
-                  const SizedBox(height: 12),
                 ],
-                if (!isInterfaceOnly) _modelList(),
-                const SizedBox(height: 32),
-                ElevatedButton(
-                  onPressed: _saveModel,
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
-                  child: Text(
-                    isEditing ? '保存修改' : '添加模型',
-                    style: const TextStyle(fontSize: 16),
-                  ),
-                ),
               ],
             ),
           ),
         ),
       ),
     );
+  }
+
+  Widget _managedProviderDetails() {
+    final model = _managedModel;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Theme.of(
+              context,
+            ).colorScheme.primaryContainer.withValues(alpha: 0.35),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.cloud_done_outlined,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text('LynAI 由已登录的后端自动同步，接口地址和鉴权信息不需要手动配置。'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        _managedInfoRow('名称', model.name),
+        const SizedBox(height: 12),
+        _managedInfoRow('API 类型', model.apiType.toUpperCase()),
+        const SizedBox(height: 16),
+        _managedModelList(model),
+        const SizedBox(height: 24),
+        FilledButton.icon(
+          onPressed: _refreshingManaged ? null : _refreshManagedModels,
+          icon: _refreshingManaged
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.refresh),
+          label: Text(_refreshingManaged ? '刷新中...' : '刷新模型列表'),
+        ),
+      ],
+    );
+  }
+
+  Widget _managedInfoRow(String label, String value) {
+    return InputDecorator(
+      decoration: InputDecoration(
+        labelText: label,
+        border: const OutlineInputBorder(),
+      ),
+      child: Text(value),
+    );
+  }
+
+  Widget _managedModelList(ModelConfig model) {
+    final entries = model.models
+        .where((entry) => entry.name.trim().isNotEmpty)
+        .toList();
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: [
+                const Icon(Icons.list_alt, size: 18, color: Colors.grey),
+                const SizedBox(width: 8),
+                const Text(
+                  '模型列表',
+                  style: TextStyle(fontWeight: FontWeight.w500),
+                ),
+                const Spacer(),
+                Text(
+                  '${entries.length} 个模型',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          if (entries.isEmpty)
+            const Padding(padding: EdgeInsets.all(16), child: Text('暂无模型'))
+          else
+            ...entries.map(
+              (entry) => ListTile(
+                dense: true,
+                title: Text(
+                  entry.name,
+                  style: const TextStyle(fontSize: 14, fontFamily: 'monospace'),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _refreshManagedModels() async {
+    setState(() => _refreshingManaged = true);
+    try {
+      final backend = context.read<BackendClient>();
+      final ok = await widget.provider.syncLynaiManagedProvider(backend);
+      if (!ok) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('刷新失败，请检查登录状态和后端配置')));
+        return;
+      }
+      ModelConfig? latest;
+      for (final model in widget.provider.models) {
+        if (model.id == widget.model!.id) {
+          latest = model;
+          break;
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _managedDisplayModel = latest ?? _managedDisplayModel;
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已刷新 LynAI 模型列表')));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('刷新失败: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _refreshingManaged = false);
+    }
   }
 
   Widget _apiTypeField() {

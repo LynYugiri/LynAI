@@ -9,6 +9,7 @@ import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
+import 'backend_client.dart';
 import 'device_control_service.dart';
 import 'device_run_controller.dart';
 import 'floating_assistant_bridge.dart';
@@ -37,6 +38,7 @@ class FloatingAssistantService with WidgetsBindingObserver {
     required ModelConfigProvider models,
     required FeatureProvider features,
     required PluginProvider plugins,
+    BackendClient? backend,
   }) {
     if (_started || !Platform.isAndroid) return;
     _started = true;
@@ -48,6 +50,7 @@ class FloatingAssistantService with WidgetsBindingObserver {
       models: models,
       features: features,
       plugins: plugins,
+      backend: backend,
     );
     _chat!.addListener(_syncChatState);
     WidgetsBinding.instance.addObserver(this);
@@ -56,7 +59,8 @@ class FloatingAssistantService with WidgetsBindingObserver {
     DeviceRunController.instance.addListener(_sync);
     FloatingAssistantBridge.instance.setHandler(_handleCall);
     DeviceControlService.instance.onTranslationScrollSettled = _onScrollSettled;
-    DeviceControlService.instance.onAccessibilityServiceReconnected = _onServiceReconnected;
+    DeviceControlService.instance.onAccessibilityServiceReconnected =
+        _onServiceReconnected;
     unawaited(_chat?.loadTranslationHistory());
     _sync();
   }
@@ -139,9 +143,7 @@ class FloatingAssistantService with WidgetsBindingObserver {
         _translationRunning = false;
         _chat?.clearTranslation();
         await FloatingAssistantBridge.instance.setTranslationRunning(false);
-        unawaited(
-          FloatingAssistantBridge.instance.clearTranslationOverlay(),
-        );
+        unawaited(FloatingAssistantBridge.instance.clearTranslationOverlay());
         return {'ok': true};
       case 'transcribeAudio':
         final path = _callArgs(call)['path']?.toString() ?? '';
@@ -156,13 +158,14 @@ class FloatingAssistantService with WidgetsBindingObserver {
         // could resume). The native side already cleared the overlay.
         _translationRunning = false;
         _chat?.stopTranslation();
-        unawaited(FloatingAssistantBridge.instance.setTranslationRunning(false));
+        unawaited(
+          FloatingAssistantBridge.instance.setTranslationRunning(false),
+        );
         return {'ok': true};
       case 'openAccessibilitySettings':
-        DeviceControlService.instance.execute(
-          'device.service.openSettings',
-          {'target': 'accessibility'},
-        );
+        DeviceControlService.instance.execute('device.service.openSettings', {
+          'target': 'accessibility',
+        });
         return {'ok': true};
       case 'resumeAgent':
         DeviceRunController.instance.resume();
@@ -231,18 +234,28 @@ class FloatingAssistantService with WidgetsBindingObserver {
       final settings = _settings;
       if (settings == null) return;
       final current = settings.settings.floatingAssistant;
-      settings.updateFloatingAssistant(current.copyWith(
-        bubbleX: p.bubbleX,
-        bubbleY: p.bubbleY,
-        panelX: p.panelX,
-        panelY: p.panelY,
-        panelWidth: p.panelWidth,
-        panelHeight: p.panelHeight,
-      ));
+      settings.updateFloatingAssistant(
+        current.copyWith(
+          bubbleX: p.bubbleX,
+          bubbleY: p.bubbleY,
+          panelX: p.panelX,
+          panelY: p.panelY,
+          panelWidth: p.panelWidth,
+          panelHeight: p.panelHeight,
+        ),
+      );
     });
   }
 
-  ({int? bubbleX, int? bubbleY, int? panelX, int? panelY, int? panelWidth, int? panelHeight})? _pendingPersist;
+  ({
+    int? bubbleX,
+    int? bubbleY,
+    int? panelX,
+    int? panelY,
+    int? panelWidth,
+    int? panelHeight,
+  })?
+  _pendingPersist;
 
   void _sync() {
     final settings = _settings?.settings.floatingAssistant;

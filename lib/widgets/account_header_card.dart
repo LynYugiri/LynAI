@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/account_provider.dart';
+import '../providers/model_config_provider.dart';
 import 'login_dialog.dart';
 
 /// 设置页顶部的账号卡片。
@@ -111,7 +112,14 @@ class _LoggedInCard extends StatelessWidget {
               )
             else
               TextButton(
-                onPressed: () => account.logout(),
+                onPressed: () async {
+                  await account.logout();
+                  if (context.mounted) {
+                    await context
+                        .read<ModelConfigProvider>()
+                        .removeLynaiManagedProviders();
+                  }
+                },
                 child: const Text('退出登录'),
               ),
           ],

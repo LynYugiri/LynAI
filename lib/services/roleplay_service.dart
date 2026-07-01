@@ -4,6 +4,7 @@ import '../models/message.dart';
 import '../models/model_config.dart';
 import '../models/roleplay.dart';
 import 'api_service.dart';
+import 'backend_client.dart';
 
 class RoleplayDecision {
   final String action;
@@ -23,7 +24,8 @@ class RoleplayDecision {
 }
 
 class RoleplayService {
-  RoleplayService({ApiService? api}) : _api = api ?? ApiService();
+  RoleplayService({ApiService? api, BackendClient? backend})
+    : _api = api ?? ApiService(backend: backend);
 
   final ApiService _api;
 

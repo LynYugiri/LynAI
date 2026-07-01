@@ -111,6 +111,9 @@ class BackendClient extends ChangeNotifier {
     return req;
   }
 
+  /// 主动刷新 access token，供无法直接复用 [get]/[post] 的流式请求使用。
+  Future<bool> refreshAccessToken() => _tryRefresh();
+
   /// 执行一个 HTTP 请求，401 时自动刷新 token 并重试一次。
   Future<http.Response> _request(Future<http.Response> Function() send) async {
     final resp = await send();

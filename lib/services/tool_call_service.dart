@@ -21,6 +21,7 @@ import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
+import 'backend_client.dart';
 import '../providers/conversation_provider.dart';
 import 'api_service.dart';
 import 'agent_lua_script_service.dart';
@@ -208,6 +209,7 @@ class ToolCallService {
     ModelConfigProvider? modelConfigs,
     SettingsProvider? settings,
     ConversationProvider? conversations,
+    BackendClient? backend,
     String? conversationId,
     bool allowScreenContextTool = false,
     bool allowSubagents = true,
@@ -215,6 +217,7 @@ class ToolCallService {
        _modelConfigs = modelConfigs,
        _settings = settings,
        _conversations = conversations,
+       _backend = backend,
        _conversationId = conversationId,
        _allowScreenContextTool = allowScreenContextTool,
        _allowSubagents = allowSubagents;
@@ -230,6 +233,7 @@ class ToolCallService {
   final ModelConfigProvider? _modelConfigs;
   final SettingsProvider? _settings;
   final ConversationProvider? _conversations;
+  final BackendClient? _backend;
   final String? _conversationId;
   final bool _allowScreenContextTool;
   final bool _allowSubagents;
@@ -1431,13 +1435,14 @@ ${lines.join('\n')}$more''';
       },
     );
 
-    final api = ApiService();
+    final api = ApiService(backend: _backend);
     final subTools = ToolCallService(
       _features,
       plugins: _plugins,
       modelConfigs: _modelConfigs,
       settings: _settings,
       conversations: _conversations,
+      backend: _backend,
       conversationId: _conversationId,
       allowSubagents: false,
     );

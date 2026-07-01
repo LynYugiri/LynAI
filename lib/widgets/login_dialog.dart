@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/account_provider.dart';
+import '../providers/model_config_provider.dart';
+import '../services/backend_client.dart';
 
 /// 登录/注册对话框。
 ///
@@ -166,6 +168,10 @@ class _LoginDialogState extends State<LoginDialog> {
 
     if (!mounted) return;
     if (success) {
+      await context.read<ModelConfigProvider>().syncLynaiManagedProvider(
+        context.read<BackendClient>(),
+      );
+      if (!mounted) return;
       Navigator.pop(context);
     }
     // 失败时保持对话框打开，错误会显示在表单内。

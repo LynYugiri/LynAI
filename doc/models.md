@@ -69,8 +69,11 @@
 | `priority` | 分类内排序。 |
 | `models` | 子模型列表。 |
 | `extraParams` | 用户自定义请求参数。 |
+| `managed` | 是否由 LynAI 后端托管同步。托管配置用于内置 LynAI 中转 Provider，endpoint/API key 不由用户手动维护。 |
 
 `ModelEntry` 是子模型。子模型可以独立设置启用状态、视觉能力、thinking 能力、工具能力和采样参数。
+
+登录后端后，`ModelConfigProvider` 会按 `/relay/models` 返回的 `api_type` 自动同步 `managed=true` 的 LynAI Chat Provider。托管 Provider 的 endpoint 派生自 `BackendClient.backendUrl + '/relay'`，请求时由 `ApiService` 使用用户 JWT 鉴权并在 JSON body 中注入 `api_type`。
 
 Agent 可通过 `model.chat` 调用 Chat 模型，通过 `model.ocr` 调用 OCR 分类模型，通过 `model.recognizeFile` 调用开启视觉能力的 Chat 模型，通过 `model.generateImage` 调用图片生成模型。`model.recognizeFile` 依赖 `supportsVision=true` 的子模型。
 

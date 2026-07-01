@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import '../models/model_config.dart';
 import '../models/ocr_text_block.dart';
+import 'backend_client.dart';
 import 'tool_call_service.dart';
 
 /// 发送给模型前的附件输入。
@@ -70,6 +71,10 @@ class ApiService {
   static const _speechSliceSize = 5 * 1024 * 1024;
   static const _sseDiagnosticMaxLineLength = 220;
 
+  final BackendClient? _backend;
+
+  ApiService({BackendClient? backend}) : _backend = backend;
+
   http.Client? _client;
   http.Client get client => _client ??= http.Client();
 
@@ -84,6 +89,29 @@ class ApiService {
       throw Exception('API Endpoint 不能为空');
     }
     return Uri.parse('$endpoint$path');
+  }
+
+  String _openAIChatPath(ModelConfig config) =>
+      config.managed ? '/chat' : '/chat/completions';
+
+  void _applyOpenAIAuthAndRelayParams(
+    ModelConfig config,
+    Map<String, dynamic> body,
+    Map<String, String> headers,
+  ) {
+    if (config.managed && config.apiKey.isEmpty) {
+      final backend = _backend;
+      final token = backend?.accessToken ?? '';
+      if (backend == null || !backend.isConnected || token.isEmpty) {
+        throw Exception('LynAI 中转需要登录后使用');
+      }
+      headers['Authorization'] = 'Bearer $token';
+      body['api_type'] = config.apiType;
+      return;
+    }
+    if (config.apiKey.isNotEmpty) {
+      headers['Authorization'] = 'Bearer ${config.apiKey}';
+    }
   }
 
   bool _shouldLogSseDiagnostics(ModelConfig config) {
@@ -827,7 +855,7 @@ class ApiService {
     List<Map<String, dynamic>> tools = const [],
     String? toolChoice,
   }) async {
-    final uri = _endpointUri(config, '/chat/completions');
+    final uri = _endpointUri(config, _openAIChatPath(config));
 
     final body = <String, dynamic>{
       'model': config.modelName,
@@ -845,11 +873,9 @@ class ApiService {
     _applyExtraRequestParams(body, config);
 
     final headers = <String, String>{'Content-Type': 'application/json'};
-    if (config.apiKey.isNotEmpty) {
-      headers['Authorization'] = 'Bearer ${config.apiKey}';
-    }
+    _applyOpenAIAuthAndRelayParams(config, body, headers);
 
-    final response = await http
+    Future<http.Response> send() => http
         .post(uri, headers: headers, body: jsonEncode(body))
         .timeout(
           _timeout,
@@ -857,6 +883,15 @@ class ApiService {
             throw TimeoutException('连接超时，请检查 API 地址是否正确');
           },
         );
+
+    var response = await send();
+    if (config.managed && response.statusCode == 401) {
+      final refreshed = await _backend?.refreshAccessToken() ?? false;
+      if (refreshed) {
+        _applyOpenAIAuthAndRelayParams(config, body, headers);
+        response = await send();
+      }
+    }
 
     if (response.statusCode == 200) {
       final data = jsonDecode(utf8.decode(response.bodyBytes));
@@ -890,7 +925,7 @@ class ApiService {
     List<Map<String, dynamic>> tools = const [],
     String? toolChoice,
   }) async* {
-    final uri = _endpointUri(config, '/chat/completions');
+    final uri = _endpointUri(config, _openAIChatPath(config));
     final logSse = _shouldLogSseDiagnostics(config);
 
     final body = <String, dynamic>{
@@ -909,13 +944,14 @@ class ApiService {
     _applyExtraRequestParams(body, config);
 
     final headers = <String, String>{'Content-Type': 'application/json'};
-    if (config.apiKey.isNotEmpty) {
-      headers['Authorization'] = 'Bearer ${config.apiKey}';
-    }
+    _applyOpenAIAuthAndRelayParams(config, body, headers);
 
-    final request = http.Request('POST', uri);
-    request.headers.addAll(headers);
-    request.body = jsonEncode(body);
+    http.Request buildRequest() {
+      final request = http.Request('POST', uri);
+      request.headers.addAll(headers);
+      request.body = jsonEncode(body);
+      return request;
+    }
 
     if (logSse) {
       _logSseDiagnostic(
@@ -933,7 +969,15 @@ class ApiService {
       );
     }
 
-    final streamedResponse = await client.send(request).timeout(_timeout);
+    var streamedResponse = await client.send(buildRequest()).timeout(_timeout);
+    if (config.managed && streamedResponse.statusCode == 401) {
+      await streamedResponse.stream.bytesToString();
+      final refreshed = await _backend?.refreshAccessToken() ?? false;
+      if (refreshed) {
+        _applyOpenAIAuthAndRelayParams(config, body, headers);
+        streamedResponse = await client.send(buildRequest()).timeout(_timeout);
+      }
+    }
 
     if (logSse) {
       _logSseDiagnostic(

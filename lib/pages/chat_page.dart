@@ -28,6 +28,7 @@ import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/attachment_storage_service.dart';
 import '../services/api_service.dart';
+import '../services/backend_client.dart';
 import '../services/model_recognition_service.dart';
 import '../services/system_scroll_capture_service.dart';
 import '../services/tool_call_service.dart';
@@ -156,8 +157,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   final _screenshotCtrl = ScreenshotController();
   final _audioRecorder = AudioRecorder();
   final _attachmentStorage = const AttachmentStorageService();
-  final _api = ApiService();
-  final _recognition = ModelRecognitionService();
+  late final ApiService _api;
+  late final ModelRecognitionService _recognition;
   final _streamDraft = ValueNotifier<_StreamDraft>(const _StreamDraft());
   final _inputRevision = ValueNotifier<int>(0);
 
@@ -228,6 +229,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    final backend = context.read<BackendClient>();
+    _api = ApiService(backend: backend);
+    _recognition = ModelRecognitionService(api: _api);
     WidgetsBinding.instance.addObserver(this);
     _searchCtrl.addListener(_refreshSearchMatches);
     _speech = stt.SpeechToText();
@@ -1421,6 +1425,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           modelConfigs: context.read<ModelConfigProvider>(),
           settings: context.read<SettingsProvider>(),
           conversations: context.read<ConversationProvider>(),
+          backend: context.read<BackendClient>(),
           conversationId: cid,
         );
         final conv = cp.getConversation(cid);

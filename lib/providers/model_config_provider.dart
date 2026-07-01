@@ -1,7 +1,10 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import '../models/model_config.dart';
 import '../repositories/model_config_repository.dart';
+import '../services/backend_client.dart';
 import '../services/storage_v2_service.dart';
 
 /// 管理所有模型配置和分类内优先级。
@@ -9,6 +12,8 @@ import '../services/storage_v2_service.dart';
 /// 模型按 `category` 分组，再按 `priority` 升序排列。一个 [ModelConfig]
 /// 表示一个提供商配置，内部可以包含多个可启用的子模型。
 class ModelConfigProvider extends ChangeNotifier {
+  static const lynaiManagedIdPrefix = '__lynai_relay_';
+
   List<ModelConfig> _models = [];
   final _uuid = const Uuid();
   Future<void> _saveQueue = Future.value();
@@ -90,6 +95,7 @@ class ModelConfigProvider extends ChangeNotifier {
   void updateModel(ModelConfig config) {
     final index = _models.indexWhere((m) => m.id == config.id);
     if (index == -1) return;
+    if (_models[index].managed) return;
     _models[index] = config;
     _models.sort(_compareModels);
     _queueSaveModels();
@@ -98,10 +104,103 @@ class ModelConfigProvider extends ChangeNotifier {
 
   /// 删除模型配置
   void deleteModel(String modelId) {
+    if (_models.any((model) => model.id == modelId && model.managed)) return;
     final before = _models.length;
     _models.removeWhere((m) => m.id == modelId);
     if (_models.length == before) return;
     _queueSaveModels();
+    notifyListeners();
+  }
+
+  Future<bool> syncLynaiManagedProvider(BackendClient backend) async {
+    if (!backend.isConnected || (backend.accessToken ?? '').isEmpty) {
+      await removeLynaiManagedProviders();
+      return true;
+    }
+
+    final response = await backend.get('/relay/models');
+    if (response.statusCode != 200) {
+      debugPrint('同步 LynAI 模型失败: HTTP ${response.statusCode}');
+      if (response.statusCode == 401) {
+        await removeLynaiManagedProviders();
+      }
+      return false;
+    }
+
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map || decoded['data'] is! List) {
+      debugPrint('同步 LynAI 模型失败: 响应格式错误');
+      return false;
+    }
+
+    final grouped = <String, List<String>>{};
+    for (final item in decoded['data'] as List) {
+      if (item is! Map) continue;
+      final id = item['id']?.toString().trim() ?? '';
+      final apiType =
+          (item['api_type']?.toString().trim().toLowerCase() ?? 'openai');
+      if (id.isEmpty || apiType.isEmpty) continue;
+      grouped.putIfAbsent(apiType, () => <String>[]);
+      if (!grouped[apiType]!.contains(id)) {
+        grouped[apiType]!.add(id);
+      }
+    }
+
+    final managedIds = grouped.keys.map(_lynaiManagedId).toSet();
+    _models.removeWhere(
+      (model) => model.managed && !managedIds.contains(model.id),
+    );
+    final endpoint =
+        '${backend.backendUrl.replaceAll(RegExp(r'/+$'), '')}/relay';
+
+    for (final entry in grouped.entries) {
+      if (entry.value.isEmpty) continue;
+      final apiType = entry.key;
+      final id = _lynaiManagedId(apiType);
+      final existingIndex = _models.indexWhere((model) => model.id == id);
+      final existing = existingIndex == -1 ? null : _models[existingIndex];
+      final modelEntries = entry.value
+          .map((name) => ModelEntry(name: name, enabled: true))
+          .toList(growable: false);
+      final activeModel =
+          existing?.modelName != null &&
+              entry.value.contains(existing!.modelName)
+          ? existing.modelName
+          : entry.value.first;
+      final config = ModelConfig(
+        id: id,
+        name: apiType == 'openai' ? 'LynAI' : 'LynAI ($apiType)',
+        category: ModelConfig.categoryChat,
+        endpoint: endpoint,
+        apiKey: '',
+        modelName: activeModel,
+        apiType: apiType,
+        priority:
+            existing?.priority ??
+            nextPriorityForCategory(ModelConfig.categoryChat),
+        models: modelEntries,
+        managed: true,
+      );
+      if (existingIndex == -1) {
+        _models.add(config);
+      } else {
+        _models[existingIndex] = config;
+      }
+    }
+
+    _models.sort(_compareModels);
+    _queueSaveModels();
+    await _saveQueue;
+    notifyListeners();
+    return true;
+  }
+
+  Future<void> removeLynaiManagedProviders() async {
+    final before = _models.length;
+    _models.removeWhere((model) => model.managed);
+    if (_models.length == before) return;
+    _queueSaveModels();
+    await _saveQueue;
     notifyListeners();
   }
 
@@ -145,4 +244,7 @@ class ModelConfigProvider extends ChangeNotifier {
 
   /// 生成新的唯一ID
   String generateId() => _uuid.v4();
+
+  static String _lynaiManagedId(String apiType) =>
+      '$lynaiManagedIdPrefix${apiType}__';
 }

@@ -16,6 +16,7 @@ import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import 'api_service.dart';
+import 'backend_client.dart';
 import 'device_control_service.dart';
 import 'floating_assistant_bridge.dart';
 import 'tool_call_service.dart';
@@ -27,11 +28,14 @@ class FloatingChatSessionController extends ChangeNotifier {
     required ModelConfigProvider models,
     required FeatureProvider features,
     required PluginProvider plugins,
+    BackendClient? backend,
   }) : _settings = settings,
        _conversations = conversations,
        _models = models,
        _features = features,
-       _plugins = plugins;
+       _plugins = plugins,
+       _api = ApiService(backend: backend),
+       _backend = backend;
 
   static const _emptyAssistantReply = '模型没有返回内容，请稍后重试或检查模型配置。';
   static const _maxToolDepth = 6;
@@ -61,7 +65,8 @@ class FloatingChatSessionController extends ChangeNotifier {
   final ModelConfigProvider _models;
   final FeatureProvider _features;
   final PluginProvider _plugins;
-  final ApiService _api = ApiService();
+  final ApiService _api;
+  final BackendClient? _backend;
 
   StreamSubscription<StreamChunk>? _subscription;
   String? _conversationId;
@@ -229,7 +234,8 @@ class FloatingChatSessionController extends ChangeNotifier {
     _translationText = '';
     notifyListeners();
     final floating = _settings.settings.floatingAssistant;
-    final targetLanguage = _languageNames[floating.mangaTargetLanguage] ?? '简体中文';
+    final targetLanguage =
+        _languageNames[floating.mangaTargetLanguage] ?? '简体中文';
     final allBlocks = await _extractTextBlocks();
     _currentTotalBlocks = allBlocks.length;
     final blocks = allBlocks.take(_maxOverlayBlocks).toList();
@@ -255,31 +261,43 @@ class FloatingChatSessionController extends ChangeNotifier {
   }
 
   Future<void> onTranslationScrollSettled() async {
-    if (!_translationOverlayActive || _translationStreaming || _settleInFlight) return;
+    if (!_translationOverlayActive ||
+        _translationStreaming ||
+        _settleInFlight) {
+      return;
+    }
     _settleInFlight = true;
     try {
       final floating = _settings.settings.floatingAssistant;
-      final targetLanguage = _languageNames[floating.mangaTargetLanguage] ?? '简体中文';
+      final targetLanguage =
+          _languageNames[floating.mangaTargetLanguage] ?? '简体中文';
       final blocks = await _extractTextBlocks();
       if (blocks.isEmpty) return;
       // Double-check the session is still active after the await chain.
       if (!_translationOverlayActive) return;
-      final newBlocks = blocks.where((b) => !_translatedCache.containsKey(b['id'])).toList();
-      final cachedBlocks = blocks.where((b) => _translatedCache.containsKey(b['id'])).toList();
+      final newBlocks = blocks
+          .where((b) => !_translatedCache.containsKey(b['id']))
+          .toList();
+      final cachedBlocks = blocks
+          .where((b) => _translatedCache.containsKey(b['id']))
+          .toList();
       // H1: cap new translations so total overlay never exceeds the limit.
       final remaining = _maxOverlayBlocks - cachedBlocks.length;
-      final newBlocksCapped = remaining > 0 ? newBlocks.take(remaining).toList() : const <Map<String, dynamic>>[];
+      final newBlocksCapped = remaining > 0
+          ? newBlocks.take(remaining).toList()
+          : const <Map<String, dynamic>>[];
       final allBlocks = <Map<String, dynamic>>[];
       for (final b in cachedBlocks) {
-        allBlocks.add({
-          ...b,
-          'translatedText': _translatedCache[b['id']],
-        });
+        allBlocks.add({...b, 'translatedText': _translatedCache[b['id']]});
       }
       if (newBlocksCapped.isNotEmpty) {
         final model = _translationModel();
         if (model == null) return;
-        final translations = await _batchTranslate(model, newBlocksCapped, targetLanguage);
+        final translations = await _batchTranslate(
+          model,
+          newBlocksCapped,
+          targetLanguage,
+        );
         if (!_translationOverlayActive) return;
         for (final b in newBlocksCapped) {
           final translated = translations[b['id']] ?? '';
@@ -345,7 +363,12 @@ class FloatingChatSessionController extends ChangeNotifier {
         blocks.add({
           'id': _blockId(text, left, top, right, bottom),
           'originalText': text,
-          'bounds': {'left': left, 'top': top, 'right': right, 'bottom': bottom},
+          'bounds': {
+            'left': left,
+            'top': top,
+            'right': right,
+            'bottom': bottom,
+          },
           'packageName': packageName,
         });
       }
@@ -364,7 +387,13 @@ class FloatingChatSessionController extends ChangeNotifier {
   }
 
   @visibleForTesting
-  static String blockIdForTest(String text, int left, int top, int right, int bottom) {
+  static String blockIdForTest(
+    String text,
+    int left,
+    int top,
+    int right,
+    int bottom,
+  ) {
     return '$text|${left ~/ 8},${top ~/ 8},${right ~/ 8},${bottom ~/ 8}';
   }
 
@@ -386,12 +415,7 @@ class FloatingChatSessionController extends ChangeNotifier {
     return <String, dynamic>{
       'id': '$text|${left ~/ 8},${top ~/ 8},${right ~/ 8},${bottom ~/ 8}',
       'originalText': text,
-      'bounds': {
-        'left': left,
-        'top': top,
-        'right': right,
-        'bottom': bottom,
-      },
+      'bounds': {'left': left, 'top': top, 'right': right, 'bottom': bottom},
       'orientation': raw['orientation'] ?? 0,
       'boxW': (raw['boxW'] as num?)?.toInt() ?? 0,
       'boxH': (raw['boxH'] as num?)?.toInt() ?? 0,
@@ -428,7 +452,9 @@ class FloatingChatSessionController extends ChangeNotifier {
       return RegExp(r'^[A-Za-z0-9]$').hasMatch(text);
     }
     // 2 个字符：纯 ASCII 视作按钮短词剔除，其余保留。
-    if (text.length == 2 && RegExp(r'^[A-Za-z0-9]+$').hasMatch(text)) return true;
+    if (text.length == 2 && RegExp(r'^[A-Za-z0-9]+$').hasMatch(text)) {
+      return true;
+    }
     return false;
   }
 
@@ -457,16 +483,19 @@ class FloatingChatSessionController extends ChangeNotifier {
       );
       if (ocr['ok'] != true) return const [];
       final blocks = (ocr['result'] as List?) ?? const [];
-      return blocks.cast<Map>()
+      return blocks
+          .cast<Map>()
           .where((b) {
             final text = b['text']?.toString().trim() ?? '';
             return text.isNotEmpty && !_isLikelyUiLabel(text);
           })
-          .map((b) => normalizeOcrBlock(
+          .map(
+            (b) => normalizeOcrBlock(
               Map<String, dynamic>.from(b.cast<String, dynamic>()),
               screenshotPkg,
-            ))
-        .toList();
+            ),
+          )
+          .toList();
     } finally {
       // Always restore overlays; an exception mid-OCR would otherwise leave
       // the bubble/panel permanently gone.
@@ -495,14 +524,10 @@ class FloatingChatSessionController extends ChangeNotifier {
           .entries
           .map((e) => '[${e.key}] ${e.value['originalText']}')
           .join('\n');
-      final stream = _api.sendStreamRequest(
-        model,
-        [
-          {'role': 'system', 'content': systemPrompt},
-          {'role': 'user', 'content': userContent},
-        ],
-        thinking: false,
-      );
+      final stream = _api.sendStreamRequest(model, [
+        {'role': 'system', 'content': systemPrompt},
+        {'role': 'user', 'content': userContent},
+      ], thinking: false);
       var fullResponse = '';
       _subscription?.cancel();
       _subscription = stream.listen(
@@ -544,14 +569,10 @@ class FloatingChatSessionController extends ChangeNotifier {
           .entries
           .map((e) => '[${e.key}] ${e.value['originalText']}')
           .join('\n');
-      final response = await _api.sendChatRequest(
-        model,
-        [
-          {'role': 'system', 'content': systemPrompt},
-          {'role': 'user', 'content': userContent},
-        ],
-        thinking: false,
-      );
+      final response = await _api.sendChatRequest(model, [
+        {'role': 'system', 'content': systemPrompt},
+        {'role': 'user', 'content': userContent},
+      ], thinking: false);
       return _parseTranslations(response.content, blocks);
     } catch (e) {
       // C15: surface scroll-triggered failures instead of swallowing them.
@@ -563,7 +584,10 @@ class FloatingChatSessionController extends ChangeNotifier {
   }
 
   @visibleForTesting
-  static String buildTranslationPrompt(String targetLanguage, String packageName) {
+  static String buildTranslationPrompt(
+    String targetLanguage,
+    String packageName,
+  ) {
     final contextHint = packageName.isNotEmpty ? '当前页面来自应用: $packageName。' : '';
     return '你是屏幕文本翻译助手。$contextHint'
         '将用户提供的文本翻译成$targetLanguage。'
@@ -635,7 +659,9 @@ class FloatingChatSessionController extends ChangeNotifier {
     try {
       String json = response.trim();
       if (json.startsWith('```')) {
-        json = json.replaceAll(RegExp(r'^```(?:json)?\n?'), '').replaceAll(RegExp(r'\n?```$'), '');
+        json = json
+            .replaceAll(RegExp(r'^```(?:json)?\n?'), '')
+            .replaceAll(RegExp(r'\n?```$'), '');
       }
       final parsed = jsonDecode(json);
       if (parsed is List) {
@@ -644,7 +670,9 @@ class FloatingChatSessionController extends ChangeNotifier {
             final index = item['index'];
             final translation = item['translation']?.toString() ?? '';
             if (index != null && translation.isNotEmpty) {
-              final idx = index is int ? index : int.tryParse(index.toString()) ?? -1;
+              final idx = index is int
+                  ? index
+                  : int.tryParse(index.toString()) ?? -1;
               if (idx >= 0 && idx < blocks.length) {
                 result[blocks[idx]['id']] = translation;
               }
@@ -664,7 +692,10 @@ class FloatingChatSessionController extends ChangeNotifier {
     return result;
   }
 
-  void _updateOverlay(List<Map<String, dynamic>> blocks, FloatingAssistantSettings floating) {
+  void _updateOverlay(
+    List<Map<String, dynamic>> blocks,
+    FloatingAssistantSettings floating,
+  ) {
     FloatingAssistantBridge.instance.updateTranslationOverlay({
       'blocks': blocks,
       'style': floating.mangaOverlayStyle,
@@ -675,8 +706,12 @@ class FloatingChatSessionController extends ChangeNotifier {
 
   Future<void> _saveToHistory(List<Map<String, dynamic>> blocks) async {
     if (blocks.isEmpty) return;
-    final original = blocks.map((b) => b['originalText']?.toString() ?? '').join(' | ');
-    final translated = blocks.map((b) => b['translatedText']?.toString() ?? '').join(' | ');
+    final original = blocks
+        .map((b) => b['originalText']?.toString() ?? '')
+        .join(' | ');
+    final translated = blocks
+        .map((b) => b['translatedText']?.toString() ?? '')
+        .join(' | ');
     final packageName = blocks.first['packageName']?.toString() ?? '';
     _translationHistory.insert(0, {
       'timestamp': DateTime.now().millisecondsSinceEpoch,
@@ -685,12 +720,18 @@ class FloatingChatSessionController extends ChangeNotifier {
       'packageName': packageName,
     });
     if (_translationHistory.length > _maxHistoryEntries) {
-      _translationHistory.removeRange(_maxHistoryEntries, _translationHistory.length);
+      _translationHistory.removeRange(
+        _maxHistoryEntries,
+        _translationHistory.length,
+      );
     }
     try {
       if (!Platform.isAndroid) return;
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_translationHistoryKey, jsonEncode(_translationHistory));
+      await prefs.setString(
+        _translationHistoryKey,
+        jsonEncode(_translationHistory),
+      );
     } catch (e) {
       debugPrint('Failed to save translation history: $e');
     }
@@ -704,7 +745,9 @@ class FloatingChatSessionController extends ChangeNotifier {
       if (raw != null) {
         final list = jsonDecode(raw) as List;
         _translationHistory.clear();
-        _translationHistory.addAll(list.cast<Map>().map(Map<String, dynamic>.from));
+        _translationHistory.addAll(
+          list.cast<Map>().map(Map<String, dynamic>.from),
+        );
       }
     } catch (e) {
       debugPrint('Failed to load translation history: $e');
@@ -984,6 +1027,7 @@ class FloatingChatSessionController extends ChangeNotifier {
           modelConfigs: _models,
           settings: _settings,
           conversations: _conversations,
+          backend: _backend,
           conversationId: conversationId,
           allowScreenContextTool: screenContextEnabled,
         );

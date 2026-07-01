@@ -113,6 +113,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         models: context.read<ModelConfigProvider>(),
         features: context.read<FeatureProvider>(),
         plugins: context.read<PluginProvider>(),
+        backend: context.read<BackendClient>(),
       );
     }
   }
@@ -189,6 +190,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       }
 
       await accountProvider.load();
+      await modelProvider.syncLynaiManagedProvider(backendClient);
 
       // Load sync state and auto-download if logged in.
       await syncProvider.loadLastSeq();

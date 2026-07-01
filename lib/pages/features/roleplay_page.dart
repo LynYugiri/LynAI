@@ -17,7 +17,7 @@ class _RoleplayPageState extends State<_RoleplayPage> {
   final _inputCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
   final _focusNode = FocusNode();
-  final _service = RoleplayService();
+  late final RoleplayService _service;
   final _attachmentStorage = const AttachmentStorageService();
   final _screenshotCtrl = ScreenshotController();
   final List<_RoleplayPendingAttachment> _pendingAttachments = [];
@@ -37,6 +37,12 @@ class _RoleplayPageState extends State<_RoleplayPage> {
       context.read<RoleplayProvider>().runState !=
           RoleplayRunState.waitingUser &&
       context.read<RoleplayProvider>().runState != RoleplayRunState.error;
+
+  @override
+  void initState() {
+    super.initState();
+    _service = RoleplayService(backend: context.read<BackendClient>());
+  }
 
   @override
   void dispose() {

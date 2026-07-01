@@ -18,6 +18,8 @@
 
 不同协议的请求和返回差异在 `ApiService` 内部消化。页面只处理标准化类型。
 
+`managed=true` 的 LynAI 托管 Provider 走后端中转：endpoint 为 `BackendClient.backendUrl + '/relay'`，Chat 请求发送到 `/relay/chat`，鉴权使用用户 JWT，并在 JSON body 中注入 `api_type`（例如 `openai`）。普通 OpenAI 兼容 Provider 仍发送到 `/chat/completions` 并使用用户填写的 API key。
+
 ### 支持协议
 
 | `apiType` | 用途 | 流式格式 |

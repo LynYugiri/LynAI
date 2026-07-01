@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/account_provider.dart';
 import '../providers/plugin_provider.dart';
+import '../providers/model_config_provider.dart';
 import '../providers/recycle_bin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/backend_client.dart';
@@ -234,9 +235,7 @@ class _SettingsPageState extends State<SettingsPage> {
             actions: [
               TextButton(
                 onPressed: () {
-                  backend.configure('');
-                  settingsProvider.updateBackendUrl(null);
-                  Navigator.pop(ctx, null);
+                  Navigator.pop(ctx, '');
                 },
                 child: const Text('断开'),
               ),
@@ -256,6 +255,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final url = result.isEmpty ? null : result;
     backend.configure(url ?? '');
     settingsProvider.updateBackendUrl(url);
+    await context.read<ModelConfigProvider>().syncLynaiManagedProvider(backend);
   }
 
   /// 数据同步副标题。
