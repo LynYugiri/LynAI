@@ -17,17 +17,24 @@ class _SchedulePageState extends State<_SchedulePage> {
   static const _dayHeaderHeight = 46.0;
   static const _minDayZoom = 0.7;
   static const _maxDayZoom = 1.8;
+  static const _dayWindowSize = 61;
+  static const _dayWindowHalf = _dayWindowSize ~/ 2;
+  static const _dayWindowSlideBatch = 14;
+  static const _dayWindowEdgeColumns = 4;
 
   final _dayScrollController = ScrollController(
     initialScrollOffset: _dayInitialHour * _baseHourRowHeight,
   );
   final _dayHorizontalController = ScrollController(
-    initialScrollOffset: 14 * _dayBaseColumnWidth,
+    initialScrollOffset: _dayWindowHalf * _dayBaseColumnWidth,
   );
   final _dayHeaderHorizontalController = ScrollController(
-    initialScrollOffset: 14 * _dayBaseColumnWidth,
+    initialScrollOffset: _dayWindowHalf * _dayBaseColumnWidth,
   );
   bool _syncingDayHorizontalScroll = false;
+  bool _slidingDayWindow = false;
+  bool _dayWindowNeedsFocusCentering = false;
+  DateTime? _dayWindowStart;
   double _dayZoom = 1.0;
   double _dayScaleStartZoom = 1.0;
   double? _dayScaleStartDistance;
@@ -47,6 +54,7 @@ class _SchedulePageState extends State<_SchedulePage> {
         _dayHorizontalController,
         _dayHeaderHorizontalController,
       );
+      _maybeSlideDayWindow();
     });
     _dayHeaderHorizontalController.addListener(() {
       _syncDayHorizontalScroll(
@@ -81,6 +89,183 @@ class _SchedulePageState extends State<_SchedulePage> {
     );
     target.jumpTo(offset.toDouble());
     _syncingDayHorizontalScroll = false;
+  }
+
+  void _ensureDayWindow() {
+    if (_dayWindowStart != null) return;
+    _dayWindowStart = _dateOnly(
+      _focus,
+    ).subtract(const Duration(days: _dayWindowHalf));
+    _dayWindowNeedsFocusCentering = true;
+  }
+
+  void _maybeSlideDayWindow() {
+    if (_slidingDayWindow ||
+        _mode != _CalendarMode.day ||
+        !_dayHorizontalController.hasClients ||
+        _dayWindowStart == null) {
+      return;
+    }
+    final position = _dayHorizontalController.position;
+    final dayColumnWidth = _baseDayColumnWidthForCurrentZoom;
+    final threshold = _dayWindowEdgeColumns * dayColumnWidth;
+    if (position.pixels <= threshold) {
+      _slideDayWindow(-_dayWindowSlideBatch, _dayWindowSlideBatch);
+    } else if (position.pixels >= position.maxScrollExtent - threshold) {
+      _slideDayWindow(_dayWindowSlideBatch, -_dayWindowSlideBatch);
+    }
+  }
+
+  double get _baseDayColumnWidthForCurrentZoom =>
+      _dayBaseColumnWidth * _dayZoom;
+
+  void _slideDayWindow(int startDeltaDays, int offsetDeltaColumns) {
+    final start = _dayWindowStart;
+    if (start == null) return;
+    final offset = _dayHorizontalController.offset;
+    final offsetDelta = offsetDeltaColumns * _baseDayColumnWidthForCurrentZoom;
+    _slidingDayWindow = true;
+    setState(() {
+      _dayWindowStart = start.add(Duration(days: startDeltaDays));
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_dayHorizontalController.hasClients) {
+        _slidingDayWindow = false;
+        return;
+      }
+      _jumpDayHorizontalTo(offset + offsetDelta);
+      _slidingDayWindow = false;
+    });
+  }
+
+  void _jumpDayHorizontalTo(double value) {
+    if (!_dayHorizontalController.hasClients) return;
+    final position = _dayHorizontalController.position;
+    final target = value
+        .clamp(position.minScrollExtent, position.maxScrollExtent)
+        .toDouble();
+    _syncingDayHorizontalScroll = true;
+    _dayHorizontalController.jumpTo(target);
+    if (_dayHeaderHorizontalController.hasClients) {
+      final headerPosition = _dayHeaderHorizontalController.position;
+      _dayHeaderHorizontalController.jumpTo(
+        target
+            .clamp(
+              headerPosition.minScrollExtent,
+              headerPosition.maxScrollExtent,
+            )
+            .toDouble(),
+      );
+    }
+    _syncingDayHorizontalScroll = false;
+  }
+
+  Future<void> _animateDayHorizontalTo(double value) async {
+    if (!_dayHorizontalController.hasClients) return;
+    final position = _dayHorizontalController.position;
+    final target = value
+        .clamp(position.minScrollExtent, position.maxScrollExtent)
+        .toDouble();
+    await _dayHorizontalController.animateTo(
+      target,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  void _animateDayBy(int deltaDays) {
+    _ensureDayWindow();
+    if (!_dayHorizontalController.hasClients) {
+      setState(() => _focus = _dateOnly(_focus.add(Duration(days: deltaDays))));
+      return;
+    }
+    _animateDayHorizontalTo(
+      _dayHorizontalController.offset +
+          deltaDays * _baseDayColumnWidthForCurrentZoom,
+    );
+  }
+
+  void _updateFocusFromDayViewport() {
+    if (_mode != _CalendarMode.day ||
+        _dayWindowStart == null ||
+        !_dayHorizontalController.hasClients) {
+      return;
+    }
+    final position = _dayHorizontalController.position;
+    final center = position.pixels + position.viewportDimension / 2;
+    final index = (center / _baseDayColumnWidthForCurrentZoom)
+        .floor()
+        .clamp(0, _dayWindowSize - 1)
+        .toInt();
+    final next = _dayWindowStart!.add(Duration(days: index));
+    if (!_sameDate(next, _focus)) {
+      setState(() => _focus = _dateOnly(next));
+    }
+  }
+
+  void _goToNow() {
+    final now = DateTime.now();
+    final today = _dateOnly(now);
+    _ensureDayWindow();
+    final start = _dayWindowStart!;
+    final index = today.difference(start).inDays;
+    if (index < 0 || index >= _dayWindowSize) {
+      setState(() {
+        _focus = today;
+        _dayWindowStart = today.subtract(const Duration(days: _dayWindowHalf));
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _scrollDayToNow(now);
+      });
+    } else {
+      setState(() => _focus = today);
+      _scrollDayToNow(now);
+    }
+  }
+
+  void _scrollDayToNow(DateTime now) {
+    _scrollDayHorizontallyTo(_dateOnly(now));
+    _scrollDayVerticallyTo(now);
+  }
+
+  void _scrollDayHorizontallyTo(DateTime date) {
+    final target = _dayHorizontalTargetFor(date);
+    if (target == null) return;
+    _animateDayHorizontalTo(target);
+  }
+
+  void _jumpDayHorizontallyTo(DateTime date) {
+    final target = _dayHorizontalTargetFor(date);
+    if (target == null) return;
+    _jumpDayHorizontalTo(target);
+  }
+
+  double? _dayHorizontalTargetFor(DateTime date) {
+    final start = _dayWindowStart;
+    if (start == null || !_dayHorizontalController.hasClients) return null;
+    final index = _dateOnly(date).difference(start).inDays;
+    if (index < 0 || index >= _dayWindowSize) return null;
+    final position = _dayHorizontalController.position;
+    final dayColumnWidth = _baseDayColumnWidthForCurrentZoom;
+    return index * dayColumnWidth -
+        (position.viewportDimension - dayColumnWidth) / 2;
+  }
+
+  void _scrollDayVerticallyTo(DateTime dateTime) {
+    if (!_dayScrollController.hasClients) return;
+    final position = _dayScrollController.position;
+    final hourRowHeight = _baseHourRowHeight * _dayZoom;
+    final top =
+        dateTime.hour * hourRowHeight + dateTime.minute / 60 * hourRowHeight;
+    final target = top - position.viewportDimension / 2;
+    _dayScrollController.animateTo(
+      target
+          .clamp(position.minScrollExtent, position.maxScrollExtent)
+          .toDouble(),
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   void _setDayZoom(double value) {
@@ -140,6 +325,12 @@ class _SchedulePageState extends State<_SchedulePage> {
   }
 
   bool _onScheduleScroll(ScrollNotification notification) {
+    if (notification.metrics.axis == Axis.horizontal) {
+      if (notification is ScrollEndNotification) {
+        _updateFocusFromDayViewport();
+      }
+      return false;
+    }
     if (notification.metrics.axis != Axis.vertical) return false;
     if (notification is ScrollUpdateNotification) {
       final delta = notification.scrollDelta;
@@ -202,7 +393,7 @@ class _SchedulePageState extends State<_SchedulePage> {
                       ),
                     ],
                     selected: {_mode},
-                    onSelectionChanged: (v) => setState(() => _mode = v.first),
+                    onSelectionChanged: (v) => _setCalendarMode(v.first),
                   ),
                   const SizedBox(width: 8),
                   _AddMenuButton(
@@ -288,10 +479,23 @@ class _SchedulePageState extends State<_SchedulePage> {
     );
   }
 
+  void _setCalendarMode(_CalendarMode mode) {
+    if (mode == _mode) return;
+    setState(() {
+      _mode = mode;
+      if (mode == _CalendarMode.day) {
+        _dayWindowStart = null;
+      }
+    });
+  }
+
   void _move(int delta) {
+    if (_mode == _CalendarMode.day) {
+      _animateDayBy(delta);
+      return;
+    }
     setState(() {
       _focus = switch (_mode) {
-        _CalendarMode.day => _focus.add(Duration(days: delta)),
         _CalendarMode.year => DateTime(_focus.year + delta, 1, 1),
         _ => DateTime(_focus.year, _focus.month + delta, 1),
       };
@@ -695,8 +899,19 @@ class _SchedulePageState extends State<_SchedulePage> {
   }
 
   Widget _dayView(List<ScheduleItem> items) {
-    final startDate = _focus.subtract(const Duration(days: 14));
-    final days = List.generate(42, (i) => startDate.add(Duration(days: i)));
+    _ensureDayWindow();
+    if (_dayWindowNeedsFocusCentering) {
+      _dayWindowNeedsFocusCentering = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _jumpDayHorizontallyTo(_focus);
+      });
+    }
+    final windowStart = _dayWindowStart!;
+    final days = List.generate(
+      _dayWindowSize,
+      (i) => windowStart.add(Duration(days: i)),
+    );
     final scheme = Theme.of(context).colorScheme;
     final hourRowHeight = _baseHourRowHeight * _dayZoom;
     final dayColumnWidth = _dayBaseColumnWidth * _dayZoom;
@@ -722,93 +937,55 @@ class _SchedulePageState extends State<_SchedulePage> {
             ),
           ),
           clipBehavior: Clip.antiAlias,
-          child: Column(
+          child: Stack(
             children: [
-              SizedBox(
-                height: _dayHeaderHeight,
-                child: Row(
-                  children: [
-                    SizedBox(
-                      width: _timeColumnWidth,
-                      child: Center(
-                        child: Text(
-                          '${(_dayZoom * 100).round()}%',
-                          style: TextStyle(
-                            fontSize: 10.5,
-                            color: scheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w700,
+              Column(
+                children: [
+                  SizedBox(
+                    height: _dayHeaderHeight,
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: _timeColumnWidth,
+                          child: Center(
+                            child: Text(
+                              '${(_dayZoom * 100).round()}%',
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                color: scheme.onSurfaceVariant,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    ),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        controller: _dayHeaderHorizontalController,
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: days
-                              .map(
-                                (date) => _dayHeaderCell(
-                                  date,
-                                  scheme,
-                                  width: dayColumnWidth,
-                                ),
-                              )
-                              .toList(),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: SingleChildScrollView(
-                  controller: _dayScrollController,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SizedBox(
-                        width: _timeColumnWidth,
-                        height: timelineHeight,
-                        child: Stack(
-                          children: [
-                            for (var h = 0; h < 24; h++)
-                              Positioned(
-                                top: h * hourRowHeight,
-                                left: 0,
-                                right: 0,
-                                child: SizedBox(
-                                  height: hourRowHeight,
-                                  child: Align(
-                                    alignment: Alignment.topCenter,
-                                    child: Padding(
-                                      padding: const EdgeInsets.only(top: 2),
-                                      child: Text(
-                                        '${h.toString().padLeft(2, '0')}:00',
-                                        style: TextStyle(
-                                          fontSize: 10.5,
-                                          color: scheme.onSurfaceVariant,
-                                        ),
-                                      ),
+                        Expanded(
+                          child: SingleChildScrollView(
+                            controller: _dayHeaderHorizontalController,
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: days
+                                  .map(
+                                    (date) => _dayHeaderCell(
+                                      date,
+                                      scheme,
+                                      width: dayColumnWidth,
                                     ),
-                                  ),
-                                ),
-                              ),
-                            if (showNow)
-                              _nowTimeLabel(
-                                now,
-                                scheme,
-                                hourRowHeight: hourRowHeight,
-                              ),
-                          ],
+                                  )
+                                  .toList(),
+                            ),
+                          ),
                         ),
-                      ),
-                      Expanded(
-                        child: SingleChildScrollView(
-                          controller: _dayHorizontalController,
-                          scrollDirection: Axis.horizontal,
-                          child: SizedBox(
-                            width: timelineWidth,
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      controller: _dayScrollController,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SizedBox(
+                            width: _timeColumnWidth,
                             height: timelineHeight,
                             child: Stack(
                               children: [
@@ -817,57 +994,138 @@ class _SchedulePageState extends State<_SchedulePage> {
                                     top: h * hourRowHeight,
                                     left: 0,
                                     right: 0,
-                                    child: Divider(
-                                      height: 1,
-                                      color: scheme.outlineVariant.withValues(
-                                        alpha: 0.45,
-                                      ),
-                                    ),
-                                  ),
-                                for (var i = 0; i < days.length; i++)
-                                  Positioned(
-                                    left: i * dayColumnWidth,
-                                    top: 0,
-                                    width: dayColumnWidth,
-                                    height: timelineHeight,
-                                    child: DecoratedBox(
-                                      decoration: BoxDecoration(
-                                        border: Border(
-                                          left: BorderSide(
-                                            color: scheme.outlineVariant
-                                                .withValues(alpha: 0.35),
+                                    child: SizedBox(
+                                      height: hourRowHeight,
+                                      child: Align(
+                                        alignment: Alignment.topCenter,
+                                        child: Padding(
+                                          padding: const EdgeInsets.only(
+                                            top: 2,
+                                          ),
+                                          child: Text(
+                                            '${h.toString().padLeft(2, '0')}:00',
+                                            style: TextStyle(
+                                              fontSize: 10.5,
+                                              color: scheme.onSurfaceVariant,
+                                            ),
                                           ),
                                         ),
                                       ),
                                     ),
                                   ),
-                                for (var i = 0; i < days.length; i++)
-                                  ..._itemsOnDate(items, days[i]).map(
-                                    (item) => _dayScheduleBlock(
-                                      item,
-                                      days[i],
-                                      scheme,
-                                      hourRowHeight: hourRowHeight,
-                                      left: i * dayColumnWidth + 2,
-                                      width: dayColumnWidth - 4,
-                                    ),
+                                if (showNow)
+                                  _nowTimeLabel(
+                                    now,
+                                    scheme,
+                                    hourRowHeight: hourRowHeight,
                                   ),
-                                for (var i = 0; i < days.length; i++)
-                                  if (_sameDate(days[i], now))
-                                    _nowLine(
-                                      now,
-                                      scheme,
-                                      left: i * dayColumnWidth,
-                                      width: dayColumnWidth,
-                                      hourRowHeight: hourRowHeight,
-                                    ),
                               ],
                             ),
                           ),
-                        ),
+                          Expanded(
+                            child: SingleChildScrollView(
+                              controller: _dayHorizontalController,
+                              scrollDirection: Axis.horizontal,
+                              child: SizedBox(
+                                width: timelineWidth,
+                                height: timelineHeight,
+                                child: Stack(
+                                  children: [
+                                    for (var h = 0; h < 24; h++)
+                                      Positioned(
+                                        top: h * hourRowHeight,
+                                        left: 0,
+                                        right: 0,
+                                        child: Divider(
+                                          height: 1,
+                                          color: scheme.outlineVariant
+                                              .withValues(alpha: 0.45),
+                                        ),
+                                      ),
+                                    for (var i = 0; i < days.length; i++)
+                                      Positioned(
+                                        left: i * dayColumnWidth,
+                                        top: 0,
+                                        width: dayColumnWidth,
+                                        height: timelineHeight,
+                                        child: DecoratedBox(
+                                          decoration: BoxDecoration(
+                                            border: Border(
+                                              left: BorderSide(
+                                                color: scheme.outlineVariant
+                                                    .withValues(alpha: 0.35),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    for (var i = 0; i < days.length; i++)
+                                      ..._itemsOnDate(items, days[i]).map(
+                                        (item) => _dayScheduleBlock(
+                                          item,
+                                          days[i],
+                                          scheme,
+                                          hourRowHeight: hourRowHeight,
+                                          left: i * dayColumnWidth + 2,
+                                          width: dayColumnWidth - 4,
+                                        ),
+                                      ),
+                                    for (var i = 0; i < days.length; i++)
+                                      if (_sameDate(days[i], now))
+                                        _nowLine(
+                                          now,
+                                          scheme,
+                                          left: i * dayColumnWidth,
+                                          width: dayColumnWidth,
+                                          hourRowHeight: hourRowHeight,
+                                        ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
+                ],
+              ),
+              Positioned(
+                right: 12,
+                bottom: 12,
+                child: _backToNowButton(scheme),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _backToNowButton(ColorScheme scheme) {
+    return Material(
+      color: scheme.primaryContainer,
+      elevation: 3,
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        onTap: _goToNow,
+        borderRadius: BorderRadius.circular(999),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.my_location,
+                size: 18,
+                color: scheme.onPrimaryContainer,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '现在',
+                style: TextStyle(
+                  color: scheme.onPrimaryContainer,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
             ],
