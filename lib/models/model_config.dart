@@ -169,6 +169,12 @@ class ModelConfig {
   /// 是否由 LynAI 托管同步。托管配置不可被用户改写 endpoint/API key。
   final bool managed;
 
+  /// 用户是否在本机关闭了该托管配置。
+  final bool disabledByUser;
+
+  /// 用户对远端托管配置的逐字段覆盖值，优先级高于服务端下发值。
+  final Map<String, dynamic> userOverrides;
+
   /// 创建一个模型配置实例。
   ModelConfig({
     required this.id,
@@ -183,14 +189,18 @@ class ModelConfig {
     this.temperature,
     this.topP,
     this.managed = false,
+    this.disabledByUser = false,
     Map<String, dynamic>? extraParams,
+    Map<String, dynamic>? userOverrides,
     List<ModelEntry>? models,
   }) : extraParams = extraParams ?? {},
+       userOverrides = userOverrides ?? {},
        models = models ?? [ModelEntry(name: modelName, enabled: true)];
 
   /// 所有已启用的子模型名称列表。
-  List<String> get enabledModelNames =>
-      models.where((m) => m.enabled).map((m) => m.name).toList();
+  List<String> get enabledModelNames => disabledByUser
+      ? const []
+      : models.where((m) => m.enabled).map((m) => m.name).toList();
 
   /// 该提供商是否配置了多个子模型。
   bool get hasMultipleModels => models.length > 1;
@@ -206,22 +216,38 @@ class ModelConfig {
   }
 
   /// 生效的最大 Token 数，优先使用子模型设置。
-  int? get effectiveMaxTokens => activeEntry?.maxTokens ?? maxTokens;
+  int? get effectiveMaxTokens =>
+      (userOverrides['maxTokens'] as num?)?.toInt() ??
+      activeEntry?.maxTokens ??
+      maxTokens;
 
   /// 生效的温度参数，优先使用子模型设置。
-  double? get effectiveTemperature => activeEntry?.temperature ?? temperature;
+  double? get effectiveTemperature =>
+      (userOverrides['temperature'] as num?)?.toDouble() ??
+      activeEntry?.temperature ??
+      temperature;
 
   /// 生效的 Top-P 采样参数，优先使用子模型设置。
-  double? get effectiveTopP => activeEntry?.topP ?? topP;
+  double? get effectiveTopP =>
+      (userOverrides['topP'] as num?)?.toDouble() ?? activeEntry?.topP ?? topP;
 
   /// 当前激活模型是否支持视觉输入。
-  bool get supportsVision => activeEntry?.supportsVision ?? true;
+  bool get supportsVision =>
+      userOverrides['supportsVision'] as bool? ??
+      activeEntry?.supportsVision ??
+      true;
 
   /// 当前激活模型是否支持思考过程输出。
-  bool get supportsThinking => activeEntry?.supportsThinking ?? true;
+  bool get supportsThinking =>
+      userOverrides['supportsThinking'] as bool? ??
+      activeEntry?.supportsThinking ??
+      true;
 
   /// 当前激活模型是否支持工具调用。
-  bool get supportsTools => activeEntry?.supportsTools ?? true;
+  bool get supportsTools =>
+      userOverrides['supportsTools'] as bool? ??
+      activeEntry?.supportsTools ??
+      true;
 
   /// 创建当前实例的副本，可选择性更新部分字段。
   ModelConfig copyWith({
@@ -237,7 +263,9 @@ class ModelConfig {
     Object? temperature = _sentinel,
     Object? topP = _sentinel,
     bool? managed,
+    bool? disabledByUser,
     Map<String, dynamic>? extraParams,
+    Map<String, dynamic>? userOverrides,
     List<ModelEntry>? models,
   }) {
     return ModelConfig(
@@ -257,7 +285,9 @@ class ModelConfig {
           : temperature as double?,
       topP: identical(topP, _sentinel) ? this.topP : topP as double?,
       managed: managed ?? this.managed,
+      disabledByUser: disabledByUser ?? this.disabledByUser,
       extraParams: extraParams ?? this.extraParams,
+      userOverrides: userOverrides ?? this.userOverrides,
       models: models ?? this.models,
     );
   }
@@ -312,8 +342,12 @@ class ModelConfig {
       temperature: temperature,
       topP: topP,
       managed: json['managed'] == true,
+      disabledByUser: json['disabledByUser'] == true,
       extraParams: json['extraParams'] is Map
           ? Map<String, dynamic>.from(json['extraParams'])
+          : {},
+      userOverrides: json['userOverrides'] is Map
+          ? Map<String, dynamic>.from(json['userOverrides'])
           : {},
       models: entries,
     );
@@ -335,7 +369,9 @@ class ModelConfig {
       if (temperature != null) 'temperature': temperature,
       if (topP != null) 'topP': topP,
       if (managed) 'managed': managed,
+      if (disabledByUser) 'disabledByUser': disabledByUser,
       if (extraParams.isNotEmpty) 'extraParams': extraParams,
+      if (userOverrides.isNotEmpty) 'userOverrides': userOverrides,
     };
   }
 }

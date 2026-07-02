@@ -846,7 +846,9 @@ class FloatingChatSessionController extends ChangeNotifier {
   }
 
   ModelConfig? _currentModel() {
-    final chatModels = _models.modelsByCategory(ModelConfig.categoryChat);
+    final chatModels = _models.enabledModelsByCategory(
+      ModelConfig.categoryChat,
+    );
     if (chatModels.isEmpty) return null;
     final conversationId = _conversationId;
     if (conversationId != null) {

@@ -63,15 +63,19 @@ class SettingsProvider extends ChangeNotifier {
   void repairMediaModelSelections(List<ModelConfig> models) {
     final chatModels = models
         .where((m) => m.category == ModelConfig.categoryChat)
+        .where((m) => m.enabledModelNames.isNotEmpty)
         .toList(growable: false);
     final speechModels = models
         .where((m) => m.category == ModelConfig.categorySpeech)
+        .where((m) => m.enabledModelNames.isNotEmpty)
         .toList(growable: false);
     final ocrModels = models
         .where((m) => m.category == ModelConfig.categoryOcr)
+        .where((m) => m.enabledModelNames.isNotEmpty)
         .toList(growable: false);
     final imageGenerationModels = models
         .where((m) => m.category == ModelConfig.categoryImageGeneration)
+        .where((m) => m.enabledModelNames.isNotEmpty)
         .toList(growable: false);
 
     final nextSpeechId = _firstValidModelId(

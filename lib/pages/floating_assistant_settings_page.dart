@@ -388,10 +388,9 @@ class _TranslationModelTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final models = context.watch<ModelConfigProvider>().models;
-    final chatModels = models
-        .where((m) => m.category == ModelConfig.categoryChat)
-        .toList();
+    final chatModels = context
+        .watch<ModelConfigProvider>()
+        .enabledModelsByCategory(ModelConfig.categoryChat);
     final currentId = settings.translationModelId;
     final selected = currentId == null || currentId.isEmpty
         ? null

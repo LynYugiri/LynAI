@@ -15,6 +15,7 @@ import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/sync_provider.dart';
 import '../services/backup_service.dart';
 import '../services/storage_v2_service.dart';
 import '../utils/file_picker_io_utils.dart';
@@ -83,6 +84,8 @@ class _DataManagementPageState extends State<DataManagementPage> {
         padding: const EdgeInsets.all(16),
         children: [
           _InfoCard(),
+          const SizedBox(height: 12),
+          _SyncCard(onManualSync: () => _manualSync(context)),
           const SizedBox(height: 12),
           _ExportCard(
             selection: exportSelection,
@@ -253,6 +256,74 @@ class _DataManagementPageState extends State<DataManagementPage> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message), showCloseIcon: true));
+  }
+
+  Future<void> _manualSync(BuildContext context) async {
+    final sync = context.read<SyncProvider>();
+    if (!sync.canSync) {
+      _showSnack('请先连接服务端并登录');
+      return;
+    }
+    await sync.manualSync();
+  }
+}
+
+class _SyncCard extends StatelessWidget {
+  const _SyncCard({required this.onManualSync});
+
+  final VoidCallback onManualSync;
+
+  @override
+  Widget build(BuildContext context) {
+    final sync = context.watch<SyncProvider>();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.sync, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    '数据同步',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                  ),
+                ),
+                FilledButton.icon(
+                  onPressed: sync.syncing ? null : onManualSync,
+                  icon: sync.syncing
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.cloud_sync_outlined),
+                  label: Text(sync.syncing ? '同步中' : '立即同步'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(_syncSubtitle(sync)),
+            const SizedBox(height: 4),
+            Text(
+              '从服务端拉取增量并上传本地变更。',
+              style: TextStyle(color: Theme.of(context).colorScheme.outline),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _syncSubtitle(SyncProvider sync) {
+    if (!sync.canSync) return '未连接服务端';
+    if (sync.syncing) return '同步中…';
+    final last = sync.lastSyncAt;
+    if (last == null) return '尚未同步';
+    return '上次同步: ${last.month}/${last.day} ${last.hour}:${last.minute.toString().padLeft(2, '0')}';
   }
 }
 

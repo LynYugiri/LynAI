@@ -121,7 +121,7 @@ class ModelRecognitionService {
     final id = modelId?.trim();
     if (id == null || id.isEmpty) throw Exception('请先选择文件识别模型');
     final model = findModelConfigById(
-      modelConfigs.modelsByCategory(ModelConfig.categoryChat),
+      modelConfigs.enabledModelsByCategory(ModelConfig.categoryChat),
       id,
     );
     if (model == null) throw Exception('文件识别模型已不存在，请在设置中重新选择');
@@ -194,7 +194,9 @@ class ModelRecognitionService {
           if (text.trim().isNotEmpty) results.add(text.trim());
         } else {
           final err = res['error'];
-          final msg = err is Map ? err['message']?.toString() ?? '未知错误' : '未知错误';
+          final msg = err is Map
+              ? err['message']?.toString() ?? '未知错误'
+              : '未知错误';
           results.add('[${file.name} OCR 识别失败: $msg]');
         }
       } catch (e) {
@@ -234,41 +236,47 @@ class ModelRecognitionService {
                 rect = Rect.fromLTRB(l, t, r, bo);
               }
             }
-            textBlocks.add(OcrTextBlock(
-              id: 'ocr_$i',
-              text: text,
-              bounds: rect,
-              polygon: const [],
-              confidence: (b['prob'] as num?)?.toDouble(),
-              orientation: b['orientation'] == 1
-                  ? OcrTextOrientation.vertical
-                  : OcrTextOrientation.horizontal,
-            ));
+            textBlocks.add(
+              OcrTextBlock(
+                id: 'ocr_$i',
+                text: text,
+                bounds: rect,
+                polygon: const [],
+                confidence: (b['prob'] as num?)?.toDouble(),
+                orientation: b['orientation'] == 1
+                    ? OcrTextOrientation.vertical
+                    : OcrTextOrientation.horizontal,
+              ),
+            );
           }
-          results.add(OcrRecognitionResult(
-            angle: 0,
-            imageWidth: 0,
-            imageHeight: 0,
-            blocks: textBlocks,
-          ));
+          results.add(
+            OcrRecognitionResult(
+              angle: 0,
+              imageWidth: 0,
+              imageHeight: 0,
+              blocks: textBlocks,
+            ),
+          );
         }
       } catch (e) {
         // 跳过单张图片失败，但至少记录第一条错误
         if (results.isEmpty) {
-          results.add(OcrRecognitionResult(
-            angle: 0,
-            imageWidth: 0,
-            imageHeight: 0,
-            blocks: [
-              OcrTextBlock(
-                id: 'error',
-                text: '[${file.name} OCR 识别失败: $e]',
-                bounds: null,
-                polygon: const [],
-                orientation: OcrTextOrientation.unknown,
-              ),
-            ],
-          ));
+          results.add(
+            OcrRecognitionResult(
+              angle: 0,
+              imageWidth: 0,
+              imageHeight: 0,
+              blocks: [
+                OcrTextBlock(
+                  id: 'error',
+                  text: '[${file.name} OCR 识别失败: $e]',
+                  bounds: null,
+                  polygon: const [],
+                  orientation: OcrTextOrientation.unknown,
+                ),
+              ],
+            ),
+          );
         }
       }
     }

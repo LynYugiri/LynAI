@@ -40,6 +40,12 @@ class ModelConfigProvider extends ChangeNotifier {
     return _models.where((m) => m.category == category).toList(growable: false);
   }
 
+  List<ModelConfig> enabledModelsByCategory(String category) {
+    return modelsByCategory(
+      category,
+    ).where((m) => m.enabledModelNames.isNotEmpty).toList(growable: false);
+  }
+
   int nextPriorityForCategory(String category) {
     final categoryModels = modelsByCategory(category);
     if (categoryModels.isEmpty) return 0;
@@ -102,6 +108,34 @@ class ModelConfigProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setManagedUserOverride(String modelId, String key, dynamic value) {
+    final index = _models.indexWhere((m) => m.id == modelId && m.managed);
+    if (index == -1) return;
+    final overrides = Map<String, dynamic>.from(_models[index].userOverrides);
+    overrides[key] = value;
+    _models[index] = _models[index].copyWith(userOverrides: overrides);
+    _queueSaveModels();
+    notifyListeners();
+  }
+
+  void clearManagedUserOverride(String modelId, String key) {
+    final index = _models.indexWhere((m) => m.id == modelId && m.managed);
+    if (index == -1) return;
+    final overrides = Map<String, dynamic>.from(_models[index].userOverrides)
+      ..remove(key);
+    _models[index] = _models[index].copyWith(userOverrides: overrides);
+    _queueSaveModels();
+    notifyListeners();
+  }
+
+  void setManagedDisabled(String modelId, bool disabled) {
+    final index = _models.indexWhere((m) => m.id == modelId && m.managed);
+    if (index == -1) return;
+    _models[index] = _models[index].copyWith(disabledByUser: disabled);
+    _queueSaveModels();
+    notifyListeners();
+  }
+
   /// 删除模型配置
   void deleteModel(String modelId) {
     if (_models.any((model) => model.id == modelId && model.managed)) return;
@@ -118,7 +152,10 @@ class ModelConfigProvider extends ChangeNotifier {
       return true;
     }
 
-    final response = await backend.get('/relay/models');
+    var response = await backend.get('/relay/config');
+    if (response.statusCode == 404) {
+      response = await backend.get('/relay/models');
+    }
     if (response.statusCode != 200) {
       debugPrint('同步 LynAI 模型失败: HTTP ${response.statusCode}');
       if (response.statusCode == 401) {
@@ -133,53 +170,43 @@ class ModelConfigProvider extends ChangeNotifier {
       return false;
     }
 
-    final grouped = <String, List<String>>{};
-    for (final item in decoded['data'] as List) {
-      if (item is! Map) continue;
-      final id = item['id']?.toString().trim() ?? '';
-      final apiType =
-          (item['api_type']?.toString().trim().toLowerCase() ?? 'openai');
-      if (id.isEmpty || apiType.isEmpty) continue;
-      grouped.putIfAbsent(apiType, () => <String>[]);
-      if (!grouped[apiType]!.contains(id)) {
-        grouped[apiType]!.add(id);
-      }
-    }
-
-    final managedIds = grouped.keys.map(_lynaiManagedId).toSet();
+    final grouped = _parseManagedGroups(decoded['data'] as List);
+    final managedIds = grouped.map((group) => group.id).toSet();
     _models.removeWhere(
       (model) => model.managed && !managedIds.contains(model.id),
     );
     final endpoint =
         '${backend.backendUrl.replaceAll(RegExp(r'/+$'), '')}/relay';
 
-    for (final entry in grouped.entries) {
-      if (entry.value.isEmpty) continue;
-      final apiType = entry.key;
-      final id = _lynaiManagedId(apiType);
+    for (final group in grouped) {
+      if (group.entries.isEmpty) continue;
+      final id = group.id;
       final existingIndex = _models.indexWhere((model) => model.id == id);
       final existing = existingIndex == -1 ? null : _models[existingIndex];
-      final modelEntries = entry.value
-          .map((name) => ModelEntry(name: name, enabled: true))
-          .toList(growable: false);
+      final modelEntries = group.entries;
+      final existingModelName = existing?.modelName;
       final activeModel =
-          existing?.modelName != null &&
-              entry.value.contains(existing!.modelName)
-          ? existing.modelName
-          : entry.value.first;
+          existingModelName != null &&
+              modelEntries.any((entry) => entry.name == existingModelName)
+          ? existingModelName
+          : modelEntries.first.name;
       final config = ModelConfig(
         id: id,
-        name: apiType == 'openai' ? 'LynAI' : 'LynAI ($apiType)',
-        category: ModelConfig.categoryChat,
+        name: group.name,
+        category: group.category,
         endpoint: endpoint,
         apiKey: '',
         modelName: activeModel,
-        apiType: apiType,
-        priority:
-            existing?.priority ??
-            nextPriorityForCategory(ModelConfig.categoryChat),
+        apiType: group.apiType,
+        priority: existing?.priority ?? nextPriorityForCategory(group.category),
+        maxTokens: group.maxTokens,
+        temperature: group.temperature,
+        topP: group.topP,
+        extraParams: group.extraParams,
         models: modelEntries,
         managed: true,
+        disabledByUser: existing?.disabledByUser ?? false,
+        userOverrides: existing?.userOverrides,
       );
       if (existingIndex == -1) {
         _models.add(config);
@@ -245,6 +272,101 @@ class ModelConfigProvider extends ChangeNotifier {
   /// 生成新的唯一ID
   String generateId() => _uuid.v4();
 
-  static String _lynaiManagedId(String apiType) =>
-      '$lynaiManagedIdPrefix${apiType}__';
+  List<_ManagedModelGroup> _parseManagedGroups(List data) {
+    final groups = <String, _ManagedModelGroup>{};
+    void addItem(Map item, {String? providerId, String? providerName}) {
+      final modelId = item['id']?.toString().trim() ?? '';
+      final apiType = (item['api_type'] ?? item['apiType'] ?? 'openai')
+          .toString()
+          .trim()
+          .toLowerCase();
+      final category = _normalizeCategory(item['category']?.toString());
+      if (modelId.isEmpty || apiType.isEmpty) return;
+      final groupProviderId =
+          (providerId ?? item['providerId']?.toString() ?? apiType).trim();
+      final key = '$groupProviderId\x00$apiType\x00$category';
+      final group = groups.putIfAbsent(
+        key,
+        () => _ManagedModelGroup(
+          id: '$lynaiManagedIdPrefix${groupProviderId}_${apiType}_${category}__',
+          name: providerName?.isNotEmpty == true
+              ? 'LynAI $providerName'
+              : (apiType == 'openai' ? 'LynAI' : 'LynAI ($apiType)'),
+          apiType: apiType,
+          category: category,
+        ),
+      );
+      final capabilities = item['capabilities'] is Map
+          ? Map<String, dynamic>.from(item['capabilities'] as Map)
+          : const <String, dynamic>{};
+      final params = item['advancedParams'] is Map
+          ? Map<String, dynamic>.from(item['advancedParams'] as Map)
+          : const <String, dynamic>{};
+      group.entries.add(
+        ModelEntry(
+          name: modelId,
+          enabled: item['enabled'] != false,
+          supportsVision: capabilities['vision'] as bool? ?? true,
+          supportsThinking: capabilities['thinking'] as bool? ?? true,
+          supportsTools: capabilities['tools'] as bool? ?? true,
+          maxTokens: (params['maxTokens'] as num?)?.toInt(),
+          temperature: (params['temperature'] as num?)?.toDouble(),
+          topP: (params['topP'] as num?)?.toDouble(),
+        ),
+      );
+      group.maxTokens ??= (params['maxTokens'] as num?)?.toInt();
+      group.temperature ??= (params['temperature'] as num?)?.toDouble();
+      group.topP ??= (params['topP'] as num?)?.toDouble();
+      group.extraParams.addAll(params);
+    }
+
+    for (final item in data) {
+      if (item is! Map) continue;
+      final models = item['models'];
+      if (models is List) {
+        final providerId = item['id']?.toString();
+        final providerName = item['name']?.toString();
+        for (final model in models) {
+          if (model is Map) {
+            addItem(model, providerId: providerId, providerName: providerName);
+          }
+        }
+      } else {
+        addItem(item);
+      }
+    }
+    return groups.values.where((group) => group.entries.isNotEmpty).toList();
+  }
+
+  String _normalizeCategory(String? value) {
+    switch ((value ?? '').trim()) {
+      case ModelConfig.categoryOcr:
+        return ModelConfig.categoryOcr;
+      case ModelConfig.categorySpeech:
+        return ModelConfig.categorySpeech;
+      case ModelConfig.categoryImageGeneration:
+        return ModelConfig.categoryImageGeneration;
+      default:
+        return ModelConfig.categoryChat;
+    }
+  }
+}
+
+class _ManagedModelGroup {
+  _ManagedModelGroup({
+    required this.id,
+    required this.name,
+    required this.apiType,
+    required this.category,
+  });
+
+  final String id;
+  final String name;
+  final String apiType;
+  final String category;
+  final List<ModelEntry> entries = [];
+  final Map<String, dynamic> extraParams = {};
+  int? maxTokens;
+  double? temperature;
+  double? topP;
 }

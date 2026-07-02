@@ -194,13 +194,13 @@ HomePage
 | 翻译历史 | `translation_history_page.dart` | 浏览悬浮窗屏幕翻译历史记录（时间/原文/译文/应用包名），长按复制、一键清空。 |
 | 主题 | `theme_page.dart` | 预设色、HSV 调色板、浅色/深色/跟随系统。 |
 | 回收站 | `recycle_bin_page.dart` | 按功能分类查看已删除项目，支持恢复、永久删除和清空。 |
-| 数据管理 | `data_management_page.dart` | 备份导出、备份预览、导入和冲突处理。 |
+| 数据管理 | `data_management_page.dart` | 服务端数据同步、备份导出、备份预览、导入和冲突处理。 |
 
 ## ApiModelsPage
 
 文件：`lib/pages/api_models_page.dart`
 
-模型配置按用途分类：Chat、OCR、Speech、Image Generation。Chat 配置可以有多个子模型，每个子模型都可以单独设置启用状态、视觉能力、思考能力、工具能力和采样参数。
+模型配置按用途分类：Chat、OCR、Speech、Image Generation。Chat 配置可以有多个子模型，每个子模型都可以单独设置启用状态、视觉能力、思考能力、工具能力和采样参数。托管 LynAI 配置不可手动修改 endpoint/API key，但可以在本机关闭，或为 `maxTokens`、`temperature`、`topP`、视觉、思考和工具能力设置本机覆盖项。
 
 高级参数支持显式清空。实现上通过 sentinel 区分“不更新”和“清空为 null”。
 
@@ -208,7 +208,7 @@ HomePage
 
 文件：`lib/pages/data_management_page.dart`
 
-数据管理页通过 `BackupService` 工作。storage_v2 创建和升级在启动阶段自动完成。
+数据管理页通过 `BackupService` 和 `SyncProvider` 工作。storage_v2 创建和升级在启动阶段自动完成。登录并连接服务端后，顶部同步卡片可手动触发增量拉取和本地变更上传；设置页只保留「连接到服务端」入口，不再承载同步弹窗。
 
 | 步骤 | 说明 |
 |------|------|

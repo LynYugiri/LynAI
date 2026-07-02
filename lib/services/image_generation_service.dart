@@ -83,7 +83,7 @@ class ImageGenerationService {
     String? modelId,
     String? modelName,
   ) {
-    final models = provider.modelsByCategory(
+    final models = provider.enabledModelsByCategory(
       ModelConfig.categoryImageGeneration,
     );
     if (models.isEmpty) throw Exception('没有可用图片生成模型');

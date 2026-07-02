@@ -128,8 +128,15 @@ class ApiService {
   void _applyExtraRequestParams(Map<String, dynamic> body, ModelConfig config) {
     for (final entry in config.extraParams.entries) {
       if (_internalExtraKeys.contains(entry.key)) continue;
-      if (!body.containsKey(entry.key)) {
-        body[entry.key] = entry.value;
+      final key = switch (entry.key) {
+        'maxTokens' => 'max_tokens',
+        'topP' => 'top_p',
+        'presencePenalty' => 'presence_penalty',
+        'frequencyPenalty' => 'frequency_penalty',
+        _ => entry.key,
+      };
+      if (!body.containsKey(key)) {
+        body[key] = entry.value;
       }
     }
   }
@@ -226,6 +233,15 @@ class ApiService {
     ModelConfig config,
     Uint8List imageBytes,
   ) async {
+    if (config.managed) {
+      return recognizeImageTextWithChatModel(config, '请识别图片中的文字，只返回识别到的文字内容。', [
+        ChatFileInput(
+          bytes: imageBytes,
+          mimeType: 'image/png',
+          name: 'ocr.png',
+        ),
+      ]);
+    }
     final data = await _sendVivoOcrRequest(config, imageBytes);
     return _extractOcrText(data);
   }
@@ -236,6 +252,25 @@ class ApiService {
   ) async {
     final image = await _decodeImageSize(imageBytes);
     try {
+      if (config.managed) {
+        final text = await recognizeImageText(config, imageBytes);
+        return OcrRecognitionResult(
+          angle: 0,
+          imageWidth: image.width.toDouble(),
+          imageHeight: image.height.toDouble(),
+          blocks: text.trim().isEmpty
+              ? const []
+              : [
+                  OcrTextBlock(
+                    id: 'ocr_0',
+                    text: text.trim(),
+                    bounds: null,
+                    polygon: const [],
+                    orientation: OcrTextOrientation.unknown,
+                  ),
+                ],
+        );
+      }
       final data = await _sendVivoOcrRequest(config, imageBytes);
       return OcrRecognitionResult.fromVivoJson(
         data,
@@ -526,6 +561,9 @@ class ApiService {
     Uint8List audioBytes, {
     String audioType = 'auto',
   }) async {
+    if (config.managed) {
+      return _transcribeManagedAudio(config, audioBytes, audioType: audioType);
+    }
     final endpoint = config.endpoint.replaceAll(RegExp(r'/+$'), '');
     final sessionId = DateTime.now().microsecondsSinceEpoch.toString();
     final sliceCount = math.max(
@@ -615,6 +653,44 @@ class ApiService {
         .join();
   }
 
+  Future<String> _transcribeManagedAudio(
+    ModelConfig config,
+    Uint8List audioBytes, {
+    required String audioType,
+  }) async {
+    final backend = _backend;
+    final token = backend?.accessToken ?? '';
+    if (backend == null || !backend.isConnected || token.isEmpty) {
+      throw Exception('LynAI 中转需要登录后使用');
+    }
+    final endpoint = config.endpoint.replaceAll(RegExp(r'/+$'), '');
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('$endpoint/transcribe'),
+    );
+    request.headers['Authorization'] = 'Bearer $token';
+    request.fields['model'] = config.modelName;
+    request.fields['api_type'] = config.apiType;
+    request.fields['response_format'] = 'json';
+    request.files.add(
+      http.MultipartFile.fromBytes(
+        'file',
+        audioBytes,
+        filename: audioType == 'auto' ? 'audio' : 'audio.$audioType',
+      ),
+    );
+    final streamed = await request.send().timeout(_timeout);
+    final body = await streamed.stream.transform(utf8.decoder).join();
+    if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
+      throw Exception('语音转文字失败: ${streamed.statusCode} $body');
+    }
+    final decoded = jsonDecode(body);
+    if (decoded is Map) {
+      return decoded['text']?.toString() ?? '';
+    }
+    return decoded.toString();
+  }
+
   Future<List<String>> generateImages(
     ModelConfig config,
     String prompt, {
@@ -640,18 +716,17 @@ class ApiService {
     final endpoint = config.endpoint.replaceAll(RegExp(r'/+$'), '');
     final uri = Uri.parse('$endpoint/images/generations');
     final body = <String, dynamic>{'model': config.modelName, 'prompt': prompt};
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (config.managed) {
+      _applyOpenAIAuthAndRelayParams(config, body, headers);
+    } else if (config.apiKey.isNotEmpty) {
+      headers['Authorization'] = 'Bearer ${config.apiKey}';
+    }
     if (parameters != null && parameters.isNotEmpty) {
       body.addAll(parameters);
     }
     final response = await http
-        .post(
-          uri,
-          headers: {
-            'Authorization': 'Bearer ${config.apiKey}',
-            'Content-Type': 'application/json',
-          },
-          body: jsonEncode(body),
-        )
+        .post(uri, headers: headers, body: jsonEncode(body))
         .timeout(_timeout);
     final responseBody = utf8.decode(response.bodyBytes);
     if (response.statusCode != 200) {

@@ -8,6 +8,7 @@ import '../providers/conversation_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/backend_client.dart';
+import '../widgets/text_editing_controller_host.dart';
 
 const _endpointPresets = [
   {'name': 'OpenAI', 'url': 'https://api.openai.com/v1', 'type': 'openai'},
@@ -1037,8 +1038,12 @@ class _EditModelPageState extends State<EditModelPage> {
                 color: Theme.of(context).colorScheme.primary,
               ),
               const SizedBox(width: 10),
-              const Expanded(
-                child: Text('LynAI 由已登录的后端自动同步，接口地址和鉴权信息不需要手动配置。'),
+              Expanded(
+                child: Text(
+                  model.disabledByUser
+                      ? '此服务端模型已在本机关闭。服务端仍会同步基线配置，但本机不会优先使用它。'
+                      : 'LynAI 由已登录的后端自动同步，接口地址和鉴权信息不需要手动配置；本机覆盖项优先级高于服务端。',
+                ),
               ),
             ],
           ),
@@ -1047,9 +1052,26 @@ class _EditModelPageState extends State<EditModelPage> {
         _managedInfoRow('名称', model.name),
         const SizedBox(height: 12),
         _managedInfoRow('API 类型', model.apiType.toUpperCase()),
+        const SizedBox(height: 12),
+        _managedInfoRow('分类', _categoryTitle(model.category)),
+        const SizedBox(height: 16),
+        _managedOverridesEditor(model),
         const SizedBox(height: 16),
         _managedModelList(model),
         const SizedBox(height: 24),
+        OutlinedButton.icon(
+          onPressed: () {
+            widget.provider.setManagedDisabled(model.id, !model.disabledByUser);
+            setState(() {
+              _managedDisplayModel = model.copyWith(
+                disabledByUser: !model.disabledByUser,
+              );
+            });
+          },
+          icon: Icon(model.disabledByUser ? Icons.toggle_on : Icons.toggle_off),
+          label: Text(model.disabledByUser ? '在本机启用' : '在本机关闭'),
+        ),
+        const SizedBox(height: 8),
         FilledButton.icon(
           onPressed: _refreshingManaged ? null : _refreshManagedModels,
           icon: _refreshingManaged
@@ -1063,6 +1085,275 @@ class _EditModelPageState extends State<EditModelPage> {
         ),
       ],
     );
+  }
+
+  Widget _managedOverridesEditor(ModelConfig model) {
+    final disabled = model.disabledByUser;
+    return Opacity(
+      opacity: disabled ? 0.62 : 1,
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey.withValues(alpha: 0.28)),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+              child: Row(
+                children: [
+                  const Icon(Icons.tune, size: 18, color: Colors.grey),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      '本机覆盖参数',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  if (model.userOverrides.isNotEmpty)
+                    TextButton(
+                      onPressed: disabled
+                          ? null
+                          : () => _clearManagedOverrides(model),
+                      child: const Text('全部清除'),
+                    ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              child: Text(
+                disabled ? '本机已关闭时不会应用覆盖项。' : '留空表示使用服务端下发值。',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+              ),
+            ),
+            _managedNumericOverrideTile(
+              model,
+              keyName: 'maxTokens',
+              title: 'Max Tokens',
+              fallback: model.activeEntry?.maxTokens ?? model.maxTokens,
+              integer: true,
+              disabled: disabled,
+            ),
+            _managedNumericOverrideTile(
+              model,
+              keyName: 'temperature',
+              title: 'Temperature',
+              fallback: model.activeEntry?.temperature ?? model.temperature,
+              disabled: disabled,
+            ),
+            _managedNumericOverrideTile(
+              model,
+              keyName: 'topP',
+              title: 'Top P',
+              fallback: model.activeEntry?.topP ?? model.topP,
+              disabled: disabled,
+            ),
+            const Divider(height: 1),
+            _managedBoolOverrideTile(
+              model,
+              keyName: 'supportsVision',
+              title: '视觉能力',
+              fallback: model.activeEntry?.supportsVision ?? true,
+              disabled: disabled,
+            ),
+            _managedBoolOverrideTile(
+              model,
+              keyName: 'supportsThinking',
+              title: '思考输出',
+              fallback: model.activeEntry?.supportsThinking ?? true,
+              disabled: disabled,
+            ),
+            _managedBoolOverrideTile(
+              model,
+              keyName: 'supportsTools',
+              title: '工具调用',
+              fallback: model.activeEntry?.supportsTools ?? true,
+              disabled: disabled,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _managedNumericOverrideTile(
+    ModelConfig model, {
+    required String keyName,
+    required String title,
+    required num? fallback,
+    bool integer = false,
+    required bool disabled,
+  }) {
+    final override = model.userOverrides[keyName] as num?;
+    return ListTile(
+      dense: true,
+      title: Text(title),
+      subtitle: Text(
+        override == null
+            ? '服务端: ${fallback?.toString() ?? "未设置"}'
+            : '本机覆盖: $override',
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (override != null)
+            IconButton(
+              tooltip: '清除覆盖',
+              onPressed: disabled
+                  ? null
+                  : () => _clearManagedUserOverride(model, keyName),
+              icon: const Icon(Icons.close),
+            ),
+          IconButton(
+            tooltip: '编辑覆盖',
+            onPressed: disabled
+                ? null
+                : () => _editManagedNumericOverride(
+                    model,
+                    keyName: keyName,
+                    title: title,
+                    integer: integer,
+                  ),
+            icon: const Icon(Icons.edit_outlined),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _managedBoolOverrideTile(
+    ModelConfig model, {
+    required String keyName,
+    required String title,
+    required bool fallback,
+    required bool disabled,
+  }) {
+    final hasOverride = model.userOverrides.containsKey(keyName);
+    final value = model.userOverrides[keyName] as bool? ?? fallback;
+    return SwitchListTile(
+      dense: true,
+      title: Text(title),
+      subtitle: Text(hasOverride ? '本机覆盖' : '服务端: ${fallback ? "开启" : "关闭"}'),
+      value: value,
+      onChanged: disabled
+          ? null
+          : (next) => _setManagedUserOverride(model, keyName, next),
+      secondary: hasOverride
+          ? IconButton(
+              tooltip: '清除覆盖',
+              onPressed: disabled
+                  ? null
+                  : () => _clearManagedUserOverride(model, keyName),
+              icon: const Icon(Icons.close),
+            )
+          : null,
+    );
+  }
+
+  Future<void> _editManagedNumericOverride(
+    ModelConfig model, {
+    required String keyName,
+    required String title,
+    required bool integer,
+  }) async {
+    final current = model.userOverrides[keyName]?.toString() ?? '';
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => TextEditingControllerHost(
+        initialTexts: [current],
+        builder: (ctx, controllers) {
+          final controller = controllers.single;
+          return AlertDialog(
+            title: Text('覆盖 $title'),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: const InputDecoration(
+                labelText: '本机覆盖值',
+                hintText: '留空使用服务端值',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, ''),
+                child: const Text('清除'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+                child: const Text('保存'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    if (result == null) return;
+    if (result.isEmpty) {
+      _clearManagedUserOverride(model, keyName);
+      return;
+    }
+    final parsed = integer ? int.tryParse(result) : double.tryParse(result);
+    if (parsed == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('$title 必须是有效数字')));
+      return;
+    }
+    _setManagedUserOverride(model, keyName, parsed);
+  }
+
+  void _setManagedUserOverride(ModelConfig model, String key, dynamic value) {
+    widget.provider.setManagedUserOverride(model.id, key, value);
+    final overrides = Map<String, dynamic>.from(model.userOverrides)
+      ..[key] = value;
+    setState(() {
+      _managedDisplayModel = model.copyWith(userOverrides: overrides);
+    });
+  }
+
+  void _clearManagedUserOverride(ModelConfig model, String key) {
+    widget.provider.clearManagedUserOverride(model.id, key);
+    final overrides = Map<String, dynamic>.from(model.userOverrides)
+      ..remove(key);
+    setState(() {
+      _managedDisplayModel = model.copyWith(userOverrides: overrides);
+    });
+  }
+
+  void _clearManagedOverrides(ModelConfig model) {
+    for (final key in model.userOverrides.keys.toList()) {
+      widget.provider.clearManagedUserOverride(model.id, key);
+    }
+    setState(() {
+      _managedDisplayModel = model.copyWith(userOverrides: const {});
+    });
+  }
+
+  String _categoryTitle(String category) {
+    switch (category) {
+      case ModelConfig.categoryOcr:
+        return 'OCR';
+      case ModelConfig.categorySpeech:
+        return '语音转文字';
+      case ModelConfig.categoryImageGeneration:
+        return '图片生成';
+      default:
+        return 'Chat';
+    }
   }
 
   Widget _managedInfoRow(String label, String value) {

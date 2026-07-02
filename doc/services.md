@@ -18,7 +18,7 @@
 
 不同协议的请求和返回差异在 `ApiService` 内部消化。页面只处理标准化类型。
 
-`managed=true` 的 LynAI 托管 Provider 走后端中转：endpoint 为 `BackendClient.backendUrl + '/relay'`，Chat 请求发送到 `/relay/chat`，鉴权使用用户 JWT，并在 JSON body 中注入 `api_type`（例如 `openai`）。普通 OpenAI 兼容 Provider 仍发送到 `/chat/completions` 并使用用户填写的 API key。
+`managed=true` 的 LynAI 托管 Provider 走后端中转：endpoint 为 `BackendClient.backendUrl + '/relay'`，Chat 请求发送到 `/relay/chat`，语音转文字发送到 `/relay/transcribe`，图片生成发送到 `/relay/images/generations`。鉴权使用用户 JWT，并在 JSON body 或 multipart 字段中注入 `api_type`（例如 `openai`）。普通 OpenAI 兼容 Provider 仍发送到 `/chat/completions` 并使用用户填写的 API key。
 
 ### 支持协议
 
@@ -41,7 +41,7 @@
 
 OpenAI 兼容请求会显式发送 thinking 开关。部分已配置后端依赖 disabled 标记，不要随意删除。
 
-`extraParams` 会合并到请求体，但不会覆盖代码已经设置的核心字段，例如 `model`、`messages`、`stream`。
+`extraParams` 会合并到请求体，但不会覆盖代码已经设置的核心字段，例如 `model`、`messages`、`stream`。OpenAI 兼容请求会把托管配置下发的驼峰参数名规范化为协议字段名，例如 `maxTokens` -> `max_tokens`、`topP` -> `top_p`、`presencePenalty` -> `presence_penalty`、`frequencyPenalty` -> `frequency_penalty`。
 
 ### 附件转换
 
@@ -50,7 +50,7 @@ OpenAI 兼容请求会显式发送 thinking 开关。部分已配置后端依赖
 | 支持多模态 | 转成协议要求的 image content。 | 尽量转为文本上下文；部分链路可使用 input file 风格内容。 |
 | 不支持多模态 | 文件名、MIME、大小和文本/base64 摘要。 | 文件名、MIME、大小和文本/base64 摘要。 |
 
-OCR 和文件识别是发送前处理。处理结果会替换历史附件并标注来源（`[文件: name (size, mime)]` 仅用于仍作为原始多模态输入发送的附件；`[图片 OCR 识别结果（来源: ...，可能含识别误差）]\n<text>`、`[文件识别结果（来源: ...，可能含识别误差）]\n<text>`、`[文件内容: name]\n<text>` 分别用于 OCR 图片、文件识别、纯文本附件），让模型清楚读出的是识别输出而非原始字节内容并知悉可能存在误差。历史会话持久化的 `Message.content` 仍是用户原文，仅 API 调用时构造的覆盖内容包含上述标注。模型主动调用 `model.ocr` / `model.recognizeFile` 的结果以 tool result 形式返回，不进入用户消息正文故无需标注。
+OCR 和文件识别是发送前处理。处理结果会替换历史附件并标注来源（`[文件: name (size, mime)]` 仅用于仍作为原始多模态输入发送的附件；`[图片 OCR 识别结果（来源: ...，可能含识别误差）]\n<text>`、`[文件识别结果（来源: ...，可能含识别误差）]\n<text>`、`[文件内容: name]\n<text>` 分别用于 OCR 图片、文件识别、纯文本附件），让模型清楚读出的是识别输出而非原始字节内容并知悉可能存在误差。托管 OCR 模型走 `/relay/chat`，由后端允许 `ocr` 分类模型使用 Chat Completions 格式。历史会话持久化的 `Message.content` 仍是用户原文，仅 API 调用时构造的覆盖内容包含上述标注。模型主动调用 `model.ocr` / `model.recognizeFile` 的结果以 tool result 形式返回，不进入用户消息正文故无需标注。
 
 对话页 OCR 支持两种引擎：云端 OCR API（如 vivo OCR，需网络和 API key）和本地 OCR（ncnn + PPOCRv5，离线免费，仅 Android）。在对话设置的 OCR 模型列表中，Android 端会显示"本地 OCR (PPOCRv5)"虚拟条目，选中后 `imageModelId` 存为 `ModelConfig.localOcrId` sentinel，OCR 路径自动分发到本地推理。`model.ocr` 函数同样支持该 sentinel，Agent Lua 调用时自动走本地路径。
 

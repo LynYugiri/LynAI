@@ -911,7 +911,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   }
 
   ModelConfig? _getModel(ModelConfigProvider mp) {
-    final chatModels = mp.modelsByCategory(ModelConfig.categoryChat);
+    final chatModels = mp.enabledModelsByCategory(ModelConfig.categoryChat);
     if (chatModels.isEmpty) return null;
     if (_convId != null) {
       final conv = context.read<ConversationProvider>().getConversation(
@@ -1059,7 +1059,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     }
     final cp = context.read<ConversationProvider>();
     final mp = context.read<ModelConfigProvider>();
-    if (mp.modelsByCategory(ModelConfig.categoryChat).isEmpty) {
+    if (mp.enabledModelsByCategory(ModelConfig.categoryChat).isEmpty) {
       _showMissingChatModelTip();
       return;
     }
@@ -4459,7 +4459,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
   Widget _modelList(ModelConfigProvider mp) {
     final cur = _getModel(mp);
-    final models = mp.modelsByCategory(ModelConfig.categoryChat);
+    final models = mp.enabledModelsByCategory(ModelConfig.categoryChat);
     final settings = _activeSettings();
     return Material(
       color: Theme.of(context).colorScheme.surfaceContainerHighest,
@@ -4637,9 +4637,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
             ),
             if (_showImageGenerationList)
               for (final m
-                  in context.read<ModelConfigProvider>().modelsByCategory(
-                    ModelConfig.categoryImageGeneration,
-                  ))
+                  in context
+                      .read<ModelConfigProvider>()
+                      .enabledModelsByCategory(
+                        ModelConfig.categoryImageGeneration,
+                      ))
                 ListTile(
                   dense: true,
                   contentPadding: const EdgeInsets.only(left: 56),
@@ -4715,7 +4717,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   }
 
   ModelConfig? _imageGenerationModel([ConversationSettings? settings]) {
-    final models = context.read<ModelConfigProvider>().modelsByCategory(
+    final models = context.read<ModelConfigProvider>().enabledModelsByCategory(
       ModelConfig.categoryImageGeneration,
     );
     if (models.isEmpty) return null;

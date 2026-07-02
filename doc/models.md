@@ -70,10 +70,12 @@
 | `models` | 子模型列表。 |
 | `extraParams` | 用户自定义请求参数。 |
 | `managed` | 是否由 LynAI 后端托管同步。托管配置用于内置 LynAI 中转 Provider，endpoint/API key 不由用户手动维护。 |
+| `disabledByUser` | 用户是否在本机关闭该托管配置。关闭后该配置不会被实际模型选择逻辑使用，但仍会继续接收服务端基线同步。 |
+| `userOverrides` | 用户对托管配置的本机覆盖项，优先级高于服务端下发值；当前覆盖 `maxTokens`、`temperature`、`topP`、`supportsVision`、`supportsThinking` 和 `supportsTools`。 |
 
 `ModelEntry` 是子模型。子模型可以独立设置启用状态、视觉能力、thinking 能力、工具能力和采样参数。
 
-登录后端后，`ModelConfigProvider` 会按 `/relay/models` 返回的 `api_type` 自动同步 `managed=true` 的 LynAI Chat Provider。托管 Provider 的 endpoint 派生自 `BackendClient.backendUrl + '/relay'`，请求时由 `ApiService` 使用用户 JWT 鉴权并在 JSON body 中注入 `api_type`。
+登录后端后，`ModelConfigProvider` 优先从 `/relay/config` 同步 `managed=true` 的 LynAI Provider，按服务端 provider、`api_type` 和 `category` 分组创建配置；旧后端无 `/relay/config` 时回退 `/relay/models`。托管 Provider 的 endpoint 派生自 `BackendClient.backendUrl + '/relay'`，请求时由 `ApiService` 使用用户 JWT 鉴权并在 JSON body 或 multipart 字段中注入 `api_type`。
 
 Agent 可通过 `model.chat` 调用 Chat 模型，通过 `model.ocr` 调用 OCR 分类模型，通过 `model.recognizeFile` 调用开启视觉能力的 Chat 模型，通过 `model.generateImage` 调用图片生成模型。`model.recognizeFile` 依赖 `supportsVision=true` 的子模型。
 
@@ -81,7 +83,7 @@ Agent 可通过 `model.chat` 调用 Chat 模型，通过 `model.ocr` 调用 OCR 
 
 OCR 悬浮翻译流水线使用一个未单独建模型的轻量块字典（`FloatingChatSessionController.normalizeOcrBlock` 产出）。Native OCR (`ocr_jni.cpp::objects_to_json`) 输出的字段：`text`（合成后的文字）、`bounds{left,top,right,bottom}`（AABB，原始 screenshot px）、`orientation`（0=横排，1=竖排）、`boxW/boxH`（PPOCRv5 检测阶段 `RotatedRect.size` 经 `enlarge_ratio = kEnlargeRatio = 1.95` 反算还原后的文本框宽/高，screenshot px）、`fontSize`（按 orientation 选出的字形方向像素高度，与 boxW/boxH 同源）、`angle`（rrect 角度，整数度）、`prob`（置信度）。Kotlin `NcnnOcrRecognizer.parseJson` 与 Dart `normalizeOcrBlock` 均透传这些字段；`id` 由 Dart 端按 `originalText|l,t,r,b`（~8px 容差）哈希生成，与 `fontSize/boxW/boxH/angle` 无关，保证跨帧稳定。
 
-请求参数优先级：子模型参数高于 Provider 参数，高于接口默认值。
+请求参数优先级：托管配置的 `userOverrides` 高于子模型参数，高于 Provider 参数，高于接口默认值。
 
 ## AppSettings、角色和提示词
 

@@ -9,7 +9,6 @@ import '../services/backend_client.dart';
 import '../widgets/account_header_card.dart';
 import '../widgets/plugin_feature_webview.dart';
 import '../widgets/text_editing_controller_host.dart';
-import '../providers/sync_provider.dart';
 import 'about_page.dart';
 import 'admin_review_page.dart';
 import 'background_page.dart';
@@ -71,20 +70,12 @@ class _SettingsPageState extends State<SettingsPage> {
           _buildItem(
             context,
             Icons.dns_outlined,
-            '后端连接',
+            '连接到服务端',
             settings.backendUrl != null && settings.backendUrl!.isNotEmpty
                 ? settings.backendUrl!
                 : '未连接',
             Colors.blueGrey,
             () => _showBackendDialog(context),
-          ),
-          _buildItem(
-            context,
-            Icons.sync,
-            '数据同步',
-            _syncSubtitle(context),
-            Colors.indigo,
-            () => _showSyncDialog(context),
           ),
           _buildItem(
             context,
@@ -220,7 +211,7 @@ class _SettingsPageState extends State<SettingsPage> {
         builder: (ctx, controllers) {
           final controller = controllers.single;
           return AlertDialog(
-            title: const Text('后端连接'),
+            title: const Text('连接到服务端'),
             content: TextField(
               controller: controller,
               decoration: const InputDecoration(
@@ -256,57 +247,6 @@ class _SettingsPageState extends State<SettingsPage> {
     backend.configure(url ?? '');
     settingsProvider.updateBackendUrl(url);
     await context.read<ModelConfigProvider>().syncLynaiManagedProvider(backend);
-  }
-
-  /// 数据同步副标题。
-  String _syncSubtitle(BuildContext context) {
-    final sync = context.watch<SyncProvider>();
-    if (!sync.canSync) return '未连接后端';
-    if (sync.syncing) return '同步中…';
-    final last = sync.lastSyncAt;
-    if (last == null) return '尚未同步';
-    return '上次同步: ${last.month}/${last.day} ${last.hour}:${last.minute.toString().padLeft(2, '0')}';
-  }
-
-  /// 弹出数据同步对话框。
-  Future<void> _showSyncDialog(BuildContext context) async {
-    final sync = context.read<SyncProvider>();
-    if (!sync.canSync) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('请先连接后端并登录')));
-      return;
-    }
-    await showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('数据同步'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('上次同步: ${sync.lastSyncAt ?? "尚未同步"}'),
-            const SizedBox(height: 8),
-            const Text('点击「立即同步」将从云端拉取增量并上传本地变更。'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('关闭'),
-          ),
-          FilledButton(
-            onPressed: sync.syncing
-                ? null
-                : () {
-                    Navigator.pop(ctx);
-                    sync.manualSync();
-                  },
-            child: const Text('立即同步'),
-          ),
-        ],
-      ),
-    );
   }
 
   /// 遍历所有已启用插件中标记了 [PluginFeaturePageDefinition.showInSettings] 的功能页，生成对应的设置项列表。

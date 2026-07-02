@@ -2021,7 +2021,9 @@ class LynAIFunctionService {
   ) {
     final provider = context.modelConfigs;
     if (provider == null) throw Exception('model.chat 需要模型上下文');
-    final chatModels = provider.modelsByCategory(ModelConfig.categoryChat);
+    final chatModels = provider.enabledModelsByCategory(
+      ModelConfig.categoryChat,
+    );
     if (chatModels.isEmpty) throw Exception('没有可用聊天模型');
     final id = modelId?.trim();
     if (id != null && id.isNotEmpty) {
