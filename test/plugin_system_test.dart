@@ -81,7 +81,85 @@ void main() {
         'defaults/skills/android_accessibility.md',
         'defaults/skills/messaging.md',
         'defaults/skills/qq.md',
+        'defaults/skills/wechat.md',
+        'defaults/skills/system_settings.md',
+        'defaults/skills/browser_search.md',
+        'defaults/skills/camera_ocr_scan.md',
+        'defaults/skills/contacts_phone.md',
+        'defaults/skills/clock_alarm.md',
+        'defaults/skills/map_navigation.md',
+        'defaults/skills/media_share.md',
+        'defaults/skills/study_problem_solving.md',
+        'defaults/skills/study_research_qa.md',
+        'defaults/skills/note_taking.md',
+        'defaults/skills/note_capture_to_kb.md',
       ]),
+    );
+  });
+
+  test('mobile-agent-skills manifest lists 15 skills with matching files', () async {
+    const pluginId = 'mobile-agent-skills';
+    const manifestPath =
+        'assets/plugins/$pluginId/plugin.json';
+    final manifestRaw = await File(manifestPath).readAsString();
+    final manifest = jsonDecode(manifestRaw) as Map<String, dynamic>;
+    final skills = (manifest['skills'] as List).cast<Map<String, dynamic>>();
+    final editables =
+        (manifest['editableFiles'] as List).cast<Map<String, dynamic>>();
+
+    expect(skills.length, 15, reason: 'mobile-agent-skills 应有 15 个 skill');
+    expect(editables.length, 15, reason: 'editableFiles 应与 skills 数量一致');
+
+    final pathPattern = RegExp(r'^skills/([A-Za-z0-9_-]{1,64})\.md$');
+    final savedFiles =
+        PluginRepository.builtInPluginFiles[pluginId]!.where(
+      (f) => f.startsWith('defaults/skills/'),
+    ).toSet();
+    final seenNames = <String>{};
+    for (final skill in skills) {
+      final name = skill['name'] as String;
+      expect(seenNames, isNot(contains(name)), reason: 'skill 名重复: $name');
+      seenNames.add(name);
+      final defaultRel = 'defaults/skills/$name.md';
+      expect(
+        savedFiles,
+        contains(defaultRel),
+        reason: 'builtInPluginFiles 缺少 $defaultRel',
+      );
+      final assetPath =
+          'assets/plugins/$pluginId/$defaultRel';
+      final assetFile = File(assetPath);
+      expect(
+        await assetFile.exists(),
+        isTrue,
+        reason: 'skill 资源文件不存在: $assetPath',
+      );
+      final content = await assetFile.readAsString();
+      expect(content.trim(), isNotEmpty, reason: 'skill 文件为空: $name');
+      expect(
+        content,
+        anyOf(
+          contains('## 返回约定'),
+          contains('## 失败处理'),
+          contains('## 推荐返回结构'),
+          contains('## 禁止行为'),
+        ),
+        reason: 'skill 文件缺少返回约定或失败处理: $name',
+      );
+
+      final editable = editables.firstWhere(
+        (e) => e['path'] == 'skills/$name.md',
+        orElse: () => fail('editableFiles 缺少 skills/$name.md'),
+      );
+      expect(editable['defaultPath'], defaultRel);
+      expect(editable['type'], 'markdown');
+      expect(pathPattern.hasMatch(editable['path'] as String), isTrue);
+    }
+
+    expect(
+      manifest['description'] as String,
+      isNot(contains('QQ 自动化工作流说明')),
+      reason: 'manifest description 已更新不应再沿用旧文案',
     );
   });
 

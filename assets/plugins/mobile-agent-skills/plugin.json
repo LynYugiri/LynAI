@@ -1,9 +1,9 @@
 {
   "id": "mobile-agent-skills",
   "name": "移动端 Agent 技能",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "LynAI",
-  "description": "为 Agent 提供 Android 无障碍、消息应用和 QQ 自动化工作流说明。",
+  "description": "为 Agent 提供移动端自动化（Android 无障碍、微信、QQ、消息、系统设置、浏览器、相机、通讯录、时钟、地图、分享）与本地知识（解题、研究、笔记、知识库沉淀）工作流说明。",
   "entry": "main.lua",
   "permissions": [],
   "skills": [
@@ -27,6 +27,90 @@
       "description": "打开 Android QQ，查找联系人或会话，读取最近聊天上下文，并直接发送回复。",
       "whenToUse": "QQ、腾讯 QQ、回复 QQ 消息、查找 QQ 联系人、读取 QQ 上下文",
       "tags": ["qq", "tencent", "messaging", "android"]
+    },
+    {
+      "name": "wechat",
+      "title": "微信会话自动化",
+      "description": "打开微信，查找联系人或会话，读取聊天上下文，回复或发送微信消息。",
+      "whenToUse": "微信、WeChat、朋友圈、公众号、收发微信消息、读取微信上下文",
+      "tags": ["wechat", "wexin", "messaging", "android"]
+    },
+    {
+      "name": "system_settings",
+      "title": "系统设置自动化",
+      "description": "导航 Android 设置并切换 Wi-Fi、蓝牙、热点、飞行模式、勿扰、亮度等开关。",
+      "whenToUse": "开关 Wi-Fi、蓝牙、热点、飞行模式、勿扰、亮度、定位、省电、系统设置",
+      "tags": ["settings", "wifi", "bluetooth", "android"]
+    },
+    {
+      "name": "browser_search",
+      "title": "浏览器搜索与信息采集",
+      "description": "打开浏览器搜索关键词，读取结果并结构化摘要回主模型。",
+      "whenToUse": "搜索、浏览器、查资料、信息采集、关键词检索、网页摘要",
+      "tags": ["browser", "search", "research", "info"]
+    },
+    {
+      "name": "camera_ocr_scan",
+      "title": "拍照与文档 OCR 扫描",
+      "description": "拍照或截图，用 model.ocr 提取文字、model.recognizeFile 做图像理解。",
+      "whenToUse": "OCR、扫描、拍照、截图识别、文档转文字、图像理解",
+      "tags": ["ocr", "scan", "camera", "recognize"]
+    },
+    {
+      "name": "contacts_phone",
+      "title": "通讯录与电话",
+      "description": "查找联系人、读取号码、拨打电话、挂断电话。",
+      "whenToUse": "通讯录、联系人、电话号码、拨号、打电话、挂断",
+      "tags": ["contacts", "phone", "dial", "call"]
+    },
+    {
+      "name": "clock_alarm",
+      "title": "时钟与闹钟",
+      "description": "设置系统闹钟、倒计时、查看世界钟。本地提醒走 schedules.create。",
+      "whenToUse": "闹钟、时钟、倒计时、定时、世界钟、提醒",
+      "tags": ["clock", "alarm", "timer", "reminder"]
+    },
+    {
+      "name": "map_navigation",
+      "title": "地图与导航",
+      "description": "打开高德/百度地图，搜索地点、查询路线、开始导航。不叫车不支付。",
+      "whenToUse": "地图、导航、高德、百度、搜地点、查路线、附近",
+      "tags": ["map", "navigation", "amap", "baidu"]
+    },
+    {
+      "name": "media_share",
+      "title": "系统分享与跨应用转发",
+      "description": "通过系统分享面板把文本或图片转发到微信、QQ、笔记、蓝牙等。",
+      "whenToUse": "分享、转发、发送到微信、发送到 QQ、跨应用、系统分享",
+      "tags": ["share", "forward", "intent", "cross-app"]
+    },
+    {
+      "name": "study_problem_solving",
+      "title": "解题与问题求解",
+      "description": "拍题/粘贴题目，OCR 提取后分步推导，给答案并可沉淀错题本。",
+      "whenToUse": "做题、解题、答题、题目、推导、错题本、学习、辅导",
+      "tags": ["study", "problem", "solve", "ocr", "learning"]
+    },
+    {
+      "name": "study_research_qa",
+      "title": "开放问题检索综述",
+      "description": "澄清问题、多源 http.fetch 检索、综合带引用源的综述并可沉淀笔记。",
+      "whenToUse": "研究、调研、检索综述、对比、事实查证、引用源、开放问题",
+      "tags": ["research", "qa", "review", "citation"]
+    },
+    {
+      "name": "note_taking",
+      "title": "做笔记方法论与操作",
+      "description": "新建笔记、选模板（康奈尔/大纲/Zettel）、多页笔记、文件夹归档。",
+      "whenToUse": "笔记、做笔记、康奈尔、大纲、Zettel、归档、整理笔记、新建笔记",
+      "tags": ["note", "cornell", "outline", "zettel"]
+    },
+    {
+      "name": "note_capture_to_kb",
+      "title": "对话沉淀到知识库",
+      "description": "从对话中抽出事实/结论，追加到既有笔记或新建草稿，并写主 Agent 短时记忆。",
+      "whenToUse": "沉淀、保存到笔记、知识库、回顾对话、记一下、整理对话",
+      "tags": ["note", "knowledge", "capture", "memory"]
     }
   ],
   "editableFiles": [
@@ -47,6 +131,78 @@
       "title": "QQ 自动回复工作流 Skill",
       "type": "markdown",
       "defaultPath": "defaults/skills/qq.md"
+    },
+    {
+      "path": "skills/wechat.md",
+      "title": "微信会话自动化 Skill",
+      "type": "markdown",
+      "defaultPath": "defaults/skills/wechat.md"
+    },
+    {
+      "path": "skills/system_settings.md",
+      "title": "系统设置自动化 Skill",
+      "type": "markdown",
+      "defaultPath": "defaults/skills/system_settings.md"
+    },
+    {
+      "path": "skills/browser_search.md",
+      "title": "浏览器搜索与信息采集 Skill",
+      "type": "markdown",
+      "defaultPath": "defaults/skills/browser_search.md"
+    },
+    {
+      "path": "skills/camera_ocr_scan.md",
+      "title": "拍照与文档 OCR 扫描 Skill",
+      "type": "markdown",
+      "defaultPath": "defaults/skills/camera_ocr_scan.md"
+    },
+    {
+      "path": "skills/contacts_phone.md",
+      "title": "通讯录与电话 Skill",
+      "type": "markdown",
+      "defaultPath": "defaults/skills/contacts_phone.md"
+    },
+    {
+      "path": "skills/clock_alarm.md",
+      "title": "时钟与闹钟 Skill",
+      "type": "markdown",
+      "defaultPath": "defaults/skills/clock_alarm.md"
+    },
+    {
+      "path": "skills/map_navigation.md",
+      "title": "地图与导航 Skill",
+      "type": "markdown",
+      "defaultPath": "defaults/skills/map_navigation.md"
+    },
+    {
+      "path": "skills/media_share.md",
+      "title": "系统分享与跨应用转发 Skill",
+      "type": "markdown",
+      "defaultPath": "defaults/skills/media_share.md"
+    },
+    {
+      "path": "skills/study_problem_solving.md",
+      "title": "解题与问题求解 Skill",
+      "type": "markdown",
+      "defaultPath": "defaults/skills/study_problem_solving.md"
+    },
+    {
+      "path": "skills/study_research_qa.md",
+      "title": "开放问题检索综述 Skill",
+      "type": "markdown",
+      "defaultPath": "defaults/skills/study_research_qa.md"
+    },
+    {
+      "path": "skills/note_taking.md",
+      "title": "做笔记方法论与操作 Skill",
+      "type": "markdown",
+      "defaultPath": "defaults/skills/note_taking.md"
+    },
+    {
+      "path": "skills/note_capture_to_kb.md",
+      "title": "对话沉淀到知识库 Skill",
+      "type": "markdown",
+      "defaultPath": "defaults/skills/note_capture_to_kb.md"
     }
   ],
   "lynai": {

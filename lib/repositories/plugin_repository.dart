@@ -43,6 +43,18 @@ class PluginRepository {
       'defaults/skills/android_accessibility.md',
       'defaults/skills/messaging.md',
       'defaults/skills/qq.md',
+      'defaults/skills/wechat.md',
+      'defaults/skills/system_settings.md',
+      'defaults/skills/browser_search.md',
+      'defaults/skills/camera_ocr_scan.md',
+      'defaults/skills/contacts_phone.md',
+      'defaults/skills/clock_alarm.md',
+      'defaults/skills/map_navigation.md',
+      'defaults/skills/media_share.md',
+      'defaults/skills/study_problem_solving.md',
+      'defaults/skills/study_research_qa.md',
+      'defaults/skills/note_taking.md',
+      'defaults/skills/note_capture_to_kb.md',
     ],
   };
 

@@ -150,7 +150,7 @@ storage_v2 中的资源注册表使用 content-addressed blob 路径。对话附
 
 工具可读取或修改日程、笔记、待办，也可以调用 Android 平台能力。工具能力应只在可信模型和可信对话中启用。
 
-Agent 手机自动化优先用 `lynai.device.*`、`device.screen.query` 和 `device.node.findAll` 精确筛选节点，同一应用内的确定性多步骤操作优先合并到一次 `execute_lua` 中线性编排。读屏、消息提取和节点查询只需要 `device:screen:read`，点击、输入、滚动、打开应用等动作需要 `device:control`。QQ/消息应用上下文优先从无障碍节点提取可见文本，截图 base64 只作为 OCR/识图输入，模型可见 tool result 会剥离二进制内容。发给模型的 assistant 历史消息固定携带空 `reasoning_content`，避免真实 thinking 污染后续工具上下文。Agent Lua 和 Subagent 不设置固定工具轮数上限，设备任务通过暂停/停止机制收敛。
+Agent 手机自动化优先用 `lynai.device.*`、`device.screen.query` 和 `device.node.findAll` 精确筛选节点，同一应用内的确定性多步骤操作优先合并到一次 `execute_lua` 中线性编排。读屏、消息提取和节点查询只需要 `device:screen:read`，点击、输入、滚动、打开应用等动作需要 `device:control`。QQ/消息应用上下文优先从无障碍节点提取可见文本，截图 base64 只作为 OCR/识图输入，模型可见 tool result 会剥离二进制内容。内置 `mobile-agent-skills` 共 15 个 Skill，覆盖 Android 无障碍原语、消息应用通用流程、QQ/微信会话、系统设置、浏览器搜索、相机 OCR 扫描、通讯录与电话、时钟闹钟、地图导航、系统分享、解题与研究、笔记方法论、对话沉淀到知识库等场景。学习与笔记类 Skill 不走 `execute_lua`，直接由主模型调用 `notes.*`/`todos.*`/`schedules.*`/`http.fetch`/`model.ocr` 等函数。发给模型的 assistant 历史消息固定携带空 `reasoning_content`，避免真实 thinking 污染后续工具上下文。Agent Lua 和 Subagent 不设置固定工具轮数上限，设备任务通过暂停/停止机制收敛。
 
 ## 持久化策略
 
