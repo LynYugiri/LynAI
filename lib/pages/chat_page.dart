@@ -90,8 +90,14 @@ class _StreamDraft {
   final String content;
   final String? thinking;
   final String? status;
+  final String? activeToolName;
 
-  const _StreamDraft({this.content = '', this.thinking, this.status});
+  const _StreamDraft({
+    this.content = '',
+    this.thinking,
+    this.status,
+    this.activeToolName,
+  });
 }
 
 class _ChatSearchMatch {
@@ -397,7 +403,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final current = _streamDraft.value;
     if (current.content == draft.content &&
         current.thinking == draft.thinking &&
-        current.status == draft.status) {
+        current.status == draft.status &&
+        current.activeToolName == draft.activeToolName) {
       return;
     }
     _streamDraft.value = draft;
@@ -1432,8 +1439,25 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         final results = await toolService.executeAll(
           toolCalls,
           conv?.messages ?? const [],
+          onToolStart: (call) {
+            if (!mounted || gen != _streamGen) return;
+            _shouldUpdateStreamUi(force: true);
+            _updateStreamDraft(
+              _StreamDraft(
+                content: buf,
+                thinking: thinkBuf.isEmpty ? null : thinkBuf,
+                activeToolName: call.name,
+              ),
+            );
+          },
         );
         if (!mounted || gen != _streamGen) return;
+        _updateStreamDraft(
+          _StreamDraft(
+            content: buf,
+            thinking: thinkBuf.isEmpty ? null : thinkBuf,
+          ),
+        );
         working.add(_assistantToolCallMessage(buf, toolCalls));
         for (final result in results) {
           working.add(_toolResultMessage(result, nativeTool: true));
@@ -3288,6 +3312,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         if (!isLastAi) ..._buildPerMsgThinkSection(msg),
         if (msg.agentTrace != null && msg.agentTrace!.events.isNotEmpty)
           _agentTracePanel(msg.agentTrace!),
+        if (streaming && draft.activeToolName != null)
+          _toolCallBadge(draft.activeToolName!),
         Container(
           margin: const EdgeInsets.symmetric(vertical: 4),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -3921,6 +3947,34 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       child: Text(
         text,
         style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+      ),
+    );
+  }
+
+  Widget _toolCallBadge(String toolName) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 8, top: 2, bottom: 2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '*',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: Colors.amber.shade700,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            toolName,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Colors.amber.shade700,
+            ),
+          ),
+        ],
       ),
     );
   }

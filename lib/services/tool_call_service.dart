@@ -1229,10 +1229,12 @@ ${lines.join('\n')}$more''';
   /// [conversationMessages] 作为上下文传入，供需要对话历史的工具使用。
   Future<List<ToolExecutionResult>> executeAll(
     List<ChatToolCall> calls,
-    List<Message> conversationMessages,
-  ) async {
+    List<Message> conversationMessages, {
+    void Function(ChatToolCall call)? onToolStart,
+  }) async {
     final results = <ToolExecutionResult>[];
     for (final call in calls) {
+      onToolStart?.call(call);
       results.add(
         ToolExecutionResult(
           toolCallId: call.id,
