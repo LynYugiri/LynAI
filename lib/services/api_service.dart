@@ -114,6 +114,15 @@ class ApiService {
     }
   }
 
+  void _applyManagedRelayAuth(Map<String, String> headers) {
+    final backend = _backend;
+    final token = backend?.accessToken ?? '';
+    if (backend == null || !backend.isConnected || token.isEmpty) {
+      throw Exception('LynAI 中转需要登录后使用');
+    }
+    headers['Authorization'] = 'Bearer $token';
+  }
+
   bool _shouldLogSseDiagnostics(ModelConfig config) {
     return config.extraParams['debugSse'] == true;
   }
@@ -234,6 +243,10 @@ class ApiService {
     Uint8List imageBytes,
   ) async {
     if (config.managed) {
+      return _recognizeManagedOCR(config, imageBytes);
+    }
+    if (config.apiType != 'vivo_ocr' &&
+        config.apiType != ModelConfig.categoryOcr) {
       return recognizeImageTextWithChatModel(config, '请识别图片中的文字，只返回识别到的文字内容。', [
         ChatFileInput(
           bytes: imageBytes,
@@ -246,6 +259,34 @@ class ApiService {
     return _extractOcrText(data);
   }
 
+  Future<String> _recognizeManagedOCR(
+    ModelConfig config,
+    Uint8List imageBytes,
+  ) async {
+    final backend = _backend;
+    final token = backend?.accessToken ?? '';
+    if (backend == null || !backend.isConnected || token.isEmpty) {
+      throw Exception('LynAI 中转需要登录后使用');
+    }
+    final endpoint = config.endpoint.replaceAll(RegExp(r'/+$'), '');
+    final request = http.MultipartRequest('POST', Uri.parse('$endpoint/ocr'));
+    request.headers['Authorization'] = 'Bearer $token';
+    request.fields['model'] = config.modelName;
+    request.fields['api_type'] = config.apiType;
+    request.files.add(
+      http.MultipartFile.fromBytes('file', imageBytes, filename: 'ocr.png'),
+    );
+    final streamed = await request.send().timeout(_timeout);
+    final body = await streamed.stream.transform(utf8.decoder).join();
+    if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
+      throw Exception('OCR 识别失败: ${streamed.statusCode} $body');
+    }
+    final decoded = jsonDecode(body);
+    return decoded is Map
+        ? decoded['text']?.toString() ?? ''
+        : decoded.toString();
+  }
+
   Future<OcrRecognitionResult> recognizeImageTextBlocks(
     ModelConfig config,
     Uint8List imageBytes,
@@ -253,6 +294,26 @@ class ApiService {
     final image = await _decodeImageSize(imageBytes);
     try {
       if (config.managed) {
+        final text = await recognizeImageText(config, imageBytes);
+        return OcrRecognitionResult(
+          angle: 0,
+          imageWidth: image.width.toDouble(),
+          imageHeight: image.height.toDouble(),
+          blocks: text.trim().isEmpty
+              ? const []
+              : [
+                  OcrTextBlock(
+                    id: 'ocr_0',
+                    text: text.trim(),
+                    bounds: null,
+                    polygon: const [],
+                    orientation: OcrTextOrientation.unknown,
+                  ),
+                ],
+        );
+      }
+      if (config.apiType != 'vivo_ocr' &&
+          config.apiType != ModelConfig.categoryOcr) {
         final text = await recognizeImageText(config, imageBytes);
         return OcrRecognitionResult(
           angle: 0,
@@ -401,12 +462,13 @@ class ApiService {
       }
     }
 
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (config.managed) {
+      _applyManagedRelayAuth(headers);
+    }
+
     final response = await http
-        .post(
-          uri,
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(body),
-        )
+        .post(uri, headers: headers, body: jsonEncode(body))
         .timeout(
           _timeout,
           onTimeout: () {
@@ -562,6 +624,13 @@ class ApiService {
     String audioType = 'auto',
   }) async {
     if (config.managed) {
+      if (config.apiType == 'vivo_lasr') {
+        return _transcribeManagedVivoLasr(
+          config,
+          audioBytes,
+          audioType: audioType,
+        );
+      }
       return _transcribeManagedAudio(config, audioBytes, audioType: audioType);
     }
     final endpoint = config.endpoint.replaceAll(RegExp(r'/+$'), '');
@@ -691,13 +760,113 @@ class ApiService {
     return decoded.toString();
   }
 
+  Future<String> _transcribeManagedVivoLasr(
+    ModelConfig config,
+    Uint8List audioBytes, {
+    required String audioType,
+  }) async {
+    final backend = _backend;
+    final token = backend?.accessToken ?? '';
+    if (backend == null || !backend.isConnected || token.isEmpty) {
+      throw Exception('LynAI 中转需要登录后使用');
+    }
+    final endpoint = config.endpoint.replaceAll(RegExp(r'/+$'), '');
+    final sliceCount = math.max(
+      1,
+      (audioBytes.length / _speechSliceSize).ceil(),
+    );
+    final create = await http
+        .post(
+          Uri.parse('$endpoint/speech/create'),
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({
+            'model': config.modelName,
+            'api_type': config.apiType,
+            'audio_type': audioType,
+            'slice_num': sliceCount,
+          }),
+        )
+        .timeout(_timeout);
+    if (create.statusCode < 200 || create.statusCode >= 300) {
+      throw Exception('创建转写会话失败: ${create.statusCode} ${create.body}');
+    }
+    final createData = jsonDecode(utf8.decode(create.bodyBytes));
+    final audioId = createData['data']?['audio_id']?.toString() ?? '';
+    if (audioId.isEmpty) throw Exception('创建转写会话未返回 audio_id');
+
+    for (var i = 0; i < sliceCount; i++) {
+      final start = i * _speechSliceSize;
+      final end = math.min(start + _speechSliceSize, audioBytes.length);
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse(
+          '$endpoint/speech/$audioId/upload',
+        ).replace(queryParameters: {'slice_index': '$i'}),
+      );
+      request.headers['Authorization'] = 'Bearer $token';
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'file',
+          audioBytes.sublist(start, end),
+          filename: 'audio.part',
+        ),
+      );
+      final streamed = await request.send().timeout(_timeout);
+      final body = await streamed.stream.transform(utf8.decoder).join();
+      if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
+        throw Exception('上传音频分片失败: ${streamed.statusCode} $body');
+      }
+    }
+
+    final run = await http
+        .post(
+          Uri.parse('$endpoint/speech/$audioId/run'),
+          headers: {'Authorization': 'Bearer $token'},
+        )
+        .timeout(_timeout);
+    if (run.statusCode < 200 || run.statusCode >= 300) {
+      throw Exception('创建转写任务失败: ${run.statusCode} ${run.body}');
+    }
+
+    for (var i = 0; i < 120; i++) {
+      await Future<void>.delayed(const Duration(seconds: 2));
+      final progress = await http
+          .get(
+            Uri.parse('$endpoint/speech/$audioId/progress'),
+            headers: {'Authorization': 'Bearer $token'},
+          )
+          .timeout(_timeout);
+      if (progress.statusCode < 200 || progress.statusCode >= 300) {
+        throw Exception('查询转写进度失败: ${progress.statusCode} ${progress.body}');
+      }
+      final data = jsonDecode(utf8.decode(progress.bodyBytes));
+      if ((data['data']?['progress'] as num? ?? 0) >= 100) break;
+      if (i == 119) throw Exception('语音转写超时');
+    }
+
+    final result = await http
+        .get(
+          Uri.parse('$endpoint/speech/$audioId/result'),
+          headers: {'Authorization': 'Bearer $token'},
+        )
+        .timeout(_timeout);
+    if (result.statusCode < 200 || result.statusCode >= 300) {
+      throw Exception('获取转写结果失败: ${result.statusCode} ${result.body}');
+    }
+    final data = jsonDecode(utf8.decode(result.bodyBytes));
+    return data['text']?.toString() ?? '';
+  }
+
   Future<List<String>> generateImages(
     ModelConfig config,
     String prompt, {
     Object? image,
     Map<String, dynamic>? parameters,
   }) async {
-    if (config.apiType == 'vivo_image') {
+    if (config.apiType == 'vivo_image' && !config.managed) {
       return _generateVivoImages(
         config,
         prompt,
@@ -1348,7 +1517,11 @@ class ApiService {
     }
 
     final request = http.Request('POST', uri);
-    request.headers.addAll({'Content-Type': 'application/json'});
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (config.managed) {
+      _applyManagedRelayAuth(headers);
+    }
+    request.headers.addAll(headers);
     request.body = jsonEncode(body);
 
     final streamedResponse = await client.send(request).timeout(_timeout);
@@ -1482,11 +1655,14 @@ class ApiService {
     );
 
     final request = http.Request('POST', uri);
-    request.headers.addAll({
-      'Content-Type': 'application/json',
-      'x-api-key': config.apiKey,
-      'anthropic-version': '2023-06-01',
-    });
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (config.managed) {
+      _applyManagedRelayAuth(headers);
+    } else {
+      headers['x-api-key'] = config.apiKey;
+      headers['anthropic-version'] = '2023-06-01';
+    }
+    request.headers.addAll(headers);
     request.body = jsonEncode(body);
 
     final streamedResponse = await client.send(request).timeout(_timeout);
@@ -1554,16 +1730,16 @@ class ApiService {
       thinking: thinking,
     );
 
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (config.managed) {
+      _applyManagedRelayAuth(headers);
+    } else {
+      headers['x-api-key'] = config.apiKey;
+      headers['anthropic-version'] = '2023-06-01';
+    }
+
     final response = await http
-        .post(
-          uri,
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': config.apiKey,
-            'anthropic-version': '2023-06-01',
-          },
-          body: jsonEncode(body),
-        )
+        .post(uri, headers: headers, body: jsonEncode(body))
         .timeout(
           _timeout,
           onTimeout: () {

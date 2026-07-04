@@ -60,18 +60,18 @@ const _ocrEndpointPresets = [
   {
     'name': 'vivo OCR',
     'url': 'https://api-ai.vivo.com.cn/ocr/general_recognition',
-    'type': ModelConfig.categoryOcr,
+    'type': 'vivo_ocr',
   },
-  {'name': '自定义', 'url': '', 'type': ModelConfig.categoryOcr},
+  {'name': '自定义', 'url': '', 'type': 'custom'},
 ];
 
 const _speechEndpointPresets = [
   {
     'name': 'vivo 长语音转写',
     'url': 'https://api-ai.vivo.com.cn',
-    'type': ModelConfig.categorySpeech,
+    'type': 'vivo_lasr',
   },
-  {'name': '自定义', 'url': '', 'type': ModelConfig.categorySpeech},
+  {'name': '自定义', 'url': '', 'type': 'custom'},
 ];
 
 const _imageEndpointPresets = [
@@ -365,13 +365,15 @@ class _EditModelPageState extends State<EditModelPage> {
   bool get isChat => widget.category.id == ModelConfig.categoryChat;
   bool get isImageGeneration =>
       widget.category.id == ModelConfig.categoryImageGeneration;
+  bool get isSpeech => widget.category.id == ModelConfig.categorySpeech;
+  bool get isOcr => widget.category.id == ModelConfig.categoryOcr;
   bool get needsAppId =>
       widget.category.id == ModelConfig.categoryOcr ||
       widget.category.id == ModelConfig.categorySpeech;
   bool get isInterfaceOnly =>
       widget.category.id == ModelConfig.categoryOcr ||
       widget.category.id == ModelConfig.categorySpeech;
-  bool get hasChatStyleOptions => isChat || isImageGeneration;
+  bool get hasChatStyleOptions => true;
   bool get _isOpenAICompatible => _apiType == 'openai' || _apiType == 'custom';
 
   @override
@@ -416,13 +418,7 @@ class _EditModelPageState extends State<EditModelPage> {
     _debugSse = model?.extraParams['debugSse'] == true;
     _showAdvancedOptions = _debugSse;
     _newModelController = TextEditingController();
-    _apiType =
-        model?.apiType ??
-        (isChat
-            ? 'openai'
-            : isImageGeneration
-            ? 'openai_image'
-            : widget.category.id);
+    _apiType = model?.apiType ?? _defaultApiType;
     _modelEntries =
         model?.models.toList() ?? [ModelEntry(name: '', enabled: false)];
     _filteredPresets = List.from(_currentEndpointPresets);
@@ -748,6 +744,10 @@ class _EditModelPageState extends State<EditModelPage> {
       ? 'openai'
       : isImageGeneration
       ? 'openai_image'
+      : isSpeech
+      ? 'openai_speech'
+      : isOcr
+      ? 'vivo_ocr'
       : widget.category.id;
 
   bool _sameModelEntries(List<ModelEntry> a, List<ModelEntry> b) {
@@ -1460,30 +1460,48 @@ class _EditModelPageState extends State<EditModelPage> {
         border: OutlineInputBorder(),
         prefixIcon: Icon(Icons.category),
       ),
-      items:
-          (isImageGeneration
-                  ? [
-                      {'value': 'openai_image', 'label': 'OpenAI 格式'},
-                      {'value': 'vivo_image', 'label': 'vivo 原生'},
-                      {'value': 'custom', 'label': 'Custom'},
-                    ]
-                  : [
-                      {'value': 'openai', 'label': 'OpenAI 兼容'},
-                      {'value': 'ollama', 'label': 'Ollama'},
-                      {'value': 'anthropic', 'label': 'Anthropic'},
-                      {'value': 'custom', 'label': 'Custom'},
-                    ])
-              .map(
-                (t) => DropdownMenuItem(
-                  value: t['value'],
-                  child: Text(t['label']!),
-                ),
-              )
-              .toList(),
+      items: (_apiTypeOptions())
+          .map(
+            (t) =>
+                DropdownMenuItem(value: t['value'], child: Text(t['label']!)),
+          )
+          .toList(),
       onChanged: (v) {
         if (v != null) setState(() => _apiType = v);
       },
     );
+  }
+
+  List<Map<String, String>> _apiTypeOptions() {
+    if (isImageGeneration) {
+      return const [
+        {'value': 'openai_image', 'label': 'OpenAI 格式'},
+        {'value': 'vivo_image', 'label': 'vivo 原生'},
+        {'value': 'custom', 'label': 'Custom'},
+      ];
+    }
+    if (isSpeech) {
+      return const [
+        {'value': 'openai_speech', 'label': 'OpenAI 语音'},
+        {'value': 'vivo_lasr', 'label': 'vivo 长语音'},
+        {'value': 'custom', 'label': 'Custom'},
+      ];
+    }
+    if (isOcr) {
+      return const [
+        {'value': 'vivo_ocr', 'label': 'vivo OCR'},
+        {'value': 'openai', 'label': 'OpenAI 视觉'},
+        {'value': 'ollama', 'label': 'Ollama 视觉'},
+        {'value': 'anthropic', 'label': 'Anthropic 视觉'},
+        {'value': 'custom', 'label': 'Custom'},
+      ];
+    }
+    return const [
+      {'value': 'openai', 'label': 'OpenAI 兼容'},
+      {'value': 'ollama', 'label': 'Ollama'},
+      {'value': 'anthropic', 'label': 'Anthropic'},
+      {'value': 'custom', 'label': 'Custom'},
+    ];
   }
 
   Widget _endpointField() {
