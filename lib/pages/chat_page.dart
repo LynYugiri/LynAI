@@ -91,12 +91,14 @@ class _StreamDraft {
   final String? thinking;
   final String? status;
   final String? activeToolName;
+  final String? activeSkillDisplayName;
 
   const _StreamDraft({
     this.content = '',
     this.thinking,
     this.status,
     this.activeToolName,
+    this.activeSkillDisplayName,
   });
 }
 
@@ -404,7 +406,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     if (current.content == draft.content &&
         current.thinking == draft.thinking &&
         current.status == draft.status &&
-        current.activeToolName == draft.activeToolName) {
+        current.activeToolName == draft.activeToolName &&
+        current.activeSkillDisplayName == draft.activeSkillDisplayName) {
       return;
     }
     _streamDraft.value = draft;
@@ -1441,12 +1444,19 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           conv?.messages ?? const [],
           onToolStart: (call) {
             if (!mounted || gen != _streamGen) return;
+            final skillDisplayName = call.name == 'load_plugin_skill'
+                ? ToolCallService.pluginSkillDisplayName(
+                    context.read<PluginProvider>().plugins,
+                    call.arguments,
+                  )
+                : null;
             _shouldUpdateStreamUi(force: true);
             _updateStreamDraft(
               _StreamDraft(
                 content: buf,
                 thinking: thinkBuf.isEmpty ? null : thinkBuf,
                 activeToolName: call.name,
+                activeSkillDisplayName: skillDisplayName,
               ),
             );
           },
@@ -3312,7 +3322,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         if (!isLastAi) ..._buildPerMsgThinkSection(msg),
         if (msg.agentTrace != null && msg.agentTrace!.events.isNotEmpty)
           _agentTracePanel(msg.agentTrace!),
-        if (streaming && draft.activeToolName != null)
+        if (streaming && draft.activeSkillDisplayName != null)
+          _skillLoadingLabel(draft.activeSkillDisplayName!),
+        if (streaming &&
+            draft.activeToolName != null &&
+            draft.activeSkillDisplayName == null)
           _toolCallBadge(draft.activeToolName!),
         Container(
           margin: const EdgeInsets.symmetric(vertical: 4),
@@ -3947,6 +3961,26 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       child: Text(
         text,
         style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+      ),
+    );
+  }
+
+  Widget _skillLoadingLabel(String name) {
+    final scheme = Theme.of(context).colorScheme;
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: _assistantContentMaxWidth()),
+      child: Container(
+        width: double.infinity,
+        margin: const EdgeInsets.only(top: 2, bottom: 4),
+        alignment: Alignment.center,
+        child: Text(
+          '加载SKILL：$name',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 12,
+            color: scheme.onSurfaceVariant.withValues(alpha: 0.72),
+          ),
+        ),
       ),
     );
   }

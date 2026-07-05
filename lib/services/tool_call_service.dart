@@ -1140,6 +1140,31 @@ ${lines.join('\n')}$more''';
     return {'ok': true, 'skills': skills};
   }
 
+  static String? pluginSkillDisplayName(
+    Iterable<InstalledPlugin> plugins,
+    Map<String, dynamic> args,
+  ) {
+    final parsed = _parseQualifiedName(args['qualifiedName'] as String? ?? '');
+    final pluginId = (args['pluginId'] as String? ?? parsed?.$1 ?? '').trim();
+    final skillName = (args['skillName'] as String? ?? parsed?.$2 ?? '').trim();
+    if (pluginId.isEmpty || skillName.isEmpty) {
+      final qualifiedName = (args['qualifiedName'] as String? ?? '').trim();
+      return qualifiedName.isEmpty ? null : qualifiedName;
+    }
+    for (final plugin in plugins) {
+      if (plugin.id != pluginId || !plugin.enabled || plugin.hasError) continue;
+      for (final skill in plugin.manifest.skills) {
+        if (skill.name != skillName ||
+            !plugin.enabledSkills.contains(skill.name)) {
+          continue;
+        }
+        final title = skill.title.trim();
+        return title.isEmpty ? skill.name : title;
+      }
+    }
+    return skillName;
+  }
+
   static Map<String, dynamic> _skillSummaryJson(
     InstalledPlugin plugin,
     PluginSkillDefinition skill,

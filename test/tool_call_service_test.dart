@@ -852,6 +852,12 @@ return {
         final skills = ((listed['result'] as Map)['skills'] as List)
             .cast<Map>();
         expect(skills.single['qualifiedName'], 'skill-plugin__weather__inner');
+        expect(
+          ToolCallService.pluginSkillDisplayName(plugins.plugins, {
+            'qualifiedName': 'skill-plugin__weather__inner',
+          }),
+          'Weather Inner',
+        );
 
         final loaded = await service.execute(
           const ChatToolCall(
