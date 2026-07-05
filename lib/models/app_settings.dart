@@ -111,9 +111,8 @@ class FloatingAssistantSettings {
       panelY: (json['panelY'] as num?)?.toInt() ?? defaultPosition,
       panelWidth: (json['panelWidth'] as num?)?.toInt() ?? defaultPosition,
       panelHeight: (json['panelHeight'] as num?)?.toInt() ?? defaultPosition,
-      translationModelId: (json['translationModelId'] as String?)
-          ?.trim()
-          .isEmpty == true
+      translationModelId:
+          (json['translationModelId'] as String?)?.trim().isEmpty == true
           ? null
           : json['translationModelId'] as String?,
     );
@@ -169,26 +168,26 @@ class FloatingAssistantSettings {
   }
 
   Map<String, dynamic> toJson() => {
-        'enabled': enabled,
-        'showBubbleInBackground': showBubbleInBackground,
-        'showAgentPlan': showAgentPlan,
-        'allowScreenContext': allowScreenContext,
-        'screenContextMode': screenContextMode,
-        'voiceInputMode': voiceInputMode,
-        'showMangaTranslationAction': showMangaTranslationAction,
-        'mangaTargetLanguage': mangaTargetLanguage,
-        'mangaLayoutMode': mangaLayoutMode,
-        'mangaOverlayStyle': mangaOverlayStyle,
-        'mangaOverlayOpacity': mangaOverlayOpacity,
-        'blockedPackages': blockedPackages,
-        'bubbleX': bubbleX,
-        'bubbleY': bubbleY,
-        'panelX': panelX,
-        'panelY': panelY,
-        'panelWidth': panelWidth,
-        'panelHeight': panelHeight,
-        'translationModelId': translationModelId,
-      };
+    'enabled': enabled,
+    'showBubbleInBackground': showBubbleInBackground,
+    'showAgentPlan': showAgentPlan,
+    'allowScreenContext': allowScreenContext,
+    'screenContextMode': screenContextMode,
+    'voiceInputMode': voiceInputMode,
+    'showMangaTranslationAction': showMangaTranslationAction,
+    'mangaTargetLanguage': mangaTargetLanguage,
+    'mangaLayoutMode': mangaLayoutMode,
+    'mangaOverlayStyle': mangaOverlayStyle,
+    'mangaOverlayOpacity': mangaOverlayOpacity,
+    'blockedPackages': blockedPackages,
+    'bubbleX': bubbleX,
+    'bubbleY': bubbleY,
+    'panelX': panelX,
+    'panelY': panelY,
+    'panelWidth': panelWidth,
+    'panelHeight': panelHeight,
+    'translationModelId': translationModelId,
+  };
 
   static String _enumString(Object? raw, Set<String> allowed, String fallback) {
     final value = raw?.toString();
@@ -229,6 +228,8 @@ class AppSettings {
   final List<String> agentGrantedPermissions;
   final FloatingAssistantSettings floatingAssistant;
   final String? backendUrl;
+  final bool hasConfiguredBackend;
+  final bool hasSeenLoginGuide;
 
   AppSettings({
     required this.themeColor,
@@ -257,6 +258,8 @@ class AppSettings {
     this.agentGrantedPermissions = LynAIPermissions.defaultAgent,
     this.floatingAssistant = const FloatingAssistantSettings(),
     this.backendUrl,
+    this.hasConfiguredBackend = false,
+    this.hasSeenLoginGuide = false,
   }) : roles = roles ?? [ChatRole.defaultRole()];
 
   factory AppSettings.defaults() {
@@ -292,6 +295,8 @@ class AppSettings {
     List<String>? agentGrantedPermissions,
     FloatingAssistantSettings? floatingAssistant,
     Object? backendUrl = _sentinel,
+    bool? hasConfiguredBackend,
+    bool? hasSeenLoginGuide,
   }) {
     return AppSettings(
       themeColor: themeColor ?? this.themeColor,
@@ -342,6 +347,8 @@ class AppSettings {
       backendUrl: identical(backendUrl, _sentinel)
           ? this.backendUrl
           : backendUrl as String?,
+      hasConfiguredBackend: hasConfiguredBackend ?? this.hasConfiguredBackend,
+      hasSeenLoginGuide: hasSeenLoginGuide ?? this.hasSeenLoginGuide,
     );
   }
 
@@ -448,6 +455,8 @@ class AppSettings {
         json['floatingAssistant'],
       ),
       backendUrl: json['backendUrl'] as String?,
+      hasConfiguredBackend: json['hasConfiguredBackend'] as bool? ?? false,
+      hasSeenLoginGuide: json['hasSeenLoginGuide'] as bool? ?? false,
     );
   }
 
@@ -483,6 +492,8 @@ class AppSettings {
       'agentGrantedPermissions': agentGrantedPermissions,
       'floatingAssistant': floatingAssistant.toJson(),
       if (backendUrl != null) 'backendUrl': backendUrl,
+      'hasConfiguredBackend': hasConfiguredBackend,
+      'hasSeenLoginGuide': hasSeenLoginGuide,
     };
   }
 

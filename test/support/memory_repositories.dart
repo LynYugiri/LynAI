@@ -51,6 +51,8 @@ class MemoryModelConfigRepository implements ModelConfigRepository {
 class MemorySettingsRepository implements SettingsRepository {
   AppSettings? _settings;
 
+  AppSettings? get savedSettings => _settings;
+
   @override
   Future<SettingsLoadResult> load(AppSettings fallback) async {
     return SettingsLoadResult(

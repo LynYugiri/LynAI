@@ -15,6 +15,8 @@ import 'package:http/http.dart' as http;
 ///
 /// 这是一个 [ChangeNotifier]：当后端地址变化时通知依赖方。
 class BackendClient extends ChangeNotifier {
+  static const defaultBackendUrl = 'http://8.138.82.3:8080';
+
   String _backendUrl = '';
   String? _accessToken;
   String? _refreshToken;

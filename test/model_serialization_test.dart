@@ -210,6 +210,48 @@ void main() {
     expect(floating.translationModelId, 'model-ocr-1');
   });
 
+  test('AppSettings serializes backend onboarding flags', () {
+    final settings = AppSettings.defaults().copyWith(
+      backendUrl: 'http://8.138.82.3:8080',
+      hasConfiguredBackend: true,
+      hasSeenLoginGuide: true,
+    );
+
+    final restored = AppSettings.fromJson(settings.toJson());
+
+    expect(restored.backendUrl, 'http://8.138.82.3:8080');
+    expect(restored.hasConfiguredBackend, isTrue);
+    expect(restored.hasSeenLoginGuide, isTrue);
+  });
+
+  test('AppSettings defaults backend onboarding flags to false', () {
+    final restored = AppSettings.fromJson(const <String, dynamic>{});
+
+    expect(restored.hasConfiguredBackend, isFalse);
+    expect(restored.hasSeenLoginGuide, isFalse);
+  });
+
+  test(
+    'SettingsProvider initializes default backend only before user config',
+    () async {
+      final repository = MemorySettingsRepository();
+      final provider = SettingsProvider(repository: repository);
+      await provider.loadSettings();
+
+      await provider.initializeDefaultBackend('http://8.138.82.3:8080');
+
+      expect(provider.settings.backendUrl, 'http://8.138.82.3:8080');
+      expect(provider.settings.hasConfiguredBackend, isTrue);
+      expect(repository.savedSettings?.backendUrl, 'http://8.138.82.3:8080');
+
+      provider.updateBackendUrl(null);
+      await provider.initializeDefaultBackend('http://8.138.82.3:8080');
+
+      expect(provider.settings.backendUrl, isNull);
+      expect(provider.settings.hasConfiguredBackend, isTrue);
+    },
+  );
+
   test('floating assistant settings default positions are -1', () {
     const settings = FloatingAssistantSettings();
     final restored = FloatingAssistantSettings.fromJson(settings.toJson());

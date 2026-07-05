@@ -47,6 +47,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final pluginProvider = context.watch<PluginProvider>();
     final recycleBinProvider = context.watch<RecycleBinProvider>();
     final account = context.watch<AccountProvider>();
+    final backend = context.watch<BackendClient>();
     final pluginItems = _buildPluginItems(context, pluginProvider);
 
     return Scaffold(
@@ -71,9 +72,7 @@ class _SettingsPageState extends State<SettingsPage> {
             context,
             Icons.dns_outlined,
             '连接到服务端',
-            settings.backendUrl != null && settings.backendUrl!.isNotEmpty
-                ? settings.backendUrl!
-                : '未连接',
+            _backendSubtitle(settings.backendUrl, backend),
             Colors.blueGrey,
             () => _showBackendDialog(context),
           ),
@@ -207,7 +206,10 @@ class _SettingsPageState extends State<SettingsPage> {
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => TextEditingControllerHost(
-        initialTexts: [settingsProvider.settings.backendUrl ?? ''],
+        initialTexts: [
+          settingsProvider.settings.backendUrl ??
+              BackendClient.defaultBackendUrl,
+        ],
         builder: (ctx, controllers) {
           final controller = controllers.single;
           return AlertDialog(
@@ -216,7 +218,7 @@ class _SettingsPageState extends State<SettingsPage> {
               controller: controller,
               decoration: const InputDecoration(
                 labelText: '后端地址',
-                hintText: 'https://api.lynai.com',
+                hintText: BackendClient.defaultBackendUrl,
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.link),
               ),
@@ -229,6 +231,12 @@ class _SettingsPageState extends State<SettingsPage> {
                   Navigator.pop(ctx, '');
                 },
                 child: const Text('断开'),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(ctx, BackendClient.defaultBackendUrl);
+                },
+                child: const Text('恢复默认'),
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(ctx, controller.text.trim()),
@@ -247,6 +255,14 @@ class _SettingsPageState extends State<SettingsPage> {
     backend.configure(url ?? '');
     settingsProvider.updateBackendUrl(url);
     await context.read<ModelConfigProvider>().syncLynaiManagedProvider(backend);
+  }
+
+  String _backendSubtitle(String? savedUrl, BackendClient backend) {
+    if (!backend.isConnected) return '未连接';
+    if (backend.backendUrl == BackendClient.defaultBackendUrl) {
+      return '${backend.backendUrl}（默认演示后端）';
+    }
+    return backend.backendUrl;
   }
 
   /// 遍历所有已启用插件中标记了 [PluginFeaturePageDefinition.showInSettings] 的功能页，生成对应的设置项列表。

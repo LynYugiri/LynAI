@@ -632,8 +632,26 @@ class SettingsProvider extends ChangeNotifier {
 
   /// 更新后端连接地址。传入 null 断开连接。
   void updateBackendUrl(String? url) {
-    _settings = _settings.copyWith(backendUrl: url);
+    _settings = _settings.copyWith(backendUrl: url, hasConfiguredBackend: true);
     _queueSaveSettings();
     notifyListeners();
+  }
+
+  /// 首次启动时写入内置演示后端；用户主动配置/断开后不再覆盖。
+  Future<void> initializeDefaultBackend(String url) async {
+    if (_settings.hasConfiguredBackend) return;
+    _settings = _settings.copyWith(backendUrl: url, hasConfiguredBackend: true);
+    _queueSaveSettings();
+    notifyListeners();
+    await _saveQueue;
+  }
+
+  /// 标记首次登录引导已展示，避免每次启动重复弹窗。
+  Future<void> markLoginGuideSeen() async {
+    if (_settings.hasSeenLoginGuide) return;
+    _settings = _settings.copyWith(hasSeenLoginGuide: true);
+    _queueSaveSettings();
+    notifyListeners();
+    await _saveQueue;
   }
 }

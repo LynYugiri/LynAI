@@ -11,7 +11,9 @@ import '../services/backend_client.dart';
 /// 通过顶部 segmented control 切换登录与注册模式。
 /// 注册模式下可选填昵称，不填则后端自动生成默认昵称。
 class LoginDialog extends StatefulWidget {
-  const LoginDialog({super.key});
+  const LoginDialog({super.key, this.initialRegisterMode = false});
+
+  final bool initialRegisterMode;
 
   @override
   State<LoginDialog> createState() => _LoginDialogState();
@@ -24,6 +26,12 @@ class _LoginDialogState extends State<LoginDialog> {
   final _confirmPasswordController = TextEditingController();
   final _displayNameController = TextEditingController();
   bool _isRegisterMode = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _isRegisterMode = widget.initialRegisterMode;
+  }
 
   @override
   void dispose() {
@@ -56,19 +64,20 @@ class _LoginDialogState extends State<LoginDialog> {
                 },
               ),
               const SizedBox(height: 16),
+              _DemoAuthNotice(isRegisterMode: _isRegisterMode),
+              const SizedBox(height: 12),
               TextFormField(
                 controller: _phoneController,
                 decoration: const InputDecoration(
-                  labelText: '手机号',
-                  hintText: '请输入手机号',
+                  labelText: '账号/手机号',
+                  hintText: '可填写任意测试账号',
                   border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.phone_outlined),
+                  prefixIcon: Icon(Icons.person_outline),
                 ),
-                keyboardType: TextInputType.phone,
+                keyboardType: TextInputType.text,
                 validator: (value) {
                   final v = value?.trim() ?? '';
-                  if (v.isEmpty) return '请输入手机号';
-                  if (v.length < 6) return '手机号格式不正确';
+                  if (v.isEmpty) return '请输入账号';
                   return null;
                 },
               ),
@@ -85,7 +94,6 @@ class _LoginDialogState extends State<LoginDialog> {
                 validator: (value) {
                   final v = value ?? '';
                   if (v.isEmpty) return '请输入密码';
-                  if (_isRegisterMode && v.length < 6) return '密码至少 6 位';
                   return null;
                 },
               ),
@@ -175,5 +183,34 @@ class _LoginDialogState extends State<LoginDialog> {
       Navigator.pop(context);
     }
     // 失败时保持对话框打开，错误会显示在表单内。
+  }
+}
+
+class _DemoAuthNotice extends StatelessWidget {
+  const _DemoAuthNotice({required this.isRegisterMode});
+
+  final bool isRegisterMode;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final text = isRegisterMode
+        ? '演示后端已内置，没有短信、邮箱或实名验证；可随意填写账号和密码。注册成功后会直接登录，有账号才能调用服务端提供的模型。'
+        : '演示后端已内置，没有任何身份验证；可使用任意测试账号登录。登录账号后才能调用服务端提供的模型。';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colors.secondaryContainer.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        text,
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: colors.onSecondaryContainer,
+        ),
+      ),
+    );
   }
 }

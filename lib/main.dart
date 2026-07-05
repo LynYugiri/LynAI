@@ -24,6 +24,7 @@ import 'providers/sync_provider.dart';
 import 'utils/changelog_parser.dart';
 import 'utils/open_source_licenses.dart';
 import 'widgets/changelog_dialog.dart';
+import 'widgets/login_dialog.dart';
 
 /// LynAI 的应用入口。
 ///
@@ -183,11 +184,13 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       conversationProvider.repairModelReferences(modelProvider.models);
       roleplayProvider.repairModelReferences(modelProvider.models);
 
-      // Configure backend client from saved settings.
-      final savedUrl = settingsProvider.settings.backendUrl;
-      if (savedUrl != null && savedUrl.isNotEmpty) {
-        backendClient.configure(savedUrl);
-      }
+      await settingsProvider.initializeDefaultBackend(
+        BackendClient.defaultBackendUrl,
+      );
+
+      // Configure backend client from settings. A null URL means the user
+      // explicitly disconnected the backend.
+      backendClient.configure(settingsProvider.settings.backendUrl ?? '');
 
       await accountProvider.load();
       await modelProvider.syncLynaiManagedProvider(backendClient);
@@ -209,7 +212,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
 
       if (mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) unawaited(_checkNewChangelog());
+          if (mounted) unawaited(_runStartupDialogs());
         });
       }
     } catch (e) {
@@ -253,6 +256,33 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
     } catch (e) {
       debugPrint('检查更新日志失败: $e');
     }
+  }
+
+  Future<void> _runStartupDialogs() async {
+    await _showInitialLoginDialogIfNeeded();
+    if (!mounted) return;
+    await _checkNewChangelog();
+  }
+
+  Future<void> _showInitialLoginDialogIfNeeded() async {
+    final dialogContext = _navigatorKey.currentContext;
+    if (!mounted || dialogContext == null || !dialogContext.mounted) return;
+
+    final settings = dialogContext.read<SettingsProvider>();
+    final backend = dialogContext.read<BackendClient>();
+    final account = dialogContext.read<AccountProvider>();
+    if (settings.settings.hasSeenLoginGuide ||
+        !backend.isConnected ||
+        account.isLoggedIn) {
+      return;
+    }
+
+    await settings.markLoginGuideSeen();
+    if (!mounted || !dialogContext.mounted) return;
+    await showDialog<void>(
+      context: dialogContext,
+      builder: (_) => const LoginDialog(initialRegisterMode: true),
+    );
   }
 
   /// 遍历所有内置插件 ID，同步源码，并为首次安装的插件授予其声明权限。

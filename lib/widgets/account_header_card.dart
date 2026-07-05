@@ -169,8 +169,8 @@ class _LoggedOutCard extends StatelessWidget {
                       ),
                       Text(
                         account.isBackendConnected
-                            ? '登录后可同步数据和使用社区功能'
-                            : '登录后可在社区上线时收到通知',
+                            ? '演示后端已内置，可随意填写账号和密码；有账号才能调用服务端模型。'
+                            : '可在下方连接服务端，或恢复默认演示后端；有账号才能调用服务端模型。',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
@@ -198,7 +198,7 @@ class _LoggedOutCard extends StatelessWidget {
                       height: 20,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('登录'),
+                  : const Text('登录/注册'),
             ),
           ],
         ),
