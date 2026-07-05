@@ -35,6 +35,40 @@ class BackendClient extends ChangeNotifier {
   /// 是否已连接后端。
   bool get isConnected => _backendUrl.isNotEmpty;
 
+  /// 从后端错误响应中提取可展示的错误消息。
+  ///
+  /// 兼容普通业务接口的 `{"error":"..."}`，也兼容 relay/OpenAI 风格的
+  /// `{"error":{"message":"...","type":"..."}}`，避免各调用方重复解析。
+  static String? extractErrorMessage(String body) {
+    try {
+      return extractErrorMessageFromDecoded(jsonDecode(body));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 从已解码的 JSON 对象中提取可展示的错误消息。
+  static String? extractErrorMessageFromDecoded(Object? decoded) {
+    if (decoded is! Map) return null;
+    final error = decoded['error'];
+    if (error is String) {
+      final text = error.trim();
+      return text.isEmpty ? null : text;
+    }
+    if (error is Map) {
+      return _firstNonEmpty([error['message'], error['error'], error['type']]);
+    }
+    return _firstNonEmpty([decoded['message']]);
+  }
+
+  static String? _firstNonEmpty(Iterable<Object?> values) {
+    for (final value in values) {
+      final text = value?.toString().trim() ?? '';
+      if (text.isNotEmpty) return text;
+    }
+    return null;
+  }
+
   /// 设置后端地址。传入空字符串表示断开连接。
   void configure(String url) {
     final normalized = url.trim();

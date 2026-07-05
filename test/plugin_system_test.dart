@@ -19,56 +19,24 @@ import 'package:lynai/services/lynai_function_service.dart';
 import 'package:lynai/services/plugin_lua_runtime_service.dart';
 import 'package:lynai/services/tool_call_service.dart';
 import 'package:lynai/utils/plugin_path_utils.dart';
-import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/fake_path_provider.dart';
 import 'support/memory_repositories.dart';
-
-class _FakePathProviderPlatform extends PathProviderPlatform {
-  _FakePathProviderPlatform(this.root);
-
-  final Directory root;
-
-  @override
-  Future<String?> getTemporaryPath() => _path('tmp');
-
-  @override
-  Future<String?> getApplicationSupportPath() => _path('support');
-
-  @override
-  Future<String?> getApplicationDocumentsPath() => _path('documents');
-
-  @override
-  Future<String?> getApplicationCachePath() => _path('cache');
-
-  @override
-  Future<String?> getDownloadsPath() => _path('downloads');
-
-  Future<String> _path(String name) async {
-    final directory = Directory('${root.path}/$name');
-    if (!await directory.exists()) await directory.create(recursive: true);
-    return directory.path;
-  }
-}
 
 void main() {
   Directory? pathProviderRoot;
 
   setUp(() async {
-    pathProviderRoot = await Directory.systemTemp.createTemp(
+    pathProviderRoot = await installFakePathProvider(
       'lynai_plugin_path_provider_test_',
-    );
-    PathProviderPlatform.instance = _FakePathProviderPlatform(
-      pathProviderRoot!,
     );
   });
 
   tearDown(() async {
     final root = pathProviderRoot;
     pathProviderRoot = null;
-    if (root != null && await root.exists()) {
-      await root.delete(recursive: true);
-    }
+    await deleteFakePathProviderRoot(root);
   });
 
   test('built-in mobile agent skills plugin is declared', () {
@@ -97,71 +65,71 @@ void main() {
     );
   });
 
-  test('mobile-agent-skills manifest lists 15 skills with matching files', () async {
-    const pluginId = 'mobile-agent-skills';
-    const manifestPath =
-        'assets/plugins/$pluginId/plugin.json';
-    final manifestRaw = await File(manifestPath).readAsString();
-    final manifest = jsonDecode(manifestRaw) as Map<String, dynamic>;
-    final skills = (manifest['skills'] as List).cast<Map<String, dynamic>>();
-    final editables =
-        (manifest['editableFiles'] as List).cast<Map<String, dynamic>>();
+  test(
+    'mobile-agent-skills manifest lists 15 skills with matching files',
+    () async {
+      const pluginId = 'mobile-agent-skills';
+      const manifestPath = 'assets/plugins/$pluginId/plugin.json';
+      final manifestRaw = await File(manifestPath).readAsString();
+      final manifest = jsonDecode(manifestRaw) as Map<String, dynamic>;
+      final skills = (manifest['skills'] as List).cast<Map<String, dynamic>>();
+      final editables = (manifest['editableFiles'] as List)
+          .cast<Map<String, dynamic>>();
 
-    expect(skills.length, 15, reason: 'mobile-agent-skills 应有 15 个 skill');
-    expect(editables.length, 15, reason: 'editableFiles 应与 skills 数量一致');
+      expect(skills.length, 15, reason: 'mobile-agent-skills 应有 15 个 skill');
+      expect(editables.length, 15, reason: 'editableFiles 应与 skills 数量一致');
 
-    final pathPattern = RegExp(r'^skills/([A-Za-z0-9_-]{1,64})\.md$');
-    final savedFiles =
-        PluginRepository.builtInPluginFiles[pluginId]!.where(
-      (f) => f.startsWith('defaults/skills/'),
-    ).toSet();
-    final seenNames = <String>{};
-    for (final skill in skills) {
-      final name = skill['name'] as String;
-      expect(seenNames, isNot(contains(name)), reason: 'skill 名重复: $name');
-      seenNames.add(name);
-      final defaultRel = 'defaults/skills/$name.md';
+      final pathPattern = RegExp(r'^skills/([A-Za-z0-9_-]{1,64})\.md$');
+      final savedFiles = PluginRepository.builtInPluginFiles[pluginId]!
+          .where((f) => f.startsWith('defaults/skills/'))
+          .toSet();
+      final seenNames = <String>{};
+      for (final skill in skills) {
+        final name = skill['name'] as String;
+        expect(seenNames, isNot(contains(name)), reason: 'skill 名重复: $name');
+        seenNames.add(name);
+        final defaultRel = 'defaults/skills/$name.md';
+        expect(
+          savedFiles,
+          contains(defaultRel),
+          reason: 'builtInPluginFiles 缺少 $defaultRel',
+        );
+        final assetPath = 'assets/plugins/$pluginId/$defaultRel';
+        final assetFile = File(assetPath);
+        expect(
+          await assetFile.exists(),
+          isTrue,
+          reason: 'skill 资源文件不存在: $assetPath',
+        );
+        final content = await assetFile.readAsString();
+        expect(content.trim(), isNotEmpty, reason: 'skill 文件为空: $name');
+        expect(
+          content,
+          anyOf(
+            contains('## 返回约定'),
+            contains('## 失败处理'),
+            contains('## 推荐返回结构'),
+            contains('## 禁止行为'),
+          ),
+          reason: 'skill 文件缺少返回约定或失败处理: $name',
+        );
+
+        final editable = editables.firstWhere(
+          (e) => e['path'] == 'skills/$name.md',
+          orElse: () => fail('editableFiles 缺少 skills/$name.md'),
+        );
+        expect(editable['defaultPath'], defaultRel);
+        expect(editable['type'], 'markdown');
+        expect(pathPattern.hasMatch(editable['path'] as String), isTrue);
+      }
+
       expect(
-        savedFiles,
-        contains(defaultRel),
-        reason: 'builtInPluginFiles 缺少 $defaultRel',
+        manifest['description'] as String,
+        isNot(contains('QQ 自动化工作流说明')),
+        reason: 'manifest description 已更新不应再沿用旧文案',
       );
-      final assetPath =
-          'assets/plugins/$pluginId/$defaultRel';
-      final assetFile = File(assetPath);
-      expect(
-        await assetFile.exists(),
-        isTrue,
-        reason: 'skill 资源文件不存在: $assetPath',
-      );
-      final content = await assetFile.readAsString();
-      expect(content.trim(), isNotEmpty, reason: 'skill 文件为空: $name');
-      expect(
-        content,
-        anyOf(
-          contains('## 返回约定'),
-          contains('## 失败处理'),
-          contains('## 推荐返回结构'),
-          contains('## 禁止行为'),
-        ),
-        reason: 'skill 文件缺少返回约定或失败处理: $name',
-      );
-
-      final editable = editables.firstWhere(
-        (e) => e['path'] == 'skills/$name.md',
-        orElse: () => fail('editableFiles 缺少 skills/$name.md'),
-      );
-      expect(editable['defaultPath'], defaultRel);
-      expect(editable['type'], 'markdown');
-      expect(pathPattern.hasMatch(editable['path'] as String), isTrue);
-    }
-
-    expect(
-      manifest['description'] as String,
-      isNot(contains('QQ 自动化工作流说明')),
-      reason: 'manifest description 已更新不应再沿用旧文案',
-    );
-  });
+    },
+  );
 
   test('user imported skill-only plugins are not auto-enabled', () async {
     final source = await Directory.systemTemp.createTemp(

@@ -284,13 +284,16 @@ class ModelConfigProvider extends ChangeNotifier {
       if (modelId.isEmpty || apiType.isEmpty) return;
       final groupProviderId =
           (providerId ?? item['providerId']?.toString() ?? apiType).trim();
+      final displayProviderName = providerName?.trim().isNotEmpty == true
+          ? providerName!.trim()
+          : item['providerName']?.toString().trim() ?? '';
       final key = '$groupProviderId\x00$apiType\x00$category';
       final group = groups.putIfAbsent(
         key,
         () => _ManagedModelGroup(
           id: '$lynaiManagedIdPrefix${groupProviderId}_${apiType}_${category}__',
-          name: providerName?.isNotEmpty == true
-              ? 'LynAI $providerName'
+          name: displayProviderName.isNotEmpty
+              ? 'LynAI $displayProviderName'
               : (apiType == 'openai' ? 'LynAI' : 'LynAI ($apiType)'),
           apiType: apiType,
           category: category,

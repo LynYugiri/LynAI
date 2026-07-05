@@ -5,7 +5,6 @@ import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:lynai/models/app_settings.dart';
 import 'package:lynai/models/agent_plan.dart';
@@ -40,6 +39,7 @@ import 'package:lynai/services/tool_call_service.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:sqlite3/sqlite3.dart';
 
+import 'support/fake_path_provider.dart';
 import 'support/memory_repositories.dart';
 
 const _tinyPngBase64 =
@@ -80,30 +80,14 @@ Future<T> _withFeatureProvider<T>(
   });
 }
 
-class _FakePathProviderPlatform extends PathProviderPlatform {
-  _FakePathProviderPlatform(this.root);
-
-  final Directory root;
-
-  @override
-  Future<String?> getTemporaryPath() => _path('tmp');
-
-  @override
-  Future<String?> getApplicationSupportPath() => _path('support');
-
-  @override
-  Future<String?> getApplicationDocumentsPath() => _path('documents');
-
-  @override
-  Future<String?> getApplicationCachePath() => _path('cache');
-
-  @override
-  Future<String?> getDownloadsPath() => _path('downloads');
-
-  Future<String> _path(String name) async {
-    final directory = Directory('${root.path}/$name');
-    if (!await directory.exists()) await directory.create(recursive: true);
-    return directory.path;
+Future<T> _withSilencedDebugPrint<T>(FutureOr<T> Function() action) async {
+  final previousDebugPrint = debugPrint;
+  // 这些用例会故意加载损坏数据，静音预期日志以保持测试输出干净。
+  debugPrint = (String? message, {int? wrapWidth}) {};
+  try {
+    return await action();
+  } finally {
+    debugPrint = previousDebugPrint;
   }
 }
 
@@ -111,20 +95,15 @@ void main() {
   Directory? pathProviderRoot;
 
   setUp(() async {
-    pathProviderRoot = await Directory.systemTemp.createTemp(
+    pathProviderRoot = await installFakePathProvider(
       'lynai_path_provider_test_',
-    );
-    PathProviderPlatform.instance = _FakePathProviderPlatform(
-      pathProviderRoot!,
     );
   });
 
   tearDown(() async {
     final root = pathProviderRoot;
     pathProviderRoot = null;
-    if (root != null && await root.exists()) {
-      await root.delete(recursive: true);
-    }
+    await deleteFakePathProviderRoot(root);
   });
 
   test('AppSettings preserves nullable fields through copyWith sentinel', () {
@@ -1405,28 +1384,30 @@ return { ok = true, note = "image generated" }
 
   test(
     'Conversation skips malformed messages instead of dropping conversation',
-    () {
-      final conversation = Conversation.fromJson({
-        'id': 'c1',
-        'title': 'ok',
-        'messages': [
-          {
-            'id': 'm1',
-            'role': 'user',
-            'content': 'hello',
-            'timestamp': '2026-01-01T00:00:00.000Z',
-          },
-          {'id': 'broken'},
-        ],
-        'modelId': 'm1',
-        'settings': {'modelId': 'm1'},
-        'roleId': 'default',
-        'createdAt': '2026-01-01T00:00:00.000Z',
-        'updatedAt': '2026-01-01T00:00:00.000Z',
-      });
+    () async {
+      await _withSilencedDebugPrint(() {
+        final conversation = Conversation.fromJson({
+          'id': 'c1',
+          'title': 'ok',
+          'messages': [
+            {
+              'id': 'm1',
+              'role': 'user',
+              'content': 'hello',
+              'timestamp': '2026-01-01T00:00:00.000Z',
+            },
+            {'id': 'broken'},
+          ],
+          'modelId': 'm1',
+          'settings': {'modelId': 'm1'},
+          'roleId': 'default',
+          'createdAt': '2026-01-01T00:00:00.000Z',
+          'updatedAt': '2026-01-01T00:00:00.000Z',
+        });
 
-      expect(conversation.messages, hasLength(1));
-      expect(conversation.messages.single.content, 'hello');
+        expect(conversation.messages, hasLength(1));
+        expect(conversation.messages.single.content, 'hello');
+      });
     },
   );
 
@@ -1439,92 +1420,94 @@ return { ok = true, note = "image generated" }
   });
 
   test('Loaders skip malformed persisted items', () async {
-    await _withStorageV2('lynai_loader_skip_test_', (storage, _) async {
-      final now = DateTime.utc(2026, 1, 1);
-      final page = StorageV2NotePage(
-        id: 'p1',
-        noteId: 'n1',
-        title: 'note',
-        fileName: 'note.md',
-        relativePath: 'notes/n1/note.md',
-        sortOrder: 0,
-        createdAt: now,
-        updatedAt: now,
-      );
-      await storage.writeNotePage(page, 'text');
-      await storage.writeDataFile('conversations.json', {
-        'conversations': [
-          {
-            'id': 'c1',
-            'title': 'ok',
-            'modelId': 'm1',
-            'settings': {'modelId': 'm1'},
-            'roleId': 'default',
-            'createdAt': now.toIso8601String(),
-            'updatedAt': now.toIso8601String(),
-          },
-          {'id': 'broken'},
-        ],
-        'messages': [],
-        'messageAttachments': [],
-      });
-      await storage.writeDataFile('model_configs.json', {
-        'models': [
-          {
-            'id': 'm1',
-            'name': 'Model',
-            'endpoint': 'https://example.com',
-            'apiKey': 'key',
-            'modelName': 'model-a',
-            'apiType': 'openai',
-            'priority': 0,
-          },
-          {'name': 'broken'},
-        ],
-      });
-      await storage.writeDataFile('schedules.json', {
-        'schedules': [
-          {
-            'id': 's1',
-            'title': 'demo',
-            'start': '2026-01-01T09:00:00.000Z',
-            'end': '2026-01-01T10:00:00.000Z',
-          },
-          {'title': 'broken'},
-        ],
-      });
-      await storage.writeDataFile('notes.json', {
-        'folders': [],
-        'notes': [
-          {
-            'id': 'n1',
-            'title': 'note',
-            'currentPageId': 'p1',
-            'createdAt': now.toIso8601String(),
-            'updatedAt': now.toIso8601String(),
-            'wrap': true,
-            'sortOrder': 0,
-          },
-          {'id': 'broken'},
-        ],
-        'pages': [page.toJson()],
-        'revisions': [],
-        'editProposals': [],
-        'editBlocks': [],
-      });
+    await _withSilencedDebugPrint(() async {
+      await _withStorageV2('lynai_loader_skip_test_', (storage, _) async {
+        final now = DateTime.utc(2026, 1, 1);
+        final page = StorageV2NotePage(
+          id: 'p1',
+          noteId: 'n1',
+          title: 'note',
+          fileName: 'note.md',
+          relativePath: 'notes/n1/note.md',
+          sortOrder: 0,
+          createdAt: now,
+          updatedAt: now,
+        );
+        await storage.writeNotePage(page, 'text');
+        await storage.writeDataFile('conversations.json', {
+          'conversations': [
+            {
+              'id': 'c1',
+              'title': 'ok',
+              'modelId': 'm1',
+              'settings': {'modelId': 'm1'},
+              'roleId': 'default',
+              'createdAt': now.toIso8601String(),
+              'updatedAt': now.toIso8601String(),
+            },
+            {'id': 'broken'},
+          ],
+          'messages': [],
+          'messageAttachments': [],
+        });
+        await storage.writeDataFile('model_configs.json', {
+          'models': [
+            {
+              'id': 'm1',
+              'name': 'Model',
+              'endpoint': 'https://example.com',
+              'apiKey': 'key',
+              'modelName': 'model-a',
+              'apiType': 'openai',
+              'priority': 0,
+            },
+            {'name': 'broken'},
+          ],
+        });
+        await storage.writeDataFile('schedules.json', {
+          'schedules': [
+            {
+              'id': 's1',
+              'title': 'demo',
+              'start': '2026-01-01T09:00:00.000Z',
+              'end': '2026-01-01T10:00:00.000Z',
+            },
+            {'title': 'broken'},
+          ],
+        });
+        await storage.writeDataFile('notes.json', {
+          'folders': [],
+          'notes': [
+            {
+              'id': 'n1',
+              'title': 'note',
+              'currentPageId': 'p1',
+              'createdAt': now.toIso8601String(),
+              'updatedAt': now.toIso8601String(),
+              'wrap': true,
+              'sortOrder': 0,
+            },
+            {'id': 'broken'},
+          ],
+          'pages': [page.toJson()],
+          'revisions': [],
+          'editProposals': [],
+          'editBlocks': [],
+        });
 
-      final conversationProvider = ConversationProvider(storageV2: storage);
-      final modelProvider = ModelConfigProvider(storageV2: storage);
-      final featureProvider = FeatureProvider(storageV2: storage);
+        final conversationProvider = ConversationProvider(storageV2: storage);
+        final modelProvider = ModelConfigProvider(storageV2: storage);
+        final featureProvider = FeatureProvider(storageV2: storage);
 
-      await conversationProvider.loadConversations();
-      await modelProvider.loadModels();
-      await featureProvider.load();
+        await conversationProvider.loadConversations();
+        await modelProvider.loadModels();
+        await featureProvider.load();
 
-      expect(conversationProvider.conversations, hasLength(1));
-      expect(modelProvider.models, hasLength(1));
-      expect(featureProvider.schedules, hasLength(1));
-      expect(featureProvider.notes, hasLength(1));
+        expect(conversationProvider.conversations, hasLength(1));
+        expect(modelProvider.models, hasLength(1));
+        expect(featureProvider.schedules, hasLength(1));
+        expect(featureProvider.notes, hasLength(1));
+      });
     });
   });
 

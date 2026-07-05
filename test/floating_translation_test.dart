@@ -1,22 +1,24 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/app_settings.dart';
-import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
-import 'package:lynai/providers/model_config_provider.dart';
 import 'package:lynai/providers/plugin_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/services/floating_chat_session_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/memory_repositories.dart';
+
 FloatingChatSessionController _buildController(SettingsProvider settings) {
   return FloatingChatSessionController(
     settings: settings,
-    conversations: ConversationProvider(),
-    models: ModelConfigProvider(),
+    conversations: memoryConversationProvider(),
+    models: memoryModelConfigProvider(),
     features: FeatureProvider(),
     plugins: PluginProvider(),
   );
 }
+
+SettingsProvider _memorySettingsProvider() => memorySettingsProvider();
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -80,7 +82,7 @@ void main() {
   group('isLikelyUiLabel', () {
     late FloatingChatSessionController controller;
     setUp(() {
-      controller = _buildController(SettingsProvider());
+      controller = _buildController(_memorySettingsProvider());
     });
     tearDown(() => controller.dispose());
 
@@ -105,14 +107,20 @@ void main() {
   group('parseTranslations', () {
     late FloatingChatSessionController controller;
     setUp(() {
-      controller = _buildController(SettingsProvider());
+      controller = _buildController(_memorySettingsProvider());
     });
     tearDown(() => controller.dispose());
 
     List<Map<String, dynamic>> blocksFor(int count) {
       return List.generate(count, (i) {
         return <String, dynamic>{
-          'id': FloatingChatSessionController.blockIdForTest('t$i', 0, i, 10, i + 1),
+          'id': FloatingChatSessionController.blockIdForTest(
+            't$i',
+            0,
+            i,
+            10,
+            i + 1,
+          ),
           'originalText': 't$i',
         };
       });
@@ -158,10 +166,7 @@ void main() {
 
     test('falls back to line-per-block for plain text', () {
       final blocks = blocksFor(2);
-      final result = controller.parseTranslations(
-        '[0] 你好\n[1] 世界',
-        blocks,
-      );
+      final result = controller.parseTranslations('[0] 你好\n[1] 世界', blocks);
       expect(result[blocks[0]['id']], '你好');
       expect(result[blocks[1]['id']], '世界');
     });
@@ -169,7 +174,7 @@ void main() {
 
   group('translation model fallback', () {
     test('disabled screen context blocks the tool', () async {
-      final settings = SettingsProvider();
+      final settings = _memorySettingsProvider();
       await settings.replaceSettings(
         AppSettings.defaults().copyWith(
           floatingAssistant: const FloatingAssistantSettings(
@@ -187,7 +192,7 @@ void main() {
     });
 
     test('manual mode allows the screen context tool', () async {
-      final settings = SettingsProvider();
+      final settings = _memorySettingsProvider();
       await settings.replaceSettings(
         AppSettings.defaults().copyWith(
           floatingAssistant: const FloatingAssistantSettings(
@@ -210,7 +215,7 @@ void main() {
   // "tear the session down" exit. The settle mutex starts released.
   group('translation session lifecycle', () {
     test('stopTranslation is a no-op when idle', () async {
-      final controller = _buildController(SettingsProvider());
+      final controller = _buildController(_memorySettingsProvider());
       try {
         await controller.stopTranslation();
         expect(controller.isTranslationStreaming, isFalse);
@@ -220,7 +225,7 @@ void main() {
     });
 
     test('clearTranslation is a no-op when idle', () async {
-      final controller = _buildController(SettingsProvider());
+      final controller = _buildController(_memorySettingsProvider());
       try {
         controller.clearTranslation();
         expect(controller.isTranslationStreaming, isFalse);
@@ -230,7 +235,7 @@ void main() {
     });
 
     test('onTranslationScrollSettled is a no-op when inactive', () async {
-      final controller = _buildController(SettingsProvider());
+      final controller = _buildController(_memorySettingsProvider());
       try {
         // Guard at top must short-circuit before any OCR/network call.
         await controller.onTranslationScrollSettled();
@@ -253,7 +258,10 @@ void main() {
         'angle': 89,
         'prob': 0.93,
       };
-      final normalized = FloatingChatSessionController.normalizeOcrBlock(raw, 'com.example.manga');
+      final normalized = FloatingChatSessionController.normalizeOcrBlock(
+        raw,
+        'com.example.manga',
+      );
       expect(normalized['originalText'], 'こんにちは');
       expect((normalized['bounds'] as Map)['left'], 100);
       expect((normalized['bounds'] as Map)['bottom'], 232);
@@ -308,12 +316,7 @@ void main() {
       final normalized = FloatingChatSessionController.normalizeOcrBlock(
         <String, dynamic>{
           'text': 'x',
-          'bounds': {
-            'left': 10.0,
-            'top': 20.5,
-            'right': 30.4,
-            'bottom': 40.9,
-          },
+          'bounds': {'left': 10.0, 'top': 20.5, 'right': 30.4, 'bottom': 40.9},
           'fontSize': 16.0,
         },
         '',

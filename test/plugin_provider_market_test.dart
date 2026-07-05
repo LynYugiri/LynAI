@@ -2,58 +2,27 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:lynai/providers/plugin_provider.dart';
 import 'package:lynai/repositories/plugin_repository.dart';
 
-class _FakePathProviderPlatform extends PathProviderPlatform {
-  _FakePathProviderPlatform(this.root);
-
-  final Directory root;
-
-  @override
-  Future<String?> getTemporaryPath() => _path('tmp');
-
-  @override
-  Future<String?> getApplicationSupportPath() => _path('support');
-
-  @override
-  Future<String?> getApplicationDocumentsPath() => _path('documents');
-
-  @override
-  Future<String?> getApplicationCachePath() => _path('cache');
-
-  @override
-  Future<String?> getDownloadsPath() => _path('downloads');
-
-  Future<String> _path(String name) async {
-    final directory = Directory('${root.path}/$name');
-    if (!await directory.exists()) await directory.create(recursive: true);
-    return directory.path;
-  }
-}
+import 'support/fake_path_provider.dart';
 
 void main() {
   Directory? pathProviderRoot;
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
-    pathProviderRoot = await Directory.systemTemp.createTemp(
+    pathProviderRoot = await installFakePathProvider(
       'lynai_plugin_market_test_',
-    );
-    PathProviderPlatform.instance = _FakePathProviderPlatform(
-      pathProviderRoot!,
     );
   });
 
   tearDown(() async {
     final root = pathProviderRoot;
     pathProviderRoot = null;
-    if (root != null && await root.exists()) {
-      await root.delete(recursive: true);
-    }
+    await deleteFakePathProviderRoot(root);
   });
 
   Future<Directory> createMiniPlugin(String id) async {

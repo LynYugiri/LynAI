@@ -22,34 +22,13 @@ import 'package:lynai/services/lynai_permission_service.dart';
 import 'package:lynai/services/storage_v2_service.dart';
 import 'package:lynai/services/storage_v2_upgrade_service.dart';
 import 'package:lynai/services/tool_call_service.dart';
-import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/fake_path_provider.dart';
 import 'support/memory_repositories.dart';
 
 const _tinyPngBase64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
-
-class _FakePathProviderPlatform extends PathProviderPlatform {
-  _FakePathProviderPlatform(this.root);
-
-  final Directory root;
-
-  @override
-  Future<String?> getApplicationDocumentsPath() => _path('documents');
-
-  @override
-  Future<String?> getApplicationSupportPath() => _path('support');
-
-  @override
-  Future<String?> getTemporaryPath() => _path('temp');
-
-  Future<String> _path(String name) async {
-    final directory = Directory('${root.path}/$name');
-    if (!await directory.exists()) await directory.create(recursive: true);
-    return directory.path;
-  }
-}
 
 class _RealHttpOverrides extends HttpOverrides {
   @override
@@ -84,20 +63,16 @@ void main() {
   Directory? pathProviderRoot;
 
   setUp(() async {
-    pathProviderRoot = await Directory.systemTemp.createTemp(
+    pathProviderRoot = await installFakePathProvider(
       'lynai_tool_path_provider_test_',
-    );
-    PathProviderPlatform.instance = _FakePathProviderPlatform(
-      pathProviderRoot!,
+      temporaryDirectoryName: 'temp',
     );
   });
 
   tearDown(() async {
     final root = pathProviderRoot;
     pathProviderRoot = null;
-    if (root != null && await root.exists()) {
-      await root.delete(recursive: true);
-    }
+    await deleteFakePathProviderRoot(root);
   });
 
   test('fallback parser tolerates malformed tool arguments', () {

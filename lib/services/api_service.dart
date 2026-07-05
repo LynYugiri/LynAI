@@ -220,6 +220,11 @@ class ApiService {
     return '${body.substring(0, 200)}...';
   }
 
+  static String _formatHttpError(String prefix, int statusCode, String body) {
+    final message = BackendClient.extractErrorMessage(body);
+    return '$prefix: $statusCode ${message ?? _truncateErrorBody(body)}';
+  }
+
   static List<Map<String, dynamic>> chatContentWithFiles(
     String text,
     List<ChatFileInput> files,
@@ -279,7 +284,7 @@ class ApiService {
     final streamed = await request.send().timeout(_timeout);
     final body = await streamed.stream.transform(utf8.decoder).join();
     if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
-      throw Exception('OCR 识别失败: ${streamed.statusCode} $body');
+      throw Exception(_formatHttpError('OCR 识别失败', streamed.statusCode, body));
     }
     final decoded = jsonDecode(body);
     return decoded is Map
@@ -371,7 +376,13 @@ class ApiService {
     final data =
         jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
     if (response.statusCode != 200 || data['error_code'] != 0) {
-      throw Exception('OCR 识别失败: ${response.statusCode} ${response.body}');
+      throw Exception(
+        _formatHttpError(
+          'OCR 识别失败',
+          response.statusCode,
+          utf8.decode(response.bodyBytes),
+        ),
+      );
     }
     return data;
   }
@@ -751,7 +762,7 @@ class ApiService {
     final streamed = await request.send().timeout(_timeout);
     final body = await streamed.stream.transform(utf8.decoder).join();
     if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
-      throw Exception('语音转文字失败: ${streamed.statusCode} $body');
+      throw Exception(_formatHttpError('语音转文字失败', streamed.statusCode, body));
     }
     final decoded = jsonDecode(body);
     if (decoded is Map) {
@@ -899,7 +910,9 @@ class ApiService {
         .timeout(_timeout);
     final responseBody = utf8.decode(response.bodyBytes);
     if (response.statusCode != 200) {
-      throw Exception('图片生成失败: ${response.statusCode} $responseBody');
+      throw Exception(
+        _formatHttpError('图片生成失败', response.statusCode, responseBody),
+      );
     }
     final data = jsonDecode(responseBody) as Map<String, dynamic>;
     final images = data['data'] as List? ?? [];
@@ -944,11 +957,15 @@ class ApiService {
         .timeout(_timeout);
     final responseBody = utf8.decode(response.bodyBytes);
     if (response.statusCode != 200) {
-      throw Exception('图片生成失败: ${response.statusCode} $responseBody');
+      throw Exception(
+        _formatHttpError('图片生成失败', response.statusCode, responseBody),
+      );
     }
     final data = jsonDecode(responseBody) as Map<String, dynamic>;
     if (data['code'] != 0) {
-      throw Exception('图片生成失败: ${response.statusCode} $responseBody');
+      throw Exception(
+        _formatHttpError('图片生成失败', response.statusCode, responseBody),
+      );
     }
     final resultData = data['data'];
     final images = resultData is Map ? resultData['images'] as List? ?? [] : [];
@@ -1157,7 +1174,11 @@ class ApiService {
       );
     } else {
       throw Exception(
-        'API 请求失败: ${response.statusCode} ${_truncateErrorBody(response.body)}',
+        _formatHttpError(
+          'API 请求失败',
+          response.statusCode,
+          utf8.decode(response.bodyBytes),
+        ),
       );
     }
   }
@@ -1236,7 +1257,7 @@ class ApiService {
         _logSseDiagnostic('error-body', errorBody);
       }
       throw Exception(
-        '流式请求失败: ${streamedResponse.statusCode} ${_truncateErrorBody(errorBody)}',
+        _formatHttpError('流式请求失败', streamedResponse.statusCode, errorBody),
       );
     }
 
@@ -1670,7 +1691,11 @@ class ApiService {
     if (streamedResponse.statusCode != 200) {
       final errorBody = await streamedResponse.stream.bytesToString();
       throw Exception(
-        'Anthropic 流式请求失败: ${streamedResponse.statusCode} $errorBody',
+        _formatHttpError(
+          'Anthropic 流式请求失败',
+          streamedResponse.statusCode,
+          errorBody,
+        ),
       );
     }
 
@@ -1767,7 +1792,11 @@ class ApiService {
       );
     } else {
       throw Exception(
-        'Anthropic 请求失败: ${response.statusCode} ${response.body}',
+        _formatHttpError(
+          'Anthropic 请求失败',
+          response.statusCode,
+          utf8.decode(response.bodyBytes),
+        ),
       );
     }
   }
@@ -1938,10 +1967,10 @@ class ApiService {
   }
 
   String _formatApiError(Object? error) {
-    if (error is Map) {
-      final message = error['message'] ?? error['error'] ?? error['type'];
-      if (message != null) return message.toString();
-    }
+    final message = BackendClient.extractErrorMessageFromDecoded({
+      'error': error,
+    });
+    if (message != null) return message;
     return error?.toString() ?? '未知 API 错误';
   }
 }

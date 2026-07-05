@@ -32,14 +32,16 @@ class RemoteMarketService implements MarketService {
     );
     if (resp.statusCode != 200) {
       throw MarketUnavailableException(
-        _extractError(resp.body) ?? '获取插件列表失败',
+        BackendClient.extractErrorMessage(resp.body) ?? '获取插件列表失败',
       );
     }
     final json = jsonDecode(resp.body) as Map;
     final entries = (json['entries'] as List? ?? const [])
-        .map((item) => MarketPluginEntry.fromJson(
-              Map<String, dynamic>.from(item as Map),
-            ))
+        .map(
+          (item) => MarketPluginEntry.fromJson(
+            Map<String, dynamic>.from(item as Map),
+          ),
+        )
         .toList(growable: false);
     final hasMore = json['hasMore'] as bool? ?? false;
     return MarketQueryResult(entries: entries, hasMore: hasMore);
@@ -50,7 +52,7 @@ class RemoteMarketService implements MarketService {
     final resp = await _client.get('/market/plugins/$id');
     if (resp.statusCode != 200) {
       throw MarketUnavailableException(
-        _extractError(resp.body) ?? '获取插件详情失败',
+        BackendClient.extractErrorMessage(resp.body) ?? '获取插件详情失败',
       );
     }
     return MarketPluginEntry.fromJson(
@@ -63,7 +65,7 @@ class RemoteMarketService implements MarketService {
     final resp = await _client.get('/market/plugins/$id/download');
     if (resp.statusCode != 200) {
       throw MarketUnavailableException(
-        _extractError(resp.body) ?? '下载插件失败',
+        BackendClient.extractErrorMessage(resp.body) ?? '下载插件失败',
       );
     }
     return resp.bodyBytes;
@@ -92,14 +94,16 @@ class RemoteMarketService implements MarketService {
     final resp = await _client.post('/market/updates', body: body);
     if (resp.statusCode != 200) {
       throw MarketUnavailableException(
-        _extractError(resp.body) ?? '检查更新失败',
+        BackendClient.extractErrorMessage(resp.body) ?? '检查更新失败',
       );
     }
     final json = jsonDecode(resp.body) as Map;
     final updates = (json['updates'] as List? ?? const [])
-        .map((item) => MarketPluginEntry.fromJson(
-              Map<String, dynamic>.from(item as Map),
-            ))
+        .map(
+          (item) => MarketPluginEntry.fromJson(
+            Map<String, dynamic>.from(item as Map),
+          ),
+        )
         .toList(growable: false);
     return updates;
   }
@@ -111,17 +115,13 @@ class RemoteMarketService implements MarketService {
   Future<MarketPluginEntry> submitPlugin(List<int> zipBytes) async {
     final req = _client.multipartRequest('POST', '/market/plugins/submit');
     req.files.add(
-      http.MultipartFile.fromBytes(
-        'zip',
-        zipBytes,
-        filename: 'plugin.zip',
-      ),
+      http.MultipartFile.fromBytes('zip', zipBytes, filename: 'plugin.zip'),
     );
     final streamedResp = await req.send();
     final resp = await http.Response.fromStream(streamedResp);
     if (resp.statusCode != 200) {
       throw MarketUnavailableException(
-        _extractError(resp.body) ?? '提交插件失败',
+        BackendClient.extractErrorMessage(resp.body) ?? '提交插件失败',
       );
     }
     return MarketPluginEntry.fromJson(
@@ -134,14 +134,16 @@ class RemoteMarketService implements MarketService {
     final resp = await _client.get('/market/submissions/mine');
     if (resp.statusCode != 200) {
       throw MarketUnavailableException(
-        _extractError(resp.body) ?? '获取提交列表失败',
+        BackendClient.extractErrorMessage(resp.body) ?? '获取提交列表失败',
       );
     }
     final json = jsonDecode(resp.body) as Map;
     final subs = (json['submissions'] as List? ?? const [])
-        .map((item) => MarketPluginEntry.fromJson(
-              Map<String, dynamic>.from(item as Map),
-            ))
+        .map(
+          (item) => MarketPluginEntry.fromJson(
+            Map<String, dynamic>.from(item as Map),
+          ),
+        )
         .toList(growable: false);
     return subs;
   }
@@ -151,14 +153,16 @@ class RemoteMarketService implements MarketService {
     final resp = await _client.get('/market/plugins/pending');
     if (resp.statusCode != 200) {
       throw MarketUnavailableException(
-        _extractError(resp.body) ?? '获取待审核列表失败',
+        BackendClient.extractErrorMessage(resp.body) ?? '获取待审核列表失败',
       );
     }
     final json = jsonDecode(resp.body) as Map;
     final entries = (json['entries'] as List? ?? const [])
-        .map((item) => MarketPluginEntry.fromJson(
-              Map<String, dynamic>.from(item as Map),
-            ))
+        .map(
+          (item) => MarketPluginEntry.fromJson(
+            Map<String, dynamic>.from(item as Map),
+          ),
+        )
         .toList(growable: false);
     return entries;
   }
@@ -168,7 +172,7 @@ class RemoteMarketService implements MarketService {
     final resp = await _client.post('/market/plugins/$id/approve');
     if (resp.statusCode != 200) {
       throw MarketUnavailableException(
-        _extractError(resp.body) ?? '批准失败',
+        BackendClient.extractErrorMessage(resp.body) ?? '批准失败',
       );
     }
   }
@@ -181,17 +185,8 @@ class RemoteMarketService implements MarketService {
     );
     if (resp.statusCode != 200) {
       throw MarketUnavailableException(
-        _extractError(resp.body) ?? '驳回失败',
+        BackendClient.extractErrorMessage(resp.body) ?? '驳回失败',
       );
-    }
-  }
-
-  String? _extractError(String body) {
-    try {
-      final json = jsonDecode(body) as Map?;
-      return json?['error'] as String?;
-    } catch (_) {
-      return null;
     }
   }
 }

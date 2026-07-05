@@ -60,7 +60,7 @@ class RemoteSyncService implements SyncService {
   Future<SyncStatus> getStatus() async {
     final resp = await _client.get('/sync/status');
     if (resp.statusCode != 200) {
-      throw Exception('获取同步状态失败');
+      throw Exception(_errorMessage(resp.body, '获取同步状态失败'));
     }
     final json = Map<String, dynamic>.from(jsonDecode(resp.body) as Map);
     return SyncStatus(
@@ -74,7 +74,7 @@ class RemoteSyncService implements SyncService {
     final body = {'changes': changes.map((c) => c.toJson()).toList()};
     final resp = await _client.post('/sync/changes', body: body);
     if (resp.statusCode != 200) {
-      throw Exception('上传变更失败');
+      throw Exception(_errorMessage(resp.body, '上传变更失败'));
     }
     final json = Map<String, dynamic>.from(jsonDecode(resp.body) as Map);
     return SyncUploadResult(
@@ -86,7 +86,7 @@ class RemoteSyncService implements SyncService {
   Future<SyncDownloadResult> getChanges({required int since}) async {
     final resp = await _client.get('/sync/changes?since=$since');
     if (resp.statusCode != 200) {
-      throw Exception('获取变更失败');
+      throw Exception(_errorMessage(resp.body, '获取变更失败'));
     }
     final json = Map<String, dynamic>.from(jsonDecode(resp.body) as Map);
     final changes = (json['changes'] as List? ?? const [])
@@ -104,7 +104,7 @@ class RemoteSyncService implements SyncService {
   Future<List<BlobInfo>> listBlobs() async {
     final resp = await _client.get('/sync/blobs');
     if (resp.statusCode != 200) {
-      throw Exception('获取 blob 列表失败');
+      throw Exception(_errorMessage(resp.body, '获取 blob 列表失败'));
     }
     final json = Map<String, dynamic>.from(jsonDecode(resp.body) as Map);
     return (json['blobs'] as List? ?? const [])
@@ -122,7 +122,7 @@ class RemoteSyncService implements SyncService {
       body: bytes,
     );
     if (resp.statusCode != 200) {
-      throw Exception('上传 blob 失败');
+      throw Exception(_errorMessage(resp.body, '上传 blob 失败'));
     }
   }
 
@@ -130,8 +130,12 @@ class RemoteSyncService implements SyncService {
   Future<List<int>> downloadBlob(String sha256) async {
     final resp = await _client.get('/sync/blobs/$sha256');
     if (resp.statusCode != 200) {
-      throw Exception('下载 blob 失败');
+      throw Exception(_errorMessage(resp.body, '下载 blob 失败'));
     }
     return resp.bodyBytes;
+  }
+
+  String _errorMessage(String body, String fallback) {
+    return BackendClient.extractErrorMessage(body) ?? fallback;
   }
 }

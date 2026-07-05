@@ -64,7 +64,7 @@ class RemoteAccountService implements AccountService {
 
     final resp = await _client.post('/auth/register', body: body);
     if (resp.statusCode != 200) {
-      final msg = _extractError(resp.body) ?? '注册失败';
+      final msg = BackendClient.extractErrorMessage(resp.body) ?? '注册失败';
       throw AccountUnavailableException(msg);
     }
     final session = AuthSession.fromJson(
@@ -88,7 +88,7 @@ class RemoteAccountService implements AccountService {
       body: {'phone': username, 'password': password},
     );
     if (resp.statusCode != 200) {
-      final msg = _extractError(resp.body) ?? '登录失败';
+      final msg = BackendClient.extractErrorMessage(resp.body) ?? '登录失败';
       throw AccountUnavailableException(msg);
     }
     final session = AuthSession.fromJson(
@@ -123,14 +123,5 @@ class RemoteAccountService implements AccountService {
         'token': session.token.toJson(),
       }),
     );
-  }
-
-  String? _extractError(String body) {
-    try {
-      final json = jsonDecode(body) as Map?;
-      return json?['error'] as String?;
-    } catch (_) {
-      return null;
-    }
   }
 }

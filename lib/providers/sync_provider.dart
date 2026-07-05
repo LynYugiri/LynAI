@@ -52,7 +52,9 @@ class SyncProvider extends ChangeNotifier {
 
   /// 当前是否可以同步（后端已连接且已登录）。
   bool get canSync =>
-      _backend != null && _backend.isConnected && _backend.accessToken != null;
+      _backend != null &&
+      _backend.isConnected &&
+      (_backend.accessToken ?? '').isNotEmpty;
 
   /// 从 SharedPreferences 恢复上次同步 seq。
   Future<void> loadLastSeq() async {
@@ -97,13 +99,19 @@ class SyncProvider extends ChangeNotifier {
     final svc = _syncService;
     if (svc == null || !canSync || _pendingChanges.isEmpty) return;
 
-    // 上传前先检查服务端是否有新变更（其他设备可能已上传）
-    final status = await svc.getStatus();
-    if (status.lastSeq > _lastSeq) {
-      await autoDownload();
-    }
-
     await _doSync(() async {
+      // 上传前先检查服务端是否有新变更（其他设备可能已上传）。
+      // 状态检查也放在 _doSync 内，避免自动上传失败时丢失 error 状态。
+      final status = await svc.getStatus();
+      if (status.lastSeq > _lastSeq) {
+        final result = await svc.getChanges(since: _lastSeq);
+        if (result.changes.isNotEmpty) {
+          await _applyChanges(result.changes);
+        }
+        _lastSeq = result.latestSeq;
+        await _saveLastSeq();
+      }
+
       final changes = List.of(_pendingChanges);
       _pendingChanges.clear();
       final SyncUploadResult result;
