@@ -22,11 +22,11 @@ import 'my_submissions_page.dart';
 ///
 /// 两个分段：
 /// - **市场**：从 [MarketService] 浏览远端插件目录，查看详情，下载安装。
-/// - **已安装**：列出本地已安装插件，支持卸载和跳转到权限/配置详情。
+/// - **已安装**：列出本地已安装插件，支持删除快照/第三方插件和跳转到权限/配置详情。
 ///
 /// 当前阶段后端尚未连接，[MarketService] 使用 [LocalMarketService] 桩实现，
 /// 市场分段显示空态文案与「从 ZIP 导入」入口；已安装分段直接读取
-/// [PluginProvider.plugins]，用户可在此卸载本地插件。
+/// [PluginProvider.plugins]，用户可在此删除快照或第三方插件。
 class PluginMarketPage extends StatefulWidget {
   const PluginMarketPage({super.key});
 
@@ -363,7 +363,7 @@ class _MarketPluginCard extends StatelessWidget {
   }
 }
 
-/// 已安装分段：列出本地插件，支持卸载和跳转权限/配置。
+/// 已安装分段：列出本地插件，支持删除快照/第三方插件和跳转权限/配置。
 class _InstalledTab extends StatelessWidget {
   const _InstalledTab();
 
@@ -426,6 +426,9 @@ class _InstalledPluginCard extends StatelessWidget {
         : plugin.enabled
         ? Colors.green
         : Colors.grey;
+    final canDelete = context.select<PluginProvider, bool>(
+      (provider) => provider.canDeletePlugin(plugin.id),
+    );
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -475,14 +478,15 @@ class _InstalledPluginCard extends StatelessWidget {
                 contentPadding: EdgeInsets.zero,
               ),
             ),
-            const PopupMenuItem(
-              value: 'uninstall',
-              child: ListTile(
-                leading: Icon(Icons.delete_outline),
-                title: Text('卸载'),
-                contentPadding: EdgeInsets.zero,
+            if (canDelete)
+              PopupMenuItem(
+                value: 'uninstall',
+                child: ListTile(
+                  leading: const Icon(Icons.delete_outline),
+                  title: Text(plugin.isSnapshot ? '删除快照' : '卸载'),
+                  contentPadding: EdgeInsets.zero,
+                ),
               ),
-            ),
           ],
         ),
       ),
@@ -504,11 +508,20 @@ class _InstalledPluginCard extends StatelessWidget {
   }
 
   Future<void> _confirmUninstall(BuildContext context) async {
+    final canDelete = context.read<PluginProvider>().canDeletePlugin(plugin.id);
+    if (!canDelete) {
+      showErrorSnackBar(context, '内置插件不可删除');
+      return;
+    }
+    final title = plugin.isSnapshot ? '删除快照' : '卸载插件';
+    final message = plugin.isSnapshot
+        ? '确定删除快照 ${plugin.displayName}？原插件不会受影响。'
+        : '确定卸载 ${plugin.displayName}？插件文件、设置和私有存储会一并移除。';
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('卸载插件'),
-        content: Text('确定卸载 ${plugin.displayName}？插件文件会从应用私有目录移除。'),
+        title: Text(title),
+        content: Text(message),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -516,7 +529,7 @@ class _InstalledPluginCard extends StatelessWidget {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('卸载'),
+            child: const Text('删除'),
           ),
         ],
       ),
@@ -525,10 +538,10 @@ class _InstalledPluginCard extends StatelessWidget {
     try {
       await context.read<PluginProvider>().uninstall(plugin.id);
       if (!context.mounted) return;
-      showShortSnackBar(context, '插件已卸载');
+      showShortSnackBar(context, plugin.isSnapshot ? '快照已删除' : '插件已卸载');
     } catch (e) {
       if (!context.mounted) return;
-      showErrorSnackBar(context, '卸载失败', details: e.toString());
+      showErrorSnackBar(context, '删除失败', details: e.toString());
     }
   }
 }

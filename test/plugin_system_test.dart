@@ -2014,6 +2014,16 @@ end
             }),
           },
         );
+        final invalidParsed = await PluginLuaRuntimeService().executeTool(
+          plugin: plugin,
+          tool: const PluginToolDefinition(
+            name: 'parse_weather_for_test',
+            description: 'Parse weather response',
+            handler: 'parse_weather',
+            parameters: {'type': 'object'},
+          ),
+          arguments: {'ok': true, 'status': 200, 'body': jsonEncode({})},
+        );
 
         expect(ipRequest['ok'], isTrue, reason: ipRequest.toString());
         expect(cityRequest['ok'], isTrue, reason: cityRequest.toString());
@@ -2030,6 +2040,12 @@ end
         expect(parsed['humidity'], '42');
         expect(parsed['source'], 'wttr.in');
         expect(parsed.containsKey('body'), isFalse);
+        expect(parsed['phase'], 'weather_data_verified');
+        expect(parsed['business_ok'], isTrue);
+        expect(invalidParsed['ok'], isFalse);
+        expect(invalidParsed['phase'], 'weather_data_not_verified');
+        expect(invalidParsed['action_ok'], isTrue);
+        expect(invalidParsed['business_ok'], isFalse);
       } finally {
         await root.delete(recursive: true);
       }

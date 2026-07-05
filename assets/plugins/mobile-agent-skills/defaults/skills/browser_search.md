@@ -14,6 +14,8 @@
 - 结果页加载需要时间，用 `device.screen.scrollUntil` 或循环+`sleep` 等待。
 - 抽取结果用 `model.ocr` 做截图兜底，仅在无障碍文本不足时。
 - 一次能完成的"打开→输入→读取"合并为一次 `execute_lua`，避免每步都返回主模型。
+- 搜索按钮点击成功不等于检索成功；必须验证结果页出现或抽取到非空结果。
+- 候选搜索入口、搜索按钮、详情链接先读屏筛选当前可见项，再点击；普通按钮 timeout 不超过 `800ms`，结果页等待不超过 `2500ms`。
 - 检索结果摘要写入 `agent.memory.update` 供主 Agent 继续使用。
 
 ## 分流原则
@@ -33,6 +35,30 @@
 6. 如需详情，对前 1-3 条 `waitAndClick` 进入，读取正文后返回。
 7. 结构化摘要回主模型，必要时写入记忆。
 
+复杂流程 phase：
+
+```text
+app_opened
+search_box_focused
+query_input_done
+search_submitted
+results_page_verified
+results_extracted
+```
+
+失败 phase 至少包括：
+
+```text
+app_open_failed
+search_box_not_found
+input_failed
+search_button_not_found
+search_clicked_but_not_verified
+results_empty
+results_unreadable
+detail_page_not_opened
+```
+
 ## 常用 Lua
 
 ```lua
@@ -51,28 +77,52 @@ end
 ```lua
 local function search(keyword)
   local typed = lynai.device.inputText({ editable = true, limit = 5 }, keyword)
-  if not typed.ok then return typed end
-  return lynai.device.waitAndClick({ text = "搜索", clickable = true, timeoutMs = 4000 })
+  if not typed.ok then return { ok = false, phase = "input_failed", action_ok = false, business_ok = false, error = typed.error } end
+  local clicked = lynai.device.waitAndClick({ text = "搜索", clickable = true, timeoutMs = 800 })
+  if not clicked.ok then return { ok = false, phase = "search_button_not_found", action_ok = false, business_ok = false } end
+  return { ok = true, phase = "search_submitted", action_ok = true, business_ok = false, clicked = "搜索" }
 end
 ```
 
 ```lua
 local function extract_results()
   local visible = lynai.device.readVisibleText({ limit = 60 })
-  if not visible.ok then return visible end
+  if not visible.ok then return { ok = false, phase = "results_unreadable", action_ok = true, business_ok = false, error = visible.error } end
   local items = {}
   for _, line in ipairs(visible.result.lines or {}) do
     if line.text and #line.text > 8 then
       table.insert(items, line.text)
     end
   end
-  return { ok = true, items = items }
+  if #items == 0 then return { ok = false, phase = "results_empty", items = items } end
+  return { ok = true, phase = "results_extracted", items = items }
+end
+```
+
+```lua
+local function wait_results(keyword)
+  local deadline = os.clock() + 2.5
+  repeat
+    local visible = lynai.device.readVisibleText({ limit = 80 })
+    if visible.ok then
+      local text = ""
+      for _, line in ipairs(visible.result.lines or {}) do
+        text = text .. "\n" .. (line.text or "")
+      end
+      if string.find(text, keyword, 1, true) or string.find(text, "搜索结果", 1, true) or string.find(text, "相关", 1, true) then
+        return { ok = true, phase = "results_page_verified", visibleText = text }
+      end
+    end
+    lynai.device.sleep(250)
+  until os.clock() >= deadline
+  return { ok = false, phase = "search_clicked_but_not_verified" }
 end
 ```
 
 ## 返回约定
 
-- 返回 `ok`、`phase`、`query`、`results`（标题+摘要+url/源）、`summary`。
+- 返回 `ok`、`phase`、`action_ok`、`business_ok`、`query`、`results`（标题+摘要+url/源）、`verified_by`、`summary`。
+- 未验证到结果页或结果为空时，顶层 `ok` 必须为 `false`。
 - 不返回完整 snapshot、截图 base64、无关节点树。
 - 不确定时返回结构化结果，不替用户点广告位或下载。
 
@@ -82,6 +132,8 @@ end
 |---|---|
 | `ok` | 成功 |
 | `element_not_found` | 搜索框或结果不存在 |
+| `search_clicked_but_not_verified` | 点击搜索后未验证到结果页 |
+| `results_empty` | 结果页验证后仍未抽到结果 |
 | `permission_denied` | 缺少无障碍权限 |
 | `user_stopped` | 用户停止任务 |
 
@@ -100,19 +152,54 @@ local function remember(content, details)
 end
 
 local opened = lynai.device.openApp("com.android.chrome")
-if not opened.ok then return opened end
+if not opened.ok then
+  return { ok = false, phase = "app_open_failed", action_ok = false, business_ok = false, query = "目标关键词", error = opened.error }
+end
 
 local searched = search("目标关键词")
-if not searched.ok then return searched end
+if not searched.ok then
+  return {
+    ok = false,
+    phase = searched.phase or "search_button_not_found",
+    action_ok = searched.action_ok or false,
+    business_ok = false,
+    query = "目标关键词",
+    error = searched.error
+  }
+end
 
-lynai.device.sleep(1500)
+local verified = wait_results("目标关键词")
+if not verified.ok then
+  return {
+    ok = false,
+    phase = "search_clicked_but_not_verified",
+    action_ok = true,
+    business_ok = false,
+    query = "目标关键词",
+    visibleText = verified.visibleText
+  }
+end
+
 local extracted = extract_results()
+if not extracted.ok then
+  return {
+    ok = false,
+    phase = extracted.phase or "results_empty",
+    action_ok = true,
+    business_ok = false,
+    query = "目标关键词",
+    visibleText = verified.visibleText
+  }
+end
 remember("已检索关键词并抽取结果", { query = "目标关键词", count = #extracted.items })
 return {
   ok = true,
-  phase = "browser_search",
+  phase = "results_extracted",
+  action_ok = true,
+  business_ok = true,
   query = "目标关键词",
   results = extracted.items,
+  verified_by = "visible_results",
   summary = "已读取搜索结果"
 }
 ```

@@ -17,6 +17,8 @@
 - 复杂问题先用 `update_plan` 列检索子任务，避免漏关键点。
 - 关键发现、来源、置信度写入 `update_agent_memory`。
 - 沉淀综述用 `save_note`，存为带引用的 Markdown。
+- `web_fetch`、`save_note`、`update_agent_memory` 的动作成功不等于研究结论或沉淀成功；必须验证来源可读、引用可追溯、保存返回 ID 或读回成功。
+- 返回中明确 `phase`、`action_ok`、`business_ok`；来源不足或保存未验证时不要返回整体成功。
 
 ## 分流原则
 
@@ -41,6 +43,19 @@
    └── 按置信度排序，每条带 `source`/`confidence`
 6. 沉淀（用户明确要求）
    └── save_note 综述+引用
+```
+
+关键 phase：
+
+```text
+question_scoped
+sources_collected
+sources_verified
+synthesis_ready
+note_saved_verified
+source_insufficient
+fetch_failed
+save_not_verified
 ```
 
 ## 工具调用示例
@@ -90,6 +105,7 @@
 - 综述用清单：`发现 → 引用源 → 置信度`。
 - 不可访问/解析失败的引用标"未验证"，不计入综述证据。
 - 单一来源信息明确标 `单一来源`，避免误导。
+- 若用户要求保存综述，保存未验证时返回 `save_not_verified`，顶层 `ok=false`，不要把综述生成成功等同于笔记保存成功。
 
 错误码：
 

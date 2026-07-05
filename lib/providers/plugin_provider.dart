@@ -363,14 +363,27 @@ class PluginProvider extends ChangeNotifier {
 
   /// 删除指定插件及其所有缓存数据和文件。
   Future<void> deletePlugin(String id) async {
+    final plugin = pluginById(id);
+    if (plugin == null) return;
+    if (!canDeletePlugin(id)) throw Exception('内置插件不可删除: $id');
     _plugins = _plugins.where((plugin) => plugin.id != id).toList();
     _settingsCache.remove(id);
     _storageCache.remove(id);
     _configCache.remove(id);
     _schemaCache.remove(id);
+    _renderVersions.remove(id);
     await _repository.deletePluginDirectory(id);
+    await _repository.deletePluginDataFiles(id);
     await _save();
     notifyListeners();
+  }
+
+  /// 判断指定插件是否允许删除。内置插件不可删除；快照和第三方插件可删除。
+  bool canDeletePlugin(String id) {
+    final plugin = pluginById(id);
+    if (plugin == null) return false;
+    return plugin.isSnapshot ||
+        !PluginRepository.builtInPluginIds.contains(plugin.id);
   }
 
   /// 卸载指定插件。

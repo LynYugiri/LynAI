@@ -14,6 +14,8 @@
 - 新建闹钟走"+ 添加"或"新建"入口，输入时间后保存。
 - 只读已有闹钟列表时不要点删除按钮。
 - 与本地 `schedule_item` 区分：系统级闹钟触发响铃由系统发起；本地 `schedules.create` 仅在 LynAI 内提醒。
+- 点击保存/确定成功不等于闹钟创建成功；必须回到列表或重新读屏验证目标时间/标签存在且启用。
+- 候选页签、添加、保存按钮先读屏筛选当前可见项，再点击；普通按钮 timeout 不超过 `800ms`，页面跳转不超过 `1500ms`，保存验证不超过 `2500ms`。
 - 设置完成写入 `agent.memory.update` 供主 Agent 继续使用。
 
 ## 分流原则
@@ -33,11 +35,34 @@
 6. 倒计时：切到倒计时页签，输入分钟，点开始。
 7. 复核：`device.screen.query` 确认新建闹钟出现在列表中、时间正确。
 
+复杂流程 phase：
+
+```text
+clock_opened
+alarm_tab_opened
+alarm_editor_opened
+time_input_done
+save_button_clicked
+alarm_saved_verified
+```
+
+失败 phase 至少包括：
+
+```text
+app_open_failed
+alarm_tab_not_found
+add_button_not_found
+time_input_failed
+save_button_not_found
+alarm_saved_not_verified
+timer_started_not_verified
+```
+
 ## 常用 Lua
 
 ```lua
 local function tap_text(text)
-  return lynai.device.waitAndClick({ text = text, limit = 10, timeoutMs = 4000 })
+  return lynai.device.waitAndClick({ text = text, limit = 10, timeoutMs = 800 })
 end
 ```
 
@@ -45,16 +70,37 @@ end
 local function set_time_picker(hour, minute)
   -- 厂商控件差异大，先读取可见文案判断控件类型
   local visible = lynai.device.readVisibleText({ limit = 30 })
-  if not visible.ok then return visible end
+  if not visible.ok then return { ok = false, phase = "time_input_failed", error = visible.error } end
   -- 数字键盘或时间滚轮，按厂商流程点击对应数字
   -- 这里给出通用框架，实际数值输入按真实控件调整
   return { ok = true, hour = hour, minute = minute }
 end
 ```
 
+```lua
+local function verify_alarm_saved(time_text, label)
+  local deadline = os.clock() + 2.5
+  repeat
+    local visible = lynai.device.readVisibleText({ limit = 80 })
+    if visible.ok then
+      local text = ""
+      for _, line in ipairs(visible.result.lines or {}) do
+        text = text .. "\n" .. (line.text or "")
+      end
+      if string.find(text, time_text, 1, true) and (not label or string.find(text, label, 1, true)) then
+        return { ok = true, marker = time_text, visibleText = text }
+      end
+    end
+    lynai.device.sleep(250)
+  until os.clock() >= deadline
+  return { ok = false }
+end
+```
+
 ## 返回约定
 
-- 返回 `ok`、`phase`、`alarm`（time/label/enabled）、`summary`。
+- 返回 `ok`、`phase`、`action_ok`、`business_ok`、`alarm`（time/label/enabled）、`verified_by`、`summary`。
+- 保存后未验证到闹钟存在时，顶层 `ok` 必须为 `false`。
 - 不返回完整闹钟列表除非用户明确要列出。
 - 被用户停止时直接返回 `user_stopped`。
 
@@ -64,6 +110,7 @@ end
 |---|---|
 | `ok` | 成功 |
 | `element_not_found` | 闹钟入口/时间控件不存在 |
+| `alarm_saved_not_verified` | 点击保存后未验证新闹钟 |
 | `permission_denied` | 缺少无障碍权限 |
 | `user_stopped` | 用户停止任务 |
 
@@ -82,29 +129,55 @@ local function remember(content, details)
 end
 
 local opened = lynai.device.openApp("com.google.android.deskclock")
-if not opened.ok then return opened end
+if not opened.ok then
+  return { ok = false, phase = "app_open_failed", action_ok = false, business_ok = false, alarm = { time = "07:00" }, error = opened.error }
+end
 
 local entered_alarm = tap_text("闹钟")
-if not entered_alarm.ok then return entered_alarm end
+if not entered_alarm.ok then
+  return { ok = false, phase = "alarm_tab_not_found", action_ok = false, business_ok = false, alarm = { time = "07:00" }, error = entered_alarm.error }
+end
 
 local added = tap_text("添加")
-if not added.ok then return added end
+if not added.ok then
+  return { ok = false, phase = "add_button_not_found", action_ok = false, business_ok = false, alarm = { time = "07:00" }, error = added.error }
+end
 
 local set = set_time_picker(7, 0)
-if not set.ok then return set end
+if not set.ok then
+  return { ok = false, phase = "time_input_failed", action_ok = false, business_ok = false, alarm = { time = "07:00" }, error = set.error }
+end
 
 local saved = tap_text("确定")
-if not saved.ok then return saved end
+if not saved.ok then
+  return { ok = false, phase = "save_button_not_found", action_ok = false, business_ok = false, alarm = { time = "07:00" }, error = saved.error }
+end
+
+local verified = verify_alarm_saved("07:00", nil)
+if not verified.ok then
+  return {
+    ok = false,
+    phase = "alarm_saved_not_verified",
+    action_ok = true,
+    business_ok = false,
+    alarm = { time = "07:00", enabled = false },
+    summary = "已点击保存，但未验证到 07:00 闹钟"
+  }
+end
 
 remember("已设置周一至周五 7 点闹钟", { time = "07:00", label = "默认" })
 return {
   ok = true,
-  phase = "clock_alarm",
+  phase = "alarm_saved_verified",
+  action_ok = true,
+  business_ok = true,
   alarm = { time = "07:00", enabled = true },
+  verified_by = verified.marker,
   summary = "已新建 7 点闹钟"
 }
 ```
 
 ## 禁止行为
 
-- 关热点/勿扰前确认；不自动删除已存在的闹钟。
+- 不自动删除已存在的闹钟。
+- 删除或覆盖闹钟前必须让用户确认。

@@ -15,6 +15,8 @@
 - 文档扫描多页时，按页收集 OCR 结果再拼接，注明页码和置信度。
 - 识图置信度低于 `0.6` 时降置信并建议用户复核。
 - 一次能完成的"拍照→OCR→拼接"合并为一次 `execute_lua`。
+- `screenshot.ok` 或 `model.ocr.ok` 不等于识别成功；OCR 文本/文本块为空时必须返回 `ocr_empty` 或 `ocr_failed`，顶层 `ok=false`。
+- 相机按钮、相册入口、确认按钮先读屏筛选当前可见项，再点击；普通按钮 timeout 不超过 `800ms`，相机/相册加载等待不超过 `2500ms`。
 
 ## 分流原则
 
@@ -34,6 +36,26 @@
 4. 多页文档循环次数到上限或翻页失败后停止。
 5. 结构化结果回主模型，必要时 `agent.memory.update`。
 
+复杂流程 phase：
+
+```text
+source_ready
+image_captured
+ocr_requested
+ocr_result_verified
+```
+
+失败 phase 至少包括：
+
+```text
+camera_open_failed
+capture_failed
+screenshot_failed
+ocr_failed
+ocr_empty
+low_confidence
+```
+
 ## 常用 Lua
 
 ```lua
@@ -41,6 +63,18 @@ local function ocr_shot(shot)
   return lynai.call("model.ocr", {
     files = {{ dataBase64 = shot.result.dataBase64, mimeType = shot.result.mimeType, name = "screen.png" }}
   })
+end
+```
+
+```lua
+local function verify_ocr_result(ocr_result)
+  if not ocr_result.ok then return { ok = false, phase = "ocr_failed" } end
+  local text = ocr_result.result and ocr_result.result.text or ""
+  local blocks = ocr_result.result and ocr_result.result.blocks or {}
+  if text == "" and #blocks == 0 then return { ok = false, phase = "ocr_empty" } end
+  local confidence = ocr_result.result.confidence or 0.7
+  if confidence < 0.6 then return { ok = false, phase = "low_confidence", text = text, blocks = blocks, confidence = confidence } end
+  return { ok = true, text = text, blocks = blocks, confidence = confidence }
 end
 ```
 
@@ -54,7 +88,8 @@ end
 
 ## 返回约定
 
-- 返回 `ok`、`phase`、`pages`（每页 `text`/`blocks`/`confidence`）、`summary`。
+- 返回 `ok`、`phase`、`action_ok`、`business_ok`、`pages`（每页 `text`/`blocks`/`confidence`）、`verified_by`、`summary`。
+- OCR 文本/块为空或置信度过低时，顶层 `ok` 必须为 `false`。
 - 不返回截图 base64、不返回完整 snapshot。
 - 多页时汇总每页置信度和总字数。
 
@@ -65,6 +100,8 @@ end
 | `ok` | 成功 |
 | `element_not_found` | 相机/图库入口不存在 |
 | `ocr_failed` | OCR 返回为空或错误 |
+| `ocr_empty` | OCR 工具成功但未识别出文本/文本块 |
+| `low_confidence` | OCR 置信度过低 |
 | `permission_denied` | 缺少相机/存储/无障碍权限 |
 | `user_stopped` | 用户停止任务 |
 
@@ -77,23 +114,44 @@ end
 
 ```lua
 local opened = lynai.device.openApp("com.android.camera")
-if not opened.ok then return opened end
+if not opened.ok then
+  return { ok = false, phase = "camera_open_failed", action_ok = false, business_ok = false, error = opened.error }
+end
 
--- 提示用户拍摄后返回此屏；或自动化点击快门（视设备支持）
-lynai.device.sleep(2000)
+-- 提示用户拍摄后返回此屏；或自动化点击快门（视设备支持）。
+-- 取景稳定等待用短循环，避免无条件长 sleep。
+for _ = 1, 5 do lynai.device.sleep(300) end
 
 local shot = lynai.device.screenshot()
-if not shot.ok then return shot end
+if not shot.ok then
+  return { ok = false, phase = "screenshot_failed", action_ok = false, business_ok = false, error = shot.error }
+end
 
 local ocr_result = lynai.call("model.ocr", {
   files = {{ dataBase64 = shot.result.dataBase64, mimeType = shot.result.mimeType, name = "capture.png" }}
 })
-if not ocr_result.ok then return ocr_result end
+if not ocr_result.ok then
+  return { ok = false, phase = "ocr_failed", action_ok = true, business_ok = false, error = ocr_result.error }
+end
+local verified = verify_ocr_result(ocr_result)
+if not verified.ok then
+  return {
+    ok = false,
+    phase = verified.phase,
+    action_ok = true,
+    business_ok = false,
+    pages = {{ text = verified.text or "", blocks = verified.blocks or {}, confidence = verified.confidence or 0 }},
+    summary = "OCR 未验证为有效识别结果"
+  }
+end
 
 return {
   ok = true,
-  phase = "camera_ocr_scan",
-  pages = {{ text = ocr_result.result.text, confidence = ocr_result.result.confidence or 0.7 }},
+  phase = "ocr_result_verified",
+  action_ok = true,
+  business_ok = true,
+  pages = {{ text = verified.text, blocks = verified.blocks, confidence = verified.confidence }},
+  verified_by = "non_empty_ocr_text_or_blocks",
   summary = "已拍照并 OCR 提取文本"
 }
 ```

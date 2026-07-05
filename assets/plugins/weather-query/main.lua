@@ -32,6 +32,10 @@ local function normalize_language(value)
   return language
 end
 
+local function has_value(value)
+  return trim(value) ~= ""
+end
+
 -- 按 RFC 3986 对 URL 组件编码。Lua 字符串按字节处理，中文会被转成 UTF-8
 -- 百分号编码，避免城市名、空格或特殊符号破坏 wttr.in URL。
 local function url_encode(value)
@@ -134,6 +138,9 @@ function parse_weather(response, original_args, request_args)
   if type(response) ~= "table" or response.ok ~= true then
     return {
       ok = false,
+      phase = "weather_request_failed",
+      action_ok = false,
+      business_ok = false,
       error = "天气服务请求失败",
       detail = response and response.error or nil
     }
@@ -142,6 +149,9 @@ function parse_weather(response, original_args, request_args)
   if tonumber(response.status) ~= 200 then
     return {
       ok = false,
+      phase = "weather_request_failed",
+      action_ok = true,
+      business_ok = false,
       error = "天气服务返回非 200 状态码",
       status = response.status,
       source = "wttr.in"
@@ -152,6 +162,9 @@ function parse_weather(response, original_args, request_args)
   if type(data) ~= "table" then
     return {
       ok = false,
+      phase = "weather_response_unreadable",
+      action_ok = true,
+      business_ok = false,
       error = "天气服务返回内容无法解析",
       detail = decode_error,
       source = "wttr.in"
@@ -160,25 +173,46 @@ function parse_weather(response, original_args, request_args)
 
   local current = data.current_condition and data.current_condition[1] or {}
   local area = data.nearest_area and data.nearest_area[1] or {}
+  local location = first_value(area.areaName)
+  local condition = first_value(current.weatherDesc)
+  local temperature_c = current.temp_C
+
+  if not has_value(temperature_c) and not has_value(condition) then
+    return {
+      ok = false,
+      phase = "weather_data_not_verified",
+      action_ok = true,
+      business_ok = false,
+      query = trim(original_args.location),
+      location = location,
+      source = "wttr.in",
+      url = request_args.url,
+      error = "天气服务返回内容缺少温度和天气描述"
+    }
+  end
 
   return {
     ok = true,
+    phase = "weather_data_verified",
+    action_ok = true,
+    business_ok = true,
     query = trim(original_args.location),
-    location = first_value(area.areaName),
+    location = location,
     region = first_value(area.region),
     country = first_value(area.country),
     latitude = area.latitude,
     longitude = area.longitude,
     observationTime = current.observation_time,
-    temperatureC = current.temp_C,
+    temperatureC = temperature_c,
     feelsLikeC = current.FeelsLikeC,
-    condition = first_value(current.weatherDesc),
+    condition = condition,
     humidity = current.humidity,
     windKmph = current.windspeedKmph,
     windDirection = current.winddir16Point,
     pressureMb = current.pressure,
     visibilityKm = current.visibility,
     uvIndex = current.uvIndex,
+    verified_by = "wttr.in_current_condition",
     source = "wttr.in",
     url = request_args.url
   }

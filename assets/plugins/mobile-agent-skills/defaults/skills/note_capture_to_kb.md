@@ -15,6 +15,8 @@
 - 既有笔记覆盖范围内的话题走 `edit_note`/`propose_note_edit` 追加；新话题走 `save_note` 草稿。
 - 沉淀前先 `read_agent_memory` 看主 Agent 已知什么，不重复写。
 - 关键发现同时写 `update_agent_memory`（短时记忆）和笔记（长期知识库）。
+- `save_note`、`edit_note`、`update_agent_memory` 返回 ok 后仍需检查返回 ID、revision 或读回结果；不要把工具调用成功等同于沉淀成功。
+- 返回中明确区分 `action_ok` 和 `business_ok`；长期笔记或记忆未验证写入时，顶层 `ok=false`。
 
 ## 分流原则
 
@@ -34,6 +36,27 @@
    └── 无 → save_note 草稿（标记待整理）
 4. update_agent_memory 短时记忆一份
 5. 返回沉淀位置 + 要点
+```
+
+成功 phase：
+
+```text
+memory_checked
+content_selected
+note_target_selected
+memory_updated_verified
+note_saved_verified
+note_edit_verified
+```
+
+失败 phase：
+
+```text
+no_valuable_content
+note_not_found
+revision_conflict
+memory_update_not_verified
+note_save_not_verified
 ```
 
 ## 工具调用示例
@@ -81,7 +104,8 @@
 
 ## 返回约定
 
-- 返回沉淀位置（`noteId` 或新建草稿）+ 已写入要点列表。
+- 返回 `ok`、`phase`、`action_ok`、`business_ok`、沉淀位置（`noteId` 或新建草稿）+ 已写入要点列表。
+- 短时记忆或笔记写入未验证时，返回对应失败 phase，顶层 `ok=false`。
 - 不直接帮用户定稿长文，只做卡片化整理。
 
 错误码：

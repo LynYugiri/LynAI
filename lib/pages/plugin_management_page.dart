@@ -106,6 +106,9 @@ class _PluginCard extends StatelessWidget {
         : plugin.enabled
         ? Colors.green
         : Colors.grey;
+    final canDelete = context.select<PluginProvider, bool>(
+      (provider) => provider.canDeletePlugin(plugin.id),
+    );
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: ListTile(
@@ -143,17 +146,29 @@ class _PluginCard extends StatelessWidget {
             ],
           ),
         ),
-        trailing: Switch(
-          value: plugin.enabled,
-          onChanged: plugin.hasError
-              ? null
-              : (value) => _runAction(
-                  context,
-                  () => context.read<PluginProvider>().setEnabled(
-                    plugin.id,
-                    value,
-                  ),
-                ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Switch(
+              value: plugin.enabled,
+              onChanged: plugin.hasError
+                  ? null
+                  : (value) => _runAction(
+                      context,
+                      () => context.read<PluginProvider>().setEnabled(
+                        plugin.id,
+                        value,
+                      ),
+                    ),
+            ),
+            if (canDelete)
+              IconButton(
+                tooltip: '删除插件',
+                color: Theme.of(context).colorScheme.error,
+                onPressed: () => _confirmDeletePlugin(context, plugin),
+                icon: const Icon(Icons.delete_outline),
+              ),
+          ],
         ),
         onTap: () => Navigator.push(
           context,
@@ -181,6 +196,9 @@ class PluginDetailPage extends StatelessWidget {
       return const Scaffold(body: Center(child: Text('插件不存在')));
     }
     final manifest = plugin.manifest;
+    final canDelete = context.select<PluginProvider, bool>(
+      (provider) => provider.canDeletePlugin(plugin.id),
+    );
     return Scaffold(
       appBar: AppBar(title: Text(plugin.displayName)),
       body: ListView(
@@ -401,6 +419,21 @@ class PluginDetailPage extends StatelessWidget {
                   icon: const Icon(Icons.refresh),
                   label: const Text('重新加载插件'),
                 ),
+                if (canDelete) ...[
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Theme.of(context).colorScheme.error,
+                    ),
+                    onPressed: () => _confirmDeletePlugin(
+                      context,
+                      plugin,
+                      popAfterDelete: true,
+                    ),
+                    icon: const Icon(Icons.delete_outline),
+                    label: Text(plugin.isSnapshot ? '删除快照' : '删除插件'),
+                  ),
+                ],
               ],
             ),
           ),
@@ -609,6 +642,57 @@ class PluginDetailPage extends StatelessWidget {
   String _safeFileName(String value) {
     final cleaned = value.trim().replaceAll(RegExp(r'[\\/:*?"<>|]+'), '_');
     return cleaned.isEmpty ? 'plugin' : cleaned;
+  }
+}
+
+Future<void> _confirmDeletePlugin(
+  BuildContext context,
+  InstalledPlugin plugin, {
+  bool popAfterDelete = false,
+}) async {
+  final canDelete = context.read<PluginProvider>().canDeletePlugin(plugin.id);
+  if (!canDelete) {
+    showErrorSnackBar(context, '内置插件不可删除');
+    return;
+  }
+  final title = plugin.isSnapshot ? '删除快照' : '删除插件';
+  final message = plugin.isSnapshot
+      ? '确定删除快照“${plugin.displayName}”吗？原插件不会受影响。'
+      : '确定删除插件“${plugin.displayName}”吗？插件文件、设置和私有存储会一并移除。';
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(title),
+      content: Text(message),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: Theme.of(context).colorScheme.error,
+            foregroundColor: Theme.of(context).colorScheme.onError,
+          ),
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('删除'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true || !context.mounted) return;
+  try {
+    await context.read<PluginProvider>().deletePlugin(plugin.id);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('$title已完成')));
+    if (popAfterDelete && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
+  } catch (e) {
+    if (!context.mounted) return;
+    showErrorSnackBar(context, '删除失败', details: e.toString());
   }
 }
 

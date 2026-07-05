@@ -243,6 +243,14 @@ class PluginRepository {
     if (await dir.exists()) await dir.delete(recursive: true);
   }
 
+  /// 删除与插件 ID 绑定的用户设置和私有存储文件。
+  Future<void> deletePluginDataFiles(String pluginId) async {
+    final settings = await _pluginSettingsFile(pluginId);
+    if (await settings.exists()) await settings.delete();
+    final storage = await _pluginStorageFile(pluginId);
+    if (await storage.exists()) await storage.delete();
+  }
+
   /// 返回插件在当前设备上的安装目录。
   Future<Directory> pluginDirectory(String pluginId) =>
       _pluginDirectory(pluginId);
@@ -933,8 +941,9 @@ class PluginRepository {
   }
 
   bool _isEditableSkillPath(InstalledPlugin plugin, String normalizedPath) {
-    final match = RegExp(r'^skills/([A-Za-z0-9_-]{1,64})\.md$')
-        .firstMatch(normalizedPath);
+    final match = RegExp(
+      r'^skills/([A-Za-z0-9_-]{1,64})\.md$',
+    ).firstMatch(normalizedPath);
     if (match == null) return false;
     final skillName = match.group(1);
     return plugin.manifest.skills.any(

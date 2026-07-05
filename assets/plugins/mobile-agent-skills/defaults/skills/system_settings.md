@@ -13,6 +13,8 @@
 - 文案找不到时用 `device.screen.readVisibleText` 读取当前可见项，再决定点击路径。
 - 一次能完成的开关切换合并为一次 `execute_lua`，避免每步都返回主模型。
 - 切换状态后用 `device.screen.query` 复核开关文案（"开启"/"关闭"/"已连接"）确认结果。
+- 点击开关成功不等于状态已改变；必须验证 `after` 达到用户期望。未验证时返回 `switch_clicked_but_not_verified`，顶层 `ok=false`。
+- 候选入口或开关按钮先读屏筛选当前可见项，再点击；普通按钮 timeout 不超过 `800ms`，页面跳转不超过 `1500ms`，状态验证不超过 `2500ms`。
 - 切换完成写入 `agent.memory.update` 供主 Agent 继续使用。
 
 ## 分流原则
@@ -29,6 +31,29 @@
 4. 找到开关文案，`waitAndClick` 切换。
 5. 用 `device.screen.query` 复核目标开关当前文案，确认是否达到期望状态。
 6. 返回切换前后状态、目标项名称。
+
+复杂流程 phase：
+
+```text
+app_opened
+settings_entry_opened
+target_page_opened
+status_before_read
+switch_clicked
+switch_state_verified
+```
+
+失败 phase 至少包括：
+
+```text
+app_open_failed
+settings_entry_not_found
+target_page_not_opened
+switch_not_found
+switch_clicked_but_not_verified
+blocked_by_popup
+unknown_state
+```
 
 ## 常用 Lua
 
@@ -47,14 +72,14 @@ end
 
 ```lua
 local function tap_text(text)
-  return lynai.device.waitAndClick({ text = text, limit = 10, timeoutMs = 4000 })
+  return lynai.device.waitAndClick({ text = text, limit = 10, timeoutMs = 800 })
 end
 ```
 
 ```lua
 local function read_status(label)
   local visible = lynai.device.readVisibleText({ limit = 80 })
-  if not visible.ok then return visible end
+  if not visible.ok then return { ok = false, phase = "status_unreadable", error = visible.error } end
   local found = nil
   for _, line in ipairs(visible.result.lines or {}) do
     if line.text and string.find(line.text, label, 1, true) then
@@ -66,9 +91,30 @@ local function read_status(label)
 end
 ```
 
+```lua
+local function verify_status(label, expected)
+  local deadline = os.clock() + 2.5
+  repeat
+    local status = read_status(label)
+    if status.ok and status.status then
+      local text = status.status
+      if expected == "on" and (string.find(text, "开启", 1, true) or string.find(text, "已连接", 1, true) or string.find(text, "打开", 1, true)) then
+        return { ok = true, status = text, marker = "on" }
+      end
+      if expected == "off" and (string.find(text, "关闭", 1, true) or string.find(text, "未连接", 1, true) or string.find(text, "关", 1, true)) then
+        return { ok = true, status = text, marker = "off" }
+      end
+    end
+    lynai.device.sleep(250)
+  until os.clock() >= deadline
+  return read_status(label)
+end
+```
+
 ## 返回约定
 
-- 返回 `ok`、`phase`、`target`、`before`、`after`、`summary`。
+- 返回 `ok`、`phase`、`action_ok`、`business_ok`、`target`、`before`、`after`、`verified_by`、`summary`。
+- 没有验证到目标状态时，顶层 `ok` 必须为 `false`。
 - 不返回完整 snapshot、无关节点树。
 - 被用户停止时直接返回 `user_stopped`。
 
@@ -78,6 +124,7 @@ end
 |---|---|
 | `ok` | 成功 |
 | `element_not_found` | 目标入口或开关不存在 |
+| `switch_clicked_but_not_verified` | 点击开关后状态未验证 |
 | `permission_denied` | 缺少无障碍权限 |
 | `user_stopped` | 用户停止任务 |
 
@@ -96,21 +143,46 @@ local function remember(content, details)
 end
 
 local opened = lynai.device.openApp("com.android.settings")
-if not opened.ok then return opened end
+if not opened.ok then
+  return { ok = false, phase = "app_open_failed", action_ok = false, business_ok = false, target = "wlan", error = opened.error }
+end
 
-local entered = lynai.device.waitAndClick({ text = "WLAN", limit = 10, timeoutMs = 4000 })
-if not entered.ok then return entered end
+local expected = "on"
+local entered = lynai.device.waitAndClick({ text = "WLAN", limit = 10, timeoutMs = 800 })
+if not entered.ok then
+  return { ok = false, phase = "settings_entry_not_found", action_ok = false, business_ok = false, target = "wlan", error = entered.error }
+end
 
-local toggled = lynai.device.waitAndClick({ text = "WLAN", clickable = true, limit = 5, timeoutMs = 4000 })
-if not toggled.ok then return toggled end
+local before = read_status("WLAN")
+local toggled = lynai.device.waitAndClick({ text = "WLAN", clickable = true, limit = 5, timeoutMs = 800 })
+if not toggled.ok then
+  return { ok = false, phase = "switch_not_found", action_ok = false, business_ok = false, target = "wlan", before = before.status, error = toggled.error }
+end
 
-local status = read_status("WLAN")
-remember("已切换 WLAN 开关", { target = "wlan", before = "unknown", after = status.status })
+local status = verify_status("WLAN", expected)
+if not status.ok or not status.marker then
+  return {
+    ok = false,
+    phase = "switch_clicked_but_not_verified",
+    action_ok = true,
+    business_ok = false,
+    target = "wlan",
+    before = before.status,
+    after = status.status,
+    summary = "已点击 WLAN 开关，但未验证到目标状态"
+  }
+end
+
+remember("已切换 WLAN 开关", { target = "wlan", before = before.status, after = status.status })
 return {
   ok = true,
-  phase = "system_settings",
+  phase = "switch_state_verified",
+  action_ok = true,
+  business_ok = true,
   target = "wlan",
+  before = before.status,
   after = status.status,
+  verified_by = status.marker,
   summary = "已切换 WLAN 开关"
 }
 ```

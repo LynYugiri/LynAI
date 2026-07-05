@@ -54,10 +54,23 @@ void main() {
       expect(provider.pluginById('test-uninstall'), isNotNull);
       expect(provider.plugins.length, 1);
 
+      await provider.updateSetting('test-uninstall', 'mode', 'custom');
+      await provider.writeStorageValue('test-uninstall', 'token', 'secret');
+      final settingsFile = File(
+        '${installedRoot.path}/settings/test-uninstall.json',
+      );
+      final storageFile = File(
+        '${installedRoot.path}/storage/test-uninstall.json',
+      );
+      expect(await settingsFile.exists(), isTrue);
+      expect(await storageFile.exists(), isTrue);
+
       await provider.uninstall('test-uninstall');
 
       expect(provider.pluginById('test-uninstall'), isNull);
       expect(provider.plugins.length, 0);
+      expect(await settingsFile.exists(), isFalse);
+      expect(await storageFile.exists(), isFalse);
 
       if (await source.exists()) await source.delete(recursive: true);
     } finally {
@@ -115,4 +128,60 @@ void main() {
       }
     }
   });
+
+  test('deletePlugin refuses built-in plugins', () async {
+    final installedRoot = await Directory.systemTemp.createTemp(
+      'lynai_delete_builtin_',
+    );
+    try {
+      final source = await createMiniPlugin('weather-query');
+      final provider = PluginProvider(
+        repository: PluginRepository(rootOverride: installedRoot),
+      );
+      await provider.importDirectory(source.path);
+
+      expect(provider.canDeletePlugin('weather-query'), isFalse);
+      await expectLater(
+        provider.deletePlugin('weather-query'),
+        throwsA(isA<Exception>()),
+      );
+      expect(provider.pluginById('weather-query'), isNotNull);
+
+      if (await source.exists()) await source.delete(recursive: true);
+    } finally {
+      if (await installedRoot.exists()) {
+        await installedRoot.delete(recursive: true);
+      }
+    }
+  });
+
+  test(
+    'deletePlugin removes snapshots without touching source plugin',
+    () async {
+      final installedRoot = await Directory.systemTemp.createTemp(
+        'lynai_delete_snapshot_',
+      );
+      try {
+        final source = await createMiniPlugin('snapshot-source');
+        final provider = PluginProvider(
+          repository: PluginRepository(rootOverride: installedRoot),
+        );
+        await provider.importDirectory(source.path);
+
+        final snapshot = await provider.createSnapshot('snapshot-source');
+        expect(provider.canDeletePlugin(snapshot.id), isTrue);
+
+        await provider.deletePlugin(snapshot.id);
+
+        expect(provider.pluginById(snapshot.id), isNull);
+        expect(provider.pluginById('snapshot-source'), isNotNull);
+
+        if (await source.exists()) await source.delete(recursive: true);
+      } finally {
+        if (await installedRoot.exists()) {
+          await installedRoot.delete(recursive: true);
+        }
+      }
+    },
+  );
 }

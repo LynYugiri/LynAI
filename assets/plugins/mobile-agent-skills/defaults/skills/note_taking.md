@@ -16,6 +16,8 @@
 - 多页笔记用 `list_note_pages` + `save_note_page`，单页用 `save_note`。
 - 文件夹化归档用 `list_note_folders` + `save_note_folder`，避免顶层堆放。
 - 没用户授权不擅自改旧笔记内容；只读不改用 `read_note`。
+- 保存/编辑工具调用成功不等于笔记业务成功；必须检查返回的 `noteId`/`pageId`/`revisionId`，必要时 `read_note` 或 `list_note_pages` 读回验证。
+- 复杂保存流程返回明确 `phase`、`action_ok`、`business_ok`；未验证落盘时顶层 `ok=false`。
 
 ## 分流原则
 
@@ -36,6 +38,29 @@
    ├── 多页 → list_note_pages + save_note_page
    └── 归档 → save_note_folder + edit_note(folderId)
 4. 返回 note_id / 编辑预览
+```
+
+成功 phase：
+
+```text
+note_type_selected
+template_rendered
+save_requested
+note_saved_verified
+edit_proposed
+edit_applied_verified
+folder_saved_verified
+```
+
+失败 phase：
+
+```text
+note_not_found
+revision_conflict
+folder_not_found
+save_tool_failed
+save_not_verified
+edit_not_verified
 ```
 
 ## 工具调用示例
@@ -85,9 +110,10 @@
 
 ## 返回约定
 
-- 新建返回 `noteId` + 标题 + 文件夹。
+- 新建返回 `ok=true`、`phase=note_saved_verified`、`action_ok=true`、`business_ok=true`、`noteId` + 标题 + 文件夹。
 - 编辑提议返回预览 diff + 待用户确认标记。
 - 多页操作返回每页 `pageId` 列表。
+- 保存工具返回 ok 但缺少稳定 ID 或读回失败时，返回 `ok=false`、`phase=save_not_verified`、`action_ok=true`、`business_ok=false`。
 
 错误码：
 

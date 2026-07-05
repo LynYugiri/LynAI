@@ -15,6 +15,8 @@
 - 单步结果写入 `update_agent_memory` 供保持上下文连续。
 - 拿不准的环节可通过 `execute_lua` 调 `lynai.call("model.chat", ...)` 做二次校验，置信度低于 `0.6` 时如实标注。
 - 答案与思路分离呈现：先答问题、再展开推导；用户问"怎么做"才展开思路。
+- OCR、二次校验、错题本保存都必须验证业务结果：OCR 文本非空，校验结论可解释，保存返回 note id 或可读回。
+- 复杂流程返回明确 `phase`、`action_ok`、`business_ok`；工具调用 ok 但业务结果为空/低置信时顶层 `ok=false`。
 
 ## 分流原则
 
@@ -43,6 +45,18 @@
    └── save_note 保存题目+解答+关键思路
 ```
 
+关键 phase：
+
+```text
+problem_input_verified
+solution_plan_ready
+answer_ready
+note_saved_verified
+ocr_empty
+step_uncertain
+save_not_verified
+```
+
 ## 工具调用示例
 
 `execute_lua` + `model.ocr`（拍题识别）：
@@ -52,7 +66,7 @@
   "name": "execute_lua",
   "arguments": {
     "purpose": "OCR 提取题目文本",
-    "code": "local result = lynai.call(\"model.ocr\", { files = {{ dataBase64 = \"<截图 base64>\", mimeType = \"image/png\", name = \"problem.png\" }} }); if not result.ok then return result end; return { ok = true, text = result.result.text, confidence = result.result.confidence or 0.7 }"
+    "code": "local result = lynai.call(\"model.ocr\", { files = {{ dataBase64 = \"<截图 base64>\", mimeType = \"image/png\", name = \"problem.png\" }} }); if not result.ok then return { ok = false, phase = \"ocr_failed\", action_ok = true, business_ok = false, error = result.error } end; local text = result.result and result.result.text or \"\"; if text == \"\" then return { ok = false, phase = \"ocr_empty\", action_ok = true, business_ok = false } end; return { ok = true, phase = \"problem_input_verified\", action_ok = true, business_ok = true, text = text, confidence = result.result.confidence or 0.7 }"
   }
 }
 ```
@@ -89,7 +103,8 @@
 
 - 答案先、推导后；多步题先给最终值再展开。
 - 标注每步置信度；低于 `0.6` 的步骤标 `confidence=低` 并说明原因。
-- 沉淀成功后返回 `note_id`，方便用户后续管理。
+- 沉淀成功后返回 `ok=true`、`phase=note_saved_verified`、`business_ok=true`、`note_id`，方便用户后续管理。
+- OCR 工具返回 ok 但文本为空时，返回 `ocr_empty`，不要继续按识别成功处理。
 
 错误码：
 

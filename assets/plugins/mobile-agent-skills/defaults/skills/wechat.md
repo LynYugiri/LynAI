@@ -15,6 +15,8 @@
 - 同一应用内打开、查找、读取、输入、发送能合并就放在一次 `execute_lua` 中线性编排，避免每步都返回主模型。
 - 朋友圈、公众号、扫一扫属于次级入口，仅当用户明确要求时才进入。
 - 读取到的联系人、最近消息摘要、置信度、是否已发送，应写入 `agent.memory.update`。
+- 发送、查找、进入会话等动作必须在动作后重新读屏验证业务状态；不能把点击成功当作业务成功。
+- 候选按钮或联系人入口先读屏筛选当前可见项，再点击；普通按钮 timeout 不超过 `800ms`，页面跳转等待不超过 `1500ms`，发送验证不超过 `2500ms`。
 
 ## 分流原则
 
@@ -33,6 +35,32 @@
 6. 主模型生成回复后，重新定位输入框和发送按钮再发送。
 7. 连续多条消息可在 Lua 中定义 `send_message(text)` 并重复调用。
 8. 发送后返回发送数量、目标、摘要和是否成功。
+9. 发送后必须验证消息已出现在会话列表、输入框已清空或出现"已发送"等标记；未验证则返回 `send_clicked_but_not_verified`。
+
+复杂流程 phase：
+
+```text
+app_opened
+conversation_located
+conversation_verified
+message_context_read
+message_input_done
+send_button_clicked
+message_sent_verified
+```
+
+失败 phase 至少包括：
+
+```text
+app_open_failed
+peer_uncertain
+conversation_uncertain
+input_failed
+send_button_not_found
+send_clicked_but_not_verified
+message_context_unreadable
+blocked_by_popup
+```
 
 ## 常用 Lua
 
@@ -50,10 +78,60 @@ end
 ```
 
 ```lua
+local function verify_conversation(peer)
+  local visible = lynai.device.readVisibleText({ limit = 80 })
+  if not visible.ok then return { ok = false, visibleText = nil, error = visible.error } end
+  local text = ""
+  for _, line in ipairs(visible.result.lines or {}) do
+    text = text .. "\n" .. (line.text or "")
+  end
+  if string.find(text, peer, 1, true) then return { ok = true, marker = peer, visibleText = text } end
+  return { ok = false, visibleText = text }
+end
+```
+
+```lua
 local function send_message(text)
   local typed = lynai.device.inputInto({ editable = true, limit = 5 }, text)
-  if not typed.ok then return typed end
-  return lynai.device.waitAndClick({ text = "发送", clickable = true, timeoutMs = 3000 })
+  if not typed.ok then return { ok = false, phase = "input_failed", action_ok = false, business_ok = false, error = typed.error } end
+  local clicked = lynai.device.waitAndClick({ text = "发送", clickable = true, timeoutMs = 800 })
+  if not clicked.ok then
+    return { ok = false, phase = "send_button_not_found", action_ok = false, business_ok = false }
+  end
+  local deadline = os.clock() + 2.5
+  repeat
+    local ctx = lynai.device.extractMessages({ app = "wechat", packageName = "com.tencent.mm", limit = 12 })
+    if ctx.ok and ctx.result and ctx.result.messages then
+      for _, msg in ipairs(ctx.result.messages) do
+        if msg.text and string.find(msg.text, text, 1, true) then
+          return {
+            ok = true,
+            phase = "message_sent_verified",
+            action_ok = true,
+            business_ok = true,
+            verified_by = "message_list",
+            context = ctx.result
+          }
+        end
+      end
+    end
+    lynai.device.sleep(250)
+  until os.clock() >= deadline
+  local visible = lynai.device.readVisibleText({ limit = 80 })
+  local finalText = ""
+  if visible.ok then
+    for _, line in ipairs(visible.result.lines or {}) do
+      finalText = finalText .. "\n" .. (line.text or "")
+    end
+  end
+  return {
+    ok = false,
+    phase = "send_clicked_but_not_verified",
+    action_ok = true,
+    business_ok = false,
+    clicked = "发送",
+    visibleText = visible.ok and finalText or nil
+  }
 end
 ```
 
@@ -67,7 +145,8 @@ end
 
 ## 返回约定
 
-- 返回 `ok`、`phase`、`peer`、`messages`、`confidence`、`summary`。
+- 返回 `ok`、`phase`、`action_ok`、`business_ok`、`peer`、`messages`、`confidence`、`verified_by`、`summary`。
+- 没有验证到业务成功时，顶层 `ok` 必须为 `false`。
 - 不返回完整截图、完整 base64、无关节点树。
 - 被用户停止时直接返回工具给出的 `user_stopped` 错误。
 
@@ -79,6 +158,7 @@ end
 | `peer_uncertain` | 收件人不确定 |
 | `conversation_uncertain` | 当前会话不确定 |
 | `element_not_found` | 输入框或发送按钮不存在 |
+| `send_clicked_but_not_verified` | 点击发送后未验证到消息发出 |
 | `permission_denied` | 缺少无障碍权限 |
 | `user_stopped` | 用户停止任务 |
 
@@ -98,20 +178,34 @@ local function remember(content, details)
 end
 
 local opened = lynai.device.openApp("com.tencent.mm")
-if not opened.ok then return opened end
+if not opened.ok then
+  return { ok = false, phase = "app_open_failed", action_ok = false, business_ok = false, peer = "目标昵称", error = opened.error }
+end
 
-local clicked = lynai.device.waitAndClick({ text = "目标昵称", limit = 20, timeoutMs = 5000 })
-if not clicked.ok then return clicked end
+local clicked = lynai.device.waitAndClick({ text = "目标昵称", limit = 20, timeoutMs = 800 })
+if not clicked.ok then
+  return { ok = false, phase = "conversation_uncertain", action_ok = false, business_ok = false, peer = "目标昵称", error = clicked.error }
+end
+
+local conversation = verify_conversation("目标昵称")
+if not conversation.ok then
+  return { ok = false, phase = "conversation_uncertain", action_ok = true, business_ok = false, peer = "目标昵称", visibleText = conversation.visibleText }
+end
 
 local context = lynai.device.extractMessages({ app = "wechat", packageName = "com.tencent.mm", limit = 12 })
-if not context.ok then return context end
+if not context.ok then
+  return { ok = false, phase = "message_context_unreadable", action_ok = true, business_ok = false, peer = "目标昵称", error = context.error }
+end
 remember("已读取目标微信会话上下文", { peer = "目标昵称", confidence = 0.8 })
 return {
   ok = true,
-  phase = "wechat_context",
+  phase = "message_context_read",
+  action_ok = true,
+  business_ok = true,
   peer = "目标昵称",
   messages = context.result.messages,
   confidence = context.result.confidence,
+  verified_by = "extractMessages",
   summary = "已进入目标微信会话并读取最近消息"
 }
 ```
