@@ -157,4 +157,6 @@ GitHub Actions 工作流位于 `.github/workflows/build.yml`。
 
 ## 许可证
 
-[GNU General Public License v3.0](LICENSE)
+LynAI 使用 [GNU General Public License v3.0](LICENSE) 发布。
+
+随包分发、vendored、本地构建或平台构建时引入的第三方组件见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。应用内“关于 -> 开源许可”页面也会展示项目许可证、本地 third_party 许可证和第三方 notices。

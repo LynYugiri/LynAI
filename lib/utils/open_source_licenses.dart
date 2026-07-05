@@ -4,6 +4,11 @@ import 'package:flutter/services.dart';
 const _licenseAssets = [
   (packages: ['LynAI'], assetPath: 'LICENSE'),
   (
+    packages: ['LynAI third-party notices'],
+    assetPath: 'THIRD_PARTY_NOTICES.md',
+  ),
+  (packages: ['lua_dardo'], assetPath: 'third_party/lua_dardo/LICENSE'),
+  (
     packages: ['webview_all_linux'],
     assetPath: 'third_party/webview_all_linux/LICENSE',
   ),

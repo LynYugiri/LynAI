@@ -25,7 +25,7 @@ class _AboutPageState extends State<AboutPage> {
       context: context,
       applicationName: 'LynAI',
       applicationVersion: packageInfo.version,
-      applicationLegalese: 'Copyright (C) LynAI Contributors\nGPL-3.0-or-later',
+      applicationLegalese: 'Copyright (C) LynAI Contributors\nGPL-3.0',
     );
   }
 
