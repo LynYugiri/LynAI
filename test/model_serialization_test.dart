@@ -30,6 +30,7 @@ import 'package:lynai/repositories/settings_repository.dart';
 import 'package:lynai/services/api_service.dart';
 import 'package:lynai/services/attachment_storage_service.dart';
 import 'package:lynai/services/backup_service.dart';
+import 'package:lynai/services/backend_client.dart';
 import 'package:lynai/services/image_generation_service.dart';
 import 'package:lynai/services/lynai_permission_definitions.dart';
 import 'package:lynai/services/roleplay_service.dart';
@@ -3887,4 +3888,69 @@ PRAGMA user_version = 2;
       await server.close(force: true);
     }
   });
+
+  for (final protocolVersion in [1, 2]) {
+    test(
+      'managed relay v$protocolVersion sends compatible route fields',
+      () async {
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        Map<String, dynamic>? requestBody;
+        unawaited(
+          server.first.then((request) async {
+            expect(
+              request.uri.path,
+              protocolVersion >= 2 ? '/v2/chat' : '/chat',
+            );
+            requestBody =
+                jsonDecode(await utf8.decoder.bind(request).join())
+                    as Map<String, dynamic>;
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(
+              jsonEncode({
+                'choices': [
+                  {
+                    'message': {'role': 'assistant', 'content': 'ok'},
+                  },
+                ],
+              }),
+            );
+            await request.response.close();
+          }),
+        );
+
+        final backend = BackendClient()
+          ..configure('http://${server.address.host}:${server.port}')
+          ..setTokens('token', 'refresh-token');
+        try {
+          await ApiService(backend: backend).sendChatRequest(
+            ModelConfig(
+              id: 'managed',
+              name: 'LynAI',
+              endpoint: 'http://${server.address.host}:${server.port}',
+              apiKey: '',
+              modelName: 'model-a',
+              apiType: 'openai',
+              priority: 0,
+              managed: true,
+              relayProviderId: 'provider-1',
+              relayProtocolVersion: protocolVersion,
+            ),
+            const [
+              {'role': 'user', 'content': 'hello'},
+            ],
+          );
+
+          expect(requestBody?['api_type'], 'openai');
+          if (protocolVersion >= 2) {
+            expect(requestBody?['provider_id'], 'provider-1');
+          } else {
+            expect(requestBody?.containsKey('provider_id'), isFalse);
+          }
+        } finally {
+          backend.dispose();
+          await server.close(force: true);
+        }
+      },
+    );
+  }
 }

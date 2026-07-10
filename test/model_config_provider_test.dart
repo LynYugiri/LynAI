@@ -13,6 +13,7 @@ void main() {
       final provider = memoryModelConfigProvider();
       final backend = _FakeBackendClient(
         responses: {
+          '/relay/v2/config': http.Response('{}', 404),
           '/relay/config': http.Response('{}', 404),
           '/relay/models': _jsonResponse({
             'object': 'list',
@@ -36,6 +37,8 @@ void main() {
       final model = provider.models.single;
       expect(model.name, 'LynAI 官方中转');
       expect(model.managed, isTrue);
+      expect(model.relayProtocolVersion, 1);
+      expect(model.relayProviderId, 'provider-1');
       expect(model.endpoint, 'https://api.example.com/relay');
       expect(model.apiType, 'openai');
       expect(model.category, ModelConfig.categoryChat);
@@ -43,6 +46,62 @@ void main() {
       expect(model.maxTokens, 2048);
       expect(model.temperature, 0.2);
       expect(model.models.single.supportsThinking, isFalse);
+    });
+
+    test('prefers v2 relay config and records protocol version', () async {
+      final provider = memoryModelConfigProvider();
+      final backend = _FakeBackendClient(
+        responses: {
+          '/relay/v2/config': _jsonResponse({
+            'object': 'relay_config',
+            'schemaVersion': 2,
+            'data': [
+              {
+                'id': 'provider-2',
+                'name': '统一中转',
+                'category': ModelConfig.categoryChat,
+                'apiType': 'anthropic',
+                'models': [
+                  {
+                    'id': 'claude-test',
+                    'category': ModelConfig.categoryChat,
+                    'capabilities': {'vision': true},
+                    'advancedParams': {},
+                  },
+                ],
+              },
+            ],
+          }),
+        },
+      );
+
+      expect(await provider.syncLynaiManagedProvider(backend), isTrue);
+
+      final model = provider.models.single;
+      expect(model.relayProviderId, 'provider-2');
+      expect(model.relayProtocolVersion, 2);
+      expect(model.apiType, 'anthropic');
+      expect(model.modelName, 'claude-test');
+    });
+
+    test('persists relay provider identity through JSON', () {
+      final config = ModelConfig(
+        id: 'managed-provider',
+        name: 'LynAI',
+        endpoint: 'https://api.example.com/relay',
+        apiKey: '',
+        modelName: 'gpt-test',
+        apiType: 'openai',
+        priority: 0,
+        managed: true,
+        relayProviderId: 'provider-2',
+        relayProtocolVersion: 2,
+      );
+
+      final decoded = ModelConfig.fromJson(config.toJson());
+
+      expect(decoded.relayProviderId, 'provider-2');
+      expect(decoded.relayProtocolVersion, 2);
     });
   });
 }

@@ -152,9 +152,14 @@ class ModelConfigProvider extends ChangeNotifier {
       return true;
     }
 
-    var response = await backend.get('/relay/config');
+    var protocolVersion = 2;
+    var response = await backend.get('/relay/v2/config');
     if (response.statusCode == 404) {
-      response = await backend.get('/relay/models');
+      protocolVersion = 1;
+      response = await backend.get('/relay/config');
+      if (response.statusCode == 404) {
+        response = await backend.get('/relay/models');
+      }
     }
     if (response.statusCode != 200) {
       debugPrint('同步 LynAI 模型失败: HTTP ${response.statusCode}');
@@ -170,7 +175,10 @@ class ModelConfigProvider extends ChangeNotifier {
       return false;
     }
 
-    final grouped = _parseManagedGroups(decoded['data'] as List);
+    final grouped = _parseManagedGroups(
+      decoded['data'] as List,
+      protocolVersion: protocolVersion,
+    );
     final managedIds = grouped.map((group) => group.id).toSet();
     _models.removeWhere(
       (model) => model.managed && !managedIds.contains(model.id),
@@ -205,6 +213,8 @@ class ModelConfigProvider extends ChangeNotifier {
         extraParams: group.extraParams,
         models: modelEntries,
         managed: true,
+        relayProviderId: group.providerId,
+        relayProtocolVersion: group.protocolVersion,
         disabledByUser: existing?.disabledByUser ?? false,
         userOverrides: existing?.userOverrides,
       );
@@ -272,15 +282,27 @@ class ModelConfigProvider extends ChangeNotifier {
   /// 生成新的唯一ID
   String generateId() => _uuid.v4();
 
-  List<_ManagedModelGroup> _parseManagedGroups(List data) {
+  List<_ManagedModelGroup> _parseManagedGroups(
+    List data, {
+    required int protocolVersion,
+  }) {
     final groups = <String, _ManagedModelGroup>{};
-    void addItem(Map item, {String? providerId, String? providerName}) {
+    void addItem(
+      Map item, {
+      String? providerId,
+      String? providerName,
+      String? providerApiType,
+      String? providerCategory,
+    }) {
       final modelId = item['id']?.toString().trim() ?? '';
-      final apiType = (item['api_type'] ?? item['apiType'] ?? 'openai')
-          .toString()
-          .trim()
-          .toLowerCase();
-      final category = _normalizeCategory(item['category']?.toString());
+      final apiType =
+          (item['api_type'] ?? item['apiType'] ?? providerApiType ?? 'openai')
+              .toString()
+              .trim()
+              .toLowerCase();
+      final category = _normalizeCategory(
+        item['category']?.toString() ?? providerCategory,
+      );
       if (modelId.isEmpty || apiType.isEmpty) return;
       final groupProviderId =
           (providerId ?? item['providerId']?.toString() ?? apiType).trim();
@@ -292,6 +314,8 @@ class ModelConfigProvider extends ChangeNotifier {
         key,
         () => _ManagedModelGroup(
           id: '$lynaiManagedIdPrefix${groupProviderId}_${apiType}_${category}__',
+          providerId: groupProviderId,
+          protocolVersion: protocolVersion,
           name: displayProviderName.isNotEmpty
               ? 'LynAI $displayProviderName'
               : (apiType == 'openai' ? 'LynAI' : 'LynAI ($apiType)'),
@@ -329,9 +353,17 @@ class ModelConfigProvider extends ChangeNotifier {
       if (models is List) {
         final providerId = item['id']?.toString();
         final providerName = item['name']?.toString();
+        final providerApiType = item['apiType']?.toString();
+        final providerCategory = item['category']?.toString();
         for (final model in models) {
           if (model is Map) {
-            addItem(model, providerId: providerId, providerName: providerName);
+            addItem(
+              model,
+              providerId: providerId,
+              providerName: providerName,
+              providerApiType: providerApiType,
+              providerCategory: providerCategory,
+            );
           }
         }
       } else {
@@ -358,12 +390,16 @@ class ModelConfigProvider extends ChangeNotifier {
 class _ManagedModelGroup {
   _ManagedModelGroup({
     required this.id,
+    required this.providerId,
+    required this.protocolVersion,
     required this.name,
     required this.apiType,
     required this.category,
   });
 
   final String id;
+  final String providerId;
+  final int protocolVersion;
   final String name;
   final String apiType;
   final String category;

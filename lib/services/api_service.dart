@@ -91,8 +91,12 @@ class ApiService {
     return Uri.parse('$endpoint$path');
   }
 
-  String _openAIChatPath(ModelConfig config) =>
-      config.managed ? '/chat' : '/chat/completions';
+  String _openAIChatPath(ModelConfig config) => config.managed
+      ? (config.relayProtocolVersion >= 2 ? '/v2/chat' : '/chat')
+      : '/chat/completions';
+
+  String _managedRelayPath(ModelConfig config, String path) =>
+      config.relayProtocolVersion >= 2 ? '/v2$path' : path;
 
   void _applyOpenAIAuthAndRelayParams(
     ModelConfig config,
@@ -107,6 +111,7 @@ class ApiService {
       }
       headers['Authorization'] = 'Bearer $token';
       body['api_type'] = config.apiType;
+      _applyManagedRelayRoute(config, body);
       return;
     }
     if (config.apiKey.isNotEmpty) {
@@ -121,6 +126,33 @@ class ApiService {
       throw Exception('LynAI 中转需要登录后使用');
     }
     headers['Authorization'] = 'Bearer $token';
+  }
+
+  void _applyManagedRelayRoute(ModelConfig config, Map<String, dynamic> body) {
+    final providerId = config.relayProviderId?.trim() ?? '';
+    if (config.managed &&
+        config.relayProtocolVersion >= 2 &&
+        providerId.isNotEmpty) {
+      body['provider_id'] = providerId;
+    }
+  }
+
+  void _applyManagedRelayParams(ModelConfig config, Map<String, dynamic> body) {
+    if (!config.managed) return;
+    body['api_type'] = config.apiType;
+    _applyManagedRelayRoute(config, body);
+  }
+
+  void _applyManagedRelayRouteField(
+    ModelConfig config,
+    Map<String, String> fields,
+  ) {
+    final providerId = config.relayProviderId?.trim() ?? '';
+    if (config.managed &&
+        config.relayProtocolVersion >= 2 &&
+        providerId.isNotEmpty) {
+      fields['provider_id'] = providerId;
+    }
   }
 
   bool _shouldLogSseDiagnostics(ModelConfig config) {
@@ -274,10 +306,14 @@ class ApiService {
       throw Exception('LynAI 中转需要登录后使用');
     }
     final endpoint = config.endpoint.replaceAll(RegExp(r'/+$'), '');
-    final request = http.MultipartRequest('POST', Uri.parse('$endpoint/ocr'));
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('$endpoint${_managedRelayPath(config, '/ocr')}'),
+    );
     request.headers['Authorization'] = 'Bearer $token';
     request.fields['model'] = config.modelName;
     request.fields['api_type'] = config.apiType;
+    _applyManagedRelayRouteField(config, request.fields);
     request.files.add(
       http.MultipartFile.fromBytes('file', imageBytes, filename: 'ocr.png'),
     );
@@ -444,7 +480,12 @@ class ApiService {
     final filePrompt = nonImages.isEmpty
         ? prompt
         : '$prompt\n\n附件文件：\n${nonImages.map((file) => '${file.name} (${file.mimeType}) base64: ${base64Encode(file.bytes)}').join('\n')}';
-    final uri = _endpointUri(config, '/api/chat');
+    final uri = _endpointUri(
+      config,
+      config.managed && config.relayProtocolVersion >= 2
+          ? '/v2/chat'
+          : '/api/chat',
+    );
     final body = <String, dynamic>{
       'model': config.modelName,
       'messages': [
@@ -456,6 +497,7 @@ class ApiService {
       ],
       'stream': false,
     };
+    _applyManagedRelayParams(config, body);
     if (config.effectiveMaxTokens != null ||
         config.effectiveTemperature != null ||
         config.effectiveTopP != null) {
@@ -746,11 +788,12 @@ class ApiService {
     final endpoint = config.endpoint.replaceAll(RegExp(r'/+$'), '');
     final request = http.MultipartRequest(
       'POST',
-      Uri.parse('$endpoint/transcribe'),
+      Uri.parse('$endpoint${_managedRelayPath(config, '/transcribe')}'),
     );
     request.headers['Authorization'] = 'Bearer $token';
     request.fields['model'] = config.modelName;
     request.fields['api_type'] = config.apiType;
+    _applyManagedRelayRouteField(config, request.fields);
     request.fields['response_format'] = 'json';
     request.files.add(
       http.MultipartFile.fromBytes(
@@ -788,7 +831,7 @@ class ApiService {
     );
     final create = await http
         .post(
-          Uri.parse('$endpoint/speech/create'),
+          Uri.parse('$endpoint${_managedRelayPath(config, '/speech/create')}'),
           headers: {
             'Authorization': 'Bearer $token',
             'Content-Type': 'application/json',
@@ -796,6 +839,9 @@ class ApiService {
           body: jsonEncode({
             'model': config.modelName,
             'api_type': config.apiType,
+            if (config.relayProtocolVersion >= 2 &&
+                (config.relayProviderId?.trim() ?? '').isNotEmpty)
+              'provider_id': config.relayProviderId!.trim(),
             'audio_type': audioType,
             'slice_num': sliceCount,
           }),
@@ -814,7 +860,7 @@ class ApiService {
       final request = http.MultipartRequest(
         'POST',
         Uri.parse(
-          '$endpoint/speech/$audioId/upload',
+          '$endpoint${_managedRelayPath(config, '/speech/$audioId/upload')}',
         ).replace(queryParameters: {'slice_index': '$i'}),
       );
       request.headers['Authorization'] = 'Bearer $token';
@@ -834,7 +880,9 @@ class ApiService {
 
     final run = await http
         .post(
-          Uri.parse('$endpoint/speech/$audioId/run'),
+          Uri.parse(
+            '$endpoint${_managedRelayPath(config, '/speech/$audioId/run')}',
+          ),
           headers: {'Authorization': 'Bearer $token'},
         )
         .timeout(_timeout);
@@ -846,7 +894,9 @@ class ApiService {
       await Future<void>.delayed(const Duration(seconds: 2));
       final progress = await http
           .get(
-            Uri.parse('$endpoint/speech/$audioId/progress'),
+            Uri.parse(
+              '$endpoint${_managedRelayPath(config, '/speech/$audioId/progress')}',
+            ),
             headers: {'Authorization': 'Bearer $token'},
           )
           .timeout(_timeout);
@@ -860,7 +910,9 @@ class ApiService {
 
     final result = await http
         .get(
-          Uri.parse('$endpoint/speech/$audioId/result'),
+          Uri.parse(
+            '$endpoint${_managedRelayPath(config, '/speech/$audioId/result')}',
+          ),
           headers: {'Authorization': 'Bearer $token'},
         )
         .timeout(_timeout);
@@ -894,7 +946,10 @@ class ApiService {
     Map<String, dynamic>? parameters,
   }) async {
     final endpoint = config.endpoint.replaceAll(RegExp(r'/+$'), '');
-    final uri = Uri.parse('$endpoint/images/generations');
+    final path = config.managed
+        ? _managedRelayPath(config, '/images/generations')
+        : '/images/generations';
+    final uri = Uri.parse('$endpoint$path');
     final body = <String, dynamic>{'model': config.modelName, 'prompt': prompt};
     final headers = <String, String>{'Content-Type': 'application/json'};
     if (config.managed) {
@@ -1448,7 +1503,12 @@ class ApiService {
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
   }) async {
-    final uri = _endpointUri(config, '/api/chat');
+    final uri = _endpointUri(
+      config,
+      config.managed && config.relayProtocolVersion >= 2
+          ? '/v2/chat'
+          : '/api/chat',
+    );
 
     final body = <String, dynamic>{
       'model': config.modelName,
@@ -1456,6 +1516,7 @@ class ApiService {
       'stream': false,
       'think': thinking,
     };
+    _applyManagedRelayParams(config, body);
 
     if (config.effectiveMaxTokens != null ||
         config.effectiveTemperature != null ||
@@ -1475,12 +1536,12 @@ class ApiService {
       }
     }
 
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (config.managed) {
+      _applyManagedRelayAuth(headers);
+    }
     final response = await http
-        .post(
-          uri,
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(body),
-        )
+        .post(uri, headers: headers, body: jsonEncode(body))
         .timeout(
           _timeout,
           onTimeout: () {
@@ -1510,7 +1571,12 @@ class ApiService {
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
   }) async* {
-    final uri = _endpointUri(config, '/api/chat');
+    final uri = _endpointUri(
+      config,
+      config.managed && config.relayProtocolVersion >= 2
+          ? '/v2/chat'
+          : '/api/chat',
+    );
 
     final body = <String, dynamic>{
       'model': config.modelName,
@@ -1518,6 +1584,7 @@ class ApiService {
       'stream': true,
       'think': thinking,
     };
+    _applyManagedRelayParams(config, body);
 
     if (config.effectiveMaxTokens != null ||
         config.effectiveTemperature != null ||
@@ -1667,13 +1734,19 @@ class ApiService {
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
   }) async* {
-    final uri = _endpointUri(config, '/messages');
+    final uri = _endpointUri(
+      config,
+      config.managed && config.relayProtocolVersion >= 2
+          ? '/v2/chat'
+          : '/messages',
+    );
     final body = _anthropicRequestBody(
       config,
       messages,
       stream: true,
       thinking: thinking,
     );
+    _applyManagedRelayParams(config, body);
 
     final request = http.Request('POST', uri);
     final headers = <String, String>{'Content-Type': 'application/json'};
@@ -1747,13 +1820,19 @@ class ApiService {
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
   }) async {
-    final uri = _endpointUri(config, '/messages');
+    final uri = _endpointUri(
+      config,
+      config.managed && config.relayProtocolVersion >= 2
+          ? '/v2/chat'
+          : '/messages',
+    );
     final body = _anthropicRequestBody(
       config,
       messages,
       stream: false,
       thinking: thinking,
     );
+    _applyManagedRelayParams(config, body);
 
     final headers = <String, String>{'Content-Type': 'application/json'};
     if (config.managed) {
