@@ -78,6 +78,40 @@ class ApiService {
   http.Client? _client;
   http.Client get client => _client ??= http.Client();
 
+  BackendClient _managedBackend() {
+    final backend = _backend;
+    if (backend == null ||
+        !backend.isConnected ||
+        (backend.accessToken ?? '').isEmpty) {
+      throw Exception('LynAI 中转需要登录后使用');
+    }
+    return backend;
+  }
+
+  Future<http.StreamedResponse> _sendStreamed(
+    ModelConfig config,
+    http.BaseRequest Function() buildRequest, {
+    Duration timeout = _timeout,
+  }) {
+    if (config.managed) {
+      return _managedBackend().sendAuthenticatedStreamed(
+        buildRequest,
+        timeout: timeout,
+      );
+    }
+    return client.send(buildRequest()).timeout(timeout);
+  }
+
+  Future<http.Response> _sendBuffered(
+    ModelConfig config,
+    http.BaseRequest Function() buildRequest, {
+    Duration timeout = _timeout,
+  }) async {
+    return http.Response.fromStream(
+      await _sendStreamed(config, buildRequest, timeout: timeout),
+    );
+  }
+
   void dispose() {
     _client?.close();
     _client = null;
@@ -103,13 +137,9 @@ class ApiService {
     Map<String, dynamic> body,
     Map<String, String> headers,
   ) {
-    if (config.managed && config.apiKey.isEmpty) {
-      final backend = _backend;
-      final token = backend?.accessToken ?? '';
-      if (backend == null || !backend.isConnected || token.isEmpty) {
-        throw Exception('LynAI 中转需要登录后使用');
-      }
-      headers['Authorization'] = 'Bearer $token';
+    if (config.managed) {
+      final backend = _managedBackend();
+      headers['Authorization'] = 'Bearer ${backend.accessToken}';
       body['api_type'] = config.apiType;
       _applyManagedRelayRoute(config, body);
       return;
@@ -120,12 +150,8 @@ class ApiService {
   }
 
   void _applyManagedRelayAuth(Map<String, String> headers) {
-    final backend = _backend;
-    final token = backend?.accessToken ?? '';
-    if (backend == null || !backend.isConnected || token.isEmpty) {
-      throw Exception('LynAI 中转需要登录后使用');
-    }
-    headers['Authorization'] = 'Bearer $token';
+    final backend = _managedBackend();
+    headers['Authorization'] = 'Bearer ${backend.accessToken}';
   }
 
   void _applyManagedRelayRoute(ModelConfig config, Map<String, dynamic> body) {
@@ -300,24 +326,26 @@ class ApiService {
     ModelConfig config,
     Uint8List imageBytes,
   ) async {
-    final backend = _backend;
-    final token = backend?.accessToken ?? '';
-    if (backend == null || !backend.isConnected || token.isEmpty) {
-      throw Exception('LynAI 中转需要登录后使用');
-    }
+    _managedBackend();
     final endpoint = config.endpoint.replaceAll(RegExp(r'/+$'), '');
     final request = http.MultipartRequest(
       'POST',
       Uri.parse('$endpoint${_managedRelayPath(config, '/ocr')}'),
     );
-    request.headers['Authorization'] = 'Bearer $token';
     request.fields['model'] = config.modelName;
     request.fields['api_type'] = config.apiType;
     _applyManagedRelayRouteField(config, request.fields);
     request.files.add(
       http.MultipartFile.fromBytes('file', imageBytes, filename: 'ocr.png'),
     );
-    final streamed = await request.send().timeout(_timeout);
+    final streamed = await _sendStreamed(config, () {
+      final replay = http.MultipartRequest('POST', request.url);
+      replay.fields.addAll(request.fields);
+      replay.files.add(
+        http.MultipartFile.fromBytes('file', imageBytes, filename: 'ocr.png'),
+      );
+      return replay;
+    });
     final body = await streamed.stream.transform(utf8.decoder).join();
     if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
       throw Exception(_formatHttpError('OCR 识别失败', streamed.statusCode, body));
@@ -520,14 +548,12 @@ class ApiService {
       _applyManagedRelayAuth(headers);
     }
 
-    final response = await http
-        .post(uri, headers: headers, body: jsonEncode(body))
-        .timeout(
-          _timeout,
-          onTimeout: () {
-            throw TimeoutException('连接超时，请检查 Ollama 服务是否运行');
-          },
-        );
+    final response = await _sendBuffered(config, () {
+      final request = http.Request('POST', uri);
+      request.headers.addAll(headers);
+      request.body = jsonEncode(body);
+      return request;
+    });
 
     if (response.statusCode != 200) {
       throw Exception('Ollama 文件识别失败: ${response.statusCode} ${response.body}');
@@ -780,17 +806,12 @@ class ApiService {
     Uint8List audioBytes, {
     required String audioType,
   }) async {
-    final backend = _backend;
-    final token = backend?.accessToken ?? '';
-    if (backend == null || !backend.isConnected || token.isEmpty) {
-      throw Exception('LynAI 中转需要登录后使用');
-    }
+    _managedBackend();
     final endpoint = config.endpoint.replaceAll(RegExp(r'/+$'), '');
     final request = http.MultipartRequest(
       'POST',
       Uri.parse('$endpoint${_managedRelayPath(config, '/transcribe')}'),
     );
-    request.headers['Authorization'] = 'Bearer $token';
     request.fields['model'] = config.modelName;
     request.fields['api_type'] = config.apiType;
     _applyManagedRelayRouteField(config, request.fields);
@@ -802,7 +823,18 @@ class ApiService {
         filename: audioType == 'auto' ? 'audio' : 'audio.$audioType',
       ),
     );
-    final streamed = await request.send().timeout(_timeout);
+    final streamed = await _sendStreamed(config, () {
+      final replay = http.MultipartRequest('POST', request.url);
+      replay.fields.addAll(request.fields);
+      replay.files.add(
+        http.MultipartFile.fromBytes(
+          'file',
+          audioBytes,
+          filename: audioType == 'auto' ? 'audio' : 'audio.$audioType',
+        ),
+      );
+      return replay;
+    });
     final body = await streamed.stream.transform(utf8.decoder).join();
     if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
       throw Exception(_formatHttpError('语音转文字失败', streamed.statusCode, body));
@@ -819,34 +851,29 @@ class ApiService {
     Uint8List audioBytes, {
     required String audioType,
   }) async {
-    final backend = _backend;
-    final token = backend?.accessToken ?? '';
-    if (backend == null || !backend.isConnected || token.isEmpty) {
-      throw Exception('LynAI 中转需要登录后使用');
-    }
+    _managedBackend();
     final endpoint = config.endpoint.replaceAll(RegExp(r'/+$'), '');
     final sliceCount = math.max(
       1,
       (audioBytes.length / _speechSliceSize).ceil(),
     );
-    final create = await http
-        .post(
-          Uri.parse('$endpoint${_managedRelayPath(config, '/speech/create')}'),
-          headers: {
-            'Authorization': 'Bearer $token',
-            'Content-Type': 'application/json',
-          },
-          body: jsonEncode({
-            'model': config.modelName,
-            'api_type': config.apiType,
-            if (config.relayProtocolVersion >= 2 &&
-                (config.relayProviderId?.trim() ?? '').isNotEmpty)
-              'provider_id': config.relayProviderId!.trim(),
-            'audio_type': audioType,
-            'slice_num': sliceCount,
-          }),
-        )
-        .timeout(_timeout);
+    final create = await _sendBuffered(config, () {
+      final request = http.Request(
+        'POST',
+        Uri.parse('$endpoint${_managedRelayPath(config, '/speech/create')}'),
+      );
+      request.headers['Content-Type'] = 'application/json';
+      request.body = jsonEncode({
+        'model': config.modelName,
+        'api_type': config.apiType,
+        if (config.relayProtocolVersion >= 2 &&
+            (config.relayProviderId?.trim() ?? '').isNotEmpty)
+          'provider_id': config.relayProviderId!.trim(),
+        'audio_type': audioType,
+        'slice_num': sliceCount,
+      });
+      return request;
+    });
     if (create.statusCode < 200 || create.statusCode >= 300) {
       throw Exception('创建转写会话失败: ${create.statusCode} ${create.body}');
     }
@@ -863,7 +890,6 @@ class ApiService {
           '$endpoint${_managedRelayPath(config, '/speech/$audioId/upload')}',
         ).replace(queryParameters: {'slice_index': '$i'}),
       );
-      request.headers['Authorization'] = 'Bearer $token';
       request.files.add(
         http.MultipartFile.fromBytes(
           'file',
@@ -871,35 +897,45 @@ class ApiService {
           filename: 'audio.part',
         ),
       );
-      final streamed = await request.send().timeout(_timeout);
+      final uploadUri = request.url;
+      final part = audioBytes.sublist(start, end);
+      final streamed = await _sendStreamed(config, () {
+        final replay = http.MultipartRequest('POST', uploadUri);
+        replay.files.add(
+          http.MultipartFile.fromBytes('file', part, filename: 'audio.part'),
+        );
+        return replay;
+      });
       final body = await streamed.stream.transform(utf8.decoder).join();
       if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
         throw Exception('上传音频分片失败: ${streamed.statusCode} $body');
       }
     }
 
-    final run = await http
-        .post(
-          Uri.parse(
-            '$endpoint${_managedRelayPath(config, '/speech/$audioId/run')}',
-          ),
-          headers: {'Authorization': 'Bearer $token'},
-        )
-        .timeout(_timeout);
+    final run = await _sendBuffered(
+      config,
+      () => http.Request(
+        'POST',
+        Uri.parse(
+          '$endpoint${_managedRelayPath(config, '/speech/$audioId/run')}',
+        ),
+      ),
+    );
     if (run.statusCode < 200 || run.statusCode >= 300) {
       throw Exception('创建转写任务失败: ${run.statusCode} ${run.body}');
     }
 
     for (var i = 0; i < 120; i++) {
       await Future<void>.delayed(const Duration(seconds: 2));
-      final progress = await http
-          .get(
-            Uri.parse(
-              '$endpoint${_managedRelayPath(config, '/speech/$audioId/progress')}',
-            ),
-            headers: {'Authorization': 'Bearer $token'},
-          )
-          .timeout(_timeout);
+      final progress = await _sendBuffered(
+        config,
+        () => http.Request(
+          'GET',
+          Uri.parse(
+            '$endpoint${_managedRelayPath(config, '/speech/$audioId/progress')}',
+          ),
+        ),
+      );
       if (progress.statusCode < 200 || progress.statusCode >= 300) {
         throw Exception('查询转写进度失败: ${progress.statusCode} ${progress.body}');
       }
@@ -908,14 +944,15 @@ class ApiService {
       if (i == 119) throw Exception('语音转写超时');
     }
 
-    final result = await http
-        .get(
-          Uri.parse(
-            '$endpoint${_managedRelayPath(config, '/speech/$audioId/result')}',
-          ),
-          headers: {'Authorization': 'Bearer $token'},
-        )
-        .timeout(_timeout);
+    final result = await _sendBuffered(
+      config,
+      () => http.Request(
+        'GET',
+        Uri.parse(
+          '$endpoint${_managedRelayPath(config, '/speech/$audioId/result')}',
+        ),
+      ),
+    );
     if (result.statusCode < 200 || result.statusCode >= 300) {
       throw Exception('获取转写结果失败: ${result.statusCode} ${result.body}');
     }
@@ -960,9 +997,12 @@ class ApiService {
     if (parameters != null && parameters.isNotEmpty) {
       body.addAll(parameters);
     }
-    final response = await http
-        .post(uri, headers: headers, body: jsonEncode(body))
-        .timeout(_timeout);
+    final response = await _sendBuffered(config, () {
+      final request = http.Request('POST', uri);
+      request.headers.addAll(headers);
+      request.body = jsonEncode(body);
+      return request;
+    });
     final responseBody = utf8.decode(response.bodyBytes);
     if (response.statusCode != 200) {
       throw Exception(
@@ -1191,23 +1231,12 @@ class ApiService {
     final headers = <String, String>{'Content-Type': 'application/json'};
     _applyOpenAIAuthAndRelayParams(config, body, headers);
 
-    Future<http.Response> send() => http
-        .post(uri, headers: headers, body: jsonEncode(body))
-        .timeout(
-          _timeout,
-          onTimeout: () {
-            throw TimeoutException('连接超时，请检查 API 地址是否正确');
-          },
-        );
-
-    var response = await send();
-    if (config.managed && response.statusCode == 401) {
-      final refreshed = await _backend?.refreshAccessToken() ?? false;
-      if (refreshed) {
-        _applyOpenAIAuthAndRelayParams(config, body, headers);
-        response = await send();
-      }
-    }
+    final response = await _sendBuffered(config, () {
+      final request = http.Request('POST', uri);
+      request.headers.addAll(headers);
+      request.body = jsonEncode(body);
+      return request;
+    });
 
     if (response.statusCode == 200) {
       final data = jsonDecode(utf8.decode(response.bodyBytes));
@@ -1289,15 +1318,7 @@ class ApiService {
       );
     }
 
-    var streamedResponse = await client.send(buildRequest()).timeout(_timeout);
-    if (config.managed && streamedResponse.statusCode == 401) {
-      await streamedResponse.stream.bytesToString();
-      final refreshed = await _backend?.refreshAccessToken() ?? false;
-      if (refreshed) {
-        _applyOpenAIAuthAndRelayParams(config, body, headers);
-        streamedResponse = await client.send(buildRequest()).timeout(_timeout);
-      }
-    }
+    final streamedResponse = await _sendStreamed(config, buildRequest);
 
     if (logSse) {
       _logSseDiagnostic(
@@ -1540,14 +1561,12 @@ class ApiService {
     if (config.managed) {
       _applyManagedRelayAuth(headers);
     }
-    final response = await http
-        .post(uri, headers: headers, body: jsonEncode(body))
-        .timeout(
-          _timeout,
-          onTimeout: () {
-            throw TimeoutException('连接超时，请检查 Ollama 服务是否运行');
-          },
-        );
+    final response = await _sendBuffered(config, () {
+      final request = http.Request('POST', uri);
+      request.headers.addAll(headers);
+      request.body = jsonEncode(body);
+      return request;
+    });
 
     if (response.statusCode == 200) {
       final data = jsonDecode(utf8.decode(response.bodyBytes));
@@ -1604,15 +1623,18 @@ class ApiService {
       }
     }
 
-    final request = http.Request('POST', uri);
     final headers = <String, String>{'Content-Type': 'application/json'};
     if (config.managed) {
       _applyManagedRelayAuth(headers);
     }
-    request.headers.addAll(headers);
-    request.body = jsonEncode(body);
+    http.Request buildRequest() {
+      final request = http.Request('POST', uri);
+      request.headers.addAll(headers);
+      request.body = jsonEncode(body);
+      return request;
+    }
 
-    final streamedResponse = await client.send(request).timeout(_timeout);
+    final streamedResponse = await _sendStreamed(config, buildRequest);
 
     if (streamedResponse.statusCode != 200) {
       final errorBody = await streamedResponse.stream.bytesToString();
@@ -1748,7 +1770,6 @@ class ApiService {
     );
     _applyManagedRelayParams(config, body);
 
-    final request = http.Request('POST', uri);
     final headers = <String, String>{'Content-Type': 'application/json'};
     if (config.managed) {
       _applyManagedRelayAuth(headers);
@@ -1756,10 +1777,14 @@ class ApiService {
       headers['x-api-key'] = config.apiKey;
       headers['anthropic-version'] = '2023-06-01';
     }
-    request.headers.addAll(headers);
-    request.body = jsonEncode(body);
+    http.Request buildRequest() {
+      final request = http.Request('POST', uri);
+      request.headers.addAll(headers);
+      request.body = jsonEncode(body);
+      return request;
+    }
 
-    final streamedResponse = await client.send(request).timeout(_timeout);
+    final streamedResponse = await _sendStreamed(config, buildRequest);
 
     if (streamedResponse.statusCode != 200) {
       final errorBody = await streamedResponse.stream.bytesToString();
@@ -1842,14 +1867,12 @@ class ApiService {
       headers['anthropic-version'] = '2023-06-01';
     }
 
-    final response = await http
-        .post(uri, headers: headers, body: jsonEncode(body))
-        .timeout(
-          _timeout,
-          onTimeout: () {
-            throw TimeoutException('连接超时，请检查 Anthropic API 配置');
-          },
-        );
+    final response = await _sendBuffered(config, () {
+      final request = http.Request('POST', uri);
+      request.headers.addAll(headers);
+      request.body = jsonEncode(body);
+      return request;
+    });
 
     if (response.statusCode == 200) {
       final data = jsonDecode(utf8.decode(response.bodyBytes));

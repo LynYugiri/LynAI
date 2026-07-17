@@ -16,6 +16,9 @@ class FeatureLoadResult {
     required this.todoLists,
     required this.pagesByNoteId,
     required this.activePageIds,
+    required this.revisionContents,
+    required this.pageHeads,
+    required this.pageConflicts,
     required this.usingStorageV2,
   });
 
@@ -27,6 +30,9 @@ class FeatureLoadResult {
   final List<TodoList> todoLists;
   final Map<String, List<StorageV2NotePage>> pagesByNoteId;
   final Map<String, String> activePageIds;
+  final Map<String, NoteRevisionContent> revisionContents;
+  final Map<String, NotePageHeads> pageHeads;
+  final Map<String, NotePageConflict> pageConflicts;
   final bool usingStorageV2;
 }
 
@@ -56,6 +62,17 @@ class FeatureRepository {
   Future<void> deleteFile(String relativePath) =>
       _storageV2.deleteFile(relativePath);
 
+  Future<String> storeNoteBlob(String content) =>
+      _storageV2.storeNoteBlob(content);
+
+  Future<String> readNoteBlob(String hash) => _storageV2.readNoteBlobText(hash);
+
+  Future<List<int>> readNoteBlobBytes(String hash) =>
+      _storageV2.readNoteBlob(hash);
+
+  Future<void> installNoteBlob(String hash, List<int> bytes) =>
+      _storageV2.installNoteBlob(hash, bytes);
+
   /// 加载所有功能模块数据，优先使用新版 V2 存储。
   Future<FeatureLoadResult> load() async {
     try {
@@ -72,6 +89,9 @@ class FeatureRepository {
         todoLists: [],
         pagesByNoteId: {},
         activePageIds: {},
+        revisionContents: {},
+        pageHeads: {},
+        pageConflicts: {},
         usingStorageV2: true,
       );
     }
@@ -158,6 +178,9 @@ class FeatureRepository {
       todoLists: todoLists,
       pagesByNoteId: notes.pagesByNoteId,
       activePageIds: notes.activePageIds,
+      revisionContents: notes.revisionContents,
+      pageHeads: notes.pageHeads,
+      pageConflicts: notes.pageConflicts,
       usingStorageV2: true,
     );
   }
@@ -198,6 +221,7 @@ class FeatureRepository {
               id: json['id'] as String,
               text: json['text'] as String? ?? '',
               done: json['done'] as bool? ?? false,
+              updatedAt: DateTime.tryParse(json['updatedAt']?.toString() ?? ''),
             ),
           );
         } catch (e) {
@@ -231,6 +255,7 @@ class FeatureRepository {
   }
 
   Future<_StorageV2NotesLoadResult> _loadStorageV2Notes() async {
+    await _storageV2.recoverNoteMaterialization();
     final data = await _storageV2.loadNotesData();
     final folders = <NoteFolder>[];
     for (final item in data['folders'] as List<dynamic>? ?? const []) {
@@ -300,27 +325,60 @@ class FeatureRepository {
     }
 
     final revisions = <NoteRevision>[];
+    final revisionContents = <String, NoteRevisionContent>{};
     for (final item in data['revisions'] as List<dynamic>? ?? const []) {
       try {
         if (item is! Map) continue;
         final json = Map<String, dynamic>.from(item);
-        revisions.add(
-          NoteRevision(
-            id: json['id'] as String,
-            noteId: json['noteId'] as String,
-            pageId: json['pageId'] as String?,
-            parentRevisionId: json['parentRevisionId'] as String?,
-            savedAt: DateTime.parse(json['savedAt'] as String),
-            delta: NoteTextDelta(
-              start: json['deltaStart'] as int? ?? 0,
-              deletedText: json['deletedText'] as String? ?? '',
-              insertedText: json['insertedText'] as String? ?? '',
-            ),
-          ),
-        );
+        final revision = NoteRevision.fromJson(json);
+        revisions.add(revision);
+        if (revision.contentHash.isNotEmpty) {
+          try {
+            revisionContents[revision.id] = NoteRevisionContent.loaded(
+              await _storageV2.readNoteBlobText(revision.contentHash),
+            );
+          } catch (e) {
+            revisionContents[revision.id] = const NoteRevisionContent.missing();
+            debugPrint('笔记时间线正文 blob 缺失 ${revision.contentHash}: $e');
+          }
+        }
       } catch (e) {
         debugPrint('跳过损坏的新版笔记时间线记录: $e');
       }
+    }
+
+    final pageHeads = <String, NotePageHeads>{};
+    for (final item in data['pageHeads'] as List<dynamic>? ?? const []) {
+      if (item is! Map) continue;
+      final json = Map<String, dynamic>.from(item);
+      final pageId = json['pageId'] as String?;
+      if (pageId == null) continue;
+      pageHeads[pageId] = NotePageHeads(
+        pageId: pageId,
+        headIds: (json['headIds'] as List<dynamic>? ?? const [])
+            .whereType<String>()
+            .toSet(),
+        selectedHeadId: json['selectedHeadId'] as String?,
+      );
+    }
+    final pageConflicts = <String, NotePageConflict>{};
+    for (final item in data['pageConflicts'] as List<dynamic>? ?? const []) {
+      if (item is! Map) continue;
+      final json = Map<String, dynamic>.from(item);
+      final pageId = json['pageId'] as String?;
+      if (pageId == null) continue;
+      final headIds = (json['headIds'] as List<dynamic>? ?? const [])
+          .whereType<String>()
+          .toList();
+      if (headIds.length < 2) continue;
+      pageConflicts[pageId] = NotePageConflict(
+        pageId: pageId,
+        headIds: headIds,
+        localHeadId: json['localHeadId'] as String? ?? headIds.first,
+        incomingHeadId: json['incomingHeadId'] as String? ?? headIds[1],
+        commonAncestorId: json['commonAncestorId'] as String?,
+        createdAt: DateTime.parse(json['createdAt'] as String),
+      );
     }
 
     final blocksByProposal = <String, List<NoteEditBlock>>{};
@@ -374,6 +432,9 @@ class FeatureRepository {
       proposals: proposals,
       pagesByNoteId: pagesByNoteId,
       activePageIds: activePageIds,
+      revisionContents: revisionContents,
+      pageHeads: pageHeads,
+      pageConflicts: pageConflicts,
     );
   }
 }
@@ -386,6 +447,9 @@ class _StorageV2NotesLoadResult {
     required this.proposals,
     required this.pagesByNoteId,
     required this.activePageIds,
+    required this.revisionContents,
+    required this.pageHeads,
+    required this.pageConflicts,
   });
 
   final List<NoteFolder> folders;
@@ -394,4 +458,7 @@ class _StorageV2NotesLoadResult {
   final List<NoteEditProposal> proposals;
   final Map<String, List<StorageV2NotePage>> pagesByNoteId;
   final Map<String, String> activePageIds;
+  final Map<String, NoteRevisionContent> revisionContents;
+  final Map<String, NotePageHeads> pageHeads;
+  final Map<String, NotePageConflict> pageConflicts;
 }

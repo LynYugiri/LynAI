@@ -26,6 +26,8 @@ class SettingsProvider extends ChangeNotifier {
   AppSettings get settings => _settings;
   bool get usingStorageV2 => _usingStorageV2;
 
+  Future<void> flushPendingSaves() => _saveQueue;
+
   Future<void> replaceSettings(AppSettings settings) async {
     _settings = settings;
     _queueSaveSettings();

@@ -9,15 +9,20 @@ import 'package:lynai/providers/account_provider.dart';
 import 'package:lynai/providers/plugin_provider.dart';
 import 'package:lynai/providers/sync_provider.dart';
 import 'package:lynai/services/backend_client.dart';
+import 'package:lynai/services/secret_store.dart';
 
 void main() {
   Widget buildPage() {
     return MultiProvider(
       providers: [
+        Provider<SecretStore>(create: (_) => InMemorySecretStore()),
         ChangeNotifierProvider(create: (_) => BackendClient()),
         ChangeNotifierProvider(create: (_) => PluginProvider()),
         ChangeNotifierProvider(
-          create: (ctx) => AccountProvider(backend: ctx.read<BackendClient>()),
+          create: (ctx) => AccountProvider(
+            backend: ctx.read<BackendClient>(),
+            secretStore: ctx.read<SecretStore>(),
+          ),
         ),
         ChangeNotifierProvider(
           create: (ctx) => SyncProvider(backend: ctx.read<BackendClient>()),
@@ -40,8 +45,9 @@ void main() {
     expect(find.text('已安装'), findsWidgets);
   });
 
-  testWidgets('market tab shows empty state when backend not connected',
-      (tester) async {
+  testWidgets('market tab shows empty state when backend not connected', (
+    tester,
+  ) async {
     await tester.pumpWidget(buildPage());
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
@@ -50,8 +56,9 @@ void main() {
     expect(find.text('从 ZIP 导入'), findsOneWidget);
   });
 
-  testWidgets('installed tab shows empty state when no plugins installed',
-      (tester) async {
+  testWidgets('installed tab shows empty state when no plugins installed', (
+    tester,
+  ) async {
     await tester.pumpWidget(buildPage());
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));

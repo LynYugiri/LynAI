@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/services/storage_v2_database.dart';
 import 'package:lynai/services/storage_v2_service.dart';
@@ -103,6 +104,31 @@ void main() {
       expect(
         () => storage.resourceFile(resource),
         throwsA(isA<ArgumentError>()),
+      );
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('StorageV2Service rejects mismatched downloaded resource blob', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_storage_resource_hash_test_',
+    );
+    try {
+      final storage = StorageV2Service(rootDirectory: root);
+      final expected = sha256.convert([1, 2, 3]).toString();
+
+      await expectLater(
+        storage.installResourceBlob(expected, [4, 5, 6]),
+        throwsA(isA<StateError>()),
+      );
+
+      expect(await storage.hasResourceBlob(expected), isFalse);
+      expect(
+        await File(
+          '${root.path}/storage_v2/assets/blobs/${expected.substring(0, 2)}/$expected',
+        ).exists(),
+        isFalse,
       );
     } finally {
       await root.delete(recursive: true);

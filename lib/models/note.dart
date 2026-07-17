@@ -1,7 +1,4 @@
 /// 当前笔记内容和展示状态。
-///
-/// [content] 是当前可编辑正文；历史版本由 [NoteRevision] 增量链维护。
-/// [currentRevisionId] 指向当前内容所在的修订节点，允许从历史版本创建分支。
 class Note {
   /// 笔记唯一标识符。
   final String id;
@@ -177,10 +174,7 @@ class NoteTextDelta {
   bool get isEmpty => deletedText.isEmpty && insertedText.isEmpty;
 }
 
-/// 笔记时间线中的一个修订节点。
-///
-/// 修订通过 [parentRevisionId] 组成树，而不是单链表，因此用户可以从历史版本
-/// 另开分支。Provider 负责缓存和校验可达时间线。
+/// 笔记时间线中的不可变修订节点。
 class NoteRevision {
   /// 修订节点唯一标识符。
   final String id;
@@ -191,35 +185,69 @@ class NoteRevision {
   /// 所属笔记页面 ID，为 null 表示主页面。
   final String? pageId;
 
-  /// 父修订节点 ID，为 null 表示根修订。
-  final String? parentRevisionId;
+  /// 父修订节点 ID。普通提交有零或一个父节点，合并提交有两个父节点。
+  final List<String> parentIds;
 
-  /// 修订保存时间。
-  final DateTime savedAt;
+  /// 创建该修订的设备 ID。
+  final String authorDeviceId;
 
-  /// 本次修订的文本增量。
-  final NoteTextDelta delta;
+  /// 完整 Markdown 正文 blob 的 SHA-256。
+  final String contentHash;
+
+  /// 修订创建时间。
+  final DateTime createdAt;
+
+  /// 仅用于导入旧版 delta 修订，迁移完成后不再写入。
+  final NoteTextDelta? legacyDelta;
 
   /// 创建一个笔记修订实例。
-  const NoteRevision({
+  NoteRevision({
     required this.id,
     required this.noteId,
     this.pageId,
-    required this.parentRevisionId,
-    required this.savedAt,
-    required this.delta,
-  });
+    List<String>? parentIds,
+    String? parentRevisionId,
+    this.authorDeviceId = 'legacy',
+    this.contentHash = '',
+    DateTime? createdAt,
+    DateTime? savedAt,
+    NoteTextDelta? delta,
+  }) : parentIds =
+           parentIds ??
+           (parentRevisionId == null ? const [] : <String>[parentRevisionId]),
+       createdAt =
+           createdAt ?? savedAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+       legacyDelta = delta;
+
+  /// 旧调用方使用的单父节点视图。
+  String? get parentRevisionId => parentIds.isEmpty ? null : parentIds.first;
+
+  /// 旧调用方使用的时间字段别名。
+  DateTime get savedAt => createdAt;
+
+  /// 旧备份兼容视图。新修订没有 delta。
+  NoteTextDelta get delta =>
+      legacyDelta ??
+      const NoteTextDelta(start: 0, deletedText: '', insertedText: '');
 
   /// 从 JSON 数据创建 [NoteRevision] 实例。
   factory NoteRevision.fromJson(Map<String, dynamic> json) {
     final delta = json['delta'];
     final hasFlatDelta = json['deltaStart'] != null;
+    final rawParents = json['parentIds'];
     return NoteRevision(
       id: json['id'] as String,
       noteId: json['noteId'] as String,
       pageId: json['pageId'] as String?,
+      parentIds: rawParents is List
+          ? rawParents.whereType<String>().toList(growable: false)
+          : null,
       parentRevisionId: json['parentRevisionId'] as String?,
-      savedAt: DateTime.parse(json['savedAt'] as String),
+      authorDeviceId: json['authorDeviceId'] as String? ?? 'legacy',
+      contentHash: json['contentHash'] as String? ?? '',
+      createdAt: DateTime.parse(
+        (json['createdAt'] ?? json['savedAt']) as String,
+      ),
       delta: delta is Map
           ? NoteTextDelta.fromJson(Map<String, dynamic>.from(delta))
           : hasFlatDelta
@@ -238,9 +266,11 @@ class NoteRevision {
       'id': id,
       'noteId': noteId,
       if (pageId != null) 'pageId': pageId,
-      if (parentRevisionId != null) 'parentRevisionId': parentRevisionId,
-      'savedAt': savedAt.toIso8601String(),
-      'delta': delta.toJson(),
+      'parentIds': parentIds,
+      'authorDeviceId': authorDeviceId,
+      'contentHash': contentHash,
+      'createdAt': createdAt.toIso8601String(),
+      if (legacyDelta != null) 'delta': legacyDelta!.toJson(),
     };
   }
 
@@ -249,7 +279,11 @@ class NoteRevision {
     String? id,
     String? noteId,
     Object? pageId = _sentinel,
+    List<String>? parentIds,
     Object? parentRevisionId = _sentinel,
+    String? authorDeviceId,
+    String? contentHash,
+    DateTime? createdAt,
     DateTime? savedAt,
     NoteTextDelta? delta,
   }) {
@@ -257,13 +291,64 @@ class NoteRevision {
       id: id ?? this.id,
       noteId: noteId ?? this.noteId,
       pageId: pageId == _sentinel ? this.pageId : pageId as String?,
-      parentRevisionId: parentRevisionId == _sentinel
-          ? this.parentRevisionId
-          : parentRevisionId as String?,
-      savedAt: savedAt ?? this.savedAt,
-      delta: delta ?? this.delta,
+      parentIds:
+          parentIds ??
+          (parentRevisionId == _sentinel
+              ? this.parentIds
+              : parentRevisionId == null
+              ? const []
+              : <String>[parentRevisionId as String]),
+      authorDeviceId: authorDeviceId ?? this.authorDeviceId,
+      contentHash: contentHash ?? this.contentHash,
+      createdAt: createdAt ?? savedAt ?? this.createdAt,
+      delta: delta ?? legacyDelta,
     );
   }
+}
+
+/// 一个分页当前可达的多个 DAG 头以及用户选中的物化头。
+class NotePageHeads {
+  final String pageId;
+  final Set<String> headIds;
+  final String? selectedHeadId;
+
+  const NotePageHeads({
+    required this.pageId,
+    required this.headIds,
+    required this.selectedHeadId,
+  });
+
+  bool get hasConflict => headIds.length > 1;
+}
+
+/// 需要用户处理的持久化分页合并冲突。
+class NotePageConflict {
+  final String pageId;
+  final List<String> headIds;
+  final String localHeadId;
+  final String incomingHeadId;
+  final String? commonAncestorId;
+  final DateTime createdAt;
+
+  const NotePageConflict({
+    required this.pageId,
+    required this.headIds,
+    required this.localHeadId,
+    required this.incomingHeadId,
+    required this.commonAncestorId,
+    required this.createdAt,
+  });
+}
+
+/// Resolved state of a revision's immutable content blob.
+class NoteRevisionContent {
+  final String? content;
+
+  const NoteRevisionContent.loaded(String value) : content = value;
+
+  const NoteRevisionContent.missing() : content = null;
+
+  bool get isMissing => content == null;
 }
 
 /// AI 生成的笔记编辑建议，包含一组编辑块。

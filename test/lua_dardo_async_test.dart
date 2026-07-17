@@ -10,6 +10,7 @@ import 'package:lynai/services/device_control_service.dart';
 import 'package:lynai/services/device_run_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/fake_path_provider.dart';
 import 'support/memory_repositories.dart';
 
 void main() {
@@ -265,6 +266,8 @@ return result
 
   test('Agent Lua preserves continuations on async LynAI commands', () async {
     SharedPreferences.setMockInitialValues({});
+    final root = await installFakePathProvider('lynai_lua_continuation_');
+    addTearDown(() => deleteFakePathProviderRoot(root));
     final features = FeatureProvider();
     final settings = memorySettingsProvider();
 

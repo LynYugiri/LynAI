@@ -3,11 +3,14 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:crypto/crypto.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../models/plugin.dart'
     show InstalledPlugin, PluginFileEntry, PluginManifest, fileTypeFromPath;
+import '../services/bounded_zip_decoder.dart';
 import '../utils/plugin_path_utils.dart';
+import '../services/plugin_sync_validation.dart';
 
 /// 插件文件系统仓储。
 ///
@@ -17,6 +20,10 @@ import '../utils/plugin_path_utils.dart';
 class PluginRepository {
   static const _stateFileName = 'installed_plugins.json';
   static const maxTextFileBytes = 512 * 1024;
+  static const maxPluginZipInputBytes = 32 * 1024 * 1024;
+  static const maxPluginZipEntries = 1024;
+  static const maxPluginZipEntryBytes = 16 * 1024 * 1024;
+  static const maxPluginZipExtractedBytes = 64 * 1024 * 1024;
   static final _windowsAbsolutePathPattern = RegExp(r'^[a-zA-Z]:/');
 
   static const builtInPluginIds = [
@@ -60,7 +67,22 @@ class PluginRepository {
 
   final Directory? _rootOverride;
 
+  bool _applyingRemote = false;
+
   PluginRepository({Directory? rootOverride}) : _rootOverride = rootOverride;
+
+  bool get applyingRemote => _applyingRemote;
+
+  /// Runs remote materialization without producing a local sync echo.
+  Future<T> withoutSyncEcho<T>(Future<T> Function() action) async {
+    final previous = _applyingRemote;
+    _applyingRemote = true;
+    try {
+      return await action();
+    } finally {
+      _applyingRemote = previous;
+    }
+  }
 
   /// 加载已安装插件列表，从 JSON 状态文件中读取。
   Future<List<InstalledPlugin>> loadInstalledPlugins() async {
@@ -103,7 +125,16 @@ class PluginRepository {
     if (!await source.exists()) throw Exception('插件目录不存在');
     final manifest = await readManifest(source.path);
     final target = await _pluginDirectory(manifest.id);
-    await _replaceDirectory(source, target);
+    await _replaceDirectory(
+      source,
+      target,
+      validate: (staged) async {
+        final stagedManifest = await readManifest(staged.path);
+        if (stagedManifest.id != manifest.id) {
+          throw Exception('复制后的插件 id 不一致');
+        }
+      },
+    );
     return _installedPlugin(manifest, target.path);
   }
 
@@ -201,12 +232,25 @@ class PluginRepository {
 
   /// 从 ZIP 字节内容导入并安装插件。
   Future<InstalledPlugin> importZipBytes(List<int> bytes) async {
-    final archive = ZipDecoder().decodeBytes(bytes);
+    if (bytes.length > maxPluginZipInputBytes) {
+      throw const FormatException('插件压缩包体积超过限制');
+    }
+    final archive = decodeBoundedZip(
+      bytes,
+      limits: const BoundedZipLimits(
+        maxEntries: maxPluginZipEntries,
+        maxEntryBytes: maxPluginZipEntryBytes,
+        maxTotalBytes: maxPluginZipExtractedBytes,
+      ),
+      archiveLabel: '插件压缩包',
+    );
     final root = await Directory.systemTemp.createTemp('lynai_plugin_import_');
     try {
       for (final item in archive) {
         final safeName = _safeArchivePath(item.name);
-        if (safeName == null || safeName.isEmpty) continue;
+        if (safeName == null || safeName.isEmpty) {
+          throw FormatException('插件压缩包包含不安全路径：${item.name}');
+        }
         final target = File('${root.path}/$safeName');
         if (item.isFile) {
           if (!await target.parent.exists()) {
@@ -258,25 +302,284 @@ class PluginRepository {
   /// 用备份文件完整恢复指定插件目录。
   Future<void> restorePluginDirectory(
     String pluginId,
-    Map<String, List<int>> files,
-  ) async {
-    final target = await _pluginDirectory(pluginId);
-    if (await target.exists()) await target.delete(recursive: true);
-    await target.create(recursive: true);
-    for (final entry in files.entries) {
-      final safePath = safePluginFilePath(target.path, entry.key);
-      if (safePath == null) throw Exception('插件文件路径不安全: ${entry.key}');
-      final file = File(safePath);
-      await _ensureInsideRoot(
-        target.path,
-        file.parent.path,
-        allowMissingLeaf: true,
-      );
-      if (!await file.parent.exists()) {
-        await file.parent.create(recursive: true);
-      }
-      await file.writeAsBytes(entry.value, flush: true);
+    Map<String, List<int>> files, {
+    Set<String>? allowedPaths,
+    String? pluginJsonSha256,
+  }) async {
+    final expectedPaths = allowedPaths ?? files.keys.toSet();
+    if (files.keys.toSet().length != expectedPaths.length ||
+        !files.keys.toSet().containsAll(expectedPaths)) {
+      throw StateError('远端插件文件集合与清单不一致');
     }
+    if (files.length > maxPluginSyncFiles) {
+      throw StateError('远端插件文件数量超过限制');
+    }
+    var totalBytes = 0;
+    for (final entry in files.entries) {
+      if (_normalizeRelativePath(entry.key) == null ||
+          entry.value.length > maxPluginSyncFileBytes) {
+        throw StateError('远端插件文件路径或大小不安全: ${entry.key}');
+      }
+      totalBytes += entry.value.length;
+      if (totalBytes > maxPluginSyncPackageBytes) {
+        throw StateError('远端插件包体积超过限制');
+      }
+    }
+    final pluginJson = files['plugin.json'];
+    if (pluginJson == null ||
+        (pluginJsonSha256 != null &&
+            sha256.convert(pluginJson).toString() != pluginJsonSha256)) {
+      throw StateError('远端 plugin.json SHA-256 不匹配');
+    }
+    final target = await _pluginDirectory(pluginId);
+    final source = await Directory.systemTemp.createTemp(
+      'lynai_plugin_restore_',
+    );
+    try {
+      for (final entry in files.entries) {
+        final safePath = safePluginFilePath(source.path, entry.key);
+        if (safePath == null) throw Exception('插件文件路径不安全: ${entry.key}');
+        final file = File(safePath);
+        if (!await file.parent.exists()) {
+          await file.parent.create(recursive: true);
+        }
+        await file.writeAsBytes(entry.value, flush: true);
+      }
+      await _replaceDirectory(
+        source,
+        target,
+        validate: (staged) async {
+          final manifest = await readManifest(staged.path);
+          if (manifest.id != pluginId) throw Exception('远端插件 id 不匹配');
+          for (final path in files.keys) {
+            if (_normalizeRelativePath(path) == null) {
+              throw Exception('插件文件路径不安全: $path');
+            }
+          }
+        },
+      );
+    } finally {
+      if (await source.exists()) await source.delete(recursive: true);
+    }
+  }
+
+  /// Stores bytes in the plugin content-addressed blob cache.
+  Future<String> storeSyncBlob(List<int> bytes) async {
+    final hash = sha256.convert(bytes).toString();
+    await installSyncBlob(hash, bytes);
+    return hash;
+  }
+
+  Future<bool> hasSyncBlob(String hash) async {
+    try {
+      await readSyncBlob(hash);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<List<int>> readSyncBlob(String hash) async {
+    final file = await _syncBlobFile(hash);
+    final bytes = await file.readAsBytes();
+    if (sha256.convert(bytes).toString() != hash) {
+      throw StateError('插件同步 blob SHA-256 不匹配: $hash');
+    }
+    return bytes;
+  }
+
+  Future<void> installSyncBlob(String hash, List<int> bytes) async {
+    if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(hash) ||
+        sha256.convert(bytes).toString() != hash) {
+      throw StateError('下载的插件同步 blob SHA-256 不匹配: $hash');
+    }
+    final target = await _syncBlobFile(hash);
+    if (await target.exists() && await hasSyncBlob(hash)) return;
+    await target.parent.create(recursive: true);
+    final temporary = File(
+      '${target.path}.tmp.${DateTime.now().microsecondsSinceEpoch}',
+    );
+    try {
+      await temporary.writeAsBytes(bytes, flush: true);
+      await temporary.rename(target.path);
+    } catch (_) {
+      if (await temporary.exists()) await temporary.delete();
+      rethrow;
+    }
+  }
+
+  /// Builds the cloud-safe metadata rows for one plugin.
+  Future<List<Map<String, dynamic>>> buildSyncRows(
+    InstalledPlugin plugin,
+  ) async {
+    final builtIn = builtInPluginIds.contains(plugin.id);
+    final rows = <Map<String, dynamic>>[];
+    final files = <Map<String, dynamic>>[];
+    final root = Directory(plugin.path);
+    if (await root.exists()) {
+      await for (final entity in root.list(
+        recursive: true,
+        followLinks: false,
+      )) {
+        if (entity is! File) continue;
+        final path = _relativePath(root.path, entity.path);
+        if (!_isSyncableFile(plugin, path, builtIn: builtIn)) continue;
+        final bytes = await entity.readAsBytes();
+        final hash = await storeSyncBlob(bytes);
+        files.add({'path': path, 'sha256': hash, 'size': bytes.length});
+      }
+    }
+    files.sort((a, b) => (a['path'] as String).compareTo(b['path'] as String));
+    final packageVersion = pluginSyncPackageVersion(files);
+    rows.add({
+      'id': plugin.id,
+      'pluginId': plugin.id,
+      'kind': builtIn ? 'builtInOverlay' : 'package',
+      'builtIn': builtIn,
+      'manifestVersion': pluginSyncManifestVersion,
+      'state': 'installed',
+      'packageVersion': packageVersion,
+      if (!builtIn)
+        'pluginJsonSha256': files.singleWhere(
+          (file) => file['path'] == 'plugin.json',
+        )['sha256'],
+      'files': files,
+    });
+    for (final file in files) {
+      final path = file['path'] as String;
+      rows.add({
+        'id': '${plugin.id}/$path',
+        'pluginId': plugin.id,
+        ...file,
+        'packageVersion': packageVersion,
+        'kind': builtIn ? 'overlay' : 'content',
+        'builtIn': builtIn,
+      });
+    }
+    await _addJsonSyncRow(
+      rows,
+      'plugin_settings',
+      plugin.id,
+      _withoutCloudSecrets(await loadPluginSettings(plugin.id)),
+    );
+    final configPath = plugin.manifest.config.path;
+    if (await pluginFileExists(plugin.path, configPath)) {
+      await _addJsonSyncRow(
+        rows,
+        'plugin_config',
+        plugin.id,
+        _withoutCloudSecrets(await readPluginJsonFile(plugin.path, configPath)),
+      );
+    }
+    return rows;
+  }
+
+  Map<String, dynamic> buildDeletedSyncMarker(String pluginId) => {
+    'id': pluginId,
+    'pluginId': pluginId,
+    'kind': 'package',
+    'builtIn': false,
+    'manifestVersion': pluginSyncManifestVersion,
+    'state': 'deleted',
+    'files': const <Map<String, dynamic>>[],
+  };
+
+  Future<void> _addJsonSyncRow(
+    List<Map<String, dynamic>> rows,
+    String domain,
+    String pluginId,
+    Map<String, dynamic> value,
+  ) async {
+    final bytes = utf8.encode(jsonEncode(value));
+    final hash = await storeSyncBlob(bytes);
+    rows.add({
+      'id': pluginId,
+      'pluginId': pluginId,
+      'sha256': hash,
+      'size': bytes.length,
+      'kind': domain,
+      'domain': domain,
+    });
+  }
+
+  bool _isSyncableFile(
+    InstalledPlugin plugin,
+    String path, {
+    required bool builtIn,
+  }) {
+    final normalized = _normalizeRelativePath(path);
+    if (normalized == null || _isUnsafeSyncPath(normalized)) return false;
+    if (normalized == _normalizeRelativePath(plugin.manifest.config.path)) {
+      return false;
+    }
+    if (builtIn &&
+        normalized == _normalizeRelativePath(plugin.manifest.config.schema)) {
+      return false;
+    }
+    if (!builtIn) return true;
+    return plugin.manifest.editableFiles.any(
+          (file) => _normalizeRelativePath(file.path) == normalized,
+        ) ||
+        _isEditableSkillPath(plugin, normalized);
+  }
+
+  bool _isUnsafeSyncPath(String path) {
+    final parts = path.toLowerCase().split('/');
+    if (parts.any(
+      const {'cache', 'caches', 'tmp', 'temp', '.cache'}.contains,
+    )) {
+      return true;
+    }
+    final name = parts.last;
+    if (name == '.env' ||
+        name.startsWith('.env.') ||
+        name == 'credentials' ||
+        name.startsWith('credentials.') ||
+        name == 'secrets.json' ||
+        name == 'tokens.json' ||
+        name == 'authorization.json' ||
+        name.endsWith('.pem') ||
+        name.endsWith('.key') ||
+        name.endsWith('.p12') ||
+        name.endsWith('.pfx') ||
+        name.endsWith('.jks') ||
+        name.endsWith('.keystore') ||
+        name.endsWith('.db') ||
+        name.endsWith('.sqlite') ||
+        name.endsWith('.sqlite3')) {
+      return true;
+    }
+    return name.endsWith('.tmp') ||
+        name.endsWith('.log') ||
+        name == '.ds_store';
+  }
+
+  Map<String, dynamic> _withoutCloudSecrets(Map<String, dynamic> value) {
+    Map<String, dynamic> clean(Map value) {
+      final result = <String, dynamic>{};
+      for (final entry in value.entries) {
+        final key = entry.key.toString();
+        if (RegExp(
+          r'(authorization|token|key|password|secret)',
+          caseSensitive: false,
+        ).hasMatch(key)) {
+          continue;
+        }
+        final child = entry.value;
+        result[key] = child is Map ? clean(child) : child;
+      }
+      return result;
+    }
+
+    return clean(value);
+  }
+
+  Future<File> _syncBlobFile(String hash) async {
+    if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(hash)) {
+      throw ArgumentError('Invalid plugin SHA-256: $hash');
+    }
+    final root = await _pluginsRoot();
+    return File('${root.path}/sync_blobs/${hash.substring(0, 2)}/$hash');
   }
 
   /// 加载插件的用户设置 JSON 数据。
@@ -661,11 +964,65 @@ class PluginRepository {
     return null;
   }
 
-  /// 删除目标目录后用源目录替换，确保干净的安装状态。
-  Future<void> _replaceDirectory(Directory source, Directory target) async {
-    if (await target.exists()) await target.delete(recursive: true);
-    await target.create(recursive: true);
-    await _copyDirectoryFiles(source, target);
+  /// 在目标同级完成复制和校验，再通过重命名提交目录替换。
+  Future<void> _replaceDirectory(
+    Directory source,
+    Directory target, {
+    Future<void> Function(Directory staged)? validate,
+  }) async {
+    await _ensureManagedPluginDirectory(target);
+    if (!await target.parent.exists()) {
+      await target.parent.create(recursive: true);
+    }
+    final suffix = '${pid}_${DateTime.now().microsecondsSinceEpoch}';
+    final staged = Directory('${target.path}.staging_$suffix');
+    final backup = Directory('${target.path}.backup_$suffix');
+    var oldMoved = false;
+    var committed = false;
+    try {
+      await staged.create();
+      await _copyDirectoryFiles(source, staged);
+      if (validate != null) await validate(staged);
+      if (await target.exists()) {
+        await target.rename(backup.path);
+        oldMoved = true;
+      }
+      try {
+        await staged.rename(target.path);
+        committed = true;
+      } catch (_) {
+        if (oldMoved && await backup.exists() && !await target.exists()) {
+          await backup.rename(target.path);
+          oldMoved = false;
+        }
+        rethrow;
+      }
+      if (oldMoved && await backup.exists()) {
+        try {
+          await backup.delete(recursive: true);
+          oldMoved = false;
+        } catch (_) {
+          // The new installation is already committed; stale backup cleanup
+          // must not turn a successful install into a reported failure.
+        }
+      }
+    } finally {
+      if (!committed &&
+          oldMoved &&
+          await backup.exists() &&
+          !await target.exists()) {
+        try {
+          await backup.rename(target.path);
+          oldMoved = false;
+        } catch (_) {}
+      }
+      if (await staged.exists()) await staged.delete(recursive: true);
+      if (committed && oldMoved && await backup.exists()) {
+        try {
+          await backup.delete(recursive: true);
+        } catch (_) {}
+      }
+    }
   }
 
   /// 将 PluginManifest 序列化写入 plugin.json 文件。
@@ -768,19 +1125,99 @@ class PluginRepository {
   /// 插件设置 JSON 文件路径。
   Future<File> _pluginSettingsFile(String pluginId) async {
     final root = await _pluginsRoot();
-    return File('${root.path}/settings/$pluginId.json');
+    return _managedPluginDataFile(root, 'settings', pluginId);
   }
 
   /// 插件私有存储 JSON 文件路径。
   Future<File> _pluginStorageFile(String pluginId) async {
     final root = await _pluginsRoot();
-    return File('${root.path}/storage/$pluginId.json');
+    return _managedPluginDataFile(root, 'storage', pluginId);
   }
 
   /// 插件安装目录路径。
   Future<Directory> _pluginDirectory(String pluginId) async {
+    _requireValidPluginId(pluginId);
     final root = await _pluginsRoot();
     return Directory('${root.path}/installed/$pluginId');
+  }
+
+  void _requireValidPluginId(String pluginId) {
+    if (!isValidPluginId(pluginId)) {
+      throw ArgumentError.value(pluginId, 'pluginId', 'Invalid plugin ID');
+    }
+  }
+
+  Future<File> _managedPluginDataFile(
+    Directory root,
+    String directoryName,
+    String pluginId,
+  ) async {
+    _requireValidPluginId(pluginId);
+    final directory = Directory('${root.path}/$directoryName').absolute;
+    final file = File('${directory.path}/$pluginId.json');
+    final resolvedRoot = await _resolvedDirectory(root.absolute);
+    if (await directory.exists()) {
+      final resolvedDirectory = await directory.resolveSymbolicLinks();
+      if (resolvedDirectory.replaceAll('\\', '/') !=
+          '$resolvedRoot/$directoryName') {
+        throw StateError(
+          'Plugin $directoryName root escaped through a symlink',
+        );
+      }
+      if (await file.exists()) {
+        final resolvedFile = (await file.resolveSymbolicLinks()).replaceAll(
+          '\\',
+          '/',
+        );
+        if (resolvedFile != '$resolvedDirectory/$pluginId.json') {
+          throw StateError('Plugin data file escaped through a symlink');
+        }
+      }
+    }
+    return file;
+  }
+
+  Future<String> _resolvedDirectory(Directory directory) async {
+    if (await directory.exists()) {
+      return (await directory.resolveSymbolicLinks()).replaceAll('\\', '/');
+    }
+    return directory.path.replaceAll('\\', '/').replaceAll(RegExp(r'/+$'), '');
+  }
+
+  Future<void> _ensureManagedPluginDirectory(Directory target) async {
+    final root = await _pluginsRoot();
+    final installed = Directory('${root.path}/installed').absolute;
+    final normalizedInstalled = installed.path.replaceAll('\\', '/');
+    final normalizedTarget = target.absolute.path.replaceAll('\\', '/');
+    final prefix = '$normalizedInstalled/';
+    if (!normalizedTarget.startsWith(prefix)) {
+      throw ArgumentError('Plugin directory is outside the installed root');
+    }
+    final pluginId = normalizedTarget.substring(prefix.length);
+    _requireValidPluginId(pluginId);
+    if (pluginId.contains('/')) {
+      throw ArgumentError('Plugin directory must be a direct installed child');
+    }
+    if (await installed.exists()) {
+      final resolvedInstalled = (await installed.resolveSymbolicLinks())
+          .replaceAll('\\', '/');
+      final resolvedParent = (await target.parent.resolveSymbolicLinks())
+          .replaceAll('\\', '/');
+      if (resolvedParent != resolvedInstalled) {
+        throw StateError('Plugin installed root escaped through a symlink');
+      }
+    }
+    if (await target.exists()) {
+      final resolvedInstalled = (await installed.resolveSymbolicLinks())
+          .replaceAll('\\', '/');
+      final resolvedTarget = (await target.resolveSymbolicLinks()).replaceAll(
+        '\\',
+        '/',
+      );
+      if (!resolvedTarget.startsWith('$resolvedInstalled/')) {
+        throw StateError('Plugin directory escaped through a symlink');
+      }
+    }
   }
 
   /// 获取插件根目录（应用私有目录下的 plugins/）。

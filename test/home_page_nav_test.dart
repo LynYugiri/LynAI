@@ -14,18 +14,23 @@ import 'package:lynai/providers/roleplay_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/providers/sync_provider.dart';
 import 'package:lynai/services/backend_client.dart';
+import 'package:lynai/services/secret_store.dart';
 
 void main() {
   Widget buildHome({AppTab initialTab = AppTab.chat}) {
     return MultiProvider(
       providers: [
+        Provider<SecretStore>(create: (_) => InMemorySecretStore()),
         ChangeNotifierProvider(create: (_) => BackendClient()),
         ChangeNotifierProvider(create: (_) => ConversationProvider()),
         ChangeNotifierProvider(create: (_) => FeatureProvider()),
         ChangeNotifierProvider(create: (_) => ModelConfigProvider()),
         ChangeNotifierProvider(create: (_) => PluginProvider()),
         ChangeNotifierProvider(
-          create: (ctx) => AccountProvider(backend: ctx.read<BackendClient>()),
+          create: (ctx) => AccountProvider(
+            backend: ctx.read<BackendClient>(),
+            secretStore: ctx.read<SecretStore>(),
+          ),
         ),
         ChangeNotifierProvider(
           create: (ctx) => SyncProvider(backend: ctx.read<BackendClient>()),
@@ -93,8 +98,7 @@ void main() {
     expect(bar.selectedIndex, AppTab.settings.index);
   });
 
-  testWidgets('new placeholder pages are mounted in the stack',
-      (tester) async {
+  testWidgets('new placeholder pages are mounted in the stack', (tester) async {
     await tester.pumpWidget(buildHome());
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));

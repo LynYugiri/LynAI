@@ -30,6 +30,8 @@ import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
 import '../repositories/plugin_repository.dart';
 import 'storage_v2_service.dart';
+import 'backup_encryption.dart';
+import 'bounded_zip_decoder.dart';
 import '../utils/file_name_utils.dart';
 
 /// 负责 LynAI ZIP 备份的导出、读取、预览和导入。
@@ -47,8 +49,10 @@ class BackupService {
     this.pluginProvider,
     PluginRepository? pluginRepository,
     this.storageV2,
+    BackupEncryption? backupEncryption,
     Future<String> Function()? appVersionLoader,
   }) : _pluginRepository = pluginRepository ?? PluginRepository(),
+       _backupEncryption = backupEncryption ?? const BackupEncryption(),
        _appVersionLoader = appVersionLoader;
 
   final SettingsProvider settingsProvider;
@@ -59,10 +63,16 @@ class BackupService {
   final PluginProvider? pluginProvider;
   final StorageV2Service? storageV2;
   final PluginRepository _pluginRepository;
+  final BackupEncryption _backupEncryption;
   final Future<String> Function()? _appVersionLoader;
   final _uuid = const Uuid();
 
-  static const currentSchemaVersion = 5;
+  static const currentSchemaVersion = 8;
+  static const oldestCompatibleSchemaVersion = 5;
+  static const maxBackupZipInputBytes = 512 * 1024 * 1024;
+  static const maxBackupZipEntries = 10000;
+  static const maxBackupZipEntryBytes = 256 * 1024 * 1024;
+  static const maxBackupZipExtractedBytes = 1024 * 1024 * 1024;
   static const _backupType = 'lynai.backup';
 
   static Set<BackupSettingsPart> settingsPartsFromManifest(
@@ -98,6 +108,31 @@ class BackupService {
   }
 
   Future<Uint8List> exportZipBytes(BackupSelection selection) async {
+    return _exportZipBytes(selection);
+  }
+
+  Future<Uint8List> exportEncryptedBytes(
+    BackupSelection selection, {
+    required String password,
+    bool includeApiKeys = false,
+  }) async {
+    final secrets =
+        includeApiKeys &&
+            selection.contains(BackupSection.settings) &&
+            selection.settingsParts.contains(BackupSettingsPart.apiConfigs)
+        ? {
+            for (final model in modelConfigProvider.models)
+              if (model.apiKey.isNotEmpty) model.id: model.apiKey,
+          }
+        : null;
+    final zipBytes = await _exportZipBytes(selection, modelApiKeys: secrets);
+    return _backupEncryption.encrypt(zipBytes, password);
+  }
+
+  Future<Uint8List> _exportZipBytes(
+    BackupSelection selection, {
+    Map<String, String>? modelApiKeys,
+  }) async {
     final appVersion = _appVersionLoader == null
         ? (await PackageInfo.fromPlatform()).version
         : await _appVersionLoader();
@@ -194,6 +229,14 @@ class BackupService {
         'modelCount': models.length,
       };
     }
+
+    if (modelApiKeys != null) {
+      addJson('secrets/model_api_keys.json', {
+        'type': 'lynai.model-api-keys',
+        'version': 1,
+        'keys': modelApiKeys,
+      });
+    }
     if (selection.contains(BackupSection.conversations)) {
       final conversations = conversationProvider.conversations
           .where((item) => selection.conversationIds.contains(item.id))
@@ -244,6 +287,8 @@ class BackupService {
                   message.agentTrace!.events.isNotEmpty)
                 'agentTrace': message.agentTrace!.toJson(),
               'timestamp': message.timestamp.toIso8601String(),
+              'revision': message.revision,
+              'updatedAt': message.updatedAt.toIso8601String(),
               'sortOrder': i,
             });
             for (var j = 0; j < message.images.length; j++) {
@@ -364,15 +409,24 @@ class BackupService {
             'id': revision.id,
             'noteId': revision.noteId,
             if (revision.pageId != null) 'pageId': revision.pageId,
-            if (revision.parentRevisionId != null)
-              'parentRevisionId': revision.parentRevisionId,
-            'savedAt': revision.savedAt.toIso8601String(),
-            'deltaStart': revision.delta.start,
-            'deletedText': revision.delta.deletedText,
-            'insertedText': revision.delta.insertedText,
+            'parentIds': revision.parentIds,
+            'authorDeviceId': revision.authorDeviceId,
+            'contentHash': revision.contentHash,
+            'createdAt': revision.createdAt.toIso8601String(),
           };
         }).toList();
         addJson('notes/revisions.json', {'revisions': flatRevisions});
+        final exportedHashes = <String>{};
+        for (final revision in revisions) {
+          final hash = revision.contentHash;
+          if (hash.isEmpty || !exportedHashes.add(hash)) continue;
+          final bytes = storageV2 == null
+              ? await featureProvider.readNoteRevisionBlob(hash)
+              : await storageV2!.readNoteBlob(hash);
+          final path = 'notes/blobs/${hash.substring(0, 2)}/$hash';
+          archive.addFile(ArchiveFile(path, bytes.length, bytes));
+          noteFiles.add(path);
+        }
       } else {
         addJson('notes/revisions.json', {
           'revisions': revisions.map((item) => item.toJson()).toList(),
@@ -424,6 +478,8 @@ class BackupService {
               'text': item.text,
               'done': item.done,
               'sortOrder': i,
+              if (item.updatedAt != null)
+                'updatedAt': item.updatedAt!.toIso8601String(),
             });
           }
         }
@@ -486,9 +542,15 @@ class BackupService {
             final archivePath =
                 'plugins/installed/$pluginSegment/$relativePath';
             final bytes = await entity.readAsBytes();
+            final hash = sha256.convert(bytes).toString();
             archive.addFile(ArchiveFile(archivePath, bytes.length, bytes));
             files.add(
-              BackupPluginFile(path: relativePath, archivePath: archivePath),
+              BackupPluginFile(
+                path: relativePath,
+                archivePath: archivePath,
+                size: bytes.length,
+                sha256: hash,
+              ),
             );
           }
         }
@@ -525,13 +587,50 @@ class BackupService {
       'sections': sections,
       if (assetRecords.isNotEmpty) 'assets': assetRecords,
       if (exportedResources.isNotEmpty) 'resourcesFile': 'resources.json',
+      if (modelApiKeys != null)
+        'secrets': {'modelApiKeys': 'secrets/model_api_keys.json'},
     });
 
     return Uint8List.fromList(ZipEncoder().encode(archive));
   }
 
   Future<BackupArchiveData> readZipBytes(List<int> bytes) async {
-    final decoded = ZipDecoder().decodeBytes(bytes);
+    return _readZipBytes(bytes, allowSecrets: false);
+  }
+
+  Future<BackupArchiveData> readEncryptedBytes(
+    List<int> bytes, {
+    required String password,
+  }) async {
+    final zipBytes = await _backupEncryption.decrypt(bytes, password);
+    return _readZipBytes(zipBytes, allowSecrets: true);
+  }
+
+  Future<BackupArchiveData> readBackupBytes(
+    List<int> bytes, {
+    String? password,
+  }) async {
+    if (!BackupEncryption.isEncrypted(bytes)) return readZipBytes(bytes);
+    if (password == null) throw const BackupDecryptionException();
+    return readEncryptedBytes(bytes, password: password);
+  }
+
+  Future<BackupArchiveData> _readZipBytes(
+    List<int> bytes, {
+    required bool allowSecrets,
+  }) async {
+    if (bytes.length > maxBackupZipInputBytes) {
+      throw const FormatException('备份压缩包体积超过限制');
+    }
+    final decoded = decodeBoundedZip(
+      bytes,
+      limits: const BoundedZipLimits(
+        maxEntries: maxBackupZipEntries,
+        maxEntryBytes: maxBackupZipEntryBytes,
+        maxTotalBytes: maxBackupZipExtractedBytes,
+      ),
+      archiveLabel: '备份压缩包',
+    );
     final files = <String, ArchiveFile>{};
     final assetFiles = <String, List<int>>{};
     final pluginFiles = <String, List<int>>{};
@@ -570,8 +669,27 @@ class BackupService {
       throw const FormatException('这不是 LynAI 备份文件');
     }
     final schemaVersion = (manifest['schemaVersion'] as num?)?.toInt() ?? -1;
-    if (schemaVersion != currentSchemaVersion) {
+    if (schemaVersion < oldestCompatibleSchemaVersion ||
+        schemaVersion > currentSchemaVersion) {
       throw const FormatException('备份版本不兼容，请使用新版备份文件');
+    }
+    _validateManifestFiles(manifest, files);
+    final secretsManifest = manifest['secrets'];
+    final hasSecretFiles = files.keys.any(
+      (path) => path.startsWith('secrets/'),
+    );
+    if (!allowSecrets && (secretsManifest != null || hasSecretFiles)) {
+      throw const FormatException('含密钥的备份必须使用密码加密信封');
+    }
+    if (allowSecrets && secretsManifest != null) {
+      if (secretsManifest is! Map ||
+          secretsManifest.length != 1 ||
+          secretsManifest['modelApiKeys'] != 'secrets/model_api_keys.json' ||
+          !files.containsKey('secrets/model_api_keys.json')) {
+        throw const FormatException('备份密钥分区清单无效');
+      }
+    } else if (allowSecrets && hasSecretFiles) {
+      throw const FormatException('备份密钥分区清单无效');
     }
 
     final settingsJson = readMap('settings.json');
@@ -589,6 +707,9 @@ class BackupService {
     final roleplayThreadsJson = readMap('roleplay_threads.json');
     final pluginsJson = readMap('plugins/installed_plugins.json');
     final resourcesJson = readMap('resources.json');
+    final modelApiKeys = allowSecrets && secretsManifest != null
+        ? _parseModelApiKeys(readMap('secrets/model_api_keys.json'))
+        : null;
 
     final conversations = _parseConversations(
       conversationsJson,
@@ -623,6 +744,69 @@ class BackupService {
         warnings.add('笔记分页正文解析失败：$path，$e');
       }
     }
+    final noteBlobs = <String, List<int>>{};
+    if (schemaVersion >= 7) {
+      final hashes = <String>{};
+      for (final item
+          in revisionsJson?['revisions'] as List<dynamic>? ?? const []) {
+        if (item is Map && item['contentHash'] is String) {
+          hashes.add(item['contentHash'] as String);
+        }
+      }
+      for (final hash in hashes) {
+        final path = 'notes/blobs/${hash.substring(0, 2)}/$hash';
+        final entry = files[path];
+        if (entry == null) {
+          warnings.add('笔记修订 blob 缺失：$hash');
+          continue;
+        }
+        final bytes = List<int>.from(entry.content as List);
+        if (sha256.convert(bytes).toString() != hash) {
+          warnings.add('笔记修订 blob 校验失败：$hash');
+          continue;
+        }
+        noteBlobs[hash] = bytes;
+      }
+    }
+
+    if (schemaVersion >= 8) {
+      for (final raw in manifest['assets'] as List<dynamic>? ?? const []) {
+        if (raw is! Map) throw const FormatException('资源文件清单无效');
+        final path = raw['archivePath'] as String?;
+        final size = (raw['size'] as num?)?.toInt();
+        final hash = raw['sha256'] as String?;
+        final content = path == null ? null : assetFiles[path];
+        if (path == null ||
+            size == null ||
+            hash == null ||
+            content == null ||
+            content.length != size ||
+            sha256.convert(content).toString() != hash) {
+          throw FormatException('资源文件校验失败：${path ?? 'unknown'}');
+        }
+      }
+      for (final item
+          in pluginsJson?['plugins'] as List<dynamic>? ?? const []) {
+        if (item is! Map) continue;
+        for (final raw in item['files'] as List<dynamic>? ?? const []) {
+          if (raw is! Map) throw const FormatException('插件文件清单无效');
+          final file = BackupPluginFile.fromJson(
+            Map<String, dynamic>.from(raw),
+          );
+          final content = pluginFiles[file.archivePath];
+          if (file.path.isEmpty ||
+              !_isSafePluginRelativePath(file.path) ||
+              !_isSafeArchivePath(file.archivePath) ||
+              file.size == null ||
+              file.sha256 == null ||
+              content == null ||
+              content.length != file.size ||
+              sha256.convert(content).toString() != file.sha256) {
+            throw FormatException('插件文件校验失败：${file.path}');
+          }
+        }
+      }
+    }
 
     return BackupArchiveData(
       manifest: manifest,
@@ -634,12 +818,11 @@ class BackupService {
           warnings,
           '设置',
         ),
-        modelConfigs: _parseList(
+        modelConfigs: _parseModelConfigs(
           modelsJson?['models'],
-          ModelConfig.fromJson,
-          warnings,
-          '模型配置',
+          warnings: warnings,
         ),
+        modelApiKeys: modelApiKeys,
         conversations: conversations,
         noteFolders: _parseList(
           foldersJson?['folders'],
@@ -685,8 +868,95 @@ class BackupService {
       ),
       assetFiles: assetFiles,
       pluginFiles: pluginFiles,
+      noteBlobs: noteBlobs,
       resources: _parseRawMapList(resourcesJson?['resources'], warnings, '资源'),
     );
+  }
+
+  static void _validateManifestFiles(
+    Map<String, dynamic> manifest,
+    Map<String, ArchiveFile> files,
+  ) {
+    final sections = manifest['sections'];
+    if (sections is! Map) throw const FormatException('备份分区清单无效');
+    final declared = <String>{'manifest.json'};
+    for (final section in sections.values) {
+      if (section is! Map || section['enabled'] != true) continue;
+      final listed = section['files'];
+      if (listed is! List || listed.any((path) => path is! String)) {
+        throw const FormatException('备份分区文件清单无效');
+      }
+      for (final path in listed.cast<String>()) {
+        if (!_isSafeArchivePath(path) || !files.containsKey(path)) {
+          throw FormatException('备份分区文件缺失：$path');
+        }
+        declared.add(path);
+      }
+    }
+    final resourcesFile = manifest['resourcesFile'];
+    if (resourcesFile is String) declared.add(resourcesFile);
+    final secrets = manifest['secrets'];
+    if (secrets is Map) declared.addAll(secrets.values.whereType<String>());
+    final assets = manifest['assets'];
+    if (assets is List) {
+      for (final asset in assets.whereType<Map>()) {
+        final path = asset['archivePath'];
+        if (path is String) declared.add(path);
+      }
+    }
+    for (final path in declared) {
+      if (!_isSafeArchivePath(path) || !files.containsKey(path)) {
+        throw FormatException('备份声明文件缺失：$path');
+      }
+    }
+  }
+
+  static Map<String, String>? _parseModelApiKeys(Map<String, dynamic>? json) {
+    if (json == null) return null;
+    if (json['type'] != 'lynai.model-api-keys' || json['version'] != 1) {
+      throw const FormatException('模型密钥分区格式无效');
+    }
+    final keys = json['keys'];
+    if (keys is! Map) throw const FormatException('模型密钥分区格式无效');
+    if (json.keys.any((key) => !{'type', 'version', 'keys'}.contains(key))) {
+      throw const FormatException('模型密钥分区包含未知字段');
+    }
+    final result = <String, String>{};
+    for (final entry in keys.entries) {
+      if (entry.key is! String || entry.value is! String) {
+        throw const FormatException('模型密钥分区格式无效');
+      }
+      final id = entry.key as String;
+      final key = entry.value as String;
+      if (id.isEmpty || key.isEmpty || utf8.encode(key).length > 64 * 1024) {
+        throw const FormatException('模型密钥分区格式无效');
+      }
+      result[id] = key;
+    }
+    return result;
+  }
+
+  static List<ModelConfig>? _parseModelConfigs(
+    Object? raw, {
+    required List<String> warnings,
+  }) {
+    if (raw == null) return null;
+    if (raw is! List) {
+      warnings.add('模型配置格式无效');
+      return null;
+    }
+    final models = <ModelConfig>[];
+    for (final item in raw) {
+      try {
+        if (item is! Map) throw const FormatException('not an object');
+        final json = Map<String, dynamic>.from(item);
+        json.remove('apiKey');
+        models.add(ModelConfig.fromJson(json));
+      } catch (error) {
+        warnings.add('跳过损坏的模型配置: $error');
+      }
+    }
+    return models;
   }
 
   static List<Conversation>? _parseConversations(
@@ -758,6 +1028,10 @@ class BackupService {
                     )
                   : null,
               timestamp: timestamp,
+              revision: (raw['revision'] as num?)?.toInt() ?? 1,
+              updatedAt:
+                  DateTime.tryParse(raw['updatedAt']?.toString() ?? '') ??
+                  timestamp,
             ),
             sortOrder: (raw['sortOrder'] as num?)?.toInt(),
           ),
@@ -867,6 +1141,7 @@ class BackupService {
             id: raw['id'] as String,
             text: raw['text'] as String? ?? '',
             done: raw['done'] as bool? ?? false,
+            updatedAt: DateTime.tryParse(raw['updatedAt']?.toString() ?? ''),
           ),
         );
       } catch (e) {
@@ -991,6 +1266,14 @@ class BackupService {
     BackupArchiveData archive,
     ImportPlan plan,
   ) async {
+    final storage = storageV2;
+    if (storage != null) {
+      for (final entry in archive.noteBlobs.entries) {
+        await storage.installNoteBlob(entry.key, entry.value);
+      }
+    } else {
+      await featureProvider.installNoteRevisionBlobs(archive.noteBlobs);
+    }
     final filteredData = _filterData(archive.data, plan.selection);
     final restoredAssetPaths = await _restoreAssets(
       archive,
@@ -1045,6 +1328,7 @@ class BackupService {
         added += result.added;
         replaced += result.replaced;
         skipped += result.skipped;
+        await pluginProvider?.syncAllPlugins();
       }
 
       return ImportResult(
@@ -1076,12 +1360,18 @@ class BackupService {
     );
     final incomingModels = importingApi ? data.modelConfigs : null;
     if (incomingModels != null) {
+      final incomingWithSecrets = incomingModels
+          .map((model) {
+            final apiKey = data.modelApiKeys?[model.id];
+            return apiKey == null ? model : model.copyWith(apiKey: apiKey);
+          })
+          .toList(growable: false);
       if (plan.mode == ImportMode.replaceSection) {
-        await modelConfigProvider.replaceModels(incomingModels);
-        replaced += incomingModels.length;
+        await modelConfigProvider.replaceModels(incomingWithSecrets);
+        replaced += incomingWithSecrets.length;
       } else {
         final models = List<ModelConfig>.from(modelConfigProvider.models);
-        for (final incoming in incomingModels) {
+        for (final incoming in incomingWithSecrets) {
           final index = models.indexWhere((item) => item.id == incoming.id);
           if (index == -1) {
             models.add(incoming);
@@ -2717,6 +3007,7 @@ class BackupService {
             : mappedBackgroundPath,
       ),
       modelConfigs: data.modelConfigs,
+      modelApiKeys: data.modelApiKeys,
       conversations: data.conversations
           ?.map(
             (conversation) =>
@@ -2769,6 +3060,8 @@ class BackupService {
         thinkingContent: message.thinkingContent,
         agentTrace: message.agentTrace,
         timestamp: message.timestamp,
+        revision: message.revision,
+        updatedAt: message.updatedAt,
       );
     }).toList();
     return conversation.copyWith(messages: messages);
@@ -2870,6 +3163,7 @@ class BackupService {
     return BackupData(
       appSettings: data.appSettings,
       modelConfigs: data.modelConfigs,
+      modelApiKeys: data.modelApiKeys,
       conversations: data.conversations
           ?.where((item) => selection.conversationIds.contains(item.id))
           .toList(),

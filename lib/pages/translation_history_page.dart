@@ -97,16 +97,19 @@ class TranslationHistoryPage extends StatelessWidget {
                     if (packageName.isNotEmpty)
                       Text(
                         '应用: $packageName',
-                        style: const TextStyle(fontSize: 11, color: Colors.grey),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey,
+                        ),
                       ),
                   ],
                 ),
                 onLongPress: () {
                   final full = '原文:\n$original\n\n译文:\n$translated';
                   Clipboard.setData(ClipboardData(text: full));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('已复制到剪贴板')),
-                  );
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(const SnackBar(content: Text('已复制到剪贴板')));
                 },
               );
             },

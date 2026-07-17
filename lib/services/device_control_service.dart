@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -534,9 +535,15 @@ class AndroidDeviceControlBackend implements DeviceControlBackend {
   static const _channel = MethodChannel('lynai/device_control');
   static const _events = EventChannel('lynai/device_events');
 
-  AndroidDeviceControlBackend() {
-    _events.receiveBroadcastStream().listen(_handleEvent);
+  late final StreamSubscription<dynamic> _eventSubscription;
+
+  AndroidDeviceControlBackend({Stream<dynamic>? events}) {
+    _eventSubscription = (events ?? _events.receiveBroadcastStream()).listen(
+      _handleEvent,
+    );
   }
+
+  Future<void> dispose() => _eventSubscription.cancel();
 
   @override
   Future<Map<String, dynamic>> execute(

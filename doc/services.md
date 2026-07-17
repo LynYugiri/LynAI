@@ -2,6 +2,14 @@
 
 `lib/services/` 负责和外部世界交互：模型 API、工具调用、平台能力、备份文件、storage_v2 和存储升级。页面层只传入需要的上下文，服务层不持有 UI 状态。
 
+## 安全基础
+
+`SecretStore` 抽象敏感字符串存储；生产实现使用 `flutter_secure_storage`，测试使用内存实现。`ModelConfigRepository` 只把非秘密模型 JSON 和稳定 `apiKeySecretRef` 写入数据库，API key 按模型 ID 单独存入 `SecretStore`；首次加载旧版 plaintext `apiKey` 时先写安全存储，再重写数据库，迁移可重复且不会把 key 放入同步 outbox。`DeviceIdentityService` 在首次启动生成 Ed25519 密钥，并以完整公钥 SHA-256 的 52 字符小写、无填充 Base32 作为稳定 `deviceId`；后续启动会校验私钥、公钥和 ID 一致性，损坏时拒绝静默重建。`DeviceRegistrationService` 在真实后端恢复会话、登录或注册成功后，以绑定 challenge、认证用户/session、设备 ID、公钥、显示名称、平台和协议版本的 CBE1 消息完成幂等注册；离线或旧后端不阻塞账号使用。账号 access/refresh token 也保存在 `SecretStore`，SharedPreferences 中只保留用户和过期时间元数据；旧版完整会话会在首次读取时迁移。设备私钥不会写入 SharedPreferences、数据库或备份。
+
+源码当前内置的远程 HTTP 后端仅用于隔离测试。UI 对所有 HTTP 后端显示明示风险，真实账号和生产数据必须使用可信 HTTPS 后端；稳定 Release 的 CI 发布门禁会拒绝仍配置 HTTP 默认后端的版本。
+
+同步服务只上传两个版本化配置投影：单例 `SharedSettingsV1` 和逐 Provider 的 `SyncedModelConfigV1`。前者不包含后端连接、登录/changelog、最近功能、悬浮助手、权限和本地路径；后者仅接受用户明确开启同步的非托管 Provider，并删除 API key、secure-store 引用、URL userinfo 及疑似凭证的嵌套参数。远端写入使用 storage_v2 的现有 Outbox/conflict 事务，存在本地 pending mutation 时不覆盖本地值。
+
 ## ApiService
 
 文件：`lib/services/api_service.dart`
@@ -242,7 +250,7 @@ Subagent 适合 QQ/消息应用这类流程：主 Agent 只描述目标，Subage
 | `loadStoredSession()` | 从本地持久化加载会话状态（启动时调用）。 |
 | `isBackendConnected` | 当前服务是否已连接到真实后端。 |
 
-账号服务通过 `RemoteAccountService` 访问配置的后端 `/auth/*` 端点；未配置后端地址时 `AccountProvider` 不创建账号服务，登录/注册返回「未连接后端」。`RemoteAccountService` 负责把登录会话保存到 SharedPreferences，启动时在 `BackendClient` 配置完成后恢复 user 和 token。
+账号服务通过 `RemoteAccountService` 访问配置的后端 `/auth/*` 端点；未配置后端地址时 `AccountProvider` 不创建账号服务，登录/注册返回「未连接后端」。`RemoteAccountService` 负责把登录会话保存到 SharedPreferences，启动时在 `BackendClient` 配置完成后恢复 user 和 token。后端轮换 refresh token 后，新 token pair 会立即覆盖持久化会话；刷新失败会同时清除内存和本地会话。
 
 数据模型定义在 `lib/models/account.dart`：`AccountUser` 承载用户可见的展示信息，`AuthToken` 承载后端返回的访问令牌，`AuthSession` 组合两者。
 
@@ -260,7 +268,7 @@ Subagent 适合 QQ/消息应用这类流程：主 Agent 只描述目标，Subage
 | `getInstalledUpdates()` | 查询当前已安装插件中可更新的条目。 |
 | `isBackendConnected` | 当前服务是否已连接到真实后端。页面据此决定显示空态文案还是真实数据。 |
 
-当前阶段使用 `LocalMarketService` 桩实现：`isBackendConnected` 返回 `false`，所有远端调用抛出 `MarketUnavailableException`，让页面渲染空态文案并提供「从 ZIP 导入」入口。后端就绪后用 `RemoteMarketService` 替换，无需改动页面代码。
+连接后端时使用 `RemoteMarketService` 浏览、下载和检查更新；未连接时回退 `LocalMarketService` 空态，并保留「从 ZIP 导入」入口。
 
 `MarketPluginEntry` 是市场目录条目模型，字段对齐 `PluginManifest` 中用户可见的元数据，但只承载目录信息，不承载本地启用状态或文件路径——那些属于 `InstalledPlugin` 的运行时视图。
 
@@ -305,7 +313,7 @@ Roleplay 复用 Chat 模型配置和 `ApiService`，但运行状态由 `Roleplay
 
 文件：`lib/services/storage_v2_service.dart`、`storage_v2_database.dart`
 
-storage_v2 是新版本地存储布局。`StorageV2Service` 是读写门面，`StorageV2Database` 是 Drift 数据库。
+storage_v2 是新版本地存储布局。`StorageV2Service` 是读写门面，`StorageV2Database` 是 Drift 数据库。应用级 Provider 共用同一个 `StorageV2Service`，统一数据库生命周期、资源写入队列和同步作用域。
 
 ```text
 storage_v2/
@@ -321,6 +329,10 @@ storage_v2/
 | `app.db` | 结构化数据权威源。 |
 | `notes/*.md` | 笔记分页正文。 |
 | `assets/blobs/*` | 资源文件，按 SHA-256 内容寻址保存。 |
+
+Drift 内的 `sync_outbox` 保存尚未确认上传的行级变化，`sync_state` 保存各作用域的服务端游标、激活状态和持久化本地 mutation 捕获权。数据库 schema v14 不再通过停用时快照做账号 catch-up，而是在 mutation 发生时直接写入其目标云端/LAN Outbox；因此重启可保留归属，远端 apply 也不会被后续快照误判为本地编辑。消息附件资源通过 `resources` 行和 SHA Blob 同步；下载文件只写入标准内容寻址路径，不采用远端提供的本地路径。
+
+笔记修订正文同样使用内容寻址 blob。分页出现并行 DAG 头时，`note_page_conflicts` 持久化稳定的本地头、传入头和共同祖先；数据库 schema 12 为旧冲突行补齐这两个固定侧。合并提交必须重新校验完整头集合，避免基于过期冲突覆盖新到达的头。
 
 ### 路径安全
 
@@ -354,7 +366,7 @@ storage_v2 schemaVersion < current
 
 文件：`lib/services/backup_service.dart`
 
-`BackupService` 负责 ZIP 备份导出、读取、预览和导入。schema 常量以 `BackupService.currentSchemaVersion` 为准。
+`BackupService` 负责 ZIP 备份导出、读取、预览和导入。schema 常量以 `BackupService.currentSchemaVersion` 为准，并接受 `BackupService.oldestCompatibleSchemaVersion` 起的旧格式。普通 ZIP 永不包含 API key；加密“包含密钥”模式在内层 ZIP 加入独立模型 API-key 分区，再以 `BackupEncryption` 的 Argon2id + XChaCha20-Poly1305 信封认证加密精确 ZIP bytes。设备私钥、账号 token 和其他设备私有密钥不参与备份。
 
 ### 导出结构
 
@@ -452,3 +464,35 @@ assets/blobs/{sha256Prefix}/{sha256}
 4. 涉及 API Key、位置、工具写入本地数据的功能，要在 UI 或文档中提示风险。
 5. 新增持久资源路径时，使用 storage_v2 资源入口，并考虑备份和 SHA blob 去重。
 6. storage_v2 内部路径必须通过统一安全检查，不能拼接未校验的相对路径。
+# Plugin Content Sync
+
+Plugin cloud/LAN sync uses the existing incremental sync log and SHA-256 blob API. Ordinary sync allowlists only the sanitized metadata domains `plugin_files`, `plugin_settings`, and `plugin_config`; `plugin_storage` and private plugin secrets remain excluded. The separately authorized LAN secret-transfer channel is limited to model API keys. Rows contain plugin IDs, safe relative paths, sizes, kinds, and blob hashes rather than inline file content or absolute local paths.
+
+Third-party plugins sync sanitized manifest, executable/static source, declared editable files, configuration, and settings. Every package snapshot has a versioned marker containing an explicit `installed` or `deleted` state and an exact path/hash/size allowlist. Third-party content without that marker fails closed; absence of rows is never interpreted as uninstall. Built-in plugins keep their overlay behavior: bundled source is never uploaded, while sanitized user overlays, configuration, and settings are synchronized. `plugin_storage` and all private plugin storage are device-local and never enter cloud or LAN sync. Runtime errors, cache/temp files, local paths, enabled state, granted permissions, and enabled tools/functions/skills/pages are also excluded.
+
+Downloaded third-party executable content is restored only after the receiver verifies the package-manifest version, exact file set, every blob hash and declared size, the `plugin.json` hash and plugin ID, path safety, and aggregate limits. Validation is shared by cloud and LAN metadata paths; the complete package is staged beside the target and atomically renamed into place. New or changed package content starts disabled with no permissions or enabled capabilities, is marked `needsReview`, and cannot be enabled until the user records an explicit local review. Settings/config-only or unrelated sync application preserves the device's existing enabled/review/grant state, and settings/config rows cannot create a missing plugin.
+
+Configuration keys whose names contain `token`, `key`, `password`, or `secret` (case-insensitive, including nested maps) are omitted from cloud and LAN blobs. Existing local values for those keys survive remote config replacement and remain device-local.
+## LAN Services
+
+- `LanPairingPayloadCodec` signs and verifies canonical versioned QR payloads.
+- `LanTlsCertificateService` generates P-256 TLS material, stores PEM only in
+  `SecretStore`, requires TLS 1.3, and calculates certificate SPKI pins.
+- `LanMdnsService` advertises/discovers `_lynai._tcp` with only protocol version
+  and device ID in TXT records.
+- `LanSecureTransport` enforces framed message, body, timeout, session ID, and bounded chunked blob frames up to 64 MiB,
+  and monotonic counter limits.
+- `LanPeerProofService` exchanges mutual Ed25519 identity proofs over pinned TLS.
+- `LanSyncCoordinator` pairs, confirms fingerprints, consumes nonces, syncs
+  installation-local changes/blobs independently of the active cloud account,
+  deduplicates `changeId`, and maintains per-peer acknowledgements. Cloud state
+  remains partitioned by backend origin and user ID; LAN peers are not account-
+  scoped.
+- `LanSecretTransferService` permits API-key transfer only after explicit opt-in
+  and rejects device identity or account-token secret keys.
+
+Cloud device identities are stored per normalized backend origin and user ID.
+Remote sync requires successful enrollment and signed uploads with no unsigned
+client fallback. `BackendClient.sendAuthenticatedStreamed` rebuilds streamed and
+multipart requests after one authenticated 401 refresh, and all managed relay
+protocols use that sender.

@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../models/account.dart';
 import '../services/account_service.dart';
 import '../services/backend_client.dart';
 import '../services/remote_account_service.dart';
+import '../services/secret_store.dart';
 
 /// 账号状态管理。
 ///
@@ -15,18 +18,42 @@ class AccountProvider extends ChangeNotifier {
   ///
   /// 传入 [backend] 后会根据其连接状态动态选择 service。
   /// 传入 [service] 则直接使用（用于测试）。
-  AccountProvider({BackendClient? backend, AccountService? service})
-    : _backend = backend,
-      _injectedService = service;
+  AccountProvider({
+    BackendClient? backend,
+    AccountService? service,
+    SecretStore? secretStore,
+    Future<void> Function(AccountUser? user)? onSessionChanged,
+    Future<void> Function()? afterAuthenticated,
+  }) : _backend = backend,
+       _injectedService = service,
+       _secretStore = secretStore,
+       _onSessionChanged = onSessionChanged,
+       _afterAuthenticated = afterAuthenticated,
+       _backendOrigin = backend?.backendOrigin ?? '' {
+    _backend?.addListener(_handleBackendChanged);
+  }
 
   final BackendClient? _backend;
   final AccountService? _injectedService;
+  final SecretStore? _secretStore;
+  final Future<void> Function(AccountUser? user)? _onSessionChanged;
+  final Future<void> Function()? _afterAuthenticated;
   RemoteAccountService? _remoteService;
+  String _backendOrigin;
+  int _operationGeneration = 0;
 
   AccountService? get _service {
     if (_injectedService != null) return _injectedService;
     if (_backend != null && _backend.isConnected) {
-      return _remoteService ??= RemoteAccountService(_backend);
+      final secretStore = _secretStore;
+      if (secretStore == null) {
+        throw StateError('AccountProvider requires SecretStore with a backend');
+      }
+      return _remoteService ??= RemoteAccountService(
+        _backend,
+        secretStore: secretStore,
+        onSessionInvalidated: _handleSessionInvalidated,
+      );
     }
     return null;
   }
@@ -34,6 +61,28 @@ class AccountProvider extends ChangeNotifier {
   AccountUser? _user;
   bool _loading = false;
   String? _error;
+
+  void _handleSessionInvalidated() {
+    _operationGeneration++;
+    _user = null;
+    _loading = false;
+    _error = null;
+    notifyListeners();
+    _notifySessionChanged();
+  }
+
+  void _handleBackendChanged() {
+    final origin = _backend?.backendOrigin ?? '';
+    if (origin == _backendOrigin) return;
+    _operationGeneration++;
+    _backendOrigin = origin;
+    _loading = false;
+    _error = null;
+    final hadUser = _user != null;
+    _user = null;
+    notifyListeners();
+    if (hadUser) _notifySessionChanged();
+  }
 
   /// 当前登录用户，未登录时为 null。
   AccountUser? get user => _user;
@@ -53,12 +102,21 @@ class AccountProvider extends ChangeNotifier {
 
   /// 启动时从本地持久化恢复会话。
   Future<void> load() async {
+    final generation = ++_operationGeneration;
+    retryPendingRevocations();
     final svc = _service;
     if (svc == null) return;
     try {
       final user = await svc.getCurrentUser();
+      if (generation != _operationGeneration) return;
       _user = user;
       notifyListeners();
+      await _onSessionChanged?.call(_user);
+      if (generation != _operationGeneration) return;
+      if (_user != null) {
+        await _runAfterAuthenticated();
+        if (generation != _operationGeneration) return;
+      }
     } catch (e) {
       debugPrint('加载账号会话失败: $e');
     }
@@ -66,6 +124,8 @@ class AccountProvider extends ChangeNotifier {
 
   /// 手机号登录。
   Future<bool> login(String phone, String password) async {
+    final generation = ++_operationGeneration;
+    retryPendingRevocations();
     final svc = _service;
     if (svc == null) {
       _error = '未连接后端，请在设置中配置后端地址';
@@ -77,11 +137,17 @@ class AccountProvider extends ChangeNotifier {
     notifyListeners();
     try {
       final session = await svc.login(username: phone, password: password);
+      if (generation != _operationGeneration) return false;
       _user = session.user;
       _loading = false;
       notifyListeners();
+      await _onSessionChanged?.call(_user);
+      if (generation != _operationGeneration) return false;
+      await _runAfterAuthenticated();
+      if (generation != _operationGeneration) return false;
       return true;
     } catch (e) {
+      if (generation != _operationGeneration) return false;
       _loading = false;
       _error = e.toString();
       notifyListeners();
@@ -95,6 +161,7 @@ class AccountProvider extends ChangeNotifier {
     String password, {
     String? displayName,
   }) async {
+    final generation = ++_operationGeneration;
     final svc = _service;
     if (svc == null) {
       _error = '未连接后端，请在设置中配置后端地址';
@@ -110,11 +177,17 @@ class AccountProvider extends ChangeNotifier {
         password: password,
         displayName: displayName,
       );
+      if (generation != _operationGeneration) return false;
       _user = session.user;
       _loading = false;
       notifyListeners();
+      await _onSessionChanged?.call(_user);
+      if (generation != _operationGeneration) return false;
+      await _runAfterAuthenticated();
+      if (generation != _operationGeneration) return false;
       return true;
     } catch (e) {
+      if (generation != _operationGeneration) return false;
       _loading = false;
       _error = e.toString();
       notifyListeners();
@@ -124,10 +197,13 @@ class AccountProvider extends ChangeNotifier {
 
   /// 登出当前用户。
   Future<void> logout() async {
+    final generation = ++_operationGeneration;
     final svc = _service;
     if (svc == null) {
       _user = null;
       notifyListeners();
+      await _onSessionChanged?.call(null);
+      if (generation != _operationGeneration) return;
       return;
     }
     _loading = true;
@@ -135,13 +211,38 @@ class AccountProvider extends ChangeNotifier {
     notifyListeners();
     try {
       await svc.logout();
+      if (generation != _operationGeneration) return;
       _user = null;
       _loading = false;
       notifyListeners();
+      await _onSessionChanged?.call(null);
+      if (generation != _operationGeneration) return;
     } catch (e) {
+      if (generation != _operationGeneration) return;
       _loading = false;
       _error = e.toString();
       notifyListeners();
+    }
+  }
+
+  void _notifySessionChanged() {
+    final callback = _onSessionChanged;
+    if (callback != null) callback(_user);
+  }
+
+  Future<void> _runAfterAuthenticated() async {
+    try {
+      await _afterAuthenticated?.call();
+    } catch (e) {
+      debugPrint('设备注册失败: $e');
+    }
+  }
+
+  /// Starts a best-effort retry of refresh-token revocations queued at logout.
+  void retryPendingRevocations() {
+    final service = _service;
+    if (service is RemoteAccountService) {
+      unawaited(service.retryPendingRevocations());
     }
   }
 
@@ -150,5 +251,11 @@ class AccountProvider extends ChangeNotifier {
     if (_error == null) return;
     _error = null;
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _backend?.removeListener(_handleBackendChanged);
+    super.dispose();
   }
 }

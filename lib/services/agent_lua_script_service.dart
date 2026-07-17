@@ -11,6 +11,7 @@ import '../providers/settings_provider.dart';
 import 'lynai_call_identity.dart';
 import 'device_run_controller.dart';
 import 'agent_runtime_service.dart';
+import 'backend_client.dart';
 import 'lynai_function_service.dart';
 import 'lynai_permission_service.dart';
 import 'lua_sandbox_utils.dart';
@@ -30,6 +31,7 @@ class AgentLuaScriptService {
     ConversationProvider? conversations,
     String? conversationId,
     LynAICallIdentity? identity,
+    BackendClient? backend,
   }) async {
     final trimmed = code.trim();
     if (trimmed.isEmpty) return _error('empty_code', 'Lua 脚本为空');
@@ -58,6 +60,7 @@ class AgentLuaScriptService {
             conversations: conversations,
             conversationId: conversationId,
             identity: identity,
+            backend: backend,
           );
         },
       );
@@ -83,6 +86,7 @@ class AgentLuaScriptService {
           conversations: conversations,
           conversationId: conversationId,
           identity: identity,
+          backend: backend,
         ),
       );
       if (status != ThreadStatus.luaOk) {
@@ -105,6 +109,7 @@ class AgentLuaScriptService {
         conversations: conversations,
         conversationId: conversationId,
         identity: identity,
+        backend: backend,
       );
       if (commandResult != null) {
         return _finishDeviceRun({
@@ -185,6 +190,7 @@ class AgentLuaScriptService {
     ConversationProvider? conversations,
     String? conversationId,
     LynAICallIdentity? identity,
+    BackendClient? backend,
   }) {
     if (method == 'plugins.functions.list') {
       return _listPluginFunctions(plugins?.plugins ?? const []);
@@ -241,6 +247,7 @@ class AgentLuaScriptService {
       modelConfigs: modelConfigs,
       plugins: plugins,
       settings: settings,
+      backend: backend,
     );
     final sync = functions.executeSync(
       LynAIFunctionCall(name: method, arguments: args),
@@ -327,6 +334,7 @@ class AgentLuaScriptService {
     ConversationProvider? conversations,
     String? conversationId,
     LynAICallIdentity? identity,
+    BackendClient? backend,
   }) async {
     if (request is! Map) return _error('invalid_yield', 'Lua yield 请求无效');
     final command = request.map(
@@ -352,6 +360,7 @@ class AgentLuaScriptService {
       conversations: conversations,
       conversationId: conversationId,
       identity: identity,
+      backend: backend,
     );
   }
 
@@ -367,6 +376,7 @@ class AgentLuaScriptService {
     ConversationProvider? conversations,
     String? conversationId,
     LynAICallIdentity? identity,
+    BackendClient? backend,
   }) async {
     if (raw is! Map) return null;
     final command = raw.map((key, value) => MapEntry(key.toString(), value));
@@ -394,6 +404,7 @@ class AgentLuaScriptService {
       conversations: conversations,
       conversationId: conversationId,
       identity: identity,
+      backend: backend,
     );
     final next = (command['__lynai_next'] as String? ?? '').trim();
     if (next.isEmpty) return result;
@@ -425,6 +436,7 @@ class AgentLuaScriptService {
       conversations: conversations,
       conversationId: conversationId,
       identity: identity,
+      backend: backend,
     );
     if (nested != null) return nested;
     if (continuationResult is Map) {
@@ -446,6 +458,7 @@ class AgentLuaScriptService {
     ConversationProvider? conversations,
     String? conversationId,
     LynAICallIdentity? identity,
+    BackendClient? backend,
   }) async {
     if (name != 'plugins.callFunction') {
       final result = await LynAIFunctionService().execute(
@@ -462,6 +475,7 @@ class AgentLuaScriptService {
           modelConfigs: modelConfigs,
           plugins: plugins,
           settings: settings,
+          backend: backend,
         ),
       );
       if (name == 'model.generateImage') {

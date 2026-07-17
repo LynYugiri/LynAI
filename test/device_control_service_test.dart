@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/services/device_control_service.dart';
 import 'package:lynai/services/device_run_controller.dart';
@@ -127,6 +129,17 @@ void main() {
     } finally {
       DeviceRunController.instance.reset();
     }
+  });
+
+  test('android backend dispose cancels device event subscription', () async {
+    var canceled = false;
+    final events = StreamController<dynamic>(onCancel: () => canceled = true);
+    final androidBackend = AndroidDeviceControlBackend(events: events.stream);
+
+    await androidBackend.dispose();
+
+    expect(canceled, isTrue);
+    await events.close();
   });
 }
 

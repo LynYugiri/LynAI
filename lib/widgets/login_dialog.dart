@@ -195,9 +195,12 @@ class _DemoAuthNotice extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    final text = isRegisterMode
-        ? '演示后端已内置，没有短信、邮箱或实名验证；可随意填写账号和密码。注册成功后会直接登录，有账号才能调用服务端提供的模型。'
-        : '演示后端已内置，没有任何身份验证；可使用任意测试账号登录。登录账号后才能调用服务端提供的模型。';
+    final backend = context.watch<BackendClient>();
+    final text = backend.usesInsecureHttp
+        ? '当前远程 HTTP 后端仅用于隔离测试，传输未加密。请勿使用真实账号、常用密码或生产数据；生产部署必须改用 HTTPS。'
+        : isRegisterMode
+        ? '注册信息将发送到当前 HTTPS 后端。请确认该服务由你信任的运营方提供。'
+        : '登录凭证将发送到当前 HTTPS 后端。请确认该服务由你信任的运营方提供。';
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),

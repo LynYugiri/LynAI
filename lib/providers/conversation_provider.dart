@@ -389,6 +389,8 @@ class ConversationProvider extends ChangeNotifier {
             : thinkingContent as String?,
         agentTrace: lastMsg.agentTrace,
         timestamp: lastMsg.timestamp,
+        revision: lastMsg.revision,
+        updatedAt: lastMsg.updatedAt,
       );
 
       _conversations[index] = Conversation(
@@ -443,6 +445,8 @@ class ConversationProvider extends ChangeNotifier {
         thinkingContent: message.thinkingContent,
         agentTrace: message.agentTrace,
         timestamp: message.timestamp,
+        revision: message.revision,
+        updatedAt: message.updatedAt,
       );
 
       _conversations[index] = Conversation(
@@ -492,6 +496,8 @@ class ConversationProvider extends ChangeNotifier {
       thinkingContent: old.thinkingContent,
       agentTrace: trace,
       timestamp: old.timestamp,
+      revision: old.revision,
+      updatedAt: old.updatedAt,
     );
     _conversations[index] = Conversation(
       id: _conversations[index].id,
@@ -671,6 +677,8 @@ class ConversationProvider extends ChangeNotifier {
           : thinkingContent as String?,
       agentTrace: old.agentTrace,
       timestamp: old.timestamp,
+      revision: old.revision + 1,
+      updatedAt: DateTime.now(),
     );
     _conversations[index] = Conversation(
       id: _conversations[index].id,
@@ -710,6 +718,8 @@ class ConversationProvider extends ChangeNotifier {
       thinkingContent: old.thinkingContent,
       agentTrace: old.agentTrace,
       timestamp: old.timestamp,
+      revision: old.revision + 1,
+      updatedAt: DateTime.now(),
     );
     _conversations[index] = Conversation(
       id: _conversations[index].id,

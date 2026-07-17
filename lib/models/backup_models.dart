@@ -1,6 +1,7 @@
 import 'app_settings.dart';
 import 'conversation.dart';
 import 'model_config.dart';
+import 'merge_models.dart';
 import 'note.dart';
 import 'plugin.dart';
 import 'roleplay.dart';
@@ -270,19 +271,37 @@ class BackupPluginFile {
   /// 备份包内路径。
   final String archivePath;
 
+  /// Uncompressed byte length (schema 8+).
+  final int? size;
+
+  /// SHA-256 of the exact archived bytes (schema 8+).
+  final String? sha256;
+
   /// 创建插件文件备份记录。
-  const BackupPluginFile({required this.path, required this.archivePath});
+  const BackupPluginFile({
+    required this.path,
+    required this.archivePath,
+    this.size,
+    this.sha256,
+  });
 
   /// 从 JSON 创建插件文件备份记录。
   factory BackupPluginFile.fromJson(Map<String, dynamic> json) {
     return BackupPluginFile(
       path: json['path'] as String? ?? '',
       archivePath: json['archivePath'] as String? ?? '',
+      size: (json['size'] as num?)?.toInt(),
+      sha256: json['sha256'] as String?,
     );
   }
 
   /// 转成 JSON。
-  Map<String, dynamic> toJson() => {'path': path, 'archivePath': archivePath};
+  Map<String, dynamic> toJson() => {
+    'path': path,
+    'archivePath': archivePath,
+    if (size != null) 'size': size,
+    if (sha256 != null) 'sha256': sha256,
+  };
 }
 
 /// 备份导入时的合并模式。
@@ -349,6 +368,9 @@ class BackupData {
   /// 模型配置列表。
   final List<ModelConfig>? modelConfigs;
 
+  /// 仅从已认证加密备份中读取的模型 API 密钥分区。
+  final Map<String, String>? modelApiKeys;
+
   /// 对话记录列表。
   final List<Conversation>? conversations;
 
@@ -389,6 +411,7 @@ class BackupData {
   const BackupData({
     this.appSettings,
     this.modelConfigs,
+    this.modelApiKeys,
     this.conversations,
     this.noteFolders,
     this.notes,
@@ -454,6 +477,9 @@ class BackupArchiveData {
   /// 归档中的插件文件映射，key 为备份包内路径。
   final Map<String, List<int>> pluginFiles;
 
+  /// Validated note revision blobs staged in memory until import starts.
+  final Map<String, List<int>> noteBlobs;
+
   /// 创建一个备份归档数据实例。
   const BackupArchiveData({
     required this.manifest,
@@ -462,6 +488,7 @@ class BackupArchiveData {
     this.assetFiles = const {},
     this.resources,
     this.pluginFiles = const {},
+    this.noteBlobs = const {},
   });
 
   /// 获取归档中所有含数据的分类集合。
@@ -509,6 +536,14 @@ class ImportConflict {
     required this.localSummary,
     required this.incomingSummary,
   });
+
+  MergeConflictView get view => MergeConflictView(
+    id: id,
+    domain: section.key,
+    title: title,
+    localSummary: localSummary,
+    incomingSummary: incomingSummary,
+  );
 }
 
 /// 导入前的完整预览结果。

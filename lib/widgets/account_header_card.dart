@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../providers/account_provider.dart';
 import '../providers/model_config_provider.dart';
+import '../services/backend_client.dart';
 import 'login_dialog.dart';
 
 /// 设置页顶部的账号卡片。
@@ -137,6 +138,7 @@ class _LoggedOutCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final backend = context.watch<BackendClient>();
     return Card(
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
       child: Padding(
@@ -168,9 +170,11 @@ class _LoggedOutCard extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        account.isBackendConnected
-                            ? '演示后端已内置，可随意填写账号和密码；有账号才能调用服务端模型。'
-                            : '可在下方连接服务端，或恢复默认演示后端；有账号才能调用服务端模型。',
+                        !account.isBackendConnected
+                            ? '可在下方连接可信 HTTPS 服务端；内置 HTTP 地址仅供隔离测试。'
+                            : backend.usesInsecureHttp
+                            ? '当前远程 HTTP 后端仅供隔离测试，请勿使用真实账号、常用密码或生产数据。'
+                            : '已连接 HTTPS 服务端，登录后可使用服务端模型与同步能力。',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),

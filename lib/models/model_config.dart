@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 /// 提供商配置中的一个可选子模型。
 ///
 /// 一个 Provider 可能暴露多个模型名。子模型级参数优先于 Provider 级参数，
@@ -142,6 +144,9 @@ class ModelConfig {
   /// API 密钥。
   final String apiKey;
 
+  /// 平台安全存储中 API 密钥的非敏感引用。
+  final String apiKeySecretRef;
+
   /// 当前激活的模型名称。
   final String modelName;
 
@@ -181,6 +186,9 @@ class ModelConfig {
   /// 用户对远端托管配置的逐字段覆盖值，优先级高于服务端下发值。
   final Map<String, dynamic> userOverrides;
 
+  /// 用户是否明确允许将此非托管 Provider 的非秘密配置同步到云端。
+  final bool cloudSyncEnabled;
+
   /// 创建一个模型配置实例。
   ModelConfig({
     required this.id,
@@ -188,6 +196,7 @@ class ModelConfig {
     this.category = categoryChat,
     required this.endpoint,
     required this.apiKey,
+    String? apiKeySecretRef,
     required this.modelName,
     required this.apiType,
     required this.priority,
@@ -201,7 +210,9 @@ class ModelConfig {
     Map<String, dynamic>? extraParams,
     Map<String, dynamic>? userOverrides,
     List<ModelEntry>? models,
-  }) : extraParams = extraParams ?? {},
+    this.cloudSyncEnabled = false,
+  }) : apiKeySecretRef = apiKeySecretRef ?? secretReferenceForId(id),
+       extraParams = extraParams ?? {},
        userOverrides = userOverrides ?? {},
        models = models ?? [ModelEntry(name: modelName, enabled: true)];
 
@@ -264,6 +275,7 @@ class ModelConfig {
     String? category,
     String? endpoint,
     String? apiKey,
+    Object? apiKeySecretRef = _sentinel,
     String? modelName,
     String? apiType,
     int? priority,
@@ -277,6 +289,7 @@ class ModelConfig {
     Map<String, dynamic>? extraParams,
     Map<String, dynamic>? userOverrides,
     List<ModelEntry>? models,
+    bool? cloudSyncEnabled,
   }) {
     return ModelConfig(
       id: id ?? this.id,
@@ -284,6 +297,11 @@ class ModelConfig {
       category: category ?? this.category,
       endpoint: endpoint ?? this.endpoint,
       apiKey: apiKey ?? this.apiKey,
+      apiKeySecretRef: identical(apiKeySecretRef, _sentinel)
+          ? (id != null && id != this.id
+                ? secretReferenceForId(id)
+                : this.apiKeySecretRef)
+          : apiKeySecretRef as String?,
       modelName: modelName ?? this.modelName,
       apiType: apiType ?? this.apiType,
       priority: priority ?? this.priority,
@@ -303,6 +321,7 @@ class ModelConfig {
       extraParams: extraParams ?? this.extraParams,
       userOverrides: userOverrides ?? this.userOverrides,
       models: models ?? this.models,
+      cloudSyncEnabled: cloudSyncEnabled ?? this.cloudSyncEnabled,
     );
   }
 
@@ -348,7 +367,10 @@ class ModelConfig {
       name: json['name'] as String,
       category: category,
       endpoint: json['endpoint'] as String,
-      apiKey: json['apiKey'] as String,
+      apiKey: json['apiKey'] as String? ?? '',
+      apiKeySecretRef:
+          json['apiKeySecretRef'] as String? ??
+          secretReferenceForId(json['id'] as String),
       modelName: modelName,
       apiType: json['apiType'] as String,
       priority: (json['priority'] as num?)?.toInt() ?? 0,
@@ -367,6 +389,7 @@ class ModelConfig {
           ? Map<String, dynamic>.from(json['userOverrides'])
           : {},
       models: entries,
+      cloudSyncEnabled: json['cloudSyncEnabled'] == true,
     );
   }
 
@@ -377,7 +400,7 @@ class ModelConfig {
       'name': name,
       'category': category,
       'endpoint': endpoint,
-      'apiKey': apiKey,
+      'apiKeySecretRef': apiKeySecretRef,
       'modelName': modelName,
       'apiType': apiType,
       'priority': priority,
@@ -392,6 +415,13 @@ class ModelConfig {
       if (disabledByUser) 'disabledByUser': disabledByUser,
       if (extraParams.isNotEmpty) 'extraParams': extraParams,
       if (userOverrides.isNotEmpty) 'userOverrides': userOverrides,
+      if (cloudSyncEnabled) 'cloudSyncEnabled': true,
     };
+  }
+
+  /// Returns the only valid secure-storage reference for a model ID.
+  static String secretReferenceForId(String id) {
+    final encoded = base64UrlEncode(utf8.encode(id)).replaceAll('=', '');
+    return 'lynai.model-api-key.v1.$encoded';
   }
 }

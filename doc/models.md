@@ -72,6 +72,7 @@
 | `managed` | 是否由 LynAI 后端托管同步。托管配置用于内置 LynAI 中转 Provider，endpoint/API key 不由用户手动维护。 |
 | `disabledByUser` | 用户是否在本机关闭该托管配置。关闭后该配置不会被实际模型选择逻辑使用，但仍会继续接收服务端基线同步。 |
 | `userOverrides` | 用户对托管配置的本机覆盖项，优先级高于服务端下发值；当前覆盖 `maxTokens`、`temperature`、`topP`、`supportsVision`、`supportsThinking` 和 `supportsTools`。 |
+| `cloudSyncEnabled` | 用户是否明确允许同步此非托管 Provider 的非秘密配置，默认 false。托管 Provider 始终由服务端维护，不进入该同步域。 |
 
 `ModelEntry` 是子模型。子模型可以独立设置启用状态、视觉能力、thinking 能力、工具能力和采样参数。
 
@@ -104,6 +105,10 @@ OCR 悬浮翻译流水线使用一个未单独建模型的轻量块字典（`Flo
 
 `AppSettings.fromJson()` 会跳过坏角色、坏角色分组和坏提示词。缺失默认角色时自动补回；当前角色不存在时回退到默认角色。
 
+云同步不序列化整个 `AppSettings`。`SharedSettingsV1` 是显式版本化投影，只包含主题颜色/模式、背景资源引用、模糊设置、模型选择和识别/生成开关、提示词、角色与角色分组。后端 URL/配置标记、登录与更新日志标记、最近功能页、悬浮助手行为和位置、Agent/系统权限及本地路径均为设备本地字段，远端应用时保留。
+
+`SyncedModelConfigV1` 是逐 Provider 的版本化非秘密投影。仅 `managed=false && cloudSyncEnabled=true` 的用户配置进入 Outbox；`apiKey`、`apiKeySecretRef` 和名称疑似 secret/token/password/credential/authorization 的 `extraParams` 字段不会进入云 payload。Ollama、loopback 和 LAN endpoint 默认仍是设备本地，只有用户明确打开该 Provider 的同步开关才会同步。
+
 `ChatRole` 保存角色名、系统提示词、默认模型和可选主题色。`ChatRoleGroup` 保存角色分组，分组里的角色 ID 会在加载时过滤掉不存在的角色。
 
 ## ScheduleItem
@@ -132,14 +137,17 @@ OCR 悬浮翻译流水线使用一个未单独建模型的轻量块字典（`Flo
 |------|------|
 | `Note` | 标题、兼容正文、当前修订 ID、当前分页 ID、文件夹引用和自动换行设置。 |
 | `NoteFolder` | 文件夹，只保存标题和创建时间。 |
-| `NoteRevision` | 时间线节点，保存父修订 ID、分页 ID、保存时间和 delta。 |
+| `NoteRevision` | 不可变 DAG 节点，保存零到两个父修订 ID、分页 ID、设备 ID、内容 blob 哈希和创建时间。 |
 | `NoteTextDelta` | 两个版本之间的文本增量。 |
+| `NotePageHeads` | 分页当前可达头集合和选中的物化头。 |
+| `NotePageConflict` | 未解决冲突的稳定本地/传入头、完整头集合和共同祖先。 |
+| `NoteRevisionContent` | 已加载正文或显式缺失状态，避免把缺失 blob 当成空正文。 |
 | `NoteEditProposal` | AI 或工具生成的修改建议。 |
 | `NoteEditBlock` | 修改建议中的行级块。 |
 
 修订链是树，不是线性历史。用户可以从历史版本另开分支。Provider 负责重放 delta、缓存内容、清理不可达状态和修复缺失修订。
 
-storage_v2 下，笔记分页元数据由存储层的 `StorageV2NotePage` 表达，分页正文写入 Markdown 文件。`Note.content` 保留兼容意义，不能把它当成 storage_v2 下唯一正文来源。
+storage_v2 下，笔记分页元数据由存储层的 `StorageV2NotePage` 表达，当前分页正文写入 Markdown 文件，历史修订正文写入 SHA-256 blob。`Note.content` 保留兼容意义，不能把它当成 storage_v2 下唯一正文来源。内容哈希修订必须解析为已加载正文或显式缺失状态，不能静默返回空字符串。
 
 ## TodoList 与 TodoItem
 
@@ -274,3 +282,13 @@ storage_v2 的数据库行、笔记分页和资源注册表定义在 `lib/servic
 | `RoleplayMessage` | 附件兼容旧字段 `images`。 |
 
 新增字段时应优先提供默认值或 fallback，而不是强制旧 JSON 必须包含新字段。
+# Plugin Review Metadata
+
+`InstalledPlugin.needsReview` records that third-party executable content arrived from another device and still requires explicit local review. `InstalledPlugin.syncOriginScope` records the exact cloud-account or LAN scope that created the local installation. A validated package tombstone may remove only an installation with the same scope provenance; missing or legacy provenance fails closed. `syncedOrigin` remains serialization compatibility metadata and is not sufficient to authorize deletion. None of these fields grants permissions or enables capabilities.
+## LAN Models
+
+- `LanPeer` stores the trusted Ed25519 device identity, pinned TLS SPKI,
+  display metadata, trust time, acknowledgement metadata, and revocation state.
+- `LanPairingSession` stores a short-lived, atomically consumed pairing nonce.
+- `LanPairingPayload` is the versioned QR contract containing device ID/public
+  key, signed SPKI binding, addresses, port, expiry, and one-time nonce.

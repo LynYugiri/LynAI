@@ -26,6 +26,12 @@ class Message {
   /// 消息时间戳。
   final DateTime timestamp;
 
+  /// Mutable content revision. Legacy messages start at revision 1.
+  final int revision;
+
+  /// Last content edit time. Legacy messages fall back to [timestamp].
+  final DateTime updatedAt;
+
   /// 创建一个消息实例。
   Message({
     required this.id,
@@ -35,7 +41,9 @@ class Message {
     this.thinkingContent,
     this.agentTrace,
     required this.timestamp,
-  });
+    this.revision = 1,
+    DateTime? updatedAt,
+  }) : updatedAt = updatedAt ?? timestamp;
 
   /// 从 JSON Map 创建 Message 实例
   factory Message.fromJson(Map<String, dynamic> json) {
@@ -55,6 +63,10 @@ class Message {
             )
           : null,
       timestamp: DateTime.parse(json['timestamp'] as String),
+      revision: (json['revision'] as num?)?.toInt() ?? 1,
+      updatedAt:
+          DateTime.tryParse(json['updatedAt']?.toString() ?? '') ??
+          DateTime.parse(json['timestamp'] as String),
     );
   }
 
@@ -70,9 +82,36 @@ class Message {
       if (agentTrace != null && agentTrace!.events.isNotEmpty)
         'agentTrace': agentTrace!.toJson(),
       'timestamp': timestamp.toIso8601String(),
+      'revision': revision,
+      'updatedAt': updatedAt.toIso8601String(),
     };
   }
+
+  Message copyWith({
+    String? content,
+    List<MessageImage>? images,
+    Object? thinkingContent = _messageSentinel,
+    AgentTrace? agentTrace,
+    int? revision,
+    DateTime? updatedAt,
+  }) {
+    return Message(
+      id: id,
+      role: role,
+      content: content ?? this.content,
+      images: images ?? this.images,
+      thinkingContent: identical(thinkingContent, _messageSentinel)
+          ? this.thinkingContent
+          : thinkingContent as String?,
+      agentTrace: agentTrace ?? this.agentTrace,
+      timestamp: timestamp,
+      revision: revision ?? this.revision,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
 }
+
+const _messageSentinel = Object();
 
 /// 消息附带的图片或文件元数据。
 ///

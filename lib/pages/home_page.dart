@@ -14,13 +14,7 @@ import 'settings_page.dart';
 /// 顺序固定为 功能 → 插件市场 → 对话 → 社区 → 设置，索引即 [AppTab.index]。
 /// 把索引从散落的魔法数字抽出来，避免 home_page 内部以及外部调用方
 /// （如 deep link、初始化参数）出现 `_currentIndex == 1` 这类难以维护的硬编码。
-enum AppTab {
-  feature,
-  market,
-  chat,
-  community,
-  settings,
-}
+enum AppTab { feature, market, chat, community, settings }
 
 /// 将 [AppTab] 映射为底部导航 [NavigationDestination] 的展示数据。
 class _TabSpec {
@@ -47,7 +41,11 @@ class HomePage extends StatefulWidget {
   final AppTab initialTab;
   final String? conversationId;
 
-  const HomePage({super.key, this.initialTab = AppTab.chat, this.conversationId});
+  const HomePage({
+    super.key,
+    this.initialTab = AppTab.chat,
+    this.conversationId,
+  });
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -156,7 +154,8 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    if (_currentTab == AppTab.feature && (_featureBackHandler?.call() ?? false)) {
+    if (_currentTab == AppTab.feature &&
+        (_featureBackHandler?.call() ?? false)) {
       return;
     }
 

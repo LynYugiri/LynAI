@@ -1,9 +1,16 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:lynai/models/account.dart';
 import 'package:lynai/providers/account_provider.dart';
 import 'package:lynai/services/account_service.dart';
+import 'package:lynai/services/backend_client.dart';
+import 'package:lynai/services/remote_account_service.dart';
+import 'package:lynai/services/secret_store.dart';
 
 void main() {
   setUp(() async {
@@ -20,7 +27,11 @@ void main() {
     });
 
     test('login sets user and notifies listeners', () async {
-      final provider = AccountProvider(service: _MockAccountService());
+      var enrollmentCalls = 0;
+      final provider = AccountProvider(
+        service: _MockAccountService(),
+        afterAuthenticated: () async => enrollmentCalls++,
+      );
       var notifyCount = 0;
       provider.addListener(() => notifyCount++);
 
@@ -32,6 +43,7 @@ void main() {
       expect(provider.user?.displayName, 'TestUser');
       expect(provider.loading, isFalse);
       expect(provider.error, isNull);
+      expect(enrollmentCalls, 1);
       expect(notifyCount, greaterThanOrEqualTo(2));
     });
 
@@ -60,6 +72,80 @@ void main() {
       expect(provider.user?.displayName, 'Alice');
     });
 
+    test('logout invalidates an in-flight login', () async {
+      final service = _DelayedAccountService();
+      final provider = AccountProvider(service: service);
+
+      final login = provider.login('13800001111', 'password');
+      await service.loginStarted.future;
+      await provider.logout();
+      service.loginResult.complete(
+        const AuthSession(
+          user: AccountUser(
+            id: 'late',
+            phone: '13800001111',
+            displayName: 'Late',
+          ),
+          token: AuthToken(accessToken: 'late-access'),
+        ),
+      );
+
+      expect(await login, isFalse);
+      expect(provider.user, isNull);
+      expect(provider.loading, isFalse);
+    });
+
+    test(
+      'login invalidated during session callback does not continue',
+      () async {
+        final callbackStarted = Completer<void>();
+        final releaseCallback = Completer<void>();
+        var afterAuthenticatedCalls = 0;
+        late AccountProvider provider;
+        provider = AccountProvider(
+          service: _MockAccountService(),
+          onSessionChanged: (user) async {
+            if (user == null) return;
+            callbackStarted.complete();
+            await releaseCallback.future;
+          },
+          afterAuthenticated: () async => afterAuthenticatedCalls++,
+        );
+
+        final login = provider.login('13800001111', 'password');
+        await callbackStarted.future;
+        await provider.logout();
+        releaseCallback.complete();
+
+        expect(await login, isFalse);
+        expect(afterAuthenticatedCalls, 0);
+        expect(provider.user, isNull);
+      },
+    );
+
+    test(
+      'login invalidated during authenticated callback reports failure',
+      () async {
+        final callbackStarted = Completer<void>();
+        final releaseCallback = Completer<void>();
+        final provider = AccountProvider(
+          service: _MockAccountService(),
+          afterAuthenticated: () async {
+            callbackStarted.complete();
+            await releaseCallback.future;
+          },
+        );
+
+        final login = provider.login('13800001111', 'password');
+        await callbackStarted.future;
+        await provider.logout();
+        releaseCallback.complete();
+
+        expect(await login, isFalse);
+        expect(provider.user, isNull);
+      },
+    );
+
     test('clearError clears error and notifies', () async {
       final provider = AccountProvider(service: _ThrowingAccountService());
       await provider.login('user', 'pass');
@@ -75,6 +161,360 @@ void main() {
 
       expect(success, isFalse);
       expect(provider.error, contains('未连接后端'));
+    });
+  });
+
+  group('remote account session', () {
+    test('refresh persists the new token pair', () async {
+      final client = BackendClient(
+        client: _AccountClient((request) async {
+          if (request.url.path == '/auth/login') {
+            return _jsonResponse(200, _sessionJson());
+          }
+          if (request.url.path == '/auth/refresh') {
+            return _jsonResponse(200, {
+              'token': {
+                'accessToken': 'refreshed-access',
+                'refreshToken': 'refreshed-refresh',
+              },
+            });
+          }
+          return _jsonResponse(401, {'error': 'expired'});
+        }),
+      )..configure('http://localhost:8080');
+      final secrets = InMemorySecretStore();
+      final provider = AccountProvider(backend: client, secretStore: secrets);
+      expect(await provider.login('13800001111', 'password'), isTrue);
+
+      expect((await client.get('/protected')).statusCode, 401);
+
+      final stored =
+          jsonDecode(
+                (await SharedPreferences.getInstance()).getString(
+                  RemoteAccountService.sessionKeyForOrigin(
+                    client.backendOrigin,
+                  ),
+                )!,
+              )
+              as Map<String, dynamic>;
+      expect(stored['user']['id'], '1');
+      expect(stored, isNot(contains('token')));
+      expect(
+        await secrets.read(
+          RemoteAccountService.accessTokenKeyForOrigin(client.backendOrigin),
+        ),
+        'refreshed-access',
+      );
+      expect(
+        await secrets.read(
+          RemoteAccountService.refreshTokenKeyForOrigin(client.backendOrigin),
+        ),
+        'refreshed-refresh',
+      );
+      expect(provider.isLoggedIn, isTrue);
+      client.dispose();
+    });
+
+    test(
+      'failed refresh clears tokens, stored session, and provider user',
+      () async {
+        final client = BackendClient(
+          client: _AccountClient((request) async {
+            if (request.url.path == '/auth/login') {
+              return _jsonResponse(200, _sessionJson());
+            }
+            if (request.url.path == '/auth/refresh') {
+              return _jsonResponse(401, {'error': 'refresh expired'});
+            }
+            return _jsonResponse(401, {'error': 'expired'});
+          }),
+        )..configure('http://localhost:8080');
+        final secrets = InMemorySecretStore();
+        final provider = AccountProvider(backend: client, secretStore: secrets);
+        expect(await provider.login('13800001111', 'password'), isTrue);
+
+        expect((await client.get('/protected')).statusCode, 401);
+
+        expect(client.accessToken, isNull);
+        expect(client.refreshToken, isNull);
+        expect(provider.isLoggedIn, isFalse);
+        expect(
+          (await SharedPreferences.getInstance()).getString(
+            RemoteAccountService.sessionKeyForOrigin(client.backendOrigin),
+          ),
+          isNull,
+        );
+        expect(
+          await secrets.read(
+            RemoteAccountService.accessTokenKeyForOrigin(client.backendOrigin),
+          ),
+          isNull,
+        );
+        expect(
+          await secrets.read(
+            RemoteAccountService.refreshTokenKeyForOrigin(client.backendOrigin),
+          ),
+          isNull,
+        );
+        client.dispose();
+      },
+    );
+
+    test(
+      'legacy SharedPreferences token pair migrates to SecretStore',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          'lynai_account_session': jsonEncode({
+            'user': {
+              'id': '1',
+              'phone': '13800001111',
+              'displayName': 'TestUser',
+            },
+            'token': {
+              'accessToken': 'legacy-access',
+              'refreshToken': 'legacy-refresh',
+              'expiresAt': 1234,
+            },
+          }),
+        });
+        final client = BackendClient()
+          ..configure(BackendClient.defaultBackendUrl);
+        final secrets = InMemorySecretStore();
+        final service = RemoteAccountService(client, secretStore: secrets);
+
+        final session = await service.loadStoredSession();
+
+        expect(session?.user.displayName, 'TestUser');
+        expect(session?.token.accessToken, 'legacy-access');
+        expect(session?.token.refreshToken, 'legacy-refresh');
+        expect(session?.token.expiresAt, 1234);
+        expect(
+          await secrets.read(
+            RemoteAccountService.accessTokenKeyForOrigin(client.backendOrigin),
+          ),
+          'legacy-access',
+        );
+        final metadata =
+            jsonDecode(
+                  (await SharedPreferences.getInstance()).getString(
+                    RemoteAccountService.sessionKeyForOrigin(
+                      client.backendOrigin,
+                    ),
+                  )!,
+                )
+                as Map<String, dynamic>;
+        expect(metadata['user']['displayName'], 'TestUser');
+        expect(metadata['expiresAt'], 1234);
+        expect(metadata, isNot(contains('token')));
+        client.dispose();
+      },
+    );
+
+    test('corrupt partial stored session is cleared', () async {
+      SharedPreferences.setMockInitialValues({
+        'lynai_account_session': jsonEncode({
+          'user': {
+            'id': '1',
+            'phone': '13800001111',
+            'displayName': 'TestUser',
+          },
+        }),
+      });
+      final client = BackendClient()
+        ..configure(BackendClient.defaultBackendUrl);
+      final secrets = InMemorySecretStore({
+        RemoteAccountService.refreshTokenSecretKey: 'orphan-refresh',
+      });
+      final service = RemoteAccountService(client, secretStore: secrets);
+
+      expect(await service.loadStoredSession(), isNull);
+      expect(
+        (await SharedPreferences.getInstance()).getString(
+          'lynai_account_session',
+        ),
+        isNull,
+      );
+      expect(
+        await secrets.read(RemoteAccountService.refreshTokenSecretKey),
+        isNull,
+      );
+      client.dispose();
+    });
+
+    test('legacy credentials are not adopted by an unrelated origin', () async {
+      SharedPreferences.setMockInitialValues({
+        'lynai_account_session': jsonEncode({
+          'user': {
+            'id': '1',
+            'phone': '13800001111',
+            'displayName': 'TestUser',
+          },
+          'token': {
+            'accessToken': 'legacy-access',
+            'refreshToken': 'legacy-refresh',
+          },
+        }),
+      });
+      final client = BackendClient()..configure('https://other.example.com');
+      final secrets = InMemorySecretStore();
+      final service = RemoteAccountService(client, secretStore: secrets);
+
+      expect(await service.loadStoredSession(), isNull);
+      expect(client.accessToken, isNull);
+      expect(
+        (await SharedPreferences.getInstance()).getString(
+          'lynai_account_session',
+        ),
+        isNotNull,
+      );
+      client.dispose();
+    });
+
+    test('sessions are isolated by canonical backend origin', () async {
+      final client = BackendClient(
+        client: _AccountClient((request) async {
+          if (request.url.path.endsWith('/auth/login')) {
+            return _jsonResponse(200, _sessionJson());
+          }
+          return _jsonResponse(404, {'error': 'not found'});
+        }),
+      )..configure('https://one.example.com/api');
+      final secrets = InMemorySecretStore();
+      final service = RemoteAccountService(client, secretStore: secrets);
+      await service.login(username: '13800001111', password: 'password');
+
+      client.configure('https://two.example.com');
+
+      expect(await service.loadStoredSession(), isNull);
+      expect(client.accessToken, isNull);
+      expect(
+        await secrets.read(
+          RemoteAccountService.accessTokenKeyForOrigin(
+            'https://one.example.com',
+          ),
+        ),
+        'initial-access',
+      );
+      client.dispose();
+    });
+
+    test('logout prevents an in-flight remote login from persisting', () async {
+      final loginResponse = Completer<http.StreamedResponse>();
+      final client = BackendClient(
+        client: _AccountClient((request) async {
+          if (request.url.path.endsWith('/auth/login')) {
+            return loginResponse.future;
+          }
+          return _jsonResponse(404, {'error': 'not found'});
+        }),
+      )..configure('https://example.com');
+      final secrets = InMemorySecretStore();
+      final service = RemoteAccountService(client, secretStore: secrets);
+
+      final login = service.login(username: 'user', password: 'password');
+      await service.logout();
+      loginResponse.complete(_jsonResponse(200, _sessionJson()));
+
+      await expectLater(login, throwsA(isA<AccountUnavailableException>()));
+      expect(client.accessToken, isNull);
+      expect(
+        await secrets.read(
+          RemoteAccountService.accessTokenKeyForOrigin(client.backendOrigin),
+        ),
+        isNull,
+      );
+      expect(
+        (await SharedPreferences.getInstance()).getString(
+          RemoteAccountService.sessionKeyForOrigin(client.backendOrigin),
+        ),
+        isNull,
+      );
+      client.dispose();
+    });
+
+    test(
+      'backend switch prevents an in-flight login from persisting',
+      () async {
+        final loginResponse = Completer<http.StreamedResponse>();
+        final client = BackendClient(
+          client: _AccountClient((request) async {
+            if (request.url.path.endsWith('/auth/login')) {
+              return loginResponse.future;
+            }
+            return _jsonResponse(404, {'error': 'not found'});
+          }),
+        )..configure('https://old.example.com');
+        final oldOrigin = client.backendOrigin;
+        final secrets = InMemorySecretStore();
+        final service = RemoteAccountService(client, secretStore: secrets);
+
+        final login = service.login(username: 'user', password: 'password');
+        client.configure('https://new.example.com');
+        loginResponse.complete(_jsonResponse(200, _sessionJson()));
+
+        await expectLater(login, throwsA(isA<AccountUnavailableException>()));
+        expect(client.accessToken, isNull);
+        expect(
+          await secrets.read(
+            RemoteAccountService.accessTokenKeyForOrigin(oldOrigin),
+          ),
+          isNull,
+        );
+        expect(
+          (await SharedPreferences.getInstance()).getString(
+            RemoteAccountService.sessionKeyForOrigin(oldOrigin),
+          ),
+          isNull,
+        );
+        client.dispose();
+      },
+    );
+
+    test('logout is local-first and queues transient revocation', () async {
+      final revokeResponse = Completer<http.StreamedResponse>();
+      final requests = <Uri>[];
+      final client = BackendClient(
+        client: _AccountClient((request) async {
+          requests.add(request.url);
+          if (request.url.path.endsWith('/auth/login')) {
+            return _jsonResponse(200, _sessionJson());
+          }
+          if (request.url.path.endsWith('/auth/revoke')) {
+            return revokeResponse.future;
+          }
+          return _jsonResponse(404, {'error': 'not found'});
+        }),
+      )..configure('https://example.com/api');
+      final secrets = InMemorySecretStore();
+      final service = RemoteAccountService(client, secretStore: secrets);
+      await service.login(username: '13800001111', password: 'password');
+
+      await service.logout().timeout(const Duration(seconds: 1));
+
+      expect(client.accessToken, isNull);
+      expect(client.refreshToken, isNull);
+      expect(
+        await secrets.read(
+          RemoteAccountService.accessTokenKeyForOrigin(client.backendOrigin),
+        ),
+        isNull,
+      );
+      expect(
+        await secrets.read(RemoteAccountService.pendingRevocationsSecretKey),
+        contains('initial-refresh'),
+      );
+      expect(
+        requests.where((uri) => uri.path.endsWith('/auth/revoke')),
+        hasLength(1),
+      );
+
+      revokeResponse.complete(_jsonResponse(503, {'error': 'unavailable'}));
+      await service.retryPendingRevocations();
+      expect(
+        await secrets.read(RemoteAccountService.pendingRevocationsSecretKey),
+        contains('initial-refresh'),
+      );
+      client.dispose();
     });
   });
 
@@ -112,6 +552,31 @@ void main() {
       expect(token.expiresAt, isNull);
     });
   });
+}
+
+Map<String, dynamic> _sessionJson() => {
+  'user': {'id': '1', 'phone': '13800001111', 'displayName': 'TestUser'},
+  'token': {'accessToken': 'initial-access', 'refreshToken': 'initial-refresh'},
+};
+
+http.StreamedResponse _jsonResponse(int statusCode, Map<String, dynamic> body) {
+  final encoded = utf8.encode(jsonEncode(body));
+  return http.StreamedResponse(
+    Stream.value(encoded),
+    statusCode,
+    contentLength: encoded.length,
+    headers: {'content-type': 'application/json'},
+  );
+}
+
+class _AccountClient extends http.BaseClient {
+  _AccountClient(this._send);
+
+  final Future<http.StreamedResponse> Function(http.BaseRequest request) _send;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) =>
+      _send(request);
 }
 
 /// Mock service that returns fake sessions for testing.
@@ -183,6 +648,39 @@ class _ThrowingAccountService implements AccountService {
   }) async {
     throw const AccountUnavailableException('测试错误');
   }
+
+  @override
+  Future<void> logout() async {}
+
+  @override
+  Future<AccountUser?> getCurrentUser() async => null;
+
+  @override
+  Future<AuthSession?> loadStoredSession() async => null;
+}
+
+class _DelayedAccountService implements AccountService {
+  final loginStarted = Completer<void>();
+  final loginResult = Completer<AuthSession>();
+
+  @override
+  bool get isBackendConnected => true;
+
+  @override
+  Future<AuthSession> login({
+    required String username,
+    required String password,
+  }) {
+    if (!loginStarted.isCompleted) loginStarted.complete();
+    return loginResult.future;
+  }
+
+  @override
+  Future<AuthSession> register({
+    required String username,
+    required String password,
+    String? displayName,
+  }) => throw UnimplementedError();
 
   @override
   Future<void> logout() async {}

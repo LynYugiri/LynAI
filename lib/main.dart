@@ -20,7 +20,18 @@ import 'pages/changelog_page.dart';
 import 'services/floating_assistant_service.dart';
 import 'services/storage_v2_upgrade_service.dart';
 import 'services/backend_client.dart';
+import 'services/device_identity_service.dart';
+import 'services/device_registration_service.dart';
+import 'services/secret_store.dart';
+import 'services/storage_v2_service.dart';
 import 'providers/sync_provider.dart';
+import 'providers/lan_sync_provider.dart';
+import 'repositories/lan_peer_repository.dart';
+import 'services/lan_mdns_service.dart';
+import 'services/lan_sync_coordinator.dart';
+import 'services/lan_sync_storage.dart';
+import 'services/lan_tls_certificate_service.dart';
+import 'services/lan_secret_transfer_service.dart';
 import 'utils/changelog_parser.dart';
 import 'utils/open_source_licenses.dart';
 import 'widgets/changelog_dialog.dart';
@@ -37,20 +48,216 @@ Future<void> main() async {
   runApp(
     MultiProvider(
       providers: [
+        Provider(
+          create: (_) => StorageV2Service(),
+          dispose: (_, storage) => unawaited(storage.close()),
+        ),
+        Provider<SecretStore>(create: (_) => FlutterSecureSecretStore()),
+        Provider(
+          create: (ctx) =>
+              DeviceIdentityService(secretStore: ctx.read<SecretStore>()),
+        ),
+        Provider(
+          create: (ctx) =>
+              LanPeerRepository(secretStore: ctx.read<SecretStore>()),
+        ),
+        Provider(create: (_) => LanMdnsService()),
+        Provider(
+          create: (ctx) => LanTlsCertificateService(
+            secretStore: ctx.read<SecretStore>(),
+            identityService: ctx.read<DeviceIdentityService>(),
+          ),
+        ),
         ChangeNotifierProvider(create: (_) => BackendClient()),
-        ChangeNotifierProvider(create: (_) => ConversationProvider()),
-        ChangeNotifierProvider(create: (_) => FeatureProvider()),
-        ChangeNotifierProvider(create: (_) => ModelConfigProvider()),
-        ChangeNotifierProvider(create: (_) => PluginProvider()),
-        ChangeNotifierProvider(
-          create: (ctx) => AccountProvider(backend: ctx.read<BackendClient>()),
+        Provider(
+          create: (ctx) => DeviceRegistrationService(
+            backend: ctx.read<BackendClient>(),
+            identity: ctx.read<DeviceIdentityService>(),
+          ),
         ),
         ChangeNotifierProvider(
-          create: (ctx) => SyncProvider(backend: ctx.read<BackendClient>()),
+          create: (ctx) =>
+              ConversationProvider(storageV2: ctx.read<StorageV2Service>()),
         ),
-        ChangeNotifierProvider(create: (_) => RecycleBinProvider()),
-        ChangeNotifierProvider(create: (_) => RoleplayProvider()),
-        ChangeNotifierProvider(create: (_) => SettingsProvider()),
+        ChangeNotifierProvider(
+          create: (ctx) => FeatureProvider(
+            storageV2: ctx.read<StorageV2Service>(),
+            authorDeviceId: () async =>
+                (await ctx.read<DeviceIdentityService>().initialize()).deviceId,
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (ctx) => ModelConfigProvider(
+            storageV2: ctx.read<StorageV2Service>(),
+            secretStore: ctx.read<SecretStore>(),
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (ctx) =>
+              PluginProvider(storageV2: ctx.read<StorageV2Service>()),
+        ),
+        ChangeNotifierProvider(
+          create: (ctx) =>
+              RecycleBinProvider(storageV2: ctx.read<StorageV2Service>()),
+        ),
+        ChangeNotifierProvider(
+          create: (ctx) =>
+              RoleplayProvider(storageV2: ctx.read<StorageV2Service>()),
+        ),
+        ChangeNotifierProvider(
+          create: (ctx) =>
+              SettingsProvider(storageV2: ctx.read<StorageV2Service>()),
+        ),
+        ChangeNotifierProvider(
+          create: (ctx) => SyncProvider(
+            backend: ctx.read<BackendClient>(),
+            identity: ctx.read<DeviceIdentityService>(),
+            registration: ctx.read<DeviceRegistrationService>(),
+            readPluginBlob: (hash) =>
+                ctx.read<PluginProvider>().readSyncBlob(hash),
+            hasPluginBlob: (hash) =>
+                ctx.read<PluginProvider>().hasSyncBlob(hash),
+            installPluginBlob: (hash, bytes) =>
+                ctx.read<PluginProvider>().installSyncBlob(hash, bytes),
+            storage: StorageV2SyncStorage(ctx.read<StorageV2Service>()),
+            beforeRemoteApply: () async {
+              final conversations = ctx.read<ConversationProvider>();
+              final features = ctx.read<FeatureProvider>();
+              final roleplay = ctx.read<RoleplayProvider>();
+              final settings = ctx.read<SettingsProvider>();
+              final models = ctx.read<ModelConfigProvider>();
+              final plugins = ctx.read<PluginProvider>();
+              await conversations.flushPendingSaves();
+              await features.flushPendingSaves();
+              await roleplay.flushPendingSaves();
+              await settings.flushPendingSaves();
+              await models.flushPendingSaves();
+              await plugins.syncAllPlugins();
+            },
+            onRemoteApplied: () async {
+              final conversations = ctx.read<ConversationProvider>();
+              final features = ctx.read<FeatureProvider>();
+              final roleplay = ctx.read<RoleplayProvider>();
+              final recycleBin = ctx.read<RecycleBinProvider>();
+              final settings = ctx.read<SettingsProvider>();
+              final models = ctx.read<ModelConfigProvider>();
+              final backend = ctx.read<BackendClient>();
+              final plugins = ctx.read<PluginProvider>();
+              final scope = ctx.read<SyncProvider>().scope;
+              if (scope != null) await plugins.applyRemoteSync(scope);
+              await Future.wait([
+                conversations.loadConversations(),
+                features.load(),
+                roleplay.loadSessions(),
+                recycleBin.load(),
+                settings.loadSettings(),
+                models.loadModels(),
+              ]);
+              await models.syncLynaiManagedProvider(backend);
+              settings.repairMediaModelSelections(models.models);
+              conversations.repairModelReferences(models.models);
+              roleplay.repairModelReferences(models.models);
+            },
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (ctx) {
+            Future<void> beforeRemoteApply() async {
+              final conversations = ctx.read<ConversationProvider>();
+              final features = ctx.read<FeatureProvider>();
+              final roleplay = ctx.read<RoleplayProvider>();
+              final settings = ctx.read<SettingsProvider>();
+              final models = ctx.read<ModelConfigProvider>();
+              final plugins = ctx.read<PluginProvider>();
+              await conversations.flushPendingSaves();
+              await features.flushPendingSaves();
+              await roleplay.flushPendingSaves();
+              await settings.flushPendingSaves();
+              await models.flushPendingSaves();
+              await plugins.syncAllPlugins();
+            }
+
+            Future<void> onRemoteApplied() async {
+              final conversations = ctx.read<ConversationProvider>();
+              final features = ctx.read<FeatureProvider>();
+              final roleplay = ctx.read<RoleplayProvider>();
+              final recycleBin = ctx.read<RecycleBinProvider>();
+              final settings = ctx.read<SettingsProvider>();
+              final models = ctx.read<ModelConfigProvider>();
+              final backend = ctx.read<BackendClient>();
+              final plugins = ctx.read<PluginProvider>();
+              await plugins.applyRemoteSync(LanSyncStorage.scope);
+              await Future.wait([
+                conversations.loadConversations(),
+                features.load(),
+                roleplay.loadSessions(),
+                recycleBin.load(),
+                settings.loadSettings(),
+                models.loadModels(),
+              ]);
+              await models.syncLynaiManagedProvider(backend);
+              settings.repairMediaModelSelections(models.models);
+              conversations.repairModelReferences(models.models);
+              roleplay.repairModelReferences(models.models);
+            }
+
+            final mdns = ctx.read<LanMdnsService>();
+            final peers = ctx.read<LanPeerRepository>();
+            final coordinator = LanSyncCoordinator(
+              identityService: ctx.read<DeviceIdentityService>(),
+              peerRepository: peers,
+              certificateService: ctx.read<LanTlsCertificateService>(),
+              mdnsService: mdns,
+              syncStorage: LanSyncStorage(
+                storage: ctx.read<StorageV2Service>(),
+                readPluginBlob: (hash) =>
+                    ctx.read<PluginProvider>().readSyncBlob(hash),
+                hasPluginBlob: (hash) =>
+                    ctx.read<PluginProvider>().hasSyncBlob(hash),
+                installPluginBlob: (hash, bytes) =>
+                    ctx.read<PluginProvider>().installSyncBlob(hash, bytes),
+              ),
+              secretTransferService: LanSecretTransferService(
+                ctx.read<SecretStore>(),
+                onImported: () async {
+                  final models = ctx.read<ModelConfigProvider>();
+                  await models.flushPendingSaves();
+                  await models.loadModels();
+                },
+              ),
+              readModels: () => ctx.read<ModelConfigProvider>().models,
+              confirmPairing: (_, _) async => false,
+              beforeRemoteApply: beforeRemoteApply,
+              onRemoteApplied: onRemoteApplied,
+            );
+            return LanSyncProvider(
+              coordinator: coordinator,
+              peerRepository: peers,
+              mdnsService: mdns,
+            );
+          },
+        ),
+        ChangeNotifierProvider(
+          create: (ctx) => AccountProvider(
+            backend: ctx.read<BackendClient>(),
+            secretStore: ctx.read<SecretStore>(),
+            afterAuthenticated: () async {
+              final enrolled = await ctx
+                  .read<DeviceRegistrationService>()
+                  .ensureEnrolled();
+              if (!enrolled) throw StateError('设备注册失败，云同步不可用');
+            },
+            onSessionChanged: (user) async {
+              final sync = ctx.read<SyncProvider>();
+              if (user == null) {
+                await sync.unbind();
+                return;
+              }
+              await sync.bindScope(user.id);
+              await sync.autoDownload();
+            },
+          ),
+        ),
       ],
       child: const LynAIApp(),
     ),
@@ -91,6 +298,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   ConversationProvider? _conversationProvider;
   SettingsProvider? _settingsProvider;
   SyncProvider? _syncProvider;
+  AccountProvider? _accountProvider;
   final _navigatorKey = GlobalKey<NavigatorState>();
 
   @override
@@ -107,6 +315,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
     _conversationProvider ??= context.read<ConversationProvider>();
     _settingsProvider ??= context.read<SettingsProvider>();
     _syncProvider ??= context.read<SyncProvider>();
+    _accountProvider ??= context.read<AccountProvider>();
     if (_settingsProvider != null) {
       FloatingAssistantService.instance.start(
         settings: _settingsProvider!,
@@ -121,6 +330,9 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _accountProvider?.retryPendingRevocations();
+    }
     if (state
         case AppLifecycleState.inactive ||
             AppLifecycleState.paused ||
@@ -142,7 +354,6 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     FloatingAssistantService.instance.dispose();
-    unawaited(_flushCriticalSaves());
     super.dispose();
   }
 
@@ -166,8 +377,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       final recycleBinProvider = context.read<RecycleBinProvider>();
       final roleplayProvider = context.read<RoleplayProvider>();
       final backendClient = context.read<BackendClient>();
-      final syncProvider = context.read<SyncProvider>();
-
+      final deviceIdentityService = context.read<DeviceIdentityService>();
       await StorageV2UpgradeService().ensureReady();
 
       await Future.wait([
@@ -192,14 +402,9 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       // explicitly disconnected the backend.
       backendClient.configure(settingsProvider.settings.backendUrl ?? '');
 
+      await deviceIdentityService.initialize();
       await accountProvider.load();
       await modelProvider.syncLynaiManagedProvider(backendClient);
-
-      // Load sync state and auto-download if logged in.
-      await syncProvider.loadLastSeq();
-      if (backendClient.isConnected && backendClient.accessToken != null) {
-        unawaited(syncProvider.autoDownload());
-      }
 
       await _importBuiltInPlugins(pluginProvider);
 

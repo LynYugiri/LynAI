@@ -696,6 +696,8 @@ class RoleplayProvider extends ChangeNotifier {
         });
   }
 
+  Future<void> flushPendingSaves() => _saveQueue;
+
   String _titleFromScenario(String scenario) {
     final clean = scenario.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
     if (clean.isEmpty) return '情景演绎';

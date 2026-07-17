@@ -27,8 +27,8 @@ abstract class AccountService {
 
   /// 加载本地持久化的会话状态（启动时调用）。
   ///
-  /// 返回 null 表示本地无保存的会话。实现应负责把 token 和 user
-  /// 从 SharedPreferences 等持久化存储中读出。
+  /// 返回 null 表示本地无保存的会话。实现应从安全存储读取 token，
+  /// 并从普通持久化存储读取非敏感用户元数据。
   Future<AuthSession?> loadStoredSession();
 
   /// 当前服务是否已连接到真实后端。

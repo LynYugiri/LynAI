@@ -3,6 +3,7 @@ import 'package:lynai/models/app_settings.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/plugin_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
+import 'package:lynai/services/floating_assistant_service.dart';
 import 'package:lynai/services/floating_chat_session_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -244,6 +245,16 @@ void main() {
         await controller.dispose();
       }
     });
+  });
+
+  test('floating assistant dispose cancels pending position persist', () {
+    final service = FloatingAssistantService.instance;
+    service.persistPositionForTest(bubbleX: 10, bubbleY: 20);
+    expect(service.hasPendingPositionPersistForTest, isTrue);
+
+    service.dispose();
+
+    expect(service.hasPendingPositionPersistForTest, isFalse);
   });
 
   group('normalizeOcrBlock', () {

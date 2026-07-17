@@ -55,19 +55,31 @@ class TodoItem {
   final String id;
   final String text;
   final bool done;
+  final DateTime? updatedAt;
 
-  const TodoItem({required this.id, required this.text, this.done = false});
+  const TodoItem({
+    required this.id,
+    required this.text,
+    this.done = false,
+    this.updatedAt,
+  });
 
   factory TodoItem.fromJson(Map<String, dynamic> json) {
     return TodoItem(
       id: json['id'] as String,
       text: json['text'] as String? ?? '',
       done: json['done'] as bool? ?? false,
+      updatedAt: DateTime.tryParse(json['updatedAt']?.toString() ?? ''),
     );
   }
 
   Map<String, dynamic> toJson() {
-    return {'id': id, 'text': text, 'done': done};
+    return {
+      'id': id,
+      'text': text,
+      'done': done,
+      if (updatedAt != null) 'updatedAt': updatedAt!.toIso8601String(),
+    };
   }
 
   TodoItem copyWith({String? id, String? text, bool? done}) {
@@ -75,6 +87,7 @@ class TodoItem {
       id: id ?? this.id,
       text: text ?? this.text,
       done: done ?? this.done,
+      updatedAt: DateTime.now(),
     );
   }
 }

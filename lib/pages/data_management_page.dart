@@ -17,8 +17,11 @@ import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/sync_provider.dart';
 import '../services/backup_service.dart';
+import '../services/backup_encryption.dart';
 import '../services/storage_v2_service.dart';
+import '../services/storage_v2_database.dart';
 import '../utils/file_picker_io_utils.dart';
+import '../widgets/merge_conflict_card.dart';
 
 /// 数据管理页面。
 ///
@@ -39,6 +42,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
   ImportMode _mode = ImportMode.merge;
   final Map<String, ImportConflictAction> _conflictActions = {};
   bool _busy = false;
+  bool _includeSecrets = false;
 
   BackupService _service(BuildContext context) {
     return BackupService(
@@ -93,6 +97,10 @@ class _DataManagementPageState extends State<DataManagementPage> {
             onSelectionChanged: (selection) {
               setState(() => _exportSelection = selection);
             },
+            includeSecrets: _includeSecrets,
+            onIncludeSecretsChanged: (value) {
+              setState(() => _includeSecrets = value);
+            },
             onExport: !_busy && exportSelection.sections.isNotEmpty
                 ? () => _export(exportSelection)
                 : null,
@@ -139,13 +147,27 @@ class _DataManagementPageState extends State<DataManagementPage> {
   Future<void> _export(BackupSelection selection) async {
     setState(() => _busy = true);
     try {
-      final bytes = await _service(context).exportZipBytes(selection);
-      final fileName = 'lynai-${_backupFileDate(DateTime.now())}.zip';
+      String? password;
+      if (_includeSecrets) {
+        password = await _requestPassword(confirm: true);
+        if (password == null) return;
+      }
+      if (!mounted) return;
+      final service = _service(context);
+      final bytes = _includeSecrets
+          ? await service.exportEncryptedBytes(
+              selection,
+              password: password!,
+              includeApiKeys: true,
+            )
+          : await service.exportZipBytes(selection);
+      final extension = _includeSecrets ? 'lynai-backup' : 'zip';
+      final fileName = 'lynai-${_backupFileDate(DateTime.now())}.$extension';
       final path = await saveBytesWithPicker(
         dialogTitle: '导出备份',
         fileName: fileName,
         type: FileType.custom,
-        allowedExtensions: ['zip'],
+        allowedExtensions: [extension],
         bytes: bytes,
       );
       if (path == null) return;
@@ -168,13 +190,19 @@ class _DataManagementPageState extends State<DataManagementPage> {
     try {
       final service = _service(context);
       final file = await pickSingleFilePayload(
-        dialogTitle: '选择备份 ZIP',
+        dialogTitle: '选择备份文件',
         type: FileType.custom,
-        allowedExtensions: ['zip'],
+        allowedExtensions: ['zip', 'lynai-backup'],
       );
       if (!mounted) return;
       if (file == null) return;
-      final archive = await service.readZipBytes(await file.readBytes());
+      final bytes = await file.readBytes();
+      String? password;
+      if (BackupEncryption.isEncrypted(bytes)) {
+        password = await _requestPassword();
+        if (password == null) return;
+      }
+      final archive = await service.readBackupBytes(bytes, password: password);
       if (!mounted) return;
       setState(() {
         _archive = archive;
@@ -266,6 +294,57 @@ class _DataManagementPageState extends State<DataManagementPage> {
     }
     await sync.manualSync();
   }
+
+  Future<String?> _requestPassword({bool confirm = false}) async {
+    final password = TextEditingController();
+    final confirmation = TextEditingController();
+    try {
+      return showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(confirm ? '设置备份密码' : '输入备份密码'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: password,
+                obscureText: true,
+                autofocus: true,
+                decoration: const InputDecoration(labelText: '密码'),
+              ),
+              if (confirm)
+                TextField(
+                  controller: confirmation,
+                  obscureText: true,
+                  decoration: const InputDecoration(labelText: '确认密码'),
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final value = password.text;
+                if (value.isEmpty ||
+                    (confirm && value != confirmation.text) ||
+                    value.length > BackupEncryption.maxPasswordBytes) {
+                  return;
+                }
+                Navigator.pop(context, value);
+              },
+              child: const Text('确定'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      password.dispose();
+      confirmation.dispose();
+    }
+  }
 }
 
 class _SyncCard extends StatelessWidget {
@@ -312,6 +391,34 @@ class _SyncCard extends StatelessWidget {
               '从服务端拉取增量并上传本地变更。',
               style: TextStyle(color: Theme.of(context).colorScheme.outline),
             ),
+            if (sync.conflicts.isNotEmpty) ...[
+              const Divider(height: 24),
+              Text(
+                '待处理同步冲突 (${sync.conflicts.length})',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              ...sync.conflicts.map(
+                (conflict) => MergeConflictCard(
+                  conflict: conflict.view,
+                  choices: [
+                    MergeConflictChoice(
+                      label: '保留本地',
+                      onSelected: () => sync.resolveConflict(
+                        conflict.seq,
+                        SyncConflictResolution.keepLocal,
+                      ),
+                    ),
+                    MergeConflictChoice(
+                      label: '使用云端',
+                      onSelected: () => sync.resolveConflict(
+                        conflict.seq,
+                        SyncConflictResolution.useRemote,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -344,7 +451,7 @@ class _InfoCard extends StatelessWidget {
             const SizedBox(width: 12),
             const Expanded(
               child: Text(
-                '备份文件可能包含 API Key、对话、笔记、日程和待办内容，请妥善保存。文件名格式为 lynai-日期.zip。',
+                '普通备份不包含 API Key。只有启用“加密并包含 API Key”时，密钥才会进入密码加密备份；设备私钥和登录令牌永不备份。',
               ),
             ),
           ],
@@ -362,12 +469,16 @@ class _ExportCard extends StatelessWidget {
     required this.selection,
     required this.busy,
     required this.onSelectionChanged,
+    required this.includeSecrets,
+    required this.onIncludeSecretsChanged,
     required this.onExport,
   });
 
   final BackupSelection selection;
   final bool busy;
   final ValueChanged<BackupSelection> onSelectionChanged;
+  final bool includeSecrets;
+  final ValueChanged<bool> onIncludeSecretsChanged;
   final VoidCallback? onExport;
 
   @override
@@ -397,12 +508,21 @@ class _ExportCard extends StatelessWidget {
               onChanged: onSelectionChanged,
             ),
             const SizedBox(height: 8),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: includeSecrets,
+              onChanged: busy ? null : onIncludeSecretsChanged,
+              title: const Text('加密并包含 API Key'),
+              subtitle: const Text(
+                '使用 Argon2id 和 XChaCha20-Poly1305；不会包含设备私钥或登录令牌。',
+              ),
+            ),
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
                 onPressed: onExport,
                 icon: const Icon(Icons.upload_file),
-                label: const Text('导出备份'),
+                label: Text(includeSecrets ? '导出加密备份' : '导出备份'),
               ),
             ),
           ],
@@ -968,36 +1088,17 @@ class _ConflictTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card.outlined(
-      margin: const EdgeInsets.symmetric(vertical: 6),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              conflict.title,
-              style: const TextStyle(fontWeight: FontWeight.w700),
+    return MergeConflictCard(
+      conflict: conflict.view,
+      choices: ImportConflictAction.values
+          .map(
+            (item) => MergeConflictChoice(
+              label: item.label,
+              selected: action == item,
+              onSelected: onChanged == null ? null : () => onChanged!(item),
             ),
-            const SizedBox(height: 4),
-            Text('本地：${conflict.localSummary}'),
-            Text('导入：${conflict.incomingSummary}'),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: ImportConflictAction.values.map((item) {
-                return ChoiceChip(
-                  label: Text(item.label),
-                  selected: action == item,
-                  onSelected: onChanged == null
-                      ? null
-                      : (_) => onChanged!(item),
-                );
-              }).toList(),
-            ),
-          ],
-        ),
-      ),
+          )
+          .toList(growable: false),
     );
   }
 }

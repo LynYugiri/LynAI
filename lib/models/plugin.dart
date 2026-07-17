@@ -650,6 +650,7 @@ class PluginManifest {
     }
     if (name.trim().isEmpty) return '插件缺少 name';
     if (entry.trim().isEmpty) return '插件缺少 entry';
+    if (!_isSafeRelativePluginPath(entry)) return '插件 entry 路径不安全: $entry';
     for (final tool in tools) {
       final error = tool.validate();
       if (error != null) return error;
@@ -757,6 +758,15 @@ class InstalledPlugin {
   /// 用户自定义显示名，仅影响 UI，不写回 plugin.json。
   final String? displayNameOverride;
 
+  /// 从其他设备恢复的第三方可执行内容是否仍需本机审查。
+  final bool needsReview;
+
+  /// 插件是否由同步内容在本机创建，用于安全处理远端卸载墓碑。
+  final bool syncedOrigin;
+
+  /// 创建当前本机安装的云端或局域网同步作用域。
+  final String? syncOriginScope;
+
   /// 创建一个已安装插件实例。
   const InstalledPlugin({
     required this.manifest,
@@ -769,6 +779,9 @@ class InstalledPlugin {
     this.enabledSkills = const [],
     this.loadError,
     this.displayNameOverride,
+    this.needsReview = false,
+    this.syncedOrigin = false,
+    this.syncOriginScope,
   });
 
   /// 快捷返回插件 id，等同于 manifest.id。
@@ -804,6 +817,9 @@ class InstalledPlugin {
     List<String>? enabledSkills,
     Object? loadError = _sentinel,
     Object? displayNameOverride = _sentinel,
+    bool? needsReview,
+    bool? syncedOrigin,
+    Object? syncOriginScope = _sentinel,
   }) {
     return InstalledPlugin(
       manifest: manifest ?? this.manifest,
@@ -820,6 +836,11 @@ class InstalledPlugin {
       displayNameOverride: identical(displayNameOverride, _sentinel)
           ? this.displayNameOverride
           : displayNameOverride as String?,
+      needsReview: needsReview ?? this.needsReview,
+      syncedOrigin: syncedOrigin ?? this.syncedOrigin,
+      syncOriginScope: identical(syncOriginScope, _sentinel)
+          ? this.syncOriginScope
+          : syncOriginScope as String?,
     );
   }
 
@@ -836,6 +857,10 @@ class InstalledPlugin {
     if (loadError != null) 'loadError': loadError,
     if (displayNameOverride != null && displayNameOverride!.trim().isNotEmpty)
       'displayNameOverride': displayNameOverride,
+    if (needsReview) 'needsReview': true,
+    if (syncedOrigin) 'syncedOrigin': true,
+    if (syncOriginScope != null && syncOriginScope!.isNotEmpty)
+      'syncOriginScope': syncOriginScope,
   };
 
   /// 从 JSON 数据创建 [InstalledPlugin] 实例。
@@ -874,6 +899,9 @@ class InstalledPlugin {
           manifest.skills.map((skill) => skill.name).toList(growable: false),
       loadError: json['loadError'] as String?,
       displayNameOverride: json['displayNameOverride'] as String?,
+      needsReview: json['needsReview'] as bool? ?? false,
+      syncedOrigin: json['syncedOrigin'] as bool? ?? false,
+      syncOriginScope: json['syncOriginScope'] as String?,
     );
   }
 

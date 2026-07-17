@@ -15,6 +15,7 @@ import 'background_page.dart';
 import 'api_models_page.dart';
 import 'data_management_page.dart';
 import 'floating_assistant_settings_page.dart';
+import 'lan_sync_page.dart';
 import 'plugin_capability_management_page.dart';
 import 'plugin_management_page.dart';
 import 'recycle_bin_page.dart';
@@ -159,6 +160,17 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           _buildItem(
             context,
+            Icons.phonelink_lock_outlined,
+            '局域网配对与同步',
+            '发现设备、扫码配对、同步、冲突与撤销',
+            Colors.blue,
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const LanSyncPage()),
+            ),
+          ),
+          _buildItem(
+            context,
             Icons.delete_sweep_outlined,
             '回收站',
             '${recycleBinProvider.items.length} 个项目',
@@ -214,16 +226,39 @@ class _SettingsPageState extends State<SettingsPage> {
           final controller = controllers.single;
           return AlertDialog(
             title: const Text('连接到服务端'),
-            content: TextField(
-              controller: controller,
-              decoration: const InputDecoration(
-                labelText: '后端地址',
-                hintText: BackendClient.defaultBackendUrl,
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.link),
-              ),
-              keyboardType: TextInputType.url,
-              autofocus: true,
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: controller,
+                  decoration: const InputDecoration(
+                    labelText: '后端地址',
+                    hintText: BackendClient.defaultBackendUrl,
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.link),
+                  ),
+                  keyboardType: TextInputType.url,
+                  autofocus: true,
+                ),
+                ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: controller,
+                  builder: (context, value, _) {
+                    final warning = BackendClient.insecureHttpWarningFor(
+                      value.text,
+                    );
+                    if (warning == null) return const SizedBox.shrink();
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Text(
+                        warning,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
             ),
             actions: [
               TextButton(
@@ -260,9 +295,11 @@ class _SettingsPageState extends State<SettingsPage> {
   String _backendSubtitle(String? savedUrl, BackendClient backend) {
     if (!backend.isConnected) return '未连接';
     if (backend.backendUrl == BackendClient.defaultBackendUrl) {
-      return '${backend.backendUrl}（默认演示后端）';
+      return '${backend.backendUrl}（仅限测试的 HTTP 后端）';
     }
-    return backend.backendUrl;
+    return backend.usesInsecureHttp
+        ? '${backend.backendUrl}（未加密，仅限隔离测试）'
+        : backend.backendUrl;
   }
 
   /// 遍历所有已启用插件中标记了 [PluginFeaturePageDefinition.showInSettings] 的功能页，生成对应的设置项列表。

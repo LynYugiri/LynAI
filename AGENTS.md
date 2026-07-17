@@ -53,7 +53,7 @@
 ## Tests And Platform Notes
 - Tests commonly call `SharedPreferences.setMockInitialValues({})` and create temp dirs under `Directory.systemTemp`; isolate and clean filesystem tests in `finally`.
 - Widget tests that pump `LynAIApp` need the full `main.dart` Provider set, including `RecycleBinProvider` and `PluginProvider`.
-- Linux release builds need CI packages: `cmake`, `clang`, `ninja-build`, `pkg-config`, `libgtk-3-dev`, `libwebkit2gtk-4.1-dev`, `liblzma-dev`, `zstd`.
+- Linux release builds need CI packages: `cmake`, `clang`, `ninja-build`, `pkg-config`, `libgtk-3-dev`, `libwebkit2gtk-4.1-dev`, `libsecret-1-dev`, `liblzma-dev`, `zstd`.
 - macOS release CI patches `speech_to_text` in the pub cache before `flutter build macos --release`; local macOS release failures may need the same patch.
 - CI builds Android split APKs, Linux deb/Arch packages, Windows x64 ZIP, and macOS x64/arm64 only after the quality job passes.
 

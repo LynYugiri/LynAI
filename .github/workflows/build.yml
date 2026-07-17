@@ -38,6 +38,24 @@ jobs:
       - run: flutter analyze
       - run: flutter test
 
+  production-https-gate:
+    name: Production HTTPS gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require HTTPS for stable releases
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          import re
+
+          source = pathlib.Path('lib/services/backend_client.dart').read_text()
+          match = re.search(r"defaultBackendUrl\s*=\s*'([^']+)'", source)
+          if match is None or not match.group(1).startswith('https://'):
+              raise SystemExit('Stable releases require an HTTPS defaultBackendUrl')
+          PY
+
   build-android:
     name: Android
     needs: [meta, quality]
@@ -84,7 +102,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake clang ninja-build pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev liblzma-dev zstd
+          sudo apt-get install -y cmake clang ninja-build pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev libsecret-1-dev liblzma-dev zstd
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -121,7 +139,7 @@ jobs:
           Architecture: amd64
           Maintainer: lynai
           Installed-Size: ${SIZE_KB}
-          Depends: libgtk-3-0, libwebkit2gtk-4.1-0, liblzma5
+          Depends: libgtk-3-0, libwebkit2gtk-4.1-0, libsecret-1-0, liblzma5
           Description: LynAI - Flutter desktop application
           CONTROL
 
@@ -161,6 +179,7 @@ jobs:
           license = GPL-3.0-or-later
           depend = gtk3
           depend = webkit2gtk-4.1
+          depend = libsecret
           depend = xz
           PKGINFO
 
@@ -247,9 +266,21 @@ jobs:
           name: ${{ env.APP_NAME }}_macos_${{ needs.meta.outputs.version }}_${{ needs.meta.outputs.short_sha }}_${{ matrix.arch }}
           path: release/
 
+  build-ios:
+    name: iOS (unsigned)
+    needs: [quality]
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+      - run: flutter build ios --release --no-codesign
+
   pre-release:
     name: Pre-release
-    needs: [meta, build-android, build-linux, build-windows, build-macos]
+    needs: [meta, build-android, build-linux, build-windows, build-macos, build-ios]
     if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
@@ -280,7 +311,7 @@ jobs:
 
   stable-release:
     name: Stable Release
-    needs: [meta, build-android, build-linux, build-windows, build-macos]
+    needs: [meta, production-https-gate, build-android, build-linux, build-windows, build-macos, build-ios]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:

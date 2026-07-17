@@ -15,6 +15,8 @@ import 'package:lynai/providers/roleplay_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/providers/sync_provider.dart';
 import 'package:lynai/services/backend_client.dart';
+import 'package:lynai/services/device_identity_service.dart';
+import 'package:lynai/services/secret_store.dart';
 
 void main() {
   testWidgets('App launches successfully', (WidgetTester tester) async {
@@ -23,18 +25,24 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
+          Provider<SecretStore>(create: (_) => InMemorySecretStore()),
+          Provider(
+            create: (ctx) =>
+                DeviceIdentityService(secretStore: ctx.read<SecretStore>()),
+          ),
           ChangeNotifierProvider(create: (_) => BackendClient()),
           ChangeNotifierProvider(create: (_) => ConversationProvider()),
           ChangeNotifierProvider(create: (_) => FeatureProvider()),
           ChangeNotifierProvider(create: (_) => ModelConfigProvider()),
           ChangeNotifierProvider(create: (_) => PluginProvider()),
           ChangeNotifierProvider(
-            create: (ctx) =>
-                AccountProvider(backend: ctx.read<BackendClient>()),
+            create: (ctx) => AccountProvider(
+              backend: ctx.read<BackendClient>(),
+              secretStore: ctx.read<SecretStore>(),
+            ),
           ),
           ChangeNotifierProvider(
-            create: (ctx) =>
-                SyncProvider(backend: ctx.read<BackendClient>()),
+            create: (ctx) => SyncProvider(backend: ctx.read<BackendClient>()),
           ),
           ChangeNotifierProvider(create: (_) => RecycleBinProvider()),
           ChangeNotifierProvider(create: (_) => RoleplayProvider()),
@@ -56,5 +64,9 @@ void main() {
       app.localizationsDelegates,
       contains(GlobalMaterialLocalizations.delegate),
     );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    expect(tester.takeException(), isNull);
   });
 }

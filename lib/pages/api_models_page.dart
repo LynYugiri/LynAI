@@ -356,6 +356,7 @@ class _EditModelPageState extends State<EditModelPage> {
   bool _saved = false;
   bool _closing = false;
   bool _refreshingManaged = false;
+  bool _cloudSyncEnabled = false;
   ModelConfig? _managedDisplayModel;
   List<Map<String, dynamic>> _filteredPresets = [];
 
@@ -419,6 +420,7 @@ class _EditModelPageState extends State<EditModelPage> {
     _showAdvancedOptions = _debugSse;
     _newModelController = TextEditingController();
     _apiType = model?.apiType ?? _defaultApiType;
+    _cloudSyncEnabled = model?.cloudSyncEnabled ?? false;
     _modelEntries =
         model?.models.toList() ?? [ModelEntry(name: '', enabled: false)];
     _filteredPresets = List.from(_currentEndpointPresets);
@@ -522,6 +524,7 @@ class _EditModelPageState extends State<EditModelPage> {
       topP: double.tryParse(_topPController.text.trim()),
       extraParams: extraParams,
       models: entries,
+      cloudSyncEnabled: _cloudSyncEnabled,
     );
     if (isEditing) {
       widget.provider.updateModel(config);
@@ -598,6 +601,7 @@ class _EditModelPageState extends State<EditModelPage> {
           _stopController.text.trim().isNotEmpty ||
           _userController.text.trim().isNotEmpty ||
           _debugSse ||
+          _cloudSyncEnabled ||
           _apiType != _defaultApiType ||
           (!isInterfaceOnly && currentEntries.isNotEmpty);
     }
@@ -608,6 +612,7 @@ class _EditModelPageState extends State<EditModelPage> {
         _apiKeyController.text.trim() != original.apiKey ||
         _appIdController.text.trim() != originalAppId ||
         _debugSse != originalDebugSse ||
+        _cloudSyncEnabled != original.cloudSyncEnabled ||
         _apiType != original.apiType ||
         !_sameModelEntries(currentEntries, original.models) ||
         (_maxTokensController.text.trim() !=
@@ -977,6 +982,17 @@ class _EditModelPageState extends State<EditModelPage> {
                               : null,
                   ),
                   const SizedBox(height: 16),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('同步此 Provider 的非秘密配置'),
+                    subtitle: const Text(
+                      '默认关闭。本地/LAN/Ollama 地址也只有明确开启后才会跨设备同步；API Key 永不上传。',
+                    ),
+                    value: _cloudSyncEnabled,
+                    onChanged: (value) =>
+                        setState(() => _cloudSyncEnabled = value),
+                  ),
+                  const SizedBox(height: 8),
                   if (isChat)
                     OutlinedButton.icon(
                       onPressed: _isFetchingModels ? null : _fetchModels,

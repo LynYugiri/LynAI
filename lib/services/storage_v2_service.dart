@@ -136,6 +136,60 @@ class StorageV2Service {
     }
   }
 
+  Future<String> storeNoteBlob(String content) async {
+    final bytes = utf8.encode(content);
+    final hash = sha256.convert(bytes).toString();
+    await installNoteBlob(hash, bytes);
+    return hash;
+  }
+
+  Future<List<int>> readNoteBlob(String hash) async {
+    final file = await _file(_noteBlobRelativePath(hash));
+    final bytes = await file.readAsBytes();
+    if (sha256.convert(bytes).toString() != hash) {
+      throw StateError('本地笔记 blob SHA-256 不匹配: $hash');
+    }
+    return bytes;
+  }
+
+  Future<String> readNoteBlobText(String hash) async =>
+      utf8.decode(await readNoteBlob(hash));
+
+  Future<bool> hasNoteBlob(String hash) async {
+    try {
+      await readNoteBlob(hash);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> installNoteBlob(String hash, List<int> bytes) async {
+    if (sha256.convert(bytes).toString() != hash) {
+      throw StateError('下载的笔记 blob SHA-256 不匹配: $hash');
+    }
+    final target = await _file(_noteBlobRelativePath(hash));
+    if (await target.exists() && await hasNoteBlob(hash)) return;
+    await target.parent.create(recursive: true);
+    final temporary = File(
+      '${target.path}.tmp.${DateTime.now().microsecondsSinceEpoch}',
+    );
+    try {
+      await temporary.writeAsBytes(bytes, flush: true);
+      await temporary.rename(target.path);
+    } catch (_) {
+      if (await temporary.exists()) await temporary.delete();
+      rethrow;
+    }
+  }
+
+  String _noteBlobRelativePath(String hash) {
+    if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(hash)) {
+      throw ArgumentError('Invalid note SHA-256: $hash');
+    }
+    return 'notes/blobs/${hash.substring(0, 2)}/$hash';
+  }
+
   Future<void> deleteFile(String relativePath) async {
     final file = await _file(relativePath);
     if (await file.exists()) await file.delete();
@@ -228,6 +282,64 @@ class StorageV2Service {
   Future<String?> resourcePath(StorageV2Resource resource) async {
     final file = await resourceFile(resource);
     return file?.path;
+  }
+
+  Future<List<int>> readResourceBlob(String sha256Hash) async {
+    final file = await _file(_blobRelativePath(sha256Hash));
+    final bytes = await file.readAsBytes();
+    if (sha256.convert(bytes).toString() != sha256Hash) {
+      throw StateError('本地资源 blob SHA-256 不匹配: $sha256Hash');
+    }
+    return bytes;
+  }
+
+  Future<bool> hasResourceBlob(String sha256Hash) async {
+    final file = await _file(_blobRelativePath(sha256Hash));
+    if (!await file.exists()) return false;
+    final bytes = await file.readAsBytes();
+    return sha256.convert(bytes).toString() == sha256Hash;
+  }
+
+  Future<void> installResourceBlob(String sha256Hash, List<int> bytes) async {
+    if (sha256.convert(bytes).toString() != sha256Hash) {
+      throw StateError('下载的资源 blob SHA-256 不匹配: $sha256Hash');
+    }
+    final target = await _file(_blobRelativePath(sha256Hash));
+    if (await target.exists()) {
+      final existing = await target.readAsBytes();
+      if (sha256.convert(existing).toString() == sha256Hash) return;
+    }
+    if (!await target.parent.exists()) {
+      await target.parent.create(recursive: true);
+    }
+    final temporary = File(
+      '${target.path}.tmp.${DateTime.now().microsecondsSinceEpoch}',
+    );
+    try {
+      await temporary.writeAsBytes(bytes, flush: true);
+      await temporary.rename(target.path);
+    } catch (_) {
+      if (await temporary.exists()) await temporary.delete();
+      rethrow;
+    }
+  }
+
+  Map<String, dynamic> normalizeRemoteResource(Map<String, dynamic> data) {
+    final hash = data['sha256'] as String?;
+    if (data['missing'] == true) {
+      return {...data, 'relativePath': null, 'missing': true};
+    }
+    if (hash == null) {
+      throw StateError('远端资源缺少 SHA-256');
+    }
+    return {...data, 'relativePath': _blobRelativePath(hash), 'missing': false};
+  }
+
+  String _blobRelativePath(String sha256Hash) {
+    if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(sha256Hash)) {
+      throw ArgumentError('Invalid resource SHA-256: $sha256Hash');
+    }
+    return 'assets/blobs/${sha256Hash.substring(0, 2)}/$sha256Hash';
   }
 
   Future<Map<String, dynamic>> _readMap(String relativePath) async {
@@ -428,6 +540,116 @@ class StorageV2Service {
   /// 获取已初始化的 Drift 数据库，用于增量操作。
   /// 必须在 [ensureReady] 之后调用。
   Future<StorageV2Database> storageDatabase() async => _storageDatabase();
+
+  /// 释放当前 facade 持有的数据库引用。
+  Future<void> close() async {
+    await _database?.close();
+    _database = null;
+  }
+
+  Future<void> activateSyncScope(
+    String scope, {
+    required String deviceId,
+  }) async {
+    await (await _storageDatabase()).activateSyncScope(
+      scope,
+      deviceId: deviceId,
+    );
+  }
+
+  Future<int> syncSince(String scope) async {
+    return (await _storageDatabase()).syncSince(scope);
+  }
+
+  Future<List<SyncOutboxEntry>> loadSyncOutbox(String scope) async {
+    return (await _storageDatabase()).loadSyncOutbox(scope);
+  }
+
+  Future<List<SyncConflictEntry>> loadSyncConflicts(String scope) async {
+    return (await _storageDatabase()).loadSyncConflicts(scope);
+  }
+
+  Future<void> resolveSyncConflict(
+    String scope,
+    int seq,
+    SyncConflictResolution resolution,
+  ) async {
+    await (await _storageDatabase()).resolveSyncConflict(
+      scope,
+      seq,
+      resolution,
+    );
+  }
+
+  Future<void> replacePluginSyncRows(
+    String pluginId,
+    List<Map<String, dynamic>> rows,
+  ) async {
+    await (await _storageDatabase()).replacePluginSyncRows(pluginId, rows);
+  }
+
+  Future<List<Map<String, dynamic>>> loadPluginSyncRows() async {
+    return (await _storageDatabase()).loadPluginSyncRows();
+  }
+
+  Future<bool> acknowledgeSyncOutbox(
+    String scope,
+    List<SyncOutboxEntry> entries,
+  ) async {
+    return (await _storageDatabase()).acknowledgeSyncOutbox(scope, entries);
+  }
+
+  Future<void> applyRemoteChanges(
+    String scope,
+    List<SyncRemoteOperation> ops,
+    int nextSince, {
+    String appliedSource = 'cloud',
+  }) async {
+    await (await _storageDatabase()).batchIncremental(
+      ops,
+      remote: true,
+      scope: scope,
+      nextSince: nextSince,
+      appliedSource: appliedSource,
+    );
+    await recoverNoteMaterialization();
+  }
+
+  Future<void> recoverNoteMaterialization() async {
+    final data = await loadNotesData();
+    final revisions = <String, Map<String, dynamic>>{
+      for (final item in data['revisions'] as List<dynamic>? ?? const [])
+        if (item is Map && item['id'] is String)
+          item['id'] as String: Map<String, dynamic>.from(item),
+    };
+    final pages = <String, StorageV2NotePage>{
+      for (final item in data['pages'] as List<dynamic>? ?? const [])
+        if (item is Map && item['id'] is String)
+          item['id'] as String: StorageV2NotePage.fromJson(
+            Map<String, dynamic>.from(item),
+          ),
+    };
+    for (final item in data['pageHeads'] as List<dynamic>? ?? const []) {
+      if (item is! Map) continue;
+      final selected = item['selectedHeadId'] as String?;
+      final page = pages[item['pageId'] as String?];
+      final hash = revisions[selected]?['contentHash'] as String?;
+      if (page == null || hash == null || !await hasNoteBlob(hash)) continue;
+      final expected = await readNoteBlobText(hash);
+      try {
+        if (await readNotePage(page) == expected) continue;
+      } catch (_) {}
+      await writeNotePage(page, expected);
+    }
+  }
+
+  Future<void> updateSyncSince(String scope, int since) async {
+    await (await _storageDatabase()).updateSyncSince(scope, since);
+  }
+
+  Future<void> deactivateSyncScope(String scope) async {
+    await (await _storageDatabase()).deactivateSyncScope(scope);
+  }
 
   static String _normalizePath(String path) => path.replaceAll('\\', '/');
 }

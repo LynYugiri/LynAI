@@ -2206,6 +2206,30 @@ class $MessageRowsTable extends MessageRows
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _revisionMeta = const VerificationMeta(
+    'revision',
+  );
+  @override
+  late final GeneratedColumn<int> revision = GeneratedColumn<int>(
+    'revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(1),
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
   static const VerificationMeta _sortOrderMeta = const VerificationMeta(
     'sortOrder',
   );
@@ -2227,6 +2251,8 @@ class $MessageRowsTable extends MessageRows
     thinkingContent,
     agentTraceJson,
     timestamp,
+    revision,
+    updatedAt,
     sortOrder,
   ];
   @override
@@ -2299,6 +2325,18 @@ class $MessageRowsTable extends MessageRows
     } else if (isInserting) {
       context.missing(_timestampMeta);
     }
+    if (data.containsKey('revision')) {
+      context.handle(
+        _revisionMeta,
+        revision.isAcceptableOrUnknown(data['revision']!, _revisionMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    }
     if (data.containsKey('sort_order')) {
       context.handle(
         _sortOrderMeta,
@@ -2342,6 +2380,14 @@ class $MessageRowsTable extends MessageRows
         DriftSqlType.string,
         data['${effectivePrefix}timestamp'],
       )!,
+      revision: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}revision'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
       sortOrder: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}sort_order'],
@@ -2363,6 +2409,8 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
   final String? thinkingContent;
   final String? agentTraceJson;
   final String timestamp;
+  final int revision;
+  final String updatedAt;
   final int sortOrder;
   const MessageRow({
     required this.id,
@@ -2372,6 +2420,8 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
     this.thinkingContent,
     this.agentTraceJson,
     required this.timestamp,
+    required this.revision,
+    required this.updatedAt,
     required this.sortOrder,
   });
   @override
@@ -2388,6 +2438,8 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
       map['agent_trace_json'] = Variable<String>(agentTraceJson);
     }
     map['timestamp'] = Variable<String>(timestamp);
+    map['revision'] = Variable<int>(revision);
+    map['updated_at'] = Variable<String>(updatedAt);
     map['sort_order'] = Variable<int>(sortOrder);
     return map;
   }
@@ -2405,6 +2457,8 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
           ? const Value.absent()
           : Value(agentTraceJson),
       timestamp: Value(timestamp),
+      revision: Value(revision),
+      updatedAt: Value(updatedAt),
       sortOrder: Value(sortOrder),
     );
   }
@@ -2422,6 +2476,8 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
       thinkingContent: serializer.fromJson<String?>(json['thinkingContent']),
       agentTraceJson: serializer.fromJson<String?>(json['agentTraceJson']),
       timestamp: serializer.fromJson<String>(json['timestamp']),
+      revision: serializer.fromJson<int>(json['revision']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
       sortOrder: serializer.fromJson<int>(json['sortOrder']),
     );
   }
@@ -2436,6 +2492,8 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
       'thinkingContent': serializer.toJson<String?>(thinkingContent),
       'agentTraceJson': serializer.toJson<String?>(agentTraceJson),
       'timestamp': serializer.toJson<String>(timestamp),
+      'revision': serializer.toJson<int>(revision),
+      'updatedAt': serializer.toJson<String>(updatedAt),
       'sortOrder': serializer.toJson<int>(sortOrder),
     };
   }
@@ -2448,6 +2506,8 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
     Value<String?> thinkingContent = const Value.absent(),
     Value<String?> agentTraceJson = const Value.absent(),
     String? timestamp,
+    int? revision,
+    String? updatedAt,
     int? sortOrder,
   }) => MessageRow(
     id: id ?? this.id,
@@ -2461,6 +2521,8 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
         ? agentTraceJson.value
         : this.agentTraceJson,
     timestamp: timestamp ?? this.timestamp,
+    revision: revision ?? this.revision,
+    updatedAt: updatedAt ?? this.updatedAt,
     sortOrder: sortOrder ?? this.sortOrder,
   );
   MessageRow copyWithCompanion(MessageRowsCompanion data) {
@@ -2478,6 +2540,8 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
           ? data.agentTraceJson.value
           : this.agentTraceJson,
       timestamp: data.timestamp.present ? data.timestamp.value : this.timestamp,
+      revision: data.revision.present ? data.revision.value : this.revision,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
     );
   }
@@ -2492,6 +2556,8 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
           ..write('thinkingContent: $thinkingContent, ')
           ..write('agentTraceJson: $agentTraceJson, ')
           ..write('timestamp: $timestamp, ')
+          ..write('revision: $revision, ')
+          ..write('updatedAt: $updatedAt, ')
           ..write('sortOrder: $sortOrder')
           ..write(')'))
         .toString();
@@ -2506,6 +2572,8 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
     thinkingContent,
     agentTraceJson,
     timestamp,
+    revision,
+    updatedAt,
     sortOrder,
   );
   @override
@@ -2519,6 +2587,8 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
           other.thinkingContent == this.thinkingContent &&
           other.agentTraceJson == this.agentTraceJson &&
           other.timestamp == this.timestamp &&
+          other.revision == this.revision &&
+          other.updatedAt == this.updatedAt &&
           other.sortOrder == this.sortOrder);
 }
 
@@ -2530,6 +2600,8 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
   final Value<String?> thinkingContent;
   final Value<String?> agentTraceJson;
   final Value<String> timestamp;
+  final Value<int> revision;
+  final Value<String> updatedAt;
   final Value<int> sortOrder;
   final Value<int> rowid;
   const MessageRowsCompanion({
@@ -2540,6 +2612,8 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
     this.thinkingContent = const Value.absent(),
     this.agentTraceJson = const Value.absent(),
     this.timestamp = const Value.absent(),
+    this.revision = const Value.absent(),
+    this.updatedAt = const Value.absent(),
     this.sortOrder = const Value.absent(),
     this.rowid = const Value.absent(),
   });
@@ -2551,6 +2625,8 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
     this.thinkingContent = const Value.absent(),
     this.agentTraceJson = const Value.absent(),
     required String timestamp,
+    this.revision = const Value.absent(),
+    this.updatedAt = const Value.absent(),
     this.sortOrder = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
@@ -2566,6 +2642,8 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
     Expression<String>? thinkingContent,
     Expression<String>? agentTraceJson,
     Expression<String>? timestamp,
+    Expression<int>? revision,
+    Expression<String>? updatedAt,
     Expression<int>? sortOrder,
     Expression<int>? rowid,
   }) {
@@ -2577,6 +2655,8 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
       if (thinkingContent != null) 'thinking_content': thinkingContent,
       if (agentTraceJson != null) 'agent_trace_json': agentTraceJson,
       if (timestamp != null) 'timestamp': timestamp,
+      if (revision != null) 'revision': revision,
+      if (updatedAt != null) 'updated_at': updatedAt,
       if (sortOrder != null) 'sort_order': sortOrder,
       if (rowid != null) 'rowid': rowid,
     });
@@ -2590,6 +2670,8 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
     Value<String?>? thinkingContent,
     Value<String?>? agentTraceJson,
     Value<String>? timestamp,
+    Value<int>? revision,
+    Value<String>? updatedAt,
     Value<int>? sortOrder,
     Value<int>? rowid,
   }) {
@@ -2601,6 +2683,8 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
       thinkingContent: thinkingContent ?? this.thinkingContent,
       agentTraceJson: agentTraceJson ?? this.agentTraceJson,
       timestamp: timestamp ?? this.timestamp,
+      revision: revision ?? this.revision,
+      updatedAt: updatedAt ?? this.updatedAt,
       sortOrder: sortOrder ?? this.sortOrder,
       rowid: rowid ?? this.rowid,
     );
@@ -2630,6 +2714,12 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
     if (timestamp.present) {
       map['timestamp'] = Variable<String>(timestamp.value);
     }
+    if (revision.present) {
+      map['revision'] = Variable<int>(revision.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
     if (sortOrder.present) {
       map['sort_order'] = Variable<int>(sortOrder.value);
     }
@@ -2649,6 +2739,8 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
           ..write('thinkingContent: $thinkingContent, ')
           ..write('agentTraceJson: $agentTraceJson, ')
           ..write('timestamp: $timestamp, ')
+          ..write('revision: $revision, ')
+          ..write('updatedAt: $updatedAt, ')
           ..write('sortOrder: $sortOrder, ')
           ..write('rowid: $rowid')
           ..write(')'))
@@ -4717,56 +4809,45 @@ class $NoteRevisionRowsTable extends NoteRevisionRows
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
-  static const VerificationMeta _parentRevisionIdMeta = const VerificationMeta(
-    'parentRevisionId',
+  static const VerificationMeta _parentIdsJsonMeta = const VerificationMeta(
+    'parentIdsJson',
   );
   @override
-  late final GeneratedColumn<String> parentRevisionId = GeneratedColumn<String>(
-    'parent_revision_id',
-    aliasedName,
-    true,
-    type: DriftSqlType.string,
-    requiredDuringInsert: false,
-  );
-  static const VerificationMeta _savedAtMeta = const VerificationMeta(
-    'savedAt',
-  );
-  @override
-  late final GeneratedColumn<String> savedAt = GeneratedColumn<String>(
-    'saved_at',
+  late final GeneratedColumn<String> parentIdsJson = GeneratedColumn<String>(
+    'parent_ids_json',
     aliasedName,
     false,
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
-  static const VerificationMeta _deltaStartMeta = const VerificationMeta(
-    'deltaStart',
+  static const VerificationMeta _authorDeviceIdMeta = const VerificationMeta(
+    'authorDeviceId',
   );
   @override
-  late final GeneratedColumn<int> deltaStart = GeneratedColumn<int>(
-    'delta_start',
-    aliasedName,
-    false,
-    type: DriftSqlType.int,
-    requiredDuringInsert: true,
-  );
-  static const VerificationMeta _deletedTextMeta = const VerificationMeta(
-    'deletedText',
-  );
-  @override
-  late final GeneratedColumn<String> deletedText = GeneratedColumn<String>(
-    'deleted_text',
+  late final GeneratedColumn<String> authorDeviceId = GeneratedColumn<String>(
+    'author_device_id',
     aliasedName,
     false,
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
-  static const VerificationMeta _insertedTextMeta = const VerificationMeta(
-    'insertedText',
+  static const VerificationMeta _contentHashMeta = const VerificationMeta(
+    'contentHash',
   );
   @override
-  late final GeneratedColumn<String> insertedText = GeneratedColumn<String>(
-    'inserted_text',
+  late final GeneratedColumn<String> contentHash = GeneratedColumn<String>(
+    'content_hash',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<String> createdAt = GeneratedColumn<String>(
+    'created_at',
     aliasedName,
     false,
     type: DriftSqlType.string,
@@ -4777,11 +4858,10 @@ class $NoteRevisionRowsTable extends NoteRevisionRows
     id,
     noteId,
     pageId,
-    parentRevisionId,
-    savedAt,
-    deltaStart,
-    deletedText,
-    insertedText,
+    parentIdsJson,
+    authorDeviceId,
+    contentHash,
+    createdAt,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -4814,52 +4894,46 @@ class $NoteRevisionRowsTable extends NoteRevisionRows
         pageId.isAcceptableOrUnknown(data['page_id']!, _pageIdMeta),
       );
     }
-    if (data.containsKey('parent_revision_id')) {
+    if (data.containsKey('parent_ids_json')) {
       context.handle(
-        _parentRevisionIdMeta,
-        parentRevisionId.isAcceptableOrUnknown(
-          data['parent_revision_id']!,
-          _parentRevisionIdMeta,
-        ),
-      );
-    }
-    if (data.containsKey('saved_at')) {
-      context.handle(
-        _savedAtMeta,
-        savedAt.isAcceptableOrUnknown(data['saved_at']!, _savedAtMeta),
-      );
-    } else if (isInserting) {
-      context.missing(_savedAtMeta);
-    }
-    if (data.containsKey('delta_start')) {
-      context.handle(
-        _deltaStartMeta,
-        deltaStart.isAcceptableOrUnknown(data['delta_start']!, _deltaStartMeta),
-      );
-    } else if (isInserting) {
-      context.missing(_deltaStartMeta);
-    }
-    if (data.containsKey('deleted_text')) {
-      context.handle(
-        _deletedTextMeta,
-        deletedText.isAcceptableOrUnknown(
-          data['deleted_text']!,
-          _deletedTextMeta,
+        _parentIdsJsonMeta,
+        parentIdsJson.isAcceptableOrUnknown(
+          data['parent_ids_json']!,
+          _parentIdsJsonMeta,
         ),
       );
     } else if (isInserting) {
-      context.missing(_deletedTextMeta);
+      context.missing(_parentIdsJsonMeta);
     }
-    if (data.containsKey('inserted_text')) {
+    if (data.containsKey('author_device_id')) {
       context.handle(
-        _insertedTextMeta,
-        insertedText.isAcceptableOrUnknown(
-          data['inserted_text']!,
-          _insertedTextMeta,
+        _authorDeviceIdMeta,
+        authorDeviceId.isAcceptableOrUnknown(
+          data['author_device_id']!,
+          _authorDeviceIdMeta,
         ),
       );
     } else if (isInserting) {
-      context.missing(_insertedTextMeta);
+      context.missing(_authorDeviceIdMeta);
+    }
+    if (data.containsKey('content_hash')) {
+      context.handle(
+        _contentHashMeta,
+        contentHash.isAcceptableOrUnknown(
+          data['content_hash']!,
+          _contentHashMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_contentHashMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
     }
     return context;
   }
@@ -4882,25 +4956,21 @@ class $NoteRevisionRowsTable extends NoteRevisionRows
         DriftSqlType.string,
         data['${effectivePrefix}page_id'],
       ),
-      parentRevisionId: attachedDatabase.typeMapping.read(
+      parentIdsJson: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}parent_revision_id'],
-      ),
-      savedAt: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}saved_at'],
+        data['${effectivePrefix}parent_ids_json'],
       )!,
-      deltaStart: attachedDatabase.typeMapping.read(
-        DriftSqlType.int,
-        data['${effectivePrefix}delta_start'],
-      )!,
-      deletedText: attachedDatabase.typeMapping.read(
+      authorDeviceId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}deleted_text'],
+        data['${effectivePrefix}author_device_id'],
       )!,
-      insertedText: attachedDatabase.typeMapping.read(
+      contentHash: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}inserted_text'],
+        data['${effectivePrefix}content_hash'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}created_at'],
       )!,
     );
   }
@@ -4915,20 +4985,18 @@ class NoteRevisionRow extends DataClass implements Insertable<NoteRevisionRow> {
   final String id;
   final String noteId;
   final String? pageId;
-  final String? parentRevisionId;
-  final String savedAt;
-  final int deltaStart;
-  final String deletedText;
-  final String insertedText;
+  final String parentIdsJson;
+  final String authorDeviceId;
+  final String contentHash;
+  final String createdAt;
   const NoteRevisionRow({
     required this.id,
     required this.noteId,
     this.pageId,
-    this.parentRevisionId,
-    required this.savedAt,
-    required this.deltaStart,
-    required this.deletedText,
-    required this.insertedText,
+    required this.parentIdsJson,
+    required this.authorDeviceId,
+    required this.contentHash,
+    required this.createdAt,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -4938,13 +5006,10 @@ class NoteRevisionRow extends DataClass implements Insertable<NoteRevisionRow> {
     if (!nullToAbsent || pageId != null) {
       map['page_id'] = Variable<String>(pageId);
     }
-    if (!nullToAbsent || parentRevisionId != null) {
-      map['parent_revision_id'] = Variable<String>(parentRevisionId);
-    }
-    map['saved_at'] = Variable<String>(savedAt);
-    map['delta_start'] = Variable<int>(deltaStart);
-    map['deleted_text'] = Variable<String>(deletedText);
-    map['inserted_text'] = Variable<String>(insertedText);
+    map['parent_ids_json'] = Variable<String>(parentIdsJson);
+    map['author_device_id'] = Variable<String>(authorDeviceId);
+    map['content_hash'] = Variable<String>(contentHash);
+    map['created_at'] = Variable<String>(createdAt);
     return map;
   }
 
@@ -4955,13 +5020,10 @@ class NoteRevisionRow extends DataClass implements Insertable<NoteRevisionRow> {
       pageId: pageId == null && nullToAbsent
           ? const Value.absent()
           : Value(pageId),
-      parentRevisionId: parentRevisionId == null && nullToAbsent
-          ? const Value.absent()
-          : Value(parentRevisionId),
-      savedAt: Value(savedAt),
-      deltaStart: Value(deltaStart),
-      deletedText: Value(deletedText),
-      insertedText: Value(insertedText),
+      parentIdsJson: Value(parentIdsJson),
+      authorDeviceId: Value(authorDeviceId),
+      contentHash: Value(contentHash),
+      createdAt: Value(createdAt),
     );
   }
 
@@ -4974,11 +5036,10 @@ class NoteRevisionRow extends DataClass implements Insertable<NoteRevisionRow> {
       id: serializer.fromJson<String>(json['id']),
       noteId: serializer.fromJson<String>(json['noteId']),
       pageId: serializer.fromJson<String?>(json['pageId']),
-      parentRevisionId: serializer.fromJson<String?>(json['parentRevisionId']),
-      savedAt: serializer.fromJson<String>(json['savedAt']),
-      deltaStart: serializer.fromJson<int>(json['deltaStart']),
-      deletedText: serializer.fromJson<String>(json['deletedText']),
-      insertedText: serializer.fromJson<String>(json['insertedText']),
+      parentIdsJson: serializer.fromJson<String>(json['parentIdsJson']),
+      authorDeviceId: serializer.fromJson<String>(json['authorDeviceId']),
+      contentHash: serializer.fromJson<String>(json['contentHash']),
+      createdAt: serializer.fromJson<String>(json['createdAt']),
     );
   }
   @override
@@ -4988,11 +5049,10 @@ class NoteRevisionRow extends DataClass implements Insertable<NoteRevisionRow> {
       'id': serializer.toJson<String>(id),
       'noteId': serializer.toJson<String>(noteId),
       'pageId': serializer.toJson<String?>(pageId),
-      'parentRevisionId': serializer.toJson<String?>(parentRevisionId),
-      'savedAt': serializer.toJson<String>(savedAt),
-      'deltaStart': serializer.toJson<int>(deltaStart),
-      'deletedText': serializer.toJson<String>(deletedText),
-      'insertedText': serializer.toJson<String>(insertedText),
+      'parentIdsJson': serializer.toJson<String>(parentIdsJson),
+      'authorDeviceId': serializer.toJson<String>(authorDeviceId),
+      'contentHash': serializer.toJson<String>(contentHash),
+      'createdAt': serializer.toJson<String>(createdAt),
     };
   }
 
@@ -5000,41 +5060,34 @@ class NoteRevisionRow extends DataClass implements Insertable<NoteRevisionRow> {
     String? id,
     String? noteId,
     Value<String?> pageId = const Value.absent(),
-    Value<String?> parentRevisionId = const Value.absent(),
-    String? savedAt,
-    int? deltaStart,
-    String? deletedText,
-    String? insertedText,
+    String? parentIdsJson,
+    String? authorDeviceId,
+    String? contentHash,
+    String? createdAt,
   }) => NoteRevisionRow(
     id: id ?? this.id,
     noteId: noteId ?? this.noteId,
     pageId: pageId.present ? pageId.value : this.pageId,
-    parentRevisionId: parentRevisionId.present
-        ? parentRevisionId.value
-        : this.parentRevisionId,
-    savedAt: savedAt ?? this.savedAt,
-    deltaStart: deltaStart ?? this.deltaStart,
-    deletedText: deletedText ?? this.deletedText,
-    insertedText: insertedText ?? this.insertedText,
+    parentIdsJson: parentIdsJson ?? this.parentIdsJson,
+    authorDeviceId: authorDeviceId ?? this.authorDeviceId,
+    contentHash: contentHash ?? this.contentHash,
+    createdAt: createdAt ?? this.createdAt,
   );
   NoteRevisionRow copyWithCompanion(NoteRevisionRowsCompanion data) {
     return NoteRevisionRow(
       id: data.id.present ? data.id.value : this.id,
       noteId: data.noteId.present ? data.noteId.value : this.noteId,
       pageId: data.pageId.present ? data.pageId.value : this.pageId,
-      parentRevisionId: data.parentRevisionId.present
-          ? data.parentRevisionId.value
-          : this.parentRevisionId,
-      savedAt: data.savedAt.present ? data.savedAt.value : this.savedAt,
-      deltaStart: data.deltaStart.present
-          ? data.deltaStart.value
-          : this.deltaStart,
-      deletedText: data.deletedText.present
-          ? data.deletedText.value
-          : this.deletedText,
-      insertedText: data.insertedText.present
-          ? data.insertedText.value
-          : this.insertedText,
+      parentIdsJson: data.parentIdsJson.present
+          ? data.parentIdsJson.value
+          : this.parentIdsJson,
+      authorDeviceId: data.authorDeviceId.present
+          ? data.authorDeviceId.value
+          : this.authorDeviceId,
+      contentHash: data.contentHash.present
+          ? data.contentHash.value
+          : this.contentHash,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
     );
   }
 
@@ -5044,11 +5097,10 @@ class NoteRevisionRow extends DataClass implements Insertable<NoteRevisionRow> {
           ..write('id: $id, ')
           ..write('noteId: $noteId, ')
           ..write('pageId: $pageId, ')
-          ..write('parentRevisionId: $parentRevisionId, ')
-          ..write('savedAt: $savedAt, ')
-          ..write('deltaStart: $deltaStart, ')
-          ..write('deletedText: $deletedText, ')
-          ..write('insertedText: $insertedText')
+          ..write('parentIdsJson: $parentIdsJson, ')
+          ..write('authorDeviceId: $authorDeviceId, ')
+          ..write('contentHash: $contentHash, ')
+          ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
   }
@@ -5058,11 +5110,10 @@ class NoteRevisionRow extends DataClass implements Insertable<NoteRevisionRow> {
     id,
     noteId,
     pageId,
-    parentRevisionId,
-    savedAt,
-    deltaStart,
-    deletedText,
-    insertedText,
+    parentIdsJson,
+    authorDeviceId,
+    contentHash,
+    createdAt,
   );
   @override
   bool operator ==(Object other) =>
@@ -5071,70 +5122,64 @@ class NoteRevisionRow extends DataClass implements Insertable<NoteRevisionRow> {
           other.id == this.id &&
           other.noteId == this.noteId &&
           other.pageId == this.pageId &&
-          other.parentRevisionId == this.parentRevisionId &&
-          other.savedAt == this.savedAt &&
-          other.deltaStart == this.deltaStart &&
-          other.deletedText == this.deletedText &&
-          other.insertedText == this.insertedText);
+          other.parentIdsJson == this.parentIdsJson &&
+          other.authorDeviceId == this.authorDeviceId &&
+          other.contentHash == this.contentHash &&
+          other.createdAt == this.createdAt);
 }
 
 class NoteRevisionRowsCompanion extends UpdateCompanion<NoteRevisionRow> {
   final Value<String> id;
   final Value<String> noteId;
   final Value<String?> pageId;
-  final Value<String?> parentRevisionId;
-  final Value<String> savedAt;
-  final Value<int> deltaStart;
-  final Value<String> deletedText;
-  final Value<String> insertedText;
+  final Value<String> parentIdsJson;
+  final Value<String> authorDeviceId;
+  final Value<String> contentHash;
+  final Value<String> createdAt;
   final Value<int> rowid;
   const NoteRevisionRowsCompanion({
     this.id = const Value.absent(),
     this.noteId = const Value.absent(),
     this.pageId = const Value.absent(),
-    this.parentRevisionId = const Value.absent(),
-    this.savedAt = const Value.absent(),
-    this.deltaStart = const Value.absent(),
-    this.deletedText = const Value.absent(),
-    this.insertedText = const Value.absent(),
+    this.parentIdsJson = const Value.absent(),
+    this.authorDeviceId = const Value.absent(),
+    this.contentHash = const Value.absent(),
+    this.createdAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   NoteRevisionRowsCompanion.insert({
     required String id,
     required String noteId,
     this.pageId = const Value.absent(),
-    this.parentRevisionId = const Value.absent(),
-    required String savedAt,
-    required int deltaStart,
-    required String deletedText,
-    required String insertedText,
+    required String parentIdsJson,
+    required String authorDeviceId,
+    required String contentHash,
+    required String createdAt,
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        noteId = Value(noteId),
-       savedAt = Value(savedAt),
-       deltaStart = Value(deltaStart),
-       deletedText = Value(deletedText),
-       insertedText = Value(insertedText);
+       parentIdsJson = Value(parentIdsJson),
+       authorDeviceId = Value(authorDeviceId),
+       contentHash = Value(contentHash),
+       createdAt = Value(createdAt);
   static Insertable<NoteRevisionRow> custom({
     Expression<String>? id,
     Expression<String>? noteId,
     Expression<String>? pageId,
-    Expression<String>? parentRevisionId,
-    Expression<String>? savedAt,
-    Expression<int>? deltaStart,
-    Expression<String>? deletedText,
-    Expression<String>? insertedText,
+    Expression<String>? parentIdsJson,
+    Expression<String>? authorDeviceId,
+    Expression<String>? contentHash,
+    Expression<String>? createdAt,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (noteId != null) 'note_id': noteId,
       if (pageId != null) 'page_id': pageId,
-      if (parentRevisionId != null) 'parent_revision_id': parentRevisionId,
-      if (savedAt != null) 'saved_at': savedAt,
-      if (deltaStart != null) 'delta_start': deltaStart,
-      if (deletedText != null) 'deleted_text': deletedText,
-      if (insertedText != null) 'inserted_text': insertedText,
+      if (parentIdsJson != null) 'parent_ids_json': parentIdsJson,
+      if (authorDeviceId != null) 'author_device_id': authorDeviceId,
+      if (contentHash != null) 'content_hash': contentHash,
+      if (createdAt != null) 'created_at': createdAt,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -5143,22 +5188,20 @@ class NoteRevisionRowsCompanion extends UpdateCompanion<NoteRevisionRow> {
     Value<String>? id,
     Value<String>? noteId,
     Value<String?>? pageId,
-    Value<String?>? parentRevisionId,
-    Value<String>? savedAt,
-    Value<int>? deltaStart,
-    Value<String>? deletedText,
-    Value<String>? insertedText,
+    Value<String>? parentIdsJson,
+    Value<String>? authorDeviceId,
+    Value<String>? contentHash,
+    Value<String>? createdAt,
     Value<int>? rowid,
   }) {
     return NoteRevisionRowsCompanion(
       id: id ?? this.id,
       noteId: noteId ?? this.noteId,
       pageId: pageId ?? this.pageId,
-      parentRevisionId: parentRevisionId ?? this.parentRevisionId,
-      savedAt: savedAt ?? this.savedAt,
-      deltaStart: deltaStart ?? this.deltaStart,
-      deletedText: deletedText ?? this.deletedText,
-      insertedText: insertedText ?? this.insertedText,
+      parentIdsJson: parentIdsJson ?? this.parentIdsJson,
+      authorDeviceId: authorDeviceId ?? this.authorDeviceId,
+      contentHash: contentHash ?? this.contentHash,
+      createdAt: createdAt ?? this.createdAt,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -5175,20 +5218,17 @@ class NoteRevisionRowsCompanion extends UpdateCompanion<NoteRevisionRow> {
     if (pageId.present) {
       map['page_id'] = Variable<String>(pageId.value);
     }
-    if (parentRevisionId.present) {
-      map['parent_revision_id'] = Variable<String>(parentRevisionId.value);
+    if (parentIdsJson.present) {
+      map['parent_ids_json'] = Variable<String>(parentIdsJson.value);
     }
-    if (savedAt.present) {
-      map['saved_at'] = Variable<String>(savedAt.value);
+    if (authorDeviceId.present) {
+      map['author_device_id'] = Variable<String>(authorDeviceId.value);
     }
-    if (deltaStart.present) {
-      map['delta_start'] = Variable<int>(deltaStart.value);
+    if (contentHash.present) {
+      map['content_hash'] = Variable<String>(contentHash.value);
     }
-    if (deletedText.present) {
-      map['deleted_text'] = Variable<String>(deletedText.value);
-    }
-    if (insertedText.present) {
-      map['inserted_text'] = Variable<String>(insertedText.value);
+    if (createdAt.present) {
+      map['created_at'] = Variable<String>(createdAt.value);
     }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
@@ -5202,11 +5242,1140 @@ class NoteRevisionRowsCompanion extends UpdateCompanion<NoteRevisionRow> {
           ..write('id: $id, ')
           ..write('noteId: $noteId, ')
           ..write('pageId: $pageId, ')
-          ..write('parentRevisionId: $parentRevisionId, ')
-          ..write('savedAt: $savedAt, ')
-          ..write('deltaStart: $deltaStart, ')
-          ..write('deletedText: $deletedText, ')
-          ..write('insertedText: $insertedText, ')
+          ..write('parentIdsJson: $parentIdsJson, ')
+          ..write('authorDeviceId: $authorDeviceId, ')
+          ..write('contentHash: $contentHash, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $NotePageHeadRowsTable extends NotePageHeadRows
+    with TableInfo<$NotePageHeadRowsTable, NotePageHeadRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $NotePageHeadRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _pageIdMeta = const VerificationMeta('pageId');
+  @override
+  late final GeneratedColumn<String> pageId = GeneratedColumn<String>(
+    'page_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _headIdsJsonMeta = const VerificationMeta(
+    'headIdsJson',
+  );
+  @override
+  late final GeneratedColumn<String> headIdsJson = GeneratedColumn<String>(
+    'head_ids_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _selectedHeadIdMeta = const VerificationMeta(
+    'selectedHeadId',
+  );
+  @override
+  late final GeneratedColumn<String> selectedHeadId = GeneratedColumn<String>(
+    'selected_head_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    pageId,
+    headIdsJson,
+    selectedHeadId,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'note_page_heads';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<NotePageHeadRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('page_id')) {
+      context.handle(
+        _pageIdMeta,
+        pageId.isAcceptableOrUnknown(data['page_id']!, _pageIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_pageIdMeta);
+    }
+    if (data.containsKey('head_ids_json')) {
+      context.handle(
+        _headIdsJsonMeta,
+        headIdsJson.isAcceptableOrUnknown(
+          data['head_ids_json']!,
+          _headIdsJsonMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_headIdsJsonMeta);
+    }
+    if (data.containsKey('selected_head_id')) {
+      context.handle(
+        _selectedHeadIdMeta,
+        selectedHeadId.isAcceptableOrUnknown(
+          data['selected_head_id']!,
+          _selectedHeadIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  NotePageHeadRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return NotePageHeadRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      pageId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}page_id'],
+      )!,
+      headIdsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}head_ids_json'],
+      )!,
+      selectedHeadId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}selected_head_id'],
+      ),
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $NotePageHeadRowsTable createAlias(String alias) {
+    return $NotePageHeadRowsTable(attachedDatabase, alias);
+  }
+}
+
+class NotePageHeadRow extends DataClass implements Insertable<NotePageHeadRow> {
+  final String id;
+  final String pageId;
+  final String headIdsJson;
+  final String? selectedHeadId;
+  final String updatedAt;
+  const NotePageHeadRow({
+    required this.id,
+    required this.pageId,
+    required this.headIdsJson,
+    this.selectedHeadId,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['page_id'] = Variable<String>(pageId);
+    map['head_ids_json'] = Variable<String>(headIdsJson);
+    if (!nullToAbsent || selectedHeadId != null) {
+      map['selected_head_id'] = Variable<String>(selectedHeadId);
+    }
+    map['updated_at'] = Variable<String>(updatedAt);
+    return map;
+  }
+
+  NotePageHeadRowsCompanion toCompanion(bool nullToAbsent) {
+    return NotePageHeadRowsCompanion(
+      id: Value(id),
+      pageId: Value(pageId),
+      headIdsJson: Value(headIdsJson),
+      selectedHeadId: selectedHeadId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(selectedHeadId),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory NotePageHeadRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return NotePageHeadRow(
+      id: serializer.fromJson<String>(json['id']),
+      pageId: serializer.fromJson<String>(json['pageId']),
+      headIdsJson: serializer.fromJson<String>(json['headIdsJson']),
+      selectedHeadId: serializer.fromJson<String?>(json['selectedHeadId']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'pageId': serializer.toJson<String>(pageId),
+      'headIdsJson': serializer.toJson<String>(headIdsJson),
+      'selectedHeadId': serializer.toJson<String?>(selectedHeadId),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+    };
+  }
+
+  NotePageHeadRow copyWith({
+    String? id,
+    String? pageId,
+    String? headIdsJson,
+    Value<String?> selectedHeadId = const Value.absent(),
+    String? updatedAt,
+  }) => NotePageHeadRow(
+    id: id ?? this.id,
+    pageId: pageId ?? this.pageId,
+    headIdsJson: headIdsJson ?? this.headIdsJson,
+    selectedHeadId: selectedHeadId.present
+        ? selectedHeadId.value
+        : this.selectedHeadId,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  NotePageHeadRow copyWithCompanion(NotePageHeadRowsCompanion data) {
+    return NotePageHeadRow(
+      id: data.id.present ? data.id.value : this.id,
+      pageId: data.pageId.present ? data.pageId.value : this.pageId,
+      headIdsJson: data.headIdsJson.present
+          ? data.headIdsJson.value
+          : this.headIdsJson,
+      selectedHeadId: data.selectedHeadId.present
+          ? data.selectedHeadId.value
+          : this.selectedHeadId,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NotePageHeadRow(')
+          ..write('id: $id, ')
+          ..write('pageId: $pageId, ')
+          ..write('headIdsJson: $headIdsJson, ')
+          ..write('selectedHeadId: $selectedHeadId, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(id, pageId, headIdsJson, selectedHeadId, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is NotePageHeadRow &&
+          other.id == this.id &&
+          other.pageId == this.pageId &&
+          other.headIdsJson == this.headIdsJson &&
+          other.selectedHeadId == this.selectedHeadId &&
+          other.updatedAt == this.updatedAt);
+}
+
+class NotePageHeadRowsCompanion extends UpdateCompanion<NotePageHeadRow> {
+  final Value<String> id;
+  final Value<String> pageId;
+  final Value<String> headIdsJson;
+  final Value<String?> selectedHeadId;
+  final Value<String> updatedAt;
+  final Value<int> rowid;
+  const NotePageHeadRowsCompanion({
+    this.id = const Value.absent(),
+    this.pageId = const Value.absent(),
+    this.headIdsJson = const Value.absent(),
+    this.selectedHeadId = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  NotePageHeadRowsCompanion.insert({
+    required String id,
+    required String pageId,
+    required String headIdsJson,
+    this.selectedHeadId = const Value.absent(),
+    required String updatedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       pageId = Value(pageId),
+       headIdsJson = Value(headIdsJson),
+       updatedAt = Value(updatedAt);
+  static Insertable<NotePageHeadRow> custom({
+    Expression<String>? id,
+    Expression<String>? pageId,
+    Expression<String>? headIdsJson,
+    Expression<String>? selectedHeadId,
+    Expression<String>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (pageId != null) 'page_id': pageId,
+      if (headIdsJson != null) 'head_ids_json': headIdsJson,
+      if (selectedHeadId != null) 'selected_head_id': selectedHeadId,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  NotePageHeadRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? pageId,
+    Value<String>? headIdsJson,
+    Value<String?>? selectedHeadId,
+    Value<String>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return NotePageHeadRowsCompanion(
+      id: id ?? this.id,
+      pageId: pageId ?? this.pageId,
+      headIdsJson: headIdsJson ?? this.headIdsJson,
+      selectedHeadId: selectedHeadId ?? this.selectedHeadId,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (pageId.present) {
+      map['page_id'] = Variable<String>(pageId.value);
+    }
+    if (headIdsJson.present) {
+      map['head_ids_json'] = Variable<String>(headIdsJson.value);
+    }
+    if (selectedHeadId.present) {
+      map['selected_head_id'] = Variable<String>(selectedHeadId.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NotePageHeadRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('pageId: $pageId, ')
+          ..write('headIdsJson: $headIdsJson, ')
+          ..write('selectedHeadId: $selectedHeadId, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $NotePageTombstoneRowsTable extends NotePageTombstoneRows
+    with TableInfo<$NotePageTombstoneRowsTable, NotePageTombstoneRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $NotePageTombstoneRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _pageIdMeta = const VerificationMeta('pageId');
+  @override
+  late final GeneratedColumn<String> pageId = GeneratedColumn<String>(
+    'page_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _revisionIdMeta = const VerificationMeta(
+    'revisionId',
+  );
+  @override
+  late final GeneratedColumn<String> revisionId = GeneratedColumn<String>(
+    'revision_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<String> createdAt = GeneratedColumn<String>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [id, pageId, revisionId, createdAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'note_page_tombstones';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<NotePageTombstoneRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('page_id')) {
+      context.handle(
+        _pageIdMeta,
+        pageId.isAcceptableOrUnknown(data['page_id']!, _pageIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_pageIdMeta);
+    }
+    if (data.containsKey('revision_id')) {
+      context.handle(
+        _revisionIdMeta,
+        revisionId.isAcceptableOrUnknown(data['revision_id']!, _revisionIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_revisionIdMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  NotePageTombstoneRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return NotePageTombstoneRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      pageId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}page_id'],
+      )!,
+      revisionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}revision_id'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}created_at'],
+      )!,
+    );
+  }
+
+  @override
+  $NotePageTombstoneRowsTable createAlias(String alias) {
+    return $NotePageTombstoneRowsTable(attachedDatabase, alias);
+  }
+}
+
+class NotePageTombstoneRow extends DataClass
+    implements Insertable<NotePageTombstoneRow> {
+  final String id;
+  final String pageId;
+  final String revisionId;
+  final String createdAt;
+  const NotePageTombstoneRow({
+    required this.id,
+    required this.pageId,
+    required this.revisionId,
+    required this.createdAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['page_id'] = Variable<String>(pageId);
+    map['revision_id'] = Variable<String>(revisionId);
+    map['created_at'] = Variable<String>(createdAt);
+    return map;
+  }
+
+  NotePageTombstoneRowsCompanion toCompanion(bool nullToAbsent) {
+    return NotePageTombstoneRowsCompanion(
+      id: Value(id),
+      pageId: Value(pageId),
+      revisionId: Value(revisionId),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory NotePageTombstoneRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return NotePageTombstoneRow(
+      id: serializer.fromJson<String>(json['id']),
+      pageId: serializer.fromJson<String>(json['pageId']),
+      revisionId: serializer.fromJson<String>(json['revisionId']),
+      createdAt: serializer.fromJson<String>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'pageId': serializer.toJson<String>(pageId),
+      'revisionId': serializer.toJson<String>(revisionId),
+      'createdAt': serializer.toJson<String>(createdAt),
+    };
+  }
+
+  NotePageTombstoneRow copyWith({
+    String? id,
+    String? pageId,
+    String? revisionId,
+    String? createdAt,
+  }) => NotePageTombstoneRow(
+    id: id ?? this.id,
+    pageId: pageId ?? this.pageId,
+    revisionId: revisionId ?? this.revisionId,
+    createdAt: createdAt ?? this.createdAt,
+  );
+  NotePageTombstoneRow copyWithCompanion(NotePageTombstoneRowsCompanion data) {
+    return NotePageTombstoneRow(
+      id: data.id.present ? data.id.value : this.id,
+      pageId: data.pageId.present ? data.pageId.value : this.pageId,
+      revisionId: data.revisionId.present
+          ? data.revisionId.value
+          : this.revisionId,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NotePageTombstoneRow(')
+          ..write('id: $id, ')
+          ..write('pageId: $pageId, ')
+          ..write('revisionId: $revisionId, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, pageId, revisionId, createdAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is NotePageTombstoneRow &&
+          other.id == this.id &&
+          other.pageId == this.pageId &&
+          other.revisionId == this.revisionId &&
+          other.createdAt == this.createdAt);
+}
+
+class NotePageTombstoneRowsCompanion
+    extends UpdateCompanion<NotePageTombstoneRow> {
+  final Value<String> id;
+  final Value<String> pageId;
+  final Value<String> revisionId;
+  final Value<String> createdAt;
+  final Value<int> rowid;
+  const NotePageTombstoneRowsCompanion({
+    this.id = const Value.absent(),
+    this.pageId = const Value.absent(),
+    this.revisionId = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  NotePageTombstoneRowsCompanion.insert({
+    required String id,
+    required String pageId,
+    required String revisionId,
+    required String createdAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       pageId = Value(pageId),
+       revisionId = Value(revisionId),
+       createdAt = Value(createdAt);
+  static Insertable<NotePageTombstoneRow> custom({
+    Expression<String>? id,
+    Expression<String>? pageId,
+    Expression<String>? revisionId,
+    Expression<String>? createdAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (pageId != null) 'page_id': pageId,
+      if (revisionId != null) 'revision_id': revisionId,
+      if (createdAt != null) 'created_at': createdAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  NotePageTombstoneRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? pageId,
+    Value<String>? revisionId,
+    Value<String>? createdAt,
+    Value<int>? rowid,
+  }) {
+    return NotePageTombstoneRowsCompanion(
+      id: id ?? this.id,
+      pageId: pageId ?? this.pageId,
+      revisionId: revisionId ?? this.revisionId,
+      createdAt: createdAt ?? this.createdAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (pageId.present) {
+      map['page_id'] = Variable<String>(pageId.value);
+    }
+    if (revisionId.present) {
+      map['revision_id'] = Variable<String>(revisionId.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<String>(createdAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NotePageTombstoneRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('pageId: $pageId, ')
+          ..write('revisionId: $revisionId, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $NotePageConflictRowsTable extends NotePageConflictRows
+    with TableInfo<$NotePageConflictRowsTable, NotePageConflictRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $NotePageConflictRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _pageIdMeta = const VerificationMeta('pageId');
+  @override
+  late final GeneratedColumn<String> pageId = GeneratedColumn<String>(
+    'page_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _headIdsJsonMeta = const VerificationMeta(
+    'headIdsJson',
+  );
+  @override
+  late final GeneratedColumn<String> headIdsJson = GeneratedColumn<String>(
+    'head_ids_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _localHeadIdMeta = const VerificationMeta(
+    'localHeadId',
+  );
+  @override
+  late final GeneratedColumn<String> localHeadId = GeneratedColumn<String>(
+    'local_head_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _incomingHeadIdMeta = const VerificationMeta(
+    'incomingHeadId',
+  );
+  @override
+  late final GeneratedColumn<String> incomingHeadId = GeneratedColumn<String>(
+    'incoming_head_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _commonAncestorIdMeta = const VerificationMeta(
+    'commonAncestorId',
+  );
+  @override
+  late final GeneratedColumn<String> commonAncestorId = GeneratedColumn<String>(
+    'common_ancestor_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<String> createdAt = GeneratedColumn<String>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    pageId,
+    headIdsJson,
+    localHeadId,
+    incomingHeadId,
+    commonAncestorId,
+    createdAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'note_page_conflicts';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<NotePageConflictRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('page_id')) {
+      context.handle(
+        _pageIdMeta,
+        pageId.isAcceptableOrUnknown(data['page_id']!, _pageIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_pageIdMeta);
+    }
+    if (data.containsKey('head_ids_json')) {
+      context.handle(
+        _headIdsJsonMeta,
+        headIdsJson.isAcceptableOrUnknown(
+          data['head_ids_json']!,
+          _headIdsJsonMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_headIdsJsonMeta);
+    }
+    if (data.containsKey('local_head_id')) {
+      context.handle(
+        _localHeadIdMeta,
+        localHeadId.isAcceptableOrUnknown(
+          data['local_head_id']!,
+          _localHeadIdMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_localHeadIdMeta);
+    }
+    if (data.containsKey('incoming_head_id')) {
+      context.handle(
+        _incomingHeadIdMeta,
+        incomingHeadId.isAcceptableOrUnknown(
+          data['incoming_head_id']!,
+          _incomingHeadIdMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_incomingHeadIdMeta);
+    }
+    if (data.containsKey('common_ancestor_id')) {
+      context.handle(
+        _commonAncestorIdMeta,
+        commonAncestorId.isAcceptableOrUnknown(
+          data['common_ancestor_id']!,
+          _commonAncestorIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {pageId};
+  @override
+  NotePageConflictRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return NotePageConflictRow(
+      pageId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}page_id'],
+      )!,
+      headIdsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}head_ids_json'],
+      )!,
+      localHeadId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}local_head_id'],
+      )!,
+      incomingHeadId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}incoming_head_id'],
+      )!,
+      commonAncestorId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}common_ancestor_id'],
+      ),
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}created_at'],
+      )!,
+    );
+  }
+
+  @override
+  $NotePageConflictRowsTable createAlias(String alias) {
+    return $NotePageConflictRowsTable(attachedDatabase, alias);
+  }
+}
+
+class NotePageConflictRow extends DataClass
+    implements Insertable<NotePageConflictRow> {
+  final String pageId;
+  final String headIdsJson;
+  final String localHeadId;
+  final String incomingHeadId;
+  final String? commonAncestorId;
+  final String createdAt;
+  const NotePageConflictRow({
+    required this.pageId,
+    required this.headIdsJson,
+    required this.localHeadId,
+    required this.incomingHeadId,
+    this.commonAncestorId,
+    required this.createdAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['page_id'] = Variable<String>(pageId);
+    map['head_ids_json'] = Variable<String>(headIdsJson);
+    map['local_head_id'] = Variable<String>(localHeadId);
+    map['incoming_head_id'] = Variable<String>(incomingHeadId);
+    if (!nullToAbsent || commonAncestorId != null) {
+      map['common_ancestor_id'] = Variable<String>(commonAncestorId);
+    }
+    map['created_at'] = Variable<String>(createdAt);
+    return map;
+  }
+
+  NotePageConflictRowsCompanion toCompanion(bool nullToAbsent) {
+    return NotePageConflictRowsCompanion(
+      pageId: Value(pageId),
+      headIdsJson: Value(headIdsJson),
+      localHeadId: Value(localHeadId),
+      incomingHeadId: Value(incomingHeadId),
+      commonAncestorId: commonAncestorId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(commonAncestorId),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory NotePageConflictRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return NotePageConflictRow(
+      pageId: serializer.fromJson<String>(json['pageId']),
+      headIdsJson: serializer.fromJson<String>(json['headIdsJson']),
+      localHeadId: serializer.fromJson<String>(json['localHeadId']),
+      incomingHeadId: serializer.fromJson<String>(json['incomingHeadId']),
+      commonAncestorId: serializer.fromJson<String?>(json['commonAncestorId']),
+      createdAt: serializer.fromJson<String>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'pageId': serializer.toJson<String>(pageId),
+      'headIdsJson': serializer.toJson<String>(headIdsJson),
+      'localHeadId': serializer.toJson<String>(localHeadId),
+      'incomingHeadId': serializer.toJson<String>(incomingHeadId),
+      'commonAncestorId': serializer.toJson<String?>(commonAncestorId),
+      'createdAt': serializer.toJson<String>(createdAt),
+    };
+  }
+
+  NotePageConflictRow copyWith({
+    String? pageId,
+    String? headIdsJson,
+    String? localHeadId,
+    String? incomingHeadId,
+    Value<String?> commonAncestorId = const Value.absent(),
+    String? createdAt,
+  }) => NotePageConflictRow(
+    pageId: pageId ?? this.pageId,
+    headIdsJson: headIdsJson ?? this.headIdsJson,
+    localHeadId: localHeadId ?? this.localHeadId,
+    incomingHeadId: incomingHeadId ?? this.incomingHeadId,
+    commonAncestorId: commonAncestorId.present
+        ? commonAncestorId.value
+        : this.commonAncestorId,
+    createdAt: createdAt ?? this.createdAt,
+  );
+  NotePageConflictRow copyWithCompanion(NotePageConflictRowsCompanion data) {
+    return NotePageConflictRow(
+      pageId: data.pageId.present ? data.pageId.value : this.pageId,
+      headIdsJson: data.headIdsJson.present
+          ? data.headIdsJson.value
+          : this.headIdsJson,
+      localHeadId: data.localHeadId.present
+          ? data.localHeadId.value
+          : this.localHeadId,
+      incomingHeadId: data.incomingHeadId.present
+          ? data.incomingHeadId.value
+          : this.incomingHeadId,
+      commonAncestorId: data.commonAncestorId.present
+          ? data.commonAncestorId.value
+          : this.commonAncestorId,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NotePageConflictRow(')
+          ..write('pageId: $pageId, ')
+          ..write('headIdsJson: $headIdsJson, ')
+          ..write('localHeadId: $localHeadId, ')
+          ..write('incomingHeadId: $incomingHeadId, ')
+          ..write('commonAncestorId: $commonAncestorId, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    pageId,
+    headIdsJson,
+    localHeadId,
+    incomingHeadId,
+    commonAncestorId,
+    createdAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is NotePageConflictRow &&
+          other.pageId == this.pageId &&
+          other.headIdsJson == this.headIdsJson &&
+          other.localHeadId == this.localHeadId &&
+          other.incomingHeadId == this.incomingHeadId &&
+          other.commonAncestorId == this.commonAncestorId &&
+          other.createdAt == this.createdAt);
+}
+
+class NotePageConflictRowsCompanion
+    extends UpdateCompanion<NotePageConflictRow> {
+  final Value<String> pageId;
+  final Value<String> headIdsJson;
+  final Value<String> localHeadId;
+  final Value<String> incomingHeadId;
+  final Value<String?> commonAncestorId;
+  final Value<String> createdAt;
+  final Value<int> rowid;
+  const NotePageConflictRowsCompanion({
+    this.pageId = const Value.absent(),
+    this.headIdsJson = const Value.absent(),
+    this.localHeadId = const Value.absent(),
+    this.incomingHeadId = const Value.absent(),
+    this.commonAncestorId = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  NotePageConflictRowsCompanion.insert({
+    required String pageId,
+    required String headIdsJson,
+    required String localHeadId,
+    required String incomingHeadId,
+    this.commonAncestorId = const Value.absent(),
+    required String createdAt,
+    this.rowid = const Value.absent(),
+  }) : pageId = Value(pageId),
+       headIdsJson = Value(headIdsJson),
+       localHeadId = Value(localHeadId),
+       incomingHeadId = Value(incomingHeadId),
+       createdAt = Value(createdAt);
+  static Insertable<NotePageConflictRow> custom({
+    Expression<String>? pageId,
+    Expression<String>? headIdsJson,
+    Expression<String>? localHeadId,
+    Expression<String>? incomingHeadId,
+    Expression<String>? commonAncestorId,
+    Expression<String>? createdAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (pageId != null) 'page_id': pageId,
+      if (headIdsJson != null) 'head_ids_json': headIdsJson,
+      if (localHeadId != null) 'local_head_id': localHeadId,
+      if (incomingHeadId != null) 'incoming_head_id': incomingHeadId,
+      if (commonAncestorId != null) 'common_ancestor_id': commonAncestorId,
+      if (createdAt != null) 'created_at': createdAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  NotePageConflictRowsCompanion copyWith({
+    Value<String>? pageId,
+    Value<String>? headIdsJson,
+    Value<String>? localHeadId,
+    Value<String>? incomingHeadId,
+    Value<String?>? commonAncestorId,
+    Value<String>? createdAt,
+    Value<int>? rowid,
+  }) {
+    return NotePageConflictRowsCompanion(
+      pageId: pageId ?? this.pageId,
+      headIdsJson: headIdsJson ?? this.headIdsJson,
+      localHeadId: localHeadId ?? this.localHeadId,
+      incomingHeadId: incomingHeadId ?? this.incomingHeadId,
+      commonAncestorId: commonAncestorId ?? this.commonAncestorId,
+      createdAt: createdAt ?? this.createdAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (pageId.present) {
+      map['page_id'] = Variable<String>(pageId.value);
+    }
+    if (headIdsJson.present) {
+      map['head_ids_json'] = Variable<String>(headIdsJson.value);
+    }
+    if (localHeadId.present) {
+      map['local_head_id'] = Variable<String>(localHeadId.value);
+    }
+    if (incomingHeadId.present) {
+      map['incoming_head_id'] = Variable<String>(incomingHeadId.value);
+    }
+    if (commonAncestorId.present) {
+      map['common_ancestor_id'] = Variable<String>(commonAncestorId.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<String>(createdAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NotePageConflictRowsCompanion(')
+          ..write('pageId: $pageId, ')
+          ..write('headIdsJson: $headIdsJson, ')
+          ..write('localHeadId: $localHeadId, ')
+          ..write('incomingHeadId: $incomingHeadId, ')
+          ..write('commonAncestorId: $commonAncestorId, ')
+          ..write('createdAt: $createdAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -6888,8 +8057,27 @@ class $TodoItemRowsTable extends TodoItemRows
     type: DriftSqlType.int,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
   @override
-  List<GeneratedColumn> get $columns => [id, listId, itemText, done, sortOrder];
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    listId,
+    itemText,
+    done,
+    sortOrder,
+    updatedAt,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -6939,6 +8127,12 @@ class $TodoItemRowsTable extends TodoItemRows
     } else if (isInserting) {
       context.missing(_sortOrderMeta);
     }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    }
     return context;
   }
 
@@ -6968,6 +8162,10 @@ class $TodoItemRowsTable extends TodoItemRows
         DriftSqlType.int,
         data['${effectivePrefix}sort_order'],
       )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
     );
   }
 
@@ -6983,12 +8181,14 @@ class TodoItemRow extends DataClass implements Insertable<TodoItemRow> {
   final String itemText;
   final int done;
   final int sortOrder;
+  final String updatedAt;
   const TodoItemRow({
     required this.id,
     required this.listId,
     required this.itemText,
     required this.done,
     required this.sortOrder,
+    required this.updatedAt,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -6998,6 +8198,7 @@ class TodoItemRow extends DataClass implements Insertable<TodoItemRow> {
     map['text'] = Variable<String>(itemText);
     map['done'] = Variable<int>(done);
     map['sort_order'] = Variable<int>(sortOrder);
+    map['updated_at'] = Variable<String>(updatedAt);
     return map;
   }
 
@@ -7008,6 +8209,7 @@ class TodoItemRow extends DataClass implements Insertable<TodoItemRow> {
       itemText: Value(itemText),
       done: Value(done),
       sortOrder: Value(sortOrder),
+      updatedAt: Value(updatedAt),
     );
   }
 
@@ -7022,6 +8224,7 @@ class TodoItemRow extends DataClass implements Insertable<TodoItemRow> {
       itemText: serializer.fromJson<String>(json['itemText']),
       done: serializer.fromJson<int>(json['done']),
       sortOrder: serializer.fromJson<int>(json['sortOrder']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
     );
   }
   @override
@@ -7033,6 +8236,7 @@ class TodoItemRow extends DataClass implements Insertable<TodoItemRow> {
       'itemText': serializer.toJson<String>(itemText),
       'done': serializer.toJson<int>(done),
       'sortOrder': serializer.toJson<int>(sortOrder),
+      'updatedAt': serializer.toJson<String>(updatedAt),
     };
   }
 
@@ -7042,12 +8246,14 @@ class TodoItemRow extends DataClass implements Insertable<TodoItemRow> {
     String? itemText,
     int? done,
     int? sortOrder,
+    String? updatedAt,
   }) => TodoItemRow(
     id: id ?? this.id,
     listId: listId ?? this.listId,
     itemText: itemText ?? this.itemText,
     done: done ?? this.done,
     sortOrder: sortOrder ?? this.sortOrder,
+    updatedAt: updatedAt ?? this.updatedAt,
   );
   TodoItemRow copyWithCompanion(TodoItemRowsCompanion data) {
     return TodoItemRow(
@@ -7056,6 +8262,7 @@ class TodoItemRow extends DataClass implements Insertable<TodoItemRow> {
       itemText: data.itemText.present ? data.itemText.value : this.itemText,
       done: data.done.present ? data.done.value : this.done,
       sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
   }
 
@@ -7066,13 +8273,15 @@ class TodoItemRow extends DataClass implements Insertable<TodoItemRow> {
           ..write('listId: $listId, ')
           ..write('itemText: $itemText, ')
           ..write('done: $done, ')
-          ..write('sortOrder: $sortOrder')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('updatedAt: $updatedAt')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, listId, itemText, done, sortOrder);
+  int get hashCode =>
+      Object.hash(id, listId, itemText, done, sortOrder, updatedAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -7081,7 +8290,8 @@ class TodoItemRow extends DataClass implements Insertable<TodoItemRow> {
           other.listId == this.listId &&
           other.itemText == this.itemText &&
           other.done == this.done &&
-          other.sortOrder == this.sortOrder);
+          other.sortOrder == this.sortOrder &&
+          other.updatedAt == this.updatedAt);
 }
 
 class TodoItemRowsCompanion extends UpdateCompanion<TodoItemRow> {
@@ -7090,6 +8300,7 @@ class TodoItemRowsCompanion extends UpdateCompanion<TodoItemRow> {
   final Value<String> itemText;
   final Value<int> done;
   final Value<int> sortOrder;
+  final Value<String> updatedAt;
   final Value<int> rowid;
   const TodoItemRowsCompanion({
     this.id = const Value.absent(),
@@ -7097,6 +8308,7 @@ class TodoItemRowsCompanion extends UpdateCompanion<TodoItemRow> {
     this.itemText = const Value.absent(),
     this.done = const Value.absent(),
     this.sortOrder = const Value.absent(),
+    this.updatedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   TodoItemRowsCompanion.insert({
@@ -7105,6 +8317,7 @@ class TodoItemRowsCompanion extends UpdateCompanion<TodoItemRow> {
     required String itemText,
     required int done,
     required int sortOrder,
+    this.updatedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        listId = Value(listId),
@@ -7117,6 +8330,7 @@ class TodoItemRowsCompanion extends UpdateCompanion<TodoItemRow> {
     Expression<String>? itemText,
     Expression<int>? done,
     Expression<int>? sortOrder,
+    Expression<String>? updatedAt,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -7125,6 +8339,7 @@ class TodoItemRowsCompanion extends UpdateCompanion<TodoItemRow> {
       if (itemText != null) 'text': itemText,
       if (done != null) 'done': done,
       if (sortOrder != null) 'sort_order': sortOrder,
+      if (updatedAt != null) 'updated_at': updatedAt,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -7135,6 +8350,7 @@ class TodoItemRowsCompanion extends UpdateCompanion<TodoItemRow> {
     Value<String>? itemText,
     Value<int>? done,
     Value<int>? sortOrder,
+    Value<String>? updatedAt,
     Value<int>? rowid,
   }) {
     return TodoItemRowsCompanion(
@@ -7143,6 +8359,7 @@ class TodoItemRowsCompanion extends UpdateCompanion<TodoItemRow> {
       itemText: itemText ?? this.itemText,
       done: done ?? this.done,
       sortOrder: sortOrder ?? this.sortOrder,
+      updatedAt: updatedAt ?? this.updatedAt,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -7165,6 +8382,9 @@ class TodoItemRowsCompanion extends UpdateCompanion<TodoItemRow> {
     if (sortOrder.present) {
       map['sort_order'] = Variable<int>(sortOrder.value);
     }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -7179,6 +8399,7 @@ class TodoItemRowsCompanion extends UpdateCompanion<TodoItemRow> {
           ..write('itemText: $itemText, ')
           ..write('done: $done, ')
           ..write('sortOrder: $sortOrder, ')
+          ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -8227,6 +9448,2496 @@ class RecycleBinRowsCompanion extends UpdateCompanion<RecycleBinRow> {
   }
 }
 
+class $SyncOutboxRowsTable extends SyncOutboxRows
+    with TableInfo<$SyncOutboxRowsTable, SyncOutboxRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SyncOutboxRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _scopeMeta = const VerificationMeta('scope');
+  @override
+  late final GeneratedColumn<String> scope = GeneratedColumn<String>(
+    'scope',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _tableMeta = const VerificationMeta('table');
+  @override
+  late final GeneratedColumn<String> table = GeneratedColumn<String>(
+    'table_name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _recordIdMeta = const VerificationMeta(
+    'recordId',
+  );
+  @override
+  late final GeneratedColumn<String> recordId = GeneratedColumn<String>(
+    'record_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _opMeta = const VerificationMeta('op');
+  @override
+  late final GeneratedColumn<String> op = GeneratedColumn<String>(
+    'op',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _dataJsonMeta = const VerificationMeta(
+    'dataJson',
+  );
+  @override
+  late final GeneratedColumn<String> dataJson = GeneratedColumn<String>(
+    'data_json',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _changeIdMeta = const VerificationMeta(
+    'changeId',
+  );
+  @override
+  late final GeneratedColumn<String> changeId = GeneratedColumn<String>(
+    'change_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _deviceIdMeta = const VerificationMeta(
+    'deviceId',
+  );
+  @override
+  late final GeneratedColumn<String> deviceId = GeneratedColumn<String>(
+    'device_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _clientCreatedAtMeta = const VerificationMeta(
+    'clientCreatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> clientCreatedAt = GeneratedColumn<String>(
+    'client_created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _mutationVersionMeta = const VerificationMeta(
+    'mutationVersion',
+  );
+  @override
+  late final GeneratedColumn<int> mutationVersion = GeneratedColumn<int>(
+    'mutation_version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    scope,
+    table,
+    recordId,
+    op,
+    dataJson,
+    changeId,
+    deviceId,
+    clientCreatedAt,
+    mutationVersion,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'sync_outbox';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SyncOutboxRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('scope')) {
+      context.handle(
+        _scopeMeta,
+        scope.isAcceptableOrUnknown(data['scope']!, _scopeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_scopeMeta);
+    }
+    if (data.containsKey('table_name')) {
+      context.handle(
+        _tableMeta,
+        table.isAcceptableOrUnknown(data['table_name']!, _tableMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_tableMeta);
+    }
+    if (data.containsKey('record_id')) {
+      context.handle(
+        _recordIdMeta,
+        recordId.isAcceptableOrUnknown(data['record_id']!, _recordIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_recordIdMeta);
+    }
+    if (data.containsKey('op')) {
+      context.handle(_opMeta, op.isAcceptableOrUnknown(data['op']!, _opMeta));
+    } else if (isInserting) {
+      context.missing(_opMeta);
+    }
+    if (data.containsKey('data_json')) {
+      context.handle(
+        _dataJsonMeta,
+        dataJson.isAcceptableOrUnknown(data['data_json']!, _dataJsonMeta),
+      );
+    }
+    if (data.containsKey('change_id')) {
+      context.handle(
+        _changeIdMeta,
+        changeId.isAcceptableOrUnknown(data['change_id']!, _changeIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_changeIdMeta);
+    }
+    if (data.containsKey('device_id')) {
+      context.handle(
+        _deviceIdMeta,
+        deviceId.isAcceptableOrUnknown(data['device_id']!, _deviceIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_deviceIdMeta);
+    }
+    if (data.containsKey('client_created_at')) {
+      context.handle(
+        _clientCreatedAtMeta,
+        clientCreatedAt.isAcceptableOrUnknown(
+          data['client_created_at']!,
+          _clientCreatedAtMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_clientCreatedAtMeta);
+    }
+    if (data.containsKey('mutation_version')) {
+      context.handle(
+        _mutationVersionMeta,
+        mutationVersion.isAcceptableOrUnknown(
+          data['mutation_version']!,
+          _mutationVersionMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_mutationVersionMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {scope, table, recordId};
+  @override
+  SyncOutboxRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SyncOutboxRow(
+      scope: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}scope'],
+      )!,
+      table: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}table_name'],
+      )!,
+      recordId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}record_id'],
+      )!,
+      op: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}op'],
+      )!,
+      dataJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}data_json'],
+      ),
+      changeId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}change_id'],
+      )!,
+      deviceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}device_id'],
+      )!,
+      clientCreatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}client_created_at'],
+      )!,
+      mutationVersion: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}mutation_version'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $SyncOutboxRowsTable createAlias(String alias) {
+    return $SyncOutboxRowsTable(attachedDatabase, alias);
+  }
+}
+
+class SyncOutboxRow extends DataClass implements Insertable<SyncOutboxRow> {
+  final String scope;
+  final String table;
+  final String recordId;
+  final String op;
+  final String? dataJson;
+  final String changeId;
+  final String deviceId;
+  final String clientCreatedAt;
+  final int mutationVersion;
+  final String updatedAt;
+  const SyncOutboxRow({
+    required this.scope,
+    required this.table,
+    required this.recordId,
+    required this.op,
+    this.dataJson,
+    required this.changeId,
+    required this.deviceId,
+    required this.clientCreatedAt,
+    required this.mutationVersion,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['scope'] = Variable<String>(scope);
+    map['table_name'] = Variable<String>(table);
+    map['record_id'] = Variable<String>(recordId);
+    map['op'] = Variable<String>(op);
+    if (!nullToAbsent || dataJson != null) {
+      map['data_json'] = Variable<String>(dataJson);
+    }
+    map['change_id'] = Variable<String>(changeId);
+    map['device_id'] = Variable<String>(deviceId);
+    map['client_created_at'] = Variable<String>(clientCreatedAt);
+    map['mutation_version'] = Variable<int>(mutationVersion);
+    map['updated_at'] = Variable<String>(updatedAt);
+    return map;
+  }
+
+  SyncOutboxRowsCompanion toCompanion(bool nullToAbsent) {
+    return SyncOutboxRowsCompanion(
+      scope: Value(scope),
+      table: Value(table),
+      recordId: Value(recordId),
+      op: Value(op),
+      dataJson: dataJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(dataJson),
+      changeId: Value(changeId),
+      deviceId: Value(deviceId),
+      clientCreatedAt: Value(clientCreatedAt),
+      mutationVersion: Value(mutationVersion),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory SyncOutboxRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SyncOutboxRow(
+      scope: serializer.fromJson<String>(json['scope']),
+      table: serializer.fromJson<String>(json['table']),
+      recordId: serializer.fromJson<String>(json['recordId']),
+      op: serializer.fromJson<String>(json['op']),
+      dataJson: serializer.fromJson<String?>(json['dataJson']),
+      changeId: serializer.fromJson<String>(json['changeId']),
+      deviceId: serializer.fromJson<String>(json['deviceId']),
+      clientCreatedAt: serializer.fromJson<String>(json['clientCreatedAt']),
+      mutationVersion: serializer.fromJson<int>(json['mutationVersion']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'scope': serializer.toJson<String>(scope),
+      'table': serializer.toJson<String>(table),
+      'recordId': serializer.toJson<String>(recordId),
+      'op': serializer.toJson<String>(op),
+      'dataJson': serializer.toJson<String?>(dataJson),
+      'changeId': serializer.toJson<String>(changeId),
+      'deviceId': serializer.toJson<String>(deviceId),
+      'clientCreatedAt': serializer.toJson<String>(clientCreatedAt),
+      'mutationVersion': serializer.toJson<int>(mutationVersion),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+    };
+  }
+
+  SyncOutboxRow copyWith({
+    String? scope,
+    String? table,
+    String? recordId,
+    String? op,
+    Value<String?> dataJson = const Value.absent(),
+    String? changeId,
+    String? deviceId,
+    String? clientCreatedAt,
+    int? mutationVersion,
+    String? updatedAt,
+  }) => SyncOutboxRow(
+    scope: scope ?? this.scope,
+    table: table ?? this.table,
+    recordId: recordId ?? this.recordId,
+    op: op ?? this.op,
+    dataJson: dataJson.present ? dataJson.value : this.dataJson,
+    changeId: changeId ?? this.changeId,
+    deviceId: deviceId ?? this.deviceId,
+    clientCreatedAt: clientCreatedAt ?? this.clientCreatedAt,
+    mutationVersion: mutationVersion ?? this.mutationVersion,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  SyncOutboxRow copyWithCompanion(SyncOutboxRowsCompanion data) {
+    return SyncOutboxRow(
+      scope: data.scope.present ? data.scope.value : this.scope,
+      table: data.table.present ? data.table.value : this.table,
+      recordId: data.recordId.present ? data.recordId.value : this.recordId,
+      op: data.op.present ? data.op.value : this.op,
+      dataJson: data.dataJson.present ? data.dataJson.value : this.dataJson,
+      changeId: data.changeId.present ? data.changeId.value : this.changeId,
+      deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
+      clientCreatedAt: data.clientCreatedAt.present
+          ? data.clientCreatedAt.value
+          : this.clientCreatedAt,
+      mutationVersion: data.mutationVersion.present
+          ? data.mutationVersion.value
+          : this.mutationVersion,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncOutboxRow(')
+          ..write('scope: $scope, ')
+          ..write('table: $table, ')
+          ..write('recordId: $recordId, ')
+          ..write('op: $op, ')
+          ..write('dataJson: $dataJson, ')
+          ..write('changeId: $changeId, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('clientCreatedAt: $clientCreatedAt, ')
+          ..write('mutationVersion: $mutationVersion, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    scope,
+    table,
+    recordId,
+    op,
+    dataJson,
+    changeId,
+    deviceId,
+    clientCreatedAt,
+    mutationVersion,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SyncOutboxRow &&
+          other.scope == this.scope &&
+          other.table == this.table &&
+          other.recordId == this.recordId &&
+          other.op == this.op &&
+          other.dataJson == this.dataJson &&
+          other.changeId == this.changeId &&
+          other.deviceId == this.deviceId &&
+          other.clientCreatedAt == this.clientCreatedAt &&
+          other.mutationVersion == this.mutationVersion &&
+          other.updatedAt == this.updatedAt);
+}
+
+class SyncOutboxRowsCompanion extends UpdateCompanion<SyncOutboxRow> {
+  final Value<String> scope;
+  final Value<String> table;
+  final Value<String> recordId;
+  final Value<String> op;
+  final Value<String?> dataJson;
+  final Value<String> changeId;
+  final Value<String> deviceId;
+  final Value<String> clientCreatedAt;
+  final Value<int> mutationVersion;
+  final Value<String> updatedAt;
+  final Value<int> rowid;
+  const SyncOutboxRowsCompanion({
+    this.scope = const Value.absent(),
+    this.table = const Value.absent(),
+    this.recordId = const Value.absent(),
+    this.op = const Value.absent(),
+    this.dataJson = const Value.absent(),
+    this.changeId = const Value.absent(),
+    this.deviceId = const Value.absent(),
+    this.clientCreatedAt = const Value.absent(),
+    this.mutationVersion = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SyncOutboxRowsCompanion.insert({
+    required String scope,
+    required String table,
+    required String recordId,
+    required String op,
+    this.dataJson = const Value.absent(),
+    required String changeId,
+    required String deviceId,
+    required String clientCreatedAt,
+    required int mutationVersion,
+    required String updatedAt,
+    this.rowid = const Value.absent(),
+  }) : scope = Value(scope),
+       table = Value(table),
+       recordId = Value(recordId),
+       op = Value(op),
+       changeId = Value(changeId),
+       deviceId = Value(deviceId),
+       clientCreatedAt = Value(clientCreatedAt),
+       mutationVersion = Value(mutationVersion),
+       updatedAt = Value(updatedAt);
+  static Insertable<SyncOutboxRow> custom({
+    Expression<String>? scope,
+    Expression<String>? table,
+    Expression<String>? recordId,
+    Expression<String>? op,
+    Expression<String>? dataJson,
+    Expression<String>? changeId,
+    Expression<String>? deviceId,
+    Expression<String>? clientCreatedAt,
+    Expression<int>? mutationVersion,
+    Expression<String>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (scope != null) 'scope': scope,
+      if (table != null) 'table_name': table,
+      if (recordId != null) 'record_id': recordId,
+      if (op != null) 'op': op,
+      if (dataJson != null) 'data_json': dataJson,
+      if (changeId != null) 'change_id': changeId,
+      if (deviceId != null) 'device_id': deviceId,
+      if (clientCreatedAt != null) 'client_created_at': clientCreatedAt,
+      if (mutationVersion != null) 'mutation_version': mutationVersion,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SyncOutboxRowsCompanion copyWith({
+    Value<String>? scope,
+    Value<String>? table,
+    Value<String>? recordId,
+    Value<String>? op,
+    Value<String?>? dataJson,
+    Value<String>? changeId,
+    Value<String>? deviceId,
+    Value<String>? clientCreatedAt,
+    Value<int>? mutationVersion,
+    Value<String>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return SyncOutboxRowsCompanion(
+      scope: scope ?? this.scope,
+      table: table ?? this.table,
+      recordId: recordId ?? this.recordId,
+      op: op ?? this.op,
+      dataJson: dataJson ?? this.dataJson,
+      changeId: changeId ?? this.changeId,
+      deviceId: deviceId ?? this.deviceId,
+      clientCreatedAt: clientCreatedAt ?? this.clientCreatedAt,
+      mutationVersion: mutationVersion ?? this.mutationVersion,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (scope.present) {
+      map['scope'] = Variable<String>(scope.value);
+    }
+    if (table.present) {
+      map['table_name'] = Variable<String>(table.value);
+    }
+    if (recordId.present) {
+      map['record_id'] = Variable<String>(recordId.value);
+    }
+    if (op.present) {
+      map['op'] = Variable<String>(op.value);
+    }
+    if (dataJson.present) {
+      map['data_json'] = Variable<String>(dataJson.value);
+    }
+    if (changeId.present) {
+      map['change_id'] = Variable<String>(changeId.value);
+    }
+    if (deviceId.present) {
+      map['device_id'] = Variable<String>(deviceId.value);
+    }
+    if (clientCreatedAt.present) {
+      map['client_created_at'] = Variable<String>(clientCreatedAt.value);
+    }
+    if (mutationVersion.present) {
+      map['mutation_version'] = Variable<int>(mutationVersion.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncOutboxRowsCompanion(')
+          ..write('scope: $scope, ')
+          ..write('table: $table, ')
+          ..write('recordId: $recordId, ')
+          ..write('op: $op, ')
+          ..write('dataJson: $dataJson, ')
+          ..write('changeId: $changeId, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('clientCreatedAt: $clientCreatedAt, ')
+          ..write('mutationVersion: $mutationVersion, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $SyncConflictRowsTable extends SyncConflictRows
+    with TableInfo<$SyncConflictRowsTable, SyncConflictRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SyncConflictRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _scopeMeta = const VerificationMeta('scope');
+  @override
+  late final GeneratedColumn<String> scope = GeneratedColumn<String>(
+    'scope',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _seqMeta = const VerificationMeta('seq');
+  @override
+  late final GeneratedColumn<int> seq = GeneratedColumn<int>(
+    'seq',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _tableMeta = const VerificationMeta('table');
+  @override
+  late final GeneratedColumn<String> table = GeneratedColumn<String>(
+    'table_name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _recordIdMeta = const VerificationMeta(
+    'recordId',
+  );
+  @override
+  late final GeneratedColumn<String> recordId = GeneratedColumn<String>(
+    'record_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _opMeta = const VerificationMeta('op');
+  @override
+  late final GeneratedColumn<String> op = GeneratedColumn<String>(
+    'op',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _dataJsonMeta = const VerificationMeta(
+    'dataJson',
+  );
+  @override
+  late final GeneratedColumn<String> dataJson = GeneratedColumn<String>(
+    'data_json',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _changeIdMeta = const VerificationMeta(
+    'changeId',
+  );
+  @override
+  late final GeneratedColumn<String> changeId = GeneratedColumn<String>(
+    'change_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _deviceIdMeta = const VerificationMeta(
+    'deviceId',
+  );
+  @override
+  late final GeneratedColumn<String> deviceId = GeneratedColumn<String>(
+    'device_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _clientCreatedAtMeta = const VerificationMeta(
+    'clientCreatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> clientCreatedAt = GeneratedColumn<String>(
+    'client_created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<String> createdAt = GeneratedColumn<String>(
+    'created_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _localOpMeta = const VerificationMeta(
+    'localOp',
+  );
+  @override
+  late final GeneratedColumn<String> localOp = GeneratedColumn<String>(
+    'local_op',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _localDataJsonMeta = const VerificationMeta(
+    'localDataJson',
+  );
+  @override
+  late final GeneratedColumn<String> localDataJson = GeneratedColumn<String>(
+    'local_data_json',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _localChangeIdMeta = const VerificationMeta(
+    'localChangeId',
+  );
+  @override
+  late final GeneratedColumn<String> localChangeId = GeneratedColumn<String>(
+    'local_change_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _localMutationVersionMeta =
+      const VerificationMeta('localMutationVersion');
+  @override
+  late final GeneratedColumn<int> localMutationVersion = GeneratedColumn<int>(
+    'local_mutation_version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    scope,
+    seq,
+    table,
+    recordId,
+    op,
+    dataJson,
+    changeId,
+    deviceId,
+    clientCreatedAt,
+    createdAt,
+    localOp,
+    localDataJson,
+    localChangeId,
+    localMutationVersion,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'sync_conflicts';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SyncConflictRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('scope')) {
+      context.handle(
+        _scopeMeta,
+        scope.isAcceptableOrUnknown(data['scope']!, _scopeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_scopeMeta);
+    }
+    if (data.containsKey('seq')) {
+      context.handle(
+        _seqMeta,
+        seq.isAcceptableOrUnknown(data['seq']!, _seqMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_seqMeta);
+    }
+    if (data.containsKey('table_name')) {
+      context.handle(
+        _tableMeta,
+        table.isAcceptableOrUnknown(data['table_name']!, _tableMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_tableMeta);
+    }
+    if (data.containsKey('record_id')) {
+      context.handle(
+        _recordIdMeta,
+        recordId.isAcceptableOrUnknown(data['record_id']!, _recordIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_recordIdMeta);
+    }
+    if (data.containsKey('op')) {
+      context.handle(_opMeta, op.isAcceptableOrUnknown(data['op']!, _opMeta));
+    } else if (isInserting) {
+      context.missing(_opMeta);
+    }
+    if (data.containsKey('data_json')) {
+      context.handle(
+        _dataJsonMeta,
+        dataJson.isAcceptableOrUnknown(data['data_json']!, _dataJsonMeta),
+      );
+    }
+    if (data.containsKey('change_id')) {
+      context.handle(
+        _changeIdMeta,
+        changeId.isAcceptableOrUnknown(data['change_id']!, _changeIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_changeIdMeta);
+    }
+    if (data.containsKey('device_id')) {
+      context.handle(
+        _deviceIdMeta,
+        deviceId.isAcceptableOrUnknown(data['device_id']!, _deviceIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_deviceIdMeta);
+    }
+    if (data.containsKey('client_created_at')) {
+      context.handle(
+        _clientCreatedAtMeta,
+        clientCreatedAt.isAcceptableOrUnknown(
+          data['client_created_at']!,
+          _clientCreatedAtMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_clientCreatedAtMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    }
+    if (data.containsKey('local_op')) {
+      context.handle(
+        _localOpMeta,
+        localOp.isAcceptableOrUnknown(data['local_op']!, _localOpMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_localOpMeta);
+    }
+    if (data.containsKey('local_data_json')) {
+      context.handle(
+        _localDataJsonMeta,
+        localDataJson.isAcceptableOrUnknown(
+          data['local_data_json']!,
+          _localDataJsonMeta,
+        ),
+      );
+    }
+    if (data.containsKey('local_change_id')) {
+      context.handle(
+        _localChangeIdMeta,
+        localChangeId.isAcceptableOrUnknown(
+          data['local_change_id']!,
+          _localChangeIdMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_localChangeIdMeta);
+    }
+    if (data.containsKey('local_mutation_version')) {
+      context.handle(
+        _localMutationVersionMeta,
+        localMutationVersion.isAcceptableOrUnknown(
+          data['local_mutation_version']!,
+          _localMutationVersionMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_localMutationVersionMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {scope, seq};
+  @override
+  SyncConflictRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SyncConflictRow(
+      scope: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}scope'],
+      )!,
+      seq: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}seq'],
+      )!,
+      table: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}table_name'],
+      )!,
+      recordId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}record_id'],
+      )!,
+      op: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}op'],
+      )!,
+      dataJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}data_json'],
+      ),
+      changeId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}change_id'],
+      )!,
+      deviceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}device_id'],
+      )!,
+      clientCreatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}client_created_at'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}created_at'],
+      ),
+      localOp: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}local_op'],
+      )!,
+      localDataJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}local_data_json'],
+      ),
+      localChangeId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}local_change_id'],
+      )!,
+      localMutationVersion: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}local_mutation_version'],
+      )!,
+    );
+  }
+
+  @override
+  $SyncConflictRowsTable createAlias(String alias) {
+    return $SyncConflictRowsTable(attachedDatabase, alias);
+  }
+}
+
+class SyncConflictRow extends DataClass implements Insertable<SyncConflictRow> {
+  final String scope;
+  final int seq;
+  final String table;
+  final String recordId;
+  final String op;
+  final String? dataJson;
+  final String changeId;
+  final String deviceId;
+  final String clientCreatedAt;
+  final String? createdAt;
+  final String localOp;
+  final String? localDataJson;
+  final String localChangeId;
+  final int localMutationVersion;
+  const SyncConflictRow({
+    required this.scope,
+    required this.seq,
+    required this.table,
+    required this.recordId,
+    required this.op,
+    this.dataJson,
+    required this.changeId,
+    required this.deviceId,
+    required this.clientCreatedAt,
+    this.createdAt,
+    required this.localOp,
+    this.localDataJson,
+    required this.localChangeId,
+    required this.localMutationVersion,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['scope'] = Variable<String>(scope);
+    map['seq'] = Variable<int>(seq);
+    map['table_name'] = Variable<String>(table);
+    map['record_id'] = Variable<String>(recordId);
+    map['op'] = Variable<String>(op);
+    if (!nullToAbsent || dataJson != null) {
+      map['data_json'] = Variable<String>(dataJson);
+    }
+    map['change_id'] = Variable<String>(changeId);
+    map['device_id'] = Variable<String>(deviceId);
+    map['client_created_at'] = Variable<String>(clientCreatedAt);
+    if (!nullToAbsent || createdAt != null) {
+      map['created_at'] = Variable<String>(createdAt);
+    }
+    map['local_op'] = Variable<String>(localOp);
+    if (!nullToAbsent || localDataJson != null) {
+      map['local_data_json'] = Variable<String>(localDataJson);
+    }
+    map['local_change_id'] = Variable<String>(localChangeId);
+    map['local_mutation_version'] = Variable<int>(localMutationVersion);
+    return map;
+  }
+
+  SyncConflictRowsCompanion toCompanion(bool nullToAbsent) {
+    return SyncConflictRowsCompanion(
+      scope: Value(scope),
+      seq: Value(seq),
+      table: Value(table),
+      recordId: Value(recordId),
+      op: Value(op),
+      dataJson: dataJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(dataJson),
+      changeId: Value(changeId),
+      deviceId: Value(deviceId),
+      clientCreatedAt: Value(clientCreatedAt),
+      createdAt: createdAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(createdAt),
+      localOp: Value(localOp),
+      localDataJson: localDataJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(localDataJson),
+      localChangeId: Value(localChangeId),
+      localMutationVersion: Value(localMutationVersion),
+    );
+  }
+
+  factory SyncConflictRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SyncConflictRow(
+      scope: serializer.fromJson<String>(json['scope']),
+      seq: serializer.fromJson<int>(json['seq']),
+      table: serializer.fromJson<String>(json['table']),
+      recordId: serializer.fromJson<String>(json['recordId']),
+      op: serializer.fromJson<String>(json['op']),
+      dataJson: serializer.fromJson<String?>(json['dataJson']),
+      changeId: serializer.fromJson<String>(json['changeId']),
+      deviceId: serializer.fromJson<String>(json['deviceId']),
+      clientCreatedAt: serializer.fromJson<String>(json['clientCreatedAt']),
+      createdAt: serializer.fromJson<String?>(json['createdAt']),
+      localOp: serializer.fromJson<String>(json['localOp']),
+      localDataJson: serializer.fromJson<String?>(json['localDataJson']),
+      localChangeId: serializer.fromJson<String>(json['localChangeId']),
+      localMutationVersion: serializer.fromJson<int>(
+        json['localMutationVersion'],
+      ),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'scope': serializer.toJson<String>(scope),
+      'seq': serializer.toJson<int>(seq),
+      'table': serializer.toJson<String>(table),
+      'recordId': serializer.toJson<String>(recordId),
+      'op': serializer.toJson<String>(op),
+      'dataJson': serializer.toJson<String?>(dataJson),
+      'changeId': serializer.toJson<String>(changeId),
+      'deviceId': serializer.toJson<String>(deviceId),
+      'clientCreatedAt': serializer.toJson<String>(clientCreatedAt),
+      'createdAt': serializer.toJson<String?>(createdAt),
+      'localOp': serializer.toJson<String>(localOp),
+      'localDataJson': serializer.toJson<String?>(localDataJson),
+      'localChangeId': serializer.toJson<String>(localChangeId),
+      'localMutationVersion': serializer.toJson<int>(localMutationVersion),
+    };
+  }
+
+  SyncConflictRow copyWith({
+    String? scope,
+    int? seq,
+    String? table,
+    String? recordId,
+    String? op,
+    Value<String?> dataJson = const Value.absent(),
+    String? changeId,
+    String? deviceId,
+    String? clientCreatedAt,
+    Value<String?> createdAt = const Value.absent(),
+    String? localOp,
+    Value<String?> localDataJson = const Value.absent(),
+    String? localChangeId,
+    int? localMutationVersion,
+  }) => SyncConflictRow(
+    scope: scope ?? this.scope,
+    seq: seq ?? this.seq,
+    table: table ?? this.table,
+    recordId: recordId ?? this.recordId,
+    op: op ?? this.op,
+    dataJson: dataJson.present ? dataJson.value : this.dataJson,
+    changeId: changeId ?? this.changeId,
+    deviceId: deviceId ?? this.deviceId,
+    clientCreatedAt: clientCreatedAt ?? this.clientCreatedAt,
+    createdAt: createdAt.present ? createdAt.value : this.createdAt,
+    localOp: localOp ?? this.localOp,
+    localDataJson: localDataJson.present
+        ? localDataJson.value
+        : this.localDataJson,
+    localChangeId: localChangeId ?? this.localChangeId,
+    localMutationVersion: localMutationVersion ?? this.localMutationVersion,
+  );
+  SyncConflictRow copyWithCompanion(SyncConflictRowsCompanion data) {
+    return SyncConflictRow(
+      scope: data.scope.present ? data.scope.value : this.scope,
+      seq: data.seq.present ? data.seq.value : this.seq,
+      table: data.table.present ? data.table.value : this.table,
+      recordId: data.recordId.present ? data.recordId.value : this.recordId,
+      op: data.op.present ? data.op.value : this.op,
+      dataJson: data.dataJson.present ? data.dataJson.value : this.dataJson,
+      changeId: data.changeId.present ? data.changeId.value : this.changeId,
+      deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
+      clientCreatedAt: data.clientCreatedAt.present
+          ? data.clientCreatedAt.value
+          : this.clientCreatedAt,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      localOp: data.localOp.present ? data.localOp.value : this.localOp,
+      localDataJson: data.localDataJson.present
+          ? data.localDataJson.value
+          : this.localDataJson,
+      localChangeId: data.localChangeId.present
+          ? data.localChangeId.value
+          : this.localChangeId,
+      localMutationVersion: data.localMutationVersion.present
+          ? data.localMutationVersion.value
+          : this.localMutationVersion,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncConflictRow(')
+          ..write('scope: $scope, ')
+          ..write('seq: $seq, ')
+          ..write('table: $table, ')
+          ..write('recordId: $recordId, ')
+          ..write('op: $op, ')
+          ..write('dataJson: $dataJson, ')
+          ..write('changeId: $changeId, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('clientCreatedAt: $clientCreatedAt, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('localOp: $localOp, ')
+          ..write('localDataJson: $localDataJson, ')
+          ..write('localChangeId: $localChangeId, ')
+          ..write('localMutationVersion: $localMutationVersion')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    scope,
+    seq,
+    table,
+    recordId,
+    op,
+    dataJson,
+    changeId,
+    deviceId,
+    clientCreatedAt,
+    createdAt,
+    localOp,
+    localDataJson,
+    localChangeId,
+    localMutationVersion,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SyncConflictRow &&
+          other.scope == this.scope &&
+          other.seq == this.seq &&
+          other.table == this.table &&
+          other.recordId == this.recordId &&
+          other.op == this.op &&
+          other.dataJson == this.dataJson &&
+          other.changeId == this.changeId &&
+          other.deviceId == this.deviceId &&
+          other.clientCreatedAt == this.clientCreatedAt &&
+          other.createdAt == this.createdAt &&
+          other.localOp == this.localOp &&
+          other.localDataJson == this.localDataJson &&
+          other.localChangeId == this.localChangeId &&
+          other.localMutationVersion == this.localMutationVersion);
+}
+
+class SyncConflictRowsCompanion extends UpdateCompanion<SyncConflictRow> {
+  final Value<String> scope;
+  final Value<int> seq;
+  final Value<String> table;
+  final Value<String> recordId;
+  final Value<String> op;
+  final Value<String?> dataJson;
+  final Value<String> changeId;
+  final Value<String> deviceId;
+  final Value<String> clientCreatedAt;
+  final Value<String?> createdAt;
+  final Value<String> localOp;
+  final Value<String?> localDataJson;
+  final Value<String> localChangeId;
+  final Value<int> localMutationVersion;
+  final Value<int> rowid;
+  const SyncConflictRowsCompanion({
+    this.scope = const Value.absent(),
+    this.seq = const Value.absent(),
+    this.table = const Value.absent(),
+    this.recordId = const Value.absent(),
+    this.op = const Value.absent(),
+    this.dataJson = const Value.absent(),
+    this.changeId = const Value.absent(),
+    this.deviceId = const Value.absent(),
+    this.clientCreatedAt = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.localOp = const Value.absent(),
+    this.localDataJson = const Value.absent(),
+    this.localChangeId = const Value.absent(),
+    this.localMutationVersion = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SyncConflictRowsCompanion.insert({
+    required String scope,
+    required int seq,
+    required String table,
+    required String recordId,
+    required String op,
+    this.dataJson = const Value.absent(),
+    required String changeId,
+    required String deviceId,
+    required String clientCreatedAt,
+    this.createdAt = const Value.absent(),
+    required String localOp,
+    this.localDataJson = const Value.absent(),
+    required String localChangeId,
+    required int localMutationVersion,
+    this.rowid = const Value.absent(),
+  }) : scope = Value(scope),
+       seq = Value(seq),
+       table = Value(table),
+       recordId = Value(recordId),
+       op = Value(op),
+       changeId = Value(changeId),
+       deviceId = Value(deviceId),
+       clientCreatedAt = Value(clientCreatedAt),
+       localOp = Value(localOp),
+       localChangeId = Value(localChangeId),
+       localMutationVersion = Value(localMutationVersion);
+  static Insertable<SyncConflictRow> custom({
+    Expression<String>? scope,
+    Expression<int>? seq,
+    Expression<String>? table,
+    Expression<String>? recordId,
+    Expression<String>? op,
+    Expression<String>? dataJson,
+    Expression<String>? changeId,
+    Expression<String>? deviceId,
+    Expression<String>? clientCreatedAt,
+    Expression<String>? createdAt,
+    Expression<String>? localOp,
+    Expression<String>? localDataJson,
+    Expression<String>? localChangeId,
+    Expression<int>? localMutationVersion,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (scope != null) 'scope': scope,
+      if (seq != null) 'seq': seq,
+      if (table != null) 'table_name': table,
+      if (recordId != null) 'record_id': recordId,
+      if (op != null) 'op': op,
+      if (dataJson != null) 'data_json': dataJson,
+      if (changeId != null) 'change_id': changeId,
+      if (deviceId != null) 'device_id': deviceId,
+      if (clientCreatedAt != null) 'client_created_at': clientCreatedAt,
+      if (createdAt != null) 'created_at': createdAt,
+      if (localOp != null) 'local_op': localOp,
+      if (localDataJson != null) 'local_data_json': localDataJson,
+      if (localChangeId != null) 'local_change_id': localChangeId,
+      if (localMutationVersion != null)
+        'local_mutation_version': localMutationVersion,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SyncConflictRowsCompanion copyWith({
+    Value<String>? scope,
+    Value<int>? seq,
+    Value<String>? table,
+    Value<String>? recordId,
+    Value<String>? op,
+    Value<String?>? dataJson,
+    Value<String>? changeId,
+    Value<String>? deviceId,
+    Value<String>? clientCreatedAt,
+    Value<String?>? createdAt,
+    Value<String>? localOp,
+    Value<String?>? localDataJson,
+    Value<String>? localChangeId,
+    Value<int>? localMutationVersion,
+    Value<int>? rowid,
+  }) {
+    return SyncConflictRowsCompanion(
+      scope: scope ?? this.scope,
+      seq: seq ?? this.seq,
+      table: table ?? this.table,
+      recordId: recordId ?? this.recordId,
+      op: op ?? this.op,
+      dataJson: dataJson ?? this.dataJson,
+      changeId: changeId ?? this.changeId,
+      deviceId: deviceId ?? this.deviceId,
+      clientCreatedAt: clientCreatedAt ?? this.clientCreatedAt,
+      createdAt: createdAt ?? this.createdAt,
+      localOp: localOp ?? this.localOp,
+      localDataJson: localDataJson ?? this.localDataJson,
+      localChangeId: localChangeId ?? this.localChangeId,
+      localMutationVersion: localMutationVersion ?? this.localMutationVersion,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (scope.present) {
+      map['scope'] = Variable<String>(scope.value);
+    }
+    if (seq.present) {
+      map['seq'] = Variable<int>(seq.value);
+    }
+    if (table.present) {
+      map['table_name'] = Variable<String>(table.value);
+    }
+    if (recordId.present) {
+      map['record_id'] = Variable<String>(recordId.value);
+    }
+    if (op.present) {
+      map['op'] = Variable<String>(op.value);
+    }
+    if (dataJson.present) {
+      map['data_json'] = Variable<String>(dataJson.value);
+    }
+    if (changeId.present) {
+      map['change_id'] = Variable<String>(changeId.value);
+    }
+    if (deviceId.present) {
+      map['device_id'] = Variable<String>(deviceId.value);
+    }
+    if (clientCreatedAt.present) {
+      map['client_created_at'] = Variable<String>(clientCreatedAt.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<String>(createdAt.value);
+    }
+    if (localOp.present) {
+      map['local_op'] = Variable<String>(localOp.value);
+    }
+    if (localDataJson.present) {
+      map['local_data_json'] = Variable<String>(localDataJson.value);
+    }
+    if (localChangeId.present) {
+      map['local_change_id'] = Variable<String>(localChangeId.value);
+    }
+    if (localMutationVersion.present) {
+      map['local_mutation_version'] = Variable<int>(localMutationVersion.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncConflictRowsCompanion(')
+          ..write('scope: $scope, ')
+          ..write('seq: $seq, ')
+          ..write('table: $table, ')
+          ..write('recordId: $recordId, ')
+          ..write('op: $op, ')
+          ..write('dataJson: $dataJson, ')
+          ..write('changeId: $changeId, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('clientCreatedAt: $clientCreatedAt, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('localOp: $localOp, ')
+          ..write('localDataJson: $localDataJson, ')
+          ..write('localChangeId: $localChangeId, ')
+          ..write('localMutationVersion: $localMutationVersion, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $SyncStateRowsTable extends SyncStateRows
+    with TableInfo<$SyncStateRowsTable, SyncStateRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SyncStateRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _scopeMeta = const VerificationMeta('scope');
+  @override
+  late final GeneratedColumn<String> scope = GeneratedColumn<String>(
+    'scope',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sinceMeta = const VerificationMeta('since');
+  @override
+  late final GeneratedColumn<int> since = GeneratedColumn<int>(
+    'since',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _initializedMeta = const VerificationMeta(
+    'initialized',
+  );
+  @override
+  late final GeneratedColumn<bool> initialized = GeneratedColumn<bool>(
+    'initialized',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("initialized" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _activeMeta = const VerificationMeta('active');
+  @override
+  late final GeneratedColumn<bool> active = GeneratedColumn<bool>(
+    'active',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("active" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _capturesLocalMeta = const VerificationMeta(
+    'capturesLocal',
+  );
+  @override
+  late final GeneratedColumn<bool> capturesLocal = GeneratedColumn<bool>(
+    'captures_local',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("captures_local" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _deviceIdMeta = const VerificationMeta(
+    'deviceId',
+  );
+  @override
+  late final GeneratedColumn<String> deviceId = GeneratedColumn<String>(
+    'device_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    scope,
+    since,
+    initialized,
+    active,
+    capturesLocal,
+    deviceId,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'sync_state';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SyncStateRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('scope')) {
+      context.handle(
+        _scopeMeta,
+        scope.isAcceptableOrUnknown(data['scope']!, _scopeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_scopeMeta);
+    }
+    if (data.containsKey('since')) {
+      context.handle(
+        _sinceMeta,
+        since.isAcceptableOrUnknown(data['since']!, _sinceMeta),
+      );
+    }
+    if (data.containsKey('initialized')) {
+      context.handle(
+        _initializedMeta,
+        initialized.isAcceptableOrUnknown(
+          data['initialized']!,
+          _initializedMeta,
+        ),
+      );
+    }
+    if (data.containsKey('active')) {
+      context.handle(
+        _activeMeta,
+        active.isAcceptableOrUnknown(data['active']!, _activeMeta),
+      );
+    }
+    if (data.containsKey('captures_local')) {
+      context.handle(
+        _capturesLocalMeta,
+        capturesLocal.isAcceptableOrUnknown(
+          data['captures_local']!,
+          _capturesLocalMeta,
+        ),
+      );
+    }
+    if (data.containsKey('device_id')) {
+      context.handle(
+        _deviceIdMeta,
+        deviceId.isAcceptableOrUnknown(data['device_id']!, _deviceIdMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {scope};
+  @override
+  SyncStateRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SyncStateRow(
+      scope: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}scope'],
+      )!,
+      since: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}since'],
+      )!,
+      initialized: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}initialized'],
+      )!,
+      active: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}active'],
+      )!,
+      capturesLocal: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}captures_local'],
+      )!,
+      deviceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}device_id'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $SyncStateRowsTable createAlias(String alias) {
+    return $SyncStateRowsTable(attachedDatabase, alias);
+  }
+}
+
+class SyncStateRow extends DataClass implements Insertable<SyncStateRow> {
+  final String scope;
+  final int since;
+  final bool initialized;
+  final bool active;
+  final bool capturesLocal;
+  final String deviceId;
+  final String updatedAt;
+  const SyncStateRow({
+    required this.scope,
+    required this.since,
+    required this.initialized,
+    required this.active,
+    required this.capturesLocal,
+    required this.deviceId,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['scope'] = Variable<String>(scope);
+    map['since'] = Variable<int>(since);
+    map['initialized'] = Variable<bool>(initialized);
+    map['active'] = Variable<bool>(active);
+    map['captures_local'] = Variable<bool>(capturesLocal);
+    map['device_id'] = Variable<String>(deviceId);
+    map['updated_at'] = Variable<String>(updatedAt);
+    return map;
+  }
+
+  SyncStateRowsCompanion toCompanion(bool nullToAbsent) {
+    return SyncStateRowsCompanion(
+      scope: Value(scope),
+      since: Value(since),
+      initialized: Value(initialized),
+      active: Value(active),
+      capturesLocal: Value(capturesLocal),
+      deviceId: Value(deviceId),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory SyncStateRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SyncStateRow(
+      scope: serializer.fromJson<String>(json['scope']),
+      since: serializer.fromJson<int>(json['since']),
+      initialized: serializer.fromJson<bool>(json['initialized']),
+      active: serializer.fromJson<bool>(json['active']),
+      capturesLocal: serializer.fromJson<bool>(json['capturesLocal']),
+      deviceId: serializer.fromJson<String>(json['deviceId']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'scope': serializer.toJson<String>(scope),
+      'since': serializer.toJson<int>(since),
+      'initialized': serializer.toJson<bool>(initialized),
+      'active': serializer.toJson<bool>(active),
+      'capturesLocal': serializer.toJson<bool>(capturesLocal),
+      'deviceId': serializer.toJson<String>(deviceId),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+    };
+  }
+
+  SyncStateRow copyWith({
+    String? scope,
+    int? since,
+    bool? initialized,
+    bool? active,
+    bool? capturesLocal,
+    String? deviceId,
+    String? updatedAt,
+  }) => SyncStateRow(
+    scope: scope ?? this.scope,
+    since: since ?? this.since,
+    initialized: initialized ?? this.initialized,
+    active: active ?? this.active,
+    capturesLocal: capturesLocal ?? this.capturesLocal,
+    deviceId: deviceId ?? this.deviceId,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  SyncStateRow copyWithCompanion(SyncStateRowsCompanion data) {
+    return SyncStateRow(
+      scope: data.scope.present ? data.scope.value : this.scope,
+      since: data.since.present ? data.since.value : this.since,
+      initialized: data.initialized.present
+          ? data.initialized.value
+          : this.initialized,
+      active: data.active.present ? data.active.value : this.active,
+      capturesLocal: data.capturesLocal.present
+          ? data.capturesLocal.value
+          : this.capturesLocal,
+      deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncStateRow(')
+          ..write('scope: $scope, ')
+          ..write('since: $since, ')
+          ..write('initialized: $initialized, ')
+          ..write('active: $active, ')
+          ..write('capturesLocal: $capturesLocal, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    scope,
+    since,
+    initialized,
+    active,
+    capturesLocal,
+    deviceId,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SyncStateRow &&
+          other.scope == this.scope &&
+          other.since == this.since &&
+          other.initialized == this.initialized &&
+          other.active == this.active &&
+          other.capturesLocal == this.capturesLocal &&
+          other.deviceId == this.deviceId &&
+          other.updatedAt == this.updatedAt);
+}
+
+class SyncStateRowsCompanion extends UpdateCompanion<SyncStateRow> {
+  final Value<String> scope;
+  final Value<int> since;
+  final Value<bool> initialized;
+  final Value<bool> active;
+  final Value<bool> capturesLocal;
+  final Value<String> deviceId;
+  final Value<String> updatedAt;
+  final Value<int> rowid;
+  const SyncStateRowsCompanion({
+    this.scope = const Value.absent(),
+    this.since = const Value.absent(),
+    this.initialized = const Value.absent(),
+    this.active = const Value.absent(),
+    this.capturesLocal = const Value.absent(),
+    this.deviceId = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SyncStateRowsCompanion.insert({
+    required String scope,
+    this.since = const Value.absent(),
+    this.initialized = const Value.absent(),
+    this.active = const Value.absent(),
+    this.capturesLocal = const Value.absent(),
+    this.deviceId = const Value.absent(),
+    required String updatedAt,
+    this.rowid = const Value.absent(),
+  }) : scope = Value(scope),
+       updatedAt = Value(updatedAt);
+  static Insertable<SyncStateRow> custom({
+    Expression<String>? scope,
+    Expression<int>? since,
+    Expression<bool>? initialized,
+    Expression<bool>? active,
+    Expression<bool>? capturesLocal,
+    Expression<String>? deviceId,
+    Expression<String>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (scope != null) 'scope': scope,
+      if (since != null) 'since': since,
+      if (initialized != null) 'initialized': initialized,
+      if (active != null) 'active': active,
+      if (capturesLocal != null) 'captures_local': capturesLocal,
+      if (deviceId != null) 'device_id': deviceId,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SyncStateRowsCompanion copyWith({
+    Value<String>? scope,
+    Value<int>? since,
+    Value<bool>? initialized,
+    Value<bool>? active,
+    Value<bool>? capturesLocal,
+    Value<String>? deviceId,
+    Value<String>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return SyncStateRowsCompanion(
+      scope: scope ?? this.scope,
+      since: since ?? this.since,
+      initialized: initialized ?? this.initialized,
+      active: active ?? this.active,
+      capturesLocal: capturesLocal ?? this.capturesLocal,
+      deviceId: deviceId ?? this.deviceId,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (scope.present) {
+      map['scope'] = Variable<String>(scope.value);
+    }
+    if (since.present) {
+      map['since'] = Variable<int>(since.value);
+    }
+    if (initialized.present) {
+      map['initialized'] = Variable<bool>(initialized.value);
+    }
+    if (active.present) {
+      map['active'] = Variable<bool>(active.value);
+    }
+    if (capturesLocal.present) {
+      map['captures_local'] = Variable<bool>(capturesLocal.value);
+    }
+    if (deviceId.present) {
+      map['device_id'] = Variable<String>(deviceId.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncStateRowsCompanion(')
+          ..write('scope: $scope, ')
+          ..write('since: $since, ')
+          ..write('initialized: $initialized, ')
+          ..write('active: $active, ')
+          ..write('capturesLocal: $capturesLocal, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $SyncScopeBaselineRowsTable extends SyncScopeBaselineRows
+    with TableInfo<$SyncScopeBaselineRowsTable, SyncScopeBaselineRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SyncScopeBaselineRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _scopeMeta = const VerificationMeta('scope');
+  @override
+  late final GeneratedColumn<String> scope = GeneratedColumn<String>(
+    'scope',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _tableMeta = const VerificationMeta('table');
+  @override
+  late final GeneratedColumn<String> table = GeneratedColumn<String>(
+    'table_name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _recordIdMeta = const VerificationMeta(
+    'recordId',
+  );
+  @override
+  late final GeneratedColumn<String> recordId = GeneratedColumn<String>(
+    'record_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _dataJsonMeta = const VerificationMeta(
+    'dataJson',
+  );
+  @override
+  late final GeneratedColumn<String> dataJson = GeneratedColumn<String>(
+    'data_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [scope, table, recordId, dataJson];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'sync_scope_baselines';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SyncScopeBaselineRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('scope')) {
+      context.handle(
+        _scopeMeta,
+        scope.isAcceptableOrUnknown(data['scope']!, _scopeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_scopeMeta);
+    }
+    if (data.containsKey('table_name')) {
+      context.handle(
+        _tableMeta,
+        table.isAcceptableOrUnknown(data['table_name']!, _tableMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_tableMeta);
+    }
+    if (data.containsKey('record_id')) {
+      context.handle(
+        _recordIdMeta,
+        recordId.isAcceptableOrUnknown(data['record_id']!, _recordIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_recordIdMeta);
+    }
+    if (data.containsKey('data_json')) {
+      context.handle(
+        _dataJsonMeta,
+        dataJson.isAcceptableOrUnknown(data['data_json']!, _dataJsonMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_dataJsonMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {scope, table, recordId};
+  @override
+  SyncScopeBaselineRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SyncScopeBaselineRow(
+      scope: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}scope'],
+      )!,
+      table: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}table_name'],
+      )!,
+      recordId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}record_id'],
+      )!,
+      dataJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}data_json'],
+      )!,
+    );
+  }
+
+  @override
+  $SyncScopeBaselineRowsTable createAlias(String alias) {
+    return $SyncScopeBaselineRowsTable(attachedDatabase, alias);
+  }
+}
+
+class SyncScopeBaselineRow extends DataClass
+    implements Insertable<SyncScopeBaselineRow> {
+  final String scope;
+  final String table;
+  final String recordId;
+  final String dataJson;
+  const SyncScopeBaselineRow({
+    required this.scope,
+    required this.table,
+    required this.recordId,
+    required this.dataJson,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['scope'] = Variable<String>(scope);
+    map['table_name'] = Variable<String>(table);
+    map['record_id'] = Variable<String>(recordId);
+    map['data_json'] = Variable<String>(dataJson);
+    return map;
+  }
+
+  SyncScopeBaselineRowsCompanion toCompanion(bool nullToAbsent) {
+    return SyncScopeBaselineRowsCompanion(
+      scope: Value(scope),
+      table: Value(table),
+      recordId: Value(recordId),
+      dataJson: Value(dataJson),
+    );
+  }
+
+  factory SyncScopeBaselineRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SyncScopeBaselineRow(
+      scope: serializer.fromJson<String>(json['scope']),
+      table: serializer.fromJson<String>(json['table']),
+      recordId: serializer.fromJson<String>(json['recordId']),
+      dataJson: serializer.fromJson<String>(json['dataJson']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'scope': serializer.toJson<String>(scope),
+      'table': serializer.toJson<String>(table),
+      'recordId': serializer.toJson<String>(recordId),
+      'dataJson': serializer.toJson<String>(dataJson),
+    };
+  }
+
+  SyncScopeBaselineRow copyWith({
+    String? scope,
+    String? table,
+    String? recordId,
+    String? dataJson,
+  }) => SyncScopeBaselineRow(
+    scope: scope ?? this.scope,
+    table: table ?? this.table,
+    recordId: recordId ?? this.recordId,
+    dataJson: dataJson ?? this.dataJson,
+  );
+  SyncScopeBaselineRow copyWithCompanion(SyncScopeBaselineRowsCompanion data) {
+    return SyncScopeBaselineRow(
+      scope: data.scope.present ? data.scope.value : this.scope,
+      table: data.table.present ? data.table.value : this.table,
+      recordId: data.recordId.present ? data.recordId.value : this.recordId,
+      dataJson: data.dataJson.present ? data.dataJson.value : this.dataJson,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncScopeBaselineRow(')
+          ..write('scope: $scope, ')
+          ..write('table: $table, ')
+          ..write('recordId: $recordId, ')
+          ..write('dataJson: $dataJson')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(scope, table, recordId, dataJson);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SyncScopeBaselineRow &&
+          other.scope == this.scope &&
+          other.table == this.table &&
+          other.recordId == this.recordId &&
+          other.dataJson == this.dataJson);
+}
+
+class SyncScopeBaselineRowsCompanion
+    extends UpdateCompanion<SyncScopeBaselineRow> {
+  final Value<String> scope;
+  final Value<String> table;
+  final Value<String> recordId;
+  final Value<String> dataJson;
+  final Value<int> rowid;
+  const SyncScopeBaselineRowsCompanion({
+    this.scope = const Value.absent(),
+    this.table = const Value.absent(),
+    this.recordId = const Value.absent(),
+    this.dataJson = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SyncScopeBaselineRowsCompanion.insert({
+    required String scope,
+    required String table,
+    required String recordId,
+    required String dataJson,
+    this.rowid = const Value.absent(),
+  }) : scope = Value(scope),
+       table = Value(table),
+       recordId = Value(recordId),
+       dataJson = Value(dataJson);
+  static Insertable<SyncScopeBaselineRow> custom({
+    Expression<String>? scope,
+    Expression<String>? table,
+    Expression<String>? recordId,
+    Expression<String>? dataJson,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (scope != null) 'scope': scope,
+      if (table != null) 'table_name': table,
+      if (recordId != null) 'record_id': recordId,
+      if (dataJson != null) 'data_json': dataJson,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SyncScopeBaselineRowsCompanion copyWith({
+    Value<String>? scope,
+    Value<String>? table,
+    Value<String>? recordId,
+    Value<String>? dataJson,
+    Value<int>? rowid,
+  }) {
+    return SyncScopeBaselineRowsCompanion(
+      scope: scope ?? this.scope,
+      table: table ?? this.table,
+      recordId: recordId ?? this.recordId,
+      dataJson: dataJson ?? this.dataJson,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (scope.present) {
+      map['scope'] = Variable<String>(scope.value);
+    }
+    if (table.present) {
+      map['table_name'] = Variable<String>(table.value);
+    }
+    if (recordId.present) {
+      map['record_id'] = Variable<String>(recordId.value);
+    }
+    if (dataJson.present) {
+      map['data_json'] = Variable<String>(dataJson.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncScopeBaselineRowsCompanion(')
+          ..write('scope: $scope, ')
+          ..write('table: $table, ')
+          ..write('recordId: $recordId, ')
+          ..write('dataJson: $dataJson, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $SyncAppliedChangeRowsTable extends SyncAppliedChangeRows
+    with TableInfo<$SyncAppliedChangeRowsTable, SyncAppliedChangeRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SyncAppliedChangeRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _changeIdMeta = const VerificationMeta(
+    'changeId',
+  );
+  @override
+  late final GeneratedColumn<String> changeId = GeneratedColumn<String>(
+    'change_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sourceMeta = const VerificationMeta('source');
+  @override
+  late final GeneratedColumn<String> source = GeneratedColumn<String>(
+    'source',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _appliedAtMeta = const VerificationMeta(
+    'appliedAt',
+  );
+  @override
+  late final GeneratedColumn<String> appliedAt = GeneratedColumn<String>(
+    'applied_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [changeId, source, appliedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'sync_applied_changes';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SyncAppliedChangeRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('change_id')) {
+      context.handle(
+        _changeIdMeta,
+        changeId.isAcceptableOrUnknown(data['change_id']!, _changeIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_changeIdMeta);
+    }
+    if (data.containsKey('source')) {
+      context.handle(
+        _sourceMeta,
+        source.isAcceptableOrUnknown(data['source']!, _sourceMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sourceMeta);
+    }
+    if (data.containsKey('applied_at')) {
+      context.handle(
+        _appliedAtMeta,
+        appliedAt.isAcceptableOrUnknown(data['applied_at']!, _appliedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_appliedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {changeId};
+  @override
+  SyncAppliedChangeRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SyncAppliedChangeRow(
+      changeId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}change_id'],
+      )!,
+      source: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source'],
+      )!,
+      appliedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}applied_at'],
+      )!,
+    );
+  }
+
+  @override
+  $SyncAppliedChangeRowsTable createAlias(String alias) {
+    return $SyncAppliedChangeRowsTable(attachedDatabase, alias);
+  }
+}
+
+class SyncAppliedChangeRow extends DataClass
+    implements Insertable<SyncAppliedChangeRow> {
+  final String changeId;
+  final String source;
+  final String appliedAt;
+  const SyncAppliedChangeRow({
+    required this.changeId,
+    required this.source,
+    required this.appliedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['change_id'] = Variable<String>(changeId);
+    map['source'] = Variable<String>(source);
+    map['applied_at'] = Variable<String>(appliedAt);
+    return map;
+  }
+
+  SyncAppliedChangeRowsCompanion toCompanion(bool nullToAbsent) {
+    return SyncAppliedChangeRowsCompanion(
+      changeId: Value(changeId),
+      source: Value(source),
+      appliedAt: Value(appliedAt),
+    );
+  }
+
+  factory SyncAppliedChangeRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SyncAppliedChangeRow(
+      changeId: serializer.fromJson<String>(json['changeId']),
+      source: serializer.fromJson<String>(json['source']),
+      appliedAt: serializer.fromJson<String>(json['appliedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'changeId': serializer.toJson<String>(changeId),
+      'source': serializer.toJson<String>(source),
+      'appliedAt': serializer.toJson<String>(appliedAt),
+    };
+  }
+
+  SyncAppliedChangeRow copyWith({
+    String? changeId,
+    String? source,
+    String? appliedAt,
+  }) => SyncAppliedChangeRow(
+    changeId: changeId ?? this.changeId,
+    source: source ?? this.source,
+    appliedAt: appliedAt ?? this.appliedAt,
+  );
+  SyncAppliedChangeRow copyWithCompanion(SyncAppliedChangeRowsCompanion data) {
+    return SyncAppliedChangeRow(
+      changeId: data.changeId.present ? data.changeId.value : this.changeId,
+      source: data.source.present ? data.source.value : this.source,
+      appliedAt: data.appliedAt.present ? data.appliedAt.value : this.appliedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncAppliedChangeRow(')
+          ..write('changeId: $changeId, ')
+          ..write('source: $source, ')
+          ..write('appliedAt: $appliedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(changeId, source, appliedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SyncAppliedChangeRow &&
+          other.changeId == this.changeId &&
+          other.source == this.source &&
+          other.appliedAt == this.appliedAt);
+}
+
+class SyncAppliedChangeRowsCompanion
+    extends UpdateCompanion<SyncAppliedChangeRow> {
+  final Value<String> changeId;
+  final Value<String> source;
+  final Value<String> appliedAt;
+  final Value<int> rowid;
+  const SyncAppliedChangeRowsCompanion({
+    this.changeId = const Value.absent(),
+    this.source = const Value.absent(),
+    this.appliedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SyncAppliedChangeRowsCompanion.insert({
+    required String changeId,
+    required String source,
+    required String appliedAt,
+    this.rowid = const Value.absent(),
+  }) : changeId = Value(changeId),
+       source = Value(source),
+       appliedAt = Value(appliedAt);
+  static Insertable<SyncAppliedChangeRow> custom({
+    Expression<String>? changeId,
+    Expression<String>? source,
+    Expression<String>? appliedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (changeId != null) 'change_id': changeId,
+      if (source != null) 'source': source,
+      if (appliedAt != null) 'applied_at': appliedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SyncAppliedChangeRowsCompanion copyWith({
+    Value<String>? changeId,
+    Value<String>? source,
+    Value<String>? appliedAt,
+    Value<int>? rowid,
+  }) {
+    return SyncAppliedChangeRowsCompanion(
+      changeId: changeId ?? this.changeId,
+      source: source ?? this.source,
+      appliedAt: appliedAt ?? this.appliedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (changeId.present) {
+      map['change_id'] = Variable<String>(changeId.value);
+    }
+    if (source.present) {
+      map['source'] = Variable<String>(source.value);
+    }
+    if (appliedAt.present) {
+      map['applied_at'] = Variable<String>(appliedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncAppliedChangeRowsCompanion(')
+          ..write('changeId: $changeId, ')
+          ..write('source: $source, ')
+          ..write('appliedAt: $appliedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
   _$StorageV2DriftDatabase(QueryExecutor e) : super(e);
   $StorageV2DriftDatabaseManager get managers =>
@@ -8251,6 +11962,13 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
   late final $NoteRevisionRowsTable noteRevisionRows = $NoteRevisionRowsTable(
     this,
   );
+  late final $NotePageHeadRowsTable notePageHeadRows = $NotePageHeadRowsTable(
+    this,
+  );
+  late final $NotePageTombstoneRowsTable notePageTombstoneRows =
+      $NotePageTombstoneRowsTable(this);
+  late final $NotePageConflictRowsTable notePageConflictRows =
+      $NotePageConflictRowsTable(this);
   late final $NoteEditProposalRowsTable noteEditProposalRows =
       $NoteEditProposalRowsTable(this);
   late final $NoteEditBlockRowsTable noteEditBlockRows =
@@ -8263,6 +11981,15 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
   late final $RoleplayThreadRowsTable roleplayThreadRows =
       $RoleplayThreadRowsTable(this);
   late final $RecycleBinRowsTable recycleBinRows = $RecycleBinRowsTable(this);
+  late final $SyncOutboxRowsTable syncOutboxRows = $SyncOutboxRowsTable(this);
+  late final $SyncConflictRowsTable syncConflictRows = $SyncConflictRowsTable(
+    this,
+  );
+  late final $SyncStateRowsTable syncStateRows = $SyncStateRowsTable(this);
+  late final $SyncScopeBaselineRowsTable syncScopeBaselineRows =
+      $SyncScopeBaselineRowsTable(this);
+  late final $SyncAppliedChangeRowsTable syncAppliedChangeRows =
+      $SyncAppliedChangeRowsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -8279,6 +12006,9 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
     noteRows,
     notePageRows,
     noteRevisionRows,
+    notePageHeadRows,
+    notePageTombstoneRows,
+    notePageConflictRows,
     noteEditProposalRows,
     noteEditBlockRows,
     scheduleRows,
@@ -8287,6 +12017,11 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
     roleplayScenarioRows,
     roleplayThreadRows,
     recycleBinRows,
+    syncOutboxRows,
+    syncConflictRows,
+    syncStateRows,
+    syncScopeBaselineRows,
+    syncAppliedChangeRows,
   ];
 }
 
@@ -9469,6 +13204,8 @@ typedef $$MessageRowsTableCreateCompanionBuilder =
       Value<String?> thinkingContent,
       Value<String?> agentTraceJson,
       required String timestamp,
+      Value<int> revision,
+      Value<String> updatedAt,
       Value<int> sortOrder,
       Value<int> rowid,
     });
@@ -9481,6 +13218,8 @@ typedef $$MessageRowsTableUpdateCompanionBuilder =
       Value<String?> thinkingContent,
       Value<String?> agentTraceJson,
       Value<String> timestamp,
+      Value<int> revision,
+      Value<String> updatedAt,
       Value<int> sortOrder,
       Value<int> rowid,
     });
@@ -9526,6 +13265,16 @@ class $$MessageRowsTableFilterComposer
 
   ColumnFilters<String> get timestamp => $composableBuilder(
     column: $table.timestamp,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get revision => $composableBuilder(
+    column: $table.revision,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -9579,6 +13328,16 @@ class $$MessageRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get revision => $composableBuilder(
+    column: $table.revision,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<int> get sortOrder => $composableBuilder(
     column: $table.sortOrder,
     builder: (column) => ColumnOrderings(column),
@@ -9620,6 +13379,12 @@ class $$MessageRowsTableAnnotationComposer
 
   GeneratedColumn<String> get timestamp =>
       $composableBuilder(column: $table.timestamp, builder: (column) => column);
+
+  GeneratedColumn<int> get revision =>
+      $composableBuilder(column: $table.revision, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
 
   GeneratedColumn<int> get sortOrder =>
       $composableBuilder(column: $table.sortOrder, builder: (column) => column);
@@ -9669,6 +13434,8 @@ class $$MessageRowsTableTableManager
                 Value<String?> thinkingContent = const Value.absent(),
                 Value<String?> agentTraceJson = const Value.absent(),
                 Value<String> timestamp = const Value.absent(),
+                Value<int> revision = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
                 Value<int> sortOrder = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => MessageRowsCompanion(
@@ -9679,6 +13446,8 @@ class $$MessageRowsTableTableManager
                 thinkingContent: thinkingContent,
                 agentTraceJson: agentTraceJson,
                 timestamp: timestamp,
+                revision: revision,
+                updatedAt: updatedAt,
                 sortOrder: sortOrder,
                 rowid: rowid,
               ),
@@ -9691,6 +13460,8 @@ class $$MessageRowsTableTableManager
                 Value<String?> thinkingContent = const Value.absent(),
                 Value<String?> agentTraceJson = const Value.absent(),
                 required String timestamp,
+                Value<int> revision = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
                 Value<int> sortOrder = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => MessageRowsCompanion.insert(
@@ -9701,6 +13472,8 @@ class $$MessageRowsTableTableManager
                 thinkingContent: thinkingContent,
                 agentTraceJson: agentTraceJson,
                 timestamp: timestamp,
+                revision: revision,
+                updatedAt: updatedAt,
                 sortOrder: sortOrder,
                 rowid: rowid,
               ),
@@ -10796,11 +14569,10 @@ typedef $$NoteRevisionRowsTableCreateCompanionBuilder =
       required String id,
       required String noteId,
       Value<String?> pageId,
-      Value<String?> parentRevisionId,
-      required String savedAt,
-      required int deltaStart,
-      required String deletedText,
-      required String insertedText,
+      required String parentIdsJson,
+      required String authorDeviceId,
+      required String contentHash,
+      required String createdAt,
       Value<int> rowid,
     });
 typedef $$NoteRevisionRowsTableUpdateCompanionBuilder =
@@ -10808,11 +14580,10 @@ typedef $$NoteRevisionRowsTableUpdateCompanionBuilder =
       Value<String> id,
       Value<String> noteId,
       Value<String?> pageId,
-      Value<String?> parentRevisionId,
-      Value<String> savedAt,
-      Value<int> deltaStart,
-      Value<String> deletedText,
-      Value<String> insertedText,
+      Value<String> parentIdsJson,
+      Value<String> authorDeviceId,
+      Value<String> contentHash,
+      Value<String> createdAt,
       Value<int> rowid,
     });
 
@@ -10840,28 +14611,23 @@ class $$NoteRevisionRowsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get parentRevisionId => $composableBuilder(
-    column: $table.parentRevisionId,
+  ColumnFilters<String> get parentIdsJson => $composableBuilder(
+    column: $table.parentIdsJson,
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get savedAt => $composableBuilder(
-    column: $table.savedAt,
+  ColumnFilters<String> get authorDeviceId => $composableBuilder(
+    column: $table.authorDeviceId,
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<int> get deltaStart => $composableBuilder(
-    column: $table.deltaStart,
+  ColumnFilters<String> get contentHash => $composableBuilder(
+    column: $table.contentHash,
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get deletedText => $composableBuilder(
-    column: $table.deletedText,
-    builder: (column) => ColumnFilters(column),
-  );
-
-  ColumnFilters<String> get insertedText => $composableBuilder(
-    column: $table.insertedText,
+  ColumnFilters<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -10890,28 +14656,23 @@ class $$NoteRevisionRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get parentRevisionId => $composableBuilder(
-    column: $table.parentRevisionId,
+  ColumnOrderings<String> get parentIdsJson => $composableBuilder(
+    column: $table.parentIdsJson,
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get savedAt => $composableBuilder(
-    column: $table.savedAt,
+  ColumnOrderings<String> get authorDeviceId => $composableBuilder(
+    column: $table.authorDeviceId,
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<int> get deltaStart => $composableBuilder(
-    column: $table.deltaStart,
+  ColumnOrderings<String> get contentHash => $composableBuilder(
+    column: $table.contentHash,
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get deletedText => $composableBuilder(
-    column: $table.deletedText,
-    builder: (column) => ColumnOrderings(column),
-  );
-
-  ColumnOrderings<String> get insertedText => $composableBuilder(
-    column: $table.insertedText,
+  ColumnOrderings<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
   );
 }
@@ -10934,28 +14695,23 @@ class $$NoteRevisionRowsTableAnnotationComposer
   GeneratedColumn<String> get pageId =>
       $composableBuilder(column: $table.pageId, builder: (column) => column);
 
-  GeneratedColumn<String> get parentRevisionId => $composableBuilder(
-    column: $table.parentRevisionId,
+  GeneratedColumn<String> get parentIdsJson => $composableBuilder(
+    column: $table.parentIdsJson,
     builder: (column) => column,
   );
 
-  GeneratedColumn<String> get savedAt =>
-      $composableBuilder(column: $table.savedAt, builder: (column) => column);
-
-  GeneratedColumn<int> get deltaStart => $composableBuilder(
-    column: $table.deltaStart,
+  GeneratedColumn<String> get authorDeviceId => $composableBuilder(
+    column: $table.authorDeviceId,
     builder: (column) => column,
   );
 
-  GeneratedColumn<String> get deletedText => $composableBuilder(
-    column: $table.deletedText,
+  GeneratedColumn<String> get contentHash => $composableBuilder(
+    column: $table.contentHash,
     builder: (column) => column,
   );
 
-  GeneratedColumn<String> get insertedText => $composableBuilder(
-    column: $table.insertedText,
-    builder: (column) => column,
-  );
+  GeneratedColumn<String> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
 }
 
 class $$NoteRevisionRowsTableTableManager
@@ -10998,21 +14754,19 @@ class $$NoteRevisionRowsTableTableManager
                 Value<String> id = const Value.absent(),
                 Value<String> noteId = const Value.absent(),
                 Value<String?> pageId = const Value.absent(),
-                Value<String?> parentRevisionId = const Value.absent(),
-                Value<String> savedAt = const Value.absent(),
-                Value<int> deltaStart = const Value.absent(),
-                Value<String> deletedText = const Value.absent(),
-                Value<String> insertedText = const Value.absent(),
+                Value<String> parentIdsJson = const Value.absent(),
+                Value<String> authorDeviceId = const Value.absent(),
+                Value<String> contentHash = const Value.absent(),
+                Value<String> createdAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => NoteRevisionRowsCompanion(
                 id: id,
                 noteId: noteId,
                 pageId: pageId,
-                parentRevisionId: parentRevisionId,
-                savedAt: savedAt,
-                deltaStart: deltaStart,
-                deletedText: deletedText,
-                insertedText: insertedText,
+                parentIdsJson: parentIdsJson,
+                authorDeviceId: authorDeviceId,
+                contentHash: contentHash,
+                createdAt: createdAt,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -11020,21 +14774,19 @@ class $$NoteRevisionRowsTableTableManager
                 required String id,
                 required String noteId,
                 Value<String?> pageId = const Value.absent(),
-                Value<String?> parentRevisionId = const Value.absent(),
-                required String savedAt,
-                required int deltaStart,
-                required String deletedText,
-                required String insertedText,
+                required String parentIdsJson,
+                required String authorDeviceId,
+                required String contentHash,
+                required String createdAt,
                 Value<int> rowid = const Value.absent(),
               }) => NoteRevisionRowsCompanion.insert(
                 id: id,
                 noteId: noteId,
                 pageId: pageId,
-                parentRevisionId: parentRevisionId,
-                savedAt: savedAt,
-                deltaStart: deltaStart,
-                deletedText: deletedText,
-                insertedText: insertedText,
+                parentIdsJson: parentIdsJson,
+                authorDeviceId: authorDeviceId,
+                contentHash: contentHash,
+                createdAt: createdAt,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -11064,6 +14816,665 @@ typedef $$NoteRevisionRowsTableProcessedTableManager =
         >,
       ),
       NoteRevisionRow,
+      PrefetchHooks Function()
+    >;
+typedef $$NotePageHeadRowsTableCreateCompanionBuilder =
+    NotePageHeadRowsCompanion Function({
+      required String id,
+      required String pageId,
+      required String headIdsJson,
+      Value<String?> selectedHeadId,
+      required String updatedAt,
+      Value<int> rowid,
+    });
+typedef $$NotePageHeadRowsTableUpdateCompanionBuilder =
+    NotePageHeadRowsCompanion Function({
+      Value<String> id,
+      Value<String> pageId,
+      Value<String> headIdsJson,
+      Value<String?> selectedHeadId,
+      Value<String> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$NotePageHeadRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $NotePageHeadRowsTable> {
+  $$NotePageHeadRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get pageId => $composableBuilder(
+    column: $table.pageId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get headIdsJson => $composableBuilder(
+    column: $table.headIdsJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get selectedHeadId => $composableBuilder(
+    column: $table.selectedHeadId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$NotePageHeadRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $NotePageHeadRowsTable> {
+  $$NotePageHeadRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get pageId => $composableBuilder(
+    column: $table.pageId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get headIdsJson => $composableBuilder(
+    column: $table.headIdsJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get selectedHeadId => $composableBuilder(
+    column: $table.selectedHeadId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$NotePageHeadRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $NotePageHeadRowsTable> {
+  $$NotePageHeadRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get pageId =>
+      $composableBuilder(column: $table.pageId, builder: (column) => column);
+
+  GeneratedColumn<String> get headIdsJson => $composableBuilder(
+    column: $table.headIdsJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get selectedHeadId => $composableBuilder(
+    column: $table.selectedHeadId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$NotePageHeadRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $NotePageHeadRowsTable,
+          NotePageHeadRow,
+          $$NotePageHeadRowsTableFilterComposer,
+          $$NotePageHeadRowsTableOrderingComposer,
+          $$NotePageHeadRowsTableAnnotationComposer,
+          $$NotePageHeadRowsTableCreateCompanionBuilder,
+          $$NotePageHeadRowsTableUpdateCompanionBuilder,
+          (
+            NotePageHeadRow,
+            BaseReferences<
+              _$StorageV2DriftDatabase,
+              $NotePageHeadRowsTable,
+              NotePageHeadRow
+            >,
+          ),
+          NotePageHeadRow,
+          PrefetchHooks Function()
+        > {
+  $$NotePageHeadRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $NotePageHeadRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$NotePageHeadRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$NotePageHeadRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$NotePageHeadRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> pageId = const Value.absent(),
+                Value<String> headIdsJson = const Value.absent(),
+                Value<String?> selectedHeadId = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => NotePageHeadRowsCompanion(
+                id: id,
+                pageId: pageId,
+                headIdsJson: headIdsJson,
+                selectedHeadId: selectedHeadId,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String pageId,
+                required String headIdsJson,
+                Value<String?> selectedHeadId = const Value.absent(),
+                required String updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => NotePageHeadRowsCompanion.insert(
+                id: id,
+                pageId: pageId,
+                headIdsJson: headIdsJson,
+                selectedHeadId: selectedHeadId,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$NotePageHeadRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $NotePageHeadRowsTable,
+      NotePageHeadRow,
+      $$NotePageHeadRowsTableFilterComposer,
+      $$NotePageHeadRowsTableOrderingComposer,
+      $$NotePageHeadRowsTableAnnotationComposer,
+      $$NotePageHeadRowsTableCreateCompanionBuilder,
+      $$NotePageHeadRowsTableUpdateCompanionBuilder,
+      (
+        NotePageHeadRow,
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $NotePageHeadRowsTable,
+          NotePageHeadRow
+        >,
+      ),
+      NotePageHeadRow,
+      PrefetchHooks Function()
+    >;
+typedef $$NotePageTombstoneRowsTableCreateCompanionBuilder =
+    NotePageTombstoneRowsCompanion Function({
+      required String id,
+      required String pageId,
+      required String revisionId,
+      required String createdAt,
+      Value<int> rowid,
+    });
+typedef $$NotePageTombstoneRowsTableUpdateCompanionBuilder =
+    NotePageTombstoneRowsCompanion Function({
+      Value<String> id,
+      Value<String> pageId,
+      Value<String> revisionId,
+      Value<String> createdAt,
+      Value<int> rowid,
+    });
+
+class $$NotePageTombstoneRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $NotePageTombstoneRowsTable> {
+  $$NotePageTombstoneRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get pageId => $composableBuilder(
+    column: $table.pageId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get revisionId => $composableBuilder(
+    column: $table.revisionId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$NotePageTombstoneRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $NotePageTombstoneRowsTable> {
+  $$NotePageTombstoneRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get pageId => $composableBuilder(
+    column: $table.pageId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get revisionId => $composableBuilder(
+    column: $table.revisionId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$NotePageTombstoneRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $NotePageTombstoneRowsTable> {
+  $$NotePageTombstoneRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get pageId =>
+      $composableBuilder(column: $table.pageId, builder: (column) => column);
+
+  GeneratedColumn<String> get revisionId => $composableBuilder(
+    column: $table.revisionId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+}
+
+class $$NotePageTombstoneRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $NotePageTombstoneRowsTable,
+          NotePageTombstoneRow,
+          $$NotePageTombstoneRowsTableFilterComposer,
+          $$NotePageTombstoneRowsTableOrderingComposer,
+          $$NotePageTombstoneRowsTableAnnotationComposer,
+          $$NotePageTombstoneRowsTableCreateCompanionBuilder,
+          $$NotePageTombstoneRowsTableUpdateCompanionBuilder,
+          (
+            NotePageTombstoneRow,
+            BaseReferences<
+              _$StorageV2DriftDatabase,
+              $NotePageTombstoneRowsTable,
+              NotePageTombstoneRow
+            >,
+          ),
+          NotePageTombstoneRow,
+          PrefetchHooks Function()
+        > {
+  $$NotePageTombstoneRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $NotePageTombstoneRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$NotePageTombstoneRowsTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$NotePageTombstoneRowsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$NotePageTombstoneRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> pageId = const Value.absent(),
+                Value<String> revisionId = const Value.absent(),
+                Value<String> createdAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => NotePageTombstoneRowsCompanion(
+                id: id,
+                pageId: pageId,
+                revisionId: revisionId,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String pageId,
+                required String revisionId,
+                required String createdAt,
+                Value<int> rowid = const Value.absent(),
+              }) => NotePageTombstoneRowsCompanion.insert(
+                id: id,
+                pageId: pageId,
+                revisionId: revisionId,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$NotePageTombstoneRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $NotePageTombstoneRowsTable,
+      NotePageTombstoneRow,
+      $$NotePageTombstoneRowsTableFilterComposer,
+      $$NotePageTombstoneRowsTableOrderingComposer,
+      $$NotePageTombstoneRowsTableAnnotationComposer,
+      $$NotePageTombstoneRowsTableCreateCompanionBuilder,
+      $$NotePageTombstoneRowsTableUpdateCompanionBuilder,
+      (
+        NotePageTombstoneRow,
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $NotePageTombstoneRowsTable,
+          NotePageTombstoneRow
+        >,
+      ),
+      NotePageTombstoneRow,
+      PrefetchHooks Function()
+    >;
+typedef $$NotePageConflictRowsTableCreateCompanionBuilder =
+    NotePageConflictRowsCompanion Function({
+      required String pageId,
+      required String headIdsJson,
+      required String localHeadId,
+      required String incomingHeadId,
+      Value<String?> commonAncestorId,
+      required String createdAt,
+      Value<int> rowid,
+    });
+typedef $$NotePageConflictRowsTableUpdateCompanionBuilder =
+    NotePageConflictRowsCompanion Function({
+      Value<String> pageId,
+      Value<String> headIdsJson,
+      Value<String> localHeadId,
+      Value<String> incomingHeadId,
+      Value<String?> commonAncestorId,
+      Value<String> createdAt,
+      Value<int> rowid,
+    });
+
+class $$NotePageConflictRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $NotePageConflictRowsTable> {
+  $$NotePageConflictRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get pageId => $composableBuilder(
+    column: $table.pageId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get headIdsJson => $composableBuilder(
+    column: $table.headIdsJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get localHeadId => $composableBuilder(
+    column: $table.localHeadId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get incomingHeadId => $composableBuilder(
+    column: $table.incomingHeadId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get commonAncestorId => $composableBuilder(
+    column: $table.commonAncestorId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$NotePageConflictRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $NotePageConflictRowsTable> {
+  $$NotePageConflictRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get pageId => $composableBuilder(
+    column: $table.pageId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get headIdsJson => $composableBuilder(
+    column: $table.headIdsJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get localHeadId => $composableBuilder(
+    column: $table.localHeadId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get incomingHeadId => $composableBuilder(
+    column: $table.incomingHeadId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get commonAncestorId => $composableBuilder(
+    column: $table.commonAncestorId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$NotePageConflictRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $NotePageConflictRowsTable> {
+  $$NotePageConflictRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get pageId =>
+      $composableBuilder(column: $table.pageId, builder: (column) => column);
+
+  GeneratedColumn<String> get headIdsJson => $composableBuilder(
+    column: $table.headIdsJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get localHeadId => $composableBuilder(
+    column: $table.localHeadId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get incomingHeadId => $composableBuilder(
+    column: $table.incomingHeadId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get commonAncestorId => $composableBuilder(
+    column: $table.commonAncestorId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+}
+
+class $$NotePageConflictRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $NotePageConflictRowsTable,
+          NotePageConflictRow,
+          $$NotePageConflictRowsTableFilterComposer,
+          $$NotePageConflictRowsTableOrderingComposer,
+          $$NotePageConflictRowsTableAnnotationComposer,
+          $$NotePageConflictRowsTableCreateCompanionBuilder,
+          $$NotePageConflictRowsTableUpdateCompanionBuilder,
+          (
+            NotePageConflictRow,
+            BaseReferences<
+              _$StorageV2DriftDatabase,
+              $NotePageConflictRowsTable,
+              NotePageConflictRow
+            >,
+          ),
+          NotePageConflictRow,
+          PrefetchHooks Function()
+        > {
+  $$NotePageConflictRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $NotePageConflictRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$NotePageConflictRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$NotePageConflictRowsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$NotePageConflictRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> pageId = const Value.absent(),
+                Value<String> headIdsJson = const Value.absent(),
+                Value<String> localHeadId = const Value.absent(),
+                Value<String> incomingHeadId = const Value.absent(),
+                Value<String?> commonAncestorId = const Value.absent(),
+                Value<String> createdAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => NotePageConflictRowsCompanion(
+                pageId: pageId,
+                headIdsJson: headIdsJson,
+                localHeadId: localHeadId,
+                incomingHeadId: incomingHeadId,
+                commonAncestorId: commonAncestorId,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String pageId,
+                required String headIdsJson,
+                required String localHeadId,
+                required String incomingHeadId,
+                Value<String?> commonAncestorId = const Value.absent(),
+                required String createdAt,
+                Value<int> rowid = const Value.absent(),
+              }) => NotePageConflictRowsCompanion.insert(
+                pageId: pageId,
+                headIdsJson: headIdsJson,
+                localHeadId: localHeadId,
+                incomingHeadId: incomingHeadId,
+                commonAncestorId: commonAncestorId,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$NotePageConflictRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $NotePageConflictRowsTable,
+      NotePageConflictRow,
+      $$NotePageConflictRowsTableFilterComposer,
+      $$NotePageConflictRowsTableOrderingComposer,
+      $$NotePageConflictRowsTableAnnotationComposer,
+      $$NotePageConflictRowsTableCreateCompanionBuilder,
+      $$NotePageConflictRowsTableUpdateCompanionBuilder,
+      (
+        NotePageConflictRow,
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $NotePageConflictRowsTable,
+          NotePageConflictRow
+        >,
+      ),
+      NotePageConflictRow,
       PrefetchHooks Function()
     >;
 typedef $$NoteEditProposalRowsTableCreateCompanionBuilder =
@@ -11991,6 +16402,7 @@ typedef $$TodoItemRowsTableCreateCompanionBuilder =
       required String itemText,
       required int done,
       required int sortOrder,
+      Value<String> updatedAt,
       Value<int> rowid,
     });
 typedef $$TodoItemRowsTableUpdateCompanionBuilder =
@@ -12000,6 +16412,7 @@ typedef $$TodoItemRowsTableUpdateCompanionBuilder =
       Value<String> itemText,
       Value<int> done,
       Value<int> sortOrder,
+      Value<String> updatedAt,
       Value<int> rowid,
     });
 
@@ -12034,6 +16447,11 @@ class $$TodoItemRowsTableFilterComposer
 
   ColumnFilters<int> get sortOrder => $composableBuilder(
     column: $table.sortOrder,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -12071,6 +16489,11 @@ class $$TodoItemRowsTableOrderingComposer
     column: $table.sortOrder,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$TodoItemRowsTableAnnotationComposer
@@ -12096,6 +16519,9 @@ class $$TodoItemRowsTableAnnotationComposer
 
   GeneratedColumn<int> get sortOrder =>
       $composableBuilder(column: $table.sortOrder, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
 }
 
 class $$TodoItemRowsTableTableManager
@@ -12140,6 +16566,7 @@ class $$TodoItemRowsTableTableManager
                 Value<String> itemText = const Value.absent(),
                 Value<int> done = const Value.absent(),
                 Value<int> sortOrder = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TodoItemRowsCompanion(
                 id: id,
@@ -12147,6 +16574,7 @@ class $$TodoItemRowsTableTableManager
                 itemText: itemText,
                 done: done,
                 sortOrder: sortOrder,
+                updatedAt: updatedAt,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -12156,6 +16584,7 @@ class $$TodoItemRowsTableTableManager
                 required String itemText,
                 required int done,
                 required int sortOrder,
+                Value<String> updatedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TodoItemRowsCompanion.insert(
                 id: id,
@@ -12163,6 +16592,7 @@ class $$TodoItemRowsTableTableManager
                 itemText: itemText,
                 done: done,
                 sortOrder: sortOrder,
+                updatedAt: updatedAt,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -12816,6 +17246,1337 @@ typedef $$RecycleBinRowsTableProcessedTableManager =
       RecycleBinRow,
       PrefetchHooks Function()
     >;
+typedef $$SyncOutboxRowsTableCreateCompanionBuilder =
+    SyncOutboxRowsCompanion Function({
+      required String scope,
+      required String table,
+      required String recordId,
+      required String op,
+      Value<String?> dataJson,
+      required String changeId,
+      required String deviceId,
+      required String clientCreatedAt,
+      required int mutationVersion,
+      required String updatedAt,
+      Value<int> rowid,
+    });
+typedef $$SyncOutboxRowsTableUpdateCompanionBuilder =
+    SyncOutboxRowsCompanion Function({
+      Value<String> scope,
+      Value<String> table,
+      Value<String> recordId,
+      Value<String> op,
+      Value<String?> dataJson,
+      Value<String> changeId,
+      Value<String> deviceId,
+      Value<String> clientCreatedAt,
+      Value<int> mutationVersion,
+      Value<String> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$SyncOutboxRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $SyncOutboxRowsTable> {
+  $$SyncOutboxRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get table => $composableBuilder(
+    column: $table.table,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get recordId => $composableBuilder(
+    column: $table.recordId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get op => $composableBuilder(
+    column: $table.op,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get dataJson => $composableBuilder(
+    column: $table.dataJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get changeId => $composableBuilder(
+    column: $table.changeId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get clientCreatedAt => $composableBuilder(
+    column: $table.clientCreatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get mutationVersion => $composableBuilder(
+    column: $table.mutationVersion,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$SyncOutboxRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $SyncOutboxRowsTable> {
+  $$SyncOutboxRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get table => $composableBuilder(
+    column: $table.table,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get recordId => $composableBuilder(
+    column: $table.recordId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get op => $composableBuilder(
+    column: $table.op,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get dataJson => $composableBuilder(
+    column: $table.dataJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get changeId => $composableBuilder(
+    column: $table.changeId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get clientCreatedAt => $composableBuilder(
+    column: $table.clientCreatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get mutationVersion => $composableBuilder(
+    column: $table.mutationVersion,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$SyncOutboxRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $SyncOutboxRowsTable> {
+  $$SyncOutboxRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get scope =>
+      $composableBuilder(column: $table.scope, builder: (column) => column);
+
+  GeneratedColumn<String> get table =>
+      $composableBuilder(column: $table.table, builder: (column) => column);
+
+  GeneratedColumn<String> get recordId =>
+      $composableBuilder(column: $table.recordId, builder: (column) => column);
+
+  GeneratedColumn<String> get op =>
+      $composableBuilder(column: $table.op, builder: (column) => column);
+
+  GeneratedColumn<String> get dataJson =>
+      $composableBuilder(column: $table.dataJson, builder: (column) => column);
+
+  GeneratedColumn<String> get changeId =>
+      $composableBuilder(column: $table.changeId, builder: (column) => column);
+
+  GeneratedColumn<String> get deviceId =>
+      $composableBuilder(column: $table.deviceId, builder: (column) => column);
+
+  GeneratedColumn<String> get clientCreatedAt => $composableBuilder(
+    column: $table.clientCreatedAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get mutationVersion => $composableBuilder(
+    column: $table.mutationVersion,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$SyncOutboxRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $SyncOutboxRowsTable,
+          SyncOutboxRow,
+          $$SyncOutboxRowsTableFilterComposer,
+          $$SyncOutboxRowsTableOrderingComposer,
+          $$SyncOutboxRowsTableAnnotationComposer,
+          $$SyncOutboxRowsTableCreateCompanionBuilder,
+          $$SyncOutboxRowsTableUpdateCompanionBuilder,
+          (
+            SyncOutboxRow,
+            BaseReferences<
+              _$StorageV2DriftDatabase,
+              $SyncOutboxRowsTable,
+              SyncOutboxRow
+            >,
+          ),
+          SyncOutboxRow,
+          PrefetchHooks Function()
+        > {
+  $$SyncOutboxRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $SyncOutboxRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SyncOutboxRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SyncOutboxRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SyncOutboxRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> scope = const Value.absent(),
+                Value<String> table = const Value.absent(),
+                Value<String> recordId = const Value.absent(),
+                Value<String> op = const Value.absent(),
+                Value<String?> dataJson = const Value.absent(),
+                Value<String> changeId = const Value.absent(),
+                Value<String> deviceId = const Value.absent(),
+                Value<String> clientCreatedAt = const Value.absent(),
+                Value<int> mutationVersion = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SyncOutboxRowsCompanion(
+                scope: scope,
+                table: table,
+                recordId: recordId,
+                op: op,
+                dataJson: dataJson,
+                changeId: changeId,
+                deviceId: deviceId,
+                clientCreatedAt: clientCreatedAt,
+                mutationVersion: mutationVersion,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String scope,
+                required String table,
+                required String recordId,
+                required String op,
+                Value<String?> dataJson = const Value.absent(),
+                required String changeId,
+                required String deviceId,
+                required String clientCreatedAt,
+                required int mutationVersion,
+                required String updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => SyncOutboxRowsCompanion.insert(
+                scope: scope,
+                table: table,
+                recordId: recordId,
+                op: op,
+                dataJson: dataJson,
+                changeId: changeId,
+                deviceId: deviceId,
+                clientCreatedAt: clientCreatedAt,
+                mutationVersion: mutationVersion,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$SyncOutboxRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $SyncOutboxRowsTable,
+      SyncOutboxRow,
+      $$SyncOutboxRowsTableFilterComposer,
+      $$SyncOutboxRowsTableOrderingComposer,
+      $$SyncOutboxRowsTableAnnotationComposer,
+      $$SyncOutboxRowsTableCreateCompanionBuilder,
+      $$SyncOutboxRowsTableUpdateCompanionBuilder,
+      (
+        SyncOutboxRow,
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $SyncOutboxRowsTable,
+          SyncOutboxRow
+        >,
+      ),
+      SyncOutboxRow,
+      PrefetchHooks Function()
+    >;
+typedef $$SyncConflictRowsTableCreateCompanionBuilder =
+    SyncConflictRowsCompanion Function({
+      required String scope,
+      required int seq,
+      required String table,
+      required String recordId,
+      required String op,
+      Value<String?> dataJson,
+      required String changeId,
+      required String deviceId,
+      required String clientCreatedAt,
+      Value<String?> createdAt,
+      required String localOp,
+      Value<String?> localDataJson,
+      required String localChangeId,
+      required int localMutationVersion,
+      Value<int> rowid,
+    });
+typedef $$SyncConflictRowsTableUpdateCompanionBuilder =
+    SyncConflictRowsCompanion Function({
+      Value<String> scope,
+      Value<int> seq,
+      Value<String> table,
+      Value<String> recordId,
+      Value<String> op,
+      Value<String?> dataJson,
+      Value<String> changeId,
+      Value<String> deviceId,
+      Value<String> clientCreatedAt,
+      Value<String?> createdAt,
+      Value<String> localOp,
+      Value<String?> localDataJson,
+      Value<String> localChangeId,
+      Value<int> localMutationVersion,
+      Value<int> rowid,
+    });
+
+class $$SyncConflictRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $SyncConflictRowsTable> {
+  $$SyncConflictRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get seq => $composableBuilder(
+    column: $table.seq,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get table => $composableBuilder(
+    column: $table.table,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get recordId => $composableBuilder(
+    column: $table.recordId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get op => $composableBuilder(
+    column: $table.op,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get dataJson => $composableBuilder(
+    column: $table.dataJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get changeId => $composableBuilder(
+    column: $table.changeId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get clientCreatedAt => $composableBuilder(
+    column: $table.clientCreatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get localOp => $composableBuilder(
+    column: $table.localOp,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get localDataJson => $composableBuilder(
+    column: $table.localDataJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get localChangeId => $composableBuilder(
+    column: $table.localChangeId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get localMutationVersion => $composableBuilder(
+    column: $table.localMutationVersion,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$SyncConflictRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $SyncConflictRowsTable> {
+  $$SyncConflictRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get seq => $composableBuilder(
+    column: $table.seq,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get table => $composableBuilder(
+    column: $table.table,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get recordId => $composableBuilder(
+    column: $table.recordId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get op => $composableBuilder(
+    column: $table.op,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get dataJson => $composableBuilder(
+    column: $table.dataJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get changeId => $composableBuilder(
+    column: $table.changeId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get clientCreatedAt => $composableBuilder(
+    column: $table.clientCreatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get localOp => $composableBuilder(
+    column: $table.localOp,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get localDataJson => $composableBuilder(
+    column: $table.localDataJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get localChangeId => $composableBuilder(
+    column: $table.localChangeId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get localMutationVersion => $composableBuilder(
+    column: $table.localMutationVersion,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$SyncConflictRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $SyncConflictRowsTable> {
+  $$SyncConflictRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get scope =>
+      $composableBuilder(column: $table.scope, builder: (column) => column);
+
+  GeneratedColumn<int> get seq =>
+      $composableBuilder(column: $table.seq, builder: (column) => column);
+
+  GeneratedColumn<String> get table =>
+      $composableBuilder(column: $table.table, builder: (column) => column);
+
+  GeneratedColumn<String> get recordId =>
+      $composableBuilder(column: $table.recordId, builder: (column) => column);
+
+  GeneratedColumn<String> get op =>
+      $composableBuilder(column: $table.op, builder: (column) => column);
+
+  GeneratedColumn<String> get dataJson =>
+      $composableBuilder(column: $table.dataJson, builder: (column) => column);
+
+  GeneratedColumn<String> get changeId =>
+      $composableBuilder(column: $table.changeId, builder: (column) => column);
+
+  GeneratedColumn<String> get deviceId =>
+      $composableBuilder(column: $table.deviceId, builder: (column) => column);
+
+  GeneratedColumn<String> get clientCreatedAt => $composableBuilder(
+    column: $table.clientCreatedAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<String> get localOp =>
+      $composableBuilder(column: $table.localOp, builder: (column) => column);
+
+  GeneratedColumn<String> get localDataJson => $composableBuilder(
+    column: $table.localDataJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get localChangeId => $composableBuilder(
+    column: $table.localChangeId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get localMutationVersion => $composableBuilder(
+    column: $table.localMutationVersion,
+    builder: (column) => column,
+  );
+}
+
+class $$SyncConflictRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $SyncConflictRowsTable,
+          SyncConflictRow,
+          $$SyncConflictRowsTableFilterComposer,
+          $$SyncConflictRowsTableOrderingComposer,
+          $$SyncConflictRowsTableAnnotationComposer,
+          $$SyncConflictRowsTableCreateCompanionBuilder,
+          $$SyncConflictRowsTableUpdateCompanionBuilder,
+          (
+            SyncConflictRow,
+            BaseReferences<
+              _$StorageV2DriftDatabase,
+              $SyncConflictRowsTable,
+              SyncConflictRow
+            >,
+          ),
+          SyncConflictRow,
+          PrefetchHooks Function()
+        > {
+  $$SyncConflictRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $SyncConflictRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SyncConflictRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SyncConflictRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SyncConflictRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> scope = const Value.absent(),
+                Value<int> seq = const Value.absent(),
+                Value<String> table = const Value.absent(),
+                Value<String> recordId = const Value.absent(),
+                Value<String> op = const Value.absent(),
+                Value<String?> dataJson = const Value.absent(),
+                Value<String> changeId = const Value.absent(),
+                Value<String> deviceId = const Value.absent(),
+                Value<String> clientCreatedAt = const Value.absent(),
+                Value<String?> createdAt = const Value.absent(),
+                Value<String> localOp = const Value.absent(),
+                Value<String?> localDataJson = const Value.absent(),
+                Value<String> localChangeId = const Value.absent(),
+                Value<int> localMutationVersion = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SyncConflictRowsCompanion(
+                scope: scope,
+                seq: seq,
+                table: table,
+                recordId: recordId,
+                op: op,
+                dataJson: dataJson,
+                changeId: changeId,
+                deviceId: deviceId,
+                clientCreatedAt: clientCreatedAt,
+                createdAt: createdAt,
+                localOp: localOp,
+                localDataJson: localDataJson,
+                localChangeId: localChangeId,
+                localMutationVersion: localMutationVersion,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String scope,
+                required int seq,
+                required String table,
+                required String recordId,
+                required String op,
+                Value<String?> dataJson = const Value.absent(),
+                required String changeId,
+                required String deviceId,
+                required String clientCreatedAt,
+                Value<String?> createdAt = const Value.absent(),
+                required String localOp,
+                Value<String?> localDataJson = const Value.absent(),
+                required String localChangeId,
+                required int localMutationVersion,
+                Value<int> rowid = const Value.absent(),
+              }) => SyncConflictRowsCompanion.insert(
+                scope: scope,
+                seq: seq,
+                table: table,
+                recordId: recordId,
+                op: op,
+                dataJson: dataJson,
+                changeId: changeId,
+                deviceId: deviceId,
+                clientCreatedAt: clientCreatedAt,
+                createdAt: createdAt,
+                localOp: localOp,
+                localDataJson: localDataJson,
+                localChangeId: localChangeId,
+                localMutationVersion: localMutationVersion,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$SyncConflictRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $SyncConflictRowsTable,
+      SyncConflictRow,
+      $$SyncConflictRowsTableFilterComposer,
+      $$SyncConflictRowsTableOrderingComposer,
+      $$SyncConflictRowsTableAnnotationComposer,
+      $$SyncConflictRowsTableCreateCompanionBuilder,
+      $$SyncConflictRowsTableUpdateCompanionBuilder,
+      (
+        SyncConflictRow,
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $SyncConflictRowsTable,
+          SyncConflictRow
+        >,
+      ),
+      SyncConflictRow,
+      PrefetchHooks Function()
+    >;
+typedef $$SyncStateRowsTableCreateCompanionBuilder =
+    SyncStateRowsCompanion Function({
+      required String scope,
+      Value<int> since,
+      Value<bool> initialized,
+      Value<bool> active,
+      Value<bool> capturesLocal,
+      Value<String> deviceId,
+      required String updatedAt,
+      Value<int> rowid,
+    });
+typedef $$SyncStateRowsTableUpdateCompanionBuilder =
+    SyncStateRowsCompanion Function({
+      Value<String> scope,
+      Value<int> since,
+      Value<bool> initialized,
+      Value<bool> active,
+      Value<bool> capturesLocal,
+      Value<String> deviceId,
+      Value<String> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$SyncStateRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $SyncStateRowsTable> {
+  $$SyncStateRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get since => $composableBuilder(
+    column: $table.since,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get initialized => $composableBuilder(
+    column: $table.initialized,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get active => $composableBuilder(
+    column: $table.active,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get capturesLocal => $composableBuilder(
+    column: $table.capturesLocal,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$SyncStateRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $SyncStateRowsTable> {
+  $$SyncStateRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get since => $composableBuilder(
+    column: $table.since,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get initialized => $composableBuilder(
+    column: $table.initialized,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get active => $composableBuilder(
+    column: $table.active,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get capturesLocal => $composableBuilder(
+    column: $table.capturesLocal,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$SyncStateRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $SyncStateRowsTable> {
+  $$SyncStateRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get scope =>
+      $composableBuilder(column: $table.scope, builder: (column) => column);
+
+  GeneratedColumn<int> get since =>
+      $composableBuilder(column: $table.since, builder: (column) => column);
+
+  GeneratedColumn<bool> get initialized => $composableBuilder(
+    column: $table.initialized,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get active =>
+      $composableBuilder(column: $table.active, builder: (column) => column);
+
+  GeneratedColumn<bool> get capturesLocal => $composableBuilder(
+    column: $table.capturesLocal,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get deviceId =>
+      $composableBuilder(column: $table.deviceId, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$SyncStateRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $SyncStateRowsTable,
+          SyncStateRow,
+          $$SyncStateRowsTableFilterComposer,
+          $$SyncStateRowsTableOrderingComposer,
+          $$SyncStateRowsTableAnnotationComposer,
+          $$SyncStateRowsTableCreateCompanionBuilder,
+          $$SyncStateRowsTableUpdateCompanionBuilder,
+          (
+            SyncStateRow,
+            BaseReferences<
+              _$StorageV2DriftDatabase,
+              $SyncStateRowsTable,
+              SyncStateRow
+            >,
+          ),
+          SyncStateRow,
+          PrefetchHooks Function()
+        > {
+  $$SyncStateRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $SyncStateRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SyncStateRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SyncStateRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SyncStateRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> scope = const Value.absent(),
+                Value<int> since = const Value.absent(),
+                Value<bool> initialized = const Value.absent(),
+                Value<bool> active = const Value.absent(),
+                Value<bool> capturesLocal = const Value.absent(),
+                Value<String> deviceId = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SyncStateRowsCompanion(
+                scope: scope,
+                since: since,
+                initialized: initialized,
+                active: active,
+                capturesLocal: capturesLocal,
+                deviceId: deviceId,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String scope,
+                Value<int> since = const Value.absent(),
+                Value<bool> initialized = const Value.absent(),
+                Value<bool> active = const Value.absent(),
+                Value<bool> capturesLocal = const Value.absent(),
+                Value<String> deviceId = const Value.absent(),
+                required String updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => SyncStateRowsCompanion.insert(
+                scope: scope,
+                since: since,
+                initialized: initialized,
+                active: active,
+                capturesLocal: capturesLocal,
+                deviceId: deviceId,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$SyncStateRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $SyncStateRowsTable,
+      SyncStateRow,
+      $$SyncStateRowsTableFilterComposer,
+      $$SyncStateRowsTableOrderingComposer,
+      $$SyncStateRowsTableAnnotationComposer,
+      $$SyncStateRowsTableCreateCompanionBuilder,
+      $$SyncStateRowsTableUpdateCompanionBuilder,
+      (
+        SyncStateRow,
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $SyncStateRowsTable,
+          SyncStateRow
+        >,
+      ),
+      SyncStateRow,
+      PrefetchHooks Function()
+    >;
+typedef $$SyncScopeBaselineRowsTableCreateCompanionBuilder =
+    SyncScopeBaselineRowsCompanion Function({
+      required String scope,
+      required String table,
+      required String recordId,
+      required String dataJson,
+      Value<int> rowid,
+    });
+typedef $$SyncScopeBaselineRowsTableUpdateCompanionBuilder =
+    SyncScopeBaselineRowsCompanion Function({
+      Value<String> scope,
+      Value<String> table,
+      Value<String> recordId,
+      Value<String> dataJson,
+      Value<int> rowid,
+    });
+
+class $$SyncScopeBaselineRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $SyncScopeBaselineRowsTable> {
+  $$SyncScopeBaselineRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get table => $composableBuilder(
+    column: $table.table,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get recordId => $composableBuilder(
+    column: $table.recordId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get dataJson => $composableBuilder(
+    column: $table.dataJson,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$SyncScopeBaselineRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $SyncScopeBaselineRowsTable> {
+  $$SyncScopeBaselineRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get table => $composableBuilder(
+    column: $table.table,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get recordId => $composableBuilder(
+    column: $table.recordId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get dataJson => $composableBuilder(
+    column: $table.dataJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$SyncScopeBaselineRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $SyncScopeBaselineRowsTable> {
+  $$SyncScopeBaselineRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get scope =>
+      $composableBuilder(column: $table.scope, builder: (column) => column);
+
+  GeneratedColumn<String> get table =>
+      $composableBuilder(column: $table.table, builder: (column) => column);
+
+  GeneratedColumn<String> get recordId =>
+      $composableBuilder(column: $table.recordId, builder: (column) => column);
+
+  GeneratedColumn<String> get dataJson =>
+      $composableBuilder(column: $table.dataJson, builder: (column) => column);
+}
+
+class $$SyncScopeBaselineRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $SyncScopeBaselineRowsTable,
+          SyncScopeBaselineRow,
+          $$SyncScopeBaselineRowsTableFilterComposer,
+          $$SyncScopeBaselineRowsTableOrderingComposer,
+          $$SyncScopeBaselineRowsTableAnnotationComposer,
+          $$SyncScopeBaselineRowsTableCreateCompanionBuilder,
+          $$SyncScopeBaselineRowsTableUpdateCompanionBuilder,
+          (
+            SyncScopeBaselineRow,
+            BaseReferences<
+              _$StorageV2DriftDatabase,
+              $SyncScopeBaselineRowsTable,
+              SyncScopeBaselineRow
+            >,
+          ),
+          SyncScopeBaselineRow,
+          PrefetchHooks Function()
+        > {
+  $$SyncScopeBaselineRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $SyncScopeBaselineRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SyncScopeBaselineRowsTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$SyncScopeBaselineRowsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$SyncScopeBaselineRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> scope = const Value.absent(),
+                Value<String> table = const Value.absent(),
+                Value<String> recordId = const Value.absent(),
+                Value<String> dataJson = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SyncScopeBaselineRowsCompanion(
+                scope: scope,
+                table: table,
+                recordId: recordId,
+                dataJson: dataJson,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String scope,
+                required String table,
+                required String recordId,
+                required String dataJson,
+                Value<int> rowid = const Value.absent(),
+              }) => SyncScopeBaselineRowsCompanion.insert(
+                scope: scope,
+                table: table,
+                recordId: recordId,
+                dataJson: dataJson,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$SyncScopeBaselineRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $SyncScopeBaselineRowsTable,
+      SyncScopeBaselineRow,
+      $$SyncScopeBaselineRowsTableFilterComposer,
+      $$SyncScopeBaselineRowsTableOrderingComposer,
+      $$SyncScopeBaselineRowsTableAnnotationComposer,
+      $$SyncScopeBaselineRowsTableCreateCompanionBuilder,
+      $$SyncScopeBaselineRowsTableUpdateCompanionBuilder,
+      (
+        SyncScopeBaselineRow,
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $SyncScopeBaselineRowsTable,
+          SyncScopeBaselineRow
+        >,
+      ),
+      SyncScopeBaselineRow,
+      PrefetchHooks Function()
+    >;
+typedef $$SyncAppliedChangeRowsTableCreateCompanionBuilder =
+    SyncAppliedChangeRowsCompanion Function({
+      required String changeId,
+      required String source,
+      required String appliedAt,
+      Value<int> rowid,
+    });
+typedef $$SyncAppliedChangeRowsTableUpdateCompanionBuilder =
+    SyncAppliedChangeRowsCompanion Function({
+      Value<String> changeId,
+      Value<String> source,
+      Value<String> appliedAt,
+      Value<int> rowid,
+    });
+
+class $$SyncAppliedChangeRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $SyncAppliedChangeRowsTable> {
+  $$SyncAppliedChangeRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get changeId => $composableBuilder(
+    column: $table.changeId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get source => $composableBuilder(
+    column: $table.source,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get appliedAt => $composableBuilder(
+    column: $table.appliedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$SyncAppliedChangeRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $SyncAppliedChangeRowsTable> {
+  $$SyncAppliedChangeRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get changeId => $composableBuilder(
+    column: $table.changeId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get source => $composableBuilder(
+    column: $table.source,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get appliedAt => $composableBuilder(
+    column: $table.appliedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$SyncAppliedChangeRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $SyncAppliedChangeRowsTable> {
+  $$SyncAppliedChangeRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get changeId =>
+      $composableBuilder(column: $table.changeId, builder: (column) => column);
+
+  GeneratedColumn<String> get source =>
+      $composableBuilder(column: $table.source, builder: (column) => column);
+
+  GeneratedColumn<String> get appliedAt =>
+      $composableBuilder(column: $table.appliedAt, builder: (column) => column);
+}
+
+class $$SyncAppliedChangeRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $SyncAppliedChangeRowsTable,
+          SyncAppliedChangeRow,
+          $$SyncAppliedChangeRowsTableFilterComposer,
+          $$SyncAppliedChangeRowsTableOrderingComposer,
+          $$SyncAppliedChangeRowsTableAnnotationComposer,
+          $$SyncAppliedChangeRowsTableCreateCompanionBuilder,
+          $$SyncAppliedChangeRowsTableUpdateCompanionBuilder,
+          (
+            SyncAppliedChangeRow,
+            BaseReferences<
+              _$StorageV2DriftDatabase,
+              $SyncAppliedChangeRowsTable,
+              SyncAppliedChangeRow
+            >,
+          ),
+          SyncAppliedChangeRow,
+          PrefetchHooks Function()
+        > {
+  $$SyncAppliedChangeRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $SyncAppliedChangeRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SyncAppliedChangeRowsTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$SyncAppliedChangeRowsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$SyncAppliedChangeRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> changeId = const Value.absent(),
+                Value<String> source = const Value.absent(),
+                Value<String> appliedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SyncAppliedChangeRowsCompanion(
+                changeId: changeId,
+                source: source,
+                appliedAt: appliedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String changeId,
+                required String source,
+                required String appliedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => SyncAppliedChangeRowsCompanion.insert(
+                changeId: changeId,
+                source: source,
+                appliedAt: appliedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$SyncAppliedChangeRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $SyncAppliedChangeRowsTable,
+      SyncAppliedChangeRow,
+      $$SyncAppliedChangeRowsTableFilterComposer,
+      $$SyncAppliedChangeRowsTableOrderingComposer,
+      $$SyncAppliedChangeRowsTableAnnotationComposer,
+      $$SyncAppliedChangeRowsTableCreateCompanionBuilder,
+      $$SyncAppliedChangeRowsTableUpdateCompanionBuilder,
+      (
+        SyncAppliedChangeRow,
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $SyncAppliedChangeRowsTable,
+          SyncAppliedChangeRow
+        >,
+      ),
+      SyncAppliedChangeRow,
+      PrefetchHooks Function()
+    >;
 
 class $StorageV2DriftDatabaseManager {
   final _$StorageV2DriftDatabase _db;
@@ -12842,6 +18603,12 @@ class $StorageV2DriftDatabaseManager {
       $$NotePageRowsTableTableManager(_db, _db.notePageRows);
   $$NoteRevisionRowsTableTableManager get noteRevisionRows =>
       $$NoteRevisionRowsTableTableManager(_db, _db.noteRevisionRows);
+  $$NotePageHeadRowsTableTableManager get notePageHeadRows =>
+      $$NotePageHeadRowsTableTableManager(_db, _db.notePageHeadRows);
+  $$NotePageTombstoneRowsTableTableManager get notePageTombstoneRows =>
+      $$NotePageTombstoneRowsTableTableManager(_db, _db.notePageTombstoneRows);
+  $$NotePageConflictRowsTableTableManager get notePageConflictRows =>
+      $$NotePageConflictRowsTableTableManager(_db, _db.notePageConflictRows);
   $$NoteEditProposalRowsTableTableManager get noteEditProposalRows =>
       $$NoteEditProposalRowsTableTableManager(_db, _db.noteEditProposalRows);
   $$NoteEditBlockRowsTableTableManager get noteEditBlockRows =>
@@ -12858,4 +18625,14 @@ class $StorageV2DriftDatabaseManager {
       $$RoleplayThreadRowsTableTableManager(_db, _db.roleplayThreadRows);
   $$RecycleBinRowsTableTableManager get recycleBinRows =>
       $$RecycleBinRowsTableTableManager(_db, _db.recycleBinRows);
+  $$SyncOutboxRowsTableTableManager get syncOutboxRows =>
+      $$SyncOutboxRowsTableTableManager(_db, _db.syncOutboxRows);
+  $$SyncConflictRowsTableTableManager get syncConflictRows =>
+      $$SyncConflictRowsTableTableManager(_db, _db.syncConflictRows);
+  $$SyncStateRowsTableTableManager get syncStateRows =>
+      $$SyncStateRowsTableTableManager(_db, _db.syncStateRows);
+  $$SyncScopeBaselineRowsTableTableManager get syncScopeBaselineRows =>
+      $$SyncScopeBaselineRowsTableTableManager(_db, _db.syncScopeBaselineRows);
+  $$SyncAppliedChangeRowsTableTableManager get syncAppliedChangeRows =>
+      $$SyncAppliedChangeRowsTableTableManager(_db, _db.syncAppliedChangeRows);
 }

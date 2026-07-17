@@ -108,7 +108,9 @@ HomePage
 
 ## 笔记
 
-笔记支持文件夹、分页、编辑/预览切换、Markdown/LaTeX、修订时间线和 AI 修改建议。保存会生成 delta 修订；从历史版本打开后，如果内容没有变化，不创建空修订。离开未保存内容时会要求确认。
+笔记支持文件夹、分页、编辑/预览切换、Markdown/LaTeX、修订时间线和 AI 修改建议。保存会生成内容哈希修订；从历史版本打开后，如果内容没有变化，不创建空修订。离开未保存内容时会要求确认。
+
+活动分页有并行修订头时，编辑器显示冲突横幅和工具栏入口，并暂停普通保存。三方解决器在桌面端并排显示共同基线、本地和传入正文，在移动端使用可展开来源卡片；下半区始终提供可编辑合并结果。提交前会检查分页头是否已变化，过期时要求重新加载；超过两个头时按两两合并继续保留其余头。
 
 ## 待办清单
 
@@ -218,7 +220,7 @@ HomePage
 | 预览 | 显示分区数量、警告和冲突。 |
 | 导入 | 选择模式和冲突动作后写入 Provider。 |
 
-如果选择导出 API 配置，备份会包含 API Key。这个文件应该按敏感文件保存。
+选择 API 配置只导出非秘密模型设置。只有额外启用“加密并包含 API Key”并设置密码，API key 才会进入 Argon2id + XChaCha20-Poly1305 加密备份；设备私钥和登录令牌始终排除。
 
 ## MathLive 公式编辑页
 
@@ -241,5 +243,14 @@ HomePage
 | FeaturePage | Dashboard 跳转、历史搜索、角色切换、跨天日程、笔记未保存确认、待办导入导出。 |
 | Roleplay | 情景创建、线程创建、导演/角色生成、玩家消息排队、附件、长图导出。 |
 | ApiModelsPage | 添加/删除模型、拖拽排序、获取模型、清空高级参数、子模型能力开关。 |
-| DataManagementPage | 含 API Key 备份、新版备份读取、冲突导入、附件恢复。 |
+| DataManagementPage | 普通无密钥 ZIP、密码加密含 API Key 备份、新旧备份读取、冲突导入、附件恢复。 |
 | ThemePage | 预设色、HSV 拖动、深浅色切换、重启恢复。 |
+## LAN Pairing And Sync
+
+Settings includes a LAN page for discovery, showing a one-time QR code, mobile
+camera scanning, desktop QR image import, trusted peer listing, manual sync,
+revocation, conflict guidance, and explicit secret-transfer rules. Successful
+pairing automatically activates LAN sync and starts the first bidirectional
+exchange; if that exchange fails, the page keeps the trusted pairing and reports
+partial success with a manual retry path. Windows users are reminded to allow
+LynAI through the private-network firewall prompt.

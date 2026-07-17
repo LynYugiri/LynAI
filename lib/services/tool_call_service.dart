@@ -1367,6 +1367,7 @@ ${lines.join('\n')}$more''';
                 settings: _settings,
                 plugins: _plugins,
                 conversations: _conversations,
+                backend: _backend,
               ),
             );
             if (functionName == 'model.generateImage') {
@@ -2225,6 +2226,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
         type: LynAICallerType.agentLua,
         toolName: 'execute_lua',
       ),
+      backend: _backend,
     );
     _appendAgentTrace(
       result['ok'] == false
@@ -2295,6 +2297,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
             plugins: _plugins,
             settings: _settings,
             conversations: _conversations,
+            backend: _backend,
           ),
         )
         .timeout(_webFetchTimeout);

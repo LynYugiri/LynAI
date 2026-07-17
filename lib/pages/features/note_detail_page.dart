@@ -126,6 +126,10 @@ class _NoteDetailState extends State<_NoteDetail> {
         ? null
         : _features.getNoteRevision(_activeRevisionId!);
     final viewingHistorical = viewingRevision != null;
+    final activePage = _features.activeNotePage(note.id);
+    final pageConflict = activePage == null
+        ? null
+        : _features.notePageConflict(activePage.id);
     _queueExternalNoteSyncIfNeeded(note, hasProposal: hasProposal);
     final canUndo = widget.editing && _undoStack.isNotEmpty;
     final canRedo = widget.editing && _redoStack.isNotEmpty;
@@ -159,6 +163,12 @@ class _NoteDetailState extends State<_NoteDetail> {
                 icon: const Icon(Icons.timeline),
                 onPressed: () => _openTimeline(note),
               ),
+              if (pageConflict != null)
+                IconButton(
+                  tooltip: '解决分页冲突',
+                  icon: const Icon(Icons.call_merge),
+                  onPressed: () => _openPageConflictResolver(note),
+                ),
               IconButton(
                 tooltip: widget.editing ? '预览' : '编辑',
                 icon: Icon(widget.editing ? Icons.visibility : Icons.edit),
@@ -204,6 +214,7 @@ class _NoteDetailState extends State<_NoteDetail> {
           ),
         ),
         if (viewingHistorical) _historyBanner(note, viewingRevision),
+        if (pageConflict != null) _pageConflictBanner(note, pageConflict),
         if (widget.editing && !hasProposal) _editorToolbar(note),
         if (widget.editing && _showLatexPanel && !hasProposal) _latexPanel(),
         if (_showFind && !hasProposal) _findReplaceBar(),
@@ -1231,6 +1242,14 @@ class _NoteDetailState extends State<_NoteDetail> {
     final note = _features.getNote(widget.noteId);
     final content = _ctrl.text;
     if (note == null) return;
+    final activePage = _features.activeNotePage(note.id);
+    if (activePage != null &&
+        _features.notePageConflict(activePage.id) != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(shortSnackBar('当前分页存在冲突，请先合并后再保存'));
+      return;
+    }
     if (!_canSave) {
       _lastSavedDraft = content;
       return;
@@ -1243,9 +1262,9 @@ class _NoteDetailState extends State<_NoteDetail> {
     if (!mounted) return;
     _lastSavedDraft = content;
     _activeRevisionId = null;
-    final activePage = _features.activeNotePage(widget.noteId);
-    if (activePage != null) {
-      _outlinePageContentCache[activePage.id] = content;
+    final savedPage = _features.activeNotePage(widget.noteId);
+    if (savedPage != null) {
+      _outlinePageContentCache[savedPage.id] = content;
     }
     if (revision != null) {
       ScaffoldMessenger.of(context).showSnackBar(shortSnackBar('已保存到时间线'));
@@ -1315,6 +1334,11 @@ class _NoteDetailState extends State<_NoteDetail> {
   bool get _canSave {
     final note = _features.getNote(widget.noteId);
     if (note == null) return false;
+    final activePage = _features.activeNotePage(note.id);
+    if (activePage != null &&
+        _features.notePageConflict(activePage.id) != null) {
+      return false;
+    }
     final baseContent = _activeRevisionId == null
         ? note.content
         : _features.getNoteContentAtRevision(widget.noteId, _activeRevisionId);
@@ -1442,6 +1466,67 @@ class _NoteDetailState extends State<_NoteDetail> {
         ],
       ),
     );
+  }
+
+  Widget _pageConflictBanner(Note note, NotePageConflict conflict) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+      padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+      decoration: BoxDecoration(
+        color: scheme.errorContainer,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.warning_amber, color: scheme.onErrorContainer),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '此分页有 ${conflict.headIds.length} 个并行版本。普通保存已暂停，请先完成三方合并。',
+            ),
+          ),
+          FilledButton.tonal(
+            onPressed: () => _openPageConflictResolver(note),
+            child: const Text('解决冲突'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openPageConflictResolver(Note note) async {
+    final page = _features.activeNotePage(note.id);
+    if (page == null) return;
+    NotePageMergeSession? session;
+    try {
+      session = _features.loadNotePageMergeSession(note.id, page.id);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(shortSnackBar('无法加载冲突正文：$e'));
+      return;
+    }
+    if (session == null) {
+      ScaffoldMessenger.of(context).showSnackBar(shortSnackBar('冲突状态已变化，请重试'));
+      return;
+    }
+    final merged = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => NotePageMergeResolver(
+          session: session!,
+          onCommit: (content) =>
+              _features.commitNotePageMerge(session!, content),
+        ),
+      ),
+    );
+    if (!mounted || merged != true) return;
+    final updated = _features.getNote(note.id);
+    if (updated != null) {
+      setState(() => _loadEditorSnapshot(updated.content, revisionId: null));
+    }
+    ScaffoldMessenger.of(context).showSnackBar(shortSnackBar('冲突已合并'));
   }
 
   Future<void> _openTimeline(Note note) {

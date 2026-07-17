@@ -2941,6 +2941,7 @@ return { ok = true, note = "image generated" }
             conversationProvider: sourceConversations,
             featureProvider: source,
             roleplayProvider: sourceRoleplays,
+            storageV2: sourceStorage,
             appVersionLoader: () async => '0.0.0-test',
           ).exportZipBytes(
             BackupSelection({BackupSection.notes}, noteIds: {noteId}),
@@ -2966,6 +2967,7 @@ return { ok = true, note = "image generated" }
         conversationProvider: targetConversations,
         featureProvider: target,
         roleplayProvider: targetRoleplays,
+        storageV2: targetStorage,
       );
       final archive = await service.readZipBytes(archiveBytes);
       await service.importArchive(
@@ -2983,10 +2985,17 @@ return { ok = true, note = "image generated" }
       expect(reloaded.getNote(noteId)!.content, 'second page');
       await reloaded.selectNotePage(noteId, firstPageId);
       expect(reloaded.getNote(noteId)!.content, 'first page');
+      expect(reloaded.noteRevisions, hasLength(source.noteRevisions.length));
       expect(
         reloaded.noteRevisions.map((revision) => revision.pageId).toSet(),
-        contains(secondPageId),
+        containsAll({firstPageId, secondPageId}),
       );
+      for (final revision in reloaded.noteRevisions) {
+        expect(
+          await targetStorage.readNoteBlob(revision.contentHash),
+          isNotEmpty,
+        );
+      }
     } finally {
       await sourceRoot.delete(recursive: true);
       await targetRoot.delete(recursive: true);
@@ -3145,6 +3154,35 @@ return { ok = true, note = "image generated" }
     } finally {
       await root.delete(recursive: true);
     }
+  });
+
+  test('BackupService rejects oversized ZIP entries', () async {
+    final service = BackupService(
+      settingsProvider: SettingsProvider(),
+      modelConfigProvider: ModelConfigProvider(),
+      conversationProvider: ConversationProvider(),
+      featureProvider: FeatureProvider(),
+      roleplayProvider: RoleplayProvider(),
+    );
+    final archive = Archive()
+      ..addFile(
+        ArchiveFile(
+          'large.bin',
+          BackupService.maxBackupZipEntryBytes + 1,
+          const [0],
+        ),
+      );
+
+    expect(
+      service.readZipBytes(ZipEncoder().encode(archive)),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message,
+          'message',
+          contains('单条解压大小'),
+        ),
+      ),
+    );
   });
 
   test('BackupService exports private assets with storage v2 paths', () async {

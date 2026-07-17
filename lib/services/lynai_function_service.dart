@@ -19,6 +19,7 @@ import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../repositories/recycle_bin_repository.dart';
 import 'api_service.dart';
+import 'backend_client.dart';
 import 'device_control_service.dart';
 import 'device_run_controller.dart';
 import 'lynai_call_identity.dart';
@@ -44,6 +45,7 @@ class LynAIFunctionContext {
   final SettingsProvider? settings;
   final PluginProvider? plugins;
   final ConversationProvider? conversations;
+  final BackendClient? backend;
   final InstalledPlugin? plugin;
   final void Function(String message)? showToast;
 
@@ -54,6 +56,7 @@ class LynAIFunctionContext {
     this.settings,
     this.plugins,
     this.conversations,
+    this.backend,
     this.plugin,
     this.showToast,
   });
@@ -1806,7 +1809,7 @@ class LynAIFunctionService {
       args['modelName'] as String?,
     );
     final messages = _modelMessages(args);
-    final api = ApiService();
+    final api = ApiService(backend: context.backend);
     try {
       final response = await api.sendChatRequest(
         model,
@@ -1839,7 +1842,9 @@ class LynAIFunctionService {
     final modelId = (args['modelId'] as String?)?.trim().isNotEmpty == true
         ? args['modelId'] as String
         : context.settings?.settings.imageModelId;
-    final recognition = ModelRecognitionService();
+    final recognition = ModelRecognitionService(
+      api: ApiService(backend: context.backend),
+    );
     final String text;
     try {
       text = await recognition.recognizeImagesWithOcr(
@@ -1875,7 +1880,9 @@ class LynAIFunctionService {
         ? (args['prompt'] as String).trim()
         : context.settings?.settings.imageRecognitionPrompt ??
               '请根据下面的文件内容或识别结果回答。';
-    final recognition = ModelRecognitionService();
+    final recognition = ModelRecognitionService(
+      api: ApiService(backend: context.backend),
+    );
     final String content;
     try {
       content = await recognition.recognizeFilesWithModel(
@@ -1910,7 +1917,9 @@ class LynAIFunctionService {
         ? args['modelName'] as String
         : null;
     final parameters = _imageGenerationParameters(args);
-    final service = ImageGenerationService();
+    final service = ImageGenerationService(
+      api: ApiService(backend: context.backend),
+    );
     try {
       final result = await service.generate(
         modelConfigs: provider,

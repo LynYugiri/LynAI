@@ -100,6 +100,10 @@ class ConversationRepository {
                     )
                   : null,
               timestamp: timestamp,
+              revision: (raw['revision'] as num?)?.toInt() ?? 1,
+              updatedAt:
+                  DateTime.tryParse(raw['updatedAt']?.toString() ?? '') ??
+                  timestamp,
             ),
             sortOrder: (raw['sortOrder'] as num?)?.toInt(),
           ),
@@ -187,6 +191,8 @@ class ConversationRepository {
               message.agentTrace!.events.isNotEmpty)
             'agentTrace': message.agentTrace!.toJson(),
           'timestamp': message.timestamp.toIso8601String(),
+          'revision': message.revision,
+          'updatedAt': message.updatedAt.toIso8601String(),
           'sortOrder': i,
         });
         for (var j = 0; j < message.images.length; j++) {

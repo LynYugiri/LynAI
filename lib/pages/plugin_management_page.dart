@@ -130,6 +130,11 @@ class _PluginCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('${manifest.version} · ${plugin.enabled ? '已启用' : '已禁用'}'),
+              if (plugin.needsReview)
+                Text(
+                  '来自其他设备，需本机审查',
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
               const SizedBox(height: 2),
               Text(
                 '${manifest.tools.length} 个工具 · ${manifest.functions.length} 个函数 · ${manifest.skills.length} 个 Skill · ${manifest.featurePages.length} 个功能页',
@@ -151,7 +156,7 @@ class _PluginCard extends StatelessWidget {
           children: [
             Switch(
               value: plugin.enabled,
-              onChanged: plugin.hasError
+              onChanged: plugin.hasError || plugin.needsReview
                   ? null
                   : (value) => _runAction(
                       context,
@@ -205,6 +210,29 @@ class PluginDetailPage extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         children: [
           _PluginHeader(plugin: plugin),
+          if (plugin.needsReview) ...[
+            const SizedBox(height: 12),
+            _SectionCard(
+              title: '安全审查',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('此第三方插件由其他设备恢复。权限与所有能力均已清除，完成本机审查后才可启用。'),
+                  const SizedBox(height: 8),
+                  FilledButton(
+                    onPressed: () => _runAction(
+                      context,
+                      () => context.read<PluginProvider>().markReviewed(
+                        plugin.id,
+                      ),
+                      success: '已记录本机审查，插件仍保持禁用',
+                    ),
+                    child: const Text('完成本机审查'),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
           _SectionCard(
             title: '权限',

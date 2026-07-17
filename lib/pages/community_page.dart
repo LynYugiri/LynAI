@@ -31,10 +31,7 @@ class CommunityPage extends StatelessWidget {
                 color: theme.colorScheme.primary.withValues(alpha: 0.6),
               ),
               const SizedBox(height: 16),
-              Text(
-                '社区功能即将上线',
-                style: theme.textTheme.titleMedium,
-              ),
+              Text('社区功能即将上线', style: theme.textTheme.titleMedium),
               const SizedBox(height: 8),
               Text(
                 '未来可在此分享对话、角色和插件包，发现其他用户的创作。',

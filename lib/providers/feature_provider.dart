@@ -1,14 +1,17 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 import '../models/note.dart';
+import '../models/merge_models.dart';
 import '../models/recycle_bin_item.dart';
 import '../models/schedule_item.dart';
 import '../models/todo_list.dart';
 import '../repositories/feature_repository.dart';
 import '../repositories/recycle_bin_repository.dart';
 import '../services/storage_v2_service.dart';
+import '../services/note_revision_merge.dart';
 import '../utils/file_name_utils.dart';
 
 /// 管理功能页数据：日程、笔记、笔记修订、文件夹、修改建议和待办清单。
@@ -31,11 +34,14 @@ class FeatureProvider extends ChangeNotifier {
   List<NoteFolder> _noteFolders = [];
   List<TodoList> _todoLists = [];
   final Map<String, NoteEditProposal> _noteEditProposals = {};
-  final Map<String, String> _noteRevisionContentCache = {};
+  final Map<String, NoteRevisionContent> _noteRevisionContentCache = {};
   final Map<String, List<NoteRevision>> _noteTimelineCache = {};
+  Map<String, NotePageHeads> _notePageHeads = {};
+  Map<String, NotePageConflict> _notePageConflicts = {};
   bool _usingStorageV2 = false;
   final FeatureRepository _repository;
   final RecycleBinRepository _recycleBinRepository;
+  final Future<String> Function() _authorDeviceId;
   Map<String, List<StorageV2NotePage>> _storageV2PagesByNoteId = {};
   Map<String, String> _activeStorageV2PageIds = {};
 
@@ -43,9 +49,11 @@ class FeatureProvider extends ChangeNotifier {
     StorageV2Service? storageV2,
     FeatureRepository? repository,
     RecycleBinRepository? recycleBinRepository,
+    Future<String> Function()? authorDeviceId,
   }) : _repository = repository ?? FeatureRepository(storageV2: storageV2),
        _recycleBinRepository =
-           recycleBinRepository ?? RecycleBinRepository(storageV2: storageV2);
+           recycleBinRepository ?? RecycleBinRepository(storageV2: storageV2),
+       _authorDeviceId = authorDeviceId ?? (() async => 'local');
 
   List<ScheduleItem> get schedules => List.unmodifiable(_schedules);
   List<Note> get notes => List.unmodifiable(_notes);
@@ -55,6 +63,10 @@ class FeatureProvider extends ChangeNotifier {
   List<NoteEditProposal> get noteEditProposals =>
       List.unmodifiable(_noteEditProposals.values);
   bool get usingStorageV2 => _usingStorageV2;
+
+  NotePageHeads? notePageHeads(String pageId) => _notePageHeads[pageId];
+  NotePageConflict? notePageConflict(String pageId) =>
+      _notePageConflicts[pageId];
 
   List<StorageV2NotePage> notePages(String noteId) {
     return List.unmodifiable(_storageV2PagesByNoteId[noteId] ?? const []);
@@ -134,6 +146,16 @@ class FeatureProvider extends ChangeNotifier {
     return _repository.readNotePage(page);
   }
 
+  Future<List<int>> readNoteRevisionBlob(String hash) {
+    return _repository.readNoteBlobBytes(hash);
+  }
+
+  Future<void> installNoteRevisionBlobs(Map<String, List<int>> blobs) async {
+    for (final entry in blobs.entries) {
+      await _repository.installNoteBlob(entry.key, entry.value);
+    }
+  }
+
   Future<void> replaceStorageV2NotesData({
     required List<NoteFolder> noteFolders,
     required List<Note> notes,
@@ -191,6 +213,7 @@ class FeatureProvider extends ChangeNotifier {
         ),
       );
     _noteRevisionContentCache.clear();
+    await _loadRevisionContentStates(_noteRevisions);
     _noteTimelineCache.clear();
     _normalizeNoteRevisionState();
     _removeMissingNoteFolderReferences();
@@ -249,6 +272,7 @@ class FeatureProvider extends ChangeNotifier {
     if (noteRevisions != null) {
       _noteRevisions = List<NoteRevision>.from(noteRevisions);
       _noteRevisionContentCache.clear();
+      await _loadRevisionContentStates(_noteRevisions);
       _noteTimelineCache.clear();
       saveTasks.add(_queueSaveNoteRevisions());
     }
@@ -277,6 +301,11 @@ class FeatureProvider extends ChangeNotifier {
       _notes = List<Note>.from(result.notes);
       _noteFolders = List<NoteFolder>.from(result.noteFolders);
       _noteRevisions = List<NoteRevision>.from(result.noteRevisions);
+      _noteRevisionContentCache
+        ..clear()
+        ..addAll(result.revisionContents);
+      _notePageHeads = Map.of(result.pageHeads);
+      _notePageConflicts = Map.of(result.pageConflicts);
       _todoLists = List<TodoList>.from(result.todoLists);
       _usingStorageV2 = result.usingStorageV2;
       _storageV2PagesByNoteId = Map.fromEntries(
@@ -298,6 +327,19 @@ class FeatureProvider extends ChangeNotifier {
                 ),
               ),
         );
+      for (final entry in List.of(_notePageHeads.entries)) {
+        if (entry.value.headIds.length < 2) continue;
+        StorageV2NotePage? page;
+        for (final candidate in _storageV2PagesByNoteId.values.expand(
+          (pages) => pages,
+        )) {
+          if (candidate.id == entry.key) {
+            page = candidate;
+            break;
+          }
+        }
+        if (page != null) await reconcileNotePageHeads(page.noteId, page.id);
+      }
       await _refreshScheduleWidget();
       await _rescheduleScheduleNotifications();
       final normalizedRevisions = _normalizeNoteRevisionState();
@@ -784,14 +826,38 @@ class FeatureProvider extends ChangeNotifier {
           'id': revision.id,
           'noteId': revision.noteId,
           if (revision.pageId != null) 'pageId': revision.pageId,
-          if (revision.parentRevisionId != null)
-            'parentRevisionId': revision.parentRevisionId,
-          'savedAt': revision.savedAt.toIso8601String(),
-          'deltaStart': revision.delta.start,
-          'deletedText': revision.delta.deletedText,
-          'insertedText': revision.delta.insertedText,
+          'parentIds': revision.parentIds,
+          'authorDeviceId': revision.authorDeviceId,
+          'contentHash': revision.contentHash,
+          'createdAt': revision.createdAt.toIso8601String(),
         };
       }).toList(),
+      'pageHeads': _notePageHeads.values
+          .map(
+            (heads) => {
+              'id': heads.pageId,
+              'pageId': heads.pageId,
+              'headIds': heads.headIds.toList()..sort(),
+              if (heads.selectedHeadId != null)
+                'selectedHeadId': heads.selectedHeadId,
+              'updatedAt': DateTime.now().toIso8601String(),
+            },
+          )
+          .toList(),
+      'pageTombstones': const <Map<String, dynamic>>[],
+      'pageConflicts': _notePageConflicts.values
+          .map(
+            (conflict) => {
+              'pageId': conflict.pageId,
+              'headIds': conflict.headIds,
+              'localHeadId': conflict.localHeadId,
+              'incomingHeadId': conflict.incomingHeadId,
+              if (conflict.commonAncestorId != null)
+                'commonAncestorId': conflict.commonAncestorId,
+              'createdAt': conflict.createdAt.toIso8601String(),
+            },
+          )
+          .toList(),
       'editProposals': proposalRows,
       'editBlocks': proposalBlockRows,
     };
@@ -805,6 +871,15 @@ class FeatureProvider extends ChangeNotifier {
     );
     return _todoListSaveQueue;
   }
+
+  Future<void> flushPendingSaves() => Future.wait([
+    _scheduleSaveQueue,
+    _noteSaveQueue,
+    _noteRevisionSaveQueue,
+    _noteFolderSaveQueue,
+    _noteEditProposalSaveQueue,
+    _todoListSaveQueue,
+  ]);
 
   Future<void> _saveTodoListsSnapshot(List<TodoList> snapshot) async {
     try {
@@ -896,9 +971,10 @@ class FeatureProvider extends ChangeNotifier {
         : NoteRevision(
             id: _uuid.v4(),
             noteId: '',
-            parentRevisionId: null,
-            savedAt: now,
-            delta: NoteTextDelta.between('', content),
+            parentIds: const [],
+            authorDeviceId: await _authorDeviceId(),
+            contentHash: await _repository.storeNoteBlob(content),
+            createdAt: now,
           );
     final note = Note(
       id: _uuid.v4(),
@@ -916,12 +992,15 @@ class FeatureProvider extends ChangeNotifier {
           id: initialRevision.id,
           noteId: note.id,
           pageId: _usingStorageV2 ? '${note.id}_page_0' : null,
-          parentRevisionId: null,
-          savedAt: now,
-          delta: initialRevision.delta,
+          parentIds: const [],
+          authorDeviceId: initialRevision.authorDeviceId,
+          contentHash: initialRevision.contentHash,
+          createdAt: now,
         ),
       );
-      _noteRevisionContentCache[initialRevision.id] = content;
+      _noteRevisionContentCache[initialRevision.id] =
+          NoteRevisionContent.loaded(content);
+      _advancePageHeads(_noteRevisions.first);
     }
     _notes.insert(0, note);
     if (_usingStorageV2) {
@@ -963,6 +1042,23 @@ class FeatureProvider extends ChangeNotifier {
       return _noteRevisions.firstWhere((revision) => revision.id == revisionId);
     } catch (_) {
       return null;
+    }
+  }
+
+  Future<void> _loadRevisionContentStates(
+    Iterable<NoteRevision> revisions,
+  ) async {
+    for (final revision in revisions) {
+      if (revision.contentHash.isEmpty) continue;
+      try {
+        _noteRevisionContentCache[revision.id] = NoteRevisionContent.loaded(
+          await _repository.readNoteBlob(revision.contentHash),
+        );
+      } catch (e) {
+        _noteRevisionContentCache[revision.id] =
+            const NoteRevisionContent.missing();
+        debugPrint('笔记时间线正文 blob 缺失 ${revision.contentHash}: $e');
+      }
     }
   }
 
@@ -1021,11 +1117,20 @@ class FeatureProvider extends ChangeNotifier {
     String revisionId,
     Set<String> visited,
   ) {
-    if (!visited.add(revisionId)) return '';
+    if (!visited.add(revisionId)) {
+      throw StateError('笔记修订存在循环引用: $revisionId');
+    }
     final cached = _noteRevisionContentCache[revisionId];
-    if (cached != null) return cached;
+    if (cached != null) {
+      if (cached.isMissing) {
+        throw StateError('笔记修订正文缺失: $revisionId');
+      }
+      return cached.content!;
+    }
     final revision = getNoteRevision(revisionId);
-    if (revision == null || revision.noteId != noteId) return '';
+    if (revision == null || revision.noteId != noteId) {
+      throw StateError('笔记修订不存在: $revisionId');
+    }
     final parentContent = revision.parentRevisionId == null
         ? ''
         : _getNoteContentAtRevision(
@@ -1033,8 +1138,11 @@ class FeatureProvider extends ChangeNotifier {
             revision.parentRevisionId!,
             visited,
           );
+    if (revision.contentHash.isNotEmpty) {
+      throw StateError('笔记修订正文尚未加载: $revisionId');
+    }
     final content = revision.delta.apply(parentContent);
-    _noteRevisionContentCache[revisionId] = content;
+    _noteRevisionContentCache[revisionId] = NoteRevisionContent.loaded(content);
     return content;
   }
 
@@ -1052,16 +1160,16 @@ class FeatureProvider extends ChangeNotifier {
       final revision = revisionById[revisionId];
       if (revision == null) return validChainCache[revisionId] = false;
       if (!visiting.add(revisionId)) return validChainCache[revisionId] = false;
-      final parentId = revision.parentRevisionId;
-      if (parentId == null) {
+      if (revision.parentIds.isEmpty) {
         visiting.remove(revisionId);
         return validChainCache[revisionId] = true;
       }
-      final parent = revisionById[parentId];
-      final valid =
-          parent != null &&
-          parent.noteId == revision.noteId &&
-          hasValidChain(parentId, visiting);
+      final valid = revision.parentIds.every((parentId) {
+        final parent = revisionById[parentId];
+        return parent != null &&
+            parent.noteId == revision.noteId &&
+            hasValidChain(parentId, visiting);
+      });
       visiting.remove(revisionId);
       return validChainCache[revisionId] = valid;
     }
@@ -1102,7 +1210,9 @@ class FeatureProvider extends ChangeNotifier {
         );
       }).toList();
     });
-    _noteRevisionContentCache.clear();
+    _noteRevisionContentCache.removeWhere(
+      (revisionId, _) => !revisionById.containsKey(revisionId),
+    );
     _noteTimelineCache.clear();
     return _noteRevisions.length != previousRevisionCount || notesChanged;
   }
@@ -1130,6 +1240,12 @@ class FeatureProvider extends ChangeNotifier {
     final index = _notes.indexWhere((note) => note.id == noteId);
     if (index == -1) return null;
     final note = _notes[index];
+    final activePageId = _usingStorageV2
+        ? _activeStorageV2PageIds[noteId]
+        : null;
+    if (activePageId != null && _notePageConflicts.containsKey(activePageId)) {
+      throw StateError('当前分页存在未解决冲突，请先完成合并');
+    }
     final currentParentRevision = note.currentRevisionId == null
         ? null
         : getNoteRevision(note.currentRevisionId!);
@@ -1157,17 +1273,21 @@ class FeatureProvider extends ChangeNotifier {
       final activePageId = _usingStorageV2
           ? _activeStorageV2PageIds[note.id]
           : null;
+      final contentHash = await _repository.storeNoteBlob(note.content);
       final rootRevision = NoteRevision(
         id: _uuid.v4(),
         noteId: note.id,
         pageId: activePageId,
-        parentRevisionId: null,
-        savedAt: now,
-        delta: NoteTextDelta.between('', note.content),
+        parentIds: const [],
+        authorDeviceId: await _authorDeviceId(),
+        contentHash: contentHash,
+        createdAt: now,
       );
       bootstrappedRoot = rootRevision;
       _noteRevisions.insert(0, rootRevision);
-      _noteRevisionContentCache[rootRevision.id] = note.content;
+      _noteRevisionContentCache[rootRevision.id] = NoteRevisionContent.loaded(
+        note.content,
+      );
       _clearNoteTimelineCache(note.id);
       parentRevisionId = rootRevision.id;
       baseContent = note.content;
@@ -1217,16 +1337,21 @@ class FeatureProvider extends ChangeNotifier {
     }
 
     final now = DateTime.now();
+    final contentHash = await _repository.storeNoteBlob(content);
     final revision = NoteRevision(
       id: _uuid.v4(),
       noteId: note.id,
       pageId: _usingStorageV2 ? _activeStorageV2PageIds[note.id] : null,
-      parentRevisionId: parentRevisionId,
-      savedAt: now,
-      delta: NoteTextDelta.between(baseContent, content),
+      parentIds: parentRevisionId == null ? const [] : [parentRevisionId],
+      authorDeviceId: await _authorDeviceId(),
+      contentHash: contentHash,
+      createdAt: now,
     );
     _noteRevisions.insert(0, revision);
-    _noteRevisionContentCache[revision.id] = content;
+    _noteRevisionContentCache[revision.id] = NoteRevisionContent.loaded(
+      content,
+    );
+    _advancePageHeads(revision);
     _clearNoteTimelineCache(note.id);
     final removedProposal =
         _noteEditProposals.remove(_noteEditProposalKey(note.id)) != null;
@@ -1243,10 +1368,250 @@ class FeatureProvider extends ChangeNotifier {
     return revision;
   }
 
+  void _advancePageHeads(NoteRevision revision) {
+    final pageId = revision.pageId;
+    if (pageId == null) return;
+    final current = _notePageHeads[pageId];
+    final heads = {...?current?.headIds};
+    heads.removeAll(revision.parentIds);
+    heads.add(revision.id);
+    _notePageHeads[pageId] = NotePageHeads(
+      pageId: pageId,
+      headIds: heads,
+      selectedHeadId: revision.id,
+    );
+    final conflict = _notePageConflicts[pageId];
+    if (heads.length <= 1 ||
+        (conflict != null &&
+            (!heads.contains(conflict.localHeadId) ||
+                !heads.contains(conflict.incomingHeadId)))) {
+      _notePageConflicts.remove(pageId);
+    }
+  }
+
+  Future<NoteRevision?> reconcileNotePageHeads(
+    String noteId,
+    String pageId,
+  ) async {
+    final state = _notePageHeads[pageId];
+    if (state == null || state.headIds.length < 2) return null;
+    final heads = state.headIds.toList()..sort();
+    final existingConflict = _notePageConflicts[pageId];
+    final oursId =
+        existingConflict != null && heads.contains(existingConflict.localHeadId)
+        ? existingConflict.localHeadId
+        : state.selectedHeadId != null && heads.contains(state.selectedHeadId)
+        ? state.selectedHeadId!
+        : heads.first;
+    final theirsId =
+        existingConflict != null &&
+            heads.contains(existingConflict.incomingHeadId) &&
+            existingConflict.incomingHeadId != oursId
+        ? existingConflict.incomingHeadId
+        : heads.firstWhere((id) => id != oursId);
+    final ancestorId = _commonAncestor(oursId, theirsId);
+    if (ancestorId == null) {
+      return await _recordPageConflict(pageId, heads, oursId, theirsId, null);
+    }
+    NoteMergeResult result;
+    try {
+      result = mergeNoteMarkdown(
+        getNoteContentAtRevision(noteId, ancestorId),
+        getNoteContentAtRevision(noteId, oursId),
+        getNoteContentAtRevision(noteId, theirsId),
+      );
+    } on StateError {
+      return await _recordPageConflict(
+        pageId,
+        heads,
+        oursId,
+        theirsId,
+        ancestorId,
+      );
+    }
+    if (result.conflicted) {
+      return await _recordPageConflict(
+        pageId,
+        heads,
+        oursId,
+        theirsId,
+        ancestorId,
+      );
+    }
+    final content = result.content!;
+    final revision = NoteRevision(
+      id: _uuid.v4(),
+      noteId: noteId,
+      pageId: pageId,
+      parentIds: [oursId, theirsId],
+      authorDeviceId: await _authorDeviceId(),
+      contentHash: await _repository.storeNoteBlob(content),
+      createdAt: DateTime.now(),
+    );
+    _noteRevisions.insert(0, revision);
+    _noteRevisionContentCache[revision.id] = NoteRevisionContent.loaded(
+      content,
+    );
+    _advancePageHeads(revision);
+    final noteIndex = _notes.indexWhere((note) => note.id == noteId);
+    if (noteIndex != -1 && _activeStorageV2PageIds[noteId] == pageId) {
+      _notes[noteIndex] = _notes[noteIndex].copyWith(
+        content: content,
+        currentRevisionId: revision.id,
+      );
+      await _persistStorageV2CurrentPageContent(noteId, content, revision.id);
+    }
+    if ((_notePageHeads[pageId]?.headIds.length ?? 0) > 1) {
+      await reconcileNotePageHeads(noteId, pageId);
+    }
+    await _persistStorageV2NotesData();
+    await _queueSaveNoteRevisions();
+    await _queueSaveNotes();
+    notifyListeners();
+    return revision;
+  }
+
+  Future<NoteRevision?> _recordPageConflict(
+    String pageId,
+    List<String> heads,
+    String localHeadId,
+    String incomingHeadId,
+    String? ancestorId,
+  ) async {
+    _notePageConflicts[pageId] = NotePageConflict(
+      pageId: pageId,
+      headIds: heads,
+      localHeadId: localHeadId,
+      incomingHeadId: incomingHeadId,
+      commonAncestorId: ancestorId,
+      createdAt: DateTime.now(),
+    );
+    await _persistStorageV2NotesData();
+    notifyListeners();
+    return null;
+  }
+
+  NotePageMergeSession? loadNotePageMergeSession(String noteId, String pageId) {
+    final conflict = _notePageConflicts[pageId];
+    final heads = _notePageHeads[pageId];
+    if (conflict == null || heads == null || heads.headIds.length < 2) {
+      return null;
+    }
+    if (!heads.headIds.contains(conflict.localHeadId) ||
+        !heads.headIds.contains(conflict.incomingHeadId)) {
+      return null;
+    }
+    final local = getNoteContentAtRevision(noteId, conflict.localHeadId);
+    final incoming = getNoteContentAtRevision(noteId, conflict.incomingHeadId);
+    final base = conflict.commonAncestorId == null
+        ? ''
+        : getNoteContentAtRevision(noteId, conflict.commonAncestorId);
+    final automatic = mergeNoteMarkdown(base, local, incoming);
+    return NotePageMergeSession(
+      noteId: noteId,
+      pageId: pageId,
+      expectedHeadIds: Set.unmodifiable(heads.headIds),
+      localHeadId: conflict.localHeadId,
+      incomingHeadId: conflict.incomingHeadId,
+      baseRevisionId: conflict.commonAncestorId,
+      localContent: local,
+      incomingContent: incoming,
+      baseContent: base,
+      initialResult: automatic.content ?? local,
+    );
+  }
+
+  Future<NotePageMergeCommitResult> commitNotePageMerge(
+    NotePageMergeSession session,
+    String content,
+  ) async {
+    final state = _notePageHeads[session.pageId];
+    if (state == null ||
+        !setEquals(state.headIds, session.expectedHeadIds) ||
+        !state.headIds.contains(session.localHeadId) ||
+        !state.headIds.contains(session.incomingHeadId)) {
+      return const NotePageMergeCommitResult.staleHeads();
+    }
+    final revision = NoteRevision(
+      id: _uuid.v4(),
+      noteId: session.noteId,
+      pageId: session.pageId,
+      parentIds: [session.localHeadId, session.incomingHeadId],
+      authorDeviceId: await _authorDeviceId(),
+      contentHash: await _repository.storeNoteBlob(content),
+      createdAt: DateTime.now(),
+    );
+    _noteRevisions.insert(0, revision);
+    _noteRevisionContentCache[revision.id] = NoteRevisionContent.loaded(
+      content,
+    );
+    _advancePageHeads(revision);
+    _clearNoteTimelineCache(session.noteId);
+    final noteIndex = _notes.indexWhere((note) => note.id == session.noteId);
+    if (noteIndex != -1 &&
+        _activeStorageV2PageIds[session.noteId] == session.pageId) {
+      _notes[noteIndex] = _notes[noteIndex].copyWith(
+        content: content,
+        currentRevisionId: revision.id,
+      );
+      await _persistStorageV2CurrentPageContent(
+        session.noteId,
+        content,
+        revision.id,
+      );
+    }
+    if ((_notePageHeads[session.pageId]?.headIds.length ?? 0) > 1) {
+      await reconcileNotePageHeads(session.noteId, session.pageId);
+    }
+    await _persistStorageV2NotesData();
+    await _queueSaveNoteRevisions();
+    await _queueSaveNotes();
+    notifyListeners();
+    return NotePageMergeCommitResult.committed(revision.id);
+  }
+
+  String? _commonAncestor(String left, String right) {
+    final leftAncestors = _ancestorDistances(left);
+    final rightAncestors = _ancestorDistances(right);
+    final common = leftAncestors.keys.toSet().intersection(
+      rightAncestors.keys.toSet(),
+    );
+    if (common.isEmpty) return null;
+    return common.reduce((a, b) {
+      final aDistance = leftAncestors[a]! + rightAncestors[a]!;
+      final bDistance = leftAncestors[b]! + rightAncestors[b]!;
+      return aDistance <= bDistance ? a : b;
+    });
+  }
+
+  Map<String, int> _ancestorDistances(String start) {
+    final distances = <String, int>{};
+    final queue = <(String, int)>[(start, 0)];
+    while (queue.isNotEmpty) {
+      final (id, distance) = queue.removeAt(0);
+      if ((distances[id] ?? 1 << 30) <= distance) continue;
+      distances[id] = distance;
+      final revision = getNoteRevision(id);
+      if (revision == null) continue;
+      for (final parent in revision.parentIds) {
+        queue.add((parent, distance + 1));
+      }
+    }
+    return distances;
+  }
+
   Future<void> updateNote(Note note) async {
     final index = _notes.indexWhere((n) => n.id == note.id);
     if (index == -1) return;
     final contentChanged = _notes[index].content != note.content;
+    final activePageId = _usingStorageV2
+        ? _activeStorageV2PageIds[note.id]
+        : null;
+    if (contentChanged &&
+        activePageId != null &&
+        _notePageConflicts.containsKey(activePageId)) {
+      throw StateError('当前分页存在未解决冲突，请先完成合并');
+    }
     final removedProposal =
         contentChanged &&
         _noteEditProposals.remove(_noteEditProposalKey(note.id)) != null;

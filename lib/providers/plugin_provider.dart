@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -6,6 +7,8 @@ import 'package:flutter/services.dart';
 import '../models/plugin.dart';
 import '../models/plugin_config_schema.dart';
 import '../repositories/plugin_repository.dart';
+import '../services/plugin_sync_validation.dart';
+import '../services/storage_v2_service.dart';
 
 /// 管理插件安装状态、权限授权、功能页开关和插件私有配置。
 ///
@@ -13,10 +16,12 @@ import '../repositories/plugin_repository.dart';
 /// 通过这里查询启用状态和读写插件私有 storage，确保 UI、工具和 WebView Bridge
 /// 共用同一套权限状态。
 class PluginProvider extends ChangeNotifier {
-  PluginProvider({PluginRepository? repository})
-    : _repository = repository ?? PluginRepository();
+  PluginProvider({PluginRepository? repository, StorageV2Service? storageV2})
+    : _repository = repository ?? PluginRepository(),
+      _storageV2 = storageV2;
 
   final PluginRepository _repository;
+  final StorageV2Service? _storageV2;
   List<InstalledPlugin> _plugins = const [];
   final Map<String, Map<String, dynamic>> _settingsCache = {};
   final Map<String, Map<String, dynamic>> _storageCache = {};
@@ -30,6 +35,11 @@ class PluginProvider extends ChangeNotifier {
 
   /// 插件列表是否正在加载中。
   bool get loading => _loading;
+
+  Future<List<int>> readSyncBlob(String hash) => _repository.readSyncBlob(hash);
+  Future<bool> hasSyncBlob(String hash) => _repository.hasSyncBlob(hash);
+  Future<void> installSyncBlob(String hash, List<int> bytes) =>
+      _repository.installSyncBlob(hash, bytes);
 
   /// 返回当前已启用插件的数量。
   int get enabledCount => _plugins.where((plugin) => plugin.enabled).length;
@@ -160,9 +170,18 @@ class PluginProvider extends ChangeNotifier {
   Future<void> setEnabled(String id, bool enabled) async {
     final plugin = pluginById(id);
     if (plugin == null) return;
+    if (enabled && plugin.needsReview) {
+      throw Exception('此插件来自其他设备，请先完成本机审查');
+    }
     final shouldEnable = enabled && !plugin.hasError;
     if (shouldEnable) _ensureNoEnabledPluginApiConflict(plugin);
     await _replace(id, plugin.copyWith(enabled: shouldEnable));
+  }
+
+  Future<void> markReviewed(String id) async {
+    final plugin = pluginById(id);
+    if (plugin == null || !plugin.needsReview) return;
+    await _replace(id, plugin.copyWith(needsReview: false));
   }
 
   /// 设置插件已授权的权限列表，自动过滤非法权限。
@@ -312,6 +331,7 @@ class PluginProvider extends ChangeNotifier {
     );
     _plugins = _sortPlugins([..._plugins, snapshot]);
     await _save();
+    await _syncPlugin(snapshot.id);
     notifyListeners();
     return snapshot;
   }
@@ -337,6 +357,10 @@ class PluginProvider extends ChangeNotifier {
       _plugins.map((item) => item.id == pluginId ? updated : item).toList(),
     );
     await _save();
+    await _storageV2?.replacePluginSyncRows(pluginId, [
+      _repository.buildDeletedSyncMarker(pluginId),
+    ]);
+    await _syncPlugin(updated.id);
     notifyListeners();
     return updated;
   }
@@ -358,6 +382,7 @@ class PluginProvider extends ChangeNotifier {
     _schemaCache.remove(source.id);
     _bumpRenderVersion(source.id);
     await _replace(source.id, keptState);
+    await _syncPlugin(source.id);
     return keptState;
   }
 
@@ -375,6 +400,9 @@ class PluginProvider extends ChangeNotifier {
     await _repository.deletePluginDirectory(id);
     await _repository.deletePluginDataFiles(id);
     await _save();
+    await _storageV2?.replacePluginSyncRows(id, [
+      _repository.buildDeletedSyncMarker(id),
+    ]);
     notifyListeners();
   }
 
@@ -411,6 +439,7 @@ class PluginProvider extends ChangeNotifier {
     }
     _settingsCache[pluginId] = settings;
     await _repository.savePluginSettings(pluginId, settings);
+    await _syncPlugin(pluginId);
     notifyListeners();
   }
 
@@ -472,6 +501,7 @@ class PluginProvider extends ChangeNotifier {
     if (path == plugin.manifest.config.schema) _schemaCache.remove(pluginId);
     _bumpRenderVersion(pluginId);
     notifyListeners();
+    await _syncPlugin(pluginId);
   }
 
   /// 将字节内容写入插件文件，适合上传二进制资源。
@@ -485,6 +515,7 @@ class PluginProvider extends ChangeNotifier {
     await _repository.writePluginFileBytes(plugin, path, bytes);
     _bumpRenderVersion(pluginId);
     notifyListeners();
+    await _syncPlugin(pluginId);
   }
 
   /// 判断指定路径是否为插件的可编辑文件。
@@ -503,6 +534,7 @@ class PluginProvider extends ChangeNotifier {
     if (path == plugin.manifest.config.schema) _schemaCache.remove(pluginId);
     _bumpRenderVersion(pluginId);
     notifyListeners();
+    await _syncPlugin(pluginId);
   }
 
   /// 重命名插件目录中的指定文件。
@@ -516,6 +548,7 @@ class PluginProvider extends ChangeNotifier {
     await _repository.renamePluginFile(plugin, oldPath, newPath);
     _bumpRenderVersion(pluginId);
     notifyListeners();
+    await _syncPlugin(pluginId);
   }
 
   /// 删除所有用户自定义插件文件，回退到 defaults 出厂模板。
@@ -525,6 +558,7 @@ class PluginProvider extends ChangeNotifier {
     await _repository.resetPluginFilesToDefaults(plugin);
     _bumpRenderVersion(pluginId);
     notifyListeners();
+    await _syncPlugin(pluginId);
   }
 
   /// 构建当前插件目录的 ZIP 字节内容。
@@ -666,6 +700,259 @@ class PluginProvider extends ChangeNotifier {
     _configCache[pluginId] = Map<String, dynamic>.from(values);
     _bumpRenderVersion(pluginId);
     notifyListeners();
+    await _syncPlugin(pluginId);
+  }
+
+  Future<void> syncAllPlugins() async {
+    for (final plugin in _plugins) {
+      await _syncPlugin(plugin.id);
+    }
+  }
+
+  Future<void> _syncPlugin(String pluginId) async {
+    final storage = _storageV2;
+    final plugin = pluginById(pluginId);
+    if (storage == null || plugin == null || _repository.applyingRemote) return;
+    await storage.replacePluginSyncRows(
+      pluginId,
+      await _repository.buildSyncRows(plugin),
+    );
+  }
+
+  Future<void> applyRemoteSync(String scope) async {
+    final storage = _storageV2;
+    if (storage == null || scope.isEmpty) return;
+    final rows = await storage.loadPluginSyncRows();
+    final byPlugin = <String, List<Map<String, dynamic>>>{};
+    for (final row in rows) {
+      final pluginId = row['pluginId'] as String?;
+      if (pluginId == null || pluginId.isEmpty) continue;
+      byPlugin.putIfAbsent(pluginId, () => []).add(row);
+    }
+    await _repository.withoutSyncEcho(() async {
+      for (final entry in byPlugin.entries) {
+        await _applyRemotePlugin(entry.key, entry.value, scope);
+      }
+      await _save();
+    });
+    notifyListeners();
+  }
+
+  Future<void> _applyRemotePlugin(
+    String pluginId,
+    List<Map<String, dynamic>> rows,
+    String scope,
+  ) async {
+    final builtIn = PluginRepository.builtInPluginIds.contains(pluginId);
+    final markers = rows
+        .where(
+          (row) => row['kind'] == 'package' || row['kind'] == 'builtInOverlay',
+        )
+        .toList();
+    if (markers.length != 1) return;
+    final marker = markers.single;
+    if (marker['state'] == 'deleted') {
+      final plugin = pluginById(pluginId);
+      if (plugin != null && !builtIn && plugin.syncOriginScope == scope) {
+        await _repository.deletePluginDirectory(pluginId);
+        await _repository.deletePluginDataFiles(pluginId);
+        _settingsCache.remove(pluginId);
+        _storageCache.remove(pluginId);
+        _configCache.remove(pluginId);
+        _schemaCache.remove(pluginId);
+        _renderVersions.remove(pluginId);
+        _plugins = _plugins.where((item) => item.id != pluginId).toList();
+      }
+      return;
+    }
+    if (marker['state'] != 'installed' || marker['builtIn'] != builtIn) return;
+    final packageVersion = marker['packageVersion'] as String;
+    final allowedFiles = <String, Map<String, dynamic>>{};
+    for (final value in marker['files'] as List) {
+      final file = Map<String, dynamic>.from(value as Map);
+      allowedFiles[file['path'] as String] = file;
+    }
+    if (pluginSyncPackageVersion(allowedFiles.values) != packageVersion) {
+      throw StateError('远端插件版本与文件清单不匹配');
+    }
+    final fileRows = rows
+        .where(
+          (row) =>
+              row['path'] is String && row['packageVersion'] == packageVersion,
+        )
+        .toList();
+    if (fileRows.length != allowedFiles.length) return;
+    for (final row in fileRows) {
+      final path = row['path'] as String;
+      final allowed = allowedFiles[path];
+      if (allowed == null ||
+          row['packageVersion'] != packageVersion ||
+          row['sha256'] != allowed['sha256'] ||
+          row['size'] != allowed['size'] ||
+          row['builtIn'] != builtIn ||
+          row['kind'] != (builtIn ? 'overlay' : 'content')) {
+        throw StateError('远端插件文件不在精确版本清单中: $path');
+      }
+    }
+    if (!builtIn) {
+      final current = pluginById(pluginId);
+      String? localPackageVersion;
+      if (current != null) {
+        final localRows = await _repository.buildSyncRows(current);
+        localPackageVersion =
+            localRows.singleWhere(
+                  (row) => row['kind'] == 'package',
+                )['packageVersion']
+                as String?;
+      }
+      final contentChanged = localPackageVersion != packageVersion;
+      if (contentChanged) {
+        final files = <String, List<int>>{};
+        for (final row in fileRows) {
+          final path = row['path'] as String;
+          final hash = row['sha256'] as String?;
+          if (hash == null) throw StateError('远端插件文件缺少 sha256');
+          final bytes = await _repository.readSyncBlob(hash);
+          if (bytes.length != row['size']) {
+            throw StateError('远端插件文件大小不匹配: $path');
+          }
+          files[path] = bytes;
+        }
+        await _repository.restorePluginDirectory(
+          pluginId,
+          files,
+          allowedPaths: allowedFiles.keys.toSet(),
+          pluginJsonSha256: marker['pluginJsonSha256'] as String,
+        );
+        final directory = await _repository.pluginDirectory(pluginId);
+        final manifest = await _repository.readManifest(directory.path);
+        final restored = InstalledPlugin(
+          manifest: manifest,
+          path: directory.path,
+          enabled: false,
+          grantedPermissions: const [],
+          enabledFeaturePages: const [],
+          enabledTools: const [],
+          enabledFunctions: const [],
+          enabledSkills: const [],
+          needsReview: true,
+          syncedOrigin: true,
+          syncOriginScope: scope,
+        );
+        _plugins = _sortPlugins([
+          ..._plugins.where((item) => item.id != pluginId),
+          restored,
+        ]);
+        _bumpRenderVersion(pluginId);
+      }
+    } else if (builtIn) {
+      final plugin = pluginById(pluginId);
+      if (plugin != null) {
+        final remotePaths = fileRows
+            .map((row) => row['path'] as String)
+            .toSet();
+        for (final entry in await _repository.listPluginFiles(plugin)) {
+          if (!entry.isDirectory &&
+              !entry.isDefault &&
+              entry.isEditable &&
+              !remotePaths.contains(entry.path)) {
+            await _repository.deletePluginFile(plugin, entry.path);
+          }
+        }
+        for (final row in fileRows) {
+          final path = row['path'] as String;
+          final hash = row['sha256'] as String?;
+          if (hash == null || !_repository.isEditablePluginFile(plugin, path)) {
+            throw StateError('远端内置插件覆盖路径不安全: $path');
+          }
+          final bytes = await _repository.readSyncBlob(hash);
+          if (bytes.length != row['size']) {
+            throw StateError('远端内置插件覆盖文件大小不匹配: $path');
+          }
+          await _repository.writePluginFileBytes(plugin, path, bytes);
+        }
+        _bumpRenderVersion(pluginId);
+      }
+    }
+    final plugin = pluginById(pluginId);
+    if (plugin == null) return;
+    var receivedConfig = false;
+    for (final row in rows) {
+      final domain = row['domain'] as String?;
+      final hash = row['sha256'] as String?;
+      if (domain == null || hash == null) continue;
+      final decoded = jsonDecode(
+        utf8.decode(await _repository.readSyncBlob(hash)),
+      );
+      if (decoded is! Map) throw StateError('远端插件 JSON 必须是对象');
+      final value = Map<String, dynamic>.from(decoded);
+      switch (domain) {
+        case 'plugin_settings':
+          await _repository.savePluginSettings(pluginId, value);
+          _settingsCache.remove(pluginId);
+        case 'plugin_config':
+          receivedConfig = true;
+          final local = await loadConfig(pluginId);
+          await _repository.writePluginJsonFile(
+            plugin,
+            plugin.manifest.config.path,
+            _mergeRemoteConfig(local, value),
+          );
+          _configCache.remove(pluginId);
+      }
+    }
+    if (!receivedConfig &&
+        await _repository.pluginFileExists(
+          plugin.path,
+          plugin.manifest.config.path,
+        )) {
+      final local = await loadConfig(pluginId);
+      await _repository.writePluginJsonFile(
+        plugin,
+        plugin.manifest.config.path,
+        _onlyCloudSecrets(local),
+      );
+      _configCache.remove(pluginId);
+    }
+  }
+
+  Map<String, dynamic> _mergeRemoteConfig(
+    Map<String, dynamic> local,
+    Map<String, dynamic> remote,
+  ) {
+    final result = Map<String, dynamic>.from(remote);
+    for (final entry in local.entries) {
+      if (RegExp(
+        r'(authorization|token|key|password|secret)',
+        caseSensitive: false,
+      ).hasMatch(entry.key)) {
+        result[entry.key] = entry.value;
+      } else if (entry.value is Map && remote[entry.key] is Map) {
+        result[entry.key] = _mergeRemoteConfig(
+          Map<String, dynamic>.from(entry.value as Map),
+          Map<String, dynamic>.from(remote[entry.key] as Map),
+        );
+      }
+    }
+    return result;
+  }
+
+  Map<String, dynamic> _onlyCloudSecrets(Map<String, dynamic> local) {
+    final result = <String, dynamic>{};
+    for (final entry in local.entries) {
+      if (RegExp(
+        r'(authorization|token|key|password|secret)',
+        caseSensitive: false,
+      ).hasMatch(entry.key)) {
+        result[entry.key] = entry.value;
+      } else if (entry.value is Map) {
+        final nested = _onlyCloudSecrets(
+          Map<String, dynamic>.from(entry.value as Map),
+        );
+        if (nested.isNotEmpty) result[entry.key] = nested;
+      }
+    }
+    return result;
   }
 
   /// 递增插件的渲染版本号，触发 WebView 等依赖组件重建。
@@ -682,6 +969,7 @@ class PluginProvider extends ChangeNotifier {
     final next = [..._plugins.where((item) => item.id != plugin.id), plugin];
     _plugins = _sortPlugins(next);
     await _save();
+    await _syncPlugin(plugin.id);
     notifyListeners();
   }
 

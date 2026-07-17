@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../models/model_config.dart';
 import '../repositories/model_config_repository.dart';
 import '../services/backend_client.dart';
+import '../services/secret_store.dart';
 import '../services/storage_v2_service.dart';
 
 /// 管理所有模型配置和分类内优先级。
@@ -22,12 +23,20 @@ class ModelConfigProvider extends ChangeNotifier {
 
   ModelConfigProvider({
     StorageV2Service? storageV2,
+    SecretStore? secretStore,
     ModelConfigRepository? repository,
-  }) : _repository = repository ?? ModelConfigRepository(storageV2: storageV2);
+  }) : _repository =
+           repository ??
+           ModelConfigRepository(
+             storageV2: storageV2,
+             secretStore: secretStore,
+           );
 
   /// 所有模型配置，按分类和优先级排序。
   List<ModelConfig> get models => List.unmodifiable(_models);
   bool get usingStorageV2 => _usingStorageV2;
+
+  Future<void> flushPendingSaves() => _saveQueue;
 
   Future<void> replaceModels(List<ModelConfig> models) async {
     _models = List<ModelConfig>.from(models)..sort(_compareModels);

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -1411,7 +1412,7 @@ end
     },
   );
 
-  test('PluginRepository ignores unsafe ZIP archive paths', () async {
+  test('PluginRepository rejects unsafe ZIP archive paths', () async {
     final installedRoot = await Directory.systemTemp.createTemp(
       'lynai_zip_path_root_',
     );
@@ -1437,11 +1438,10 @@ end
         );
 
       final repository = PluginRepository(rootOverride: installedRoot);
-      final plugin = await repository.importZipBytes(
-        ZipEncoder().encode(archive),
+      await expectLater(
+        repository.importZipBytes(ZipEncoder().encode(archive)),
+        throwsA(isA<FormatException>()),
       );
-
-      expect(plugin.id, 'zip_path_plugin');
       expect(File('${installedRoot.path}/escape.txt').existsSync(), isFalse);
       expect(
         File(
@@ -1463,6 +1463,133 @@ end
       );
     } finally {
       await installedRoot.delete(recursive: true);
+    }
+  });
+
+  test('PluginRepository rejects oversized ZIP entries', () async {
+    final installedRoot = await Directory.systemTemp.createTemp(
+      'lynai_zip_limit_root_',
+    );
+    try {
+      final archive = Archive()
+        ..addFile(
+          ArchiveFile(
+            'large.bin',
+            PluginRepository.maxPluginZipEntryBytes + 1,
+            const [0],
+          ),
+        );
+      final repository = PluginRepository(rootOverride: installedRoot);
+
+      expect(
+        repository.importZipBytes(ZipEncoder().encode(archive)),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            contains('单条解压大小'),
+          ),
+        ),
+      );
+    } finally {
+      await installedRoot.delete(recursive: true);
+    }
+  });
+
+  test('PluginRepository rejects duplicate and symlink ZIP entries', () async {
+    final installedRoot = await Directory.systemTemp.createTemp(
+      'lynai_zip_special_root_',
+    );
+    try {
+      final repository = PluginRepository(rootOverride: installedRoot);
+      final duplicate = Archive()
+        ..addFile(ArchiveFile.string('plugin.json', '{}'))
+        ..addFile(ArchiveFile.string('second.json', '{}'));
+      final symlink = Archive()
+        ..addFile(ArchiveFile.string('plugin.json', '../outside'));
+
+      await expectLater(
+        repository.importZipBytes(
+          _renameZipEntry(duplicate, from: 'second.json', to: 'plugin.json'),
+        ),
+        throwsA(isA<FormatException>()),
+      );
+      await expectLater(
+        repository.importZipBytes(_markFirstZipEntryAsSymlink(symlink)),
+        throwsA(isA<FormatException>()),
+      );
+    } finally {
+      await installedRoot.delete(recursive: true);
+    }
+  });
+
+  test('PluginRepository rejects a highly compressed ZIP bomb', () async {
+    final installedRoot = await Directory.systemTemp.createTemp(
+      'lynai_zip_bomb_root_',
+    );
+    try {
+      final archive = Archive()
+        ..addFile(
+          ArchiveFile.bytes(
+            'bomb.bin',
+            Uint8List(PluginRepository.maxPluginZipEntryBytes + 1),
+          ),
+        );
+      final bytes = ZipEncoder().encode(archive);
+      expect(bytes.length, lessThan(PluginRepository.maxPluginZipInputBytes));
+
+      await expectLater(
+        PluginRepository(rootOverride: installedRoot).importZipBytes(bytes),
+        throwsA(isA<FormatException>()),
+      );
+    } finally {
+      await installedRoot.delete(recursive: true);
+    }
+  });
+
+  test('PluginRepository keeps old plugin when overwrite fails', () async {
+    final installedRoot = await Directory.systemTemp.createTemp(
+      'lynai_plugin_atomic_root_',
+    );
+    final source = await Directory.systemTemp.createTemp(
+      'lynai_plugin_atomic_source_',
+    );
+    try {
+      await File('${source.path}/plugin.json').writeAsString(
+        jsonEncode({
+          'id': 'atomic_plugin',
+          'name': 'Atomic Plugin',
+          'entry': 'main.lua',
+        }),
+      );
+      await File('${source.path}/main.lua').writeAsString('old version');
+      final repository = PluginRepository(rootOverride: installedRoot);
+      final installed = await repository.importDirectory(source.path);
+
+      final invalidManifest = utf8.encode(
+        jsonEncode({'id': 'atomic_plugin', 'name': '', 'entry': 'main.lua'}),
+      );
+      final archive = Archive()
+        ..addFile(
+          ArchiveFile('plugin.json', invalidManifest.length, invalidManifest),
+        )
+        ..addFile(ArchiveFile.string('main.lua', 'new version'));
+
+      await expectLater(
+        repository.importZipBytes(ZipEncoder().encode(archive)),
+        throwsException,
+      );
+      expect(
+        await File('${installed.path}/main.lua').readAsString(),
+        'old version',
+      );
+      expect(
+        (await repository.readManifest(installed.path)).name,
+        'Atomic Plugin',
+      );
+    } finally {
+      await installedRoot.delete(recursive: true);
+      await source.delete(recursive: true);
     }
   });
 
@@ -2220,4 +2347,42 @@ end
       }
     },
   );
+}
+
+List<int> _markFirstZipEntryAsSymlink(Archive archive) {
+  final bytes = Uint8List.fromList(ZipEncoder().encode(archive));
+  final data = ByteData.sublistView(bytes);
+  for (var offset = 0; offset <= bytes.length - 46; offset++) {
+    if (data.getUint32(offset, Endian.little) != 0x02014b50) continue;
+    data.setUint16(offset + 4, (3 << 8) | 20, Endian.little);
+    data.setUint32(offset + 38, 0xa000 << 16, Endian.little);
+    return bytes;
+  }
+  throw StateError('ZIP central directory not found');
+}
+
+List<int> _renameZipEntry(
+  Archive archive, {
+  required String from,
+  required String to,
+}) {
+  if (from.length != to.length) throw ArgumentError('names must match length');
+  final bytes = Uint8List.fromList(ZipEncoder().encode(archive));
+  final source = utf8.encode(from);
+  final replacement = utf8.encode(to);
+  var replacements = 0;
+  for (var offset = 0; offset <= bytes.length - source.length; offset++) {
+    var matches = true;
+    for (var index = 0; index < source.length; index++) {
+      if (bytes[offset + index] != source[index]) {
+        matches = false;
+        break;
+      }
+    }
+    if (!matches) continue;
+    bytes.setRange(offset, offset + replacement.length, replacement);
+    replacements++;
+  }
+  if (replacements < 2) throw StateError('ZIP entry name not found');
+  return bytes;
 }

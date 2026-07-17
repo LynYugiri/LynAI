@@ -113,11 +113,16 @@ class RemoteMarketService implements MarketService {
   /// 接收插件 ZIP 的字节内容和元数据，通过 multipart 上传到后端。
   /// 需要登录态——[BackendClient] 会自动附加 Bearer token。
   Future<MarketPluginEntry> submitPlugin(List<int> zipBytes) async {
-    final req = _client.multipartRequest('POST', '/market/plugins/submit');
-    req.files.add(
-      http.MultipartFile.fromBytes('zip', zipBytes, filename: 'plugin.zip'),
-    );
-    final streamedResp = await req.send();
+    final streamedResp = await _client.sendAuthenticatedStreamed(() {
+      final req = http.MultipartRequest(
+        'POST',
+        Uri.parse('${_client.backendUrl}/market/plugins/submit'),
+      );
+      req.files.add(
+        http.MultipartFile.fromBytes('zip', zipBytes, filename: 'plugin.zip'),
+      );
+      return req;
+    });
     final resp = await http.Response.fromStream(streamedResp);
     if (resp.statusCode != 200) {
       throw MarketUnavailableException(

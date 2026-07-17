@@ -66,6 +66,9 @@ class FloatingAssistantService with WidgetsBindingObserver {
   }
 
   void dispose() {
+    _persistPositionTimer?.cancel();
+    _persistPositionTimer = null;
+    _pendingPersist = null;
     if (!_started) return;
     _started = false;
     WidgetsBinding.instance.removeObserver(this);
@@ -246,6 +249,15 @@ class FloatingAssistantService with WidgetsBindingObserver {
       );
     });
   }
+
+  @visibleForTesting
+  void persistPositionForTest({int? bubbleX, int? bubbleY}) {
+    _persistPosition(bubbleX: bubbleX, bubbleY: bubbleY);
+  }
+
+  @visibleForTesting
+  bool get hasPendingPositionPersistForTest =>
+      _pendingPersist != null || (_persistPositionTimer?.isActive ?? false);
 
   ({
     int? bubbleX,

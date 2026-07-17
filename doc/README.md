@@ -11,6 +11,7 @@
 | 模型字段、JSON 契约和兼容旧数据 | [数据模型](models.md) |
 | Provider 如何加载、通知、保存和容错 | [状态管理](providers.md) |
 | API、工具调用、备份、存储升级和平台能力 | [服务层](services.md) |
+| 安全同步、设备身份、配对和加密备份的 v1 wire contract | [安全同步与备份协议 v1](protocol-v1.md) |
 
 ## 一句话架构
 
@@ -115,3 +116,11 @@ flutter run
 flutter analyze --no-pub
 flutter test --no-pub
 ```
+- LAN pairing and point-to-point sync are available without a cloud account and
+  synchronize the installation-local dataset rather than an individual cloud
+  account. Cloud synchronization remains isolated per backend origin and user ID.
+  LAN transport uses mDNS, signed QR payloads, TLS 1.3 SPKI pinning, and Ed25519
+  device trust.
+- Plugin sync includes only sanitized files, settings, and configuration.
+  `plugin_storage` and private plugin storage remain device-local and are never
+  synchronized through cloud or LAN.

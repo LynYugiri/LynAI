@@ -14,6 +14,7 @@ import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/lynai_call_identity.dart';
 import '../services/lynai_function_service.dart';
+import '../services/backend_client.dart';
 import '../utils/plugin_path_utils.dart';
 import '../utils/webview_dispose_utils.dart';
 
@@ -428,6 +429,7 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
         settings: context.read<SettingsProvider>(),
         plugins: context.read<PluginProvider>(),
         conversations: context.read<ConversationProvider>(),
+        backend: context.read<BackendClient>(),
         plugin: widget.plugin,
         showToast: (message) {
           if (mounted) {
