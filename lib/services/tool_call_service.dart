@@ -1,5 +1,3 @@
-// ignore_for_file: unused_element
-
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
@@ -227,6 +225,13 @@ class ToolCallService {
   static const _webFetchDefaultMaxChars = 12000;
   static const _webFetchMaxChars = 60000;
   static const _webFetchTimeout = Duration(seconds: 20);
+  static const maxToolRounds = 12;
+
+  static String toolRoundLimitMessage([String content = '']) {
+    const error = '工具调用已达到 12 轮上限，已停止继续执行。请缩小任务范围后重试。';
+    final text = content.trim();
+    return text.isEmpty ? error : '$text\n\n---\n$error';
+  }
 
   final FeatureProvider _features;
   final PluginProvider? _plugins;
@@ -1508,6 +1513,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
             .toList(growable: false);
 
     try {
+      var toolRounds = 0;
       while (true) {
         final response = await api.sendChatRequest(
           model,
@@ -1528,10 +1534,30 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
           );
           return result;
         }
+        if (toolRounds >= maxToolRounds) {
+          final result = _agentError(
+            'tool_round_limit_reached',
+            toolRoundLimitMessage(response.content),
+          );
+          _mergeSubagentMemory(purpose, result);
+          _appendAgentTrace(
+            AgentTraceEvent.error,
+            'Agent Subagent 已停止',
+            content: purpose,
+          );
+          return result;
+        }
         working.add(
           _subagentAssistantToolCall(response.content, response.toolCalls),
         );
         final results = await subTools.executeAll(response.toolCalls, const []);
+        toolRounds++;
+        if (toolRounds == maxToolRounds) {
+          working.add({
+            'role': 'system',
+            'content': '工具调用已达到上限。不要再调用工具，请基于已有文本和工具结果直接返回最终 JSON。',
+          });
+        }
         for (final result in results) {
           working.add(_subagentToolResult(result));
         }
@@ -2368,6 +2394,8 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     return result ?? {'ok': false, 'message': '平台无返回'};
   }
 
+  // Kept locally while the Agent command path still shares these helpers.
+  // ignore: unused_element
   Map<String, dynamic> _listSchedules(Map<String, dynamic> args) {
     final from = _dateArg(args, 'from');
     final to = _dateArg(args, 'to');
@@ -2389,6 +2417,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     };
   }
 
+  // ignore: unused_element
   Future<Map<String, dynamic>> _createSchedule(
     Map<String, dynamic> args,
   ) async {
@@ -2422,6 +2451,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     };
   }
 
+  // ignore: unused_element
   Future<Map<String, dynamic>> _updateSchedule(
     Map<String, dynamic> args,
   ) async {
@@ -2457,6 +2487,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     return {'ok': true, 'schedule': _scheduleJson(updated)};
   }
 
+  // ignore: unused_element
   Map<String, dynamic> _listNotes(Map<String, dynamic> args) {
     final query = (args['query'] as String? ?? '').trim();
     final matcher = _TextMatcher(query);
@@ -2489,6 +2520,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     };
   }
 
+  // ignore: unused_element
   Future<Map<String, dynamic>> _readNote(Map<String, dynamic> args) async {
     final selected = await _selectNoteForTool(args);
     if (selected.error != null) return _error(selected.error!);
@@ -2638,6 +2670,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     return 0;
   }
 
+  // ignore: unused_element
   Future<Map<String, dynamic>> _saveNote(Map<String, dynamic> args) async {
     final title = (args['title'] as String? ?? '').trim();
     final content = args['content'] as String? ?? '';
@@ -2718,6 +2751,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     };
   }
 
+  // ignore: unused_element
   Future<Map<String, dynamic>> _editNote(Map<String, dynamic> args) async {
     final parsed = await _parseNoteEditArgs(
       args,
@@ -2753,6 +2787,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     };
   }
 
+  // ignore: unused_element
   Future<Map<String, dynamic>> _proposeNoteEdit(
     Map<String, dynamic> args,
   ) async {
@@ -2801,6 +2836,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     };
   }
 
+  // ignore: unused_element
   Future<Map<String, dynamic>> _saveNotePage(Map<String, dynamic> args) async {
     final noteId = (args['id'] as String? ?? '').trim();
     final note = _features.getNote(noteId);
@@ -2894,6 +2930,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     );
   }
 
+  // ignore: unused_element
   Map<String, dynamic> _listNoteFolders() {
     final counts = <String, int>{};
     for (final note in _features.notes) {
@@ -2914,6 +2951,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     };
   }
 
+  // ignore: unused_element
   Future<Map<String, dynamic>> _saveNoteFolder(
     Map<String, dynamic> args,
   ) async {
@@ -2939,6 +2977,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     return {'ok': true, 'folder': updated.toJson()};
   }
 
+  // ignore: unused_element
   Map<String, dynamic> _listTodoLists(Map<String, dynamic> args) {
     final query = (args['query'] as String? ?? '').trim().toLowerCase();
     final includeItems = _boolArg(args, 'includeItems') ?? false;
@@ -2964,6 +3003,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     };
   }
 
+  // ignore: unused_element
   Map<String, dynamic> _readTodoList(Map<String, dynamic> args) {
     final list = _findTodoList(args);
     if (list == null) {
@@ -2972,6 +3012,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     return {'ok': true, 'todoList': _todoListJson(list)};
   }
 
+  // ignore: unused_element
   Future<Map<String, dynamic>> _saveTodoList(Map<String, dynamic> args) async {
     final title = (args['title'] as String? ?? '').trim();
     final id = (args['id'] as String? ?? '').trim();
@@ -3000,6 +3041,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     return {'ok': true, 'todoList': _todoListJson(updated)};
   }
 
+  // ignore: unused_element
   Future<Map<String, dynamic>> _saveTodoItem(Map<String, dynamic> args) async {
     final listId = (args['listId'] as String? ?? '').trim();
     if (listId.isEmpty) return _error('缺少 listId');

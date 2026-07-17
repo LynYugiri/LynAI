@@ -120,22 +120,25 @@ class PluginRepository {
   /// 从已解压的目录安装插件。
   ///
   /// 内部安装原语，供 ZIP 解压和测试使用。用户界面故意只暴露 ZIP 导入。
-  Future<InstalledPlugin> importDirectory(String sourcePath) async {
+  Future<InstalledPlugin> importDirectory(
+    String sourcePath, {
+    PluginManifest? manifest,
+  }) async {
     final source = Directory(sourcePath);
     if (!await source.exists()) throw Exception('插件目录不存在');
-    final manifest = await readManifest(source.path);
-    final target = await _pluginDirectory(manifest.id);
+    final resolvedManifest = manifest ?? await readManifest(source.path);
+    final target = await _pluginDirectory(resolvedManifest.id);
     await _replaceDirectory(
       source,
       target,
       validate: (staged) async {
         final stagedManifest = await readManifest(staged.path);
-        if (stagedManifest.id != manifest.id) {
+        if (stagedManifest.id != resolvedManifest.id) {
           throw Exception('复制后的插件 id 不一致');
         }
       },
     );
-    return _installedPlugin(manifest, target.path);
+    return _installedPlugin(resolvedManifest, target.path);
   }
 
   /// 用当前插件目录创建一个独立快照插件。
@@ -231,7 +234,14 @@ class PluginRepository {
   }
 
   /// 从 ZIP 字节内容导入并安装插件。
-  Future<InstalledPlugin> importZipBytes(List<int> bytes) async {
+  Future<InstalledPlugin> importZipBytes(
+    List<int> bytes, {
+    Future<InstalledPlugin> Function(
+      String pluginId,
+      Future<InstalledPlugin> Function() install,
+    )?
+    serialize,
+  }) async {
     if (bytes.length > maxPluginZipInputBytes) {
       throw const FormatException('插件压缩包体积超过限制');
     }
@@ -244,13 +254,19 @@ class PluginRepository {
       ),
       archiveLabel: '插件压缩包',
     );
+    final descriptor = _describeArchive(archive);
+    Future<InstalledPlugin> install() => _installArchive(descriptor);
+    if (serialize != null) return serialize(descriptor.manifest.id, install);
+    return install();
+  }
+
+  Future<InstalledPlugin> _installArchive(
+    _PluginArchiveDescriptor descriptor,
+  ) async {
     final root = await Directory.systemTemp.createTemp('lynai_plugin_import_');
     try {
-      for (final item in archive) {
-        final safeName = _safeArchivePath(item.name);
-        if (safeName == null || safeName.isEmpty) {
-          throw FormatException('插件压缩包包含不安全路径：${item.name}');
-        }
+      for (final item in descriptor.archive) {
+        final safeName = _safeArchivePath(item.name)!;
         final target = File('${root.path}/$safeName');
         if (item.isFile) {
           if (!await target.parent.exists()) {
@@ -261,19 +277,61 @@ class PluginRepository {
           await Directory(target.path).create(recursive: true);
         }
       }
-      final source = await _findManifestDirectory(root);
-      if (source == null) throw Exception('压缩包内未找到 plugin.json');
-      return await importDirectory(source.path);
+      final source = Directory(
+        descriptor.pluginRoot.isEmpty
+            ? root.path
+            : '${root.path}/${descriptor.pluginRoot}',
+      );
+      return await importDirectory(source.path, manifest: descriptor.manifest);
     } finally {
       if (await root.exists()) await root.delete(recursive: true);
     }
+  }
+
+  _PluginArchiveDescriptor _describeArchive(Archive archive) {
+    ArchiveFile? manifestFile;
+    String? manifestPath;
+    for (final item in archive) {
+      final safeName = _safeArchivePath(item.name);
+      if (safeName == null || safeName.isEmpty) {
+        throw FormatException('插件压缩包包含不安全路径：${item.name}');
+      }
+      if (!item.isFile || _fileName(safeName) != 'plugin.json') continue;
+      if (manifestFile != null) {
+        throw const FormatException('插件压缩包必须包含唯一的 plugin.json');
+      }
+      manifestFile = item;
+      manifestPath = safeName;
+    }
+    if (manifestFile == null || manifestPath == null) {
+      throw Exception('压缩包内未找到 plugin.json');
+    }
+    final manifest = _parseManifest(
+      utf8.decode(manifestFile.content as List<int>),
+    );
+    final separator = manifestPath.lastIndexOf('/');
+    return _PluginArchiveDescriptor(
+      archive: archive,
+      manifest: manifest,
+      pluginRoot: separator == -1 ? '' : manifestPath.substring(0, separator),
+    );
   }
 
   /// 读取并校验插件目录中的 plugin.json 清单文件。
   Future<PluginManifest> readManifest(String pluginPath) async {
     final file = File('$pluginPath/plugin.json');
     if (!await file.exists()) throw Exception('插件缺少 plugin.json');
-    final data = jsonDecode(await file.readAsString());
+    return _parseManifest(await file.readAsString());
+  }
+
+  PluginManifest readManifestSync(String pluginPath) {
+    final file = File('$pluginPath/plugin.json');
+    if (!file.existsSync()) throw Exception('插件缺少 plugin.json');
+    return _parseManifest(file.readAsStringSync());
+  }
+
+  PluginManifest _parseManifest(String raw) {
+    final data = jsonDecode(raw);
     if (data is! Map) throw Exception('plugin.json 顶层必须是对象');
     final manifest = PluginManifest.fromJson(Map<String, dynamic>.from(data));
     final error = manifest.validate();
@@ -954,16 +1012,6 @@ class PluginRepository {
     );
   }
 
-  /// 在目录中递归搜索 plugin.json 文件的父目录。
-  Future<Directory?> _findManifestDirectory(Directory root) async {
-    await for (final entity in root.list(recursive: true, followLinks: false)) {
-      if (entity is File && _fileName(entity.path) == 'plugin.json') {
-        return entity.parent;
-      }
-    }
-    return null;
-  }
-
   /// 在目标同级完成复制和校验，再通过重命名提交目录替换。
   Future<void> _replaceDirectory(
     Directory source,
@@ -1406,4 +1454,16 @@ class PluginRepository {
     if (safe == null) return null;
     return _relativePath('/tmp/plugin_root', safe);
   }
+}
+
+class _PluginArchiveDescriptor {
+  const _PluginArchiveDescriptor({
+    required this.archive,
+    required this.manifest,
+    required this.pluginRoot,
+  });
+
+  final Archive archive;
+  final PluginManifest manifest;
+  final String pluginRoot;
 }

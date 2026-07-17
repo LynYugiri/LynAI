@@ -58,6 +58,14 @@ add_subdirectory("../native/tree_sitter" "native_tree_sitter")
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# permission_handler_windows 0.2.1 still enables MSVC's legacy /await mode.
+# New Windows runners reject the experimental coroutine headers unless this
+# compatibility warning is explicitly silenced.
+if(TARGET permission_handler_windows_plugin)
+  target_compile_definitions(permission_handler_windows_plugin PRIVATE
+    _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
+endif()
+
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can

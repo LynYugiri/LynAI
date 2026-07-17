@@ -29,24 +29,15 @@ class RoleplayRepository {
   final StorageV2Service _storageV2;
 
   Future<RoleplayLoadResult> load() async {
-    try {
-      final scenarioData = await _loadStorageV2File(_scenariosFile);
-      final threadData = await _loadStorageV2File(_threadsFile);
-      final scenarios = _parseScenarios(scenarioData['scenarios']);
-      final threads = _parseThreads(threadData['threads']);
-      return RoleplayLoadResult(
-        scenarios: scenarios,
-        threads: threads,
-        usingStorageV2: true,
-      );
-    } catch (e) {
-      debugPrint('加载情景演绎失败: $e');
-      return RoleplayLoadResult(
-        scenarios: const [],
-        threads: const [],
-        usingStorageV2: true,
-      );
-    }
+    final scenarioData = await _storageV2.loadDataFile(_scenariosFile);
+    final threadData = await _storageV2.loadDataFile(_threadsFile);
+    final scenarios = _parseScenarios(scenarioData['scenarios']);
+    final threads = _parseThreads(threadData['threads']);
+    return RoleplayLoadResult(
+      scenarios: scenarios,
+      threads: threads,
+      usingStorageV2: true,
+    );
   }
 
   Future<void> save({
@@ -62,14 +53,6 @@ class RoleplayRepository {
     };
     await _storageV2.writeDataFile(_scenariosFile, scenarioData);
     await _storageV2.writeDataFile(_threadsFile, threadData);
-  }
-
-  Future<Map<String, dynamic>> _loadStorageV2File(String fileName) async {
-    try {
-      return await _storageV2.loadDataFile(fileName);
-    } catch (_) {
-      return const {};
-    }
   }
 
   List<RoleplayScenario> _parseScenarios(Object? raw) {

@@ -51,7 +51,7 @@ lib/
 | 目录 | 责任 |
 |------|------|
 | `models/` | 数据模型、JSON 读写、旧字段兼容。 |
-| `providers/` | UI 状态、业务操作入口、保存队列、容错加载。 |
+| `providers/` | UI 状态、业务操作入口、可 flush 保存队列、单条容错与分区失败传播。 |
 | `repositories/` | 本地持久化，统一读写 storage_v2。 |
 | `services/` | API、工具调用、备份、storage_v2 升级、平台能力。 |
 | `pages/` | 页面交互、导航、输入处理、渲染组合。 |
@@ -63,7 +63,7 @@ lib/
 | 模块 | 入口文件 | 责任 |
 |------|----------|------|
 | 应用入口 | `lib/main.dart` | 注册 Provider、执行 storage_v2 升级、加载数据、修复引用、检查更新日志。 |
-| 主导航 | `lib/pages/home_page.dart` | 三个主 Tab、返回键协调、背景图和状态保活。 |
+| 主导航 | `lib/pages/home_page.dart` | 五个主 Tab、返回键协调、背景图和状态保活。 |
 | 对话 | `lib/pages/chat_page.dart` | 输入、附件、语音、流式请求、工具调用、重试、分享。 |
 | 功能页 | `lib/pages/feature_page.dart` | Dashboard、历史、日程、笔记、待办、情景演绎。 |
 | 设置 | `lib/pages/settings_page.dart` | 关于、背景、API、主题、数据管理入口。 |
@@ -116,6 +116,13 @@ flutter run
 flutter analyze --no-pub
 flutter test --no-pub
 ```
+
+## CI 与平台构建
+
+CI 在 Flutter stable 上先执行质量门禁，再构建 Android split APK、Linux Debian/Arch 包、Windows x64 ZIP，以及 macOS x64/arm64 和未签名 iOS 产物。Linux 构建机需要 GTK、WebKitGTK、libsecret、xz 和 zstd 相关依赖；Android OCR 构建会先获取 ncnn、opencv-mobile 和 PPOCRv5 资源。
+
+macOS 和 iOS release 构建在 `flutter pub get` 后、`flutter build` 前必须执行 `ruby scripts/patch-speech-to-text.rb`，修补当前 `speech_to_text` pub-cache Swift package。CI 已包含该步骤，本地 Apple 平台 release 构建遇到对应 Swift 包问题时应遵循同一顺序。
+
 - LAN pairing and point-to-point sync are available without a cloud account and
   synchronize the installation-local dataset rather than an individual cloud
   account. Cloud synchronization remains isolated per backend origin and user ID.

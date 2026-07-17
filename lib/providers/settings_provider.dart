@@ -15,6 +15,7 @@ import '../services/storage_v2_service.dart';
 class SettingsProvider extends ChangeNotifier {
   AppSettings _settings = AppSettings.defaults();
   Future<void> _saveQueue = Future.value();
+  Future<void> _pendingSave = Future.value();
   final SettingsRepository _repository;
   bool _usingStorageV2 = false;
 
@@ -26,12 +27,11 @@ class SettingsProvider extends ChangeNotifier {
   AppSettings get settings => _settings;
   bool get usingStorageV2 => _usingStorageV2;
 
-  Future<void> flushPendingSaves() => _saveQueue;
+  Future<void> flushPendingSaves() => _pendingSave;
 
   Future<void> replaceSettings(AppSettings settings) async {
     _settings = settings;
-    _queueSaveSettings();
-    await _saveQueue;
+    await _queueSaveSettings();
     notifyListeners();
   }
 
@@ -44,19 +44,13 @@ class SettingsProvider extends ChangeNotifier {
 
   /// 从本地 repository 加载设置。
   ///
-  /// 角色和提示词的单条坏数据由 [AppSettings.fromJson] 跳过；顶层结构损坏
-  /// 时回退默认设置，保证应用仍可启动。
+  /// 角色和提示词的单条坏数据由 [AppSettings.fromJson] 跳过；分区加载失败
+  /// 会保留当前内存状态并向启动流程传播。
   Future<void> loadSettings() async {
-    try {
-      final result = await _repository.load(_settings);
-      _settings = result.settings;
-      _usingStorageV2 = result.usingStorageV2;
-      notifyListeners();
-    } catch (e) {
-      debugPrint('加载设置失败: $e');
-      _settings = AppSettings.defaults();
-      notifyListeners();
-    }
+    final result = await _repository.load(_settings);
+    _settings = result.settings;
+    _usingStorageV2 = result.usingStorageV2;
+    notifyListeners();
   }
 
   /// 修复已删除或不存在的模型配置引用。
@@ -134,17 +128,16 @@ class SettingsProvider extends ChangeNotifier {
   }
 
   /// 将设置快照排入保存队列。
-  void _queueSaveSettings() {
+  Future<void> _queueSaveSettings() {
     final snapshot = _settings;
-    _saveQueue = _saveQueue.then((_) => _saveSettingsSnapshot(snapshot));
-  }
-
-  Future<void> _saveSettingsSnapshot(AppSettings snapshot) async {
-    try {
-      await _repository.save(snapshot, usingStorageV2: _usingStorageV2);
-    } catch (e) {
-      debugPrint('保存设置失败: $e');
-    }
+    final operation = _saveQueue.then(
+      (_) => _repository.save(snapshot, usingStorageV2: _usingStorageV2),
+    );
+    _pendingSave = operation;
+    _saveQueue = operation.catchError((Object error) {
+      debugPrint('保存设置失败: $error');
+    });
+    return operation;
   }
 
   /// 更新主题颜色
@@ -570,7 +563,10 @@ class SettingsProvider extends ChangeNotifier {
 
   /// 选择当前使用的系统提示词
   void selectSystemPrompt(String? id) {
-    _settings = _settings.copyWith(selectedSystemPromptId: id);
+    _settings = _settings.copyWith(
+      selectedSystemPromptId: id,
+      systemPrompt: effectiveSystemPromptFor(id, _settings.systemPrompt),
+    );
     _queueSaveSettings();
     notifyListeners();
   }
@@ -639,9 +635,9 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 首次启动时写入内置演示后端；用户主动配置/断开后不再覆盖。
+  /// 首次启动时写入构建配置的默认后端；空配置保持未配置状态。
   Future<void> initializeDefaultBackend(String url) async {
-    if (_settings.hasConfiguredBackend) return;
+    if (_settings.hasConfiguredBackend || url.trim().isEmpty) return;
     _settings = _settings.copyWith(backendUrl: url, hasConfiguredBackend: true);
     _queueSaveSettings();
     notifyListeners();

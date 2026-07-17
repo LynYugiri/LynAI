@@ -39,6 +39,7 @@ class RoleplayProvider extends ChangeNotifier {
   final RecycleBinRepository _recycleBinRepository;
   final _uuid = const Uuid();
   Future<void> _saveQueue = Future.value();
+  Future<void> _pendingSave = Future.value();
   List<RoleplayScenario> _scenarios = [];
   List<RoleplayThread> _threads = [];
   bool _usingStorageV2 = false;
@@ -67,18 +68,11 @@ class RoleplayProvider extends ChangeNotifier {
       );
 
   Future<void> loadSessions() async {
-    try {
-      final result = await _repository.load();
-      _scenarios = List<RoleplayScenario>.from(result.scenarios);
-      _threads = List<RoleplayThread>.from(result.threads);
-      _usingStorageV2 = result.usingStorageV2;
-      notifyListeners();
-    } catch (e) {
-      debugPrint('加载情景演绎失败: $e');
-      _scenarios = [];
-      _threads = [];
-      notifyListeners();
-    }
+    final result = await _repository.load();
+    _scenarios = List<RoleplayScenario>.from(result.scenarios);
+    _threads = List<RoleplayThread>.from(result.threads);
+    _usingStorageV2 = result.usingStorageV2;
+    notifyListeners();
   }
 
   Future<void> replaceData({
@@ -87,8 +81,7 @@ class RoleplayProvider extends ChangeNotifier {
   }) async {
     _scenarios = List<RoleplayScenario>.from(scenarios ?? _scenarios);
     _threads = List<RoleplayThread>.from(threads ?? _threads);
-    _queueSave();
-    await _saveQueue;
+    await _queueSave();
     notifyListeners();
   }
 
@@ -680,23 +673,24 @@ class RoleplayProvider extends ChangeNotifier {
     return list;
   }
 
-  void _queueSave() {
+  Future<void> _queueSave() {
     final scenarios = List<RoleplayScenario>.from(_scenarios);
     final threads = List<RoleplayThread>.from(_threads);
-    _saveQueue = _saveQueue
-        .then(
-          (_) => _repository.save(
-            scenarios: scenarios,
-            threads: threads,
-            usingStorageV2: _usingStorageV2,
-          ),
-        )
-        .catchError((e) {
-          debugPrint('保存情景演绎失败: $e');
-        });
+    final operation = _saveQueue.then(
+      (_) => _repository.save(
+        scenarios: scenarios,
+        threads: threads,
+        usingStorageV2: _usingStorageV2,
+      ),
+    );
+    _pendingSave = operation;
+    _saveQueue = operation.catchError((Object error) {
+      debugPrint('保存情景演绎失败: $error');
+    });
+    return operation;
   }
 
-  Future<void> flushPendingSaves() => _saveQueue;
+  Future<void> flushPendingSaves() => _pendingSave;
 
   String _titleFromScenario(String scenario) {
     final clean = scenario.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();

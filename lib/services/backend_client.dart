@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -17,7 +18,10 @@ import 'backend_uri.dart';
 ///
 /// 这是一个 [ChangeNotifier]：当后端地址变化时通知依赖方。
 class BackendClient extends ChangeNotifier {
-  static const defaultBackendUrl = 'http://8.138.82.3:8080';
+  static const defaultBackendUrl = String.fromEnvironment(
+    'LYNAI_BACKEND_URL',
+    defaultValue: '',
+  );
   static const defaultRequestTimeout = Duration(seconds: 30);
 
   /// 创建后端客户端。
@@ -47,14 +51,14 @@ class BackendClient extends ChangeNotifier {
 
   /// refresh 成功后持久化新令牌。账号服务连接后设置此回调。
   Future<void> Function(
-    String backendOrigin,
+    String backendScope,
     String accessToken,
     String refreshToken,
   )?
   onTokensRefreshed;
 
   /// refresh 失败后清除持久化会话。账号服务连接后设置此回调。
-  Future<void> Function(String backendOrigin)? onSessionCleared;
+  Future<void> Function(String backendScope)? onSessionCleared;
 
   /// 当前后端根 URL（如 `https://api.lynai.com`），空字符串表示未连接。
   String get backendUrl => _backendUrl;
@@ -68,8 +72,11 @@ class BackendClient extends ChangeNotifier {
   /// 是否已连接后端。
   bool get isConnected => _backendUrl.isNotEmpty;
 
-  /// Canonical origin used to isolate credentials and account state.
+  /// Canonical origin retained for source and same-origin comparisons.
   String get backendOrigin => normalizedBackendOrigin(_backendUrl);
+
+  /// Canonical full base URL used to scope credentials and account state.
+  String get backendScope => normalizeBackendUri(_backendUrl);
 
   /// Whether the configured backend transports credentials over plain HTTP.
   bool get usesInsecureHttp => isInsecureHttpBackend(_backendUrl);
@@ -86,9 +93,16 @@ class BackendClient extends ChangeNotifier {
   static String? insecureHttpWarningFor(String value) =>
       insecureHttpBackendWarning(value);
 
-  /// Whether an authentication endpoint definitively rejected a credential.
+  /// Whether a revocation endpoint has definitively consumed or rejected a token.
   static bool isCredentialRejectionStatus(int statusCode) =>
       statusCode == 400 || statusCode == 401 || statusCode == 403;
+
+  /// Whether refresh definitively rejected the refresh credential.
+  ///
+  /// Keep this decision centralized so structured backend error codes can be
+  /// added here later without spreading refresh invalidation policy.
+  static bool isRefreshCredentialRejection(http.Response response) =>
+      response.statusCode == 401;
 
   /// 从后端错误响应中提取可展示的错误消息。
   ///
@@ -131,10 +145,10 @@ class BackendClient extends ChangeNotifier {
       throw ArgumentError.value(url, 'url', 'invalid HTTP(S) backend URL');
     }
     if (normalized == _backendUrl) return;
-    final originChanged = normalizedBackendOrigin(normalized) != backendOrigin;
+    final scopeChanged = normalized != backendScope;
     _backendUrl = normalized;
     _configurationGeneration++;
-    if (originChanged) {
+    if (scopeChanged) {
       _credentialGeneration++;
       _accessToken = null;
       _refreshToken = null;
@@ -165,6 +179,31 @@ class BackendClient extends ChangeNotifier {
         Uri.parse('$_backendUrl$path'),
         headers: _withAuth(headers),
       ),
+    );
+  }
+
+  /// Sends an authenticated GET and buffers at most [maxBytes] response bytes.
+  Future<http.Response> getBounded(
+    String path, {
+    required int maxBytes,
+    Map<String, String>? headers,
+  }) async {
+    if (maxBytes < 0) throw ArgumentError.value(maxBytes, 'maxBytes');
+    final response = await sendAuthenticatedStreamed(
+      () =>
+          http.Request('GET', Uri.parse('$_backendUrl$path'))
+            ..headers.addAll(headers ?? const {}),
+      maxResponseBytes: maxBytes,
+    );
+    final bytes = await _readBoundedResponse(response, maxBytes);
+    return http.Response.bytes(
+      bytes,
+      response.statusCode,
+      headers: response.headers,
+      isRedirect: response.isRedirect,
+      persistentConnection: response.persistentConnection,
+      reasonPhrase: response.reasonPhrase,
+      request: response.request,
     );
   }
 
@@ -247,6 +286,7 @@ class BackendClient extends ChangeNotifier {
   Future<http.StreamedResponse> sendAuthenticatedStreamed(
     http.BaseRequest Function() buildRequest, {
     Duration? timeout,
+    int? maxResponseBytes,
   }) async {
     Future<http.StreamedResponse> send() {
       final request = buildRequest();
@@ -259,7 +299,9 @@ class BackendClient extends ChangeNotifier {
     var response = await send();
     if (response.statusCode != 401) return response;
 
-    final responseBytes = await response.stream.toBytes();
+    final responseBytes = maxResponseBytes == null
+        ? await response.stream.toBytes()
+        : await _readBoundedResponse(response, maxResponseBytes);
     if (requestAccessToken != _accessToken && _accessToken != null) {
       return send();
     }
@@ -276,6 +318,26 @@ class BackendClient extends ChangeNotifier {
       );
     }
     return send();
+  }
+
+  static Future<List<int>> _readBoundedResponse(
+    http.StreamedResponse response,
+    int maxBytes,
+  ) async {
+    final contentLength = response.contentLength;
+    if (contentLength != null && contentLength > maxBytes) {
+      throw BackendResponseTooLargeException(maxBytes);
+    }
+    final bytes = BytesBuilder(copy: false);
+    var total = 0;
+    await for (final chunk in response.stream) {
+      total += chunk.length;
+      if (total > maxBytes) {
+        throw BackendResponseTooLargeException(maxBytes);
+      }
+      bytes.add(chunk);
+    }
+    return bytes.takeBytes();
   }
 
   /// 执行一个 HTTP 请求，401 时自动刷新 token 并重试一次。
@@ -320,7 +382,7 @@ class BackendClient extends ChangeNotifier {
     final completer = Completer<bool>();
     _refreshCompleter = completer;
     final backendUrl = _backendUrl;
-    final origin = normalizedBackendOrigin(backendUrl);
+    final scope = normalizeBackendUri(backendUrl);
     final configurationGeneration = _configurationGeneration;
     final credentialGeneration = _credentialGeneration;
     var refreshed = false;
@@ -351,10 +413,10 @@ class BackendClient extends ChangeNotifier {
           _accessToken = newAccess;
           _refreshToken = newRefresh;
           _credentialGeneration++;
-          await onTokensRefreshed?.call(origin, newAccess, newRefresh);
+          await onTokensRefreshed?.call(scope, newAccess, newRefresh);
           refreshed = true;
         }
-      } else if (isCredentialRejectionStatus(resp.statusCode)) {
+      } else if (isRefreshCredentialRejection(resp)) {
         definitiveRejection = true;
       }
     } catch (_) {
@@ -370,7 +432,7 @@ class BackendClient extends ChangeNotifier {
         _refreshToken = null;
         _credentialGeneration++;
         try {
-          await onSessionCleared?.call(origin);
+          await onSessionCleared?.call(scope);
         } catch (_) {
           // 内存会话已经清除，持久化清理失败不应阻塞等待 refresh 的请求。
         }
@@ -421,6 +483,15 @@ class BackendClient extends ChangeNotifier {
     close();
     super.dispose();
   }
+}
+
+class BackendResponseTooLargeException implements Exception {
+  const BackendResponseTooLargeException(this.maxBytes);
+
+  final int maxBytes;
+
+  @override
+  String toString() => 'Backend response exceeds $maxBytes bytes';
 }
 
 class _BackendMultipartRequest extends http.MultipartRequest {

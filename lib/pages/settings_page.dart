@@ -267,12 +267,13 @@ class _SettingsPageState extends State<SettingsPage> {
                 },
                 child: const Text('断开'),
               ),
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(ctx, BackendClient.defaultBackendUrl);
-                },
-                child: const Text('恢复默认'),
-              ),
+              if (BackendClient.defaultBackendUrl.isNotEmpty)
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(ctx, BackendClient.defaultBackendUrl);
+                  },
+                  child: const Text('恢复默认'),
+                ),
               FilledButton(
                 onPressed: () => Navigator.pop(ctx, controller.text.trim()),
                 child: const Text('保存'),
@@ -294,9 +295,6 @@ class _SettingsPageState extends State<SettingsPage> {
 
   String _backendSubtitle(String? savedUrl, BackendClient backend) {
     if (!backend.isConnected) return '未连接';
-    if (backend.backendUrl == BackendClient.defaultBackendUrl) {
-      return '${backend.backendUrl}（仅限测试的 HTTP 后端）';
-    }
     return backend.usesInsecureHttp
         ? '${backend.backendUrl}（未加密，仅限隔离测试）'
         : backend.backendUrl;

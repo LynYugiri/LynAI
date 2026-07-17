@@ -191,9 +191,7 @@ void main() {
       final stored =
           jsonDecode(
                 (await SharedPreferences.getInstance()).getString(
-                  RemoteAccountService.sessionKeyForOrigin(
-                    client.backendOrigin,
-                  ),
+                  RemoteAccountService.sessionKeyForScope(client.backendScope),
                 )!,
               )
               as Map<String, dynamic>;
@@ -201,13 +199,13 @@ void main() {
       expect(stored, isNot(contains('token')));
       expect(
         await secrets.read(
-          RemoteAccountService.accessTokenKeyForOrigin(client.backendOrigin),
+          RemoteAccountService.accessTokenKeyForScope(client.backendScope),
         ),
         'refreshed-access',
       );
       expect(
         await secrets.read(
-          RemoteAccountService.refreshTokenKeyForOrigin(client.backendOrigin),
+          RemoteAccountService.refreshTokenKeyForScope(client.backendScope),
         ),
         'refreshed-refresh',
       );
@@ -240,19 +238,19 @@ void main() {
         expect(provider.isLoggedIn, isFalse);
         expect(
           (await SharedPreferences.getInstance()).getString(
-            RemoteAccountService.sessionKeyForOrigin(client.backendOrigin),
+            RemoteAccountService.sessionKeyForScope(client.backendScope),
           ),
           isNull,
         );
         expect(
           await secrets.read(
-            RemoteAccountService.accessTokenKeyForOrigin(client.backendOrigin),
+            RemoteAccountService.accessTokenKeyForScope(client.backendScope),
           ),
           isNull,
         );
         expect(
           await secrets.read(
-            RemoteAccountService.refreshTokenKeyForOrigin(client.backendOrigin),
+            RemoteAccountService.refreshTokenKeyForScope(client.backendScope),
           ),
           isNull,
         );
@@ -265,6 +263,7 @@ void main() {
       () async {
         SharedPreferences.setMockInitialValues({
           'lynai_account_session': jsonEncode({
+            'backendOrigin': 'https://example.com',
             'user': {
               'id': '1',
               'phone': '13800001111',
@@ -277,8 +276,7 @@ void main() {
             },
           }),
         });
-        final client = BackendClient()
-          ..configure(BackendClient.defaultBackendUrl);
+        final client = BackendClient()..configure('https://example.com');
         final secrets = InMemorySecretStore();
         final service = RemoteAccountService(client, secretStore: secrets);
 
@@ -290,15 +288,15 @@ void main() {
         expect(session?.token.expiresAt, 1234);
         expect(
           await secrets.read(
-            RemoteAccountService.accessTokenKeyForOrigin(client.backendOrigin),
+            RemoteAccountService.accessTokenKeyForScope(client.backendScope),
           ),
           'legacy-access',
         );
         final metadata =
             jsonDecode(
                   (await SharedPreferences.getInstance()).getString(
-                    RemoteAccountService.sessionKeyForOrigin(
-                      client.backendOrigin,
+                    RemoteAccountService.sessionKeyForScope(
+                      client.backendScope,
                     ),
                   )!,
                 )
@@ -313,6 +311,7 @@ void main() {
     test('corrupt partial stored session is cleared', () async {
       SharedPreferences.setMockInitialValues({
         'lynai_account_session': jsonEncode({
+          'backendOrigin': 'https://example.com',
           'user': {
             'id': '1',
             'phone': '13800001111',
@@ -320,8 +319,7 @@ void main() {
           },
         }),
       });
-      final client = BackendClient()
-        ..configure(BackendClient.defaultBackendUrl);
+      final client = BackendClient()..configure('https://example.com');
       final secrets = InMemorySecretStore({
         RemoteAccountService.refreshTokenSecretKey: 'orphan-refresh',
       });
@@ -370,7 +368,7 @@ void main() {
       client.dispose();
     });
 
-    test('sessions are isolated by canonical backend origin', () async {
+    test('sessions are isolated by canonical full backend scope', () async {
       final client = BackendClient(
         client: _AccountClient((request) async {
           if (request.url.path.endsWith('/auth/login')) {
@@ -389,8 +387,8 @@ void main() {
       expect(client.accessToken, isNull);
       expect(
         await secrets.read(
-          RemoteAccountService.accessTokenKeyForOrigin(
-            'https://one.example.com',
+          RemoteAccountService.accessTokenKeyForScope(
+            'https://one.example.com/api',
           ),
         ),
         'initial-access',
@@ -419,13 +417,13 @@ void main() {
       expect(client.accessToken, isNull);
       expect(
         await secrets.read(
-          RemoteAccountService.accessTokenKeyForOrigin(client.backendOrigin),
+          RemoteAccountService.accessTokenKeyForScope(client.backendScope),
         ),
         isNull,
       );
       expect(
         (await SharedPreferences.getInstance()).getString(
-          RemoteAccountService.sessionKeyForOrigin(client.backendOrigin),
+          RemoteAccountService.sessionKeyForScope(client.backendScope),
         ),
         isNull,
       );
@@ -444,7 +442,7 @@ void main() {
             return _jsonResponse(404, {'error': 'not found'});
           }),
         )..configure('https://old.example.com');
-        final oldOrigin = client.backendOrigin;
+        final oldScope = client.backendScope;
         final secrets = InMemorySecretStore();
         final service = RemoteAccountService(client, secretStore: secrets);
 
@@ -456,13 +454,13 @@ void main() {
         expect(client.accessToken, isNull);
         expect(
           await secrets.read(
-            RemoteAccountService.accessTokenKeyForOrigin(oldOrigin),
+            RemoteAccountService.accessTokenKeyForScope(oldScope),
           ),
           isNull,
         );
         expect(
           (await SharedPreferences.getInstance()).getString(
-            RemoteAccountService.sessionKeyForOrigin(oldOrigin),
+            RemoteAccountService.sessionKeyForScope(oldScope),
           ),
           isNull,
         );
@@ -495,7 +493,7 @@ void main() {
       expect(client.refreshToken, isNull);
       expect(
         await secrets.read(
-          RemoteAccountService.accessTokenKeyForOrigin(client.backendOrigin),
+          RemoteAccountService.accessTokenKeyForScope(client.backendScope),
         ),
         isNull,
       );
@@ -507,12 +505,245 @@ void main() {
         requests.where((uri) => uri.path.endsWith('/auth/revoke')),
         hasLength(1),
       );
+      expect(
+        requests.singleWhere((uri) => uri.path.endsWith('/auth/revoke')),
+        Uri.parse('https://example.com/api/auth/revoke'),
+      );
 
       revokeResponse.complete(_jsonResponse(503, {'error': 'unavailable'}));
       await service.retryPendingRevocations();
       expect(
         await secrets.read(RemoteAccountService.pendingRevocationsSecretKey),
         contains('initial-refresh'),
+      );
+      client.dispose();
+    });
+
+    test('same origin path prefixes do not share stored sessions', () async {
+      final client = BackendClient(
+        client: _AccountClient((request) async {
+          if (request.url.path == '/one/auth/login') {
+            return _jsonResponse(200, _sessionJson());
+          }
+          return _jsonResponse(404, {'error': 'not found'});
+        }),
+      )..configure('https://example.com/one');
+      final secrets = InMemorySecretStore();
+      final service = RemoteAccountService(client, secretStore: secrets);
+      await service.login(username: '13800001111', password: 'password');
+
+      client.configure('https://example.com/two');
+
+      expect(await service.loadStoredSession(), isNull);
+      expect(client.accessToken, isNull);
+      expect(
+        await secrets.read(
+          RemoteAccountService.accessTokenKeyForScope(
+            'https://example.com/one',
+          ),
+        ),
+        'initial-access',
+      );
+      client.dispose();
+    });
+
+    test('path-prefixed backend does not adopt origin-only storage', () async {
+      final origin = 'https://example.com';
+      SharedPreferences.setMockInitialValues({
+        RemoteAccountService.sessionKeyForScope(origin): jsonEncode({
+          'backendOrigin': origin,
+          'user': {
+            'id': '1',
+            'phone': '13800001111',
+            'displayName': 'Origin User',
+          },
+        }),
+      });
+      final client = BackendClient()..configure('$origin/api');
+      final secrets = InMemorySecretStore({
+        RemoteAccountService.accessTokenKeyForScope(origin): 'origin-access',
+        RemoteAccountService.refreshTokenKeyForScope(origin): 'origin-refresh',
+      });
+      final service = RemoteAccountService(client, secretStore: secrets);
+
+      expect(await service.loadStoredSession(), isNull);
+      expect(client.accessToken, isNull);
+      client.dispose();
+    });
+
+    test('account recovery refreshes user through auth me', () async {
+      final scope = 'https://example.com/api';
+      SharedPreferences.setMockInitialValues({
+        RemoteAccountService.sessionKeyForScope(scope): jsonEncode({
+          'backendBaseUrl': scope,
+          'user': {
+            'id': '1',
+            'phone': '13800001111',
+            'displayName': 'Cached',
+            'isAdmin': false,
+          },
+        }),
+      });
+      final requests = <Uri>[];
+      final client = BackendClient(
+        client: _AccountClient((request) async {
+          requests.add(request.url);
+          if (request.url.path == '/api/auth/me') {
+            return _jsonResponse(200, {
+              'user': {
+                'id': '1',
+                'phone': '13800001111',
+                'displayName': 'Current',
+                'isAdmin': true,
+              },
+            });
+          }
+          return _jsonResponse(404, {'error': 'not found'});
+        }),
+      )..configure(scope);
+      final secrets = InMemorySecretStore({
+        RemoteAccountService.accessTokenKeyForScope(scope): 'access',
+        RemoteAccountService.refreshTokenKeyForScope(scope): 'refresh',
+      });
+      final provider = AccountProvider(backend: client, secretStore: secrets);
+
+      await provider.load();
+
+      expect(requests, contains(Uri.parse('$scope/auth/me')));
+      expect(provider.user?.displayName, 'Current');
+      expect(provider.user?.isAdmin, isTrue);
+      client.dispose();
+    });
+
+    test(
+      'account recovery refreshes expired access token before auth me',
+      () async {
+        final scope = 'https://example.com/api';
+        SharedPreferences.setMockInitialValues({
+          RemoteAccountService.sessionKeyForScope(scope): jsonEncode({
+            'backendBaseUrl': scope,
+            'user': {
+              'id': '1',
+              'phone': '13800001111',
+              'displayName': 'Cached',
+            },
+          }),
+        });
+        var meCalls = 0;
+        final client = BackendClient(
+          client: _AccountClient((request) async {
+            if (request.url.path == '/api/auth/refresh') {
+              return _jsonResponse(200, {
+                'token': {
+                  'accessToken': 'new-access',
+                  'refreshToken': 'new-refresh',
+                },
+              });
+            }
+            if (request.url.path == '/api/auth/me') {
+              meCalls++;
+              if (request.headers['Authorization'] == 'Bearer new-access') {
+                return _jsonResponse(200, {
+                  'user': {
+                    'id': '1',
+                    'phone': '13800001111',
+                    'displayName': 'Refreshed',
+                    'isAdmin': true,
+                  },
+                });
+              }
+              return _jsonResponse(401, {'error': 'expired'});
+            }
+            return _jsonResponse(404, {'error': 'not found'});
+          }),
+        )..configure(scope);
+        final secrets = InMemorySecretStore({
+          RemoteAccountService.accessTokenKeyForScope(scope): 'old-access',
+          RemoteAccountService.refreshTokenKeyForScope(scope): 'old-refresh',
+        });
+        final provider = AccountProvider(backend: client, secretStore: secrets);
+
+        await provider.load();
+
+        expect(meCalls, 2);
+        expect(provider.user?.displayName, 'Refreshed');
+        expect(client.accessToken, 'new-access');
+        expect(provider.isLoggedIn, isTrue);
+        client.dispose();
+      },
+    );
+
+    test(
+      'account recovery keeps cached session on auth me server error',
+      () async {
+        final scope = 'https://example.com';
+        SharedPreferences.setMockInitialValues({
+          RemoteAccountService.sessionKeyForScope(scope): jsonEncode({
+            'backendBaseUrl': scope,
+            'user': {
+              'id': '1',
+              'phone': '13800001111',
+              'displayName': 'Cached',
+            },
+          }),
+        });
+        final client = BackendClient(
+          client: _AccountClient(
+            (_) async => _jsonResponse(503, {'error': 'unavailable'}),
+          ),
+        )..configure(scope);
+        final secrets = InMemorySecretStore({
+          RemoteAccountService.accessTokenKeyForScope(scope): 'access',
+          RemoteAccountService.refreshTokenKeyForScope(scope): 'refresh',
+        });
+        final provider = AccountProvider(backend: client, secretStore: secrets);
+
+        await provider.load();
+
+        expect(provider.user?.displayName, 'Cached');
+        expect(client.accessToken, 'access');
+        expect(provider.isLoggedIn, isTrue);
+        client.dispose();
+      },
+    );
+
+    test('account recovery clears session after final auth me 401', () async {
+      final scope = 'https://example.com';
+      SharedPreferences.setMockInitialValues({
+        RemoteAccountService.sessionKeyForScope(scope): jsonEncode({
+          'backendBaseUrl': scope,
+          'user': {'id': '1', 'phone': '13800001111', 'displayName': 'Cached'},
+        }),
+      });
+      final client = BackendClient(
+        client: _AccountClient((request) async {
+          if (request.url.path == '/auth/refresh') {
+            return _jsonResponse(200, {
+              'token': {
+                'accessToken': 'new-access',
+                'refreshToken': 'new-refresh',
+              },
+            });
+          }
+          return _jsonResponse(401, {'error': 'unauthorized'});
+        }),
+      )..configure(scope);
+      final secrets = InMemorySecretStore({
+        RemoteAccountService.accessTokenKeyForScope(scope): 'old-access',
+        RemoteAccountService.refreshTokenKeyForScope(scope): 'old-refresh',
+      });
+      final provider = AccountProvider(backend: client, secretStore: secrets);
+
+      await provider.load();
+
+      expect(provider.isLoggedIn, isFalse);
+      expect(client.accessToken, isNull);
+      expect(client.refreshToken, isNull);
+      expect(
+        (await SharedPreferences.getInstance()).getString(
+          RemoteAccountService.sessionKeyForScope(scope),
+        ),
+        isNull,
       );
       client.dispose();
     });

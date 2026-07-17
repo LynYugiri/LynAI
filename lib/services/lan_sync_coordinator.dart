@@ -53,6 +53,7 @@ class LanSyncCoordinator {
   final LanTlsCertificateService certificateService;
   final LanMdnsService mdnsService;
   final LanSyncStorage syncStorage;
+  // The coordinator owns this per-instance transfer service and closes it.
   final LanSecretTransferService secretTransferService;
   LanPairingConfirmation confirmPairing;
   final LanModelReader readModels;
@@ -66,6 +67,7 @@ class LanSyncCoordinator {
   String _displayName = 'LynAI device';
   int _activeConnections = 0;
   Future<void> _syncQueue = Future.value();
+  Future<void>? _closeFuture;
 
   static const _maxConnections = 8;
   static const _maxChanges = 1000;
@@ -1183,5 +1185,12 @@ class LanSyncCoordinator {
     _serverSubscription = null;
     await _server?.close();
     _server = null;
+  }
+
+  Future<void> close() => _closeFuture ??= _close();
+
+  Future<void> _close() async {
+    await stopHost();
+    await secretTransferService.close();
   }
 }

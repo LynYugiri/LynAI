@@ -18,6 +18,7 @@ class FeatureLoadResult {
     required this.activePageIds,
     required this.revisionContents,
     required this.pageHeads,
+    required this.pageTombstones,
     required this.pageConflicts,
     required this.usingStorageV2,
   });
@@ -32,6 +33,7 @@ class FeatureLoadResult {
   final Map<String, String> activePageIds;
   final Map<String, NoteRevisionContent> revisionContents;
   final Map<String, NotePageHeads> pageHeads;
+  final List<Map<String, dynamic>> pageTombstones;
   final Map<String, NotePageConflict> pageConflicts;
   final bool usingStorageV2;
 }
@@ -75,26 +77,7 @@ class FeatureRepository {
 
   /// 加载所有功能模块数据，优先使用新版 V2 存储。
   Future<FeatureLoadResult> load() async {
-    try {
-      final storage = await _loadStorageV2();
-      return storage;
-    } catch (e) {
-      debugPrint('加载功能数据失败: $e');
-      return const FeatureLoadResult(
-        schedules: [],
-        notes: [],
-        noteFolders: [],
-        noteRevisions: [],
-        noteEditProposals: [],
-        todoLists: [],
-        pagesByNoteId: {},
-        activePageIds: {},
-        revisionContents: {},
-        pageHeads: {},
-        pageConflicts: {},
-        usingStorageV2: true,
-      );
-    }
+    return _loadStorageV2();
   }
 
   /// 保存日程列表到当前激活的存储后端。
@@ -180,78 +163,67 @@ class FeatureRepository {
       activePageIds: notes.activePageIds,
       revisionContents: notes.revisionContents,
       pageHeads: notes.pageHeads,
+      pageTombstones: notes.pageTombstones,
       pageConflicts: notes.pageConflicts,
       usingStorageV2: true,
     );
   }
 
   Future<List<ScheduleItem>> _loadStorageV2Schedules() async {
-    try {
-      final data = await _storageV2.loadDataFile('schedules.json');
-      final schedules = <ScheduleItem>[];
-      for (final item in data['schedules'] as List<dynamic>? ?? const []) {
-        try {
-          if (item is Map) {
-            schedules.add(
-              ScheduleItem.fromJson(Map<String, dynamic>.from(item)),
-            );
-          }
-        } catch (e) {
-          debugPrint('跳过损坏的新版日程记录: $e');
+    final data = await _storageV2.loadDataFile('schedules.json');
+    final schedules = <ScheduleItem>[];
+    for (final item in data['schedules'] as List<dynamic>? ?? const []) {
+      try {
+        if (item is Map) {
+          schedules.add(ScheduleItem.fromJson(Map<String, dynamic>.from(item)));
         }
+      } catch (e) {
+        debugPrint('跳过损坏的新版日程记录: $e');
       }
-      return schedules..sort((a, b) => a.start.compareTo(b.start));
-    } catch (e) {
-      debugPrint('加载新版日程失败: $e');
-      return const [];
     }
+    return schedules..sort((a, b) => a.start.compareTo(b.start));
   }
 
   Future<List<TodoList>> _loadStorageV2TodoLists() async {
-    try {
-      final data = await _storageV2.loadDataFile('todo_lists.json');
-      final itemsByListId = <String, List<TodoItem>>{};
-      for (final item in data['todoItems'] as List<dynamic>? ?? const []) {
-        try {
-          if (item is! Map) continue;
-          final json = Map<String, dynamic>.from(item);
-          final listId = json['listId'] as String;
-          (itemsByListId[listId] ??= []).add(
-            TodoItem(
-              id: json['id'] as String,
-              text: json['text'] as String? ?? '',
-              done: json['done'] as bool? ?? false,
-              updatedAt: DateTime.tryParse(json['updatedAt']?.toString() ?? ''),
-            ),
-          );
-        } catch (e) {
-          debugPrint('跳过损坏的新版待办项记录: $e');
-        }
+    final data = await _storageV2.loadDataFile('todo_lists.json');
+    final itemsByListId = <String, List<TodoItem>>{};
+    for (final item in data['todoItems'] as List<dynamic>? ?? const []) {
+      try {
+        if (item is! Map) continue;
+        final json = Map<String, dynamic>.from(item);
+        final listId = json['listId'] as String;
+        (itemsByListId[listId] ??= []).add(
+          TodoItem(
+            id: json['id'] as String,
+            text: json['text'] as String? ?? '',
+            done: json['done'] as bool? ?? false,
+            updatedAt: DateTime.tryParse(json['updatedAt']?.toString() ?? ''),
+          ),
+        );
+      } catch (e) {
+        debugPrint('跳过损坏的新版待办项记录: $e');
       }
-      final lists = <TodoList>[];
-      for (final item in data['todoLists'] as List<dynamic>? ?? const []) {
-        try {
-          if (item is! Map) continue;
-          final json = Map<String, dynamic>.from(item);
-          final id = json['id'] as String;
-          lists.add(
-            TodoList(
-              id: id,
-              title: json['title'] as String? ?? '',
-              items: itemsByListId[id] ?? const [],
-              createdAt: DateTime.parse(json['createdAt'] as String),
-              updatedAt: DateTime.parse(json['updatedAt'] as String),
-            ),
-          );
-        } catch (e) {
-          debugPrint('跳过损坏的新版待办清单记录: $e');
-        }
-      }
-      return lists;
-    } catch (e) {
-      debugPrint('加载新版待办清单失败: $e');
-      return const [];
     }
+    final lists = <TodoList>[];
+    for (final item in data['todoLists'] as List<dynamic>? ?? const []) {
+      try {
+        if (item is! Map) continue;
+        final json = Map<String, dynamic>.from(item);
+        final id = json['id'] as String;
+        lists.add(
+          TodoList(
+            id: id,
+            title: json['title'] as String? ?? '',
+            items: itemsByListId[id] ?? const [],
+            createdAt: DateTime.parse(json['createdAt'] as String),
+            updatedAt: DateTime.parse(json['updatedAt'] as String),
+          ),
+        );
+      } catch (e) {
+        debugPrint('跳过损坏的新版待办清单记录: $e');
+      }
+    }
+    return lists;
   }
 
   Future<_StorageV2NotesLoadResult> _loadStorageV2Notes() async {
@@ -361,6 +333,20 @@ class FeatureRepository {
         selectedHeadId: json['selectedHeadId'] as String?,
       );
     }
+    final pageTombstones = <Map<String, dynamic>>[];
+    for (final item in data['pageTombstones'] as List<dynamic>? ?? const []) {
+      try {
+        if (item is Map) {
+          final json = Map<String, dynamic>.from(item);
+          json['id'] as String;
+          json['pageId'] as String;
+          json['revisionId'] as String;
+          pageTombstones.add(json);
+        }
+      } catch (e) {
+        debugPrint('跳过损坏的分页删除标记: $e');
+      }
+    }
     final pageConflicts = <String, NotePageConflict>{};
     for (final item in data['pageConflicts'] as List<dynamic>? ?? const []) {
       if (item is! Map) continue;
@@ -390,8 +376,8 @@ class FeatureRepository {
         (blocksByProposal[proposalId] ??= []).add(
           NoteEditBlock(
             id: json['id'] as String,
-            startLine: json['startLine'] as int? ?? 1,
-            deleteCount: json['deleteCount'] as int? ?? 0,
+            startLine: (json['startLine'] as num?)?.toInt() ?? 1,
+            deleteCount: (json['deleteCount'] as num?)?.toInt() ?? 0,
             deletedLines: (json['deletedLines'] as List<dynamic>? ?? const [])
                 .whereType<String>()
                 .toList(),
@@ -434,6 +420,7 @@ class FeatureRepository {
       activePageIds: activePageIds,
       revisionContents: revisionContents,
       pageHeads: pageHeads,
+      pageTombstones: pageTombstones,
       pageConflicts: pageConflicts,
     );
   }
@@ -449,6 +436,7 @@ class _StorageV2NotesLoadResult {
     required this.activePageIds,
     required this.revisionContents,
     required this.pageHeads,
+    required this.pageTombstones,
     required this.pageConflicts,
   });
 
@@ -460,5 +448,6 @@ class _StorageV2NotesLoadResult {
   final Map<String, String> activePageIds;
   final Map<String, NoteRevisionContent> revisionContents;
   final Map<String, NotePageHeads> pageHeads;
+  final List<Map<String, dynamic>> pageTombstones;
   final Map<String, NotePageConflict> pageConflicts;
 }

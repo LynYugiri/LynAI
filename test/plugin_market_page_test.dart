@@ -10,9 +10,10 @@ import 'package:lynai/providers/plugin_provider.dart';
 import 'package:lynai/providers/sync_provider.dart';
 import 'package:lynai/services/backend_client.dart';
 import 'package:lynai/services/secret_store.dart';
+import 'package:lynai/services/market_service.dart';
 
 void main() {
-  Widget buildPage() {
+  Widget buildPage({MarketService? marketService}) {
     return MultiProvider(
       providers: [
         Provider<SecretStore>(create: (_) => InMemorySecretStore()),
@@ -28,7 +29,7 @@ void main() {
           create: (ctx) => SyncProvider(backend: ctx.read<BackendClient>()),
         ),
       ],
-      child: const MaterialApp(home: PluginMarketPage()),
+      child: MaterialApp(home: PluginMarketPage(marketService: marketService)),
     );
   }
 
@@ -71,6 +72,25 @@ void main() {
     expect(find.text('还没有已安装的插件'), findsOneWidget);
   });
 
+  testWidgets('loads next market page and removes duplicate IDs', (
+    tester,
+  ) async {
+    final service = _PagedMarketService();
+    await tester.pumpWidget(buildPage(marketService: service));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Plugin A'), findsOneWidget);
+    expect(find.text('加载更多'), findsOneWidget);
+
+    await tester.tap(find.text('加载更多'));
+    await tester.pumpAndSettle();
+
+    expect(service.pages, [1, 2]);
+    expect(find.text('Plugin A'), findsOneWidget);
+    expect(find.text('Plugin B'), findsOneWidget);
+    expect(find.text('加载更多'), findsNothing);
+  });
+
   test('MarketPluginEntry fromJson tolerates missing fields', () {
     final entry = MarketPluginEntry.fromJson({'id': 'test', 'name': 'Test'});
     expect(entry.id, 'test');
@@ -90,4 +110,45 @@ void main() {
     const query = MarketQuery(category: 'tools');
     expect(query.isDefault, isFalse);
   });
+}
+
+class _PagedMarketService implements MarketService {
+  final pages = <int>[];
+
+  @override
+  bool get isBackendConnected => true;
+
+  @override
+  Future<MarketQueryResult> listPlugins(MarketQuery query) async {
+    pages.add(query.page);
+    if (query.page == 1) {
+      return MarketQueryResult(
+        entries: [_entry('a', 'Plugin A')],
+        hasMore: true,
+      );
+    }
+    return MarketQueryResult(
+      entries: [_entry('a', 'Plugin A'), _entry('b', 'Plugin B')],
+      hasMore: false,
+    );
+  }
+
+  MarketPluginEntry _entry(String id, String name) => MarketPluginEntry(
+    id: id,
+    name: name,
+    author: '',
+    description: '',
+    version: '1.0.0',
+    downloadUrl: '/download',
+  );
+
+  @override
+  Future<List<int>> downloadPlugin(String id) => throw UnimplementedError();
+
+  @override
+  Future<MarketPluginEntry> getPluginDetail(String id) =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<MarketPluginEntry>> getInstalledUpdates() async => const [];
 }

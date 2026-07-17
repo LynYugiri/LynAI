@@ -40,9 +40,9 @@ class ConversationProvider extends ChangeNotifier {
   List<Conversation> _conversations = [];
   final _uuid = const Uuid();
   Future<void> _saveQueue = Future.value();
+  Future<void> _pendingSave = Future.value();
   Timer? _saveDebounce;
   List<Conversation>? _pendingSaveSnapshot;
-  Completer<void>? _pendingSaveCompleter;
   static const _sentinel = Object();
   static const _saveDebounceDuration = Duration(milliseconds: 500);
   final ConversationRepository _repository;
@@ -78,22 +78,15 @@ class ConversationProvider extends ChangeNotifier {
   ///
   /// 单条损坏对话会被跳过；单条损坏消息由 [Conversation.fromJson] 跳过。
   Future<void> loadConversations() async {
-    try {
-      final result = await _repository.load();
-      _conversations = List<Conversation>.from(result.conversations);
-      _usingStorageV2 = result.usingStorageV2;
-      notifyListeners();
-    } catch (e) {
-      debugPrint('加载对话失败: $e');
-      _conversations = [];
-      notifyListeners();
-    }
+    final result = await _repository.load();
+    _conversations = List<Conversation>.from(result.conversations);
+    _usingStorageV2 = result.usingStorageV2;
+    notifyListeners();
   }
 
   /// 把当前对话快照排入保存队列。
   void _queueSaveConversations({bool immediate = false}) {
     _pendingSaveSnapshot = List<Conversation>.from(_conversations);
-    _pendingSaveCompleter ??= Completer<void>();
     if (immediate) {
       _enqueuePendingSave();
       return;
@@ -106,28 +99,20 @@ class ConversationProvider extends ChangeNotifier {
     _saveDebounce?.cancel();
     _saveDebounce = null;
     final snapshot = _pendingSaveSnapshot;
-    final completer = _pendingSaveCompleter;
-    if (snapshot == null || completer == null) return;
+    if (snapshot == null) return;
     _pendingSaveSnapshot = null;
-    _pendingSaveCompleter = null;
-    _saveQueue = _saveQueue
-        .then((_) => _saveConversationsSnapshot(snapshot))
-        .whenComplete(() {
-          if (!completer.isCompleted) completer.complete();
-        });
+    final operation = _saveQueue.then(
+      (_) => _repository.save(snapshot, usingStorageV2: _usingStorageV2),
+    );
+    _pendingSave = operation;
+    _saveQueue = operation.catchError((Object error) {
+      debugPrint('保存对话失败: $error');
+    });
   }
 
-  Future<void> flushPendingSaves() {
+  Future<void> flushPendingSaves() async {
     _enqueuePendingSave();
-    return _saveQueue;
-  }
-
-  Future<void> _saveConversationsSnapshot(List<Conversation> snapshot) async {
-    try {
-      await _repository.save(snapshot, usingStorageV2: _usingStorageV2);
-    } catch (e) {
-      debugPrint('保存对话失败: $e');
-    }
+    await _pendingSave;
   }
 
   @override

@@ -51,6 +51,8 @@ HomePage
 
 `ChatPage` 协调模型选择、附件、语音、文件识别、OCR、工具调用、Agent/Subagent、Agent 工作记忆、流式响应、失败恢复和分享。
 
+打开历史对话只加载该对话自己的设置快照，不把模型、提示词或识别设置写回全局设置。历史请求直接使用快照中的系统提示词正文；即使全局同 ID 提示词后来被编辑，旧会话上下文也保持不变。连续工具调用达到 `ToolCallService.maxToolRounds` 后，页面要求模型基于已有结果结束，并拒绝继续执行工具。
+
 ### 输入区
 
 | 控件 | 作用 |
@@ -130,10 +132,10 @@ HomePage
 
 | 分段 | 功能 |
 |------|------|
-| 市场 | 从 `MarketService` 浏览远端插件目录，查看详情，下载安装。后端未连接时显示空态文案与「从 ZIP 导入」入口。 |
+| 市场 | 从 `MarketService` 分页浏览远端插件目录，查看详情，下载安装。后端未连接时显示空态文案与「从 ZIP 导入」入口。 |
 | 已安装 | 列出本地已安装插件，支持卸载和跳转到权限/配置详情。 |
 
-市场分段的远端数据由 `MarketService` 抽象提供。当前阶段使用 `LocalMarketService` 桩实现，所有远端调用抛出 `MarketUnavailableException`，页面显示「尚未连接后端」空态。后端就绪后替换为 `RemoteMarketService` 即可启用真实浏览和安装。
+市场分段的远端数据由 `MarketService` 抽象提供。已配置后端时使用 `RemoteMarketService` 请求真实目录，按 `hasMore` 显示「加载更多」，合并下一页时按插件 ID 去重；未连接时使用 `LocalMarketService` 显示空态。
 
 已安装分段直接读取 `PluginProvider.plugins`。每个插件卡片提供「权限与配置」（跳转到 `PluginDetailPage`）和「卸载」（调用 `PluginProvider.uninstall`）两个操作。
 
@@ -141,7 +143,7 @@ HomePage
 
 文件：`lib/pages/plugin_market_detail_page.dart`
 
-展示单个 `MarketPluginEntry` 的完整信息：截图、描述、权限清单、版本和作者。提供安装按钮，点击后通过 `MarketService.downloadPlugin` 下载 ZIP 字节并交给 `PluginProvider.importZipBytes` 完成本地安装。后端未连接时安装按钮禁用并显示提示。
+展示单个 `MarketPluginEntry` 的完整信息：截图、描述、权限清单、SemVer 格式版本和作者。提供安装按钮；下载受市场响应大小边界保护，安装前校验条目 SHA-256（若提供）、唯一根目录 manifest 和插件 ID，随后才交给 `PluginProvider.importZipBytes` 串行安装。后端未连接时安装按钮禁用并显示提示。
 
 ## CommunityPage
 
@@ -165,6 +167,8 @@ HomePage
 | 工具/函数开关 | 插件目录内的 `tools/` 和 `functions/` 子目录注册了对应能力，可独立开关。 |
 | 快照导出 | 生成当前插件状态的压缩包，保存到用户选择的位置。 |
 | 配置表单 | 根据 `plugin.json` 中 `config` 定义的 schema 字段渲染配置 UI。 |
+
+登录用户还可从市场提交页选择本地第三方插件并上传 ZIP；客户端在发起请求前执行市场提交大小限制。管理员审核页和“我的提交”页读取后端状态，提交元数据来自本地 `plugin.json` manifest。
 
 设置页入口名称保留「插件管理」，副标题为「权限与配置」。插件入口脚本、工具和函数由 `PluginLuaRuntimeService` 在沙箱中加载执行。
 

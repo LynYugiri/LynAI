@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/plugin_market_entry.dart';
 import '../providers/plugin_provider.dart';
 import '../services/market_service.dart';
+import '../services/market_plugin_package.dart';
 import '../utils/snackbar_utils.dart';
 
 /// 插件市场详情页。
@@ -111,6 +112,7 @@ class _PluginMarketDetailPageState extends State<PluginMarketDetailPage> {
     try {
       final bytes = await widget.marketService.downloadPlugin(widget.entry.id);
       if (!mounted) return;
+      validateMarketPluginPackage(bytes, widget.entry);
       await context.read<PluginProvider>().importZipBytes(bytes);
       if (!mounted) return;
       showShortSnackBar(context, '${widget.entry.name} 已安装');

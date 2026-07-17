@@ -57,6 +57,10 @@ void main() {
   });
 
   group('BackendClient requests', () {
+    test('has no hard-coded default backend address', () {
+      expect(BackendClient.defaultBackendUrl, isEmpty);
+    });
+
     test('canonicalizes backend URLs and origins', () {
       expect(
         BackendClient.normalizeUrl(
@@ -68,6 +72,11 @@ void main() {
         BackendClient.normalizeOrigin('https://example.com:443/api'),
         'https://example.com',
       );
+      final client = BackendClient()
+        ..configure('https://example.com:443/api///');
+      expect(client.backendScope, 'https://example.com/api');
+      expect(client.backendOrigin, 'https://example.com');
+      client.dispose();
     });
 
     test(
@@ -142,7 +151,7 @@ void main() {
       client.dispose();
     });
 
-    test('same-origin path changes preserve credentials', () {
+    test('same-origin path changes clear credentials', () {
       final client = BackendClient()
         ..configure('https://EXAMPLE.com:443/api/')
         ..setTokens('access', 'refresh');
@@ -151,8 +160,9 @@ void main() {
 
       expect(client.backendUrl, 'https://example.com/v2');
       expect(client.backendOrigin, 'https://example.com');
-      expect(client.accessToken, 'access');
-      expect(client.refreshToken, 'refresh');
+      expect(client.backendScope, 'https://example.com/v2');
+      expect(client.accessToken, isNull);
+      expect(client.refreshToken, isNull);
       client.dispose();
     });
 
@@ -177,9 +187,9 @@ void main() {
       client.dispose();
     });
 
-    test('rejected refresh clears the current session', () async {
+    test('403 refresh failure keeps the current session', () async {
       final transport = _TestClient((request) async {
-        if (request.url.path == '/auth/refresh') {
+        if (request.url.path == '/api/auth/refresh') {
           return _response(403, 'rejected');
         }
         return _response(401, 'expired');
@@ -192,9 +202,30 @@ void main() {
 
       expect((await client.get('/protected')).statusCode, 401);
 
+      expect(client.accessToken, 'access');
+      expect(client.refreshToken, 'refresh');
+      expect(clearedOrigin, isNull);
+      client.dispose();
+    });
+
+    test('401 refresh rejection clears the full backend scope', () async {
+      final transport = _TestClient((request) async {
+        if (request.url.path == '/api/auth/refresh') {
+          return _response(401, 'rejected');
+        }
+        return _response(401, 'expired');
+      });
+      String? clearedScope;
+      final client = BackendClient(client: transport)
+        ..configure('https://example.com/api')
+        ..setTokens('access', 'refresh')
+        ..onSessionCleared = (scope) async => clearedScope = scope;
+
+      expect((await client.get('/protected')).statusCode, 401);
+
       expect(client.accessToken, isNull);
       expect(client.refreshToken, isNull);
-      expect(clearedOrigin, 'https://example.com');
+      expect(clearedScope, 'https://example.com/api');
       client.dispose();
     });
 

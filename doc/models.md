@@ -47,7 +47,7 @@
 | `roleId` | 当前角色 ID，用于历史分组。 |
 | `createdAt` / `updatedAt` | 创建和更新时间。 |
 
-`ConversationSettings` 保存发送对话所需的模型、系统提示词、OCR、文件识别、图片生成和语音配置。历史对话必须保存自己的设置快照，否则全局设置改变后旧对话上下文也会变化。
+`ConversationSettings` 保存发送对话所需的模型、系统提示词、OCR、文件识别、图片生成和语音配置。`selectedSystemPromptId` 只保留来源标识，`systemPrompt` 保存选择当时的实际正文；发送历史对话时必须直接使用该正文快照，不能按当前全局模板重新解析。历史对话也不能反向覆盖全局设置。
 
 反序列化时坏消息、坏 Agent 计划或坏工作记忆会被跳过；如果整条对话结构损坏，则由 Provider 跳过该对话。
 
@@ -149,6 +149,8 @@ OCR 悬浮翻译流水线使用一个未单独建模型的轻量块字典（`Flo
 
 storage_v2 下，笔记分页元数据由存储层的 `StorageV2NotePage` 表达，当前分页正文写入 Markdown 文件，历史修订正文写入 SHA-256 blob。`Note.content` 保留兼容意义，不能把它当成 storage_v2 下唯一正文来源。内容哈希修订必须解析为已加载正文或显式缺失状态，不能静默返回空字符串。
 
+分页删除标记属于 storage_v2 同步布局，不是 `models/` 业务对象。每条记录包含 page ID、revision ID 和创建时间；revision ID 为 `*` 时覆盖整个分页，为具体 ID 时只覆盖对应修订。Provider 加载时据此过滤修订、分页头和冲突，普通保存必须原样保留既有标记。
+
 ## TodoList 与 TodoItem
 
 文件：`lib/models/todo_list.dart`
@@ -178,6 +180,8 @@ storage_v2 下，笔记分页元数据由存储层的 `StorageV2NotePage` 表达
 文件：`lib/models/plugin_models.dart`
 
 插件系统使用以下模型描述插件能力、状态和配置。
+
+`MarketPluginEntry` 与本地 `InstalledPlugin` 分离，保存市场 ID、展示元数据、SemVer 格式版本、下载信息、可选 ZIP SHA-256、分类和审核状态。`MarketQuery` 保存关键词、分类、从 1 开始的页码和 page size；`MarketQueryResult.hasMore` 是页面继续分页的唯一信号。SHA-256 是 ZIP 整体完整性值，不是插件同步内容清单的 package version；客户端下载后校验 manifest ID，但版本新旧判断由市场后端负责。
 
 ### PluginToolDefinition
 

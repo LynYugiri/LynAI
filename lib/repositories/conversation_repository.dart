@@ -70,7 +70,7 @@ class ConversationRepository {
           path: path,
           name:
               raw['displayName'] as String? ?? raw['name'] as String? ?? 'file',
-          size: raw['size'] as int? ?? 0,
+          size: (raw['size'] as num?)?.toInt() ?? 0,
           mimeType: raw['mimeType'] as String? ?? 'application/octet-stream',
         ),
       );

@@ -583,16 +583,22 @@ class SyncProvider extends ChangeNotifier {
       );
     }
     prepared.sort((a, b) {
-      const order = {
-        'note_folders': 0,
-        'notes': 1,
-        'note_pages': 2,
-        'note_revisions': 3,
-        'note_page_heads': 4,
-        'note_page_tombstones': 5,
-        'resources': 6,
-      };
-      final byTable = (order[a.table] ?? 10).compareTo(order[b.table] ?? 10);
+      int priority(SyncChange change) {
+        if (change.table == 'note_page_tombstones') {
+          return change.op == 'delete' ? 2 : 6;
+        }
+        return switch (change.table) {
+          'note_folders' => 0,
+          'notes' => 1,
+          'note_pages' => 3,
+          'note_revisions' => 4,
+          'note_page_heads' => 5,
+          'resources' => 7,
+          _ => 10,
+        };
+      }
+
+      final byTable = priority(a).compareTo(priority(b));
       return byTable != 0 ? byTable : a.seq.compareTo(b.seq);
     });
     return _operations(prepared);

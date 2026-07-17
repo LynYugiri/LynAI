@@ -28,6 +28,9 @@ class PluginProvider extends ChangeNotifier {
   final Map<String, Map<String, dynamic>> _configCache = {};
   final Map<String, PluginConfigSchema?> _schemaCache = {};
   final Map<String, int> _renderVersions = {};
+  final Map<String, Future<void>> _mutationQueues = {};
+  Future<void> _materializationTail = Future<void>.value();
+  Future<void> _saveTail = Future<void>.value();
   bool _loading = false;
 
   /// 返回当前已安装的插件列表（不可修改）。
@@ -77,14 +80,26 @@ class PluginProvider extends ChangeNotifier {
   /// not expose directory import, so tests and internal import flows are the only
   /// callers that should use it.
   Future<void> importDirectory(String path) async {
-    final plugin = await _repository.importDirectory(path);
-    await _upsert(plugin);
+    final manifest = _repository.readManifestSync(path);
+    await _serializeMutation(manifest.id, () async {
+      final plugin = await _repository.importDirectory(path);
+      await _upsert(plugin);
+    });
   }
 
   /// 从 ZIP 字节内容导入并安装插件。
   Future<void> importZipBytes(List<int> bytes) async {
-    final plugin = await _repository.importZipBytes(bytes);
-    await _upsert(plugin);
+    await _repository.importZipBytes(
+      bytes,
+      serialize: (pluginId, install) => _serializeMutation(pluginId, () async {
+        final plugin = await install();
+        if (plugin.id != pluginId) {
+          throw StateError('插件压缩包清单 ID 不一致');
+        }
+        await _upsert(plugin);
+        return plugin;
+      }),
+    );
   }
 
   /// 安装应用内置可信插件，并默认启用和授予其声明的全部权限。
@@ -109,147 +124,142 @@ class PluginProvider extends ChangeNotifier {
 
   /// 刷新所有插件的清单文件，可选是否持久化保存。
   Future<void> refreshManifests({bool save = false}) async {
-    final next = <InstalledPlugin>[];
-    for (final plugin in _plugins) {
-      try {
-        final manifest = await _repository.readManifest(plugin.path);
-        final granted = plugin.grantedPermissions
-            .where(manifest.permissions.contains)
-            .toList(growable: false);
-        final pageIds = manifest.featurePages.map((page) => page.id).toSet();
-        final enabledPages = plugin.enabledFeaturePages
-            .where(pageIds.contains)
-            .toList(growable: false);
-        final previousToolIds = plugin.manifest.tools
-            .map((tool) => tool.name)
-            .toSet();
-        final toolIds = manifest.tools.map((tool) => tool.name).toSet();
-        final enabledTools = plugin.enabledTools
-            .where(toolIds.contains)
-            .toSet();
-        enabledTools.addAll(toolIds.difference(previousToolIds));
-        final previousFunctionIds = plugin.manifest.functions
-            .map((function) => function.name)
-            .toSet();
-        final functionIds = manifest.functions
-            .map((function) => function.name)
-            .toSet();
-        final enabledFunctions = plugin.enabledFunctions
-            .where(functionIds.contains)
-            .toSet();
-        enabledFunctions.addAll(functionIds.difference(previousFunctionIds));
-        final previousSkillIds = plugin.manifest.skills
-            .map((skill) => skill.name)
-            .toSet();
-        final skillIds = manifest.skills.map((skill) => skill.name).toSet();
-        final enabledSkills = plugin.enabledSkills
-            .where(skillIds.contains)
-            .toSet();
-        enabledSkills.addAll(skillIds.difference(previousSkillIds));
-        next.add(
-          plugin.copyWith(
-            manifest: manifest,
-            grantedPermissions: granted,
-            enabledFeaturePages: enabledPages,
-            enabledTools: enabledTools.toList(growable: false),
-            enabledFunctions: enabledFunctions.toList(growable: false),
-            enabledSkills: enabledSkills.toList(growable: false),
-            loadError: null,
-          ),
-        );
-      } catch (e) {
-        next.add(plugin.copyWith(enabled: false, loadError: '$e'));
-      }
-    }
-    _plugins = _sortPlugins(next);
-    if (save) await _save();
+    final pluginIds = _plugins.map((plugin) => plugin.id).toList();
+    await Future.wait(
+      pluginIds.map(
+        (pluginId) => _serializeMutation(pluginId, () async {
+          final plugin = pluginById(pluginId);
+          if (plugin == null) return;
+          late InstalledPlugin refreshed;
+          try {
+            final manifest = await _repository.readManifest(plugin.path);
+            final granted = plugin.grantedPermissions
+                .where(manifest.permissions.contains)
+                .toList(growable: false);
+            final pageIds = manifest.featurePages
+                .map((page) => page.id)
+                .toSet();
+            final enabledPages = plugin.enabledFeaturePages
+                .where(pageIds.contains)
+                .toList(growable: false);
+            final previousToolIds = plugin.manifest.tools
+                .map((tool) => tool.name)
+                .toSet();
+            final toolIds = manifest.tools.map((tool) => tool.name).toSet();
+            final enabledTools = plugin.enabledTools
+                .where(toolIds.contains)
+                .toSet();
+            enabledTools.addAll(toolIds.difference(previousToolIds));
+            final previousFunctionIds = plugin.manifest.functions
+                .map((function) => function.name)
+                .toSet();
+            final functionIds = manifest.functions
+                .map((function) => function.name)
+                .toSet();
+            final enabledFunctions = plugin.enabledFunctions
+                .where(functionIds.contains)
+                .toSet();
+            enabledFunctions.addAll(
+              functionIds.difference(previousFunctionIds),
+            );
+            final previousSkillIds = plugin.manifest.skills
+                .map((skill) => skill.name)
+                .toSet();
+            final skillIds = manifest.skills.map((skill) => skill.name).toSet();
+            final enabledSkills = plugin.enabledSkills
+                .where(skillIds.contains)
+                .toSet();
+            enabledSkills.addAll(skillIds.difference(previousSkillIds));
+            refreshed = plugin.copyWith(
+              manifest: manifest,
+              grantedPermissions: granted,
+              enabledFeaturePages: enabledPages,
+              enabledTools: enabledTools.toList(growable: false),
+              enabledFunctions: enabledFunctions.toList(growable: false),
+              enabledSkills: enabledSkills.toList(growable: false),
+              loadError: null,
+            );
+          } catch (e) {
+            refreshed = plugin.copyWith(enabled: false, loadError: '$e');
+          }
+          _plugins = _sortPlugins(
+            _plugins
+                .map((item) => item.id == pluginId ? refreshed : item)
+                .toList(),
+          );
+          if (save) await _save();
+        }),
+      ),
+    );
     notifyListeners();
   }
 
   /// 启用或禁用指定插件（有加载错误的插件无法启用）。
-  Future<void> setEnabled(String id, bool enabled) async {
-    final plugin = pluginById(id);
-    if (plugin == null) return;
-    if (enabled && plugin.needsReview) {
-      throw Exception('此插件来自其他设备，请先完成本机审查');
-    }
-    final shouldEnable = enabled && !plugin.hasError;
-    if (shouldEnable) _ensureNoEnabledPluginApiConflict(plugin);
-    await _replace(id, plugin.copyWith(enabled: shouldEnable));
-  }
+  Future<void> setEnabled(String id, bool enabled) =>
+      _mutatePlugin(id, (plugin) {
+        if (enabled && plugin.needsReview) {
+          throw Exception('此插件来自其他设备，请先完成本机审查');
+        }
+        final shouldEnable = enabled && !plugin.hasError;
+        if (shouldEnable) _ensureNoEnabledPluginApiConflict(plugin);
+        return plugin.copyWith(enabled: shouldEnable);
+      });
 
-  Future<void> markReviewed(String id) async {
-    final plugin = pluginById(id);
-    if (plugin == null || !plugin.needsReview) return;
-    await _replace(id, plugin.copyWith(needsReview: false));
-  }
+  Future<void> markReviewed(String id) => _mutatePlugin(
+    id,
+    (plugin) =>
+        plugin.needsReview ? plugin.copyWith(needsReview: false) : plugin,
+  );
 
   /// 设置插件已授权的权限列表，自动过滤非法权限。
-  Future<void> setGrantedPermissions(
-    String id,
-    List<String> permissions,
-  ) async {
-    final plugin = pluginById(id);
-    if (plugin == null) return;
-    final allowed = plugin.manifest.permissions.toSet();
-    await _replace(
-      id,
-      plugin.copyWith(
-        grantedPermissions: permissions
-            .where(allowed.contains)
-            .toSet()
-            .toList(growable: false),
-      ),
-    );
-  }
+  Future<void> setGrantedPermissions(String id, List<String> permissions) =>
+      _mutatePlugin(id, (plugin) {
+        final allowed = plugin.manifest.permissions.toSet();
+        return plugin.copyWith(
+          grantedPermissions: permissions
+              .where(allowed.contains)
+              .toSet()
+              .toList(growable: false),
+        );
+      });
 
   /// 启用或禁用插件的指定功能页。
   Future<void> setFeaturePageEnabled(
     String pluginId,
     String pageId,
     bool enabled,
-  ) async {
-    final plugin = pluginById(pluginId);
-    if (plugin == null) return;
+  ) => _mutatePlugin(pluginId, (plugin) {
     final pages = plugin.enabledFeaturePages.toSet();
     if (enabled) {
       pages.add(pageId);
     } else {
       pages.remove(pageId);
     }
-    await _replace(
-      pluginId,
-      plugin.copyWith(enabledFeaturePages: pages.toList(growable: false)),
-    );
-  }
+    return plugin.copyWith(enabledFeaturePages: pages.toList(growable: false));
+  });
 
   /// 启用或禁用插件的指定模型工具。
-  Future<void> setToolEnabled(
-    String pluginId,
-    String toolName,
-    bool enabled,
-  ) async {
-    final plugin = pluginById(pluginId);
-    if (plugin == null) return;
-    final tools = plugin.enabledTools.toSet();
-    if (enabled) {
-      tools.add(toolName);
-    } else {
-      tools.remove(toolName);
-    }
-    final next = plugin.copyWith(enabledTools: tools.toList(growable: false));
-    if (plugin.enabled) _ensureNoEnabledPluginApiConflict(next);
-    await _replace(pluginId, next);
-  }
+  Future<void> setToolEnabled(String pluginId, String toolName, bool enabled) =>
+      _mutatePlugin(pluginId, (plugin) {
+        final tools = plugin.enabledTools.toSet();
+        if (enabled) {
+          tools.add(toolName);
+        } else {
+          tools.remove(toolName);
+        }
+        final next = plugin.copyWith(
+          enabledTools: tools.toList(growable: false),
+        );
+        if (plugin.enabled) _ensureNoEnabledPluginApiConflict(next);
+        return next;
+      });
 
   /// 启用或禁用插件的指定内部函数。
   Future<void> setFunctionEnabled(
     String pluginId,
     String functionName,
     bool enabled,
-  ) async {
-    final plugin = pluginById(pluginId);
-    if (plugin == null) return;
+  ) => _mutatePlugin(pluginId, (plugin) {
     final functions = plugin.enabledFunctions.toSet();
     if (enabled) {
       functions.add(functionName);
@@ -260,8 +270,8 @@ class PluginProvider extends ChangeNotifier {
       enabledFunctions: functions.toList(growable: false),
     );
     if (plugin.enabled) _ensureNoEnabledPluginApiConflict(next);
-    await _replace(pluginId, next);
-  }
+    return next;
+  });
 
   /// 判断插件函数当前是否允许通过 plugin.func 调用。
   bool isFunctionEnabled(String pluginId, String functionName) {
@@ -275,20 +285,15 @@ class PluginProvider extends ChangeNotifier {
     String pluginId,
     String skillName,
     bool enabled,
-  ) async {
-    final plugin = pluginById(pluginId);
-    if (plugin == null) return;
+  ) => _mutatePlugin(pluginId, (plugin) {
     final skills = plugin.enabledSkills.toSet();
     if (enabled) {
       skills.add(skillName);
     } else {
       skills.remove(skillName);
     }
-    await _replace(
-      pluginId,
-      plugin.copyWith(enabledSkills: skills.toList(growable: false)),
-    );
-  }
+    return plugin.copyWith(enabledSkills: skills.toList(growable: false));
+  });
 
   /// 判断插件 Skill 当前是否启用。
   bool isSkillEnabled(String pluginId, String skillName) {
@@ -298,15 +303,14 @@ class PluginProvider extends ChangeNotifier {
   }
 
   /// 修改插件在 UI 中显示的名称，不改写 plugin.json。
-  Future<void> renameDisplayName(String pluginId, String name) async {
-    final plugin = pluginById(pluginId);
-    if (plugin == null) throw Exception('插件不存在: $pluginId');
-    final value = name.trim();
-    await _replace(
-      pluginId,
-      plugin.copyWith(displayNameOverride: value.isEmpty ? null : value),
-    );
-  }
+  Future<void> renameDisplayName(String pluginId, String name) => _mutatePlugin(
+    pluginId,
+    (plugin) {
+      final value = name.trim();
+      return plugin.copyWith(displayNameOverride: value.isEmpty ? null : value);
+    },
+    requirePlugin: true,
+  );
 
   /// 为当前插件创建一个默认禁用的独立快照，复制授权和功能页状态。
   Future<InstalledPlugin> createSnapshot(String pluginId) async {
@@ -377,17 +381,20 @@ class PluginProvider extends ChangeNotifier {
       snapshot,
       source,
     );
-    final keptState = source.copyWith(manifest: restored.manifest);
     _configCache.remove(source.id);
     _schemaCache.remove(source.id);
     _bumpRenderVersion(source.id);
-    await _replace(source.id, keptState);
+    await _mutatePlugin(
+      source.id,
+      (current) => current.copyWith(manifest: restored.manifest),
+      requirePlugin: true,
+    );
     await _syncPlugin(source.id);
-    return keptState;
+    return pluginById(source.id)!;
   }
 
   /// 删除指定插件及其所有缓存数据和文件。
-  Future<void> deletePlugin(String id) async {
+  Future<void> deletePlugin(String id) => _serializeMutation(id, () async {
     final plugin = pluginById(id);
     if (plugin == null) return;
     if (!canDeletePlugin(id)) throw Exception('内置插件不可删除: $id');
@@ -404,7 +411,7 @@ class PluginProvider extends ChangeNotifier {
       _repository.buildDeletedSyncMarker(id),
     ]);
     notifyListeners();
-  }
+  });
 
   /// 判断指定插件是否允许删除。内置插件不可删除；快照和第三方插件可删除。
   bool canDeletePlugin(String id) {
@@ -430,18 +437,22 @@ class PluginProvider extends ChangeNotifier {
   }
 
   /// 更新插件的单个设置项并持久化保存。
-  Future<void> updateSetting(String pluginId, String key, Object? value) async {
-    final settings = await loadSettings(pluginId);
-    if (value == null) {
-      settings.remove(key);
-    } else {
-      settings[key] = value;
-    }
-    _settingsCache[pluginId] = settings;
-    await _repository.savePluginSettings(pluginId, settings);
-    await _syncPlugin(pluginId);
-    notifyListeners();
-  }
+  Future<void> updateSetting(String pluginId, String key, Object? value) =>
+      _serializeMutation(pluginId, () async {
+        if (pluginById(pluginId) == null) {
+          throw Exception('插件不存在: $pluginId');
+        }
+        final settings = await loadSettings(pluginId);
+        if (value == null) {
+          settings.remove(key);
+        } else {
+          settings[key] = value;
+        }
+        _settingsCache[pluginId] = settings;
+        await _repository.savePluginSettings(pluginId, settings);
+        await _syncPlugin(pluginId);
+        notifyListeners();
+      });
 
   /// 加载指定插件的私有存储数据（带缓存）。
   Future<Map<String, dynamic>> loadStorage(String pluginId) async {
@@ -459,20 +470,20 @@ class PluginProvider extends ChangeNotifier {
   }
 
   /// 写入或删除插件存储中的单个键值。
-  Future<void> writeStorageValue(
-    String pluginId,
-    String key,
-    Object? value,
-  ) async {
-    final storage = await loadStorage(pluginId);
-    if (value == null) {
-      storage.remove(key);
-    } else {
-      storage[key] = value;
-    }
-    _storageCache[pluginId] = storage;
-    await _repository.savePluginStorage(pluginId, storage);
-  }
+  Future<void> writeStorageValue(String pluginId, String key, Object? value) =>
+      _serializeMutation(pluginId, () async {
+        if (pluginById(pluginId) == null) {
+          throw Exception('插件不存在: $pluginId');
+        }
+        final storage = await loadStorage(pluginId);
+        if (value == null) {
+          storage.remove(key);
+        } else {
+          storage[key] = value;
+        }
+        _storageCache[pluginId] = storage;
+        await _repository.savePluginStorage(pluginId, storage);
+      });
 
   /// 列出指定插件目录下的所有可编辑文件。
   Future<List<PluginFileEntry>> listFiles(String pluginId) async {
@@ -493,7 +504,7 @@ class PluginProvider extends ChangeNotifier {
     String pluginId,
     String path,
     String content,
-  ) async {
+  ) => _serializeMutation(pluginId, () async {
     final plugin = pluginById(pluginId);
     if (plugin == null) throw Exception('插件不存在: $pluginId');
     await _repository.writePluginTextFile(plugin, path, content);
@@ -502,21 +513,18 @@ class PluginProvider extends ChangeNotifier {
     _bumpRenderVersion(pluginId);
     notifyListeners();
     await _syncPlugin(pluginId);
-  }
+  });
 
   /// 将字节内容写入插件文件，适合上传二进制资源。
-  Future<void> writeFileBytes(
-    String pluginId,
-    String path,
-    List<int> bytes,
-  ) async {
-    final plugin = pluginById(pluginId);
-    if (plugin == null) throw Exception('插件不存在: $pluginId');
-    await _repository.writePluginFileBytes(plugin, path, bytes);
-    _bumpRenderVersion(pluginId);
-    notifyListeners();
-    await _syncPlugin(pluginId);
-  }
+  Future<void> writeFileBytes(String pluginId, String path, List<int> bytes) =>
+      _serializeMutation(pluginId, () async {
+        final plugin = pluginById(pluginId);
+        if (plugin == null) throw Exception('插件不存在: $pluginId');
+        await _repository.writePluginFileBytes(plugin, path, bytes);
+        _bumpRenderVersion(pluginId);
+        notifyListeners();
+        await _syncPlugin(pluginId);
+      });
 
   /// 判断指定路径是否为插件的可编辑文件。
   bool isEditableFile(String pluginId, String path) {
@@ -526,40 +534,41 @@ class PluginProvider extends ChangeNotifier {
   }
 
   /// 删除插件目录中的指定文件。
-  Future<void> deleteFile(String pluginId, String path) async {
-    final plugin = pluginById(pluginId);
-    if (plugin == null) throw Exception('插件不存在: $pluginId');
-    await _repository.deletePluginFile(plugin, path);
-    if (path == plugin.manifest.config.path) _configCache.remove(pluginId);
-    if (path == plugin.manifest.config.schema) _schemaCache.remove(pluginId);
-    _bumpRenderVersion(pluginId);
-    notifyListeners();
-    await _syncPlugin(pluginId);
-  }
+  Future<void> deleteFile(String pluginId, String path) => _serializeMutation(
+    pluginId,
+    () async {
+      final plugin = pluginById(pluginId);
+      if (plugin == null) throw Exception('插件不存在: $pluginId');
+      await _repository.deletePluginFile(plugin, path);
+      if (path == plugin.manifest.config.path) _configCache.remove(pluginId);
+      if (path == plugin.manifest.config.schema) _schemaCache.remove(pluginId);
+      _bumpRenderVersion(pluginId);
+      notifyListeners();
+      await _syncPlugin(pluginId);
+    },
+  );
 
   /// 重命名插件目录中的指定文件。
-  Future<void> renameFile(
-    String pluginId,
-    String oldPath,
-    String newPath,
-  ) async {
-    final plugin = pluginById(pluginId);
-    if (plugin == null) throw Exception('插件不存在: $pluginId');
-    await _repository.renamePluginFile(plugin, oldPath, newPath);
-    _bumpRenderVersion(pluginId);
-    notifyListeners();
-    await _syncPlugin(pluginId);
-  }
+  Future<void> renameFile(String pluginId, String oldPath, String newPath) =>
+      _serializeMutation(pluginId, () async {
+        final plugin = pluginById(pluginId);
+        if (plugin == null) throw Exception('插件不存在: $pluginId');
+        await _repository.renamePluginFile(plugin, oldPath, newPath);
+        _bumpRenderVersion(pluginId);
+        notifyListeners();
+        await _syncPlugin(pluginId);
+      });
 
   /// 删除所有用户自定义插件文件，回退到 defaults 出厂模板。
-  Future<void> resetPluginDefaults(String pluginId) async {
-    final plugin = pluginById(pluginId);
-    if (plugin == null) throw Exception('插件不存在: $pluginId');
-    await _repository.resetPluginFilesToDefaults(plugin);
-    _bumpRenderVersion(pluginId);
-    notifyListeners();
-    await _syncPlugin(pluginId);
-  }
+  Future<void> resetPluginDefaults(String pluginId) =>
+      _serializeMutation(pluginId, () async {
+        final plugin = pluginById(pluginId);
+        if (plugin == null) throw Exception('插件不存在: $pluginId');
+        await _repository.resetPluginFilesToDefaults(plugin);
+        _bumpRenderVersion(pluginId);
+        notifyListeners();
+        await _syncPlugin(pluginId);
+      });
 
   /// 构建当前插件目录的 ZIP 字节内容。
   Future<Uint8List> buildPluginZipBytes(String pluginId) async {
@@ -569,22 +578,24 @@ class PluginProvider extends ChangeNotifier {
   }
 
   /// 从应用资源包中导入内置插件。
-  Future<InstalledPlugin> importBuiltIn(String pluginId) async {
-    return _withBuiltInSource(pluginId, (sourceDir) async {
-      final plugin = await _repository.importDirectory(sourceDir.path);
-      await _upsert(plugin);
-      return plugin;
-    });
-  }
+  Future<InstalledPlugin> importBuiltIn(String pluginId) =>
+      _serializeMutation(pluginId, () async {
+        return _withBuiltInSource(pluginId, (sourceDir) async {
+          final plugin = await _repository.importDirectory(sourceDir.path);
+          await _upsert(plugin);
+          return plugin;
+        });
+      });
 
   /// 从应用资源包同步内置插件源码，保留用户自定义文件和授权状态。
-  Future<InstalledPlugin> syncBuiltIn(String pluginId) async {
-    return _withBuiltInSource(pluginId, (sourceDir) async {
-      final plugin = await _repository.syncDirectory(sourceDir.path);
-      await _upsert(plugin);
-      return pluginById(plugin.id) ?? plugin;
-    });
-  }
+  Future<InstalledPlugin> syncBuiltIn(String pluginId) =>
+      _serializeMutation(pluginId, () async {
+        return _withBuiltInSource(pluginId, (sourceDir) async {
+          final plugin = await _repository.syncDirectory(sourceDir.path);
+          await _upsert(plugin);
+          return pluginById(plugin.id) ?? plugin;
+        });
+      });
 
   /// 从应用资源包提取内置插件源码并执行操作，完成后清理临时目录。
   Future<T> _withBuiltInSource<T>(
@@ -689,24 +700,28 @@ class PluginProvider extends ChangeNotifier {
   }
 
   /// 保存插件的配置文件并刷新缓存。
-  Future<void> saveConfig(String pluginId, Map<String, dynamic> values) async {
-    final plugin = pluginById(pluginId);
-    if (plugin == null) throw Exception('插件不存在: $pluginId');
-    await _repository.writePluginJsonFile(
-      plugin,
-      plugin.manifest.config.path,
-      values,
-    );
-    _configCache[pluginId] = Map<String, dynamic>.from(values);
-    _bumpRenderVersion(pluginId);
-    notifyListeners();
-    await _syncPlugin(pluginId);
-  }
+  Future<void> saveConfig(String pluginId, Map<String, dynamic> values) =>
+      _serializeMutation(pluginId, () async {
+        final plugin = pluginById(pluginId);
+        if (plugin == null) throw Exception('插件不存在: $pluginId');
+        await _repository.writePluginJsonFile(
+          plugin,
+          plugin.manifest.config.path,
+          values,
+        );
+        _configCache[pluginId] = Map<String, dynamic>.from(values);
+        _bumpRenderVersion(pluginId);
+        notifyListeners();
+        await _syncPlugin(pluginId);
+      });
 
   Future<void> syncAllPlugins() async {
-    for (final plugin in _plugins) {
-      await _syncPlugin(plugin.id);
-    }
+    final pluginIds = _plugins.map((plugin) => plugin.id).toList();
+    await Future.wait(
+      pluginIds.map(
+        (pluginId) => _serializeMutation(pluginId, () => _syncPlugin(pluginId)),
+      ),
+    );
   }
 
   Future<void> _syncPlugin(String pluginId) async {
@@ -719,7 +734,17 @@ class PluginProvider extends ChangeNotifier {
     );
   }
 
-  Future<void> applyRemoteSync(String scope) async {
+  Future<void> applyRemoteSync(String scope) {
+    final previous = _materializationTail;
+    final operation = previous.then(
+      (_) => _applyRemoteSync(scope),
+      onError: (_) => _applyRemoteSync(scope),
+    );
+    _materializationTail = operation.then<void>((_) {}, onError: (_, _) {});
+    return operation;
+  }
+
+  Future<void> _applyRemoteSync(String scope) async {
     final storage = _storageV2;
     if (storage == null || scope.isEmpty) return;
     final rows = await storage.loadPluginSyncRows();
@@ -730,9 +755,15 @@ class PluginProvider extends ChangeNotifier {
       byPlugin.putIfAbsent(pluginId, () => []).add(row);
     }
     await _repository.withoutSyncEcho(() async {
-      for (final entry in byPlugin.entries) {
-        await _applyRemotePlugin(entry.key, entry.value, scope);
-      }
+      await Future.wait(
+        byPlugin.entries.map(
+          (entry) => _serializeMutation(
+            entry.key,
+            () => _applyRemotePlugin(entry.key, entry.value, scope),
+            waitForMaterialization: false,
+          ),
+        ),
+      );
       await _save();
     });
     notifyListeners();
@@ -986,17 +1017,69 @@ class PluginProvider extends ChangeNotifier {
     return safeAutoEnable ? imported.copyWith(enabled: true) : imported;
   }
 
-  /// 替换列表中指定 ID 的插件并保存。
-  Future<void> _replace(String id, InstalledPlugin plugin) async {
+  Future<void> _mutatePlugin(
+    String pluginId,
+    InstalledPlugin Function(InstalledPlugin plugin) mutation, {
+    bool requirePlugin = false,
+  }) => _serializeMutation(pluginId, () async {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) {
+      if (requirePlugin) throw Exception('插件不存在: $pluginId');
+      return;
+    }
+    final next = mutation(plugin);
+    if (identical(next, plugin)) return;
     _plugins = _sortPlugins(
-      _plugins.map((item) => item.id == id ? plugin : item).toList(),
+      _plugins.map((item) => item.id == pluginId ? next : item).toList(),
     );
     await _save();
     notifyListeners();
+  });
+
+  Future<T> _serializeMutation<T>(
+    String pluginId,
+    Future<T> Function() mutation, {
+    bool waitForMaterialization = true,
+  }) {
+    if (waitForMaterialization) {
+      final materialization = _materializationTail;
+      return materialization.then(
+        (_) => _serializeMutation(
+          pluginId,
+          mutation,
+          waitForMaterialization: false,
+        ),
+        onError: (_) => _serializeMutation(
+          pluginId,
+          mutation,
+          waitForMaterialization: false,
+        ),
+      );
+    }
+    final previous = _mutationQueues[pluginId] ?? Future<void>.value();
+    final operation = previous.then(
+      (_) => mutation(),
+      onError: (_) => mutation(),
+    );
+    final tail = operation.then<void>((_) {}, onError: (_, _) {});
+    _mutationQueues[pluginId] = tail;
+    tail.then((_) {
+      if (identical(_mutationQueues[pluginId], tail)) {
+        _mutationQueues.remove(pluginId);
+      }
+    });
+    return operation;
   }
 
   /// 持久化当前插件列表到本地。
-  Future<void> _save() => _repository.saveInstalledPlugins(_plugins);
+  Future<void> _save() {
+    final operation = _saveTail.then(
+      (_) => _repository.saveInstalledPlugins(_plugins),
+      onError: (_) => _repository.saveInstalledPlugins(_plugins),
+    );
+    _saveTail = operation.then<void>((_) {}, onError: (_, _) {});
+    return operation;
+  }
 
   /// 导入插件与已有插件合并，保留用户的授权和启用状态配置。
   InstalledPlugin _mergeImported(

@@ -33,6 +33,7 @@ import 'services/lan_sync_storage.dart';
 import 'services/lan_tls_certificate_service.dart';
 import 'services/lan_secret_transfer_service.dart';
 import 'utils/changelog_parser.dart';
+import 'utils/flush_tasks.dart';
 import 'utils/open_source_licenses.dart';
 import 'widgets/changelog_dialog.dart';
 import 'widgets/login_dialog.dart';
@@ -61,7 +62,10 @@ Future<void> main() async {
           create: (ctx) =>
               LanPeerRepository(secretStore: ctx.read<SecretStore>()),
         ),
-        Provider(create: (_) => LanMdnsService()),
+        Provider(
+          create: (_) => LanMdnsService(),
+          dispose: (_, service) => unawaited(service.dispose()),
+        ),
         Provider(
           create: (ctx) => LanTlsCertificateService(
             secretStore: ctx.read<SecretStore>(),
@@ -127,11 +131,13 @@ Future<void> main() async {
               final settings = ctx.read<SettingsProvider>();
               final models = ctx.read<ModelConfigProvider>();
               final plugins = ctx.read<PluginProvider>();
-              await conversations.flushPendingSaves();
-              await features.flushPendingSaves();
-              await roleplay.flushPendingSaves();
-              await settings.flushPendingSaves();
-              await models.flushPendingSaves();
+              await flushAllTasks([
+                (name: 'conversations', flush: conversations.flushPendingSaves),
+                (name: 'features', flush: features.flushPendingSaves),
+                (name: 'roleplay', flush: roleplay.flushPendingSaves),
+                (name: 'settings', flush: settings.flushPendingSaves),
+                (name: 'models', flush: models.flushPendingSaves),
+              ]);
               await plugins.syncAllPlugins();
             },
             onRemoteApplied: () async {
@@ -169,11 +175,13 @@ Future<void> main() async {
               final settings = ctx.read<SettingsProvider>();
               final models = ctx.read<ModelConfigProvider>();
               final plugins = ctx.read<PluginProvider>();
-              await conversations.flushPendingSaves();
-              await features.flushPendingSaves();
-              await roleplay.flushPendingSaves();
-              await settings.flushPendingSaves();
-              await models.flushPendingSaves();
+              await flushAllTasks([
+                (name: 'conversations', flush: conversations.flushPendingSaves),
+                (name: 'features', flush: features.flushPendingSaves),
+                (name: 'roleplay', flush: roleplay.flushPendingSaves),
+                (name: 'settings', flush: settings.flushPendingSaves),
+                (name: 'models', flush: models.flushPendingSaves),
+              ]);
               await plugins.syncAllPlugins();
             }
 
@@ -296,7 +304,10 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   bool _hasError = false;
   String _errorMessage = '';
   ConversationProvider? _conversationProvider;
+  FeatureProvider? _featureProvider;
+  RoleplayProvider? _roleplayProvider;
   SettingsProvider? _settingsProvider;
+  ModelConfigProvider? _modelProvider;
   SyncProvider? _syncProvider;
   AccountProvider? _accountProvider;
   final _navigatorKey = GlobalKey<NavigatorState>();
@@ -313,7 +324,10 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _conversationProvider ??= context.read<ConversationProvider>();
+    _featureProvider ??= context.read<FeatureProvider>();
+    _roleplayProvider ??= context.read<RoleplayProvider>();
     _settingsProvider ??= context.read<SettingsProvider>();
+    _modelProvider ??= context.read<ModelConfigProvider>();
     _syncProvider ??= context.read<SyncProvider>();
     _accountProvider ??= context.read<AccountProvider>();
     if (_settingsProvider != null) {
@@ -343,7 +357,18 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
 
   Future<void> _flushCriticalSaves() async {
     try {
-      await _conversationProvider?.flushPendingSaves();
+      await flushAllTasks([
+        if (_conversationProvider case final provider?)
+          (name: 'conversations', flush: provider.flushPendingSaves),
+        if (_featureProvider case final provider?)
+          (name: 'features', flush: provider.flushPendingSaves),
+        if (_roleplayProvider case final provider?)
+          (name: 'roleplay', flush: provider.flushPendingSaves),
+        if (_settingsProvider case final provider?)
+          (name: 'settings', flush: provider.flushPendingSaves),
+        if (_modelProvider case final provider?)
+          (name: 'models', flush: provider.flushPendingSaves),
+      ]);
       await _syncProvider?.flushUpload();
     } catch (e) {
       debugPrint('后台保存失败: $e');

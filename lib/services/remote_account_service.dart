@@ -41,25 +41,20 @@ class RemoteAccountService implements AccountService {
   Future<AuthSession?> loadStoredSession() async {
     final generation = _authGeneration;
     unawaited(retryPendingRevocations());
-    final origin = _client.backendOrigin;
-    if (origin.isEmpty) return null;
+    final scope = _client.backendScope;
+    if (scope.isEmpty) return null;
     final prefs = await SharedPreferences.getInstance();
-    var raw = prefs.getString(_sessionKeyForOrigin(origin));
-    var accessToken = await _secretStore.read(accessTokenKeyForOrigin(origin));
-    var refreshToken = await _secretStore.read(
-      refreshTokenKeyForOrigin(origin),
-    );
+    var raw = prefs.getString(_sessionKeyForScope(scope));
+    var accessToken = await _secretStore.read(accessTokenKeyForScope(scope));
+    var refreshToken = await _secretStore.read(refreshTokenKeyForScope(scope));
     var migratingLegacy = false;
     if ((raw == null || raw.isEmpty) &&
         accessToken == null &&
-        refreshToken == null) {
+        refreshToken == null &&
+        scope == _client.backendOrigin) {
       final legacyRaw = prefs.getString(_sessionKey);
       final legacyOrigin = _sessionOrigin(legacyRaw);
-      final defaultOrigin = normalizedBackendOrigin(
-        BackendClient.defaultBackendUrl,
-      );
-      if (legacyOrigin == origin ||
-          (legacyOrigin == null && origin == defaultOrigin)) {
+      if (legacyOrigin == scope) {
         raw = legacyRaw;
         accessToken = await _secretStore.read(accessTokenSecretKey);
         refreshToken = await _secretStore.read(refreshTokenSecretKey);
@@ -103,27 +98,64 @@ class RemoteAccountService implements AccountService {
       if (legacyToken.isNotEmpty || migratingLegacy) {
         final saved = await _saveSession(
           session,
-          origin: origin,
+          scope: scope,
           generation: generation,
         );
         if (!saved) return null;
         await _clearLegacySession();
       }
-      if (generation != _authGeneration || _client.backendOrigin != origin) {
+      if (generation != _authGeneration || _client.backendScope != scope) {
         return null;
       }
       _client.setTokens(storedAccess, storedRefresh ?? '');
       return session;
     } catch (_) {
-      await _clearStoredSession(origin: origin, notify: false);
+      await _clearStoredSession(scope: scope, notify: false);
       if (migratingLegacy) await _clearLegacySession();
       return null;
     }
   }
 
   @override
-  Future<AccountUser?> getCurrentUser() async =>
-      (await loadStoredSession())?.user;
+  Future<AccountUser?> getCurrentUser() async {
+    final session = await loadStoredSession();
+    if (session == null) return null;
+    final scope = _client.backendScope;
+    final accessToken = _client.accessToken;
+    try {
+      final response = await _client.get('/auth/me');
+      if (response.statusCode == 200) {
+        final decoded = Map<String, dynamic>.from(
+          jsonDecode(response.body) as Map,
+        );
+        final userJson = Map<String, dynamic>.from(
+          decoded['user'] as Map? ?? decoded,
+        );
+        final user = AccountUser.fromJson(userJson);
+        if (user.id.isEmpty) return session.user;
+        final refreshedSession = AuthSession(
+          user: user,
+          token: AuthToken(
+            accessToken: _client.accessToken ?? session.token.accessToken,
+            refreshToken: _client.refreshToken,
+            expiresAt: session.token.expiresAt,
+          ),
+        );
+        await _saveSession(refreshedSession, scope: scope);
+        return user;
+      }
+      if (response.statusCode == 401 &&
+          (_client.accessToken == null ||
+              _client.refreshToken == null ||
+              _client.accessToken != accessToken)) {
+        await _invalidateSession(scope);
+        return null;
+      }
+    } catch (_) {
+      // A cached session remains usable when account refresh is unavailable.
+    }
+    return session.user;
+  }
 
   @override
   Future<AuthSession> register({
@@ -132,7 +164,7 @@ class RemoteAccountService implements AccountService {
     String? displayName,
   }) async {
     final generation = ++_authGeneration;
-    final origin = _client.backendOrigin;
+    final scope = _client.backendScope;
     final resp = await _client.post(
       '/auth/register',
       body: {
@@ -147,7 +179,7 @@ class RemoteAccountService implements AccountService {
         BackendClient.extractErrorMessage(resp.body) ?? '注册失败',
       );
     }
-    return _acceptAuthenticatedSession(resp.body, origin, generation);
+    return _acceptAuthenticatedSession(resp.body, scope, generation);
   }
 
   @override
@@ -157,7 +189,7 @@ class RemoteAccountService implements AccountService {
   }) async {
     final generation = ++_authGeneration;
     unawaited(retryPendingRevocations());
-    final origin = _client.backendOrigin;
+    final scope = _client.backendScope;
     final resp = await _client.post(
       '/auth/login',
       body: {'phone': username, 'password': password},
@@ -169,7 +201,7 @@ class RemoteAccountService implements AccountService {
     }
     final session = await _acceptAuthenticatedSession(
       resp.body,
-      origin,
+      scope,
       generation,
     );
     unawaited(retryPendingRevocations());
@@ -178,15 +210,15 @@ class RemoteAccountService implements AccountService {
 
   Future<AuthSession> _acceptAuthenticatedSession(
     String body,
-    String origin,
+    String scope,
     int generation,
   ) async {
     final session = AuthSession.fromJson(
       Map<String, dynamic>.from(jsonDecode(body) as Map),
     );
     if (generation != _authGeneration ||
-        origin.isEmpty ||
-        _client.backendOrigin != origin) {
+        scope.isEmpty ||
+        _client.backendScope != scope) {
       throw const AccountUnavailableException('后端地址已变更，请重试');
     }
     _client.setTokens(
@@ -195,12 +227,12 @@ class RemoteAccountService implements AccountService {
     );
     final saved = await _saveSession(
       session,
-      origin: origin,
+      scope: scope,
       generation: generation,
     );
     if (!saved ||
         generation != _authGeneration ||
-        _client.backendOrigin != origin ||
+        _client.backendScope != scope ||
         _client.accessToken != session.token.accessToken) {
       if (_client.accessToken == session.token.accessToken) {
         _client.clearTokens();
@@ -213,84 +245,89 @@ class RemoteAccountService implements AccountService {
   @override
   Future<void> logout() async {
     _authGeneration++;
-    final origin = _client.backendOrigin;
+    final scope = _client.backendScope;
     final refreshToken = _client.refreshToken;
     _client.clearTokens();
     _onSessionInvalidated?.call();
-    await _clearStoredSession(origin: origin, notify: false);
-    if (origin.isNotEmpty && refreshToken != null && refreshToken.isNotEmpty) {
-      await _enqueueRevocation(origin, refreshToken);
+    await _clearStoredSession(scope: scope, notify: false);
+    if (scope.isNotEmpty && refreshToken != null && refreshToken.isNotEmpty) {
+      await _enqueueRevocation(scope, refreshToken);
       unawaited(retryPendingRevocations());
     }
   }
 
   Future<bool> _saveSession(
     AuthSession session, {
-    required String origin,
+    required String scope,
     int? generation,
   }) => _serializeCredentialStoreResult(() async {
     if ((generation != null && generation != _authGeneration) ||
-        _client.backendOrigin != origin) {
+        _client.backendScope != scope) {
       return false;
     }
     await _secretStore.write(
-      accessTokenKeyForOrigin(origin),
+      accessTokenKeyForScope(scope),
       session.token.accessToken,
     );
     final refreshToken = session.token.refreshToken;
     if (refreshToken == null || refreshToken.isEmpty) {
-      await _secretStore.delete(refreshTokenKeyForOrigin(origin));
+      await _secretStore.delete(refreshTokenKeyForScope(scope));
     } else {
-      await _secretStore.write(refreshTokenKeyForOrigin(origin), refreshToken);
+      await _secretStore.write(refreshTokenKeyForScope(scope), refreshToken);
     }
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
-      _sessionKeyForOrigin(origin),
+      _sessionKeyForScope(scope),
       jsonEncode({
-        'backendOrigin': origin,
+        'backendBaseUrl': scope,
         'user': session.user.toJson(),
         if (session.token.expiresAt != null)
           'expiresAt': session.token.expiresAt,
       }),
     );
     if ((generation != null && generation != _authGeneration) ||
-        _client.backendOrigin != origin) {
-      await _secretStore.delete(accessTokenKeyForOrigin(origin));
-      await _secretStore.delete(refreshTokenKeyForOrigin(origin));
-      await prefs.remove(_sessionKeyForOrigin(origin));
+        _client.backendScope != scope) {
+      await _secretStore.delete(accessTokenKeyForScope(scope));
+      await _secretStore.delete(refreshTokenKeyForScope(scope));
+      await prefs.remove(_sessionKeyForScope(scope));
       return false;
     }
     return true;
   });
 
   Future<void> _saveRefreshedTokens(
-    String origin,
+    String scope,
     String accessToken,
     String refreshToken,
   ) => _serializeCredentialStore(() async {
-    if (_client.backendOrigin != origin ||
+    if (_client.backendScope != scope ||
         _client.accessToken != accessToken ||
         _client.refreshToken != refreshToken) {
       return;
     }
-    await _secretStore.write(refreshTokenKeyForOrigin(origin), refreshToken);
-    await _secretStore.write(accessTokenKeyForOrigin(origin), accessToken);
+    await _secretStore.write(refreshTokenKeyForScope(scope), refreshToken);
+    await _secretStore.write(accessTokenKeyForScope(scope), accessToken);
   });
 
-  Future<void> _clearSession(String origin) async {
-    await _clearStoredSession(origin: origin, notify: true);
+  Future<void> _clearSession(String scope) async {
+    await _clearStoredSession(scope: scope, notify: true);
+  }
+
+  Future<void> _invalidateSession(String scope) async {
+    _client.clearTokens();
+    await _clearStoredSession(scope: scope, notify: true);
   }
 
   Future<void> _clearStoredSession({
-    required String origin,
+    required String scope,
     required bool notify,
   }) => _serializeCredentialStore(() async {
     if (notify) _onSessionInvalidated?.call();
-    if (origin.isEmpty) return;
-    await _secretStore.delete(accessTokenKeyForOrigin(origin));
-    await _secretStore.delete(refreshTokenKeyForOrigin(origin));
+    if (scope.isEmpty) return;
+    await _secretStore.delete(accessTokenKeyForScope(scope));
+    await _secretStore.delete(refreshTokenKeyForScope(scope));
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_sessionKeyForOrigin(origin));
+    await prefs.remove(_sessionKeyForScope(scope));
   });
 
   /// Retries revocations retained exclusively in protected storage.
@@ -308,7 +345,7 @@ class RemoteAccountService implements AccountService {
     for (final item in pending) {
       try {
         final response = await _client.revokeRefreshToken(
-          backendUrl: item.origin,
+          backendUrl: item.backendBaseUrl,
           refreshToken: item.refreshToken,
         );
         if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -323,10 +360,10 @@ class RemoteAccountService implements AccountService {
     await _writePendingRevocations(remaining);
   }
 
-  Future<void> _enqueueRevocation(String origin, String refreshToken) =>
+  Future<void> _enqueueRevocation(String backendBaseUrl, String refreshToken) =>
       _serializeRevocationStore(() async {
         final pending = await _readPendingRevocations();
-        final item = _PendingRevocation(origin, refreshToken);
+        final item = _PendingRevocation(backendBaseUrl, refreshToken);
         if (!pending.contains(item)) pending.add(item);
         await _writePendingRevocations(pending);
       });
@@ -342,7 +379,8 @@ class RemoteAccountService implements AccountService {
             ),
           )
           .where(
-            (item) => item.origin.isNotEmpty && item.refreshToken.isNotEmpty,
+            (item) =>
+                item.backendBaseUrl.isNotEmpty && item.refreshToken.isNotEmpty,
           )
           .toList();
     } catch (_) {
@@ -398,17 +436,16 @@ class RemoteAccountService implements AccountService {
     return result;
   }
 
-  static String accessTokenKeyForOrigin(String origin) =>
-      '$accessTokenSecretKey.${Uri.encodeComponent(origin)}';
+  static String accessTokenKeyForScope(String scope) =>
+      '$accessTokenSecretKey.${Uri.encodeComponent(scope)}';
 
-  static String refreshTokenKeyForOrigin(String origin) =>
-      '$refreshTokenSecretKey.${Uri.encodeComponent(origin)}';
+  static String refreshTokenKeyForScope(String scope) =>
+      '$refreshTokenSecretKey.${Uri.encodeComponent(scope)}';
 
-  static String sessionKeyForOrigin(String origin) =>
-      '$_sessionKey.${Uri.encodeComponent(origin)}';
+  static String sessionKeyForScope(String scope) =>
+      '$_sessionKey.${Uri.encodeComponent(scope)}';
 
-  static String _sessionKeyForOrigin(String origin) =>
-      sessionKeyForOrigin(origin);
+  static String _sessionKeyForScope(String scope) => sessionKeyForScope(scope);
 
   static String? _sessionOrigin(String? raw) {
     if (raw == null || raw.isEmpty) return null;
@@ -425,28 +462,30 @@ class RemoteAccountService implements AccountService {
 }
 
 class _PendingRevocation {
-  const _PendingRevocation(this.origin, this.refreshToken);
+  const _PendingRevocation(this.backendBaseUrl, this.refreshToken);
 
   factory _PendingRevocation.fromJson(Map<String, dynamic> json) =>
       _PendingRevocation(
-        normalizedBackendOrigin(json['origin'] as String? ?? ''),
+        normalizeBackendUri(
+          json['backendBaseUrl'] as String? ?? json['origin'] as String? ?? '',
+        ),
         json['refreshToken'] as String? ?? '',
       );
 
-  final String origin;
+  final String backendBaseUrl;
   final String refreshToken;
 
   Map<String, String> toJson() => {
-    'origin': origin,
+    'backendBaseUrl': backendBaseUrl,
     'refreshToken': refreshToken,
   };
 
   @override
   bool operator ==(Object other) =>
       other is _PendingRevocation &&
-      other.origin == origin &&
+      other.backendBaseUrl == backendBaseUrl &&
       other.refreshToken == refreshToken;
 
   @override
-  int get hashCode => Object.hash(origin, refreshToken);
+  int get hashCode => Object.hash(backendBaseUrl, refreshToken);
 }

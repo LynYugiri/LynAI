@@ -1271,7 +1271,7 @@ class StorageV2Database {
               ..where((row) => row.scope.equals(scope))
               ..orderBy([(row) => OrderingTerm.asc(row.updatedAt)]))
             .get();
-    return rows
+    final entries = rows
         .map(
           (row) => SyncOutboxEntry(
             table: row.table,
@@ -1287,6 +1287,16 @@ class StorageV2Database {
           ),
         )
         .toList(growable: false);
+    entries.sort((a, b) {
+      final byPriority = _syncOperationPriority(
+        a.table,
+        a.op,
+      ).compareTo(_syncOperationPriority(b.table, b.op));
+      return byPriority != 0
+          ? byPriority
+          : a.clientCreatedAt.compareTo(b.clientCreatedAt);
+    });
+    return entries;
   }
 
   Future<void> replacePluginSyncRows(
@@ -1477,7 +1487,18 @@ class StorageV2Database {
   }) async {
     final db = await _open();
     await db.transaction(() async {
-      for (final op in ops) {
+      final orderedOps = remote ? List<SyncRemoteOperation>.from(ops) : ops;
+      if (remote) {
+        orderedOps.sort((a, b) {
+          final byPriority = _syncOperationPriority(
+            a.table,
+            a.op,
+          ).compareTo(_syncOperationPriority(b.table, b.op));
+          if (byPriority != 0) return byPriority;
+          return (a.change?.seq ?? 0).compareTo(b.change?.seq ?? 0);
+        });
+      }
+      for (final op in orderedOps) {
         final changeId = op.change?.changeId;
         if (remote && changeId != null) {
           final existing = await (db.select(
@@ -1859,6 +1880,10 @@ class StorageV2Database {
   ) async {
     if (op == 'delete') return;
     final id = data['id'] as String;
+    final pageId = data['pageId'] as String?;
+    if (pageId != null && await _isNoteRevisionTombstoned(db, pageId, id)) {
+      return;
+    }
     final existing = await (db.select(
       db.noteRevisionRows,
     )..where((row) => row.id.equals(id))).getSingleOrNull();
@@ -1896,16 +1921,31 @@ class StorageV2Database {
   ) async {
     final pageId = data['pageId'] as String? ?? data['id'] as String;
     if (op == 'delete') return;
+    if (await _hasNotePageTombstone(db, pageId)) return;
     final existing = await (db.select(
       db.notePageHeadRows,
     )..where((row) => row.pageId.equals(pageId))).getSingleOrNull();
-    final heads = <String>{
+    final candidates = <String>{
       ...?existing == null
           ? null
           : (jsonDecode(existing.headIdsJson) as List).whereType<String>(),
       ...(data['headIds'] as List<dynamic>? ?? const []).whereType<String>(),
     };
+    final heads = <String>{};
+    for (final revisionId in candidates) {
+      if (!await _isNoteRevisionTombstoned(db, pageId, revisionId)) {
+        heads.add(revisionId);
+      }
+    }
     final reduced = await _reduceHeads(db, heads);
+    if (reduced.isEmpty) {
+      await (db.delete(
+        db.notePageHeadRows,
+      )..where((row) => row.pageId.equals(pageId))).go();
+      await (db.update(db.notePageRows)..where((row) => row.id.equals(pageId)))
+          .write(const NotePageRowsCompanion(currentRevisionId: Value(null)));
+      return;
+    }
     final remoteSelected = data['selectedHeadId'] as String?;
     final selected = reduced.contains(remoteSelected)
         ? remoteSelected
@@ -1978,22 +2018,174 @@ class StorageV2Database {
     String op,
     Map<String, dynamic> data,
   ) async {
-    if (op == 'delete') return;
+    if (op == 'delete') {
+      await (db.delete(
+        db.notePageTombstoneRows,
+      )..where((row) => row.id.equals(data['id'] as String))).go();
+      return;
+    }
+    final pageId = data['pageId'] as String;
+    final revisionId = data['revisionId'] as String;
     await db
         .into(db.notePageTombstoneRows)
         .insertOnConflictUpdate(
           NotePageTombstoneRowsCompanion.insert(
             id: data['id'] as String,
-            pageId: data['pageId'] as String,
-            revisionId: data['revisionId'] as String,
+            pageId: pageId,
+            revisionId: revisionId,
             createdAt: data['createdAt'] as String,
           ),
         );
+    await _removeTombstonedNotePageState(db, pageId, revisionId);
+  }
+
+  Future<bool> _hasNotePageTombstone(
+    StorageV2DriftDatabase db,
+    String pageId,
+  ) async {
+    return await (db.select(db.notePageTombstoneRows)..where(
+              (row) => row.pageId.equals(pageId) & row.revisionId.equals('*'),
+            ))
+            .getSingleOrNull() !=
+        null;
+  }
+
+  Future<bool> _isNoteRevisionTombstoned(
+    StorageV2DriftDatabase db,
+    String pageId,
+    String revisionId,
+  ) async {
+    return await (db.select(db.notePageTombstoneRows)..where(
+              (row) =>
+                  row.pageId.equals(pageId) &
+                  row.revisionId.isIn([revisionId, '*']),
+            ))
+            .getSingleOrNull() !=
+        null;
+  }
+
+  Future<void> _removeTombstonedNotePageState(
+    StorageV2DriftDatabase db,
+    String pageId,
+    String revisionId,
+  ) async {
+    final deletedRevisionIds = revisionId == '*'
+        ? (await (db.select(
+                db.noteRevisionRows,
+              )..where((row) => row.pageId.equals(pageId))).get())
+              .map((row) => row.id)
+              .toSet()
+        : <String>{revisionId};
+    if (revisionId == '*') {
+      await (db.delete(
+        db.noteRevisionRows,
+      )..where((row) => row.pageId.equals(pageId))).go();
+    } else {
+      await (db.delete(db.noteRevisionRows)..where(
+            (row) => row.id.equals(revisionId) & row.pageId.equals(pageId),
+          ))
+          .go();
+    }
+
+    final headRow = await (db.select(
+      db.notePageHeadRows,
+    )..where((row) => row.pageId.equals(pageId))).getSingleOrNull();
+    String? selectedHeadId;
+    if (headRow != null) {
+      final remainingHeads = revisionId == '*'
+          ? <String>{}
+          : (jsonDecode(headRow.headIdsJson) as List)
+                .whereType<String>()
+                .where((id) => id != revisionId)
+                .toSet();
+      if (remainingHeads.isEmpty) {
+        await (db.delete(
+          db.notePageHeadRows,
+        )..where((row) => row.pageId.equals(pageId))).go();
+      } else {
+        selectedHeadId = remainingHeads.contains(headRow.selectedHeadId)
+            ? headRow.selectedHeadId
+            : remainingHeads.length == 1
+            ? remainingHeads.single
+            : null;
+        await (db.update(
+          db.notePageHeadRows,
+        )..where((row) => row.pageId.equals(pageId))).write(
+          NotePageHeadRowsCompanion(
+            headIdsJson: Value(jsonEncode(remainingHeads.toList()..sort())),
+            selectedHeadId: Value(selectedHeadId),
+            updatedAt: Value(DateTime.now().toIso8601String()),
+          ),
+        );
+      }
+    }
+    await (db.update(db.notePageRows)..where((row) => row.id.equals(pageId)))
+        .write(NotePageRowsCompanion(currentRevisionId: Value(selectedHeadId)));
+    if (deletedRevisionIds.isNotEmpty) {
+      await (db.update(db.noteRows)..where(
+            (row) =>
+                row.currentPageId.equals(pageId) &
+                row.currentRevisionId.isIn(deletedRevisionIds),
+          ))
+          .write(NoteRowsCompanion(currentRevisionId: Value(selectedHeadId)));
+    }
+
+    final conflict = await (db.select(
+      db.notePageConflictRows,
+    )..where((row) => row.pageId.equals(pageId))).getSingleOrNull();
+    if (conflict == null) return;
+    final remainingConflictHeads = revisionId == '*'
+        ? <String>[]
+        : (jsonDecode(conflict.headIdsJson) as List)
+              .whereType<String>()
+              .where((id) => id != revisionId)
+              .toList();
+    if (remainingConflictHeads.length < 2) {
+      await (db.delete(
+        db.notePageConflictRows,
+      )..where((row) => row.pageId.equals(pageId))).go();
+      return;
+    }
+    final localHeadId = remainingConflictHeads.contains(conflict.localHeadId)
+        ? conflict.localHeadId
+        : remainingConflictHeads.first;
+    final incomingHeadId =
+        remainingConflictHeads.contains(conflict.incomingHeadId) &&
+            conflict.incomingHeadId != localHeadId
+        ? conflict.incomingHeadId
+        : remainingConflictHeads.firstWhere((id) => id != localHeadId);
+    await (db.update(
+      db.notePageConflictRows,
+    )..where((row) => row.pageId.equals(pageId))).write(
+      NotePageConflictRowsCompanion(
+        headIdsJson: Value(jsonEncode(remainingConflictHeads)),
+        localHeadId: Value(localHeadId),
+        incomingHeadId: Value(incomingHeadId),
+        commonAncestorId: Value(
+          conflict.commonAncestorId == revisionId
+              ? null
+              : conflict.commonAncestorId,
+        ),
+      ),
+    );
   }
 
   Future<void> updateSyncSince(String scope, int since) async {
     final db = await _open();
     await _setSyncSince(db, scope, since);
+  }
+
+  static int _syncOperationPriority(String table, String op) {
+    if (table == 'note_page_tombstones') return op == 'delete' ? 2 : 6;
+    return switch (table) {
+      'note_folders' => 0,
+      'notes' => 1,
+      'note_pages' => 3,
+      'note_revisions' => 4,
+      'note_page_heads' => 5,
+      'resources' => 7,
+      _ => 10,
+    };
   }
 
   Future<StorageV2DriftDatabase> _open() async {

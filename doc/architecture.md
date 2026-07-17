@@ -48,7 +48,7 @@ main()
   -> 检查更新日志
 ```
 
-启动加载由 `LynAIApp` 控制。加载中显示启动页；失败显示可重试错误页。Provider 会尽量跳过单条损坏数据，让应用仍可进入主界面。`DeviceIdentityService.initialize()` 在账号加载前创建或校验安装级 Ed25519 身份。`AccountProvider.load()` 在 `BackendClient` 按保存的后端地址配置完成后恢复登录会话；令牌保存在 `SecretStore`，SharedPreferences 只保留用户元数据，并以“后端地址 + 用户 ID”绑定同步作用域。若恢复出 access token，`DeviceRegistrationService` 会尝试幂等设备注册；离线或旧后端失败不会阻塞启动。业务增量同步与托管模型同步随后执行。
+启动加载由 `LynAIApp` 控制。加载中显示启动页；分区级加载失败会保留 Provider 原有内存状态、向上抛出并显示可重试错误页，不再把失败误写成空列表或默认设置。可独立解析的单条损坏数据仍会被跳过。`DeviceIdentityService.initialize()` 在账号加载前创建或校验安装级 Ed25519 身份。`AccountProvider.load()` 在 `BackendClient` 按保存的后端地址配置完成后恢复登录会话；账号令牌按规范化完整 Base URL（含 path prefix）保存在 `SecretStore`，SharedPreferences 只保留同作用域的用户元数据。恢复后通过 `/auth/me` 刷新用户和管理员状态，临时网络或服务端错误不清除缓存会话。若恢复出 access token，`DeviceRegistrationService` 会尝试幂等设备注册；离线或旧后端失败不会阻塞启动。业务增量同步与托管模型同步随后执行。
 
 共享设置和用户 Provider 配置使用独立逻辑同步域：`shared_settings/app-settings` 保存 `SharedSettingsV1` 投影，`synced_model_configs/<providerId>` 保存用户明确选择同步的 `SyncedModelConfigV1`。本地保存先生成投影 diff，再写持久化 Outbox；远端应用仍经过同一按记录 conflict 队列。应用完成后重新加载 Settings/Model providers、刷新服务端托管 Relay 配置并修复所有当前模型引用。背景图只同步 storage_v2 resource ID 与 content-addressed blob，不同步设备路径。
 
@@ -101,7 +101,7 @@ Input + Attachments
   -> 保存最终消息
 ```
 
-历史对话保存自己的 `ConversationSettings`。全局设置变化不会悄悄改变旧对话的模型、提示词或文件识别上下文。
+历史对话保存自己的 `ConversationSettings`，其中系统提示词保存选中当时的正文，而不只保存模板 ID。打开历史对话或继续发送时不会把该快照写回全局设置，也不会按当前同 ID 模板重新解析；全局模型、提示词或文件识别设置变化不会悄悄改变旧对话上下文。
 
 当选中的模型配置是 LynAI 托管 Provider 时，`ApiService` 使用同一条标准化链路，但请求目标改为后端 `/relay/chat`，并由 `BackendClient` 当前 JWT 做鉴权。服务端按 body 中的 `api_type` 和 `model` 路由到管理员配置的上游。
 
@@ -154,7 +154,7 @@ storage_v2 中的资源注册表使用 content-addressed blob 路径。对话附
 
 工具可读取或修改日程、笔记、待办，也可以调用 Android 平台能力。工具能力应只在可信模型和可信对话中启用。
 
-Agent 手机自动化优先用 `lynai.device.*`、`device.screen.query` 和 `device.node.findAll` 精确筛选节点，同一应用内的确定性多步骤操作优先合并到一次 `execute_lua` 中线性编排。读屏、消息提取和节点查询只需要 `device:screen:read`，点击、输入、滚动、打开应用等动作需要 `device:control`。QQ/消息应用上下文优先从无障碍节点提取可见文本，截图 base64 只作为 OCR/识图输入，模型可见 tool result 会剥离二进制内容。内置 `mobile-agent-skills` 共 15 个 Skill，覆盖 Android 无障碍原语、消息应用通用流程、QQ/微信会话、系统设置、浏览器搜索、相机 OCR 扫描、通讯录与电话、时钟闹钟、地图导航、系统分享、解题与研究、笔记方法论、对话沉淀到知识库等场景。学习与笔记类 Skill 不走 `execute_lua`，直接由主模型调用 `notes.*`/`todos.*`/`schedules.*`/`http.fetch`/`model.ocr` 等函数。发给模型的 assistant 历史消息固定携带空 `reasoning_content`，避免真实 thinking 污染后续工具上下文。Agent Lua 和 Subagent 不设置固定工具轮数上限，设备任务通过暂停/停止机制收敛。
+Agent 手机自动化优先用 `lynai.device.*`、`device.screen.query` 和 `device.node.findAll` 精确筛选节点，同一应用内的确定性多步骤操作优先合并到一次 `execute_lua` 中线性编排。读屏、消息提取和节点查询只需要 `device:screen:read`，点击、输入、滚动、打开应用等动作需要 `device:control`。QQ/消息应用上下文优先从无障碍节点提取可见文本，截图 base64 只作为 OCR/识图输入，模型可见 tool result 会剥离二进制内容。内置 `mobile-agent-skills` 共 15 个 Skill，覆盖 Android 无障碍原语、消息应用通用流程、QQ/微信会话、系统设置、浏览器搜索、相机 OCR 扫描、通讯录与电话、时钟闹钟、地图导航、系统分享、解题与研究、笔记方法论、对话沉淀到知识库等场景。学习与笔记类 Skill 不走 `execute_lua`，直接由主模型调用 `notes.*`/`todos.*`/`schedules.*`/`http.fetch`/`model.ocr` 等函数。发给模型的 assistant 历史消息固定携带空 `reasoning_content`，避免真实 thinking 污染后续工具上下文。主对话和 Subagent 共用 `ToolCallService.maxToolRounds` 边界；到达边界时先要求模型基于现有结果结束，再拒绝继续执行工具，设备任务仍可通过暂停/停止机制提前中断。
 
 ## 持久化策略
 
@@ -169,7 +169,7 @@ Provider mutation
   -> storage_v2
 ```
 
-这样用户操作立即反馈，连续操作也不会因为异步保存乱序覆盖新状态。保存失败通常记录到 `debugPrint`，不回滚已经显示给用户的内存状态。
+这样用户操作立即反馈，连续操作也不会因为异步保存乱序覆盖新状态。当前保存失败会由发起操作或 `flushPendingSaves()` 暴露，同时恢复内部串行尾链，使后续保存仍能继续；失败不回滚已经显示给用户的内存状态。远端应用、同步作用域切换和生命周期收尾会先聚合 flush 所有相关 Provider，尝试完每一项后统一报告失败，任何失败都会阻止继续上传或覆盖本地状态。
 
 ## storage_v2
 
@@ -202,7 +202,7 @@ Note.currentRevisionId
   -> ...
 ```
 
-storage_v2 下笔记正文按分页保存为 Markdown 文件；分页元数据、修订、AI 修改建议和行级编辑块保存到数据库。旧单正文笔记仍通过兼容路径读取。
+storage_v2 下笔记正文按分页保存为 Markdown 文件；分页元数据、修订、AI 修改建议、行级编辑块和删除 tombstone 保存到数据库。分页 tombstone 的 `revisionId='*'` 表示整个分页已删除，具体 revision ID 表示单个修订已删除；远端分页头、修订或冲突应用不得复活被 tombstone 覆盖的状态。旧单正文笔记仍通过兼容路径读取。
 
 ## 备份架构
 
@@ -242,7 +242,7 @@ backup.zip
 | 场景 | 策略 |
 |------|------|
 | 单条持久化数据损坏 | 跳过坏项，保留其他数据。 |
-| 顶层 JSON 损坏 | 对应分区回退为空或默认值，保证应用可启动。 |
+| 分区或顶层结构加载失败 | 保留当前 Provider 内存并向启动/重载流程传播，显示可重试错误，不把失败解释成空数据。 |
 | 模型 ID 指向已删除配置 | 自动回填同类第一个可用模型或清空。 |
 | 流式 chunk 格式异常 | 跳过坏 chunk，不中断已收到正文。 |
 | 工具参数异常 | 工具返回结构化错误，不破坏对话。 |

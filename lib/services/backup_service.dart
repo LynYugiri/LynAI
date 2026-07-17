@@ -995,7 +995,7 @@ class BackupService {
                 raw['displayName'] as String? ??
                 raw['name'] as String? ??
                 'file',
-            size: raw['size'] as int? ?? 0,
+            size: (raw['size'] as num?)?.toInt() ?? 0,
             mimeType: raw['mimeType'] as String? ?? 'application/octet-stream',
           ),
         );
@@ -1202,8 +1202,8 @@ class BackupService {
         (blocksByProposal[proposalId] ??= []).add(
           NoteEditBlock(
             id: raw['id'] as String,
-            startLine: raw['startLine'] as int? ?? 1,
-            deleteCount: raw['deleteCount'] as int? ?? 0,
+            startLine: (raw['startLine'] as num?)?.toInt() ?? 1,
+            deleteCount: (raw['deleteCount'] as num?)?.toInt() ?? 0,
             deletedLines: (raw['deletedLines'] as List<dynamic>? ?? const [])
                 .whereType<String>()
                 .toList(),

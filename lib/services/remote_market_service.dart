@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../models/plugin_market_entry.dart';
+import '../repositories/plugin_repository.dart';
 import 'backend_client.dart';
 import 'market_service.dart';
 
@@ -11,6 +12,9 @@ import 'market_service.dart';
 /// 通过 [BackendClient] 发送 HTTP 请求到 Go 后端 `/market/*` 端点。
 /// 需要鉴权的端点（submit、updates）会自动附加 Bearer token。
 class RemoteMarketService implements MarketService {
+  /// 市场提交 ZIP 的净文件大小上限。安装 ZIP 仍使用仓储层独立的 32 MiB 上限。
+  static const maxPluginSubmitBytes = 16 * 1024 * 1024;
+
   final BackendClient _client;
 
   /// 创建远端市场服务实例。
@@ -62,7 +66,15 @@ class RemoteMarketService implements MarketService {
 
   @override
   Future<List<int>> downloadPlugin(String id) async {
-    final resp = await _client.get('/market/plugins/$id/download');
+    late final http.Response resp;
+    try {
+      resp = await _client.getBounded(
+        '/market/plugins/$id/download',
+        maxBytes: PluginRepository.maxPluginZipInputBytes,
+      );
+    } on BackendResponseTooLargeException {
+      throw const MarketUnavailableException('插件 ZIP 超过 32 MiB 下载上限');
+    }
     if (resp.statusCode != 200) {
       throw MarketUnavailableException(
         BackendClient.extractErrorMessage(resp.body) ?? '下载插件失败',
@@ -113,6 +125,9 @@ class RemoteMarketService implements MarketService {
   /// 接收插件 ZIP 的字节内容和元数据，通过 multipart 上传到后端。
   /// 需要登录态——[BackendClient] 会自动附加 Bearer token。
   Future<MarketPluginEntry> submitPlugin(List<int> zipBytes) async {
+    if (zipBytes.length > maxPluginSubmitBytes) {
+      throw const MarketUnavailableException('插件 ZIP 超过 16 MiB 提交上限');
+    }
     final streamedResp = await _client.sendAuthenticatedStreamed(() {
       final req = http.MultipartRequest(
         'POST',

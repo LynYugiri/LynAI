@@ -919,7 +919,7 @@ class FloatingChatSessionController extends ChangeNotifier {
       modelName: model.modelName,
       thinking: true,
       selectedSystemPromptId: appSettings.selectedSystemPromptId,
-      systemPrompt: appSettings.systemPrompt,
+      systemPrompt: _settings.effectiveSystemPrompt,
       speechModelId: appSettings.speechModelId,
       imageModelId: appSettings.imageModelId,
       imageOcrEnabled: appSettings.imageOcrEnabled,
@@ -936,12 +936,7 @@ class FloatingChatSessionController extends ChangeNotifier {
     required bool enableTools,
   }) {
     final messages = <Map<String, dynamic>>[];
-    final promptContent = conversation.settings.selectedSystemPromptId != null
-        ? _settings.effectiveSystemPromptFor(
-            conversation.settings.selectedSystemPromptId,
-            conversation.settings.systemPrompt,
-          )
-        : conversation.settings.systemPrompt;
+    final promptContent = conversation.settings.systemPrompt;
     final toolPrompt = conversation.settings.agentEnabled
         ? '${ToolCallService.nativeSystemPrompt}\n\n${ToolCallService.agentSystemPromptWithSkills(_plugins.plugins)}'
         : ToolCallService.nativeSystemPrompt;

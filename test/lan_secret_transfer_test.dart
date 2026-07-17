@@ -94,6 +94,38 @@ void main() {
     );
   });
 
+  test('close is idempotent and suppresses later request events', () async {
+    final service = LanSecretTransferService(InMemorySecretStore());
+    final events = <List<LanSecretTransferRequest>>[];
+    final subscription = service.requests.listen(events.add);
+
+    service.addRequest(
+      peerDeviceId: 'peer-a',
+      transferId: 'transfer-a',
+      direction: 'send',
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(events, hasLength(1));
+
+    await service.close();
+    await service.close();
+    service.addRequest(
+      peerDeviceId: 'peer-b',
+      transferId: 'transfer-b',
+      direction: 'receive',
+    );
+    service.reject(
+      LanSecretTransferRequest(
+        peerDeviceId: 'peer-b',
+        transferId: 'transfer-b',
+        direction: 'receive',
+        expiresAt: DateTime.now().toUtc().add(const Duration(minutes: 1)),
+      ),
+    );
+    expect(events, hasLength(1));
+    await subscription.cancel();
+  });
+
   test('received key reloads active models and survives later save', () async {
     final root = await Directory.systemTemp.createTemp('lynai_lan_secret_');
     final storage = StorageV2Service(rootDirectory: root);

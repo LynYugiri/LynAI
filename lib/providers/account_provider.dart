@@ -29,7 +29,7 @@ class AccountProvider extends ChangeNotifier {
        _secretStore = secretStore,
        _onSessionChanged = onSessionChanged,
        _afterAuthenticated = afterAuthenticated,
-       _backendOrigin = backend?.backendOrigin ?? '' {
+       _backendScope = backend?.backendScope ?? '' {
     _backend?.addListener(_handleBackendChanged);
   }
 
@@ -39,7 +39,7 @@ class AccountProvider extends ChangeNotifier {
   final Future<void> Function(AccountUser? user)? _onSessionChanged;
   final Future<void> Function()? _afterAuthenticated;
   RemoteAccountService? _remoteService;
-  String _backendOrigin;
+  String _backendScope;
   int _operationGeneration = 0;
 
   AccountService? get _service {
@@ -72,10 +72,10 @@ class AccountProvider extends ChangeNotifier {
   }
 
   void _handleBackendChanged() {
-    final origin = _backend?.backendOrigin ?? '';
-    if (origin == _backendOrigin) return;
+    final scope = _backend?.backendScope ?? '';
+    if (scope == _backendScope) return;
     _operationGeneration++;
-    _backendOrigin = origin;
+    _backendScope = scope;
     _loading = false;
     _error = null;
     final hadUser = _user != null;

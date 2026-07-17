@@ -30,9 +30,18 @@ class LanSecretTransferService {
   final Map<String, LanSecretTransferRequest> _requests = {};
   final StreamController<List<LanSecretTransferRequest>> _requestController =
       StreamController.broadcast();
+  Future<void>? _closeFuture;
 
   Stream<List<LanSecretTransferRequest>> get requests =>
       _requestController.stream;
+
+  Future<void> close() => _closeFuture ??= _close();
+
+  Future<void> _close() async {
+    _grants.clear();
+    _requests.clear();
+    await _requestController.close();
+  }
 
   String createTransferId() {
     final random = Random.secure();
@@ -48,6 +57,7 @@ class LanSecretTransferService {
     Duration validity = grantValidity,
     DateTime? now,
   }) {
+    if (_closeFuture != null) return;
     _validateAuthorization(peerDeviceId, transferId, direction, validity);
     _grants[_key(peerDeviceId, transferId, direction)] = (now ?? DateTime.now())
         .toUtc()
@@ -63,6 +73,7 @@ class LanSecretTransferService {
     Duration validity = grantValidity,
     DateTime? now,
   }) {
+    if (_closeFuture != null) return;
     _validateAuthorization(peerDeviceId, transferId, direction, validity);
     final request = LanSecretTransferRequest(
       peerDeviceId: peerDeviceId,
@@ -80,6 +91,7 @@ class LanSecretTransferService {
     required String direction,
     DateTime? now,
   }) {
+    if (_closeFuture != null) return false;
     final expiry = _grants[_key(peerDeviceId, transferId, direction)];
     return expiry != null && expiry.isAfter((now ?? DateTime.now()).toUtc());
   }
@@ -90,6 +102,7 @@ class LanSecretTransferService {
     required String direction,
     DateTime? now,
   }) {
+    if (_closeFuture != null) return false;
     final key = _key(peerDeviceId, transferId, direction);
     final expiry = _grants.remove(key);
     return expiry != null && expiry.isAfter((now ?? DateTime.now()).toUtc());
@@ -135,6 +148,7 @@ class LanSecretTransferService {
   }
 
   void reject(LanSecretTransferRequest request) {
+    if (_closeFuture != null) return;
     _requests.remove(
       _key(request.peerDeviceId, request.transferId, request.direction),
     );
@@ -160,6 +174,7 @@ class LanSecretTransferService {
       '$peerDeviceId\x00$transferId\x00$direction';
 
   void _emitRequests([DateTime? now]) {
+    if (_closeFuture != null) return;
     final clock = (now ?? DateTime.now()).toUtc();
     _requests.removeWhere((_, request) => !request.expiresAt.isAfter(clock));
     _requestController.add(List.unmodifiable(_requests.values));

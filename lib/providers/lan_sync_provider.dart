@@ -18,16 +18,19 @@ class LanSyncProvider extends ChangeNotifier {
        _peerRepository = peerRepository,
        _mdnsService = mdnsService {
     _discoverySubscription = _mdnsService.peers.listen((peers) {
+      if (_disposed) return;
       _discoveredPeers = peers;
       notifyListeners();
     });
     _secretRequestSubscription = _coordinator.secretTransferService.requests
         .listen((requests) {
+          if (_disposed) return;
           _secretRequests = requests;
           notifyListeners();
         });
   }
 
+  // This provider owns the coordinator created for it in main.dart.
   final LanSyncCoordinator _coordinator;
   final LanPeerRepository _peerRepository;
   final LanMdnsService _mdnsService;
@@ -43,6 +46,7 @@ class LanSyncProvider extends ChangeNotifier {
   String? _notice;
   DateTime? _lastSyncAt;
   List<LanSecretTransferRequest> _secretRequests = const [];
+  bool _disposed = false;
 
   List<LanPeer> get peers => _peers;
   List<LanDiscoveredPeer> get discoveredPeers => _discoveredPeers;
@@ -59,7 +63,7 @@ class LanSyncProvider extends ChangeNotifier {
 
   Future<void> initialize() async {
     _peers = await _peerRepository.loadPeers();
-    notifyListeners();
+    if (!_disposed) notifyListeners();
   }
 
   Future<String?> showPairingQr() => _runResult(() async {
@@ -138,17 +142,18 @@ class LanSyncProvider extends ChangeNotifier {
   });
 
   Future<void> _run(Future<void> Function() action) async {
+    if (_disposed) return;
     _busy = true;
     _error = null;
     _notice = null;
-    notifyListeners();
+    if (!_disposed) notifyListeners();
     try {
       await action();
     } catch (error) {
       _error = '$error';
     } finally {
       _busy = false;
-      notifyListeners();
+      if (!_disposed) notifyListeners();
     }
   }
 
@@ -160,9 +165,11 @@ class LanSyncProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
     unawaited(_discoverySubscription?.cancel());
     unawaited(_secretRequestSubscription?.cancel());
-    unawaited(_coordinator.stopHost());
+    unawaited(_coordinator.close());
     super.dispose();
   }
 }

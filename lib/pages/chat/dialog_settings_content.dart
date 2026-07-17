@@ -902,7 +902,10 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
               ),
               onTap: () {
                 _updateSettings(
-                  _settings.copyWith(selectedSystemPromptId: p.id),
+                  _settings.copyWith(
+                    selectedSystemPromptId: p.id,
+                    systemPrompt: p.content,
+                  ),
                 );
                 _closeSystemPromptList();
               },
@@ -1215,7 +1218,12 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
             title,
             content,
           );
-          _updateSettings(_settings.copyWith(selectedSystemPromptId: id));
+          _updateSettings(
+            _settings.copyWith(
+              selectedSystemPromptId: id,
+              systemPrompt: content,
+            ),
+          );
         },
       ),
     );

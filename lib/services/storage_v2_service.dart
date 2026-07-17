@@ -749,7 +749,7 @@ class StorageV2NotePage {
       fileName: json['fileName'] as String? ?? '',
       relativePath: json['relativePath'] as String,
       currentRevisionId: json['currentRevisionId'] as String?,
-      sortOrder: json['sortOrder'] as int? ?? 0,
+      sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: DateTime.parse(json['updatedAt'] as String),
     );
@@ -802,7 +802,7 @@ class StorageV2Resource {
       originalName: json['originalName'] as String? ?? 'file',
       relativePath: json['relativePath'] as String?,
       mimeType: json['mimeType'] as String? ?? 'application/octet-stream',
-      size: json['size'] as int? ?? 0,
+      size: (json['size'] as num?)?.toInt() ?? 0,
       sha256Hash: json['sha256'] as String?,
       missing: json['missing'] as bool? ?? false,
     );

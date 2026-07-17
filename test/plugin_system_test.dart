@@ -1523,6 +1523,38 @@ end
     }
   });
 
+  test('PluginRepository imports a ZIP with one wrapping directory', () async {
+    final installedRoot = await Directory.systemTemp.createTemp(
+      'lynai_zip_wrapper_root_',
+    );
+    try {
+      final archive = Archive()
+        ..addFile(
+          ArchiveFile.string(
+            'wrapped/plugin.json',
+            jsonEncode({
+              'id': 'wrapped_plugin',
+              'name': 'Wrapped Plugin',
+              'entry': 'main.lua',
+            }),
+          ),
+        )
+        ..addFile(ArchiveFile.string('wrapped/main.lua', 'wrapped content'));
+
+      final installed = await PluginRepository(
+        rootOverride: installedRoot,
+      ).importZipBytes(ZipEncoder().encode(archive));
+
+      expect(installed.id, 'wrapped_plugin');
+      expect(
+        await File('${installed.path}/main.lua').readAsString(),
+        'wrapped content',
+      );
+    } finally {
+      await installedRoot.delete(recursive: true);
+    }
+  });
+
   test('PluginRepository rejects a highly compressed ZIP bomb', () async {
     final installedRoot = await Directory.systemTemp.createTemp(
       'lynai_zip_bomb_root_',

@@ -253,6 +253,21 @@ void main() {
     },
   );
 
+  test(
+    'SettingsProvider keeps an empty default backend unconfigured',
+    () async {
+      final repository = MemorySettingsRepository();
+      final provider = SettingsProvider(repository: repository);
+      await provider.loadSettings();
+
+      await provider.initializeDefaultBackend('');
+
+      expect(provider.settings.backendUrl, isNull);
+      expect(provider.settings.hasConfiguredBackend, isFalse);
+      expect(repository.savedSettings, isNull);
+    },
+  );
+
   test('floating assistant settings default positions are -1', () {
     const settings = FloatingAssistantSettings();
     final restored = FloatingAssistantSettings.fromJson(settings.toJson());

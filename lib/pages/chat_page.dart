@@ -124,6 +124,7 @@ enum _PreviewImageAction { save, copyImage, share, close }
 /// 写入 [ConversationProvider]，外部 API 协议交给 [ApiService]。
 class ChatPage extends StatefulWidget {
   final String? conversationId;
+  final ApiService? api;
   final int roleChangeSerial;
   final bool active;
   final VoidCallback? onConversationLoaded;
@@ -133,6 +134,7 @@ class ChatPage extends StatefulWidget {
   const ChatPage({
     super.key,
     this.conversationId,
+    this.api,
     this.roleChangeSerial = 0,
     this.active = true,
     this.onConversationLoaded,
@@ -166,6 +168,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   final _audioRecorder = AudioRecorder();
   final _attachmentStorage = const AttachmentStorageService();
   late final ApiService _api;
+  late final bool _ownsApi;
   late final ModelRecognitionService _recognition;
   final _streamDraft = ValueNotifier<_StreamDraft>(const _StreamDraft());
   final _inputRevision = ValueNotifier<int>(0);
@@ -238,14 +241,15 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     final backend = context.read<BackendClient>();
-    _api = ApiService(backend: backend);
+    _ownsApi = widget.api == null;
+    _api = widget.api ?? ApiService(backend: backend);
     _recognition = ModelRecognitionService(api: _api);
     WidgetsBinding.instance.addObserver(this);
     _searchCtrl.addListener(_refreshSearchMatches);
     _speech = stt.SpeechToText();
     if (widget.conversationId != null) {
       _convId = widget.conversationId;
-      _applyConversationSettings(widget.conversationId!, notifyNow: false);
+      _applyConversationSettings(widget.conversationId!);
       widget.onConversationLoaded?.call();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -288,7 +292,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         _clearPendingState();
         _clearRetryState();
       });
-      _applyConversationSettings(widget.conversationId!, notifyNow: false);
+      _applyConversationSettings(widget.conversationId!);
       widget.onConversationLoaded?.call();
       _closeSearch();
       _scheduleJumpToBottom(unfocusInput: true, waitForStableLayout: true);
@@ -329,11 +333,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     );
   }
 
-  // 将对话框设置（模型、思维链、系统提示词等）同步到全局设置提供器。
-  void _applyConversationSettings(
-    String conversationId, {
-    bool notifyNow = true,
-  }) {
+  void _applyConversationSettings(String conversationId) {
     final conv = context.read<ConversationProvider>().getConversation(
       conversationId,
     );
@@ -341,17 +341,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _draftSettings = null;
     _thinking = conv.settings.thinking;
     _agentEnabled = conv.settings.agentEnabled;
-    final settings = conv.settings;
-    void apply() {
-      if (!mounted) return;
-      context.read<SettingsProvider>().applyConversationSettings(settings);
-    }
-
-    if (notifyNow) {
-      apply();
-    } else {
-      WidgetsBinding.instance.addPostFrameCallback((_) => apply());
-    }
   }
 
   @override
@@ -376,7 +365,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _scrollCtrl.dispose();
     _focusNode.dispose();
     _searchFocusNode.dispose();
-    _api.dispose();
+    if (_ownsApi) _api.dispose();
     _recognition.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -1003,13 +992,14 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       );
     }
     final set = context.read<SettingsProvider>().settings;
+    final prompt = context.read<SettingsProvider>().effectiveSystemPrompt;
     return ConversationSettings(
       modelId: model.id,
       modelName: model.modelName,
       thinking: _thinking,
       agentEnabled: _agentEnabled,
       selectedSystemPromptId: set.selectedSystemPromptId,
-      systemPrompt: set.systemPrompt,
+      systemPrompt: prompt,
       speechModelId: set.speechModelId,
       imageModelId: set.imageModelId,
       imageOcrEnabled: set.imageOcrEnabled,
@@ -1024,7 +1014,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   void _saveDraftSettings(ConversationSettings settings) {
     _draftSettings = settings;
     _agentEnabled = settings.agentEnabled;
-    context.read<SettingsProvider>().applyConversationSettings(settings);
   }
 
   void _saveConversationSettings(ConversationSettings settings) {
@@ -1038,7 +1027,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       _saveDraftSettings(settings);
       return;
     }
-    context.read<SettingsProvider>().applyConversationSettings(settings);
   }
 
   ConversationSettings? _activeSettings() {
@@ -1219,12 +1207,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     bool enableTools = false,
   }) {
     final msgs = <Map<String, dynamic>>[];
-    final promptContent = conv.settings.selectedSystemPromptId != null
-        ? context.read<SettingsProvider>().effectiveSystemPromptFor(
-            conv.settings.selectedSystemPromptId,
-            conv.settings.systemPrompt,
-          )
-        : conv.settings.systemPrompt;
+    final promptContent = conv.settings.systemPrompt;
     final toolPrompt = conv.settings.agentEnabled
         ? '${ToolCallService.nativeSystemPrompt}\n\n${ToolCallService.agentSystemPromptWithSkills(context.read<PluginProvider>().plugins)}'
         : ToolCallService.nativeSystemPrompt;
@@ -1375,6 +1358,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     required String? priorThink,
   }) {
     if (!mounted) return;
+    if (depth == ToolCallService.maxToolRounds) {
+      working.add({
+        'role': 'system',
+        'content': '工具调用已达到上限。不要再调用工具，请基于已有文本和工具结果直接给出最终回复。',
+      });
+    }
     final cp = context.read<ConversationProvider>();
     final streamSettings = cp.getConversation(cid)?.settings;
     final gen = ++_streamGen;
@@ -1429,6 +1418,22 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       final currentThink = thinkBuf.isNotEmpty ? thinkBuf : null;
       final think = _joinThinking(priorThink, currentThink);
       if (toolCalls.isNotEmpty && allowTools) {
+        if (depth >= ToolCallService.maxToolRounds) {
+          final content = ToolCallService.toolRoundLimitMessage(buf);
+          _shouldUpdateStreamUi(force: true);
+          setState(() {
+            _setStreaming(false);
+            _thinkingTxt = think;
+          });
+          cp.updateLastMessage(
+            cid,
+            content,
+            thinkingContent: think,
+            save: true,
+          );
+          _scrollEnd();
+          return;
+        }
         final toolService = ToolCallService(
           context.read<FeatureProvider>(),
           plugins: context.read<PluginProvider>(),
@@ -2356,14 +2361,15 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   }
 
   ConversationSettings _settingsToConversationSettings() {
-    final settings = context.read<SettingsProvider>().settings;
+    final settingsProvider = context.read<SettingsProvider>();
+    final settings = settingsProvider.settings;
     final model = _getModel(context.read<ModelConfigProvider>());
     return ConversationSettings(
       modelId: model?.id ?? settings.lastChatModelId ?? '',
       modelName: model?.modelName,
       thinking: _thinking,
       selectedSystemPromptId: settings.selectedSystemPromptId,
-      systemPrompt: settings.systemPrompt,
+      systemPrompt: settingsProvider.effectiveSystemPrompt,
       speechModelId: settings.speechModelId,
       imageModelId: settings.imageModelId,
       imageOcrEnabled: settings.imageOcrEnabled,

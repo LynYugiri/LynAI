@@ -18,6 +18,7 @@ class ModelConfigProvider extends ChangeNotifier {
   List<ModelConfig> _models = [];
   final _uuid = const Uuid();
   Future<void> _saveQueue = Future.value();
+  Future<void> _pendingSave = Future.value();
   final ModelConfigRepository _repository;
   bool _usingStorageV2 = false;
 
@@ -36,12 +37,11 @@ class ModelConfigProvider extends ChangeNotifier {
   List<ModelConfig> get models => List.unmodifiable(_models);
   bool get usingStorageV2 => _usingStorageV2;
 
-  Future<void> flushPendingSaves() => _saveQueue;
+  Future<void> flushPendingSaves() => _pendingSave;
 
   Future<void> replaceModels(List<ModelConfig> models) async {
     _models = List<ModelConfig>.from(models)..sort(_compareModels);
-    _queueSaveModels();
-    await _saveQueue;
+    await _queueSaveModels();
     notifyListeners();
   }
 
@@ -72,30 +72,23 @@ class ModelConfigProvider extends ChangeNotifier {
 
   /// 从本地 repository 加载模型配置，单条坏配置会被跳过。
   Future<void> loadModels() async {
-    try {
-      final result = await _repository.load();
-      _models = List<ModelConfig>.from(result.models)..sort(_compareModels);
-      _usingStorageV2 = result.usingStorageV2;
-      notifyListeners();
-    } catch (e) {
-      debugPrint('加载模型配置失败: $e');
-      _models = [];
-      notifyListeners();
-    }
+    final result = await _repository.load();
+    _models = List<ModelConfig>.from(result.models)..sort(_compareModels);
+    _usingStorageV2 = result.usingStorageV2;
+    notifyListeners();
   }
 
   /// 把当前模型配置快照排入保存队列。
-  void _queueSaveModels() {
+  Future<void> _queueSaveModels() {
     final snapshot = List<ModelConfig>.from(_models);
-    _saveQueue = _saveQueue.then((_) => _saveModelsSnapshot(snapshot));
-  }
-
-  Future<void> _saveModelsSnapshot(List<ModelConfig> snapshot) async {
-    try {
-      await _repository.save(snapshot, usingStorageV2: _usingStorageV2);
-    } catch (e) {
-      debugPrint('保存模型配置失败: $e');
-    }
+    final operation = _saveQueue.then(
+      (_) => _repository.save(snapshot, usingStorageV2: _usingStorageV2),
+    );
+    _pendingSave = operation;
+    _saveQueue = operation.catchError((Object error) {
+      debugPrint('保存模型配置失败: $error');
+    });
+    return operation;
   }
 
   /// 添加一个模型配置并按分类优先级重新排序。
@@ -247,21 +240,6 @@ class ModelConfigProvider extends ChangeNotifier {
     if (_models.length == before) return;
     _queueSaveModels();
     await _saveQueue;
-    notifyListeners();
-  }
-
-  /// 调整模型优先级（上移或下移）
-  void reorderModel(int oldIndex, int newIndex) {
-    if (oldIndex < 0 || oldIndex >= _models.length) return;
-    if (newIndex < 0 || newIndex >= _models.length) return;
-    if (oldIndex == newIndex) return;
-    final item = _models.removeAt(oldIndex);
-    _models.insert(newIndex, item);
-    // 更新所有模型的 priority
-    for (int i = 0; i < _models.length; i++) {
-      _models[i] = _models[i].copyWith(priority: i);
-    }
-    _queueSaveModels();
     notifyListeners();
   }
 

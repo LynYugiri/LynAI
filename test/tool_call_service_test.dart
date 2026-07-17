@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -6,6 +7,7 @@ import 'package:lynai/models/agent_trace.dart';
 import 'package:lynai/models/app_settings.dart';
 import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/message.dart';
+import 'package:lynai/models/model_config.dart';
 import 'package:lynai/models/plugin.dart';
 import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
@@ -852,4 +854,91 @@ return {
       }
     },
   );
+
+  test('tool round limit message preserves existing assistant text', () {
+    expect(ToolCallService.maxToolRounds, 12);
+    expect(
+      ToolCallService.toolRoundLimitMessage('partial answer'),
+      allOf(contains('partial answer'), contains('12 轮上限')),
+    );
+  });
+
+  test('Subagent stops consecutive tool calls at the shared limit', () async {
+    SharedPreferences.setMockInitialValues({});
+    await HttpOverrides.runZoned(() async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      var requests = 0;
+      unawaited(() async {
+        await for (final request in server) {
+          requests++;
+          await utf8.decoder.bind(request).join();
+          request.response.headers.contentType = ContentType.json;
+          request.response.write(
+            jsonEncode({
+              'choices': [
+                {
+                  'message': {
+                    'role': 'assistant',
+                    'content': 'working $requests',
+                    'tool_calls': [
+                      {
+                        'id': 'call_$requests',
+                        'type': 'function',
+                        'function': {
+                          'name': 'get_current_time',
+                          'arguments': '{}',
+                        },
+                      },
+                    ],
+                  },
+                },
+              ],
+            }),
+          );
+          await request.response.close();
+        }
+      }());
+
+      try {
+        final conversations = memoryConversationProvider();
+        final cid = conversations.createConversation(
+          ConversationSettings(modelId: 'm1', agentEnabled: true),
+        );
+        conversations.addMessage(cid, 'assistant', '', save: false);
+        final models = memoryModelConfigProvider()
+          ..addModel(
+            ModelConfig(
+              id: 'm1',
+              name: 'test',
+              endpoint: 'http://${server.address.host}:${server.port}',
+              apiKey: '',
+              modelName: 'model',
+              apiType: 'openai',
+              priority: 0,
+            ),
+          );
+        final service = ToolCallService(
+          FeatureProvider(),
+          modelConfigs: models,
+          conversations: conversations,
+          conversationId: cid,
+        );
+
+        final result = await service.execute(
+          const ChatToolCall(
+            id: 'subagent',
+            name: 'run_subagent',
+            arguments: {'task': 'keep calling tools'},
+          ),
+          const [],
+        );
+
+        expect(result['ok'], isFalse);
+        expect((result['error'] as Map)['code'], 'tool_round_limit_reached');
+        expect(requests, ToolCallService.maxToolRounds + 1);
+      } finally {
+        await server.close(force: true);
+      }
+    }, createHttpClient: _RealHttpOverrides().createHttpClient);
+  });
 }

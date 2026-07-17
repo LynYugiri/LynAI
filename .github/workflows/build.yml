@@ -43,17 +43,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Require HTTPS for stable releases
+      - name: Reject insecure stable backend defaults
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           python3 - <<'PY'
           import pathlib
-          import re
 
           source = pathlib.Path('lib/services/backend_client.dart').read_text()
-          match = re.search(r"defaultBackendUrl\s*=\s*'([^']+)'", source)
-          if match is None or not match.group(1).startswith('https://'):
-              raise SystemExit('Stable releases require an HTTPS defaultBackendUrl')
+          if "String.fromEnvironment('LYNAI_BACKEND_URL'" not in source:
+              raise SystemExit('Stable releases must source the backend URL from LYNAI_BACKEND_URL')
+          if "defaultValue: ''" not in source:
+              raise SystemExit('Stable releases must remain unconfigured without LYNAI_BACKEND_URL')
+          if 'http://' in source:
+              raise SystemExit('Stable releases must not contain a hard-coded HTTP backend URL')
           PY
 
   build-android:
@@ -232,28 +234,7 @@ jobs:
           channel: stable
       - run: flutter pub get
       - name: Patch speech_to_text Swift package
-        run: |
-          ruby <<'RUBY'
-          package_path = Dir[File.join(Dir.home, '.pub-cache/hosted/pub.dev/speech_to_text-*/darwin/speech_to_text/Package.swift')].first
-          abort('speech_to_text Package.swift not found') unless package_path
-
-          package_source = File.read(package_path)
-          package_patched = package_source.sub('.macOS("10.14")', '.macOS("10.15")')
-          abort('speech_to_text Package.swift patch did not match') if package_patched == package_source
-          File.write(package_path, package_patched)
-
-          swift_path = Dir[File.join(Dir.home, '.pub-cache/hosted/pub.dev/speech_to_text-*/darwin/speech_to_text/Sources/speech_to_text/SpeechToTextPlugin.swift')].first
-          abort('speech_to_text Swift source not found') unless swift_path
-
-          source = File.read(swift_path)
-          patched = source.sub(
-            /var\s+localeStr:\s*String\?\s*=\s*nil\s*\n\s*if\s+let\s+localeParam\s*=\s*argsArr\["localeId"\]\s+as\?\s+String\s*\{\s*\n\s*localeStr\s*=\s*localeParam\s*\n\s*\}/,
-            'let localeStr = argsArr["localeId"] as? String'
-          )
-
-          abort('speech_to_text Swift source patch did not match') if patched == source
-          File.write(swift_path, patched)
-          RUBY
+        run: ruby scripts/patch-speech-to-text.rb
       - name: Build macOS app
         run: flutter build macos --release
       - name: Package artifact
@@ -276,6 +257,8 @@ jobs:
         with:
           channel: stable
       - run: flutter pub get
+      - name: Patch speech_to_text Swift package
+        run: ruby scripts/patch-speech-to-text.rb
       - run: flutter build ios --release --no-codesign
 
   pre-release:

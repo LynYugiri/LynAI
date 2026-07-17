@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 import '../models/model_config.dart';
 import '../models/ocr_text_block.dart';
 import 'backend_client.dart';
+import 'sse_decoder.dart';
 import 'tool_call_service.dart';
 
 /// 发送给模型前的附件输入。
@@ -1240,6 +1241,9 @@ class ApiService {
 
     if (response.statusCode == 200) {
       final data = jsonDecode(utf8.decode(response.bodyBytes));
+      if (data is! Map) {
+        throw Exception('OpenAI API 返回的顶层 JSON 必须是 object');
+      }
       final choices = data['choices'] as List?;
       if (choices == null || choices.isEmpty) {
         throw Exception('API 返回空的 choices');
@@ -1343,13 +1347,13 @@ class ApiService {
     await for (final chunk
         in streamedResponse.stream
             .transform(utf8.decoder)
-            .transform(const LineSplitter())
+            .transform(const SseDecoder())
             .timeout(_streamTimeout)) {
       if (logSse) {
-        _logSseDiagnostic('raw-chunk', chunk);
+        _logSseDiagnostic('raw-event', chunk.data);
       }
-      if (chunk.startsWith('data:')) {
-        final data = chunk.substring(5).trim();
+      final data = chunk.data.trim();
+      if (data.isNotEmpty) {
         if (data == '[DONE]') {
           doneEmitted = true;
           final finalizedToolCalls = _finalizeOpenAIToolCalls(toolCallParts);
@@ -1367,7 +1371,10 @@ class ApiService {
         Object? finishReason;
         try {
           final json = jsonDecode(data);
-          if (json is Map && json['error'] != null) {
+          if (json is! Map) {
+            throw Exception('OpenAI SSE 返回的顶层 JSON 必须是 object');
+          }
+          if (json['error'] != null) {
             if (logSse) {
               _logSseDiagnostic('api-error', jsonEncode(json['error']));
             }
@@ -1721,6 +1728,9 @@ class ApiService {
       if (chunk.trim().isEmpty) continue;
       try {
         final json = jsonDecode(chunk);
+        if (json is! Map) {
+          throw Exception('Ollama 流式返回的顶层 JSON 必须是 object');
+        }
         final error = json['error'];
         if (error != null) throw Exception('Ollama 流式返回错误: $error');
         final rawContent = json['message']?['content'] as String?;
@@ -1801,13 +1811,15 @@ class ApiService {
     await for (final chunk
         in streamedResponse.stream
             .transform(utf8.decoder)
-            .transform(const LineSplitter())
+            .transform(const SseDecoder())
             .timeout(_streamTimeout)) {
-      // Anthropic SSE format: "event: <type>\ndata: <json>"
-      if (chunk.startsWith('data:')) {
-        final data = chunk.substring(5).trim();
+      final data = chunk.data.trim();
+      if (data.isNotEmpty) {
         try {
           final json = jsonDecode(data);
+          if (json is! Map) {
+            throw Exception('Anthropic SSE 返回的顶层 JSON 必须是 object');
+          }
           final type = json['type'] as String?;
           if (type == 'error') {
             throw Exception(_formatApiError(json['error']));
@@ -1876,7 +1888,10 @@ class ApiService {
 
     if (response.statusCode == 200) {
       final data = jsonDecode(utf8.decode(response.bodyBytes));
-      if (data is Map && data['error'] != null) {
+      if (data is! Map) {
+        throw Exception('Anthropic API 返回的顶层 JSON 必须是 object');
+      }
+      if (data['error'] != null) {
         throw Exception(_formatApiError(data['error']));
       }
       String content = '';

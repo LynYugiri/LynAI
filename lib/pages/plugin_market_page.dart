@@ -28,7 +28,9 @@ import 'my_submissions_page.dart';
 /// 市场分段显示空态文案与「从 ZIP 导入」入口；已安装分段直接读取
 /// [PluginProvider.plugins]，用户可在此删除快照或第三方插件。
 class PluginMarketPage extends StatefulWidget {
-  const PluginMarketPage({super.key});
+  const PluginMarketPage({super.key, this.marketService});
+
+  final MarketService? marketService;
 
   @override
   State<PluginMarketPage> createState() => _PluginMarketPageState();
@@ -54,6 +56,7 @@ class _PluginMarketPageState extends State<PluginMarketPage>
 
   /// 根据后端连接状态返回对应的 MarketService。
   MarketService _marketService(BuildContext context) {
+    if (widget.marketService case final service?) return service;
     final backend = context.read<BackendClient>();
     if (backend.isConnected) {
       return RemoteMarketService(backend);
@@ -139,6 +142,9 @@ class _MarketTab extends StatefulWidget {
 class _MarketTabState extends State<_MarketTab> {
   List<MarketPluginEntry> _entries = const [];
   bool _loading = false;
+  bool _loadingMore = false;
+  bool _hasMore = false;
+  int _page = 1;
   String? _error;
   String _query = '';
 
@@ -157,33 +163,55 @@ class _MarketTabState extends State<_MarketTab> {
     }
   }
 
-  Future<void> _loadEntries() async {
+  Future<void> _loadEntries({bool loadMore = false}) async {
     if (!widget.marketService.isBackendConnected) {
       setState(() {
         _entries = const [];
         _error = null;
         _loading = false;
+        _loadingMore = false;
+        _hasMore = false;
+        _page = 1;
       });
       return;
     }
+    if (loadMore && (!_hasMore || _loadingMore || _loading)) return;
     setState(() {
-      _loading = true;
+      if (loadMore) {
+        _loadingMore = true;
+      } else {
+        _loading = true;
+        _page = 1;
+      }
       _error = null;
     });
     try {
+      final page = loadMore ? _page + 1 : 1;
       final result = await widget.marketService.listPlugins(
-        MarketQuery(query: _query),
+        MarketQuery(query: _query, page: page),
       );
       if (!mounted) return;
       setState(() {
-        _entries = result.entries;
+        if (loadMore) {
+          final entriesById = {for (final entry in _entries) entry.id: entry};
+          for (final entry in result.entries) {
+            entriesById[entry.id] = entry;
+          }
+          _entries = entriesById.values.toList(growable: false);
+        } else {
+          _entries = result.entries;
+        }
+        _page = page;
+        _hasMore = result.hasMore;
         _loading = false;
+        _loadingMore = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _error = e.toString();
         _loading = false;
+        _loadingMore = false;
       });
     }
   }
@@ -225,8 +253,21 @@ class _MarketTabState extends State<_MarketTab> {
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.symmetric(horizontal: 12),
-              itemCount: _entries.length,
+              itemCount: _entries.length + (_hasMore ? 1 : 0),
               itemBuilder: (context, index) {
+                if (index == _entries.length) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Center(
+                      child: OutlinedButton(
+                        onPressed: _loadingMore
+                            ? null
+                            : () => _loadEntries(loadMore: true),
+                        child: Text(_loadingMore ? '加载中…' : '加载更多'),
+                      ),
+                    ),
+                  );
+                }
                 final entry = _entries[index];
                 return _MarketPluginCard(
                   entry: entry,
