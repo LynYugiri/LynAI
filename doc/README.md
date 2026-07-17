@@ -119,9 +119,9 @@ flutter test --no-pub
 
 ## CI 与平台构建
 
-CI 在 Flutter stable 上先执行质量门禁，再构建 Android split APK、Linux Debian/Arch 包、Windows x64 ZIP，以及 macOS x64/arm64 和未签名 iOS 产物。Linux 构建机需要 GTK、WebKitGTK、libsecret、xz 和 zstd 相关依赖；Android OCR 构建会先获取 ncnn、opencv-mobile 和 PPOCRv5 资源。
+CI 在 Flutter stable 上先执行质量门禁，再构建 Android split APK、Linux Debian/Arch 包、Windows x64 ZIP，以及 macOS x64/arm64 产物。Linux 构建机需要 GTK、WebKitGTK、libsecret、xz 和 zstd 相关依赖；Android OCR 构建会先获取 ncnn、opencv-mobile 和 PPOCRv5 资源。iOS 工程继续保留，但暂不进入发布构建矩阵。
 
-macOS 和 iOS release 构建在 `flutter pub get` 后、`flutter build` 前必须执行 `ruby scripts/patch-speech-to-text.rb`，修补当前 `speech_to_text` pub-cache Swift package。CI 已包含该步骤，本地 Apple 平台 release 构建遇到对应 Swift 包问题时应遵循同一顺序。
+macOS release 构建在 `flutter pub get` 后、`flutter build` 前必须执行 `ruby scripts/patch-speech-to-text.rb`，修补当前 `speech_to_text` pub-cache Swift package。CI 已包含该步骤，本地 macOS release 构建遇到对应 Swift 包问题时应遵循同一顺序。
 
 - LAN pairing and point-to-point sync are available without a cloud account and
   synchronize the installation-local dataset rather than an individual cloud

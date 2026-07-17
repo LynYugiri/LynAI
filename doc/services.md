@@ -517,7 +517,7 @@ and macOS builds separate x64 and arm64 artifacts. Linux builders install the GT
 WebKit, libsecret, xz, and zstd development/runtime dependencies used by packaging.
 
 The current `speech_to_text` Swift package needs the repository patch script
-after `flutter pub get` and before both macOS and unsigned iOS release builds:
+after `flutter pub get` and before macOS release builds:
 `ruby scripts/patch-speech-to-text.rb`. CI performs this step explicitly; local
 Apple-platform release builds should use the same order if the pub-cache package
 has not already been patched.
