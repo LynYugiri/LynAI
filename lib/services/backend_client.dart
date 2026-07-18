@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 import 'backend_uri.dart';
 
@@ -223,6 +224,68 @@ class BackendClient extends ChangeNotifier {
         body: body is Map || body is List ? jsonEncode(body) : body,
       ),
     );
+  }
+
+  /// Sends a replay-safe JSON PUT request and retries once after token refresh.
+  Future<http.Response> put(
+    String path, {
+    Map<String, String>? headers,
+    Object? body,
+  }) => _jsonRequest('PUT', path, headers: headers, body: body);
+
+  /// Sends a replay-safe JSON PATCH request and retries once after token refresh.
+  Future<http.Response> patch(
+    String path, {
+    Map<String, String>? headers,
+    Object? body,
+  }) => _jsonRequest('PATCH', path, headers: headers, body: body);
+
+  /// Sends a replay-safe JSON DELETE request and retries once after token refresh.
+  Future<http.Response> delete(
+    String path, {
+    Map<String, String>? headers,
+    Object? body,
+  }) => _jsonRequest('DELETE', path, headers: headers, body: body);
+
+  Future<http.Response> _jsonRequest(
+    String method,
+    String path, {
+    Map<String, String>? headers,
+    Object? body,
+  }) {
+    final requestHeaders = Map<String, String>.from(headers ?? const {});
+    requestHeaders['Content-Type'] = 'application/json';
+    final encoded = body is Map || body is List ? jsonEncode(body) : body;
+    return _request(
+      () => _httpClient
+          .send(
+            http.Request(method, Uri.parse('$_backendUrl$path'))
+              ..headers.addAll(_withAuth(requestHeaders))
+              ..body = encoded?.toString() ?? '',
+          )
+          .then(http.Response.fromStream),
+    );
+  }
+
+  /// Uploads replayable in-memory multipart data with automatic token refresh.
+  Future<http.Response> multipartUpload(
+    String path, {
+    String method = 'POST',
+    Map<String, String> fields = const {},
+    List<BackendMultipartFile> files = const [],
+    Duration? timeout,
+  }) async {
+    final streamed = await sendAuthenticatedStreamed(() {
+      final request = http.MultipartRequest(
+        method,
+        Uri.parse('$_backendUrl$path'),
+      )..fields.addAll(fields);
+      for (final file in files) {
+        request.files.add(file.toHttpFile());
+      }
+      return request;
+    }, timeout: timeout);
+    return http.Response.fromStream(streamed);
   }
 
   /// 发送原始 POST 请求，不修改 Content-Type，不 JSON 编码 body。
@@ -492,6 +555,30 @@ class BackendResponseTooLargeException implements Exception {
 
   @override
   String toString() => 'Backend response exceeds $maxBytes bytes';
+}
+
+class BackendMultipartFile {
+  const BackendMultipartFile({
+    required this.field,
+    required this.bytes,
+    required this.filename,
+    this.contentType,
+  });
+
+  final String field;
+  final List<int> bytes;
+  final String filename;
+  final String? contentType;
+
+  http.MultipartFile toHttpFile() {
+    final parts = contentType?.split('/');
+    return http.MultipartFile.fromBytes(
+      field,
+      bytes,
+      filename: filename,
+      contentType: parts?.length == 2 ? MediaType(parts![0], parts[1]) : null,
+    );
+  }
 }
 
 class _BackendMultipartRequest extends http.MultipartRequest {

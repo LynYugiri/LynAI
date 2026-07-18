@@ -88,6 +88,13 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  void _openSettings() {
+    setState(() {
+      _currentTab = AppTab.settings;
+      _targetConversationId = null;
+    });
+  }
+
   void _roleChanged() {
     setState(() {
       _currentTab = AppTab.chat;
@@ -208,7 +215,10 @@ class _HomePageState extends State<HomePage> {
                 _targetConversationId = null;
               },
             ),
-            const CommunityPage(),
+            CommunityPage(
+              active: _currentTab == AppTab.community,
+              onOpenSettings: _openSettings,
+            ),
             const SettingsPage(),
           ],
         ),

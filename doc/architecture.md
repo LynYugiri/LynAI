@@ -77,6 +77,8 @@ HomePage (NavigationBar, 5 tabs)
 
 `HomePage` 使用 `IndexedStack` 保留五个主 Tab 的状态，Tab 顺序由 `AppTab` 枚举定义（feature → market → chat → community → settings）。对话生成中、功能页打开笔记详情、或设置页返回时，不会因为 Tab 切换销毁状态。`AppTab.chat` 是默认 Tab 和系统返回键的兜底目标。
 
+社区使用页面局部远程状态：`CommunityPage -> CommunityService -> BackendClient -> /community API`。它首次成为当前 Tab 时才加载，并按规范化后端作用域和账号 ID 隔离状态。社区内容由后端持久化，不属于本地 `storage_v2`，不会进入备份、云同步或局域网同步。
+
 ## 对话链路
 
 一次普通发送大致经过这些步骤：

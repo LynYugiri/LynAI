@@ -10,6 +10,12 @@
 4. 可清空字段的 `copyWith()` 使用 sentinel，区分“不更新”和“更新为 null”。
 5. 字段改名时保留旧字段 fallback，避免历史数据整体失效。
 
+## Community
+
+文件：`lib/models/community.dart`
+
+`CommunityUser`、`CommunityMedia`、`CommunityPost` 和 `CommunityComment` 描述远端社区数据；`CommunityPageResult` 表达分页结果。解析同时容忍常见 camelCase/snake_case 字段和字符串/整数 ID，模型不负责网络或页面状态。
+
 ## Message 与附件
 
 文件：`lib/models/message.dart`

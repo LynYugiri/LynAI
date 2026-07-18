@@ -8,6 +8,8 @@
 
 默认后端通过编译环境变量 `LYNAI_BACKEND_URL` 提供；未传入时保持未配置。UI 对所有 HTTP 后端显示明示风险，真实账号和生产数据必须使用可信 HTTPS 后端。
 
+`BackendClient` 为 JSON POST/PUT/PATCH/DELETE 和内存 multipart 上传提供统一 Bearer token、超时、401 刷新和重放。`RemoteCommunityService` 在 `/community` 下实现公开动态、评论、用户资料和媒体读取，以及登录后的发布、互动、收藏、资料修改和置顶操作。社区图片先上传为当前用户拥有的临时 media，再由帖子 JSON 中的有序 `mediaIds` 原子关联；客户端只渲染后端显式返回的媒体，社区 Markdown 会隐藏图片语法、危险 scheme 链接和原始 HTML 标签。
+
 同步服务只上传两个版本化配置投影：单例 `SharedSettingsV1` 和逐 Provider 的 `SyncedModelConfigV1`。前者不包含后端连接、登录/changelog、最近功能、悬浮助手、权限和本地路径；后者仅接受用户明确开启同步的非托管 Provider，并删除 API key、secure-store 引用、URL userinfo 及疑似凭证的嵌套参数。远端写入使用 storage_v2 的现有 Outbox/conflict 事务，存在本地 pending mutation 时不覆盖本地值。
 
 ## ApiService
