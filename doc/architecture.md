@@ -156,6 +156,14 @@ storage_v2 中的资源注册表使用 content-addressed blob 路径。对话附
 
 工具可读取或修改日程、笔记、待办，也可以调用 Android 平台能力。工具能力应只在可信模型和可信对话中启用。
 
+## Android 悬浮助手
+
+悬浮助手保持三个独立运行边界：`FloatingChatSessionController` 管理聊天流，`FloatingTranslationController` 管理屏幕翻译批次，`DeviceRunController` 管理 Agent 设备任务。原生 `FloatingAssistantOverlay` 只负责悬浮球和 Chat/Translation/Agent 三模式面板。
+
+屏幕翻译走 `ScreenTranslationPipeline`：原生暂时隐藏 LynAI 窗口、Accessibility 截图、Bitmap 直接进入 PPOCRv5、视觉文本分组、Dart 调模型翻译、单个透明 `TranslationOverlayView` Canvas 原位绘制。翻译不读取无障碍节点树，也不维护跨屏缓存；当前 scene 随滚动平移，自动模式在停止滚动 600ms 后重新处理当前屏幕。
+
+Agent 页面理解仍使用无障碍节点树，但选择最上层外部应用窗口并排除 LynAI 自身窗口。注入手势期间气泡和面板临时不可触摸；用户操作悬浮窗本身不会被误判为接管目标应用。
+
 Agent 手机自动化优先用 `lynai.device.*`、`device.screen.query` 和 `device.node.findAll` 精确筛选节点，同一应用内的确定性多步骤操作优先合并到一次 `execute_lua` 中线性编排。读屏、消息提取和节点查询只需要 `device:screen:read`，点击、输入、滚动、打开应用等动作需要 `device:control`。QQ/消息应用上下文优先从无障碍节点提取可见文本，截图 base64 只作为 OCR/识图输入，模型可见 tool result 会剥离二进制内容。内置 `mobile-agent-skills` 共 15 个 Skill，覆盖 Android 无障碍原语、消息应用通用流程、QQ/微信会话、系统设置、浏览器搜索、相机 OCR 扫描、通讯录与电话、时钟闹钟、地图导航、系统分享、解题与研究、笔记方法论、对话沉淀到知识库等场景。学习与笔记类 Skill 不走 `execute_lua`，直接由主模型调用 `notes.*`/`todos.*`/`schedules.*`/`http.fetch`/`model.ocr` 等函数。发给模型的 assistant 历史消息固定携带空 `reasoning_content`，避免真实 thinking 污染后续工具上下文。主对话和 Subagent 共用 `ToolCallService.maxToolRounds` 边界；到达边界时先要求模型基于现有结果结束，再拒绝继续执行工具，设备任务仍可通过暂停/停止机制提前中断。
 
 ## 持久化策略

@@ -6,7 +6,7 @@
 // The JNI interface in this file is licensed under GPL-3.0-or-later (LynAI).
 //
 // Inputs:  Android Bitmap + AssetManager
-// Output:  JSON string [{text, bounds, boxW, boxH, fontSize, angle, orientation, prob}, ...]
+// Output: JSON blocks with legacy bounds plus display/recognition polygons.
 
 #include <android/bitmap.h>
 #include <android/asset_manager.h>
@@ -102,9 +102,20 @@ static std::string objects_to_json(const std::vector<Object>& objects)
         if (text.empty())
             continue;
 
-        // Compute axis-aligned bounding box from rotated rect corners
+        // Detection enlarges the rectangle before recognition. Reconstruct the
+        // pre-enlargement rectangle for display while retaining the expanded
+        // recognition geometry for compatibility and diagnostics.
+        float w0 = obj.rrect.size.width / kEnlargeRatio;
+        float h0 = obj.rrect.size.height - w0 * (kEnlargeRatio - 1.f);
+        if (h0 <= 0.f) h0 = obj.rrect.size.height;
+        cv::RotatedRect display_rect = obj.rrect;
+        display_rect.size.width = w0;
+        display_rect.size.height = h0;
+
         cv::Point2f corners[4];
         obj.rrect.points(corners);
+        cv::Point2f display_corners[4];
+        display_rect.points(display_corners);
 
         float min_x = corners[0].x, max_x = corners[0].x;
         float min_y = corners[0].y, max_y = corners[0].y;
@@ -128,17 +139,17 @@ static std::string objects_to_json(const std::vector<Object>& objects)
             oss << ',';
         first = false;
 
-        // Dimensions in original-image pixel space. detect() enlarged rrect by
-        // kEnlargeRatio on both axes; reverse to recover the true text-line box.
-        // After detect()'s rotation/swap, rrect.size.width always ends up oriented
-        // along the glyph direction (perpendicular to the reading direction), and
-        // rrect.size.height along the reading direction. Enlarge multiplied width
-        // by kEnlargeRatio and added w0*(k-1) padding to height; reverse that.
-        float w0 = obj.rrect.size.width / kEnlargeRatio;
-        float h0 = obj.rrect.size.height - w0 * (kEnlargeRatio - 1.f);
-        if (h0 < 0.f) h0 = obj.rrect.size.height;
-        // w0 = glyph height (perpendicular to reading direction); used for font size.
         float glyphPx = (w0 < 0.f) ? 0.f : w0;
+
+        float display_min_x = display_corners[0].x, display_max_x = display_corners[0].x;
+        float display_min_y = display_corners[0].y, display_max_y = display_corners[0].y;
+        for (int j = 1; j < 4; j++)
+        {
+            display_min_x = std::min(display_min_x, display_corners[j].x);
+            display_max_x = std::max(display_max_x, display_corners[j].x);
+            display_min_y = std::min(display_min_y, display_corners[j].y);
+            display_max_y = std::max(display_max_y, display_corners[j].y);
+        }
 
         oss << '{';
         oss << "\"id\":\"ocr_" << i << "\",";
@@ -149,12 +160,36 @@ static std::string objects_to_json(const std::vector<Object>& objects)
         oss << "\"right\":"  << right  << ',';
         oss << "\"bottom\":" << bottom;
         oss << "},";
+        oss << "\"displayBounds\":{";
+        oss << "\"left\":" << display_min_x << ',';
+        oss << "\"top\":" << display_min_y << ',';
+        oss << "\"right\":" << display_max_x << ',';
+        oss << "\"bottom\":" << display_max_y << "},";
+        oss << "\"recognitionBounds\":{";
+        oss << "\"left\":" << min_x << ',';
+        oss << "\"top\":" << min_y << ',';
+        oss << "\"right\":" << max_x << ',';
+        oss << "\"bottom\":" << max_y << "},";
+        oss << "\"polygon\":[";
+        for (int j = 0; j < 4; j++)
+        {
+            if (j) oss << ',';
+            oss << "{\"x\":" << display_corners[j].x << ",\"y\":" << display_corners[j].y << '}';
+        }
+        oss << "],\"recognitionPolygon\":[";
+        for (int j = 0; j < 4; j++)
+        {
+            if (j) oss << ',';
+            oss << "{\"x\":" << corners[j].x << ",\"y\":" << corners[j].y << '}';
+        }
+        oss << "],";
         oss << "\"boxW\":"    << (int)(w0 + 0.5f) << ',';
         oss << "\"boxH\":"    << (int)(h0 + 0.5f) << ',';
         oss << "\"fontSize\":" << (int)(glyphPx + 0.5f) << ',';
-        oss << "\"angle\":"   << (int)(obj.rrect.angle + 0.5f) << ',';
+        oss << "\"angle\":"   << obj.rrect.angle << ',';
         oss << "\"orientation\":" << obj.orientation << ',';
-        oss << "\"prob\":" << obj.prob;
+        oss << "\"prob\":" << obj.prob << ',';
+        oss << "\"confidence\":" << obj.prob;
         oss << '}';
     }
 

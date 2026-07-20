@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
+import android.os.Handler
+import android.os.Looper
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONArray
 import org.json.JSONObject
@@ -15,6 +17,7 @@ object NcnnOcrRecognizer {
     private external fun nativeRelease()
 
     private val executor = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
     @Volatile private var loaded = false
     private val initLock = Object()
 
@@ -36,12 +39,12 @@ object NcnnOcrRecognizer {
                 val decoded = Base64.decode(imageBase64, Base64.NO_WRAP)
                 val bitmap = BitmapFactory.decodeByteArray(decoded, 0, decoded.size)
                 if (bitmap == null) {
-                    result.success(error("decode_failed", "无法解码截图"))
+                    deliver(result, error("decode_failed", "无法解码截图"))
                     return@execute
                 }
 
                 if (!loaded) {
-                    result.success(error("not_loaded", "OCR 引擎未初始化"))
+                    deliver(result, error("not_loaded", "OCR 引擎未初始化"))
                     bitmap.recycle()
                     return@execute
                 }
@@ -50,10 +53,25 @@ object NcnnOcrRecognizer {
                 bitmap.recycle()
 
                 val blocks = parseJson(json)
-                result.success(mapOf("ok" to true, "result" to blocks))
+                deliver(result, mapOf("ok" to true, "result" to blocks))
             } catch (e: Exception) {
-                result.success(error("ocr_exception", "OCR 异常: ${e.message}"))
+                deliver(result, error("ocr_exception", "OCR 异常: ${e.message}"))
             }
+        }
+    }
+
+    fun recognize(bitmap: Bitmap, callback: (Map<String, Any?>) -> Unit) {
+        executor.execute {
+            val response = try {
+                if (!loaded) {
+                    error("not_loaded", "OCR 引擎未初始化")
+                } else {
+                    mapOf("ok" to true, "result" to parseJson(nativeRecognize(bitmap)))
+                }
+            } catch (e: Exception) {
+                error("ocr_exception", "OCR 异常: ${e.message}")
+            }
+            mainHandler.post { callback(response) }
         }
     }
 
@@ -86,7 +104,8 @@ object NcnnOcrRecognizer {
             val boxW = obj.optInt("boxW", 0)
             val boxH = obj.optInt("boxH", 0)
             val fontSize = obj.optInt("fontSize", 0)
-            val angle = obj.optInt("angle", 0)
+            val angle = obj.optDouble("angle", 0.0)
+            val confidence = obj.optDouble("confidence", obj.optDouble("prob", 0.0))
 
             val boundsMap = mutableMapOf<String, Any>(
                 "left" to (bounds?.optInt("left", 0) ?: 0),
@@ -109,7 +128,13 @@ object NcnnOcrRecognizer {
                 "boxH" to boxH,
                 "fontSize" to fontSize,
                 "angle" to angle,
+                "confidence" to confidence,
+                "prob" to confidence,
             )
+            copyObject(obj, "displayBounds", block)
+            copyObject(obj, "recognitionBounds", block)
+            copyArray(obj, "polygon", block)
+            copyArray(obj, "recognitionPolygon", block)
             blocks.add(block)
         }
         return blocks
@@ -117,5 +142,27 @@ object NcnnOcrRecognizer {
 
     private fun error(code: String, message: String): Map<String, Any?> {
         return mapOf("ok" to false, "error" to mapOf("code" to code, "message" to message))
+    }
+
+    private fun copyObject(source: JSONObject, key: String, target: MutableMap<String, Any?>) {
+        val value = source.optJSONObject(key) ?: return
+        target[key] = mapOf(
+            "left" to value.optDouble("left", 0.0),
+            "top" to value.optDouble("top", 0.0),
+            "right" to value.optDouble("right", 0.0),
+            "bottom" to value.optDouble("bottom", 0.0),
+        )
+    }
+
+    private fun copyArray(source: JSONObject, key: String, target: MutableMap<String, Any?>) {
+        val value = source.optJSONArray(key) ?: return
+        target[key] = List(value.length()) { index ->
+            val point = value.optJSONObject(index)
+            mapOf("x" to (point?.optDouble("x", 0.0) ?: 0.0), "y" to (point?.optDouble("y", 0.0) ?: 0.0))
+        }
+    }
+
+    private fun deliver(result: MethodChannel.Result, value: Map<String, Any?>) {
+        mainHandler.post { result.success(value) }
     }
 }

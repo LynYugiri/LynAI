@@ -21,6 +21,8 @@ import android.provider.Settings
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -45,13 +47,13 @@ object FloatingAssistantOverlay {
     private var channel: MethodChannel? = null
     private var bubble: TextView? = null
     private var panel: LinearLayout? = null
+    private var modeContent: LinearLayout? = null
     private var messagesContainer: LinearLayout? = null
     private var statusText: TextView? = null
-    private var translationCard: TextView? = null
-    private var translationButton: TextView? = null
-    private var agentCard: LinearLayout? = null
     private var inputEdit: EditText? = null
     private var voiceButton: TextView? = null
+    private var sendButton: TextView? = null
+    private val modeButtons = mutableMapOf<PanelMode, TextView>()
     private var params: WindowManager.LayoutParams? = null
     private var panelParams: WindowManager.LayoutParams? = null
     private var speechRecognizer: SpeechRecognizer? = null
@@ -64,6 +66,11 @@ object FloatingAssistantOverlay {
     private var voiceInputMode = "system"
     private var chatState: Map<String, Any?> = emptyMap()
     private var agentState: Map<String, Any?> = emptyMap()
+    private var translationState: Map<String, Any?> = emptyMap()
+    private var selectedMode = PanelMode.CHAT
+    private var lastAgentActive = false
+    private var interactionEnabled = true
+    private var chatInputDraft = ""
 
     private var mangaLayoutMode = "auto"
     private var mangaOverlayStyle = "auto"
@@ -86,11 +93,15 @@ object FloatingAssistantOverlay {
         IDLE, STREAMING, AGENT_RUNNING, TRANSLATING, RECORDING
     }
 
+    private enum class PanelMode(val label: String) {
+        CHAT("Chat"), TRANSLATION("Translation"), AGENT("Agent")
+    }
+
     private val screenStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 Intent.ACTION_SCREEN_OFF -> {
-                    TranslationOverlayManager.clear()
+                    TranslationOverlayHost.clear()
                     stopPulse()
                     // Bug G: let the Dart side stop in-flight translation streams.
                     channel?.invokeMethod("screenOff", emptyMap<String, Any>())
@@ -132,7 +143,11 @@ object FloatingAssistantOverlay {
                     result.success(null)
                 }
                 "updateAgentPlan" -> {
-                    agentState = arguments(call.arguments)
+                    val next = arguments(call.arguments)
+                    val active = next["active"] == true || mapValue(next["run"])["active"] == true
+                    if (active && !lastAgentActive) selectedMode = PanelMode.AGENT
+                    lastAgentActive = active
+                    agentState = next
                     updatePanelViews()
                     updateBubbleState()
                     result.success(null)
@@ -143,36 +158,14 @@ object FloatingAssistantOverlay {
                     updateBubbleState()
                     result.success(null)
                 }
-                "setTranslationRunning" -> {
-                    translationRunning = arguments(call.arguments)["running"] == true
+                "updateTranslationState" -> {
+                    val next = arguments(call.arguments)
+                    translationState = next
+                    translationRunning = next["translating"] == true ||
+                        next["isTranslating"] == true || next["running"] == true ||
+                        next["automatic"] == true || next["isAutomatic"] == true || next["auto"] == true
                     updatePanelViews()
                     updateBubbleState()
-                    result.success(null)
-                }
-                "updateTranslationOverlay" -> {
-                    val args = arguments(call.arguments)
-                    // Prefer per-call payload (carry the live settings each
-                    // command) so runtime style/opacity/layout changes take effect
-                    // immediately; fall back to the last `configure` cache for
-                    // callers that rely on defaults.
-                    val style = (args["style"] as? String)?.takeIf { it.isNotEmpty() } ?: mangaOverlayStyle
-                    val opacity = (args["opacity"] as? Number)?.toDouble() ?: mangaOverlayOpacity
-                    val layout = (args["layoutMode"] as? String)?.takeIf { it.isNotEmpty() } ?: mangaLayoutMode
-                    TranslationOverlayManager.setBlocks(
-                        activity!!, args, style, opacity, layout
-                    )
-                    result.success(null)
-                }
-                "clearTranslationOverlay" -> {
-                    TranslationOverlayManager.clear()
-                    result.success(null)
-                }
-                "hideForScreenshot" -> {
-                    hideForScreenshot()
-                    result.success(null)
-                }
-                "restoreAfterScreenshot" -> {
-                    restoreAfterScreenshot()
                     result.success(null)
                 }
                 else -> result.notImplemented()
@@ -192,7 +185,7 @@ object FloatingAssistantOverlay {
         stopSpeechRecognition()
         releaseRecorder()
         stopPulse()
-        TranslationOverlayManager.dispose()
+        TranslationOverlayHost.dispose()
         activity = null
         channel = null
         screenOffReceiver = null
@@ -212,7 +205,37 @@ object FloatingAssistantOverlay {
         persistedPanelY = (args["panelY"] as? Number)?.toInt() ?: -1
         persistedPanelWidth = (args["panelWidth"] as? Number)?.toInt() ?: -1
         persistedPanelHeight = (args["panelHeight"] as? Number)?.toInt() ?: -1
+        if (!showTranslationAction && selectedMode == PanelMode.TRANSLATION) {
+            selectedMode = PanelMode.CHAT
+        }
         updatePanelViews()
+    }
+
+    fun setInteractionEnabled(enabled: Boolean) {
+        if (interactionEnabled == enabled) return
+        interactionEnabled = enabled
+        val ctx = activity ?: return
+        val manager = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        updateTouchableFlag(manager, bubble, params, enabled)
+        updateTouchableFlag(manager, panel, panelParams, enabled)
+    }
+
+    private fun updateTouchableFlag(
+        manager: WindowManager,
+        view: View?,
+        layoutParams: WindowManager.LayoutParams?,
+        enabled: Boolean
+    ) {
+        if (view == null || layoutParams == null) return
+        layoutParams.flags = if (enabled) {
+            layoutParams.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        } else {
+            layoutParams.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        }
+        try {
+            manager.updateViewLayout(view, layoutParams)
+        } catch (_: Exception) {
+        }
     }
 
     private fun showBubble() {
@@ -228,26 +251,7 @@ object FloatingAssistantOverlay {
         if (bubble != null) return
         val nextParams = bubbleLayoutParams(ctx)
         params = nextParams
-        bubble = TextView(ctx).apply {
-            text = "AI"
-            textSize = 15f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            background = rounded(bubbleColorForState(bubbleState), dp(ctx, 22))
-            elevation = dp(ctx, 8).toFloat()
-            setPadding(dp(ctx, 14), 0, dp(ctx, 14), 0)
-            setOnTouchListener(DragTouchListener(ctx, nextParams, {
-                ctx.resources.displayMetrics.heightPixels - nextParams.height
-            }, {
-                togglePanel()
-            }, {
-                channel?.invokeMethod(
-                    "bubbleMoved",
-                    mapOf("x" to nextParams.x, "y" to nextParams.y)
-                )
-            }))
-        }
+        bubble = buildBubble(ctx, nextParams)
         manager.addView(bubble, nextParams)
         updateBubbleState()
     }
@@ -281,13 +285,13 @@ object FloatingAssistantOverlay {
         } catch (_: Exception) {
         } finally {
             panel = null
+            modeContent = null
             messagesContainer = null
             statusText = null
-            translationCard = null
-            translationButton = null
-            agentCard = null
             inputEdit = null
             voiceButton = null
+            sendButton = null
+            modeButtons.clear()
             panelParams = null
             expanded = false
         }
@@ -298,7 +302,7 @@ object FloatingAssistantOverlay {
         stopSpeechRecognition()
         releaseRecorder()
         stopPulse()
-        TranslationOverlayManager.clear()
+        TranslationOverlayHost.clear()
         val ctx = activity ?: return
         val current = bubble ?: return
         val manager = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -311,16 +315,12 @@ object FloatingAssistantOverlay {
         }
     }
 
-    // E1: temporarily remove bubble/panel/translation overlays from the
-    // framebuffer so an accessibility screenshot does not capture them and
-    // pollute OCR. Preserves drag position (params) and panel-open state so
-    // restoreAfterScreenshot can put everything back exactly where it was.
-    private fun hideForScreenshot() {
+    private fun hideForTranslationCapture() {
         if (screenshotHiding) return
         screenshotHiding = true
         screenshotBubbleVisible = bubble != null
         screenshotSavedExpanded = expanded
-        TranslationOverlayManager.clear()
+        TranslationOverlayHost.clear()
         if (panel != null) hidePanel()
         val current = bubble
         if (current != null) {
@@ -337,7 +337,9 @@ object FloatingAssistantOverlay {
         }
     }
 
-    private fun restoreAfterScreenshot() {
+    fun hideForScreenTranslation() = hideForTranslationCapture()
+
+    private fun restoreAfterTranslationCapture() {
         if (!screenshotHiding) return
         screenshotHiding = false
         val ctx = activity ?: return
@@ -346,24 +348,7 @@ object FloatingAssistantOverlay {
         if (screenshotBubbleVisible) {
             val nextParams = params ?: bubbleLayoutParams(ctx).also { params = it }
             params = nextParams
-            bubble = TextView(ctx).apply {
-                text = "AI"
-                textSize = 15f
-                typeface = Typeface.DEFAULT_BOLD
-                gravity = Gravity.CENTER
-                setTextColor(Color.WHITE)
-                background = rounded(bubbleColorForState(bubbleState), dp(ctx, 22))
-                elevation = dp(ctx, 8).toFloat()
-                setPadding(dp(ctx, 14), 0, dp(ctx, 14), 0)
-                setOnTouchListener(DragTouchListener(ctx, nextParams, {
-                    ctx.resources.displayMetrics.heightPixels - nextParams.height
-                }, { togglePanel() }, {
-                    channel?.invokeMethod(
-                        "bubbleMoved",
-                        mapOf("x" to nextParams.x, "y" to nextParams.y)
-                    )
-                }))
-            }
+            bubble = buildBubble(ctx, nextParams)
             try {
                 manager.addView(bubble, nextParams)
             } catch (_: Exception) {
@@ -378,8 +363,10 @@ object FloatingAssistantOverlay {
         screenshotSavedExpanded = false
     }
 
+    fun restoreAfterScreenTranslation() = restoreAfterTranslationCapture()
+
     private fun buildPanel(ctx: Context): LinearLayout {
-        val root = LinearLayout(ctx).apply {
+        val root = SuppressingLinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(0xF0FFFFFF.toInt(), dp(ctx, 24), 0x1F0F172A, 1)
             elevation = dp(ctx, 18).toFloat()
@@ -418,95 +405,35 @@ object FloatingAssistantOverlay {
         }
         root.addView(header)
 
-        statusText = TextView(ctx).apply {
-            textSize = 12f
-            setTextColor(0xFF64748B.toInt())
-            setPadding(0, dp(ctx, 8), 0, 0)
-        }.also { root.addView(it) }
-
-        val scroll = ScrollView(ctx).apply {
-            isFillViewport = false
-            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
-        }
-        messagesContainer = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(ctx, 8), 0, dp(ctx, 4))
-        }.also { scroll.addView(it) }
-        val scrollHeight = if (persistedPanelHeight > 0) persistedPanelHeight else dp(ctx, 280)
-        scrollMessageHeight = scrollHeight
-        root.addView(scroll, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            scrollHeight
-        ))
-
-        translationCard = TextView(ctx).apply {
-            textSize = 13f
-            setTextColor(0xFF0F172A.toInt())
-            setPadding(dp(ctx, 12), dp(ctx, 10), dp(ctx, 12), dp(ctx, 10))
-            background = rounded(0xFFEFF6FF.toInt(), dp(ctx, 16), 0x332563EB, 1)
-            setOnClickListener {
-                showTranslationCardMenu(ctx)
-            }
-            setOnLongClickListener {
-                val t = text?.toString().orEmpty()
-                if (t.isNotEmpty()) {
-                    copyToClipboard(ctx, t, "译文已复制")
-                }
-                true
-            }
-        }.also { root.addView(it) }
-
-        agentCard = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(ctx, 12), dp(ctx, 10), dp(ctx, 12), dp(ctx, 10))
-            background = rounded(0xFFF8FAFC.toInt(), dp(ctx, 16), 0x1F64748B, 1)
-        }.also { root.addView(it) }
-
-        val quickRow = LinearLayout(ctx).apply {
+        val modeRow = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(ctx, 8), 0, dp(ctx, 8))
+            setPadding(0, dp(ctx, 10), 0, dp(ctx, 6))
         }
-        translationButton = chip(ctx, "翻译", translationRunning) {
-            channel?.invokeMethod("toggleMangaTranslation", emptyMap<String, Any>())
-        }.also { quickRow.addView(it) }
-        quickRow.addView(space(ctx, 8, 1))
-        val contextChip = chip(ctx, if (allowScreenContext) "可读页面" else "未授权页面", allowScreenContext) {
-            channel?.invokeMethod("openAccessibilitySettings", emptyMap<String, Any>())
+        val visibleModes = PanelMode.entries.filter {
+            it != PanelMode.TRANSLATION || showTranslationAction
         }
-        quickRow.addView(contextChip)
-        root.addView(quickRow)
+        visibleModes.forEachIndexed { index, mode ->
+            val button = chip(ctx, mode.label, selectedMode == mode) {
+                selectedMode = mode
+                updateModeButtons(ctx)
+                rebuildModeContent(ctx)
+            }
+            modeButtons[mode] = button
+            modeRow.addView(button, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            if (index < visibleModes.lastIndex) modeRow.addView(space(ctx, 6, 1))
+        }
+        root.addView(modeRow)
 
-        val composer = LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            background = rounded(0xFFF8FAFC.toInt(), dp(ctx, 18), 0x1F64748B, 1)
-            setPadding(dp(ctx, 8), dp(ctx, 6), dp(ctx, 6), dp(ctx, 6))
-        }
-        inputEdit = EditText(ctx).apply {
-            hint = "问当前页面上的内容..."
-            textSize = 14f
-            minLines = 1
-            maxLines = 4
-            setTextColor(0xFF0F172A.toInt())
-            setHintTextColor(0xFF94A3B8.toInt())
-            background = null
+        modeContent = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
         }.also {
-            composer.addView(it, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            root.addView(it)
         }
-        voiceButton = chip(ctx, "语音", false) { startVoiceRecognition(ctx) }.also { composer.addView(it) }
-        composer.addView(space(ctx, 8, 1))
-        composer.addView(chip(ctx, "发送", true) {
-            val text = inputEdit?.text?.toString().orEmpty().trim()
-            if (text.isEmpty()) return@chip
-            channel?.invokeMethod("sendMessage", mapOf("text" to text))
-            inputEdit?.setText("")
-        })
-        root.addView(composer)
 
         val resizeHandle = View(ctx).apply {
             background = rounded(0xFFCBD5E1.toInt(), dp(ctx, 3))
-            setOnTouchListener(ResizeTouchListener(ctx, root, panelParams, scroll, {
+            setOnTouchListener(ResizeTouchListener(ctx, root, panelParams, {
                 val w = ctx.resources.displayMetrics.widthPixels
                 val h = ctx.resources.displayMetrics.heightPixels
                 // F2: maxW 受面板当前 x 限制，避免缩放后向右溢出屏幕。
@@ -514,12 +441,7 @@ object FloatingAssistantOverlay {
                 (dp(ctx, 240) to maxW) to (dp(ctx, 200) to (h * 7 / 10))
             }) { width, height ->
                 scrollMessageHeight = height - dp(ctx, 180)
-                val sc = scroll
-                if (sc != null && scrollMessageHeight > 0) {
-                    val lp = sc.layoutParams
-                    lp.height = scrollMessageHeight
-                    sc.layoutParams = lp
-                }
+                rebuildModeContent(ctx)
                 channel?.invokeMethod(
                     "panelResized",
                     mapOf(
@@ -552,29 +474,273 @@ object FloatingAssistantOverlay {
             topMargin = dp(ctx, 2)
         })
 
+        rebuildModeContent(ctx)
+
         return root
     }
 
     private fun updatePanelViews() {
         val ctx = activity ?: return
         if (panel == null) return
-        updateStatus()
-        updateMessages(ctx)
-        updateTranslation()
-        updateAgent(ctx)
-        voiceButton?.visibility = if (voiceInputMode == "disabled") View.GONE else View.VISIBLE
-        if (recordingPath == null && speechRecognizer == null) {
-            voiceButton?.text = if (voiceInputMode == "server") "录音" else "语音"
-        }
-        translationButton?.visibility = if (showTranslationAction) View.VISIBLE else View.GONE
-        translationButton?.text = if (translationRunning) "翻译中" else "翻译"
+        updateModeButtons(ctx)
+        rebuildModeContent(ctx)
         updateBubbleState()
+    }
+
+    private fun rebuildModeContent(ctx: Context) {
+        val content = modeContent ?: return
+        content.removeAllViews()
+        messagesContainer = null
+        statusText = null
+        inputEdit = null
+        voiceButton = null
+        sendButton = null
+        when (selectedMode) {
+            PanelMode.CHAT -> buildChatMode(ctx, content)
+            PanelMode.TRANSLATION -> buildTranslationMode(ctx, content)
+            PanelMode.AGENT -> buildAgentMode(ctx, content)
+        }
+    }
+
+    private fun updateModeButtons(ctx: Context) {
+        modeButtons.forEach { (mode, button) ->
+            val selected = mode == selectedMode
+            button.setTextColor(if (selected) Color.WHITE else 0xFF0F172A.toInt())
+            button.background = ripple(
+                ctx,
+                if (selected) 0xFF2563EB.toInt() else 0xFFF1F5F9.toInt(),
+                dp(ctx, 14)
+            )
+        }
+    }
+
+    private fun buildChatMode(ctx: Context, content: LinearLayout) {
+        statusText = modeStatus(ctx).also { content.addView(it) }
+        updateStatus()
+        val scroll = modeScroll(ctx)
+        messagesContainer = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(ctx, 8), 0, dp(ctx, 4))
+        }.also { scroll.addView(it) }
+        content.addView(scroll, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            modeScrollHeight(ctx)
+        ))
+        updateMessages(ctx)
+
+        val composer = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = rounded(0xFFF8FAFC.toInt(), dp(ctx, 18), 0x1F64748B, 1)
+            setPadding(dp(ctx, 8), dp(ctx, 6), dp(ctx, 6), dp(ctx, 6))
+        }
+        inputEdit = EditText(ctx).apply {
+            hint = "问当前页面上的内容..."
+            textSize = 14f
+            minLines = 1
+            maxLines = 4
+            setTextColor(0xFF0F172A.toInt())
+            setHintTextColor(0xFF94A3B8.toInt())
+            background = null
+            setText(chatInputDraft)
+            setSelection(text.length)
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(text: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(text: CharSequence?, start: Int, before: Int, count: Int) {
+                    chatInputDraft = text?.toString().orEmpty()
+                }
+                override fun afterTextChanged(text: Editable?) = Unit
+            })
+        }.also { composer.addView(it, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)) }
+        if (voiceInputMode != "disabled") {
+            val voiceLabel = when {
+                recordingPath != null -> "停止"
+                speechRecognizer != null -> "聆听中"
+                voiceInputMode == "server" -> "录音"
+                else -> "语音"
+            }
+            voiceButton = chip(ctx, voiceLabel, false) {
+                startVoiceRecognition(ctx)
+            }.also { composer.addView(it) }
+            composer.addView(space(ctx, 8, 1))
+        }
+        val streaming = chatState["streaming"] == true
+        sendButton = chip(ctx, if (streaming) "停止" else "发送", true) {
+            if (streaming) {
+                channel?.invokeMethod("stopGeneration", emptyMap<String, Any>())
+            } else {
+                val text = inputEdit?.text?.toString().orEmpty().trim()
+                if (text.isNotEmpty()) {
+                    channel?.invokeMethod("sendMessage", mapOf("text" to text))
+                    chatInputDraft = ""
+                    inputEdit?.setText("")
+                }
+            }
+        }.also { composer.addView(it) }
+        content.addView(composer)
+    }
+
+    private fun buildTranslationMode(ctx: Context, content: LinearLayout) {
+        val status = translationState["status"]?.toString().orEmpty()
+        val error = translationState["error"]?.toString().orEmpty()
+        val count = (translationState["count"] as? Number)?.toInt()
+            ?: (translationState["translationCount"] as? Number)?.toInt()
+            ?: listMaps(translationState["translations"]).size
+        content.addView(modeStatus(ctx).apply {
+            text = when {
+                error.isNotEmpty() -> error
+                status.isNotEmpty() && count > 0 -> "$status · $count"
+                status.isNotEmpty() -> status
+                count > 0 -> "已翻译 $count 段"
+                else -> "翻译当前屏幕上的文字"
+            }
+            setTextColor(if (error.isNotEmpty()) 0xFFDC2626.toInt() else 0xFF64748B.toInt())
+            setOnLongClickListener {
+                channel?.invokeMethod("clearTranslation", emptyMap<String, Any>())
+                true
+            }
+        })
+        val automatic = translationState["automatic"] == true ||
+            translationState["isAutomatic"] == true || translationState["auto"] == true
+        val translating = translationIsRunning()
+        val row = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(ctx, 12), 0, dp(ctx, 10))
+        }
+        val manual = chip(ctx, if (translating && !automatic) "翻译中" else "翻译", true) {
+            channel?.invokeMethod("requestManualTranslation", emptyMap<String, Any>())
+        }.apply {
+            isEnabled = !automatic && !translating && showTranslationAction
+            alpha = if (isEnabled) 1f else 0.45f
+        }
+        row.addView(manual, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        row.addView(space(ctx, 8, 1))
+        row.addView(chip(ctx, if (automatic) "停止翻译" else "自动翻译", automatic) {
+            channel?.invokeMethod(
+                if (automatic) "stopAutoTranslation" else "startAutoTranslation",
+                emptyMap<String, Any>()
+            )
+        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        content.addView(row)
+    }
+
+    private fun buildAgentMode(ctx: Context, content: LinearLayout) {
+        val run = mapValue(agentState["run"]).ifEmpty { agentState }
+        val active = agentState["active"] == true || run["active"] == true
+        val status = run["status"]?.toString().orEmpty()
+        val purpose = run["purpose"]?.toString().orEmpty()
+        val step = run["currentStep"]?.toString().orEmpty()
+        val action = run["lastAction"]?.toString().orEmpty()
+        val summary = run["summary"]?.toString().orEmpty()
+        val pauseReason = run["pauseReason"]?.toString().orEmpty()
+        content.addView(modeStatus(ctx).apply {
+            text = buildString {
+                append(if (active) status.ifEmpty { "运行中" } else status.ifEmpty { "暂无运行中的 Agent" })
+                if (purpose.isNotEmpty()) append(" · $purpose")
+            }
+        })
+        val scroll = modeScroll(ctx)
+        val body = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(ctx, 8), 0, dp(ctx, 8))
+        }
+        body.addView(TextView(ctx).apply {
+            text = buildString {
+                if (summary.isNotEmpty()) appendLine(summary)
+                if (step.isNotEmpty()) appendLine("当前: $step")
+                if (action.isNotEmpty()) appendLine("最近: $action")
+                if (pauseReason.isNotEmpty()) appendLine("暂停: $pauseReason")
+            }.trim().ifEmpty { if (active) "Agent 正在准备执行" else "启动 Agent 后，运行摘要和计划会显示在这里。" }
+            textSize = 13f
+            setTextColor(0xFF334155.toInt())
+            setPadding(dp(ctx, 12), dp(ctx, 10), dp(ctx, 12), dp(ctx, 10))
+            background = rounded(0xFFF8FAFC.toInt(), dp(ctx, 14), 0x1F64748B, 1)
+        })
+        val plan = mapValue(agentState["plan"])
+        val items = listMaps(plan["items"] ?: agentState["items"])
+        if (items.isNotEmpty()) {
+            body.addView(TextView(ctx).apply {
+                text = plan["title"]?.toString().orEmpty().ifEmpty { "Plan" }
+                textSize = 13f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(0xFF0F172A.toInt())
+                setPadding(0, dp(ctx, 12), 0, dp(ctx, 4))
+            })
+            items.forEachIndexed { index, item -> body.addView(agentPlanItem(ctx, index, item)) }
+        }
+        scroll.addView(body)
+        content.addView(scroll, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            modeScrollHeight(ctx)
+        ))
+        if (active) {
+            val paused = status.equals("paused", true) || run["canResume"] == true
+            val row = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.END
+                setPadding(0, dp(ctx, 8), 0, 0)
+            }
+            row.addView(chip(ctx, if (paused) "继续" else "暂停", true) {
+                channel?.invokeMethod(if (paused) "resumeAgent" else "pauseAgent", emptyMap<String, Any>())
+            })
+            row.addView(space(ctx, 8, 1))
+            row.addView(chip(ctx, "停止", false) {
+                channel?.invokeMethod("stopAgent", emptyMap<String, Any>())
+            })
+            content.addView(row)
+        }
+    }
+
+    private fun modeStatus(ctx: Context) = TextView(ctx).apply {
+        textSize = 12f
+        setTextColor(0xFF64748B.toInt())
+        setPadding(0, dp(ctx, 6), 0, 0)
+    }
+
+    private fun modeScroll(ctx: Context) = ScrollView(ctx).apply {
+        isFillViewport = false
+        overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+    }
+
+    private fun modeScrollHeight(ctx: Context): Int {
+        if (scrollMessageHeight > 0) return scrollMessageHeight.coerceAtLeast(dp(ctx, 120))
+        return if (persistedPanelHeight > 0) {
+            (persistedPanelHeight - dp(ctx, 180)).coerceAtLeast(dp(ctx, 120))
+        } else {
+            dp(ctx, 280)
+        }
+    }
+
+    private fun agentPlanItem(ctx: Context, index: Int, item: Map<String, Any?>) = TextView(ctx).apply {
+        val status = item["status"]?.toString().orEmpty()
+        val detail = item["error"]?.toString().orEmpty()
+            .ifEmpty { item["resultSummary"]?.toString().orEmpty() }
+            .ifEmpty { item["summary"]?.toString().orEmpty() }
+        text = buildString {
+            append("${index + 1}. ${item["title"]?.toString().orEmpty()}")
+            if (status.isNotEmpty()) append(" [$status]")
+            if (detail.isNotEmpty()) append("\n$detail")
+        }
+        textSize = 12f
+        setTextColor(if (status == "failed") 0xFFDC2626.toInt() else 0xFF475569.toInt())
+        setPadding(dp(ctx, 10), dp(ctx, 7), dp(ctx, 10), dp(ctx, 7))
+    }
+
+    private fun translationIsRunning(): Boolean {
+        return translationState["translating"] == true ||
+            translationState["isTranslating"] == true ||
+            translationState["running"] == true ||
+            translationState["automatic"] == true ||
+            translationState["isAutomatic"] == true ||
+            translationState["auto"] == true ||
+            translationRunning
     }
 
     private fun updateBubbleState() {
         val newState = when {
             recordingPath != null || speechRecognizer != null -> BubbleState.RECORDING
-            translationRunning -> BubbleState.TRANSLATING
+            translationIsRunning() -> BubbleState.TRANSLATING
             agentState["active"] == true -> BubbleState.AGENT_RUNNING
             chatState["streaming"] == true -> BubbleState.STREAMING
             else -> BubbleState.IDLE
@@ -655,92 +821,6 @@ object FloatingAssistantOverlay {
         }
         val draft = chatState["draft"]?.toString().orEmpty().trim()
         if (draft.isNotEmpty()) container.addView(messageBubble(ctx, false, draft))
-    }
-
-    private fun updateTranslation() {
-        val text = chatState["translationText"]?.toString().orEmpty().trim()
-        translationCard?.apply {
-            visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
-            this.text = if (text.isEmpty()) "" else "译文\n$text"
-            setOnClickListener {
-                showTranslationCardMenu(context)
-            }
-        }
-    }
-
-    private fun showTranslationCardMenu(ctx: Context) {
-        val card = translationCard ?: return
-        val popup = android.widget.PopupMenu(ctx, card)
-        popup.menu.add(0, 1, 0, "复制译文")
-        popup.menu.add(0, 2, 1, "清空译文")
-        popup.setOnMenuItemClickListener { item ->
-            when (item.itemId) {
-                1 -> {
-                    val t = card.text?.toString().orEmpty()
-                    if (t.isNotEmpty()) copyToClipboard(ctx, t, "译文已复制")
-                    true
-                }
-                2 -> {
-                    channel?.invokeMethod("clearTranslation", emptyMap<String, Any>())
-                    true
-                }
-                else -> false
-            }
-        }
-        popup.show()
-    }
-
-    private fun updateAgent(ctx: Context) {
-        val card = agentCard ?: return
-        val active = agentState["active"] == true
-        if (!active) {
-            card.visibility = View.GONE
-            return
-        }
-        card.visibility = View.VISIBLE
-        card.removeAllViews()
-        val status = agentState["status"]?.toString().orEmpty()
-        val purpose = agentState["purpose"]?.toString().orEmpty()
-        val step = agentState["currentStep"]?.toString().orEmpty()
-        val action = agentState["lastAction"]?.toString().orEmpty()
-        card.addView(TextView(ctx).apply {
-            text = "Agent Plan"
-            textSize = 13f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(0xFF0F172A.toInt())
-        })
-        card.addView(TextView(ctx).apply {
-            text = buildString {
-                if (status.isNotEmpty()) appendLine("状态: $status")
-                if (purpose.isNotEmpty()) appendLine("目标: $purpose")
-                if (step.isNotEmpty()) appendLine("步骤: $step")
-                if (action.isNotEmpty()) appendLine("动作: $action")
-            }.trim().ifEmpty { "正在执行" }
-            textSize = 12f
-            setTextColor(0xFF475569.toInt())
-            setPadding(0, dp(ctx, 6), 0, 0)
-        })
-        val canResume = agentState["canResume"] == true
-        val canStop = agentState["canStop"] == true
-        if (canResume || canStop) {
-            val row = LinearLayout(ctx).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.END
-                setPadding(0, dp(ctx, 8), 0, 0)
-            }
-            if (canResume) {
-                row.addView(chip(ctx, "继续", true) {
-                    channel?.invokeMethod("resumeAgent", emptyMap<String, Any>())
-                })
-                row.addView(space(ctx, 8, 1))
-            }
-            if (canStop) {
-                row.addView(chip(ctx, "停止", false) {
-                    channel?.invokeMethod("stopAgent", emptyMap<String, Any>())
-                })
-            }
-            card.addView(row)
-        }
     }
 
     private fun emptyHint(ctx: Context): TextView {
@@ -992,19 +1072,41 @@ object FloatingAssistantOverlay {
         if (text.isBlank()) return
         val edit = inputEdit ?: return
         val current = edit.text?.toString().orEmpty()
-        edit.setText(if (current.isBlank()) text else "$current $text")
+        chatInputDraft = if (current.isBlank()) text else "$current $text"
+        edit.setText(chatInputDraft)
         edit.setSelection(edit.text.length)
     }
 
     private fun openLynAI() {
         val ctx = activity ?: return
         hidePanel()
-        TranslationOverlayManager.clear()
+        TranslationOverlayHost.clear()
         val intent = Intent(ctx, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         }
         ctx.startActivity(intent)
         channel?.invokeMethod("openConversation", emptyMap<String, Any>())
+    }
+
+    private fun buildBubble(ctx: Context, layoutParams: WindowManager.LayoutParams): TextView {
+        return TextView(ctx).apply {
+            text = "AI"
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = rounded(bubbleColorForState(bubbleState), dp(ctx, 22))
+            elevation = dp(ctx, 8).toFloat()
+            setPadding(dp(ctx, 14), 0, dp(ctx, 14), 0)
+            setOnTouchListener(DragTouchListener(ctx, layoutParams, {
+                ctx.resources.displayMetrics.heightPixels - layoutParams.height
+            }, { togglePanel() }, {
+                channel?.invokeMethod(
+                    "bubbleMoved",
+                    mapOf("x" to layoutParams.x, "y" to layoutParams.y)
+                )
+            }))
+        }
     }
 
     private fun hideKeyboard(ctx: Context) {
@@ -1020,7 +1122,8 @@ object FloatingAssistantOverlay {
             dp(ctx, 56),
             dp(ctx, 56),
             overlayType(),
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                if (interactionEnabled) 0 else WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -1041,7 +1144,8 @@ object FloatingAssistantOverlay {
             width,
             WindowManager.LayoutParams.WRAP_CONTENT,
             overlayType(),
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                if (interactionEnabled) 0 else WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -1078,6 +1182,11 @@ object FloatingAssistantOverlay {
             ?: emptyList()
     }
 
+    private fun mapValue(raw: Any?): Map<String, Any?> {
+        @Suppress("UNCHECKED_CAST")
+        return raw as? Map<String, Any?> ?: emptyMap()
+    }
+
     private fun rounded(
         color: Int,
         radius: Int,
@@ -1106,6 +1215,15 @@ object FloatingAssistantOverlay {
 
     private class SpaceView(ctx: Context) : FrameLayout(ctx)
 
+    private class SuppressingLinearLayout(ctx: Context) : LinearLayout(ctx) {
+        override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                LynAIAccessibilityService.instance?.suppressOwnTouch()
+            }
+            return super.dispatchTouchEvent(event)
+        }
+    }
+
     private class DragTouchListener(
         private val ctx: Context,
         private val params: WindowManager.LayoutParams,
@@ -1123,6 +1241,7 @@ object FloatingAssistantOverlay {
             val manager = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
+                    LynAIAccessibilityService.instance?.suppressOwnTouch()
                     startX = params.x
                     startY = params.y
                     downX = event.rawX
@@ -1170,7 +1289,6 @@ object FloatingAssistantOverlay {
         private val ctx: Context,
         private val targetView: View,
         private val panelParams: WindowManager.LayoutParams?,
-        private val scrollView: ScrollView,
         private val sizeBoundsProvider: () -> Pair<Pair<Int, Int>, Pair<Int, Int>>,
         private val onResized: (Int, Int) -> Unit
     ) : View.OnTouchListener {
@@ -1184,10 +1302,11 @@ object FloatingAssistantOverlay {
             val params = panelParams ?: return false
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
+                    LynAIAccessibilityService.instance?.suppressOwnTouch()
                     downX = event.rawX
                     downY = event.rawY
                     startWidth = params.width
-                    startHeight = scrollView.height + dp(ctx, 180)
+                    startHeight = targetView.height
                     return true
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -1223,7 +1342,7 @@ object FloatingAssistantOverlay {
                     return true
                 }
                 MotionEvent.ACTION_UP -> {
-                    onResized(params.width, scrollView.height + dp(ctx, 180))
+                    onResized(params.width, startHeight + (event.rawY - downY).toInt())
                     return true
                 }
             }

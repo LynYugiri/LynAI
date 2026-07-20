@@ -13,6 +13,7 @@ import android.util.Base64
 import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
 
@@ -26,7 +27,11 @@ class LynAIAccessibilityService : AccessibilityService() {
     private var lastScrollSourcePkg: String? = null
     private var pendingDeltaX = 0
     private var pendingDeltaY = 0
+    private var translationScrollActive = false
+    private var activeGestureSequences = 0
     private val scrollSettledRunnable = Runnable {
+        flushPendingScrollDelta()
+        translationScrollActive = false
         DeviceControlBridge.emit(mapOf("type" to "translation_scroll_settled"))
     }
 
@@ -37,6 +42,10 @@ class LynAIAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         handler.removeCallbacks(scrollSettledRunnable)
+        if (activeGestureSequences > 0) {
+            activeGestureSequences = 0
+            FloatingAssistantOverlay.setInteractionEnabled(true)
+        }
         if (instance == this) instance = null
         clearNodeCache()
         super.onDestroy()
@@ -46,7 +55,8 @@ class LynAIAccessibilityService : AccessibilityService() {
         val type = event?.eventType ?: return
         when (type) {
             AccessibilityEvent.TYPE_TOUCH_INTERACTION_START -> {
-                if (System.currentTimeMillis() > suppressTouchUntil) {
+                val fromOwnPackage = event.packageName?.toString() == packageName
+                if (!fromOwnPackage && System.currentTimeMillis() > suppressTouchUntil) {
                     DeviceControlBridge.emit(mapOf("type" to "user_touch"))
                 }
             }
@@ -62,6 +72,10 @@ class LynAIAccessibilityService : AccessibilityService() {
         // overlay.
         val pkg = event.packageName?.toString()
         if (pkg == packageName) return
+        if (!translationScrollActive) {
+            translationScrollActive = true
+            DeviceControlBridge.emit(mapOf("type" to "translation_scroll_started"))
+        }
         val deltaY: Int
         val deltaX: Int
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -71,13 +85,10 @@ class LynAIAccessibilityService : AccessibilityService() {
             pendingDeltaY += event.scrollDeltaY.toInt()
             val now = System.currentTimeMillis()
             if (now - lastScrollUpdateTime >= 16) {
-                lastScrollUpdateTime = now
-                TranslationOverlayManager.onScrollDelta(pendingDeltaX, pendingDeltaY)
-                pendingDeltaX = 0
-                pendingDeltaY = 0
+                flushPendingScrollDelta()
             }
             handler.removeCallbacks(scrollSettledRunnable)
-            handler.postDelayed(scrollSettledRunnable, 500)
+            handler.postDelayed(scrollSettledRunnable, 600)
             return
         }
         val currentY = event.scrollY
@@ -93,24 +104,36 @@ class LynAIAccessibilityService : AccessibilityService() {
         deltaX = if (lastScrollX != Int.MIN_VALUE) currentX - lastScrollX else 0
         lastScrollY = currentY
         lastScrollX = currentX
-        if (deltaX == 0 && deltaY == 0) return
-
-        val now = System.currentTimeMillis()
-        if (now - lastScrollUpdateTime >= 16) {
-            lastScrollUpdateTime = now
-            TranslationOverlayManager.onScrollDelta(deltaX, deltaY)
+        if (deltaX != 0 || deltaY != 0) {
+            val now = System.currentTimeMillis()
+            if (now - lastScrollUpdateTime >= 16) {
+                lastScrollUpdateTime = now
+                TranslationOverlayHost.onScrollDelta(deltaX, deltaY)
+            }
         }
 
         handler.removeCallbacks(scrollSettledRunnable)
-        handler.postDelayed(scrollSettledRunnable, 500)
+        handler.postDelayed(scrollSettledRunnable, 600)
+    }
+
+    private fun flushPendingScrollDelta() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (pendingDeltaX == 0 && pendingDeltaY == 0) return
+        lastScrollUpdateTime = System.currentTimeMillis()
+        TranslationOverlayHost.onScrollDelta(pendingDeltaX, pendingDeltaY)
+        pendingDeltaX = 0
+        pendingDeltaY = 0
     }
 
     override fun onInterrupt() {
         handler.removeCallbacks(scrollSettledRunnable)
+        pendingDeltaX = 0
+        pendingDeltaY = 0
+        translationScrollActive = false
     }
 
     fun snapshot(): Map<String, Any?> {
-        val root = rootInActiveWindow ?: return error("no_active_window", "当前没有可读取窗口")
+        val root = topExternalApplicationRoot() ?: return error("no_active_window", "当前没有可读取窗口")
         clearNodeCache()
         val rootMap = nodeMap(root, "0")
         return mapOf(
@@ -123,6 +146,25 @@ class LynAIAccessibilityService : AccessibilityService() {
                 "roots" to listOf(rootMap)
             )
         )
+    }
+
+    private fun topExternalApplicationRoot(): AccessibilityNodeInfo? {
+        for (window in windows.sortedByDescending { it.layer }) {
+            if (window.type != AccessibilityWindowInfo.TYPE_APPLICATION) continue
+            val root = window.root ?: continue
+            if (root.packageName?.toString() != packageName) return root
+            root.recycle()
+        }
+        return null
+    }
+
+    fun currentExternalPackageName(): String {
+        val root = topExternalApplicationRoot() ?: return ""
+        return try {
+            root.packageName?.toString().orEmpty()
+        } finally {
+            root.recycle()
+        }
     }
 
     fun screenContext(): Map<String, Any?> {
@@ -199,6 +241,32 @@ class LynAIAccessibilityService : AccessibilityService() {
         }
     }
 
+    fun captureBitmap(callback: (Result<Bitmap>) -> Unit) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            callback(Result.failure(UnsupportedOperationException("Accessibility screenshot requires Android 11+")))
+            return
+        }
+        try {
+            takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+                override fun onSuccess(screenshot: ScreenshotResult) {
+                    try {
+                        val hardware = Bitmap.wrapHardwareBuffer(screenshot.hardwareBuffer, screenshot.colorSpace)
+                        val software = hardware?.copy(Bitmap.Config.ARGB_8888, false)
+                        if (software == null) callback(Result.failure(IllegalStateException("Empty screenshot"))) else callback(Result.success(software))
+                    } finally {
+                        screenshot.hardwareBuffer.close()
+                    }
+                }
+
+                override fun onFailure(errorCode: Int) {
+                    callback(Result.failure(IllegalStateException("Screenshot failed: $errorCode")))
+                }
+            })
+        } catch (e: Exception) {
+            callback(Result.failure(e))
+        }
+    }
+
     fun tap(args: Map<String, Any?>, result: MethodChannel.Result) {
         val x = number(args["x"]) ?: return result.success(error("invalid_arguments", "device.tap 缺少 x"))
         val y = number(args["y"]) ?: return result.success(error("invalid_arguments", "device.tap 缺少 y"))
@@ -210,6 +278,7 @@ class LynAIAccessibilityService : AccessibilityService() {
         val y = number(args["y"]) ?: return result.success(error("invalid_arguments", "device.tapRepeat 缺少 y"))
         val repeat = (number(args["repeat"])?.toInt() ?: 1).coerceIn(1, 1000)
         val interval = (number(args["intervalMs"])?.toLong() ?: 80L).coerceIn(16L, 10000L)
+        beginGestureSequence()
         runTapRepeat(x.toFloat(), y.toFloat(), repeat, interval, 0, result)
     }
 
@@ -279,36 +348,77 @@ class LynAIAccessibilityService : AccessibilityService() {
         result: MethodChannel.Result
     ) {
         if (index >= repeat) {
+            endGestureSequence()
             result.success(mapOf("ok" to true, "clicked" to repeat))
             return
         }
         dispatch(pathTap(x, y), 1L, object : MethodChannel.Result {
             override fun success(value: Any?) {
-                handler.postDelayed({ runTapRepeat(x, y, repeat, intervalMs, index + 1, result) }, intervalMs)
+                val response = value as? Map<*, *>
+                if (response?.get("ok") == false) {
+                    endGestureSequence()
+                    result.success(value)
+                } else {
+                    handler.postDelayed({ runTapRepeat(x, y, repeat, intervalMs, index + 1, result) }, intervalMs)
+                }
             }
 
             override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) {
+                endGestureSequence()
                 result.error(errorCode, errorMessage, errorDetails)
             }
 
-            override fun notImplemented() = result.notImplemented()
-        })
+            override fun notImplemented() {
+                endGestureSequence()
+                result.notImplemented()
+            }
+        }, manageInteraction = false)
     }
 
-    private fun dispatch(path: Path, durationMs: Long, result: MethodChannel.Result) {
-        suppressTouchUntil = System.currentTimeMillis() + durationMs + 400L
+    private fun dispatch(
+        path: Path,
+        durationMs: Long,
+        result: MethodChannel.Result,
+        manageInteraction: Boolean = true
+    ) {
+        suppressOwnTouch(durationMs + 400L)
+        if (manageInteraction) beginGestureSequence()
         val gesture = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(path, 0L, durationMs))
             .build()
-        dispatchGesture(gesture, object : GestureResultCallback() {
+        val accepted = dispatchGesture(gesture, object : GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription?) {
+                if (manageInteraction) endGestureSequence()
                 result.success(mapOf("ok" to true))
             }
 
             override fun onCancelled(gestureDescription: GestureDescription?) {
+                if (manageInteraction) endGestureSequence()
                 result.success(error("gesture_cancelled", "手势被系统取消"))
             }
         }, handler)
+        if (!accepted) {
+            if (manageInteraction) endGestureSequence()
+            result.success(error("gesture_rejected", "系统拒绝执行手势"))
+        }
+    }
+
+    fun suppressOwnTouch(duration: Long = 300L) {
+        suppressTouchUntil = maxOf(suppressTouchUntil, System.currentTimeMillis() + duration.coerceAtLeast(0L))
+    }
+
+    private fun beginGestureSequence() {
+        if (activeGestureSequences++ == 0) {
+            FloatingAssistantOverlay.setInteractionEnabled(false)
+        }
+    }
+
+    private fun endGestureSequence() {
+        if (activeGestureSequences <= 0) return
+        activeGestureSequences--
+        if (activeGestureSequences == 0) {
+            FloatingAssistantOverlay.setInteractionEnabled(true)
+        }
     }
 
     private fun nodeMap(node: AccessibilityNodeInfo, id: String): Map<String, Any?> {
@@ -351,6 +461,7 @@ class LynAIAccessibilityService : AccessibilityService() {
     }
 
     private fun collectContextLines(node: Map<String, Any?>, lines: MutableList<String>) {
+        if (node["password"] == true || node["visibleToUser"] == false) return
         val text = node["text"]?.toString().orEmpty().trim()
         val description = node["description"]?.toString().orEmpty().trim()
         if (text.isNotEmpty()) lines.add(text)
@@ -366,6 +477,7 @@ class LynAIAccessibilityService : AccessibilityService() {
         editableNodes: MutableList<Map<String, Any?>>,
         scrollableNodes: MutableList<Map<String, Any?>>
     ) {
+        if (node["password"] == true || node["visibleToUser"] == false) return
         if (node["clickable"] == true) clickableNodes.add(nodeSummary(node))
         if (node["editable"] == true) editableNodes.add(nodeSummary(node))
         if (node["scrollable"] == true) scrollableNodes.add(nodeSummary(node))

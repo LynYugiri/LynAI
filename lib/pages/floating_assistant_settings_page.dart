@@ -135,8 +135,8 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
             '翻译',
             children: [
               SwitchListTile(
-                title: const Text('显示翻译按钮'),
-                subtitle: const Text('在悬浮聊天中翻译当前屏幕可读取文本'),
+                title: const Text('显示屏幕翻译模式'),
+                subtitle: const Text('提供一次翻译和停止滚动后自动翻译'),
                 value: settings.showMangaTranslationAction,
                 onChanged: settings.enabled
                     ? (value) => _update(
@@ -273,7 +273,9 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
               ListTile(
                 leading: Icon(Icons.privacy_tip_outlined),
                 title: Text('页面内容和截图只在你主动触发时处理'),
-                subtitle: Text('模型读取当前页面、语音转写和翻译可能会把内容发送给已配置的模型服务。'),
+                subtitle: Text(
+                  '屏幕翻译只使用本地 OCR 提取文字；译文请求、模型读屏和语音转写可能会发送到已配置的模型服务。',
+                ),
               ),
             ],
           ),
@@ -371,11 +373,11 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
   }
 
   static void _openHistory(BuildContext context) {
-    final chat = FloatingAssistantService.instance.chatController;
-    if (chat == null) return;
+    final translation = FloatingAssistantService.instance.translationController;
+    if (translation == null) return;
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => TranslationHistoryPage(controller: chat),
+        builder: (_) => TranslationHistoryPage(controller: translation),
       ),
     );
   }
@@ -391,13 +393,13 @@ class _TranslationModelTile extends StatelessWidget {
     final chatModels = context
         .watch<ModelConfigProvider>()
         .enabledModelsByCategory(ModelConfig.categoryChat);
-    final currentId = settings.translationModelId;
+    final configuredId = settings.translationModelId;
+    final currentId = chatModels.any((model) => model.id == configuredId)
+        ? configuredId
+        : null;
     final selected = currentId == null || currentId.isEmpty
         ? null
-        : chatModels.firstWhere(
-            (m) => m.id == currentId,
-            orElse: () => chatModels.first,
-          );
+        : chatModels.firstWhere((m) => m.id == currentId);
     final enabled = settings.enabled && settings.showMangaTranslationAction;
     return ListTile(
       leading: const Icon(Icons.translate),

@@ -37,7 +37,10 @@ class AgentLuaScriptService {
     if (trimmed.isEmpty) return _error('empty_code', 'Lua 脚本为空');
     final isDeviceScript = trimmed.contains('device.');
     if (isDeviceScript) {
-      DeviceRunController.instance.start(purpose: purpose);
+      DeviceRunController.instance.start(
+        purpose: purpose,
+        conversationId: conversationId,
+      );
     }
     final state = LuaState.newState();
     try {

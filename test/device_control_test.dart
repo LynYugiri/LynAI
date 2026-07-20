@@ -111,4 +111,41 @@ void main() {
     expect(completed, isTrue);
     controller.complete();
   });
+
+  test('DeviceRunController preserves conversation across lifecycle', () {
+    final controller = DeviceRunController.instance;
+    controller.reset();
+    addTearDown(controller.reset);
+
+    controller.start(purpose: '关联对话测试', conversationId: 'conversation-1');
+    expect(controller.snapshot.conversationId, 'conversation-1');
+    expect(controller.statusJson()['conversationId'], 'conversation-1');
+
+    controller.updateStep('step 1');
+    expect(controller.snapshot.conversationId, 'conversation-1');
+    controller.recordAction('device.tap');
+    expect(controller.snapshot.conversationId, 'conversation-1');
+    controller.pause();
+    expect(controller.snapshot.conversationId, 'conversation-1');
+    controller.resume();
+    expect(controller.snapshot.conversationId, 'conversation-1');
+    controller.stop();
+    expect(controller.snapshot.conversationId, 'conversation-1');
+    controller.stopped();
+    expect(controller.snapshot.conversationId, 'conversation-1');
+
+    controller.start(purpose: '失败关联对话测试', conversationId: 'conversation-2');
+    controller.fail('test_failure', 'failed');
+    expect(controller.snapshot.conversationId, 'conversation-2');
+
+    controller.start(purpose: '无关联对话测试');
+    expect(controller.snapshot.conversationId, isNull);
+    expect(controller.statusJson()['conversationId'], isNull);
+
+    controller.start(purpose: '完成关联对话测试', conversationId: 'conversation-3');
+    controller.complete();
+    expect(controller.snapshot.conversationId, 'conversation-3');
+    controller.reset();
+    expect(controller.snapshot.conversationId, isNull);
+  });
 }

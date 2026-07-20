@@ -14,6 +14,7 @@ import 'device_control_service.dart';
 import 'device_run_controller.dart';
 import 'floating_assistant_bridge.dart';
 import 'floating_chat_session_controller.dart';
+import 'floating_translation_controller.dart';
 
 class FloatingAssistantService with WidgetsBindingObserver {
   FloatingAssistantService._();
@@ -23,14 +24,13 @@ class FloatingAssistantService with WidgetsBindingObserver {
   SettingsProvider? _settings;
   ConversationProvider? _conversations;
   FloatingChatSessionController? _chat;
+  FloatingTranslationController? _translation;
   bool _started = false;
   bool _foreground = true;
-  bool _translationRunning = false;
   Timer? _persistPositionTimer;
 
-  /// Exposed for pages that need access to the live controller (e.g. the
-  /// translation history page reads `_chat.translationHistory`).
   FloatingChatSessionController? get chatController => _chat;
+  FloatingTranslationController? get translationController => _translation;
 
   void start({
     required SettingsProvider settings,
@@ -52,16 +52,23 @@ class FloatingAssistantService with WidgetsBindingObserver {
       plugins: plugins,
       backend: backend,
     );
+    _translation = FloatingTranslationController(
+      settings: settings,
+      models: models,
+      backend: backend,
+    );
     _chat!.addListener(_syncChatState);
+    _translation!.addListener(_syncTranslationState);
     WidgetsBinding.instance.addObserver(this);
     settings.addListener(_sync);
     conversations.addListener(_syncChatState);
     DeviceRunController.instance.addListener(_sync);
     FloatingAssistantBridge.instance.setHandler(_handleCall);
     DeviceControlService.instance.onTranslationScrollSettled = _onScrollSettled;
+    DeviceControlService.instance.onTranslationScrollStarted = _onScrollStarted;
     DeviceControlService.instance.onAccessibilityServiceReconnected =
         _onServiceReconnected;
-    unawaited(_chat?.loadTranslationHistory());
+    unawaited(_translation?.loadTranslationHistory());
     _sync();
   }
 
@@ -75,12 +82,16 @@ class FloatingAssistantService with WidgetsBindingObserver {
     _settings?.removeListener(_sync);
     _conversations?.removeListener(_syncChatState);
     _chat?.removeListener(_syncChatState);
+    _translation?.removeListener(_syncTranslationState);
     DeviceRunController.instance.removeListener(_sync);
     FloatingAssistantBridge.instance.setHandler(null);
     DeviceControlService.instance.onTranslationScrollSettled = null;
+    DeviceControlService.instance.onTranslationScrollStarted = null;
     DeviceControlService.instance.onAccessibilityServiceReconnected = null;
     unawaited(_chat?.dispose());
+    unawaited(_translation?.dispose());
     _chat = null;
+    _translation = null;
     _settings = null;
     _conversations = null;
     unawaited(FloatingAssistantBridge.instance.hideBubble());
@@ -100,10 +111,7 @@ class FloatingAssistantService with WidgetsBindingObserver {
   }
 
   void _clearTranslationSession() {
-    _translationRunning = false;
-    _chat?.clearTranslation();
-    unawaited(FloatingAssistantBridge.instance.setTranslationRunning(false));
-    unawaited(FloatingAssistantBridge.instance.clearTranslationOverlay());
+    unawaited(_translation?.clear());
   }
 
   Future<dynamic> _handleCall(MethodCall call) async {
@@ -118,35 +126,25 @@ class FloatingAssistantService with WidgetsBindingObserver {
       case 'newConversation':
         _chat?.startNewConversation();
         return {'ok': true};
-      case 'toggleMangaTranslation':
+      case 'requestManualTranslation':
         final floating = _settings?.settings.floatingAssistant;
         if (floating?.showMangaTranslationAction != true) {
           return {'ok': false, 'error': '翻译按钮已关闭'};
         }
-        // A2: real toggle — if translation is in flight, stop it; otherwise start.
-        if (_translationRunning || (_chat?.isTranslationStreaming ?? false)) {
-          _translationRunning = false;
-          await _chat?.stopTranslation();
-          await FloatingAssistantBridge.instance.setTranslationRunning(false);
-          unawaited(FloatingAssistantBridge.instance.clearTranslationOverlay());
-          return {'ok': true, 'action': 'stopped'};
+        unawaited(_translation?.translateManually());
+        return {'ok': true};
+      case 'startAutoTranslation':
+        final floating = _settings?.settings.floatingAssistant;
+        if (floating?.showMangaTranslationAction != true) {
+          return {'ok': false, 'error': '翻译模式已关闭'};
         }
-        _translationRunning = true;
-        await FloatingAssistantBridge.instance.setTranslationRunning(true);
-        unawaited(
-          _chat?.translateCurrentScreen().whenComplete(() {
-            _translationRunning = false;
-            unawaited(
-              FloatingAssistantBridge.instance.setTranslationRunning(false),
-            );
-          }),
-        );
-        return {'ok': true, 'action': 'started'};
+        unawaited(_translation?.startAutomatic());
+        return {'ok': true};
+      case 'stopAutoTranslation':
+        await _translation?.stopAutomatic();
+        return {'ok': true};
       case 'clearTranslation':
-        _translationRunning = false;
-        _chat?.clearTranslation();
-        await FloatingAssistantBridge.instance.setTranslationRunning(false);
-        unawaited(FloatingAssistantBridge.instance.clearTranslationOverlay());
+        await _translation?.clear();
         return {'ok': true};
       case 'transcribeAudio':
         final path = _callArgs(call)['path']?.toString() ?? '';
@@ -157,13 +155,7 @@ class FloatingAssistantService with WidgetsBindingObserver {
         _clearTranslationSession();
         return {'ok': true};
       case 'screenOff':
-        // F3: stop in-flight translation (keep cache so a quick screen-on
-        // could resume). The native side already cleared the overlay.
-        _translationRunning = false;
-        _chat?.stopTranslation();
-        unawaited(
-          FloatingAssistantBridge.instance.setTranslationRunning(false),
-        );
+        unawaited(_translation?.clear());
         return {'ok': true};
       case 'openAccessibilitySettings':
         DeviceControlService.instance.execute('device.service.openSettings', {
@@ -173,15 +165,18 @@ class FloatingAssistantService with WidgetsBindingObserver {
       case 'resumeAgent':
         DeviceRunController.instance.resume();
         return {'ok': true};
+      case 'pauseAgent':
+        DeviceRunController.instance.pause(reason: 'user_paused');
+        return {'ok': true};
       case 'stopAgent':
         DeviceRunController.instance.stop();
         return {'ok': true};
       case 'panelOpened':
         _syncChatState();
+        _syncTranslationState();
         return {'ok': true};
       case 'overlayPermissionLost':
-        _translationRunning = false;
-        _chat?.clearTranslation();
+        unawaited(_translation?.clear());
         return {'ok': true};
       case 'bubbleMoved':
         _persistPosition(
@@ -278,15 +273,16 @@ class FloatingAssistantService with WidgetsBindingObserver {
       unawaited(FloatingAssistantBridge.instance.hideBubble());
       return;
     }
-    if (!settings.showMangaTranslationAction && _translationRunning) {
-      // F2: translation action disabled mid-stream — stop + clear overlay.
+    if (!settings.showMangaTranslationAction &&
+        (_translation?.isAutomatic == true ||
+            _translation?.isTranslating == true)) {
       _clearTranslationSession();
     }
     unawaited(
       FloatingAssistantBridge.instance.configure({
         'allowScreenContext': settings.allowScreenContext,
         'showMangaTranslationAction': settings.showMangaTranslationAction,
-        'translationRunning': _translationRunning,
+        'translationRunning': _translation?.isTranslating == true,
         'voiceInputMode': settings.voiceInputMode,
         'mangaTargetLanguage': settings.mangaTargetLanguage,
         'mangaLayoutMode': settings.mangaLayoutMode,
@@ -310,16 +306,28 @@ class FloatingAssistantService with WidgetsBindingObserver {
       unawaited(FloatingAssistantBridge.instance.hideBubble());
     }
     if (settings.showAgentPlan && run.isActive) {
+      final conversation = run.conversationId == null
+          ? null
+          : _conversations?.getConversation(run.conversationId!);
       unawaited(
         FloatingAssistantBridge.instance.updateAgentPlan({
           'active': true,
-          'status': run.status.name,
-          'purpose': run.purpose,
-          'currentStep': run.currentStep,
-          'lastAction': run.lastAction,
-          'canResume': run.canResume,
-          'canStop': run.canStop,
-          if (run.pauseReason != null) 'pauseReason': run.pauseReason,
+          'run': {
+            'active': true,
+            'runId': run.runId,
+            'conversationId': run.conversationId,
+            'status': run.status.name,
+            'purpose': run.purpose,
+            'currentStep': run.currentStep,
+            'lastAction': run.lastAction,
+            'actionCount': run.actionCount,
+            'canResume': run.canResume,
+            'canStop': run.canStop,
+            if (run.pauseReason != null) 'pauseReason': run.pauseReason,
+            if (run.errorMessage != null) 'summary': run.errorMessage,
+          },
+          if (conversation?.agentPlan != null)
+            'plan': conversation!.agentPlan!.toJson(),
         }),
       );
     } else {
@@ -328,6 +336,7 @@ class FloatingAssistantService with WidgetsBindingObserver {
       );
     }
     _syncChatState();
+    _syncTranslationState();
   }
 
   void _syncChatState() {
@@ -338,8 +347,26 @@ class FloatingAssistantService with WidgetsBindingObserver {
     );
   }
 
+  void _syncTranslationState() {
+    final translation = _translation;
+    if (translation == null) return;
+    unawaited(
+      FloatingAssistantBridge.instance.updateTranslationState({
+        'automatic': translation.isAutomatic,
+        'translating': translation.isTranslating,
+        'status': translation.status,
+        'error': translation.error,
+        'count': translation.translations.length,
+      }),
+    );
+  }
+
+  void _onScrollStarted() {
+    unawaited(_translation?.onScrollStarted());
+  }
+
   void _onScrollSettled() {
-    unawaited(_chat?.onTranslationScrollSettled());
+    unawaited(_translation?.onScrollSettled());
   }
 
   void _onServiceReconnected() {

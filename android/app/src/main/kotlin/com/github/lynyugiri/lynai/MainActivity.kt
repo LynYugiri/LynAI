@@ -98,6 +98,12 @@ class MainActivity : FlutterActivity() {
             this,
             MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "lynai/floating_assistant")
         )
+        NcnnOcrRecognizer.ensureLoaded(applicationContext)
+        val screenTranslation = ScreenTranslationPipeline(this)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "lynai/screen_translation"
+        ).setMethodCallHandler(screenTranslation::handle)
     }
 
     private fun startGenerationService() {

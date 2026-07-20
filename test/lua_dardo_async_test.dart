@@ -346,6 +346,8 @@ return lynai.call("agent.plan.update", {
       trace?.events.where((event) => event.type == 'plan_update'),
       hasLength(2),
     );
+    expect(DeviceRunController.instance.snapshot.conversationId, cid);
+    expect(DeviceRunController.instance.statusJson()['conversationId'], cid);
   });
 
   test('Agent Lua can update shared working memory', () async {

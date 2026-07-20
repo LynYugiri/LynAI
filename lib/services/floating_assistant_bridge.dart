@@ -11,6 +11,9 @@ class FloatingAssistantBridge {
   static const MethodChannel _channel = MethodChannel(
     'lynai/floating_assistant',
   );
+  static const MethodChannel _translationChannel = MethodChannel(
+    'lynai/screen_translation',
+  );
 
   bool get isSupported => Platform.isAndroid;
 
@@ -34,17 +37,48 @@ class FloatingAssistantBridge {
     return _invoke('updateChatState', payload);
   }
 
-  Future<void> setTranslationRunning(bool running) {
-    return _invoke('setTranslationRunning', {'running': running});
+  Future<void> updateTranslationState(Map<String, dynamic> payload) {
+    return _invoke('updateTranslationState', payload);
   }
 
-  Future<void> updateTranslationOverlay(Map<String, dynamic> payload) =>
-      _invoke('updateTranslationOverlay', payload);
+  Future<List<Map<String, dynamic>>> captureOcrGroups() async {
+    final response = await _invokeTranslationResult('captureAndRecognize');
+    final result = response is Map ? response['result'] : null;
+    final groups = result is Map ? result['groups'] : null;
+    if (groups is! List) return const [];
+    return groups
+        .whereType<Map>()
+        .map(Map<String, dynamic>.from)
+        .toList(growable: false);
+  }
 
-  Future<void> clearTranslationOverlay() => _invoke('clearTranslationOverlay');
+  Future<void> replaceTranslations(Map<String, dynamic> payload) =>
+      _invokeTranslation('showTranslations', payload);
 
-  Future<void> hideForScreenshot() => _invoke('hideForScreenshot');
-  Future<void> restoreAfterScreenshot() => _invoke('restoreAfterScreenshot');
+  Future<void> clearTranslations() => _invokeTranslation('clearTranslations');
+
+  Future<dynamic> _invokeTranslationResult(
+    String method, [
+    Map<String, dynamic>? arguments,
+  ]) async {
+    if (!isSupported) return null;
+    try {
+      return await _translationChannel.invokeMethod<dynamic>(
+        method,
+        arguments ?? const {},
+      );
+    } catch (e) {
+      debugPrint('FloatingAssistantBridge.translation.$method failed: $e');
+      return null;
+    }
+  }
+
+  Future<void> _invokeTranslation(
+    String method, [
+    Map<String, dynamic>? arguments,
+  ]) async {
+    await _invokeTranslationResult(method, arguments);
+  }
 
   Future<void> _invoke(String method, [Map<String, dynamic>? arguments]) async {
     if (!isSupported) return;

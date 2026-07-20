@@ -88,7 +88,7 @@ Agent 可通过 `model.chat` 调用 Chat 模型，通过 `model.ocr` 调用 OCR 
 
 `ModelConfig.localOcrId`（`'__local_ppocrv5__'`）是内置本地 OCR 的保留 sentinel ID。当 `imageModelId` 等于此值时，OCR 路径跳过云端 API，直接调用 Android 端 ncnn + PPOCRv5 本地推理（离线、免费、支持 17+ 语言和竖排文字）。该 ID 不对应持久化的 `ModelConfig`，仅在对话设置 UI 中作为虚拟条目显示（仅 Android）。
 
-OCR 悬浮翻译流水线使用一个未单独建模型的轻量块字典（`FloatingChatSessionController.normalizeOcrBlock` 产出）。Native OCR (`ocr_jni.cpp::objects_to_json`) 输出的字段：`text`（合成后的文字）、`bounds{left,top,right,bottom}`（AABB，原始 screenshot px）、`orientation`（0=横排，1=竖排）、`boxW/boxH`（PPOCRv5 检测阶段 `RotatedRect.size` 经 `enlarge_ratio = kEnlargeRatio = 1.95` 反算还原后的文本框宽/高，screenshot px）、`fontSize`（按 orientation 选出的字形方向像素高度，与 boxW/boxH 同源）、`angle`（rrect 角度，整数度）、`prob`（置信度）。Kotlin `NcnnOcrRecognizer.parseJson` 与 Dart `normalizeOcrBlock` 均透传这些字段；`id` 由 Dart 端按 `originalText|l,t,r,b`（~8px 容差）哈希生成，与 `fontSize/boxW/boxH/angle` 无关，保证跨帧稳定。
+OCR 悬浮翻译使用请求内轻量文本组。Native OCR 输出 `text`、识别用 `recognitionPolygon/recognitionBounds`、显示用 `polygon/displayBounds`、`orientation`、浮点 `angle`、`fontSize`、`confidence` 以及兼容字段 `bounds/boxW/boxH/prob`。Android `OcrTextGrouper` 按几何关系把 OCR 行合为 `g_N` 文本组，Dart `FloatingTranslationController` 只按组 ID 映射 AI 译文；这些 ID 不用于跨屏缓存。
 
 请求参数优先级：托管配置的 `userOverrides` 高于子模型参数，高于 Provider 参数，高于接口默认值。
 

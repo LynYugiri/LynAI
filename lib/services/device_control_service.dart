@@ -18,6 +18,7 @@ class DeviceControlService {
   DeviceControlBackend? _backend;
 
   VoidCallback? onTranslationScrollSettled;
+  VoidCallback? onTranslationScrollStarted;
   VoidCallback? onAccessibilityServiceReconnected;
 
   void setBackendForTesting(DeviceControlBackend? backend) {
@@ -569,6 +570,8 @@ class AndroidDeviceControlBackend implements DeviceControlBackend {
     final type = event['type']?.toString();
     if (type == 'user_touch') {
       DeviceRunController.instance.pause(reason: 'user_touch');
+    } else if (type == 'translation_scroll_started') {
+      DeviceControlService.instance.onTranslationScrollStarted?.call();
     } else if (type == 'translation_scroll_settled') {
       DeviceControlService.instance.onTranslationScrollSettled?.call();
     } else if (type == 'accessibility_service_reconnected') {

@@ -7,6 +7,7 @@ import '../models/device_control.dart';
 
 class DeviceRunSnapshot {
   final String? runId;
+  final String? conversationId;
   final DeviceRunStatus status;
   final String purpose;
   final String currentStep;
@@ -20,6 +21,7 @@ class DeviceRunSnapshot {
 
   const DeviceRunSnapshot({
     required this.runId,
+    this.conversationId,
     required this.status,
     this.purpose = '',
     this.currentStep = '',
@@ -56,12 +58,13 @@ class DeviceRunController extends ChangeNotifier {
   DeviceRunSnapshot get snapshot => _snapshot;
   String? get activeRunId => _snapshot.runId;
 
-  String start({required String purpose}) {
+  String start({required String purpose, String? conversationId}) {
     final runId = _uuid.v4();
     final now = DateTime.now();
     _resumeCompleter = null;
     _snapshot = DeviceRunSnapshot(
       runId: runId,
+      conversationId: conversationId,
       status: DeviceRunStatus.running,
       purpose: purpose,
       startedAt: now,
@@ -75,6 +78,7 @@ class DeviceRunController extends ChangeNotifier {
     if (!_snapshot.isActive) return;
     _snapshot = DeviceRunSnapshot(
       runId: _snapshot.runId,
+      conversationId: _snapshot.conversationId,
       status: _snapshot.status,
       purpose: _snapshot.purpose,
       currentStep: step,
@@ -91,6 +95,7 @@ class DeviceRunController extends ChangeNotifier {
     if (!_snapshot.isActive) return;
     _snapshot = DeviceRunSnapshot(
       runId: _snapshot.runId,
+      conversationId: _snapshot.conversationId,
       status: _snapshot.status,
       purpose: _snapshot.purpose,
       currentStep: _snapshot.currentStep,
@@ -108,6 +113,7 @@ class DeviceRunController extends ChangeNotifier {
     _resumeCompleter ??= Completer<void>();
     _snapshot = DeviceRunSnapshot(
       runId: _snapshot.runId,
+      conversationId: _snapshot.conversationId,
       status: DeviceRunStatus.paused,
       purpose: _snapshot.purpose,
       currentStep: _snapshot.currentStep,
@@ -126,6 +132,7 @@ class DeviceRunController extends ChangeNotifier {
     _resumeCompleter = null;
     _snapshot = DeviceRunSnapshot(
       runId: _snapshot.runId,
+      conversationId: _snapshot.conversationId,
       status: DeviceRunStatus.running,
       purpose: _snapshot.purpose,
       currentStep: _snapshot.currentStep,
@@ -142,6 +149,7 @@ class DeviceRunController extends ChangeNotifier {
     if (!_snapshot.isActive) return;
     _snapshot = DeviceRunSnapshot(
       runId: _snapshot.runId,
+      conversationId: _snapshot.conversationId,
       status: DeviceRunStatus.stopping,
       purpose: _snapshot.purpose,
       currentStep: _snapshot.currentStep,
@@ -208,6 +216,7 @@ class DeviceRunController extends ChangeNotifier {
     return {
       'ok': true,
       'runId': _snapshot.runId,
+      'conversationId': _snapshot.conversationId,
       'status': _snapshot.status.name,
       'purpose': _snapshot.purpose,
       'currentStep': _snapshot.currentStep,
@@ -230,6 +239,7 @@ class DeviceRunController extends ChangeNotifier {
     _resumeCompleter = null;
     _snapshot = DeviceRunSnapshot(
       runId: _snapshot.runId,
+      conversationId: _snapshot.conversationId,
       status: status,
       purpose: _snapshot.purpose,
       currentStep: _snapshot.currentStep,

@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../services/floating_chat_session_controller.dart';
+import '../services/floating_translation_controller.dart';
 
 class TranslationHistoryPage extends StatelessWidget {
   const TranslationHistoryPage({super.key, required this.controller});
 
-  final FloatingChatSessionController controller;
+  final FloatingTranslationController controller;
 
   String _formatTime(int millis) {
     final dt = DateTime.fromMillisecondsSinceEpoch(millis);
