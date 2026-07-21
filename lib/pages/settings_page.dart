@@ -3,6 +3,9 @@ import 'package:provider/provider.dart';
 import '../providers/account_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/model_config_provider.dart';
+import '../providers/conversation_provider.dart';
+import '../providers/roleplay_provider.dart';
+import '../utils/managed_model_id_migration.dart';
 import '../providers/recycle_bin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/backend_client.dart';
@@ -290,7 +293,14 @@ class _SettingsPageState extends State<SettingsPage> {
     final url = result.isEmpty ? null : result;
     backend.configure(url ?? '');
     settingsProvider.updateBackendUrl(url);
-    await context.read<ModelConfigProvider>().syncLynaiManagedProvider(backend);
+    await syncManagedModelsAndApplyMigrations(
+      models: context.read<ModelConfigProvider>(),
+      backend: backend,
+      settings: settingsProvider,
+      conversations: context.read<ConversationProvider>(),
+      roleplay: context.read<RoleplayProvider>(),
+      plugins: context.read<PluginProvider>(),
+    );
   }
 
   String _backendSubtitle(String? savedUrl, BackendClient backend) {

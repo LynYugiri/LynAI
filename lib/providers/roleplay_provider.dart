@@ -85,6 +85,61 @@ class RoleplayProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<bool> migrateModelIds(Map<String, String> migrations) async {
+    if (migrations.isEmpty) return false;
+    var changed = false;
+    RoleplayModelSelection migrateSelection(RoleplayModelSelection selection) {
+      final modelId = selection.modelId;
+      final nextModelId = modelId == null ? null : migrations[modelId];
+      if (nextModelId == null || nextModelId == modelId) return selection;
+      changed = true;
+      return selection.copyWith(modelId: nextModelId);
+    }
+
+    RoleplayDirector migrateDirector(RoleplayDirector director) {
+      final model = migrateSelection(director.model);
+      return identical(model, director.model)
+          ? director
+          : director.copyWith(model: model);
+    }
+
+    RoleplayParticipant migrateParticipant(RoleplayParticipant participant) {
+      final model = migrateSelection(participant.model);
+      return identical(model, participant.model)
+          ? participant
+          : participant.copyWith(model: model);
+    }
+
+    _scenarios = _scenarios
+        .map((scenario) {
+          return scenario.copyWith(
+            director: migrateDirector(scenario.director),
+            defaultPlayer: migrateParticipant(scenario.defaultPlayer),
+            defaultParticipants: scenario.defaultParticipants
+                .map(migrateParticipant)
+                .toList(growable: false),
+          );
+        })
+        .toList(growable: false);
+    _threads = _threads
+        .map((thread) {
+          return thread.copyWith(
+            director: migrateDirector(thread.director),
+            participants: thread.participants
+                .map(migrateParticipant)
+                .toList(growable: false),
+          );
+        })
+        .toList(growable: false);
+    if (!changed) {
+      await _queueSave();
+      return false;
+    }
+    await _queueSave();
+    notifyListeners();
+    return true;
+  }
+
   void repairModelReferences(List<ModelConfig> models) {
     final chatIds = models
         .where((model) => model.category == ModelConfig.categoryChat)

@@ -311,6 +311,7 @@ class _ModelRepository implements ModelConfigRepository {
   Future<void> save(
     List<ModelConfig> models, {
     required bool usingStorageV2,
+    Map<String, String> pendingManagedModelIdMigrations = const {},
   }) async {}
 }
 

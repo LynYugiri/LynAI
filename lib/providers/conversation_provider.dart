@@ -115,6 +115,58 @@ class ConversationProvider extends ChangeNotifier {
     await _pendingSave;
   }
 
+  Future<bool> migrateModelIds(Map<String, String> migrations) async {
+    if (migrations.isEmpty) return false;
+    String? migrate(String? id) => id == null ? null : migrations[id] ?? id;
+    var changed = false;
+
+    _conversations = _conversations
+        .map((conversation) {
+          final settings = conversation.settings;
+          final modelId = migrate(conversation.modelId)!;
+          final settingsModelId = migrate(settings.modelId)!;
+          final speechModelId = migrate(settings.speechModelId);
+          final imageModelId = migrate(settings.imageModelId);
+          final imageRecognitionModelId = migrate(
+            settings.imageRecognitionModelId,
+          );
+          final imageGenerationModelId = migrate(
+            settings.imageGenerationModelId,
+          );
+          if (modelId == conversation.modelId &&
+              settingsModelId == settings.modelId &&
+              speechModelId == settings.speechModelId &&
+              imageModelId == settings.imageModelId &&
+              imageRecognitionModelId == settings.imageRecognitionModelId &&
+              imageGenerationModelId == settings.imageGenerationModelId) {
+            return conversation;
+          }
+          changed = true;
+          return conversation.copyWith(
+            modelId: modelId,
+            settings: settings.copyWith(
+              modelId: settingsModelId,
+              speechModelId: speechModelId,
+              imageModelId: imageModelId,
+              imageRecognitionModelId: imageRecognitionModelId,
+              imageGenerationModelId: imageGenerationModelId,
+            ),
+          );
+        })
+        .toList(growable: false);
+
+    if (!changed) {
+      _pendingSaveSnapshot = List<Conversation>.from(_conversations);
+      _queueSaveConversations(immediate: true);
+      await flushPendingSaves();
+      return false;
+    }
+    _queueSaveConversations(immediate: true);
+    await flushPendingSaves();
+    notifyListeners();
+    return true;
+  }
+
   @override
   void dispose() {
     _enqueuePendingSave();

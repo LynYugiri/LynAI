@@ -21,6 +21,7 @@ class ModelConfigProvider extends ChangeNotifier {
   Future<void> _pendingSave = Future.value();
   final ModelConfigRepository _repository;
   bool _usingStorageV2 = false;
+  final Map<String, String> _pendingManagedModelIdMigrations = {};
 
   ModelConfigProvider({
     StorageV2Service? storageV2,
@@ -38,6 +39,29 @@ class ModelConfigProvider extends ChangeNotifier {
   bool get usingStorageV2 => _usingStorageV2;
 
   Future<void> flushPendingSaves() => _pendingSave;
+
+  /// 返回待处理的 managed ID 迁移。所有引用持久化成功后再确认。
+  Map<String, String> peekManagedModelIdMigrations() {
+    if (_pendingManagedModelIdMigrations.isEmpty) return const {};
+    return Map<String, String>.unmodifiable(_pendingManagedModelIdMigrations);
+  }
+
+  Future<void> ackManagedModelIdMigrations(
+    Map<String, String> migrations,
+  ) async {
+    final remaining = Map<String, String>.from(
+      _pendingManagedModelIdMigrations,
+    );
+    for (final entry in migrations.entries) {
+      if (remaining[entry.key] == entry.value) {
+        remaining.remove(entry.key);
+      }
+    }
+    await _queueSaveModels(pendingMigrations: remaining);
+    _pendingManagedModelIdMigrations
+      ..clear()
+      ..addAll(remaining);
+  }
 
   Future<void> replaceModels(List<ModelConfig> models) async {
     _models = List<ModelConfig>.from(models)..sort(_compareModels);
@@ -75,14 +99,51 @@ class ModelConfigProvider extends ChangeNotifier {
     final result = await _repository.load();
     _models = List<ModelConfig>.from(result.models)..sort(_compareModels);
     _usingStorageV2 = result.usingStorageV2;
+    _pendingManagedModelIdMigrations.addAll(
+      result.pendingManagedModelIdMigrations,
+    );
+    if (_normalizeManagedIds()) await _queueSaveModels();
     notifyListeners();
   }
 
+  bool _normalizeManagedIds() {
+    var changed = false;
+    final normalized = <String, ModelConfig>{};
+    for (final model in _models) {
+      if (!model.managed) {
+        normalized[model.id] = model;
+        continue;
+      }
+      final providerId = model.relayProviderId?.trim();
+      if (providerId == null || providerId.isEmpty) {
+        normalized[model.id] = model;
+        continue;
+      }
+      final target = '$lynaiManagedIdPrefix${providerId}_${model.category}__';
+      if (model.id != target) {
+        _pendingManagedModelIdMigrations[model.id] = target;
+        changed = true;
+      }
+      normalized[target] = model.id == target
+          ? model
+          : model.copyWith(id: target);
+    }
+    if (changed) _models = normalized.values.toList()..sort(_compareModels);
+    return changed;
+  }
+
   /// 把当前模型配置快照排入保存队列。
-  Future<void> _queueSaveModels() {
+  Future<void> _queueSaveModels({Map<String, String>? pendingMigrations}) {
     final snapshot = List<ModelConfig>.from(_models);
+    final migrationSnapshot = Map<String, String>.from(
+      pendingMigrations ?? _pendingManagedModelIdMigrations,
+    );
     final operation = _saveQueue.then(
-      (_) => _repository.save(snapshot, usingStorageV2: _usingStorageV2),
+      (_) => _repository.save(
+        snapshot,
+        usingStorageV2: _usingStorageV2,
+        pendingManagedModelIdMigrations: migrationSnapshot,
+      ),
     );
     _pendingSave = operation;
     _saveQueue = operation.catchError((Object error) {
@@ -114,7 +175,11 @@ class ModelConfigProvider extends ChangeNotifier {
     final index = _models.indexWhere((m) => m.id == modelId && m.managed);
     if (index == -1) return;
     final overrides = Map<String, dynamic>.from(_models[index].userOverrides);
-    overrides[key] = value;
+    if (_managedCapabilityKeys.contains(key) && value != false) {
+      overrides.remove(key);
+    } else {
+      overrides[key] = value;
+    }
     _models[index] = _models[index].copyWith(userOverrides: overrides);
     _queueSaveModels();
     notifyListeners();
@@ -150,38 +215,28 @@ class ModelConfigProvider extends ChangeNotifier {
 
   Future<bool> syncLynaiManagedProvider(BackendClient backend) async {
     if (!backend.isConnected || (backend.accessToken ?? '').isEmpty) {
-      await removeLynaiManagedProviders();
       return true;
     }
 
-    var protocolVersion = 2;
-    var response = await backend.get('/relay/v2/config');
-    if (response.statusCode == 404) {
-      protocolVersion = 1;
-      response = await backend.get('/relay/config');
-      if (response.statusCode == 404) {
-        response = await backend.get('/relay/models');
-      }
-    }
+    final response = await backend.get('/relay/config');
     if (response.statusCode != 200) {
       debugPrint('同步 LynAI 模型失败: HTTP ${response.statusCode}');
-      if (response.statusCode == 401) {
-        await removeLynaiManagedProviders();
-      }
-      return false;
+      return response.statusCode == 401;
     }
 
     final decoded = jsonDecode(response.body);
-    if (decoded is! Map || decoded['data'] is! List) {
+    if (decoded is! Map ||
+        decoded['schemaVersion'] != 3 ||
+        decoded['data'] is! List) {
       debugPrint('同步 LynAI 模型失败: 响应格式错误');
       return false;
     }
 
-    final grouped = _parseManagedGroups(
-      decoded['data'] as List,
-      protocolVersion: protocolVersion,
-    );
+    final grouped = _parseManagedGroups(decoded['data'] as List);
     final managedIds = grouped.map((group) => group.id).toSet();
+    final previousManaged = List<ModelConfig>.from(
+      _models.where((model) => model.managed),
+    );
     _models.removeWhere(
       (model) => model.managed && !managedIds.contains(model.id),
     );
@@ -192,7 +247,15 @@ class ModelConfigProvider extends ChangeNotifier {
       if (group.entries.isEmpty) continue;
       final id = group.id;
       final existingIndex = _models.indexWhere((model) => model.id == id);
-      final existing = existingIndex == -1 ? null : _models[existingIndex];
+      final legacyConfigs = _legacyManagedConfigs(previousManaged, group);
+      final existing = existingIndex == -1
+          ? (legacyConfigs.isEmpty ? null : legacyConfigs.first)
+          : _models[existingIndex];
+      for (final legacy in legacyConfigs) {
+        if (legacy.id != id) {
+          _pendingManagedModelIdMigrations[legacy.id] = id;
+        }
+      }
       final modelEntries = group.entries;
       final existingModelName = existing?.modelName;
       final activeModel =
@@ -207,16 +270,12 @@ class ModelConfigProvider extends ChangeNotifier {
         endpoint: endpoint,
         apiKey: '',
         modelName: activeModel,
-        apiType: group.apiType,
+        apiType: '',
         priority: existing?.priority ?? nextPriorityForCategory(group.category),
-        maxTokens: group.maxTokens,
-        temperature: group.temperature,
-        topP: group.topP,
         extraParams: group.extraParams,
         models: modelEntries,
         managed: true,
         relayProviderId: group.providerId,
-        relayProtocolVersion: group.protocolVersion,
         disabledByUser: existing?.disabledByUser ?? false,
         userOverrides: existing?.userOverrides,
       );
@@ -269,44 +328,41 @@ class ModelConfigProvider extends ChangeNotifier {
   /// 生成新的唯一ID
   String generateId() => _uuid.v4();
 
-  List<_ManagedModelGroup> _parseManagedGroups(
-    List data, {
-    required int protocolVersion,
-  }) {
+  List<ModelConfig> _legacyManagedConfigs(
+    List<ModelConfig> previousManaged,
+    _ManagedModelGroup group,
+  ) {
+    return previousManaged
+        .where(
+          (model) =>
+              model.id != group.id &&
+              model.relayProviderId == group.providerId &&
+              model.category == group.category,
+        )
+        .toList(growable: false);
+  }
+
+  List<_ManagedModelGroup> _parseManagedGroups(List data) {
     final groups = <String, _ManagedModelGroup>{};
     void addItem(
       Map item, {
-      String? providerId,
-      String? providerName,
-      String? providerApiType,
-      String? providerCategory,
+      required String providerId,
+      required String providerName,
+      required String providerCategory,
+      String? providerWorkflow,
     }) {
       final modelId = item['id']?.toString().trim() ?? '';
-      final apiType =
-          (item['api_type'] ?? item['apiType'] ?? providerApiType ?? 'openai')
-              .toString()
-              .trim()
-              .toLowerCase();
       final category = _normalizeCategory(
         item['category']?.toString() ?? providerCategory,
       );
-      if (modelId.isEmpty || apiType.isEmpty) return;
-      final groupProviderId =
-          (providerId ?? item['providerId']?.toString() ?? apiType).trim();
-      final displayProviderName = providerName?.trim().isNotEmpty == true
-          ? providerName!.trim()
-          : item['providerName']?.toString().trim() ?? '';
-      final key = '$groupProviderId\x00$apiType\x00$category';
+      if (modelId.isEmpty || providerId.isEmpty) return;
+      final key = '$providerId\x00$category';
       final group = groups.putIfAbsent(
         key,
         () => _ManagedModelGroup(
-          id: '$lynaiManagedIdPrefix${groupProviderId}_${apiType}_${category}__',
-          providerId: groupProviderId,
-          protocolVersion: protocolVersion,
-          name: displayProviderName.isNotEmpty
-              ? 'LynAI $displayProviderName'
-              : (apiType == 'openai' ? 'LynAI' : 'LynAI ($apiType)'),
-          apiType: apiType,
+          id: '$lynaiManagedIdPrefix${providerId}_${category}__',
+          providerId: providerId,
+          name: providerName.isNotEmpty ? 'LynAI $providerName' : 'LynAI',
           category: category,
         ),
       );
@@ -316,45 +372,41 @@ class ModelConfigProvider extends ChangeNotifier {
       final params = item['advancedParams'] is Map
           ? Map<String, dynamic>.from(item['advancedParams'] as Map)
           : const <String, dynamic>{};
+      final workflow = item['workflow']?.toString().trim().isNotEmpty == true
+          ? item['workflow'].toString().trim()
+          : providerWorkflow?.trim() ?? '';
       group.entries.add(
         ModelEntry(
           name: modelId,
           enabled: item['enabled'] != false,
-          supportsVision: capabilities['vision'] as bool? ?? true,
-          supportsThinking: capabilities['thinking'] as bool? ?? true,
-          supportsTools: capabilities['tools'] as bool? ?? true,
+          supportsVision: capabilities['vision'] as bool? ?? false,
+          supportsThinking: capabilities['thinking'] as bool? ?? false,
+          supportsTools: capabilities['tools'] as bool? ?? false,
           maxTokens: (params['maxTokens'] as num?)?.toInt(),
           temperature: (params['temperature'] as num?)?.toDouble(),
           topP: (params['topP'] as num?)?.toDouble(),
+          workflow: workflow.isEmpty ? null : workflow,
         ),
       );
-      group.maxTokens ??= (params['maxTokens'] as num?)?.toInt();
-      group.temperature ??= (params['temperature'] as num?)?.toDouble();
-      group.topP ??= (params['topP'] as num?)?.toDouble();
-      group.extraParams.addAll(params);
     }
 
-    for (final item in data) {
-      if (item is! Map) continue;
-      final models = item['models'];
-      if (models is List) {
-        final providerId = item['id']?.toString();
-        final providerName = item['name']?.toString();
-        final providerApiType = item['apiType']?.toString();
-        final providerCategory = item['category']?.toString();
-        for (final model in models) {
-          if (model is Map) {
-            addItem(
-              model,
-              providerId: providerId,
-              providerName: providerName,
-              providerApiType: providerApiType,
-              providerCategory: providerCategory,
-            );
-          }
+    for (final provider in data) {
+      if (provider is! Map || provider['models'] is! List) continue;
+      final providerId = provider['providerId']?.toString().trim() ?? '';
+      if (providerId.isEmpty) continue;
+      final providerName = provider['name']?.toString().trim() ?? '';
+      final providerCategory = provider['category']?.toString() ?? '';
+      final providerWorkflow = provider['workflow']?.toString();
+      for (final model in provider['models'] as List) {
+        if (model is Map) {
+          addItem(
+            model,
+            providerId: providerId,
+            providerName: providerName,
+            providerCategory: providerCategory,
+            providerWorkflow: providerWorkflow,
+          );
         }
-      } else {
-        addItem(item);
       }
     }
     return groups.values.where((group) => group.entries.isNotEmpty).toList();
@@ -372,27 +424,26 @@ class ModelConfigProvider extends ChangeNotifier {
         return ModelConfig.categoryChat;
     }
   }
+
+  static const _managedCapabilityKeys = {
+    'supportsVision',
+    'supportsThinking',
+    'supportsTools',
+  };
 }
 
 class _ManagedModelGroup {
   _ManagedModelGroup({
     required this.id,
     required this.providerId,
-    required this.protocolVersion,
     required this.name,
-    required this.apiType,
     required this.category,
   });
 
   final String id;
   final String providerId;
-  final int protocolVersion;
   final String name;
-  final String apiType;
   final String category;
   final List<ModelEntry> entries = [];
   final Map<String, dynamic> extraParams = {};
-  int? maxTokens;
-  double? temperature;
-  double? topP;
 }

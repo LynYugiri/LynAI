@@ -38,7 +38,7 @@ main()
   -> 注册 SettingsProvider
   -> StorageV2UpgradeService.ensureReady()
   -> 并行加载对话、功能数据、插件、回收站、情景演绎、模型、设置
-  -> 修复悬空模型引用
+  -> 同步托管模型并精确迁移旧模型 ID
   -> 根据设置配置 BackendClient
   -> 初始化并校验设备 Ed25519 身份
   -> 从安全存储恢复账号令牌并绑定账号同步作用域
@@ -50,7 +50,7 @@ main()
 
 启动加载由 `LynAIApp` 控制。加载中显示启动页；分区级加载失败会保留 Provider 原有内存状态、向上抛出并显示可重试错误页，不再把失败误写成空列表或默认设置。可独立解析的单条损坏数据仍会被跳过。`DeviceIdentityService.initialize()` 在账号加载前创建或校验安装级 Ed25519 身份。`AccountProvider.load()` 在 `BackendClient` 按保存的后端地址配置完成后恢复登录会话；账号令牌按规范化完整 Base URL（含 path prefix）保存在 `SecretStore`，SharedPreferences 只保留同作用域的用户元数据。恢复后通过 `/auth/me` 刷新用户和管理员状态，临时网络或服务端错误不清除缓存会话。若恢复出 access token，`DeviceRegistrationService` 会尝试幂等设备注册；离线或旧后端失败不会阻塞启动。业务增量同步与托管模型同步随后执行。
 
-共享设置和用户 Provider 配置使用独立逻辑同步域：`shared_settings/app-settings` 保存 `SharedSettingsV1` 投影，`synced_model_configs/<providerId>` 保存用户明确选择同步的 `SyncedModelConfigV1`。本地保存先生成投影 diff，再写持久化 Outbox；远端应用仍经过同一按记录 conflict 队列。应用完成后重新加载 Settings/Model providers、刷新服务端托管 Relay 配置并修复所有当前模型引用。背景图只同步 storage_v2 resource ID 与 content-addressed blob，不同步设备路径。
+共享设置和用户 Provider 配置使用独立逻辑同步域：`shared_settings/app-settings` 保存 `SharedSettingsV1` 投影，`synced_model_configs/<providerId>` 保存用户明确选择同步的 `SyncedModelConfigV1`。本地保存先生成投影 diff，再写持久化 Outbox；远端应用仍经过同一按记录 conflict 队列。应用完成后重新加载各 Provider、刷新服务端托管 Relay 配置，并按同步产生的一次性 `oldId -> newId` 映射依次迁移 Settings、Conversation 和 Roleplay 后持久化。该迁移只替换精确命中的 ID，不选择 fallback，也不改写历史快照的模型名、提示词、消息或其他字段。背景图只同步 storage_v2 resource ID 与 content-addressed blob，不同步设备路径。
 
 ## 主界面结构
 
@@ -105,7 +105,7 @@ Input + Attachments
 
 历史对话保存自己的 `ConversationSettings`，其中系统提示词保存选中当时的正文，而不只保存模板 ID。打开历史对话或继续发送时不会把该快照写回全局设置，也不会按当前同 ID 模板重新解析；全局模型、提示词或文件识别设置变化不会悄悄改变旧对话上下文。
 
-当选中的模型配置是 LynAI 托管 Provider 时，`ApiService` 使用同一条标准化链路，但请求目标改为后端 `/relay/chat`，并由 `BackendClient` 当前 JWT 做鉴权。服务端按 body 中的 `api_type` 和 `model` 路由到管理员配置的上游。
+当选中的模型配置是 LynAI 托管 Provider 时，`ApiService` 使用独立的 canonical request/response/SSE 编解码，请求目标固定为后端 `/relay/chat`，并由 `BackendClient` 当前 JWT 做鉴权。服务端按 body 中的 `providerId + model` 路由；客户端不读取托管 Provider 的上游 API 类型，也不选择 OpenAI/Anthropic/Ollama parser。ChatPage、浮窗和 Subagent 仍共享 `ApiService` 标准化输出，managed 工具能力只看模型 capability，direct 工具限制保持原行为。
 
 ## 情景演绎链路
 

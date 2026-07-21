@@ -8,10 +8,12 @@ class ModelConfigLoadResult {
   const ModelConfigLoadResult({
     required this.models,
     required this.usingStorageV2,
+    this.pendingManagedModelIdMigrations = const {},
   });
 
   final List<ModelConfig> models;
   final bool usingStorageV2;
+  final Map<String, String> pendingManagedModelIdMigrations;
 }
 
 class ModelConfigRepository {
@@ -67,14 +69,31 @@ class ModelConfigRepository {
     if (migratedPlaintext) {
       await _storageV2.writeDataFile('model_configs.json', {
         'models': models.map((model) => model.toJson()).toList(),
+        if (json['pendingManagedModelIdMigrations'] is Map)
+          'pendingManagedModelIdMigrations':
+              json['pendingManagedModelIdMigrations'],
       });
     }
-    return ModelConfigLoadResult(models: models, usingStorageV2: true);
+    final pending = <String, String>{};
+    final rawPending = json['pendingManagedModelIdMigrations'];
+    if (rawPending is Map) {
+      for (final entry in rawPending.entries) {
+        if (entry.key is String && entry.value is String) {
+          pending[entry.key as String] = entry.value as String;
+        }
+      }
+    }
+    return ModelConfigLoadResult(
+      models: models,
+      usingStorageV2: true,
+      pendingManagedModelIdMigrations: pending,
+    );
   }
 
   Future<void> save(
     List<ModelConfig> models, {
     required bool usingStorageV2,
+    Map<String, String> pendingManagedModelIdMigrations = const {},
   }) async {
     final nextRefs = <String>{};
     for (final model in models) {
@@ -92,6 +111,8 @@ class ModelConfigRepository {
             )
             .toJson();
       }).toList(),
+      if (pendingManagedModelIdMigrations.isNotEmpty)
+        'pendingManagedModelIdMigrations': pendingManagedModelIdMigrations,
     });
     for (final model in models.where((model) => model.apiKey.isEmpty)) {
       await _secretStore.delete(ModelConfig.secretReferenceForId(model.id));

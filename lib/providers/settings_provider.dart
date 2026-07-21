@@ -29,6 +29,53 @@ class SettingsProvider extends ChangeNotifier {
 
   Future<void> flushPendingSaves() => _pendingSave;
 
+  Future<bool> migrateModelIds(Map<String, String> migrations) async {
+    if (migrations.isEmpty) return false;
+    String? migrate(String? id) => id == null ? null : migrations[id] ?? id;
+
+    var rolesChanged = false;
+    final roles = _settings.roles
+        .map((role) {
+          final modelId = migrate(role.modelId);
+          if (modelId == role.modelId) return role;
+          rolesChanged = true;
+          return role.copyWith(modelId: modelId);
+        })
+        .toList(growable: false);
+    final translationModelId = migrate(
+      _settings.floatingAssistant.translationModelId,
+    );
+    final changed =
+        migrate(_settings.lastChatModelId) != _settings.lastChatModelId ||
+        migrate(_settings.speechModelId) != _settings.speechModelId ||
+        migrate(_settings.imageModelId) != _settings.imageModelId ||
+        migrate(_settings.imageRecognitionModelId) !=
+            _settings.imageRecognitionModelId ||
+        migrate(_settings.imageGenerationModelId) !=
+            _settings.imageGenerationModelId ||
+        translationModelId != _settings.floatingAssistant.translationModelId ||
+        rolesChanged;
+    if (!changed) {
+      await _queueSaveSettings();
+      return false;
+    }
+
+    _settings = _settings.copyWith(
+      lastChatModelId: migrate(_settings.lastChatModelId),
+      speechModelId: migrate(_settings.speechModelId),
+      imageModelId: migrate(_settings.imageModelId),
+      imageRecognitionModelId: migrate(_settings.imageRecognitionModelId),
+      imageGenerationModelId: migrate(_settings.imageGenerationModelId),
+      floatingAssistant: _settings.floatingAssistant.copyWith(
+        translationModelId: translationModelId,
+      ),
+      roles: roles,
+    );
+    await _queueSaveSettings();
+    notifyListeners();
+    return true;
+  }
+
   Future<void> replaceSettings(AppSettings settings) async {
     _settings = settings;
     await _queueSaveSettings();

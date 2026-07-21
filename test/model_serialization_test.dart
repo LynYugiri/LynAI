@@ -3942,68 +3942,83 @@ PRAGMA user_version = 2;
     }
   });
 
-  for (final protocolVersion in [1, 2]) {
-    test(
-      'managed relay v$protocolVersion sends compatible route fields',
-      () async {
-        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-        Map<String, dynamic>? requestBody;
-        unawaited(
-          server.first.then((request) async {
-            expect(
-              request.uri.path,
-              protocolVersion >= 2 ? '/v2/chat' : '/chat',
-            );
-            requestBody =
-                jsonDecode(await utf8.decoder.bind(request).join())
-                    as Map<String, dynamic>;
-            request.response.headers.contentType = ContentType.json;
-            request.response.write(
-              jsonEncode({
-                'choices': [
-                  {
-                    'message': {'role': 'assistant', 'content': 'ok'},
-                  },
-                ],
-              }),
-            );
-            await request.response.close();
+  test('managed relay uses canonical unversioned chat contract', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    Map<String, dynamic>? requestBody;
+    unawaited(
+      server.first.then((request) async {
+        expect(request.uri.path, '/relay/chat');
+        requestBody =
+            jsonDecode(await utf8.decoder.bind(request).join())
+                as Map<String, dynamic>;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({
+            'message': {
+              'role': 'assistant',
+              'content': 'ok',
+              'reasoning': 'because',
+              'toolCalls': [
+                {
+                  'id': 'call-1',
+                  'name': 'clock.now',
+                  'arguments': {'zone': 'local'},
+                },
+              ],
+            },
+            'finishReason': 'stop',
           }),
         );
-
-        final backend = BackendClient()
-          ..configure('http://${server.address.host}:${server.port}')
-          ..setTokens('token', 'refresh-token');
-        try {
-          await ApiService(backend: backend).sendChatRequest(
-            ModelConfig(
-              id: 'managed',
-              name: 'LynAI',
-              endpoint: 'http://${server.address.host}:${server.port}',
-              apiKey: '',
-              modelName: 'model-a',
-              apiType: 'openai',
-              priority: 0,
-              managed: true,
-              relayProviderId: 'provider-1',
-              relayProtocolVersion: protocolVersion,
-            ),
-            const [
-              {'role': 'user', 'content': 'hello'},
-            ],
-          );
-
-          expect(requestBody?['api_type'], 'openai');
-          if (protocolVersion >= 2) {
-            expect(requestBody?['provider_id'], 'provider-1');
-          } else {
-            expect(requestBody?.containsKey('provider_id'), isFalse);
-          }
-        } finally {
-          backend.dispose();
-          await server.close(force: true);
-        }
-      },
+        await request.response.close();
+      }),
     );
-  }
+
+    final backend = BackendClient()
+      ..configure('http://${server.address.host}:${server.port}')
+      ..setTokens('token', 'refresh-token');
+    try {
+      final response = await ApiService(backend: backend).sendChatRequest(
+        ModelConfig(
+          id: 'managed',
+          name: 'LynAI',
+          endpoint: 'http://${server.address.host}:${server.port}/relay',
+          apiKey: '',
+          modelName: 'model-a',
+          apiType: '',
+          priority: 0,
+          managed: true,
+          relayProviderId: 'provider-1',
+          extraParams: {
+            'presencePenalty': 0.7,
+            'frequencyPenalty': 0.4,
+            'seed': 9,
+            'stop': ['END'],
+            'user': 'legacy-user',
+            'arbitrary': true,
+          },
+        ),
+        const [
+          {'role': 'user', 'content': 'hello'},
+        ],
+      );
+
+      expect(requestBody?['providerId'], 'provider-1');
+      expect(requestBody?['model'], 'model-a');
+      expect(requestBody?['reasoning'], {'enabled': false});
+      expect(requestBody?.containsKey('api_type'), isFalse);
+      expect(requestBody?.containsKey('provider_id'), isFalse);
+      expect(requestBody?.containsKey('presencePenalty'), isFalse);
+      expect(requestBody?.containsKey('frequencyPenalty'), isFalse);
+      expect(requestBody?.containsKey('seed'), isFalse);
+      expect(requestBody?.containsKey('stop'), isFalse);
+      expect(requestBody?.containsKey('user'), isFalse);
+      expect(requestBody?.containsKey('arbitrary'), isFalse);
+      expect(response.content, 'ok');
+      expect(response.reasoning, 'because');
+      expect(response.toolCalls.single.name, 'clock.now');
+    } finally {
+      backend.dispose();
+      await server.close(force: true);
+    }
+  });
 }

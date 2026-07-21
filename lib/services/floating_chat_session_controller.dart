@@ -541,12 +541,7 @@ class FloatingChatSessionController extends ChangeNotifier {
     };
   }
 
-  bool _supportsNativeTools(ModelConfig model) {
-    return model.apiType != 'ollama' &&
-        model.apiType != 'anthropic' &&
-        model.supportsTools &&
-        model.extraParams['disableTools'] != true;
-  }
+  bool _supportsNativeTools(ModelConfig model) => model.supportsNativeTools;
 
   bool get _screenContextToolAllowed {
     final floating = _settings.settings.floatingAssistant;

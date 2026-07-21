@@ -29,6 +29,9 @@ class ModelEntry {
   /// 该子模型的 Top-P 采样参数，为 null 时继承 Provider 级设置。
   final double? topP;
 
+  /// 该子模型使用的 managed relay workflow。
+  final String? workflow;
+
   /// 创建一个子模型配置实例。
   ModelEntry({
     required this.name,
@@ -39,6 +42,7 @@ class ModelEntry {
     this.maxTokens,
     this.temperature,
     this.topP,
+    this.workflow,
   });
 
   /// 从 JSON 数据创建 [ModelEntry] 实例。
@@ -52,6 +56,7 @@ class ModelEntry {
       maxTokens: (json['maxTokens'] as num?)?.toInt(),
       temperature: (json['temperature'] as num?)?.toDouble(),
       topP: (json['topP'] as num?)?.toDouble(),
+      workflow: json['workflow'] as String?,
     );
   }
 
@@ -65,6 +70,7 @@ class ModelEntry {
     if (maxTokens != null) 'maxTokens': maxTokens,
     if (temperature != null) 'temperature': temperature,
     if (topP != null) 'topP': topP,
+    if (workflow != null && workflow!.isNotEmpty) 'workflow': workflow,
   };
 
   /// 创建当前实例的副本，可选择性更新部分字段。
@@ -77,6 +83,7 @@ class ModelEntry {
     Object? maxTokens = _sentinel,
     Object? temperature = _sentinel,
     Object? topP = _sentinel,
+    Object? workflow = _sentinel,
   }) {
     return ModelEntry(
       name: name ?? this.name,
@@ -91,6 +98,9 @@ class ModelEntry {
           ? this.temperature
           : temperature as double?,
       topP: identical(topP, _sentinel) ? this.topP : topP as double?,
+      workflow: identical(workflow, _sentinel)
+          ? this.workflow
+          : workflow as String?,
     );
   }
 
@@ -150,7 +160,7 @@ class ModelConfig {
   /// 当前激活的模型名称。
   final String modelName;
 
-  /// API 类型标识符，如 'openai'、'anthropic' 等。
+  /// 非托管 API 类型标识符，如 'openai'、'anthropic' 等。
   final String apiType;
 
   /// 配置优先级，数值越大优先级越高。
@@ -177,9 +187,6 @@ class ModelConfig {
   /// LynAI 后端中的真实 Relay Provider ID，用于精确选择同名模型的上游。
   final String? relayProviderId;
 
-  /// LynAI Relay 内部协议版本。自定义 API 使用默认值 1。
-  final int relayProtocolVersion;
-
   /// 用户是否在本机关闭了该托管配置。
   final bool disabledByUser;
 
@@ -205,7 +212,6 @@ class ModelConfig {
     this.topP,
     this.managed = false,
     this.relayProviderId,
-    this.relayProtocolVersion = 1,
     this.disabledByUser = false,
     Map<String, dynamic>? extraParams,
     Map<String, dynamic>? userOverrides,
@@ -252,21 +258,28 @@ class ModelConfig {
 
   /// 当前激活模型是否支持视觉输入。
   bool get supportsVision =>
-      userOverrides['supportsVision'] as bool? ??
-      activeEntry?.supportsVision ??
-      true;
+      _effectiveCapability('supportsVision', activeEntry?.supportsVision);
 
   /// 当前激活模型是否支持思考过程输出。
   bool get supportsThinking =>
-      userOverrides['supportsThinking'] as bool? ??
-      activeEntry?.supportsThinking ??
-      true;
+      _effectiveCapability('supportsThinking', activeEntry?.supportsThinking);
 
   /// 当前激活模型是否支持工具调用。
   bool get supportsTools =>
-      userOverrides['supportsTools'] as bool? ??
-      activeEntry?.supportsTools ??
-      true;
+      _effectiveCapability('supportsTools', activeEntry?.supportsTools);
+
+  bool _effectiveCapability(String key, bool? configured) {
+    final fallback = configured ?? true;
+    final override = userOverrides[key] as bool?;
+    if (!managed) return override ?? fallback;
+    return fallback && override != false;
+  }
+
+  /// 当前配置是否可使用应用原生工具协议。
+  bool get supportsNativeTools =>
+      supportsTools &&
+      extraParams['disableTools'] != true &&
+      (managed || (apiType != 'ollama' && apiType != 'anthropic'));
 
   /// 创建当前实例的副本，可选择性更新部分字段。
   ModelConfig copyWith({
@@ -284,7 +297,6 @@ class ModelConfig {
     Object? topP = _sentinel,
     bool? managed,
     Object? relayProviderId = _sentinel,
-    int? relayProtocolVersion,
     bool? disabledByUser,
     Map<String, dynamic>? extraParams,
     Map<String, dynamic>? userOverrides,
@@ -316,7 +328,6 @@ class ModelConfig {
       relayProviderId: identical(relayProviderId, _sentinel)
           ? this.relayProviderId
           : relayProviderId as String?,
-      relayProtocolVersion: relayProtocolVersion ?? this.relayProtocolVersion,
       disabledByUser: disabledByUser ?? this.disabledByUser,
       extraParams: extraParams ?? this.extraParams,
       userOverrides: userOverrides ?? this.userOverrides,
@@ -372,15 +383,13 @@ class ModelConfig {
           json['apiKeySecretRef'] as String? ??
           secretReferenceForId(json['id'] as String),
       modelName: modelName,
-      apiType: json['apiType'] as String,
+      apiType: json['managed'] == true ? '' : json['apiType'] as String,
       priority: (json['priority'] as num?)?.toInt() ?? 0,
       maxTokens: maxTokens,
       temperature: temperature,
       topP: topP,
       managed: json['managed'] == true,
       relayProviderId: json['relayProviderId'] as String?,
-      relayProtocolVersion:
-          (json['relayProtocolVersion'] as num?)?.toInt() ?? 1,
       disabledByUser: json['disabledByUser'] == true,
       extraParams: json['extraParams'] is Map
           ? Map<String, dynamic>.from(json['extraParams'])
@@ -402,7 +411,7 @@ class ModelConfig {
       'endpoint': endpoint,
       'apiKeySecretRef': apiKeySecretRef,
       'modelName': modelName,
-      'apiType': apiType,
+      if (!managed) 'apiType': apiType,
       'priority': priority,
       'models': models.map((m) => m.toJson()).toList(),
       if (maxTokens != null) 'maxTokens': maxTokens,
@@ -410,8 +419,6 @@ class ModelConfig {
       if (topP != null) 'topP': topP,
       if (managed) 'managed': managed,
       if (relayProviderId != null) 'relayProviderId': relayProviderId,
-      if (relayProtocolVersion != 1)
-        'relayProtocolVersion': relayProtocolVersion,
       if (disabledByUser) 'disabledByUser': disabledByUser,
       if (extraParams.isNotEmpty) 'extraParams': extraParams,
       if (userOverrides.isNotEmpty) 'userOverrides': userOverrides,

@@ -1245,12 +1245,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     return msgs;
   }
 
-  bool _supportsNativeTools(ModelConfig model) {
-    return model.apiType != 'ollama' &&
-        model.apiType != 'anthropic' &&
-        model.supportsTools &&
-        model.extraParams['disableTools'] != true;
-  }
+  bool _supportsNativeTools(ModelConfig model) => model.supportsNativeTools;
 
   bool _supportsThinking(ModelConfig model) => model.supportsThinking;
 

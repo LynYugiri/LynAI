@@ -62,7 +62,7 @@ lib/
 
 | 模块 | 入口文件 | 责任 |
 |------|----------|------|
-| 应用入口 | `lib/main.dart` | 注册 Provider、执行 storage_v2 升级、加载数据、修复引用、检查更新日志。 |
+| 应用入口 | `lib/main.dart` | 注册 Provider、执行 storage_v2 升级、加载数据、迁移托管模型 ID、检查更新日志。 |
 | 主导航 | `lib/pages/home_page.dart` | 五个主 Tab、返回键协调、背景图和状态保活。 |
 | 对话 | `lib/pages/chat_page.dart` | 输入、附件、语音、流式请求、工具调用、重试、分享。 |
 | 功能页 | `lib/pages/feature_page.dart` | Dashboard、历史、日程、笔记、待办、情景演绎。 |

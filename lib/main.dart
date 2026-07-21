@@ -34,6 +34,7 @@ import 'services/lan_tls_certificate_service.dart';
 import 'services/lan_secret_transfer_service.dart';
 import 'utils/changelog_parser.dart';
 import 'utils/flush_tasks.dart';
+import 'utils/managed_model_id_migration.dart';
 import 'utils/open_source_licenses.dart';
 import 'widgets/changelog_dialog.dart';
 import 'widgets/login_dialog.dart';
@@ -159,10 +160,14 @@ Future<void> main() async {
                 settings.loadSettings(),
                 models.loadModels(),
               ]);
-              await models.syncLynaiManagedProvider(backend);
-              settings.repairMediaModelSelections(models.models);
-              conversations.repairModelReferences(models.models);
-              roleplay.repairModelReferences(models.models);
+              await syncManagedModelsAndApplyMigrations(
+                models: models,
+                backend: backend,
+                settings: settings,
+                conversations: conversations,
+                roleplay: roleplay,
+                plugins: plugins,
+              );
             },
           ),
         ),
@@ -203,10 +208,14 @@ Future<void> main() async {
                 settings.loadSettings(),
                 models.loadModels(),
               ]);
-              await models.syncLynaiManagedProvider(backend);
-              settings.repairMediaModelSelections(models.models);
-              conversations.repairModelReferences(models.models);
-              roleplay.repairModelReferences(models.models);
+              await syncManagedModelsAndApplyMigrations(
+                models: models,
+                backend: backend,
+                settings: settings,
+                conversations: conversations,
+                roleplay: roleplay,
+                plugins: plugins,
+              );
             }
 
             final mdns = ctx.read<LanMdnsService>();
@@ -229,8 +238,21 @@ Future<void> main() async {
                 ctx.read<SecretStore>(),
                 onImported: () async {
                   final models = ctx.read<ModelConfigProvider>();
+                  final backend = ctx.read<BackendClient>();
+                  final settings = ctx.read<SettingsProvider>();
+                  final conversations = ctx.read<ConversationProvider>();
+                  final roleplay = ctx.read<RoleplayProvider>();
+                  final plugins = ctx.read<PluginProvider>();
                   await models.flushPendingSaves();
                   await models.loadModels();
+                  await syncManagedModelsAndApplyMigrations(
+                    models: models,
+                    backend: backend,
+                    settings: settings,
+                    conversations: conversations,
+                    roleplay: roleplay,
+                    plugins: plugins,
+                  );
                 },
               ),
               readModels: () => ctx.read<ModelConfigProvider>().models,
@@ -415,10 +437,6 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         settingsProvider.loadSettings(),
       ]);
 
-      settingsProvider.repairMediaModelSelections(modelProvider.models);
-      conversationProvider.repairModelReferences(modelProvider.models);
-      roleplayProvider.repairModelReferences(modelProvider.models);
-
       await settingsProvider.initializeDefaultBackend(
         BackendClient.defaultBackendUrl,
       );
@@ -429,7 +447,14 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
 
       await deviceIdentityService.initialize();
       await accountProvider.load();
-      await modelProvider.syncLynaiManagedProvider(backendClient);
+      await syncManagedModelsAndApplyMigrations(
+        models: modelProvider,
+        backend: backendClient,
+        settings: settingsProvider,
+        conversations: conversationProvider,
+        roleplay: roleplayProvider,
+        plugins: pluginProvider,
+      );
 
       await _importBuiltInPlugins(pluginProvider);
 

@@ -126,25 +126,11 @@ class ApiService {
     return Uri.parse('$endpoint$path');
   }
 
-  String _openAIChatPath(ModelConfig config) => config.managed
-      ? (config.relayProtocolVersion >= 2 ? '/v2/chat' : '/chat')
-      : '/chat/completions';
-
-  String _managedRelayPath(ModelConfig config, String path) =>
-      config.relayProtocolVersion >= 2 ? '/v2$path' : path;
-
   void _applyOpenAIAuthAndRelayParams(
     ModelConfig config,
     Map<String, dynamic> body,
     Map<String, String> headers,
   ) {
-    if (config.managed) {
-      final backend = _managedBackend();
-      headers['Authorization'] = 'Bearer ${backend.accessToken}';
-      body['api_type'] = config.apiType;
-      _applyManagedRelayRoute(config, body);
-      return;
-    }
     if (config.apiKey.isNotEmpty) {
       headers['Authorization'] = 'Bearer ${config.apiKey}';
     }
@@ -155,31 +141,19 @@ class ApiService {
     headers['Authorization'] = 'Bearer ${backend.accessToken}';
   }
 
-  void _applyManagedRelayRoute(ModelConfig config, Map<String, dynamic> body) {
+  String _managedProviderId(ModelConfig config) {
     final providerId = config.relayProviderId?.trim() ?? '';
-    if (config.managed &&
-        config.relayProtocolVersion >= 2 &&
-        providerId.isNotEmpty) {
-      body['provider_id'] = providerId;
+    if (providerId.isEmpty) {
+      throw Exception('LynAI 中转配置缺少 providerId');
     }
+    return providerId;
   }
 
-  void _applyManagedRelayParams(ModelConfig config, Map<String, dynamic> body) {
-    if (!config.managed) return;
-    body['api_type'] = config.apiType;
-    _applyManagedRelayRoute(config, body);
-  }
-
-  void _applyManagedRelayRouteField(
+  void _applyManagedProviderField(
     ModelConfig config,
     Map<String, String> fields,
   ) {
-    final providerId = config.relayProviderId?.trim() ?? '';
-    if (config.managed &&
-        config.relayProtocolVersion >= 2 &&
-        providerId.isNotEmpty) {
-      fields['provider_id'] = providerId;
-    }
+    fields['providerId'] = _managedProviderId(config);
   }
 
   bool _shouldLogSseDiagnostics(ModelConfig config) {
@@ -224,7 +198,7 @@ class ApiService {
     List<Map<String, dynamic>> messages, {
     required bool thinking,
     required List<Map<String, dynamic>> tools,
-    required String? toolChoice,
+    required Object? toolChoice,
   }) {
     return {
       'messageCount': messages.length,
@@ -329,13 +303,9 @@ class ApiService {
   ) async {
     _managedBackend();
     final endpoint = config.endpoint.replaceAll(RegExp(r'/+$'), '');
-    final request = http.MultipartRequest(
-      'POST',
-      Uri.parse('$endpoint${_managedRelayPath(config, '/ocr')}'),
-    );
+    final request = http.MultipartRequest('POST', Uri.parse('$endpoint/ocr'));
     request.fields['model'] = config.modelName;
-    request.fields['api_type'] = config.apiType;
-    _applyManagedRelayRouteField(config, request.fields);
+    _applyManagedProviderField(config, request.fields);
     request.files.add(
       http.MultipartFile.fromBytes('file', imageBytes, filename: 'ocr.png'),
     );
@@ -464,6 +434,12 @@ class ApiService {
     List<ChatFileInput> files,
   ) async {
     if (files.isEmpty) return '';
+    if (config.managed) {
+      final result = await sendChatRequest(config, [
+        {'role': 'user', 'content': chatContentWithFiles(prompt, files)},
+      ]);
+      return result.content.trim();
+    }
     if (config.apiType == 'ollama') {
       return _recognizeImageTextWithOllama(config, prompt, files);
     }
@@ -509,12 +485,7 @@ class ApiService {
     final filePrompt = nonImages.isEmpty
         ? prompt
         : '$prompt\n\n附件文件：\n${nonImages.map((file) => '${file.name} (${file.mimeType}) base64: ${base64Encode(file.bytes)}').join('\n')}';
-    final uri = _endpointUri(
-      config,
-      config.managed && config.relayProtocolVersion >= 2
-          ? '/v2/chat'
-          : '/api/chat',
-    );
+    final uri = _endpointUri(config, '/api/chat');
     final body = <String, dynamic>{
       'model': config.modelName,
       'messages': [
@@ -526,7 +497,6 @@ class ApiService {
       ],
       'stream': false,
     };
-    _applyManagedRelayParams(config, body);
     if (config.effectiveMaxTokens != null ||
         config.effectiveTemperature != null ||
         config.effectiveTopP != null) {
@@ -545,10 +515,6 @@ class ApiService {
     }
 
     final headers = <String, String>{'Content-Type': 'application/json'};
-    if (config.managed) {
-      _applyManagedRelayAuth(headers);
-    }
-
     final response = await _sendBuffered(config, () {
       final request = http.Request('POST', uri);
       request.headers.addAll(headers);
@@ -704,7 +670,7 @@ class ApiService {
     String audioType = 'auto',
   }) async {
     if (config.managed) {
-      if (config.apiType == 'vivo_lasr') {
+      if (config.activeEntry?.workflow == 'vivo_lasr') {
         return _transcribeManagedVivoLasr(
           config,
           audioBytes,
@@ -811,11 +777,10 @@ class ApiService {
     final endpoint = config.endpoint.replaceAll(RegExp(r'/+$'), '');
     final request = http.MultipartRequest(
       'POST',
-      Uri.parse('$endpoint${_managedRelayPath(config, '/transcribe')}'),
+      Uri.parse('$endpoint/transcribe'),
     );
     request.fields['model'] = config.modelName;
-    request.fields['api_type'] = config.apiType;
-    _applyManagedRelayRouteField(config, request.fields);
+    _applyManagedProviderField(config, request.fields);
     request.fields['response_format'] = 'json';
     request.files.add(
       http.MultipartFile.fromBytes(
@@ -861,15 +826,12 @@ class ApiService {
     final create = await _sendBuffered(config, () {
       final request = http.Request(
         'POST',
-        Uri.parse('$endpoint${_managedRelayPath(config, '/speech/create')}'),
+        Uri.parse('$endpoint/speech/create'),
       );
       request.headers['Content-Type'] = 'application/json';
       request.body = jsonEncode({
         'model': config.modelName,
-        'api_type': config.apiType,
-        if (config.relayProtocolVersion >= 2 &&
-            (config.relayProviderId?.trim() ?? '').isNotEmpty)
-          'provider_id': config.relayProviderId!.trim(),
+        'providerId': _managedProviderId(config),
         'audio_type': audioType,
         'slice_num': sliceCount,
       });
@@ -888,7 +850,7 @@ class ApiService {
       final request = http.MultipartRequest(
         'POST',
         Uri.parse(
-          '$endpoint${_managedRelayPath(config, '/speech/$audioId/upload')}',
+          '$endpoint/speech/$audioId/upload',
         ).replace(queryParameters: {'slice_index': '$i'}),
       );
       request.files.add(
@@ -915,12 +877,7 @@ class ApiService {
 
     final run = await _sendBuffered(
       config,
-      () => http.Request(
-        'POST',
-        Uri.parse(
-          '$endpoint${_managedRelayPath(config, '/speech/$audioId/run')}',
-        ),
-      ),
+      () => http.Request('POST', Uri.parse('$endpoint/speech/$audioId/run')),
     );
     if (run.statusCode < 200 || run.statusCode >= 300) {
       throw Exception('创建转写任务失败: ${run.statusCode} ${run.body}');
@@ -932,9 +889,7 @@ class ApiService {
         config,
         () => http.Request(
           'GET',
-          Uri.parse(
-            '$endpoint${_managedRelayPath(config, '/speech/$audioId/progress')}',
-          ),
+          Uri.parse('$endpoint/speech/$audioId/progress'),
         ),
       );
       if (progress.statusCode < 200 || progress.statusCode >= 300) {
@@ -947,12 +902,7 @@ class ApiService {
 
     final result = await _sendBuffered(
       config,
-      () => http.Request(
-        'GET',
-        Uri.parse(
-          '$endpoint${_managedRelayPath(config, '/speech/$audioId/result')}',
-        ),
-      ),
+      () => http.Request('GET', Uri.parse('$endpoint/speech/$audioId/result')),
     );
     if (result.statusCode < 200 || result.statusCode >= 300) {
       throw Exception('获取转写结果失败: ${result.statusCode} ${result.body}');
@@ -984,19 +934,20 @@ class ApiService {
     Map<String, dynamic>? parameters,
   }) async {
     final endpoint = config.endpoint.replaceAll(RegExp(r'/+$'), '');
-    final path = config.managed
-        ? _managedRelayPath(config, '/images/generations')
-        : '/images/generations';
+    const path = '/images/generations';
     final uri = Uri.parse('$endpoint$path');
     final body = <String, dynamic>{'model': config.modelName, 'prompt': prompt};
     final headers = <String, String>{'Content-Type': 'application/json'};
     if (config.managed) {
-      _applyOpenAIAuthAndRelayParams(config, body, headers);
+      _applyManagedRelayAuth(headers);
+      body['providerId'] = _managedProviderId(config);
     } else if (config.apiKey.isNotEmpty) {
       headers['Authorization'] = 'Bearer ${config.apiKey}';
     }
     if (parameters != null && parameters.isNotEmpty) {
-      body.addAll(parameters);
+      for (final entry in parameters.entries) {
+        if (!body.containsKey(entry.key)) body[entry.key] = entry.value;
+      }
     }
     final response = await _sendBuffered(config, () {
       final request = http.Request('POST', uri);
@@ -1140,10 +1091,18 @@ class ApiService {
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
     List<Map<String, dynamic>> tools = const [],
-    String? toolChoice,
+    Object? toolChoice,
   }) async {
     try {
-      if (config.apiType == 'ollama') {
+      if (config.managed) {
+        return await _sendManagedChatRequest(
+          config,
+          messages,
+          thinking: thinking,
+          tools: tools,
+          toolChoice: toolChoice,
+        ).timeout(_timeout);
+      } else if (config.apiType == 'ollama') {
         return await _sendOllamaRequest(
           config,
           _ollamaMessages(messages),
@@ -1176,10 +1135,18 @@ class ApiService {
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
     List<Map<String, dynamic>> tools = const [],
-    String? toolChoice,
+    Object? toolChoice,
   }) async* {
     try {
-      if (config.apiType == 'ollama') {
+      if (config.managed) {
+        yield* _sendManagedChatStreamRequest(
+          config,
+          messages,
+          thinking: thinking,
+          tools: tools,
+          toolChoice: toolChoice,
+        );
+      } else if (config.apiType == 'ollama') {
         yield* _sendOllamaStreamRequest(
           config,
           _ollamaMessages(messages),
@@ -1205,14 +1172,263 @@ class ApiService {
     }
   }
 
+  Map<String, dynamic> _managedChatBody(
+    ModelConfig config,
+    List<Map<String, dynamic>> messages, {
+    required bool stream,
+    required bool thinking,
+    required List<Map<String, dynamic>> tools,
+    required Object? toolChoice,
+  }) {
+    final budgetTokens = (config.extraParams['thinkingBudgetTokens'] as num?)
+        ?.toInt();
+    final body = <String, dynamic>{
+      'providerId': _managedProviderId(config),
+      'model': config.modelName,
+      'messages': messages.map(_managedChatMessage).toList(growable: false),
+      'stream': stream,
+      'reasoning': {
+        'enabled': thinking,
+        if (thinking && budgetTokens != null) 'budgetTokens': budgetTokens,
+      },
+      if (config.effectiveMaxTokens != null)
+        'maxTokens': config.effectiveMaxTokens,
+      if (config.effectiveTemperature != null)
+        'temperature': config.effectiveTemperature,
+      if (config.effectiveTopP != null) 'topP': config.effectiveTopP,
+      if (tools.isNotEmpty)
+        'tools': tools.map(_managedChatTool).toList(growable: false),
+      if (tools.isNotEmpty) 'toolChoice': toolChoice ?? 'auto',
+    };
+    return body;
+  }
+
+  Map<String, dynamic> _managedChatTool(Map<String, dynamic> tool) {
+    final function = tool['function'];
+    if (tool['type'] != 'function' || function is! Map) {
+      throw Exception('Managed Chat tools 必须是 OpenAI function tools');
+    }
+    final name = function['name']?.toString().trim() ?? '';
+    final parameters = function['parameters'];
+    if (name.isEmpty || parameters is! Map) {
+      throw Exception('Managed Chat function tool 缺少 name 或 parameters object');
+    }
+    return {
+      'name': name,
+      'description': function['description']?.toString() ?? '',
+      'parameters': Map<String, dynamic>.from(parameters),
+    };
+  }
+
+  Map<String, dynamic> _managedChatMessage(Map<String, dynamic> message) {
+    final result = <String, dynamic>{
+      'role': message['role'],
+      'content': _managedChatContent(message['content']),
+    };
+    if (message['reasoning_content'] != null) {
+      result['reasoning'] = message['reasoning_content'];
+    }
+    if (message['tool_call_id'] != null) {
+      result['toolCallId'] = message['tool_call_id'];
+    }
+    final rawCalls = message['tool_calls'];
+    if (rawCalls is List) {
+      result['toolCalls'] = rawCalls
+          .whereType<Map>()
+          .map((raw) {
+            final function = raw['function'];
+            Object arguments = const <String, dynamic>{};
+            if (function is Map) {
+              final rawArguments = function['arguments'];
+              if (rawArguments is Map) {
+                arguments = rawArguments;
+              } else if (rawArguments is String && rawArguments.isNotEmpty) {
+                try {
+                  arguments = jsonDecode(rawArguments);
+                } catch (_) {
+                  arguments = const <String, dynamic>{};
+                }
+              }
+            }
+            return {
+              'id': raw['id']?.toString() ?? '',
+              'name': function is Map ? function['name']?.toString() ?? '' : '',
+              'arguments': arguments,
+            };
+          })
+          .toList(growable: false);
+    }
+    return result;
+  }
+
+  List<Map<String, dynamic>> _managedChatContent(Object? content) {
+    if (content is String) {
+      return [
+        {'type': 'text', 'text': content},
+      ];
+    }
+    if (content is! List) {
+      return [
+        {'type': 'text', 'text': content?.toString() ?? ''},
+      ];
+    }
+    return content
+        .map<Map<String, dynamic>>((part) {
+          if (part is! Map) {
+            return {'type': 'text', 'text': part.toString()};
+          }
+          switch (part['type']) {
+            case 'text':
+              return {'type': 'text', 'text': part['text']?.toString() ?? ''};
+            case 'input_file':
+              return {
+                'type': 'inputFile',
+                'file': {
+                  'name': part['name']?.toString() ?? '',
+                  'mimeType': part['mime_type']?.toString() ?? '',
+                  'dataBase64': part['data']?.toString() ?? '',
+                },
+              };
+            default:
+              return {'type': 'text', 'text': jsonEncode(part)};
+          }
+        })
+        .toList(growable: false);
+  }
+
+  Future<ChatResponse> _sendManagedChatRequest(
+    ModelConfig config,
+    List<Map<String, dynamic>> messages, {
+    required bool thinking,
+    required List<Map<String, dynamic>> tools,
+    required Object? toolChoice,
+  }) async {
+    final uri = _endpointUri(config, '/chat');
+    final body = _managedChatBody(
+      config,
+      messages,
+      stream: false,
+      thinking: thinking,
+      tools: tools,
+      toolChoice: toolChoice,
+    );
+    final response = await _sendBuffered(config, () {
+      final request = http.Request('POST', uri);
+      request.headers['Content-Type'] = 'application/json';
+      request.body = jsonEncode(body);
+      return request;
+    });
+    final responseBody = utf8.decode(response.bodyBytes);
+    if (response.statusCode != 200) {
+      throw Exception(
+        _formatHttpError('API 请求失败', response.statusCode, responseBody),
+      );
+    }
+    final decoded = jsonDecode(responseBody);
+    if (decoded is! Map) {
+      throw Exception('Managed Chat 返回的顶层 JSON 必须是 object');
+    }
+    final message = decoded['message'];
+    if (message is! Map) {
+      throw Exception('Managed Chat 返回缺少 message object');
+    }
+    return ChatResponse(
+      content: message['content']?.toString() ?? '',
+      reasoning: message['reasoning']?.toString(),
+      toolCalls: _parseManagedToolCalls(message['toolCalls']),
+    );
+  }
+
+  Stream<StreamChunk> _sendManagedChatStreamRequest(
+    ModelConfig config,
+    List<Map<String, dynamic>> messages, {
+    required bool thinking,
+    required List<Map<String, dynamic>> tools,
+    required Object? toolChoice,
+  }) async* {
+    final uri = _endpointUri(config, '/chat');
+    final body = _managedChatBody(
+      config,
+      messages,
+      stream: true,
+      thinking: thinking,
+      tools: tools,
+      toolChoice: toolChoice,
+    );
+    final response = await _sendStreamed(config, () {
+      final request = http.Request('POST', uri);
+      request.headers['Content-Type'] = 'application/json';
+      request.body = jsonEncode(body);
+      return request;
+    });
+    if (response.statusCode != 200) {
+      final errorBody = await response.stream.bytesToString();
+      throw Exception(
+        _formatHttpError('流式请求失败', response.statusCode, errorBody),
+      );
+    }
+
+    var doneEmitted = false;
+    await for (final event
+        in response.stream
+            .transform(utf8.decoder)
+            .transform(const SseDecoder())
+            .timeout(_streamTimeout)) {
+      if (event.event != 'chunk') {
+        throw Exception('Managed Chat SSE event 必须是 chunk');
+      }
+      final data = event.data.trim();
+      if (data.isEmpty) continue;
+      final decoded = jsonDecode(data);
+      if (decoded is! Map) {
+        throw Exception('Managed Chat SSE 返回的顶层 JSON 必须是 object');
+      }
+      if (decoded['error'] != null) {
+        throw Exception(_formatApiError(decoded['error']));
+      }
+      final done = decoded['done'] == true;
+      yield StreamChunk(
+        content: decoded['content']?.toString(),
+        reasoningContent: decoded['reasoning']?.toString(),
+        toolCalls: _parseManagedToolCalls(decoded['toolCalls']),
+        isDone: done,
+      );
+      if (done) {
+        doneEmitted = true;
+        break;
+      }
+    }
+    if (!doneEmitted) {
+      throw Exception('Managed Chat SSE 在 done=true 前结束');
+    }
+  }
+
+  List<ChatToolCall> _parseManagedToolCalls(Object? value) {
+    if (value is! List) return const [];
+    return value
+        .whereType<Map>()
+        .map((raw) {
+          final arguments = raw['arguments'];
+          return ChatToolCall(
+            id: raw['id']?.toString() ?? '',
+            name: raw['name']?.toString() ?? '',
+            arguments: arguments is Map
+                ? arguments.map((key, value) => MapEntry(key.toString(), value))
+                : const {},
+          );
+        })
+        .where((call) => call.name.isNotEmpty)
+        .toList(growable: false);
+  }
+
   Future<ChatResponse> _sendOpenAICompatibleRequest(
     ModelConfig config,
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
     List<Map<String, dynamic>> tools = const [],
-    String? toolChoice,
+    Object? toolChoice,
   }) async {
-    final uri = _endpointUri(config, _openAIChatPath(config));
+    final uri = _endpointUri(config, '/chat/completions');
 
     final body = <String, dynamic>{
       'model': config.modelName,
@@ -1276,9 +1492,9 @@ class ApiService {
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
     List<Map<String, dynamic>> tools = const [],
-    String? toolChoice,
+    Object? toolChoice,
   }) async* {
-    final uri = _endpointUri(config, _openAIChatPath(config));
+    final uri = _endpointUri(config, '/chat/completions');
     final logSse = _shouldLogSseDiagnostics(config);
 
     final body = <String, dynamic>{
@@ -1531,12 +1747,7 @@ class ApiService {
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
   }) async {
-    final uri = _endpointUri(
-      config,
-      config.managed && config.relayProtocolVersion >= 2
-          ? '/v2/chat'
-          : '/api/chat',
-    );
+    final uri = _endpointUri(config, '/api/chat');
 
     final body = <String, dynamic>{
       'model': config.modelName,
@@ -1544,7 +1755,6 @@ class ApiService {
       'stream': false,
       'think': thinking,
     };
-    _applyManagedRelayParams(config, body);
 
     if (config.effectiveMaxTokens != null ||
         config.effectiveTemperature != null ||
@@ -1565,9 +1775,6 @@ class ApiService {
     }
 
     final headers = <String, String>{'Content-Type': 'application/json'};
-    if (config.managed) {
-      _applyManagedRelayAuth(headers);
-    }
     final response = await _sendBuffered(config, () {
       final request = http.Request('POST', uri);
       request.headers.addAll(headers);
@@ -1597,12 +1804,7 @@ class ApiService {
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
   }) async* {
-    final uri = _endpointUri(
-      config,
-      config.managed && config.relayProtocolVersion >= 2
-          ? '/v2/chat'
-          : '/api/chat',
-    );
+    final uri = _endpointUri(config, '/api/chat');
 
     final body = <String, dynamic>{
       'model': config.modelName,
@@ -1610,7 +1812,6 @@ class ApiService {
       'stream': true,
       'think': thinking,
     };
-    _applyManagedRelayParams(config, body);
 
     if (config.effectiveMaxTokens != null ||
         config.effectiveTemperature != null ||
@@ -1631,9 +1832,6 @@ class ApiService {
     }
 
     final headers = <String, String>{'Content-Type': 'application/json'};
-    if (config.managed) {
-      _applyManagedRelayAuth(headers);
-    }
     http.Request buildRequest() {
       final request = http.Request('POST', uri);
       request.headers.addAll(headers);
@@ -1766,27 +1964,17 @@ class ApiService {
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
   }) async* {
-    final uri = _endpointUri(
-      config,
-      config.managed && config.relayProtocolVersion >= 2
-          ? '/v2/chat'
-          : '/messages',
-    );
+    final uri = _endpointUri(config, '/messages');
     final body = _anthropicRequestBody(
       config,
       messages,
       stream: true,
       thinking: thinking,
     );
-    _applyManagedRelayParams(config, body);
 
     final headers = <String, String>{'Content-Type': 'application/json'};
-    if (config.managed) {
-      _applyManagedRelayAuth(headers);
-    } else {
-      headers['x-api-key'] = config.apiKey;
-      headers['anthropic-version'] = '2023-06-01';
-    }
+    headers['x-api-key'] = config.apiKey;
+    headers['anthropic-version'] = '2023-06-01';
     http.Request buildRequest() {
       final request = http.Request('POST', uri);
       request.headers.addAll(headers);
@@ -1857,27 +2045,17 @@ class ApiService {
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
   }) async {
-    final uri = _endpointUri(
-      config,
-      config.managed && config.relayProtocolVersion >= 2
-          ? '/v2/chat'
-          : '/messages',
-    );
+    final uri = _endpointUri(config, '/messages');
     final body = _anthropicRequestBody(
       config,
       messages,
       stream: false,
       thinking: thinking,
     );
-    _applyManagedRelayParams(config, body);
 
     final headers = <String, String>{'Content-Type': 'application/json'};
-    if (config.managed) {
-      _applyManagedRelayAuth(headers);
-    } else {
-      headers['x-api-key'] = config.apiKey;
-      headers['anthropic-version'] = '2023-06-01';
-    }
+    headers['x-api-key'] = config.apiKey;
+    headers['anthropic-version'] = '2023-06-01';
 
     final response = await _sendBuffered(config, () {
       final request = http.Request('POST', uri);

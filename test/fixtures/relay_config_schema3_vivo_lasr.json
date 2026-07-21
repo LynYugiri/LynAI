@@ -1,0 +1,31 @@
+{
+  "object": "relay_config",
+  "schemaVersion": 3,
+  "data": [
+    {
+      "providerId": "vivo-provider",
+      "name": "Vivo Speech",
+      "models": [
+        {
+          "id": "vivo-lasr",
+          "category": "speech",
+          "workflow": "vivo_lasr",
+          "capabilities": {},
+          "advancedParams": {
+            "maxTokens": 4096,
+            "presencePenalty": 0.5,
+            "seed": 42
+          }
+        },
+        {
+          "id": "generic-asr",
+          "category": "speech",
+          "capabilities": {},
+          "advancedParams": {
+            "temperature": 0.2
+          }
+        }
+      ]
+    }
+  ]
+}

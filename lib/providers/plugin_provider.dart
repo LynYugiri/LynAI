@@ -715,6 +715,21 @@ class PluginProvider extends ChangeNotifier {
         await _syncPlugin(pluginId);
       });
 
+  Future<bool> migrateModelIds(Map<String, String> migrations) async {
+    if (migrations.isEmpty) return false;
+    var changed = false;
+    for (final plugin in List<InstalledPlugin>.from(_plugins)) {
+      final schema = await loadConfigSchema(plugin.id);
+      if (schema == null) continue;
+      final current = await loadConfig(plugin.id);
+      final migrated = schema.migrateModelIds(current, migrations);
+      if (jsonEncode(current) == jsonEncode(migrated)) continue;
+      await saveConfig(plugin.id, migrated);
+      changed = true;
+    }
+    return changed;
+  }
+
   Future<void> syncAllPlugins() async {
     final pluginIds = _plugins.map((plugin) => plugin.id).toList();
     await Future.wait(

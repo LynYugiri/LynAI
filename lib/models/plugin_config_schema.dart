@@ -74,6 +74,22 @@ class PluginConfigSchema {
     }
     return errors;
   }
+
+  /// 仅按 schema 中声明为 model 的字段迁移模型 ID。
+  Map<String, dynamic> migrateModelIds(
+    Map<String, dynamic> values,
+    Map<String, String> migrations,
+  ) {
+    final migrated = Map<String, dynamic>.from(values);
+    for (final field in fields) {
+      if (!migrated.containsKey(field.key)) continue;
+      migrated[field.key] = field.migrateModelIds(
+        migrated[field.key],
+        migrations,
+      );
+    }
+    return migrated;
+  }
 }
 
 /// 插件配置 Schema 的单个字段定义。
@@ -324,6 +340,48 @@ class PluginConfigFieldDefinition {
         }
     }
     return errors;
+  }
+
+  Object? migrateModelIds(Object? value, Map<String, String> migrations) {
+    switch (type) {
+      case PluginConfigFieldType.model:
+        if (modelStore == PluginModelStoreMode.id && value is String) {
+          return migrations[value] ?? value;
+        }
+        if (value is Map) {
+          final selection = Map<String, dynamic>.from(value);
+          final modelId = selection['modelId'];
+          if (modelId is String && migrations[modelId] != null) {
+            selection['modelId'] = migrations[modelId];
+          }
+          return selection;
+        }
+        return value;
+      case PluginConfigFieldType.array:
+        if (value is! List || item == null) return value;
+        return value
+            .map((entry) => item!.migrateModelIds(entry, migrations))
+            .toList(growable: false);
+      case PluginConfigFieldType.object:
+        if (value is! Map) return value;
+        final object = Map<String, dynamic>.from(value);
+        for (final field in fields) {
+          if (!object.containsKey(field.key)) continue;
+          object[field.key] = field.migrateModelIds(
+            object[field.key],
+            migrations,
+          );
+        }
+        return object;
+      case PluginConfigFieldType.boolean:
+      case PluginConfigFieldType.string:
+      case PluginConfigFieldType.text:
+      case PluginConfigFieldType.number:
+      case PluginConfigFieldType.integer:
+      case PluginConfigFieldType.select:
+      case PluginConfigFieldType.multiSelect:
+        return value;
+    }
   }
 
   /// 返回字段的显示标题，title 为空时用 key 兜底。

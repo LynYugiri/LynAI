@@ -1622,12 +1622,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     return null;
   }
 
-  bool _supportsNativeTools(ModelConfig model) {
-    return model.apiType != 'ollama' &&
-        model.apiType != 'anthropic' &&
-        model.supportsTools &&
-        model.extraParams['disableTools'] != true;
-  }
+  bool _supportsNativeTools(ModelConfig model) => model.supportsNativeTools;
 
   Map<String, dynamic> _subagentFinalResult(String content) {
     final trimmed = content.trim();

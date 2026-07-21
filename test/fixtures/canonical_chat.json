@@ -1,0 +1,45 @@
+{
+  "request": {
+    "providerId": "provider-1",
+    "model": "model-1",
+    "messages": [
+      {"role": "user", "content": [{"type": "text", "text": "weather?"}]}
+    ],
+    "stream": false,
+    "reasoning": {"enabled": true, "budgetTokens": 2048},
+    "tools": [
+      {
+        "name": "weather",
+        "description": "Get weather",
+        "parameters": {
+          "type": "object",
+          "properties": {"city": {"type": "string"}},
+          "required": ["city"]
+        }
+      }
+    ],
+    "toolChoice": {"name": "weather"}
+  },
+  "response": {
+    "message": {
+      "role": "assistant",
+      "content": "sunny",
+      "reasoning": "checked forecast",
+      "toolCalls": [
+        {"id": "call-1", "name": "weather", "arguments": {"city": "Shanghai"}}
+      ]
+    },
+    "finishReason": "stop"
+  },
+  "sse": [
+    {"content": "sun", "reasoning": "check"},
+    {"content": "ny"},
+    {
+      "toolCalls": [
+        {"id": "call-1", "name": "weather", "arguments": {"city": "Shanghai"}}
+      ],
+      "finishReason": "stop",
+      "done": true
+    }
+  ]
+}

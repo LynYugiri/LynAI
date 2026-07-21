@@ -17,10 +17,12 @@ import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/sync_provider.dart';
 import '../services/backup_service.dart';
+import '../services/backend_client.dart';
 import '../services/backup_encryption.dart';
 import '../services/storage_v2_service.dart';
 import '../services/storage_v2_database.dart';
 import '../utils/file_picker_io_utils.dart';
+import '../utils/managed_model_id_migration.dart';
 import '../widgets/merge_conflict_card.dart';
 
 /// 数据管理页面。
@@ -240,11 +242,16 @@ class _DataManagementPageState extends State<DataManagementPage> {
         BackupSettingsPart.apiConfigs,
       )) {
         final modelProvider = context.read<ModelConfigProvider>();
-        context.read<SettingsProvider>().repairMediaModelSelections(
-          modelProvider.models,
-        );
-        context.read<ConversationProvider>().repairModelReferences(
-          modelProvider.models,
+        final settingsProvider = context.read<SettingsProvider>();
+        final conversationProvider = context.read<ConversationProvider>();
+        final roleplayProvider = context.read<RoleplayProvider>();
+        await syncManagedModelsAndApplyMigrations(
+          models: modelProvider,
+          backend: context.read<BackendClient>(),
+          settings: settingsProvider,
+          conversations: conversationProvider,
+          roleplay: roleplayProvider,
+          plugins: context.read<PluginProvider>(),
         );
       }
       setState(() {

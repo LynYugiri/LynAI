@@ -4,9 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import '../models/model_config.dart';
-import '../providers/conversation_provider.dart';
 import '../providers/model_config_provider.dart';
+import '../providers/conversation_provider.dart';
+import '../providers/plugin_provider.dart';
+import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
+import '../utils/managed_model_id_migration.dart';
 import '../services/backend_client.dart';
 import '../widgets/text_editing_controller_host.dart';
 
@@ -1067,7 +1070,7 @@ class _EditModelPageState extends State<EditModelPage> {
         const SizedBox(height: 16),
         _managedInfoRow('名称', model.name),
         const SizedBox(height: 12),
-        _managedInfoRow('API 类型', model.apiType.toUpperCase()),
+        _managedInfoRow('Provider ID', model.relayProviderId ?? '-'),
         const SizedBox(height: 12),
         _managedInfoRow('分类', _categoryTitle(model.category)),
         const SizedBox(height: 16),
@@ -1174,21 +1177,21 @@ class _EditModelPageState extends State<EditModelPage> {
               model,
               keyName: 'supportsVision',
               title: '视觉能力',
-              fallback: model.activeEntry?.supportsVision ?? true,
+              fallback: model.activeEntry?.supportsVision ?? false,
               disabled: disabled,
             ),
             _managedBoolOverrideTile(
               model,
               keyName: 'supportsThinking',
               title: '思考输出',
-              fallback: model.activeEntry?.supportsThinking ?? true,
+              fallback: model.activeEntry?.supportsThinking ?? false,
               disabled: disabled,
             ),
             _managedBoolOverrideTile(
               model,
               keyName: 'supportsTools',
               title: '工具调用',
-              fallback: model.activeEntry?.supportsTools ?? true,
+              fallback: model.activeEntry?.supportsTools ?? false,
               disabled: disabled,
             ),
           ],
@@ -1250,15 +1253,17 @@ class _EditModelPageState extends State<EditModelPage> {
     required bool disabled,
   }) {
     final hasOverride = model.userOverrides.containsKey(keyName);
-    final value = model.userOverrides[keyName] as bool? ?? fallback;
+    final value = fallback && model.userOverrides[keyName] != false;
     return SwitchListTile(
       dense: true,
       title: Text(title),
       subtitle: Text(hasOverride ? '本机覆盖' : '服务端: ${fallback ? "开启" : "关闭"}'),
       value: value,
-      onChanged: disabled
+      onChanged: disabled || !fallback
           ? null
-          : (next) => _setManagedUserOverride(model, keyName, next),
+          : (next) => next
+                ? _clearManagedUserOverride(model, keyName)
+                : _setManagedUserOverride(model, keyName, false),
       secondary: hasOverride
           ? IconButton(
               tooltip: '清除覆盖',
@@ -1434,7 +1439,14 @@ class _EditModelPageState extends State<EditModelPage> {
     setState(() => _refreshingManaged = true);
     try {
       final backend = context.read<BackendClient>();
-      final ok = await widget.provider.syncLynaiManagedProvider(backend);
+      final ok = await syncManagedModelsAndApplyMigrations(
+        models: widget.provider,
+        backend: backend,
+        settings: context.read<SettingsProvider>(),
+        conversations: context.read<ConversationProvider>(),
+        roleplay: context.read<RoleplayProvider>(),
+        plugins: context.read<PluginProvider>(),
+      );
       if (!ok) {
         if (!mounted) return;
         ScaffoldMessenger.of(

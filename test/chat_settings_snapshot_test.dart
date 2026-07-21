@@ -25,7 +25,7 @@ class _RepeatingToolApi extends ApiService {
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
     List<Map<String, dynamic>> tools = const [],
-    String? toolChoice,
+    Object? toolChoice,
   }) async* {
     requests++;
     yield StreamChunk(content: 'working $requests');
@@ -51,7 +51,7 @@ class _CapturingApi extends ApiService {
     List<Map<String, dynamic>> messages, {
     bool thinking = false,
     List<Map<String, dynamic>> tools = const [],
-    String? toolChoice,
+    Object? toolChoice,
   }) async* {
     this.messages = messages;
     yield StreamChunk(content: 'reply', isDone: true);

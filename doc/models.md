@@ -71,7 +71,7 @@
 | `endpoint` | 接口地址或基础地址。 |
 | `apiKey` | API Key、AppKey 或其他鉴权信息。 |
 | `modelName` | 当前激活的模型名。 |
-| `apiType` | 协议类型，例如 OpenAI 兼容、Ollama、Anthropic。 |
+| `apiType` | 非托管 Provider 的协议类型，例如 OpenAI 兼容、Ollama、Anthropic；托管配置不持久化此字段。 |
 | `priority` | 分类内排序。 |
 | `models` | 子模型列表。 |
 | `extraParams` | 用户自定义请求参数。 |
@@ -80,9 +80,9 @@
 | `userOverrides` | 用户对托管配置的本机覆盖项，优先级高于服务端下发值；当前覆盖 `maxTokens`、`temperature`、`topP`、`supportsVision`、`supportsThinking` 和 `supportsTools`。 |
 | `cloudSyncEnabled` | 用户是否明确允许同步此非托管 Provider 的非秘密配置，默认 false。托管 Provider 始终由服务端维护，不进入该同步域。 |
 
-`ModelEntry` 是子模型。子模型可以独立设置启用状态、视觉能力、thinking 能力、工具能力和采样参数。
+`ModelEntry` 是子模型。子模型可以独立设置启用状态、视觉能力、thinking 能力、工具能力、采样参数和 managed workflow。schema 3 下发的 Vivo LASR workflow 保存在对应 speech 子模型上，不提升到 Provider 级。
 
-登录后端后，`ModelConfigProvider` 优先从 `/relay/config` 同步 `managed=true` 的 LynAI Provider，按服务端 provider、`api_type` 和 `category` 分组创建配置；旧后端无 `/relay/config` 时回退 `/relay/models`。托管 Provider 的 endpoint 派生自 `BackendClient.backendUrl + '/relay'`，请求时由 `ApiService` 使用用户 JWT 鉴权并在 JSON body 或 multipart 字段中注入 `api_type`。
+登录后端后，`ModelConfigProvider` 只从 `/relay/config` 读取 `schemaVersion: 3` 的 provider -> models 配置，按 `providerId + category` 创建稳定的托管分组。托管 Provider 的 endpoint 派生自 `BackendClient.backendUrl + '/relay'`，请求时由 `ApiService` 使用用户 JWT 鉴权，并发送 `providerId + model`。旧 managed 分组在本地加载时即可按 provider/category 规范化 ID，并生成精确 `oldId -> newId` pending 映射；该映射随模型配置持久化，Settings、Conversation、Roleplay 和插件配置全部保存成功后才确认删除，失败可在下次入口重试。未登录和 401 不删除本地 managed 配置或 pending 映射。旧 `relayProtocolVersion` 字段读取时自然忽略。
 
 Agent 可通过 `model.chat` 调用 Chat 模型，通过 `model.ocr` 调用 OCR 分类模型，通过 `model.recognizeFile` 调用开启视觉能力的 Chat 模型，通过 `model.generateImage` 调用图片生成模型。`model.recognizeFile` 依赖 `supportsVision=true` 的子模型。
 
