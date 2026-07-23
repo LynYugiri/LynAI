@@ -9,11 +9,8 @@ import android.content.Intent
 import android.os.Build
 import android.view.View
 import android.widget.RemoteViews
-import org.json.JSONArray
-import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
-import java.util.Locale
 
 class ScheduleWidgetProvider : AppWidgetProvider() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -36,7 +33,6 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
     }
 
     companion object {
-        private const val SCHEDULE_KEY = "flutter.schedule_items"
         private val CELL_IDS = intArrayOf(
             R.id.schedule_widget_cell_1,
             R.id.schedule_widget_cell_2,
@@ -223,9 +219,9 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
         private fun buildViews(context: Context): RemoteViews {
             val views = RemoteViews(context.packageName, R.layout.schedule_widget)
             val today = Calendar.getInstance()
-            val schedules = readSchedules(context)
+            val schedules = CalendarProjectionStore.read(context).widgetOccurrences
             val dayCounts = monthDayCounts(schedules, today)
-            val nextSchedule = nextScheduleText(schedules, today.time)
+            val nextSchedule = ScheduleWidgetLogic.nextScheduleText(schedules, today.time)
             val todayCount = dayCounts[today.get(Calendar.DAY_OF_MONTH)]
 
             views.setTextViewText(R.id.schedule_widget_day, today.get(Calendar.DAY_OF_MONTH).toString())
@@ -302,93 +298,10 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
             }
         }
 
-        private fun readSchedules(context: Context): List<ScheduleEntry> {
-            val prefsName = "${context.packageName}_preferences"
-            val prefs = listOf(
-                context.getSharedPreferences(prefsName, Context.MODE_PRIVATE),
-                context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-            )
-            val raw = prefs.firstNotNullOfOrNull { it.getString(SCHEDULE_KEY, null) }
-                ?: prefs.firstNotNullOfOrNull { it.getString("schedule_items", null) }
-                ?: return emptyList()
-            return try {
-                val array = JSONArray(raw)
-                buildList {
-                    for (index in 0 until array.length()) {
-                        val item = array.optJSONObject(index) ?: continue
-                        val title = item.optString("title").ifBlank { "未命名日程" }
-                        val start = parseDate(item.optString("start")) ?: continue
-                        val end = parseDate(item.optString("end")) ?: start
-                        add(
-                            ScheduleEntry(
-                                title = title,
-                                start = start,
-                                end = maxOf(start, end)
-                            )
-                        )
-                    }
-                }
-            } catch (_: Exception) {
-                emptyList()
-            }
-        }
-
-        private fun parseDate(value: String): Date? {
-            if (value.isBlank()) return null
-            val normalized = normalizeIsoDate(value)
-            val formats = listOf(
-                "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
-                "yyyy-MM-dd'T'HH:mm:ssXXX",
-                "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
-                "yyyy-MM-dd'T'HH:mm:ss'Z'",
-                "yyyy-MM-dd'T'HH:mm:ss.SSS",
-                "yyyy-MM-dd'T'HH:mm:ss"
-            )
-            return formats.firstNotNullOfOrNull { pattern ->
-                try {
-                    SimpleDateFormat(pattern, Locale.US).parse(normalized)
-                } catch (_: Exception) {
-                    null
-                }
-            }
-        }
-
-        private fun normalizeIsoDate(value: String): String {
-            val dot = value.indexOf('.')
-            if (dot == -1) return value
-            val suffixStart = (dot + 1 until value.length)
-                .firstOrNull { !value[it].isDigit() }
-                ?: value.length
-            val fraction = value.substring(dot + 1, suffixStart)
-            if (fraction.length <= 3) return value
-            return value.substring(0, dot + 1) + fraction.take(3) + value.substring(suffixStart)
-        }
-
         private fun dayCountText(count: Int): String = when {
             count <= 0 -> ""
             count > 99 -> "99+"
             else -> count.toString()
-        }
-
-        private fun nextScheduleText(items: List<ScheduleEntry>, now: Date): String {
-            val next = items
-                .asSequence()
-                .filter { !it.end.before(now) }
-                .sortedWith(compareBy<ScheduleEntry> { it.start }.thenBy { it.end })
-                .firstOrNull()
-                ?: return "近期无日程"
-            val prefix = if (next.start.after(now)) {
-                val diffDays = calendarDayDiff(now, next.start)
-                when {
-                    diffDays <= 0 -> "今天"
-                    diffDays == 1 -> "明天"
-                    diffDays < 7 -> "${diffDays} 天后"
-                    else -> SimpleDateFormat("M月d日", Locale.CHINA).format(next.start)
-                }
-            } else {
-                "进行中"
-            }
-            return "$prefix · ${next.title}"
         }
 
         private fun launchIntent(context: Context): PendingIntent {
@@ -403,7 +316,7 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
             return PendingIntent.getActivity(context, 0, intent, flags)
         }
 
-        private fun monthDayCounts(items: List<ScheduleEntry>, month: Calendar): IntArray {
+        private fun monthDayCounts(items: List<CalendarWidgetOccurrence>, month: Calendar): IntArray {
             val monthStart = Calendar.getInstance().apply {
                 set(Calendar.YEAR, month.get(Calendar.YEAR))
                 set(Calendar.MONTH, month.get(Calendar.MONTH))
@@ -420,13 +333,13 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
             val daysInMonth = monthStart.getActualMaximum(Calendar.DAY_OF_MONTH)
             val counts = IntArray(daysInMonth + 1)
             items.forEach { item ->
-                if (!item.start.before(monthEnd.time) || !item.end.after(monthStart.time)) {
+                if (!item.start.before(monthEnd.time) || !item.dateSpanEnd.after(monthStart.time)) {
                     return@forEach
                 }
                 val cursor = Calendar.getInstance().apply {
                     time = maxOf(startOfDay(item.start), monthStart.time)
                 }
-                val end = minOf(item.end, monthEnd.time)
+                val end = minOf(item.dateSpanEnd, monthEnd.time)
                 while (cursor.time.before(end)) {
                     counts[cursor.get(Calendar.DAY_OF_MONTH)] += 1
                     cursor.add(Calendar.DAY_OF_MONTH, 1)
@@ -442,17 +355,6 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
             set(Calendar.SECOND, 0)
             set(Calendar.MILLISECOND, 0)
         }.time
-
-        private fun calendarDayDiff(from: Date, to: Date): Int {
-            val start = Calendar.getInstance().apply { time = startOfDay(from) }
-            val end = Calendar.getInstance().apply { time = startOfDay(to) }
-            var diff = 0
-            while (start.before(end)) {
-                start.add(Calendar.DAY_OF_MONTH, 1)
-                diff += 1
-            }
-            return diff
-        }
 
         private fun maxOf(a: Date, b: Date): Date = if (a.after(b)) a else b
 
@@ -470,9 +372,3 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
 
     }
 }
-
-private data class ScheduleEntry(
-    val title: String,
-    val start: Date,
-    val end: Date
-)

@@ -26,6 +26,7 @@ import android.text.TextWatcher
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.inputmethod.InputMethodManager
@@ -114,6 +115,7 @@ object FloatingAssistantOverlay {
     }
 
     fun install(activity: Activity, channel: MethodChannel) {
+        if (this.activity != null) uninstall()
         this.activity = activity
         this.channel = channel
         screenOffReceiver = screenStateReceiver
@@ -173,7 +175,8 @@ object FloatingAssistantOverlay {
         }
     }
 
-    fun uninstall() {
+    fun uninstall(owner: Activity? = null) {
+        if (owner != null && activity !== owner) return
         try {
             val ctx = activity?.applicationContext ?: activity
             ctx?.unregisterReceiver(screenOffReceiver)
@@ -186,9 +189,13 @@ object FloatingAssistantOverlay {
         releaseRecorder()
         stopPulse()
         TranslationOverlayHost.dispose()
+        channel?.setMethodCallHandler(null)
         activity = null
         channel = null
         screenOffReceiver = null
+        screenshotBubbleVisible = false
+        screenshotSavedExpanded = false
+        screenshotHiding = false
     }
 
     private fun configure(args: Map<String, Any?>) {
@@ -250,10 +257,15 @@ object FloatingAssistantOverlay {
         val manager = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         if (bubble != null) return
         val nextParams = bubbleLayoutParams(ctx)
+        val nextBubble = buildBubble(ctx, nextParams)
+        try {
+            manager.addView(nextBubble, nextParams)
+        } catch (_: Exception) {
+            return
+        }
         params = nextParams
-        bubble = buildBubble(ctx, nextParams)
-        manager.addView(bubble, nextParams)
-        updateBubbleState()
+        bubble = nextBubble
+        refreshBubbleAppearance()
     }
 
     private fun togglePanel() {
@@ -267,8 +279,14 @@ object FloatingAssistantOverlay {
         if (panel == null) {
             val nextParams = panelLayoutParams(ctx)
             panelParams = nextParams
-            panel = buildPanel(ctx)
-            manager.addView(panel, nextParams)
+            val nextPanel = buildPanel(ctx)
+            try {
+                manager.addView(nextPanel, nextParams)
+            } catch (_: Exception) {
+                clearPanelReferences()
+                return
+            }
+            panel = nextPanel
         }
         expanded = true
         updatePanelViews()
@@ -284,20 +302,28 @@ object FloatingAssistantOverlay {
             manager.removeView(current)
         } catch (_: Exception) {
         } finally {
-            panel = null
-            modeContent = null
-            messagesContainer = null
-            statusText = null
-            inputEdit = null
-            voiceButton = null
-            sendButton = null
-            modeButtons.clear()
-            panelParams = null
-            expanded = false
+            clearPanelReferences()
         }
     }
 
+    private fun clearPanelReferences() {
+        scrollMessageHeight = -1
+        panel = null
+        modeContent = null
+        messagesContainer = null
+        statusText = null
+        inputEdit = null
+        voiceButton = null
+        sendButton = null
+        modeButtons.clear()
+        panelParams = null
+        expanded = false
+    }
+
     private fun hideAll() {
+        screenshotBubbleVisible = false
+        screenshotSavedExpanded = false
+        screenshotHiding = false
         hidePanel()
         stopSpeechRecognition()
         releaseRecorder()
@@ -342,25 +368,32 @@ object FloatingAssistantOverlay {
     private fun restoreAfterTranslationCapture() {
         if (!screenshotHiding) return
         screenshotHiding = false
+        val restoreBubble = screenshotBubbleVisible
+        val restorePanel = screenshotSavedExpanded
+        screenshotBubbleVisible = false
+        screenshotSavedExpanded = false
         val ctx = activity ?: return
-        if (!canDrawOverlays(ctx)) return
+        if (!canDrawOverlays(ctx)) {
+            params = null
+            channel?.invokeMethod("overlayPermissionLost", emptyMap<String, Any>())
+            return
+        }
         val manager = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        if (screenshotBubbleVisible) {
+        if (restoreBubble) {
             val nextParams = params ?: bubbleLayoutParams(ctx).also { params = it }
-            params = nextParams
-            bubble = buildBubble(ctx, nextParams)
+            val nextBubble = buildBubble(ctx, nextParams)
             try {
-                manager.addView(bubble, nextParams)
+                manager.addView(nextBubble, nextParams)
+                params = nextParams
+                bubble = nextBubble
             } catch (_: Exception) {
                 bubble = null
             }
-            updateBubbleState()
+            refreshBubbleAppearance()
         }
-        if (screenshotSavedExpanded && panel == null) {
+        if (restorePanel && panel == null) {
             showPanel()
         }
-        screenshotBubbleVisible = false
-        screenshotSavedExpanded = false
     }
 
     fun restoreAfterScreenTranslation() = restoreAfterTranslationCapture()
@@ -393,7 +426,7 @@ object FloatingAssistantOverlay {
         val panelParamRef = panelParams
         if (panelParamRef != null) {
             header.setOnTouchListener(DragTouchListener(ctx, panelParamRef, {
-                (ctx.resources.displayMetrics.heightPixels - panelParamRef.height).coerceAtLeast(0)
+                ctx.resources.displayMetrics.heightPixels - root.height
             }, {
                 // tap on header does nothing
             }, {
@@ -436,7 +469,6 @@ object FloatingAssistantOverlay {
             setOnTouchListener(ResizeTouchListener(ctx, root, panelParams, {
                 val w = ctx.resources.displayMetrics.widthPixels
                 val h = ctx.resources.displayMetrics.heightPixels
-                // F2: maxW 受面板当前 x 限制，避免缩放后向右溢出屏幕。
                 val maxW = min(w - dp(ctx, 32), dp(ctx, 480))
                 (dp(ctx, 240) to maxW) to (dp(ctx, 200) to (h * 7 / 10))
             }) { width, height ->
@@ -747,14 +779,18 @@ object FloatingAssistantOverlay {
         }
         if (newState != bubbleState) {
             bubbleState = newState
-            val ctx = activity ?: return
-            val bub = bubble ?: return
-            bub.background = rounded(bubbleColorForState(newState), dp(ctx, 22))
-            if (newState != BubbleState.IDLE) {
-                startPulse(bub)
-            } else {
-                stopPulse()
-            }
+            refreshBubbleAppearance()
+        }
+    }
+
+    private fun refreshBubbleAppearance() {
+        val ctx = activity ?: return
+        val bub = bubble ?: return
+        bub.background = rounded(bubbleColorForState(bubbleState), dp(ctx, 22))
+        if (bubbleState != BubbleState.IDLE) {
+            startPulse(bub)
+        } else {
+            stopPulse()
         }
     }
 
@@ -1116,41 +1152,65 @@ object FloatingAssistantOverlay {
 
     private fun bubbleLayoutParams(ctx: Context): WindowManager.LayoutParams {
         val dm = ctx.resources.displayMetrics
-        val defaultX = dm.widthPixels - dp(ctx, 72)
+        val bubbleSize = dp(ctx, 56)
+        val defaultX = (dm.widthPixels - dp(ctx, 72)).coerceAtLeast(0)
         val defaultY = dm.heightPixels / 3
         return WindowManager.LayoutParams(
-            dp(ctx, 56),
-            dp(ctx, 56),
+            bubbleSize,
+            bubbleSize,
             overlayType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 if (interactionEnabled) 0 else WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = if (persistedBubbleX >= 0) persistedBubbleX.coerceIn(0, dm.widthPixels - dp(ctx, 56)) else defaultX
-            y = if (persistedBubbleY >= 0) persistedBubbleY.coerceIn(0, dm.heightPixels - dp(ctx, 56)) else defaultY
+            x = FloatingAssistantGeometry.clampPosition(
+                if (persistedBubbleX >= 0) persistedBubbleX else defaultX,
+                dm.widthPixels - bubbleSize
+            )
+            y = FloatingAssistantGeometry.clampPosition(
+                if (persistedBubbleY >= 0) persistedBubbleY else defaultY,
+                dm.heightPixels - bubbleSize
+            )
         }
     }
 
     private fun panelLayoutParams(ctx: Context): WindowManager.LayoutParams {
         val dm = ctx.resources.displayMetrics
-        val defaultWidth = min(dm.widthPixels - dp(ctx, 32), dp(ctx, 390))
-        val width = if (persistedPanelWidth > 0) {
-            persistedPanelWidth.coerceIn(dp(ctx, 240), min(dm.widthPixels - dp(ctx, 32), dp(ctx, 480)))
+        val availableWidth = dm.widthPixels - dp(ctx, 32)
+        val width = FloatingAssistantGeometry.resizeDimension(
+            if (persistedPanelWidth > 0) persistedPanelWidth else dp(ctx, 390),
+            dp(ctx, 240),
+            dp(ctx, 480),
+            availableWidth
+        )
+        val height = if (persistedPanelHeight > 0) {
+            FloatingAssistantGeometry.resizeDimension(
+                persistedPanelHeight,
+                dp(ctx, 200),
+                dm.heightPixels * 7 / 10,
+                dm.heightPixels
+            )
         } else {
-            defaultWidth
+            WindowManager.LayoutParams.WRAP_CONTENT
         }
         return WindowManager.LayoutParams(
             width,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            height,
             overlayType(),
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 if (interactionEnabled) 0 else WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = if (persistedPanelX >= 0) persistedPanelX.coerceIn(0, dm.widthPixels - width) else dp(ctx, 16)
-            y = if (persistedPanelY >= 0) persistedPanelY.coerceIn(0, (dm.heightPixels - dp(ctx, 240)).coerceAtLeast(0)) else dp(ctx, 72)
+            x = FloatingAssistantGeometry.clampPosition(
+                if (persistedPanelX >= 0) persistedPanelX else dp(ctx, 16),
+                dm.widthPixels - width
+            )
+            y = FloatingAssistantGeometry.clampPosition(
+                if (persistedPanelY >= 0) persistedPanelY else dp(ctx, 72),
+                dm.heightPixels - if (height > 0) height else dp(ctx, 240)
+            )
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
         }
     }
@@ -1236,6 +1296,7 @@ object FloatingAssistantOverlay {
         private var startY = 0
         private var downX = 0f
         private var downY = 0f
+        private val touchSlop = ViewConfiguration.get(ctx).scaledTouchSlop
 
         override fun onTouch(view: View, event: MotionEvent): Boolean {
             val manager = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -1253,8 +1314,12 @@ object FloatingAssistantOverlay {
                     params.x = startX + (event.rawX - downX).toInt()
                     params.y = startY + (event.rawY - downY).toInt()
                     val dm = ctx.resources.displayMetrics
-                    params.x = params.x.coerceIn(0, dm.widthPixels - view.width)
-                    params.y = params.y.coerceIn(0, maxY.coerceAtLeast(0))
+                    val viewWidth = view.width.takeIf { it > 0 } ?: params.width.coerceAtLeast(0)
+                    params.x = FloatingAssistantGeometry.clampPosition(
+                        params.x,
+                        dm.widthPixels - viewWidth
+                    )
+                    params.y = FloatingAssistantGeometry.clampPosition(params.y, maxY)
                     try {
                         manager.updateViewLayout(view, params)
                     } catch (_: Exception) {
@@ -1265,12 +1330,23 @@ object FloatingAssistantOverlay {
                 }
                 MotionEvent.ACTION_UP -> {
                     val moved = abs(event.rawX - downX) + abs(event.rawY - downY)
-                    if (moved < 12) {
+                    if (moved < touchSlop) {
                         click()
                     } else {
                         if (edgeSnap) {
                             val width = ctx.resources.displayMetrics.widthPixels
-                            params.x = if (params.x < width / 2) 12 else width - view.width - 12
+                            val inset = dp(ctx, 12)
+                            val viewWidth = view.width.takeIf { it > 0 }
+                                ?: params.width.coerceAtLeast(0)
+                            params.x = if (params.x < width / 2) {
+                                inset
+                            } else {
+                                width - viewWidth - inset
+                            }
+                            params.x = FloatingAssistantGeometry.clampPosition(
+                                params.x,
+                                width - viewWidth
+                            )
                             try {
                                 manager.updateViewLayout(view, params)
                             } catch (_: Exception) {
@@ -1280,8 +1356,16 @@ object FloatingAssistantOverlay {
                     }
                     return true
                 }
+                MotionEvent.ACTION_CANCEL -> {
+                    onDragEnd?.invoke()
+                    return true
+                }
             }
             return false
+        }
+
+        private fun dp(ctx: Context, value: Int): Int {
+            return (value * ctx.resources.displayMetrics.density).toInt()
         }
     }
 
@@ -1296,6 +1380,7 @@ object FloatingAssistantOverlay {
         private var downY = 0f
         private var startWidth = 0
         private var startHeight = 0
+        private var currentHeight = 0
         private var lastUpdate = 0L
 
         override fun onTouch(view: View, event: MotionEvent): Boolean {
@@ -1307,6 +1392,7 @@ object FloatingAssistantOverlay {
                     downY = event.rawY
                     startWidth = params.width
                     startHeight = targetView.height
+                    currentHeight = startHeight
                     return true
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -1317,32 +1403,29 @@ object FloatingAssistantOverlay {
                     val (minW, maxW) = widthRange
                     val (minH, maxH) = heightRange
                     val dm = ctx.resources.displayMetrics
-                    // F2: cap width against the panel's current x so it cannot
-                    // overflow the right edge. If the panel is already pinned
-                    // to the right (so cap would fall below minW), allow shrinking
-                    // down to minW only — never silently lift the cap above minW
-                    // which would make minW == effectiveMaxW and lock resizing.
-                    val maxXWidth = (dm.widthPixels - dp(ctx, 8)) - params.x
-                    val cap = maxXWidth.coerceIn(minW, maxW)
-                    val effectiveMaxW = if (cap >= minW) cap else minOf(minW, maxW)
-                    params.width = (startWidth + (event.rawX - downX).toInt())
-                        .coerceIn(minW, effectiveMaxW)
-                    // Same clamp on height: never let onResized be called with a
-                    // height that would push the panel past the screen bottom.
-                    val maxScreenH = (dm.heightPixels - dp(ctx, 8)) - params.y
-                    val effectiveMaxH = minOf(maxH, maxScreenH.coerceAtLeast(minH))
-                    val newHeight = (startHeight + (event.rawY - downY).toInt())
-                        .coerceIn(minH, effectiveMaxH)
+                    params.width = FloatingAssistantGeometry.resizeDimension(
+                        startWidth + (event.rawX - downX).toInt(),
+                        minW,
+                        maxW,
+                        dm.widthPixels - dp(ctx, 8) - params.x
+                    )
+                    currentHeight = FloatingAssistantGeometry.resizeDimension(
+                        startHeight + (event.rawY - downY).toInt(),
+                        minH,
+                        maxH,
+                        dm.heightPixels - dp(ctx, 8) - params.y
+                    )
+                    params.height = currentHeight
                     val manager = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
                     try {
                         manager.updateViewLayout(targetView, params)
                     } catch (_: Exception) {
                     }
-                    onResized(params.width, newHeight)
+                    onResized(params.width, currentHeight)
                     return true
                 }
-                MotionEvent.ACTION_UP -> {
-                    onResized(params.width, startHeight + (event.rawY - downY).toInt())
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    onResized(params.width, currentHeight)
                     return true
                 }
             }

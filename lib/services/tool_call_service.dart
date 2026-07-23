@@ -13,12 +13,12 @@ import '../models/agent_plan.dart';
 import '../models/agent_working_memory.dart';
 import '../models/conversation.dart';
 import '../models/plugin.dart';
-import '../models/schedule_item.dart';
-import '../models/todo_list.dart';
 import '../providers/feature_provider.dart';
+import '../providers/calendar_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/task_provider.dart';
 import 'backend_client.dart';
 import '../providers/conversation_provider.dart';
 import 'api_service.dart';
@@ -203,6 +203,8 @@ class ToolExecutionResult {
 class ToolCallService {
   ToolCallService(
     this._features, {
+    TaskProvider? tasks,
+    CalendarProvider? calendar,
     PluginProvider? plugins,
     ModelConfigProvider? modelConfigs,
     SettingsProvider? settings,
@@ -211,7 +213,9 @@ class ToolCallService {
     String? conversationId,
     bool allowScreenContextTool = false,
     bool allowSubagents = true,
-  }) : _plugins = plugins,
+  }) : _tasks = tasks,
+       _calendar = calendar,
+       _plugins = plugins,
        _modelConfigs = modelConfigs,
        _settings = settings,
        _conversations = conversations,
@@ -234,6 +238,8 @@ class ToolCallService {
   }
 
   final FeatureProvider _features;
+  final TaskProvider? _tasks;
+  final CalendarProvider? _calendar;
   final PluginProvider? _plugins;
   final ModelConfigProvider? _modelConfigs;
   final SettingsProvider? _settings;
@@ -253,14 +259,14 @@ class ToolCallService {
   /// `{"tool_calls":[{"name":"工具名","arguments":{...}}]}`。
   /// 返回的 JSON 由 [parseFallbackToolCalls] 解析。
   static const systemPrompt = '''
-你可以使用本地工具帮助用户管理日程、笔记、待办清单、获取时间/位置、打开安卓应用和创建对话标题。
+你可以使用本地工具帮助用户管理任务、日历事件、纪念日、笔记和旧待办清单，获取时间/位置、打开安卓应用和创建对话标题。
 当需要调用工具且当前模型接口不支持原生 tool_calls 时，只返回一个 JSON 对象，不要包含 Markdown：
 {"tool_calls":[{"name":"工具名","arguments":{...}}]}
 收到工具结果后，再用自然语言给用户最终回复。
 创建或修改数据前，应从用户输入中提取明确字段；缺少关键字段时先追问。
 需要查看笔记内容时，先用 list_notes 查找笔记 id，再用 read_note 读取完整内容；多分页笔记先用 list_note_pages 查看分页，read_note/save_note/edit_note/propose_note_edit 可用 pageId 或 pageTitle 指定分页。小范围修改笔记时，先 read_note，再用 propose_note_edit 按行提交 edits 让用户逐行确认；用户明确要求直接修改时才用 edit_note。创建、追加或整篇替换时用 save_note。笔记可通过 list_note_folders/save_note_folder 管理文件夹，通过 save_note_page 创建、重命名、删除或上移/下移分页。
-需要查看待办清单内容时，先用 list_todo_lists 查找清单 id，再用 read_todo_list 读取完整内容；创建或修改待办项用 save_todo_item，完成/未完成待办项时设置 done。
-日程时间使用带时区偏移的 ISO-8601 字符串；用户说“今天/明天”时必须先结合 get_current_time 的 iso 与 timezoneOffsetMinutes 换算成本地日期时间。
+一个用户任务只调用一次 create_task，不要同时创建旧待办项或日历事件。任务的 plannedDate/dueDate、全天事件日期和纪念日 date 必须使用 YYYY-MM-DD；任务时间和日期型提醒的 dateOnlyTime 使用 HH:mm。reminders 的 offsetMinutes 为相对 anchor 的有符号分钟数，例如“截止前 30 分钟提醒”使用 taskDue 和 -30。定时日历事件使用带时区偏移的 ISO-8601 字符串；用户说“今天/明天”时必须先结合 get_current_time 的 iso 与 timezoneOffsetMinutes 换算成本地日期时间。
+需要查看旧待办清单内容时，先用 list_todo_lists 查找清单 id，再用 read_todo_list 读取完整内容；仅在用户明确操作旧清单时使用 save_todo_item。
 ''';
 
   /// 支持原生 tool_calls 接口使用的系统提示词。
@@ -268,13 +274,13 @@ class ToolCallService {
   /// 与 [systemPrompt] 的区别是不包含 JSON fallback 格式说明，
   /// 因为原生 tool_calls 接口会自行处理工具调用的序列化和反序列化。
   static const nativeSystemPrompt = '''
-你可以使用本地工具帮助用户管理日程、笔记、待办清单、获取时间/位置、打开安卓应用和创建对话标题。
+你可以使用本地工具帮助用户管理任务、日历事件、纪念日、笔记和旧待办清单，获取时间/位置、打开安卓应用和创建对话标题。
 需要调用工具时使用接口提供的 tool_calls；不需要工具时直接正常回答，不要提及工具。
 收到工具结果后，再用自然语言给用户最终回复。
 创建或修改数据前，应从用户输入中提取明确字段；缺少关键字段时先追问。
 需要查看笔记内容时，先用 list_notes 查找笔记 id，再用 read_note 读取完整内容；多分页笔记先用 list_note_pages 查看分页，read_note/save_note/edit_note/propose_note_edit 可用 pageId 或 pageTitle 指定分页。小范围修改笔记时，先 read_note，再用 propose_note_edit 按行提交 edits 让用户逐行确认；用户明确要求直接修改时才用 edit_note。创建、追加或整篇替换时用 save_note。笔记可通过 list_note_folders/save_note_folder 管理文件夹，通过 save_note_page 创建、重命名、删除或上移/下移分页。
-需要查看待办清单内容时，先用 list_todo_lists 查找清单 id，再用 read_todo_list 读取完整内容；创建或修改待办项用 save_todo_item，完成/未完成待办项时设置 done。
-日程时间使用带时区偏移的 ISO-8601 字符串；用户说“今天/明天”时必须先结合 get_current_time 的 iso 与 timezoneOffsetMinutes 换算成本地日期时间。
+一个用户任务只调用一次 create_task，不要同时创建旧待办项或日历事件。任务的 plannedDate/dueDate、全天事件日期和纪念日 date 必须使用 YYYY-MM-DD；任务时间和日期型提醒的 dateOnlyTime 使用 HH:mm。reminders 的 offsetMinutes 为相对 anchor 的有符号分钟数，例如“截止前 30 分钟提醒”使用 taskDue 和 -30。定时日历事件使用带时区偏移的 ISO-8601 字符串；用户说“今天/明天”时必须先结合 get_current_time 的 iso 与 timezoneOffsetMinutes 换算成本地日期时间。
+需要查看旧待办清单内容时，先用 list_todo_lists 查找清单 id，再用 read_todo_list 读取完整内容；仅在用户明确操作旧清单时使用 save_todo_item。
 ''';
 
   static const agentSystemPrompt = '''
@@ -376,6 +382,29 @@ ${lines.join('\n')}$more''';
     return '当前设备本地时间: ${now.toIso8601String()}，时区: ${now.timeZoneName}，timezoneOffsetMinutes: ${now.timeZoneOffset.inMinutes}。';
   }
 
+  static final Map<String, dynamic> _remindersSchema = {
+    'type': 'array',
+    'description':
+        '提醒列表；offsetMinutes 为相对锚点的有符号分钟数，提前 30 分钟填写 -30。创建或替换提醒时 id 可省略。',
+    'items': {
+      'type': 'object',
+      'properties': {
+        'id': {'type': 'string', 'description': '可选提醒 id；省略时自动生成'},
+        'anchor': {
+          'type': 'string',
+          'enum': ['eventStart', 'taskPlanned', 'taskDue', 'anniversaryDate'],
+        },
+        'offsetMinutes': {'type': 'integer'},
+        'dateOnlyTime': {
+          'type': 'string',
+          'description': '日期型锚点的可选本地触发时间，HH:mm',
+          'pattern': r'^([01]\d|2[0-3]):[0-5]\d$',
+        },
+      },
+      'required': ['anchor', 'offsetMinutes'],
+    },
+  };
+
   /// 生成符合 OpenAI function-calling 规范的工具定义列表。
   ///
   /// 合并两类工具：
@@ -386,6 +415,169 @@ ${lines.join('\n')}$more''';
   ///
   /// 去重策略：插件工具名若与内置工具名冲突则跳过该插件工具（内置工具优先）。
   /// 仅当插件 enabled、无错误且全部权限已授予时，其工具才会暴露给模型。
+  static final List<Map<String, dynamic>> _canonicalOrganizerTools = [
+    _organizerTool('list_tasks', '列出规范任务。', {
+      'query': {'type': 'string'},
+      'completed': {'type': 'boolean'},
+      'listId': {'type': 'string'},
+    }),
+    _organizerTool(
+      'create_task',
+      '创建一个规范任务；不要为同一用户任务同时创建日历事件或旧待办项。',
+      {
+        'title': {'type': 'string'},
+        'note': {'type': 'string'},
+        'plannedDate': {'type': 'string', 'description': 'YYYY-MM-DD'},
+        'plannedTime': {'type': 'string', 'description': 'HH:mm'},
+        'dueDate': {'type': 'string', 'description': 'YYYY-MM-DD'},
+        'dueTime': {'type': 'string', 'description': 'HH:mm'},
+        'completed': {'type': 'boolean'},
+        'listId': {'type': 'string'},
+        'reminders': _remindersSchema,
+      },
+      required: const ['title'],
+    ),
+    _organizerTool(
+      'update_task',
+      '按 id 更新规范任务。日期字段必须为 YYYY-MM-DD。',
+      {
+        'id': {'type': 'string'},
+        'title': {'type': 'string'},
+        'note': {'type': 'string'},
+        'plannedDate': {'type': 'string', 'description': 'YYYY-MM-DD'},
+        'plannedTime': {'type': 'string', 'description': 'HH:mm'},
+        'dueDate': {'type': 'string', 'description': 'YYYY-MM-DD'},
+        'dueTime': {'type': 'string', 'description': 'HH:mm'},
+        'completed': {'type': 'boolean'},
+        'listId': {'type': 'string'},
+        'reminders': _remindersSchema,
+      },
+      required: const ['id'],
+    ),
+    _organizerTool(
+      'delete_task',
+      '按 id 删除规范任务。',
+      {
+        'id': {'type': 'string'},
+      },
+      required: const ['id'],
+    ),
+    _organizerTool('list_calendar_events', '列出规范日历事件。', {
+      'from': {'type': 'string', 'description': '可选 ISO-8601 起始时间'},
+      'to': {'type': 'string', 'description': '可选 ISO-8601 结束时间'},
+    }),
+    _organizerTool(
+      'create_calendar_event',
+      '创建规范日历事件。全天事件使用 YYYY-MM-DD 日期；定时事件必须提供真实 start/end。',
+      {
+        'title': {'type': 'string'},
+        'note': {'type': 'string'},
+        'allDay': {'type': 'boolean'},
+        'start': {'type': 'string', 'description': '定时事件 ISO-8601 开始时间'},
+        'end': {'type': 'string', 'description': '定时事件 ISO-8601 结束时间'},
+        'startDate': {'type': 'string', 'description': '全天事件 YYYY-MM-DD'},
+        'endDateExclusive': {
+          'type': 'string',
+          'description': '全天事件首个不包含日期，YYYY-MM-DD',
+        },
+        'reminders': _remindersSchema,
+      },
+      required: const ['title'],
+    ),
+    _organizerTool(
+      'update_calendar_event',
+      '按 id 更新规范日历事件。',
+      {
+        'id': {'type': 'string'},
+        'title': {'type': 'string'},
+        'note': {'type': 'string'},
+        'allDay': {'type': 'boolean'},
+        'start': {'type': 'string'},
+        'end': {'type': 'string'},
+        'startDate': {'type': 'string', 'description': 'YYYY-MM-DD'},
+        'endDateExclusive': {'type': 'string', 'description': 'YYYY-MM-DD'},
+        'reminders': _remindersSchema,
+      },
+      required: const ['id'],
+    ),
+    _organizerTool(
+      'delete_calendar_event',
+      '按 id 删除规范日历事件。',
+      {
+        'id': {'type': 'string'},
+      },
+      required: const ['id'],
+    ),
+    _organizerTool('list_anniversaries', '列出规范纪念日。', {
+      'query': {'type': 'string'},
+    }),
+    _organizerTool(
+      'create_anniversary',
+      '创建规范纪念日。一次性日期使用 YYYY-MM-DD；年度纪念日使用 month/day。',
+      {
+        'title': {'type': 'string'},
+        'note': {'type': 'string'},
+        'type': {
+          'type': 'string',
+          'enum': ['once', 'yearly'],
+        },
+        'date': {'type': 'string', 'description': '一次性纪念日 YYYY-MM-DD'},
+        'month': {'type': 'integer'},
+        'day': {'type': 'integer'},
+        'sourceYear': {'type': 'integer'},
+        'showYearCount': {'type': 'boolean'},
+        'reminders': _remindersSchema,
+      },
+      required: const ['title', 'type'],
+    ),
+    _organizerTool(
+      'update_anniversary',
+      '按 id 更新规范纪念日。日期字段必须为 YYYY-MM-DD。',
+      {
+        'id': {'type': 'string'},
+        'title': {'type': 'string'},
+        'note': {'type': 'string'},
+        'type': {
+          'type': 'string',
+          'enum': ['once', 'yearly'],
+        },
+        'date': {'type': 'string', 'description': 'YYYY-MM-DD'},
+        'month': {'type': 'integer'},
+        'day': {'type': 'integer'},
+        'sourceYear': {'type': 'integer'},
+        'showYearCount': {'type': 'boolean'},
+        'reminders': _remindersSchema,
+      },
+      required: const ['id'],
+    ),
+    _organizerTool(
+      'delete_anniversary',
+      '按 id 删除规范纪念日。',
+      {
+        'id': {'type': 'string'},
+      },
+      required: const ['id'],
+    ),
+  ];
+
+  static Map<String, dynamic> _organizerTool(
+    String name,
+    String description,
+    Map<String, dynamic> properties, {
+    List<String> required = const [],
+  }) => {
+    'type': 'function',
+    'function': {
+      'name': name,
+      'description': description,
+      'parameters': {
+        'type': 'object',
+        'properties': properties,
+        if (required.isNotEmpty) 'required': required,
+      },
+    },
+  };
+
   static List<Map<String, dynamic>> openAITools([
     Iterable<InstalledPlugin> plugins = const [],
     bool agentEnabled = false,
@@ -490,6 +682,7 @@ ${lines.join('\n')}$more''';
           },
         },
       },
+      ..._canonicalOrganizerTools,
       {
         'type': 'function',
         'function': {
@@ -1368,6 +1561,8 @@ ${lines.join('\n')}$more''';
                   conversationId: _conversationId,
                 ),
                 features: _features,
+                tasks: _tasks,
+                calendar: _calendar,
                 modelConfigs: _modelConfigs,
                 settings: _settings,
                 plugins: _plugins,
@@ -1471,6 +1666,8 @@ ${lines.join('\n')}$more''';
     final api = ApiService(backend: _backend);
     final subTools = ToolCallService(
       _features,
+      tasks: _tasks,
+      calendar: _calendar,
       plugins: _plugins,
       modelConfigs: _modelConfigs,
       settings: _settings,
@@ -2170,6 +2367,8 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
       function: function,
       arguments: functionArgs,
       features: _features,
+      tasks: _tasks,
+      calendar: _calendar,
       modelConfigs: _modelConfigs,
       plugins: _plugins,
       settings: _settings,
@@ -2238,6 +2437,8 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
       code: (args['code'] as String? ?? '').trim(),
       purpose: (args['purpose'] as String? ?? '').trim(),
       features: _features,
+      tasks: _tasks,
+      calendar: _calendar,
       modelConfigs: _modelConfigs,
       plugins: _plugins,
       settings: _settings,
@@ -2280,6 +2481,8 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
           tool: tool,
           arguments: call.arguments,
           features: _features,
+          tasks: _tasks,
+          calendar: _calendar,
           modelConfigs: _modelConfigs,
           plugins: _plugins,
           settings: _settings,
@@ -2314,6 +2517,8 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
               toolName: 'web_fetch',
             ),
             features: _features,
+            tasks: _tasks,
+            calendar: _calendar,
             modelConfigs: _modelConfigs,
             plugins: _plugins,
             settings: _settings,
@@ -2387,99 +2592,6 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
       arguments,
     );
     return result ?? {'ok': false, 'message': '平台无返回'};
-  }
-
-  // Kept locally while the Agent command path still shares these helpers.
-  // ignore: unused_element
-  Map<String, dynamic> _listSchedules(Map<String, dynamic> args) {
-    final from = _dateArg(args, 'from');
-    final to = _dateArg(args, 'to');
-    final items = _features.schedules
-        .where((item) {
-          if (from != null && !_scheduleVisibleEnd(item).isAfter(from)) {
-            return false;
-          }
-          if (to != null && !item.start.isBefore(to)) return false;
-          return true;
-        })
-        .map(_scheduleJson)
-        .toList();
-    return {
-      'ok': true,
-      'timezone': DateTime.now().timeZoneName,
-      'timezoneOffsetMinutes': DateTime.now().timeZoneOffset.inMinutes,
-      'schedules': items,
-    };
-  }
-
-  // ignore: unused_element
-  Future<Map<String, dynamic>> _createSchedule(
-    Map<String, dynamic> args,
-  ) async {
-    final title = (args['title'] as String? ?? '').trim();
-    final start = _dateArg(args, 'start');
-    final kind = _scheduleKindArg(args);
-    final end = kind == ScheduleItem.kindTask
-        ? start?.add(const Duration(minutes: 1))
-        : _dateArg(args, 'end');
-    if (title.isEmpty || start == null || end == null) {
-      return _error(
-        kind == ScheduleItem.kindTask
-            ? '创建任务需要 title、start'
-            : '创建日程需要 title、start、end',
-      );
-    }
-    if (kind != ScheduleItem.kindTask && !end.isAfter(start)) {
-      return _error('结束时间必须晚于开始时间');
-    }
-    final id = await _features.addSchedule(
-      title,
-      start,
-      end,
-      note: args['note'] as String?,
-      kind: kind,
-    );
-    final schedule = _features.getSchedule(id);
-    return {
-      'ok': true,
-      'schedule': schedule == null ? null : _scheduleJson(schedule),
-    };
-  }
-
-  // ignore: unused_element
-  Future<Map<String, dynamic>> _updateSchedule(
-    Map<String, dynamic> args,
-  ) async {
-    final id = (args['id'] as String? ?? '').trim();
-    final current = _features.getSchedule(id);
-    if (current == null) return _error('未找到日程: $id');
-    final nextKind = args.containsKey('kind')
-        ? _scheduleKindArg(args)
-        : current.kind;
-    final nextStart = _dateArg(args, 'start') ?? current.start;
-    final parsedEnd = _dateArg(args, 'end');
-    final nextEnd = nextKind == ScheduleItem.kindTask
-        ? nextStart.add(const Duration(minutes: 1))
-        : parsedEnd ?? current.end;
-    final updated = args.containsKey('note')
-        ? current.copyWith(
-            title: (args['title'] as String?)?.trim(),
-            start: nextStart,
-            end: nextEnd,
-            note: args['note'] as String?,
-            kind: nextKind,
-          )
-        : current.copyWith(
-            title: (args['title'] as String?)?.trim(),
-            start: nextStart,
-            end: nextEnd,
-            kind: nextKind,
-          );
-    if (!updated.isTask && !updated.end.isAfter(updated.start)) {
-      return _error('结束时间必须晚于开始时间');
-    }
-    await _features.updateSchedule(updated);
-    return {'ok': true, 'schedule': _scheduleJson(updated)};
   }
 
   // ignore: unused_element
@@ -2972,168 +3084,6 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     return {'ok': true, 'folder': updated.toJson()};
   }
 
-  // ignore: unused_element
-  Map<String, dynamic> _listTodoLists(Map<String, dynamic> args) {
-    final query = (args['query'] as String? ?? '').trim().toLowerCase();
-    final includeItems = _boolArg(args, 'includeItems') ?? false;
-    final lists = _features.todoLists.where((list) {
-      if (query.isEmpty) return true;
-      return list.title.toLowerCase().contains(query) ||
-          list.items.any((item) => item.text.toLowerCase().contains(query));
-    });
-    return {
-      'ok': true,
-      'todoLists': lists.map((list) {
-        final done = list.items.where((item) => item.done).length;
-        return {
-          'id': list.id,
-          'title': list.title,
-          'createdAt': list.createdAt.toIso8601String(),
-          'updatedAt': list.updatedAt.toIso8601String(),
-          'totalItems': list.items.length,
-          'doneItems': done,
-          if (includeItems) 'items': list.items.map(_todoItemJson).toList(),
-        };
-      }).toList(),
-    };
-  }
-
-  // ignore: unused_element
-  Map<String, dynamic> _readTodoList(Map<String, dynamic> args) {
-    final list = _findTodoList(args);
-    if (list == null) {
-      return _error('未找到匹配的待办清单，请先调用 list_todo_lists 查看可用清单');
-    }
-    return {'ok': true, 'todoList': _todoListJson(list)};
-  }
-
-  // ignore: unused_element
-  Future<Map<String, dynamic>> _saveTodoList(Map<String, dynamic> args) async {
-    final title = (args['title'] as String? ?? '').trim();
-    final id = (args['id'] as String? ?? '').trim();
-    final rawItems = args['items'];
-    final items = rawItems is List
-        ? rawItems.map(_todoItemFromRaw).whereType<TodoItem>().toList()
-        : <TodoItem>[];
-    if (id.isEmpty) {
-      if (title.isEmpty) return _error('创建待办清单需要 title');
-      final newId = await _features.addTodoListWithItems(title, items);
-      final list = _features.getTodoList(newId);
-      return {
-        'ok': true,
-        'todoList': list == null ? null : _todoListJson(list),
-      };
-    }
-    final current = _features.getTodoList(id);
-    if (current == null) return _error('未找到待办清单: $id');
-    if (title.isEmpty && rawItems is! List) {
-      return _error('修改待办清单需要 title 或 items');
-    }
-    final updated = rawItems is List
-        ? current.copyWith(title: title.isEmpty ? null : title, items: items)
-        : current.copyWith(title: title);
-    await _features.updateTodoList(updated);
-    return {'ok': true, 'todoList': _todoListJson(updated)};
-  }
-
-  // ignore: unused_element
-  Future<Map<String, dynamic>> _saveTodoItem(Map<String, dynamic> args) async {
-    final listId = (args['listId'] as String? ?? '').trim();
-    if (listId.isEmpty) return _error('缺少 listId');
-    final list = _features.getTodoList(listId);
-    if (list == null) return _error('未找到待办清单: $listId');
-    final itemId = (args['itemId'] as String? ?? '').trim();
-    final delete = _boolArg(args, 'delete') ?? false;
-    if (itemId.isEmpty) {
-      if (delete) return _error('删除待办项需要 itemId');
-      final text = (args['text'] as String? ?? '').trim();
-      if (text.isEmpty) return _error('创建待办项需要 text');
-      final item = TodoItem(
-        id: _uuid.v4(),
-        text: text,
-        done: _boolArg(args, 'done') ?? false,
-      );
-      final updated = list.copyWith(items: [item, ...list.items]);
-      await _features.updateTodoList(updated);
-      return {
-        'ok': true,
-        'todoList': _todoListJson(updated),
-        'item': _todoItemJson(item),
-      };
-    }
-    final index = list.items.indexWhere((item) => item.id == itemId);
-    if (index == -1) return _error('未找到待办项: $itemId');
-    if (delete) {
-      final updated = list.copyWith(
-        items: list.items.where((item) => item.id != itemId).toList(),
-      );
-      await _features.updateTodoList(updated);
-      return {'ok': true, 'todoList': _todoListJson(updated)};
-    }
-    final current = list.items[index];
-    final text = (args['text'] as String?)?.trim();
-    final done = _boolArg(args, 'done');
-    final item = current.copyWith(
-      text: text == null || text.isEmpty ? null : text,
-      done: done,
-    );
-    final items = List<TodoItem>.from(list.items)..[index] = item;
-    final updated = list.copyWith(items: items);
-    await _features.updateTodoList(updated);
-    return {
-      'ok': true,
-      'todoList': _todoListJson(updated),
-      'item': _todoItemJson(item),
-    };
-  }
-
-  TodoList? _findTodoList(Map<String, dynamic> args) {
-    final id = (args['id'] as String? ?? '').trim();
-    final title = (args['title'] as String? ?? '').trim().toLowerCase();
-    final query = (args['query'] as String? ?? '').trim().toLowerCase();
-
-    if (id.isNotEmpty) return _features.getTodoList(id);
-    if (title.isNotEmpty) {
-      return _bestTodoListMatch((list) => list.title.toLowerCase() == title) ??
-          _bestTodoListMatch(
-            (list) => list.title.toLowerCase().contains(title),
-          );
-    }
-    if (query.isNotEmpty) {
-      return _bestTodoListMatch(
-            (list) => list.title.toLowerCase().contains(query),
-          ) ??
-          _bestTodoListMatch(
-            (list) => list.items.any(
-              (item) => item.text.toLowerCase().contains(query),
-            ),
-          );
-    }
-    return null;
-  }
-
-  TodoList? _bestTodoListMatch(bool Function(TodoList list) test) {
-    for (final list in _features.todoLists) {
-      if (test(list)) return list;
-    }
-    return null;
-  }
-
-  static TodoItem? _todoItemFromRaw(Object? raw) {
-    if (raw is! Map) return null;
-    final item = _todoItemFromJson(Map<String, dynamic>.from(raw));
-    return item.text.isEmpty ? null : item;
-  }
-
-  static TodoItem _todoItemFromJson(Map<String, dynamic> json) {
-    final id = (json['id'] as String? ?? '').trim();
-    return TodoItem(
-      id: id.isEmpty ? _uuid.v4() : id,
-      text: (json['text'] as String? ?? '').trim(),
-      done: _boolArg(json, 'done') ?? false,
-    );
-  }
-
   static String _contentHash(String content) {
     return sha256.convert(utf8.encode(content)).toString();
   }
@@ -3288,51 +3238,6 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
       if (value == 'false') return false;
     }
     return null;
-  }
-
-  static Map<String, dynamic> _todoListJson(TodoList list) {
-    return {
-      'id': list.id,
-      'title': list.title,
-      'createdAt': list.createdAt.toIso8601String(),
-      'updatedAt': list.updatedAt.toIso8601String(),
-      'items': list.items.map(_todoItemJson).toList(),
-    };
-  }
-
-  static Map<String, dynamic> _todoItemJson(TodoItem item) {
-    return {'id': item.id, 'text': item.text, 'done': item.done};
-  }
-
-  static DateTime? _dateArg(Map<String, dynamic> args, String key) {
-    final raw = args[key] as String?;
-    if (raw == null || raw.trim().isEmpty) return null;
-    return DateTime.tryParse(raw.trim())?.toLocal();
-  }
-
-  static String _scheduleKindArg(Map<String, dynamic> args) {
-    final raw = (args['kind'] as String? ?? '').trim().toLowerCase();
-    if (raw == ScheduleItem.kindTask || raw == '任务') {
-      return ScheduleItem.kindTask;
-    }
-    return ScheduleItem.kindSchedule;
-  }
-
-  static DateTime _scheduleVisibleEnd(ScheduleItem item) {
-    return item.isTask ? item.start.add(const Duration(minutes: 1)) : item.end;
-  }
-
-  static Map<String, dynamic> _scheduleJson(ScheduleItem item) {
-    return {
-      'id': item.id,
-      'kind': item.kind,
-      'title': item.title,
-      'start': item.start.toLocal().toIso8601String(),
-      if (!item.isTask) 'end': item.end.toLocal().toIso8601String(),
-      'timezone': item.start.toLocal().timeZoneName,
-      'timezoneOffsetMinutes': item.start.toLocal().timeZoneOffset.inMinutes,
-      if (item.note != null) 'note': item.note,
-    };
   }
 
   static String _stringArg(ChatToolCall call, String key) {

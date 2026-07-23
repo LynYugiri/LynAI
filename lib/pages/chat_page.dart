@@ -23,9 +23,11 @@ import '../models/app_settings.dart';
 import '../models/system_prompt.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
+import '../providers/calendar_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/task_provider.dart';
 import '../services/attachment_storage_service.dart';
 import '../services/api_service.dart';
 import '../services/backend_client.dart';
@@ -420,8 +422,26 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     unawaited(
       _backgroundServiceChannel
           .invokeMethod<void>(active ? 'startGeneration' : 'stopGeneration')
-          .catchError((_) {}),
+          .catchError((Object error, StackTrace stackTrace) {
+            debugPrint(
+              '切换生成前台服务失败 (${active ? 'start' : 'stop'}): '
+              '$error\n$stackTrace',
+            );
+          }),
     );
+  }
+
+  void _clearAbortedStreaming(String reason, {String? conversationId}) {
+    debugPrint('清理未启动的生成流: $reason');
+    if (!_streaming ||
+        (conversationId != null && _streamingConvId != conversationId)) {
+      return;
+    }
+    _streamWaitTimer?.cancel();
+    _streamWaitTimer = null;
+    unawaited(_sub?.cancel());
+    _sub = null;
+    setState(() => _setStreaming(false));
   }
 
   void _clearRetryState() {
@@ -1098,6 +1118,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       cp.addMessage(_convId!, 'user', text, images: images);
       cp.addMessage(_convId!, 'assistant', '', save: false);
     }
+    final cid = _convId!;
     _pendingModelId = null;
     _clearRetryState();
     _msgCtrl.clear();
@@ -1105,12 +1126,14 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     setState(() {
       _preparingSend = false;
       _pendingImages.clear();
-      _beginStreaming(_convId!);
+      _beginStreaming(cid);
       _thinkingTxt = null;
     });
     _scrollEnd(force: true);
     await WidgetsBinding.instance.endOfFrame;
-    if (!mounted || !_streaming || _convId == null || sendGen != _sendGen) {
+    if (!mounted) return;
+    if (!_streaming || _convId != cid || sendGen != _sendGen) {
+      _clearAbortedStreaming('发送准备完成后状态已失效', conversationId: cid);
       return;
     }
     _doSend(
@@ -1126,9 +1149,15 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     bool createTitle = false,
   }) {
     final cid = _convId;
-    if (cid == null) return;
+    if (cid == null) {
+      _clearAbortedStreaming('流式请求缺少对话 ID');
+      return;
+    }
     final conv = context.read<ConversationProvider>().getConversation(cid);
-    if (conv == null) return;
+    if (conv == null) {
+      _clearAbortedStreaming('流式请求对应的对话不存在', conversationId: cid);
+      return;
+    }
     final msgs = _buildApiMessages(
       conv,
       lastUserContentOverride: lastUserContentOverride,
@@ -1195,7 +1224,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       _thinkingTxt = null;
     });
     await WidgetsBinding.instance.endOfFrame;
-    if (!mounted || !_streaming || _convId != cid || sendGen != _sendGen) {
+    if (!mounted) return;
+    if (!_streaming || _convId != cid || sendGen != _sendGen) {
+      _clearAbortedStreaming('重试准备完成后状态已失效', conversationId: cid);
       return;
     }
     _doSend(model, lastUserContentOverride: apiUserContent);
@@ -1431,6 +1462,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         }
         final toolService = ToolCallService(
           context.read<FeatureProvider>(),
+          tasks: context.read<TaskProvider>(),
+          calendar: context.read<CalendarProvider>(),
           plugins: context.read<PluginProvider>(),
           modelConfigs: context.read<ModelConfigProvider>(),
           settings: context.read<SettingsProvider>(),
@@ -1652,7 +1685,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final retryModel = _getModel(context.read<ModelConfigProvider>());
     if (retryModel != null) {
       await WidgetsBinding.instance.endOfFrame;
-      if (!mounted || !_streaming || _convId != cid || sendGen != _sendGen) {
+      if (!mounted) return;
+      if (!_streaming || _convId != cid || sendGen != _sendGen) {
+        _clearAbortedStreaming('历史重试准备完成后状态已失效', conversationId: cid);
         return;
       }
       _doSend(retryModel, lastUserContentOverride: apiUserContent);
@@ -1715,7 +1750,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         _thinkingTxt = null;
       });
       await WidgetsBinding.instance.endOfFrame;
-      if (!mounted || !_streaming || _convId != cid || sendGen != _sendGen) {
+      if (!mounted) return;
+      if (!_streaming || _convId != cid || sendGen != _sendGen) {
+        _clearAbortedStreaming('无历史重试准备完成后状态已失效', conversationId: cid);
         return;
       }
       _doSend(retryModel, lastUserContentOverride: apiUserContent);
@@ -4431,10 +4468,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _scrollEnd();
     cp.addMessage(newConvId, 'assistant', '', save: false);
     await WidgetsBinding.instance.endOfFrame;
-    if (!mounted ||
-        !_streaming ||
-        _convId != newConvId ||
-        sendGen != _sendGen) {
+    if (!mounted) return;
+    if (!_streaming || _convId != newConvId || sendGen != _sendGen) {
+      _clearAbortedStreaming('编辑消息新建对话后状态已失效', conversationId: newConvId);
       return;
     }
     _doSend(editModel, lastUserContentOverride: apiUserContent);

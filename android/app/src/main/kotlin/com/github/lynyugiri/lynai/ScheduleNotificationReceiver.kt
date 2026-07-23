@@ -13,11 +13,8 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import org.json.JSONArray
 import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
-import kotlin.math.abs
 
 class ScheduleNotificationReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -45,7 +42,7 @@ class ScheduleNotificationReceiver : BroadcastReceiver() {
         val kind = intent.getStringExtra(EXTRA_KIND).orEmpty()
         val start = intent.getStringExtra(EXTRA_START).orEmpty()
         val content = buildString {
-            append(if (kind == "task") "任务开始" else "日程开始")
+            append(if (kind.startsWith("task")) "任务提醒" else "日程提醒")
             if (start.isNotBlank()) append(" · ").append(start)
             if (note.isNotBlank()) append("\n").append(note)
         }
@@ -54,7 +51,7 @@ class ScheduleNotificationReceiver : BroadcastReceiver() {
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         val pendingLaunch = PendingIntent.getActivity(
             context,
-            19_000 + abs(id.hashCode() % 10_000),
+            19_000 + positiveHash(id) % 10_000,
             launchIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or immutableFlag()
         )
@@ -67,14 +64,13 @@ class ScheduleNotificationReceiver : BroadcastReceiver() {
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
-        NotificationManagerCompat.from(context).notify(abs(id.hashCode()), notification)
+        NotificationManagerCompat.from(context).notify(positiveHash(id), notification)
     }
 
     companion object {
         const val ACTION_NOTIFY = "com.github.lynyugiri.lynai.SCHEDULE_NOTIFY"
         private const val CHANNEL_ID = "schedule_notifications"
         private const val CHANNEL_NAME = "日程表提醒"
-        private const val SCHEDULE_KEY = "flutter.schedule_items"
         private const val EXTRA_ID = "id"
         private const val EXTRA_TITLE = "title"
         private const val EXTRA_NOTE = "note"
@@ -86,23 +82,35 @@ class ScheduleNotificationReceiver : BroadcastReceiver() {
         fun reschedule(context: Context): Map<String, Any> {
             ensureChannel(context)
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-            val entries = readSchedules(context)
+            val entries = CalendarProjectionStore.read(context).notificationTriggers
             val prefs = context.getSharedPreferences(NOTIFICATION_PREFS, Context.MODE_PRIVATE)
             val previousIds = prefs.getStringSet(SCHEDULED_IDS, emptySet()).orEmpty()
             previousIds.forEach { id ->
-                alarmManager.cancel(pendingIntent(context, ScheduleNotificationEntry(id, "", Date(0), "schedule", "")))
+                alarmManager.cancel(
+                    pendingIntent(
+                        context,
+                        CalendarNotificationTrigger(
+                            id,
+                            "",
+                            "",
+                            "",
+                            java.time.LocalDateTime.MIN,
+                            null
+                        )
+                    )
+                )
             }
             val now = System.currentTimeMillis()
             var scheduled = 0
             val scheduledIds = mutableSetOf<String>()
-            entries.filter { it.start.time > now }.forEach { entry ->
+            entries.filter { it.triggerAtMillis > now }.forEach { entry ->
                 val pendingIntent = pendingIntent(context, entry)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, entry.start.time, pendingIntent)
+                    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, entry.triggerAtMillis, pendingIntent)
                 } else {
-                    alarmManager.set(AlarmManager.RTC_WAKEUP, entry.start.time, pendingIntent)
+                    alarmManager.set(AlarmManager.RTC_WAKEUP, entry.triggerAtMillis, pendingIntent)
                 }
-                scheduledIds.add(entry.id)
+                scheduledIds.add(entry.triggerId)
                 scheduled += 1
             }
             prefs.edit().putStringSet(SCHEDULED_IDS, scheduledIds).apply()
@@ -120,97 +128,27 @@ class ScheduleNotificationReceiver : BroadcastReceiver() {
             )
         }
 
-        private fun pendingIntent(context: Context, entry: ScheduleNotificationEntry): PendingIntent {
+        private fun pendingIntent(context: Context, entry: CalendarNotificationTrigger): PendingIntent {
             val intent = Intent(context, ScheduleNotificationReceiver::class.java).apply {
                 action = ACTION_NOTIFY
-                putExtra(EXTRA_ID, entry.id)
+                putExtra(EXTRA_ID, entry.triggerId)
                 putExtra(EXTRA_TITLE, entry.title)
                 putExtra(EXTRA_NOTE, entry.note)
-                putExtra(EXTRA_KIND, entry.kind)
-                putExtra(EXTRA_START, SimpleDateFormat("M月d日 HH:mm", Locale.CHINA).format(entry.start))
+                putExtra(EXTRA_KIND, entry.sourceType)
+                putExtra(EXTRA_START, SimpleDateFormat("M月d日 HH:mm", Locale.CHINA).format(entry.triggerAtMillis))
             }
             return PendingIntent.getBroadcast(
                 context,
-                abs(entry.id.hashCode()),
+                positiveHash(entry.triggerId),
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or immutableFlag()
             )
         }
 
-        private fun readSchedules(context: Context): List<ScheduleNotificationEntry> {
-            val prefsName = "${context.packageName}_preferences"
-            val prefs = listOf(
-                context.getSharedPreferences(prefsName, Context.MODE_PRIVATE),
-                context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-            )
-            val raw = prefs.firstNotNullOfOrNull { it.getString(SCHEDULE_KEY, null) }
-                ?: prefs.firstNotNullOfOrNull { it.getString("schedule_items", null) }
-                ?: return emptyList()
-            return try {
-                val array = JSONArray(raw)
-                buildList {
-                    for (index in 0 until array.length()) {
-                        val item = array.optJSONObject(index) ?: continue
-                        val id = item.optString("id").ifBlank { continue }
-                        val title = item.optString("title").ifBlank { "未命名事项" }
-                        val start = parseDate(item.optString("start")) ?: continue
-                        add(
-                            ScheduleNotificationEntry(
-                                id = id,
-                                title = title,
-                                start = start,
-                                kind = item.optString("kind").ifBlank { "schedule" },
-                                note = item.optString("note")
-                            )
-                        )
-                    }
-                }
-            } catch (_: Exception) {
-                emptyList()
-            }
-        }
-
-        private fun parseDate(value: String): Date? {
-            if (value.isBlank()) return null
-            val normalized = normalizeIsoDate(value)
-            val formats = listOf(
-                "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
-                "yyyy-MM-dd'T'HH:mm:ssXXX",
-                "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
-                "yyyy-MM-dd'T'HH:mm:ss'Z'",
-                "yyyy-MM-dd'T'HH:mm:ss.SSS",
-                "yyyy-MM-dd'T'HH:mm:ss"
-            )
-            return formats.firstNotNullOfOrNull { pattern ->
-                try {
-                    SimpleDateFormat(pattern, Locale.US).parse(normalized)
-                } catch (_: Exception) {
-                    null
-                }
-            }
-        }
-
-        private fun normalizeIsoDate(value: String): String {
-            val dot = value.indexOf('.')
-            if (dot == -1) return value
-            val suffixStart = (dot + 1 until value.length)
-                .firstOrNull { !value[it].isDigit() }
-                ?: value.length
-            val fraction = value.substring(dot + 1, suffixStart)
-            if (fraction.length <= 3) return value
-            return value.substring(0, dot + 1) + fraction.take(3) + value.substring(suffixStart)
-        }
+        private fun positiveHash(value: String): Int = value.hashCode() and Int.MAX_VALUE
 
         private fun immutableFlag(): Int {
             return if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0
         }
     }
 }
-
-private data class ScheduleNotificationEntry(
-    val id: String,
-    val title: String,
-    val start: Date,
-    val kind: String,
-    val note: String
-)

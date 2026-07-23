@@ -95,22 +95,21 @@ class FloatingAssistantSettings {
         mangaOverlayDark,
         mangaOverlayStroke,
       }, mangaOverlayAuto),
-      mangaOverlayOpacity:
-          ((json['mangaOverlayOpacity'] as num?)?.toDouble() ?? 0.92).clamp(
-            0.2,
-            1.0,
-          ),
+      mangaOverlayOpacity: _finiteDouble(
+        json['mangaOverlayOpacity'],
+        0.92,
+      ).clamp(0.2, 1.0),
       blockedPackages: (json['blockedPackages'] as List<dynamic>? ?? const [])
           .map((item) => item.toString().trim())
           .where((item) => item.isNotEmpty)
           .toSet()
           .toList(growable: false),
-      bubbleX: (json['bubbleX'] as num?)?.toInt() ?? defaultPosition,
-      bubbleY: (json['bubbleY'] as num?)?.toInt() ?? defaultPosition,
-      panelX: (json['panelX'] as num?)?.toInt() ?? defaultPosition,
-      panelY: (json['panelY'] as num?)?.toInt() ?? defaultPosition,
-      panelWidth: (json['panelWidth'] as num?)?.toInt() ?? defaultPosition,
-      panelHeight: (json['panelHeight'] as num?)?.toInt() ?? defaultPosition,
+      bubbleX: _finiteInt(json['bubbleX'], defaultPosition),
+      bubbleY: _finiteInt(json['bubbleY'], defaultPosition),
+      panelX: _finiteInt(json['panelX'], defaultPosition),
+      panelY: _finiteInt(json['panelY'], defaultPosition),
+      panelWidth: _finiteInt(json['panelWidth'], defaultPosition),
+      panelHeight: _finiteInt(json['panelHeight'], defaultPosition),
       translationModelId:
           (json['translationModelId'] as String?)?.trim().isEmpty == true
           ? null
@@ -193,6 +192,19 @@ class FloatingAssistantSettings {
     final value = raw?.toString();
     if (value != null && allowed.contains(value)) return value;
     return fallback;
+  }
+
+  static int _finiteInt(Object? raw, int fallback) {
+    if (raw is! num || !raw.isFinite || raw < 0 || raw > 0x7fffffff) {
+      return fallback;
+    }
+    final value = raw.toInt();
+    return value;
+  }
+
+  static double _finiteDouble(Object? raw, double fallback) {
+    if (raw is! num || !raw.isFinite) return fallback;
+    return raw.toDouble();
   }
 }
 

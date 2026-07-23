@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:lynai/pages/home_page.dart';
 import 'package:lynai/providers/account_provider.dart';
+import 'package:lynai/providers/calendar_provider.dart';
 import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
@@ -13,6 +14,7 @@ import 'package:lynai/providers/recycle_bin_provider.dart';
 import 'package:lynai/providers/roleplay_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/providers/sync_provider.dart';
+import 'package:lynai/providers/task_provider.dart';
 import 'package:lynai/services/backend_client.dart';
 import 'package:lynai/services/secret_store.dart';
 
@@ -24,6 +26,7 @@ void main() {
         ChangeNotifierProvider(create: (_) => BackendClient()),
         ChangeNotifierProvider(create: (_) => ConversationProvider()),
         ChangeNotifierProvider(create: (_) => FeatureProvider()),
+        ChangeNotifierProvider(create: (_) => CalendarProvider()),
         ChangeNotifierProvider(create: (_) => ModelConfigProvider()),
         ChangeNotifierProvider(create: (_) => PluginProvider()),
         ChangeNotifierProvider(
@@ -37,6 +40,7 @@ void main() {
         ),
         ChangeNotifierProvider(create: (_) => RecycleBinProvider()),
         ChangeNotifierProvider(create: (_) => RoleplayProvider()),
+        ChangeNotifierProvider(create: (_) => TaskProvider()),
         ChangeNotifierProvider(create: (_) => SettingsProvider()),
       ],
       child: MaterialApp(home: HomePage(initialTab: initialTab)),

@@ -10,407 +10,170 @@ class _SchedulePage extends StatefulWidget {
 }
 
 class _SchedulePageState extends State<_SchedulePage> {
-  static const _baseHourRowHeight = 56.0;
-  static const _dayInitialHour = 8;
-  static const _dayBaseColumnWidth = 72.0;
-  static const _timeColumnWidth = 56.0;
-  static const _dayHeaderHeight = 46.0;
-  static const _minDayZoom = 0.7;
-  static const _maxDayZoom = 1.8;
-  static const _dayWindowSize = 61;
-  static const _dayWindowHalf = _dayWindowSize ~/ 2;
-  static const _dayWindowSlideBatch = 14;
-  static const _dayWindowEdgeColumns = 4;
+  static const _hourHeight = 56.0;
+  static const _dayColumnWidth = 112.0;
+  static const _timeColumnWidth = 52.0;
+  static const _dayCount = 31;
+  static const _dayHalf = _dayCount ~/ 2;
+  static const _dayHeaderHeight = 58.0;
 
-  final _dayScrollController = ScrollController(
-    initialScrollOffset: _dayInitialHour * _baseHourRowHeight,
+  final _verticalController = ScrollController(
+    initialScrollOffset: 8 * _hourHeight,
   );
-  final _dayHorizontalController = ScrollController(
-    initialScrollOffset: _dayWindowHalf * _dayBaseColumnWidth,
+  final _horizontalController = ScrollController(
+    initialScrollOffset: _dayHalf * _dayColumnWidth,
   );
-  final _dayHeaderHorizontalController = ScrollController(
-    initialScrollOffset: _dayWindowHalf * _dayBaseColumnWidth,
+  final _headerController = ScrollController(
+    initialScrollOffset: _dayHalf * _dayColumnWidth,
   );
-  bool _syncingDayHorizontalScroll = false;
-  bool _slidingDayWindow = false;
-  bool _dayWindowNeedsFocusCentering = false;
-  DateTime? _dayWindowStart;
-  double _dayZoom = 1.0;
-  double _dayScaleStartZoom = 1.0;
-  double? _dayScaleStartDistance;
-  final Map<int, Offset> _dayPointerPositions = {};
-
+  final _summaryController = ScrollController(
+    initialScrollOffset: _dayHalf * _dayColumnWidth,
+  );
+  bool _syncingScroll = false;
+  bool _completedExpanded = false;
+  bool _dayNeedsCenter = true;
   _CalendarMode _mode = _CalendarMode.month;
   DateTime _focus = DateTime.now();
   DateTime? _selectedDate;
-  bool _showMonthDetail = false;
-  double _scheduleControlsCollapse = 0;
+  DateTime? _dayWindowStart;
 
   @override
   void initState() {
     super.initState();
-    _dayHorizontalController.addListener(() {
-      _syncDayHorizontalScroll(
-        _dayHorizontalController,
-        _dayHeaderHorizontalController,
-      );
-      _maybeSlideDayWindow();
+    _horizontalController.addListener(() {
+      _syncHorizontalFrom(_horizontalController);
+      _updateDayFocus();
     });
-    _dayHeaderHorizontalController.addListener(() {
-      _syncDayHorizontalScroll(
-        _dayHeaderHorizontalController,
-        _dayHorizontalController,
-      );
-    });
+    _headerController.addListener(() => _syncHorizontalFrom(_headerController));
+    _summaryController.addListener(
+      () => _syncHorizontalFrom(_summaryController),
+    );
   }
 
   @override
   void dispose() {
-    _dayScrollController.dispose();
-    _dayHorizontalController.dispose();
-    _dayHeaderHorizontalController.dispose();
+    _verticalController.dispose();
+    _horizontalController.dispose();
+    _headerController.dispose();
+    _summaryController.dispose();
     super.dispose();
   }
 
-  void _syncDayHorizontalScroll(
-    ScrollController source,
-    ScrollController target,
-  ) {
-    if (_syncingDayHorizontalScroll ||
-        !source.hasClients ||
-        !target.hasClients) {
-      return;
-    }
-    _syncingDayHorizontalScroll = true;
-    final targetPosition = target.position;
-    final offset = source.offset.clamp(
-      targetPosition.minScrollExtent,
-      targetPosition.maxScrollExtent,
-    );
-    target.jumpTo(offset.toDouble());
-    _syncingDayHorizontalScroll = false;
-  }
-
-  void _ensureDayWindow() {
-    if (_dayWindowStart != null) return;
-    _dayWindowStart = _dateOnly(
-      _focus,
-    ).subtract(const Duration(days: _dayWindowHalf));
-    _dayWindowNeedsFocusCentering = true;
-  }
-
-  void _maybeSlideDayWindow() {
-    if (_slidingDayWindow ||
-        _mode != _CalendarMode.day ||
-        !_dayHorizontalController.hasClients ||
-        _dayWindowStart == null) {
-      return;
-    }
-    final position = _dayHorizontalController.position;
-    final dayColumnWidth = _baseDayColumnWidthForCurrentZoom;
-    final threshold = _dayWindowEdgeColumns * dayColumnWidth;
-    if (position.pixels <= threshold) {
-      _slideDayWindow(-_dayWindowSlideBatch, _dayWindowSlideBatch);
-    } else if (position.pixels >= position.maxScrollExtent - threshold) {
-      _slideDayWindow(_dayWindowSlideBatch, -_dayWindowSlideBatch);
-    }
-  }
-
-  double get _baseDayColumnWidthForCurrentZoom =>
-      _dayBaseColumnWidth * _dayZoom;
-
-  void _slideDayWindow(int startDeltaDays, int offsetDeltaColumns) {
-    final start = _dayWindowStart;
-    if (start == null) return;
-    final offset = _dayHorizontalController.offset;
-    final offsetDelta = offsetDeltaColumns * _baseDayColumnWidthForCurrentZoom;
-    _slidingDayWindow = true;
-    setState(() {
-      _dayWindowStart = start.add(Duration(days: startDeltaDays));
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_dayHorizontalController.hasClients) {
-        _slidingDayWindow = false;
-        return;
-      }
-      _jumpDayHorizontalTo(offset + offsetDelta);
-      _slidingDayWindow = false;
-    });
-  }
-
-  void _jumpDayHorizontalTo(double value) {
-    if (!_dayHorizontalController.hasClients) return;
-    final position = _dayHorizontalController.position;
-    final target = value
-        .clamp(position.minScrollExtent, position.maxScrollExtent)
-        .toDouble();
-    _syncingDayHorizontalScroll = true;
-    _dayHorizontalController.jumpTo(target);
-    if (_dayHeaderHorizontalController.hasClients) {
-      final headerPosition = _dayHeaderHorizontalController.position;
-      _dayHeaderHorizontalController.jumpTo(
-        target
+  void _syncHorizontalFrom(ScrollController source) {
+    if (_syncingScroll || !source.hasClients) return;
+    _syncingScroll = true;
+    for (final target in [
+      _horizontalController,
+      _headerController,
+      _summaryController,
+    ]) {
+      if (identical(source, target) || !target.hasClients) continue;
+      target.jumpTo(
+        source.offset
             .clamp(
-              headerPosition.minScrollExtent,
-              headerPosition.maxScrollExtent,
+              target.position.minScrollExtent,
+              target.position.maxScrollExtent,
             )
             .toDouble(),
       );
     }
-    _syncingDayHorizontalScroll = false;
-  }
-
-  Future<void> _animateDayHorizontalTo(double value) async {
-    if (!_dayHorizontalController.hasClients) return;
-    final position = _dayHorizontalController.position;
-    final target = value
-        .clamp(position.minScrollExtent, position.maxScrollExtent)
-        .toDouble();
-    await _dayHorizontalController.animateTo(
-      target,
-      duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOutCubic,
-    );
-  }
-
-  void _animateDayBy(int deltaDays) {
-    _ensureDayWindow();
-    if (!_dayHorizontalController.hasClients) {
-      setState(() => _focus = _dateOnly(_focus.add(Duration(days: deltaDays))));
-      return;
-    }
-    _animateDayHorizontalTo(
-      _dayHorizontalController.offset +
-          deltaDays * _baseDayColumnWidthForCurrentZoom,
-    );
-  }
-
-  void _updateFocusFromDayViewport() {
-    if (_mode != _CalendarMode.day ||
-        _dayWindowStart == null ||
-        !_dayHorizontalController.hasClients) {
-      return;
-    }
-    final position = _dayHorizontalController.position;
-    final center = position.pixels + position.viewportDimension / 2;
-    final index = (center / _baseDayColumnWidthForCurrentZoom)
-        .floor()
-        .clamp(0, _dayWindowSize - 1)
-        .toInt();
-    final next = _dayWindowStart!.add(Duration(days: index));
-    if (!_sameDate(next, _focus)) {
-      setState(() => _focus = _dateOnly(next));
-    }
-  }
-
-  void _goToNow() {
-    final now = DateTime.now();
-    final today = _dateOnly(now);
-    _ensureDayWindow();
-    final start = _dayWindowStart!;
-    final index = today.difference(start).inDays;
-    if (index < 0 || index >= _dayWindowSize) {
-      setState(() {
-        _focus = today;
-        _dayWindowStart = today.subtract(const Duration(days: _dayWindowHalf));
-      });
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _scrollDayToNow(now);
-      });
-    } else {
-      setState(() => _focus = today);
-      _scrollDayToNow(now);
-    }
-  }
-
-  void _scrollDayToNow(DateTime now) {
-    _scrollDayHorizontallyTo(_dateOnly(now));
-    _scrollDayVerticallyTo(now);
-  }
-
-  void _scrollDayHorizontallyTo(DateTime date) {
-    final target = _dayHorizontalTargetFor(date);
-    if (target == null) return;
-    _animateDayHorizontalTo(target);
-  }
-
-  void _jumpDayHorizontallyTo(DateTime date) {
-    final target = _dayHorizontalTargetFor(date);
-    if (target == null) return;
-    _jumpDayHorizontalTo(target);
-  }
-
-  double? _dayHorizontalTargetFor(DateTime date) {
-    final start = _dayWindowStart;
-    if (start == null || !_dayHorizontalController.hasClients) return null;
-    final index = _dateOnly(date).difference(start).inDays;
-    if (index < 0 || index >= _dayWindowSize) return null;
-    final position = _dayHorizontalController.position;
-    final dayColumnWidth = _baseDayColumnWidthForCurrentZoom;
-    return index * dayColumnWidth -
-        (position.viewportDimension - dayColumnWidth) / 2;
-  }
-
-  void _scrollDayVerticallyTo(DateTime dateTime) {
-    if (!_dayScrollController.hasClients) return;
-    final position = _dayScrollController.position;
-    final hourRowHeight = _baseHourRowHeight * _dayZoom;
-    final top =
-        dateTime.hour * hourRowHeight + dateTime.minute / 60 * hourRowHeight;
-    final target = top - position.viewportDimension / 2;
-    _dayScrollController.animateTo(
-      target
-          .clamp(position.minScrollExtent, position.maxScrollExtent)
-          .toDouble(),
-      duration: const Duration(milliseconds: 320),
-      curve: Curves.easeOutCubic,
-    );
-  }
-
-  void _setDayZoom(double value) {
-    final next = value.clamp(_minDayZoom, _maxDayZoom).toDouble();
-    if ((next - _dayZoom).abs() < 0.01) return;
-    setState(() => _dayZoom = next);
-  }
-
-  void _handleDayPointerSignal(PointerSignalEvent event) {
-    if (event is! PointerScrollEvent) return;
-    final keyboard = HardwareKeyboard.instance;
-    if (!keyboard.isControlPressed && !keyboard.isMetaPressed) return;
-    GestureBinding.instance.pointerSignalResolver.register(event, (event) {
-      if (event is! PointerScrollEvent) return;
-      final delta = event.scrollDelta.dy < 0 ? 0.08 : -0.08;
-      _setDayZoom(_dayZoom + delta);
-    });
-  }
-
-  void _handleDayPointerDown(PointerDownEvent event) {
-    _dayPointerPositions[event.pointer] = event.localPosition;
-    if (_dayPointerPositions.length == 2) {
-      _dayScaleStartZoom = _dayZoom;
-      _dayScaleStartDistance = _dayPointerDistance();
-    }
-  }
-
-  void _handleDayPointerMove(PointerMoveEvent event) {
-    if (!_dayPointerPositions.containsKey(event.pointer)) return;
-    _dayPointerPositions[event.pointer] = event.localPosition;
-    final startDistance = _dayScaleStartDistance;
-    final currentDistance = _dayPointerDistance();
-    if (_dayPointerPositions.length < 2 ||
-        startDistance == null ||
-        startDistance <= 0 ||
-        currentDistance == null) {
-      return;
-    }
-    _setDayZoom(_dayScaleStartZoom * currentDistance / startDistance);
-  }
-
-  void _handleDayPointerEnd(PointerEvent event) {
-    _dayPointerPositions.remove(event.pointer);
-    if (_dayPointerPositions.length < 2) {
-      _dayScaleStartDistance = null;
-      _dayScaleStartZoom = _dayZoom;
-    } else {
-      _dayScaleStartDistance = _dayPointerDistance();
-      _dayScaleStartZoom = _dayZoom;
-    }
-  }
-
-  double? _dayPointerDistance() {
-    if (_dayPointerPositions.length < 2) return null;
-    final values = _dayPointerPositions.values.take(2).toList();
-    return (values[0] - values[1]).distance;
-  }
-
-  bool _onScheduleScroll(ScrollNotification notification) {
-    if (notification.metrics.axis == Axis.horizontal) {
-      if (notification is ScrollEndNotification) {
-        _updateFocusFromDayViewport();
-      }
-      return false;
-    }
-    if (notification.metrics.axis != Axis.vertical) return false;
-    if (notification is ScrollUpdateNotification) {
-      final delta = notification.scrollDelta;
-      if (delta == null || delta == 0) return false;
-      final next = (_scheduleControlsCollapse + delta / 72).clamp(0.0, 1.0);
-      if ((next - _scheduleControlsCollapse).abs() >= 0.01) {
-        setState(() => _scheduleControlsCollapse = next);
-      }
-    }
-    return false;
+    _syncingScroll = false;
   }
 
   @override
   Widget build(BuildContext context) {
-    final fp = context.watch<FeatureProvider>();
+    final calendar = context.watch<CalendarProvider>();
+    final tasks = context.watch<TaskProvider>();
     return Column(
       children: [
-        _scheduleHeader(context),
+        _header(),
         Expanded(
-          child: NotificationListener<ScrollNotification>(
-            onNotification: _onScheduleScroll,
-            child: switch (_mode) {
-              _CalendarMode.day => _dayView(fp.schedules),
-              _CalendarMode.year => _yearView(fp.schedules),
-              _ => _monthView(fp.schedules),
-            },
-          ),
+          child: switch (_mode) {
+            _CalendarMode.month => _monthView(calendar, tasks),
+            _CalendarMode.day => _dayView(calendar, tasks),
+            _CalendarMode.year => _yearView(calendar, tasks),
+          },
         ),
       ],
     );
   }
 
-  Widget _scheduleHeader(BuildContext context) {
-    final compact = MediaQuery.sizeOf(context).width < 560;
-    final progress = _scheduleControlsCollapse;
-    final controls = ClipRect(
-      child: Align(
-        alignment: Alignment.centerRight,
-        widthFactor: compact ? 1 : 1 - progress,
-        heightFactor: compact ? 1 - progress : 1,
-        child: Opacity(
-          opacity: 1 - progress,
-          child: Transform.translate(
-            offset: Offset(0, -12 * progress),
-            child: IgnorePointer(
-              ignoring: progress > 0.6,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SegmentedButton<_CalendarMode>(
-                    segments: const [
-                      ButtonSegment(
-                        value: _CalendarMode.month,
-                        label: Text('月'),
-                      ),
-                      ButtonSegment(value: _CalendarMode.day, label: Text('日')),
-                      ButtonSegment(
-                        value: _CalendarMode.year,
-                        label: Text('年'),
-                      ),
-                    ],
-                    selected: {_mode},
-                    onSelectionChanged: (v) => _setCalendarMode(v.first),
-                  ),
-                  const SizedBox(width: 8),
-                  _AddMenuButton(
-                    items: const [
-                      _AddMenuItem('schedule', Icons.event, '新建日程'),
-                      _AddMenuItem('task', Icons.flag_outlined, '新建任务'),
-                    ],
-                    onSelected: (value) => value == 'task'
-                        ? _newScheduleItem(ScheduleItem.kindTask)
-                        : _newScheduleItem(ScheduleItem.kindSchedule),
-                  ),
-                ],
+  Widget _header() {
+    final compact = MediaQuery.sizeOf(context).width < 620;
+    final navigator = Row(
+      children: [
+        IconButton.filledTonal(
+          onPressed: () => _move(-1),
+          icon: const Icon(Icons.chevron_left),
+        ),
+        Expanded(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                switch (_mode) {
+                  _CalendarMode.month => '${_focus.year} 年 ${_focus.month} 月',
+                  _CalendarMode.day =>
+                    '${_focus.year}-${_two(_focus.month)}-${_two(_focus.day)}',
+                  _CalendarMode.year => '${_focus.year} 年',
+                },
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
               ),
-            ),
+              Text(switch (_mode) {
+                _CalendarMode.month => '月历总览',
+                _CalendarMode.day => '日程时间轴',
+                _CalendarMode.year => '全年总览',
+              }, style: Theme.of(context).textTheme.bodySmall),
+            ],
           ),
         ),
-      ),
+        IconButton.filledTonal(
+          onPressed: () => _move(1),
+          icon: const Icon(Icons.chevron_right),
+        ),
+      ],
+    );
+    final controls = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SegmentedButton<_CalendarMode>(
+          segments: const [
+            ButtonSegment(value: _CalendarMode.month, label: Text('月')),
+            ButtonSegment(value: _CalendarMode.day, label: Text('日')),
+            ButtonSegment(value: _CalendarMode.year, label: Text('年')),
+          ],
+          selected: {_mode},
+          onSelectionChanged: (value) => setState(() {
+            _mode = value.first;
+            if (_mode == _CalendarMode.day) {
+              _dayWindowStart = _dateOnly(
+                _focus,
+              ).subtract(const Duration(days: _dayHalf));
+              _dayNeedsCenter = true;
+            }
+          }),
+        ),
+        const SizedBox(width: 8),
+        _AddMenuButton(
+          items: const [
+            _AddMenuItem('event', Icons.event_outlined, '新建事件'),
+            _AddMenuItem('task', Icons.task_alt, '新建任务'),
+            _AddMenuItem('anniversary', Icons.cake_outlined, '新建纪念日'),
+          ],
+          onSelected: (value) {
+            switch (value) {
+              case 'event':
+                _openEventEditor();
+              case 'task':
+                _openTaskEditor();
+              case 'anniversary':
+                _openAnniversaryEditor();
+            }
+          },
+        ),
+      ],
     );
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 10, 12, 6),
@@ -420,161 +183,121 @@ class _SchedulePageState extends State<_SchedulePage> {
           context,
         ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: Theme.of(
-            context,
-          ).colorScheme.outlineVariant.withValues(alpha: 0.6),
-        ),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
       ),
       child: compact
           ? Column(
               children: [
-                _dateNavigator(context),
-                SizedBox(height: 10 * (1 - progress)),
+                navigator,
+                const SizedBox(height: 10),
                 Align(alignment: Alignment.centerRight, child: controls),
               ],
             )
           : Row(
               children: [
-                Expanded(child: _dateNavigator(context)),
+                Expanded(child: navigator),
                 controls,
               ],
             ),
     );
   }
 
-  Widget _dateNavigator(BuildContext context) {
-    return Row(
-      children: [
-        IconButton.filledTonal(
-          icon: const Icon(Icons.chevron_left),
-          onPressed: () => _move(-1),
-        ),
-        Expanded(
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  _focusLabel(),
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                Text(
-                  _modeLabel(),
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        IconButton.filledTonal(
-          icon: const Icon(Icons.chevron_right),
-          onPressed: () => _move(1),
-        ),
-      ],
+  void _move(int delta) {
+    setState(() {
+      _focus = switch (_mode) {
+        _CalendarMode.month => DateTime(_focus.year, _focus.month + delta, 1),
+        _CalendarMode.day => _focus.add(Duration(days: delta)),
+        _CalendarMode.year => DateTime(_focus.year + delta, 1, 1),
+      };
+      if (_mode != _CalendarMode.month) _selectedDate = null;
+      if (_mode == _CalendarMode.day &&
+          (_dayWindowStart == null ||
+              _focus.isBefore(_dayWindowStart!) ||
+              !_focus.isBefore(
+                _dayWindowStart!.add(const Duration(days: _dayCount)),
+              ))) {
+        _dayWindowStart = _dateOnly(
+          _focus,
+        ).subtract(const Duration(days: _dayHalf));
+      }
+      if (_mode == _CalendarMode.day) _dayNeedsCenter = true;
+    });
+    if (_mode == _CalendarMode.day) _centerFocusedDay();
+  }
+
+  List<CalendarOccurrence> _occurrences(
+    CalendarProvider calendar,
+    TaskProvider tasks,
+    DateTime start,
+    DateTime endExclusive,
+  ) {
+    // occurrence 仅是 canonical 源对象在半开日期区间内的投影，不在页面保存副本。
+    return calendar.occurrencesInRange(
+      startDate: LocalDate.fromDateTime(start),
+      endDateExclusive: LocalDate.fromDateTime(endExclusive),
+      tasks: tasks.tasks,
     );
   }
 
-  void _setCalendarMode(_CalendarMode mode) {
-    if (mode == _mode) return;
-    setState(() {
-      _mode = mode;
-      if (mode == _CalendarMode.day) {
-        _dayWindowStart = null;
-      }
-    });
+  List<CalendarOccurrence> _onDate(
+    List<CalendarOccurrence> occurrences,
+    DateTime date,
+  ) {
+    final localDate = LocalDate.fromDateTime(date);
+    return occurrences.where((value) => _occursOn(value, localDate)).toList();
   }
 
-  void _move(int delta) {
-    if (_mode == _CalendarMode.day) {
-      _animateDayBy(delta);
-      return;
+  bool _occursOn(CalendarOccurrence occurrence, LocalDate date) {
+    if (occurrence.kind != CalendarOccurrenceKind.event) {
+      return occurrence.date == date;
     }
-    setState(() {
-      _focus = switch (_mode) {
-        _CalendarMode.year => DateTime(_focus.year + delta, 1, 1),
-        _ => DateTime(_focus.year, _focus.month + delta, 1),
-      };
-      if (_mode == _CalendarMode.month) {
-        final daysInMonth = DateTime(_focus.year, _focus.month + 1, 0).day;
-        final selectedDay = _selectedDate?.day ?? _focus.day;
-        final clampedDay = selectedDay.clamp(1, daysInMonth);
-        _selectedDate = _showMonthDetail
-            ? DateTime(_focus.year, _focus.month, clampedDay)
-            : null;
-      } else if (_mode == _CalendarMode.year) {
-        _selectedDate = null;
-        _showMonthDetail = false;
-      }
-    });
+    final end = occurrence.endDateExclusive ?? occurrence.date.addDays(1);
+    return occurrence.date.compareTo(date) <= 0 && date.compareTo(end) < 0;
   }
 
-  String _focusLabel() {
-    return switch (_mode) {
-      _CalendarMode.day => '${_focus.year}-${_focus.month}-${_focus.day}',
-      _CalendarMode.year => '${_focus.year}',
-      _ => '${_focus.year}-${_focus.month}',
-    };
-  }
-
-  String _modeLabel() {
-    return switch (_mode) {
-      _CalendarMode.day => '周日程时间轴',
-      _CalendarMode.year => '全年总览',
-      _ => '月历总览',
-    };
-  }
-
-  Widget _monthView(List<ScheduleItem> items) {
-    final first = DateTime(_focus.year, _focus.month, 1);
-    final days = DateTime(_focus.year, _focus.month + 1, 0).day;
-    final offset = first.weekday - 1;
-    final total = ((offset + days + 6) ~/ 7) * 7;
-    final selectedDate = _selectedDate;
-    final selectedItems = selectedDate == null
-        ? <ScheduleItem>[]
-        : _itemsOnDate(items, selectedDate);
+  Widget _monthView(CalendarProvider calendar, TaskProvider tasks) {
+    final monthStart = DateTime(_focus.year, _focus.month, 1);
+    final monthEnd = DateTime(_focus.year, _focus.month + 1, 1);
+    final occurrences = _occurrences(calendar, tasks, monthStart, monthEnd);
+    final leading = monthStart.weekday - 1;
+    final days = monthEnd.subtract(const Duration(days: 1)).day;
+    final total = ((leading + days + 6) ~/ 7) * 7;
+    final selected = _selectedDate;
     return Column(
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
           child: Row(
             children: [
-              Text(
-                '${_focus.year} 年 ${_focus.month} 月',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-              ),
-              const Spacer(),
               TextButton.icon(
                 onPressed: () => setState(() {
-                  final now = DateTime.now();
-                  _focus = DateTime(now.year, now.month, 1);
-                  _selectedDate = _dateOnly(now);
-                  _showMonthDetail = true;
+                  _focus = DateTime.now();
+                  _selectedDate = _dateOnly(DateTime.now());
                 }),
                 icon: const Icon(Icons.today, size: 18),
                 label: const Text('今天'),
               ),
+              const Spacer(),
+              if (selected != null)
+                IconButton(
+                  tooltip: '关闭日期详情',
+                  onPressed: () => setState(() => _selectedDate = null),
+                  icon: const Icon(Icons.close),
+                ),
             ],
           ),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
             children: const ['一', '二', '三', '四', '五', '六', '日']
                 .map(
-                  (e) => Expanded(
+                  (value) => Expanded(
                     child: Center(
                       child: Text(
-                        e,
+                        value,
                         style: TextStyle(
-                          fontSize: 10,
+                          fontSize: 11,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -584,312 +307,103 @@ class _SchedulePageState extends State<_SchedulePage> {
                 .toList(),
           ),
         ),
-        SizedBox(
-          height: _showMonthDetail ? 244 : 0,
+        Expanded(
           child: GridView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            physics: const NeverScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(12),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 7,
               childAspectRatio: 1,
-              crossAxisSpacing: 3,
-              mainAxisSpacing: 3,
+              crossAxisSpacing: 4,
+              mainAxisSpacing: 4,
             ),
             itemCount: total,
             itemBuilder: (context, index) {
-              if (index < offset || index >= offset + days) {
+              if (index < leading || index >= leading + days) {
                 return const SizedBox.shrink();
               }
-              final day = index - offset + 1;
-              final date = DateTime(_focus.year, _focus.month, day);
-              final dayItems = _itemsOnDate(items, date);
-              final today = _sameDate(date, DateTime.now());
-              final selected =
-                  selectedDate != null && _sameDate(date, selectedDate);
-              return _monthDayCell(context, date, dayItems, today, selected);
+              final date = DateTime(
+                _focus.year,
+                _focus.month,
+                index - leading + 1,
+              );
+              return _monthCell(
+                date,
+                _onDate(occurrences, date),
+                selected != null && _sameDate(selected, date),
+              );
             },
           ),
         ),
-        if (!_showMonthDetail)
+        if (selected != null)
           Expanded(
-            child: GridView.builder(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 7,
-                childAspectRatio: 1,
-                crossAxisSpacing: 3,
-                mainAxisSpacing: 3,
-              ),
-              itemCount: total,
-              itemBuilder: (context, index) {
-                if (index < offset || index >= offset + days) {
-                  return const SizedBox.shrink();
-                }
-                final day = index - offset + 1;
-                final date = DateTime(_focus.year, _focus.month, day);
-                final dayItems = _itemsOnDate(items, date);
-                final today = _sameDate(date, DateTime.now());
-                final selected =
-                    selectedDate != null && _sameDate(date, selectedDate);
-                return _monthDayCell(context, date, dayItems, today, selected);
-              },
+            child: _dateDetail(
+              selected,
+              _onDate(occurrences, selected),
+              calendar,
+              tasks,
             ),
           ),
-        if (_showMonthDetail && selectedDate != null) ...[
-          const SizedBox(height: 4),
-          Expanded(
-            child: Container(
-              margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              decoration: BoxDecoration(
-                color: Theme.of(
-                  context,
-                ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.outlineVariant.withValues(alpha: 0.5),
-                ),
-              ),
-              child: ListView(
-                padding: const EdgeInsets.all(12),
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 42,
-                        height: 42,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.primary,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Text(
-                          '${selectedDate.day}',
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.onPrimary,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 16,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '${selectedDate.year}-${selectedDate.month}-${selectedDate.day}',
-                              style: Theme.of(context).textTheme.titleMedium
-                                  ?.copyWith(fontWeight: FontWeight.w700),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              '${_weekdayName(selectedDate.weekday)} | ${selectedItems.length} 条事项',
-                              style: TextStyle(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: '关闭日程摘要',
-                        icon: const Icon(Icons.close),
-                        onPressed: () => setState(() {
-                          _selectedDate = null;
-                          _showMonthDetail = false;
-                        }),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  if (selectedItems.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 24),
-                      child: Center(
-                        child: Text(
-                          '这一天没有事项',
-                          style: TextStyle(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ),
-                    )
-                  else
-                    ...selectedItems.map(
-                      (item) => Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: InkWell(
-                          onTap: () => _openScheduleEditor(item),
-                          borderRadius: BorderRadius.circular(12),
-                          child: Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.surface,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.primary.withValues(alpha: 0.16),
-                              ),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Container(
-                                      width: 8,
-                                      height: 8,
-                                      decoration: BoxDecoration(
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.primary,
-                                        shape: BoxShape.circle,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        item.title,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ),
-                                    Text(
-                                      _timeLabelForDate(item, selectedDate),
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.onSurfaceVariant,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                if ((item.note ?? '').isNotEmpty) ...[
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    item.note!,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.onSurfaceVariant,
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        ],
       ],
     );
   }
 
-  Widget _monthDayCell(
-    BuildContext context,
+  Widget _monthCell(
     DateTime date,
-    List<ScheduleItem> dayItems,
-    bool today,
+    List<CalendarOccurrence> occurrences,
     bool selected,
   ) {
     final scheme = Theme.of(context).colorScheme;
+    final today = _sameDate(date, DateTime.now());
+    final hasCalendar = occurrences.any(
+      (value) =>
+          value.kind == CalendarOccurrenceKind.event ||
+          value.kind == CalendarOccurrenceKind.anniversary,
+    );
+    final hasIncompleteTask = occurrences.any(
+      (value) => _isTask(value) && !value.isCompleted,
+    );
     return Material(
       color: selected
-          ? scheme.primaryContainer.withValues(alpha: 0.9)
-          : today
-          ? scheme.primaryContainer.withValues(alpha: 0.55)
+          ? scheme.primaryContainer
           : scheme.surfaceContainerHighest.withValues(alpha: 0.3),
       borderRadius: BorderRadius.circular(11),
-      child: Container(
-        padding: const EdgeInsets.all(5),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(11),
-          border: Border.all(
-            color: selected
-                ? scheme.primary.withValues(alpha: 0.9)
-                : today
-                ? scheme.primary.withValues(alpha: 0.55)
-                : scheme.outlineVariant.withValues(alpha: 0.45),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(11),
+        onTap: () => setState(() => _selectedDate = date),
+        child: Container(
+          padding: const EdgeInsets.all(5),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(11),
+            border: Border.all(
+              color: selected || today ? scheme.primary : scheme.outlineVariant,
+            ),
           ),
-        ),
-        child: InkWell(
-          onTap: () => setState(() {
-            _selectedDate = _dateOnly(date);
-            _showMonthDetail = true;
-          }),
-          borderRadius: BorderRadius.circular(11),
-          child: Stack(
+          child: Column(
             children: [
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: Row(
-                  children: [
-                    Container(
-                      width: 20,
-                      height: 20,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: selected
-                            ? scheme.primary
-                            : today
-                            ? scheme.primary.withValues(alpha: 0.85)
-                            : Colors.transparent,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Text(
-                        '${date.day}',
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w800,
-                          color: selected || today ? scheme.onPrimary : null,
-                        ),
-                      ),
-                    ),
-                    const Spacer(),
-                    if (dayItems.isNotEmpty)
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: BoxDecoration(
-                          color: scheme.primary,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                  ],
+              Align(
+                alignment: Alignment.topLeft,
+                child: Text(
+                  '${date.day}',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: today ? scheme.primary : null,
+                  ),
                 ),
               ),
-              if (dayItems.isNotEmpty)
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: Text(
-                    '${dayItems.length}',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: scheme.onSurfaceVariant,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
+              const Spacer(),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (hasCalendar) _marker(scheme.primary),
+                  if (hasCalendar && hasIncompleteTask)
+                    const SizedBox(width: 4),
+                  if (hasIncompleteTask) _marker(scheme.error),
+                ],
+              ),
+              if (occurrences.isNotEmpty)
+                Text(
+                  '${occurrences.length}',
+                  style: const TextStyle(fontSize: 9),
                 ),
             ],
           ),
@@ -898,280 +412,319 @@ class _SchedulePageState extends State<_SchedulePage> {
     );
   }
 
-  Widget _dayView(List<ScheduleItem> items) {
-    _ensureDayWindow();
-    if (_dayWindowNeedsFocusCentering) {
-      _dayWindowNeedsFocusCentering = false;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _jumpDayHorizontallyTo(_focus);
-      });
-    }
-    final windowStart = _dayWindowStart!;
+  Widget _marker(Color color) => Container(
+    width: 7,
+    height: 7,
+    decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+  );
+
+  Widget _dateDetail(
+    DateTime date,
+    List<CalendarOccurrence> occurrences,
+    CalendarProvider calendar,
+    TaskProvider tasks,
+  ) {
+    final anniversaries = occurrences
+        .where((value) => value.kind == CalendarOccurrenceKind.anniversary)
+        .toList();
+    final allDay = occurrences.where((value) {
+      return value.kind == CalendarOccurrenceKind.event &&
+          (value.isAllDay || value.endDateExclusive != value.date.addDays(1));
+    }).toList();
+    final timed = occurrences.where((value) {
+      return value.kind == CalendarOccurrenceKind.event &&
+          !allDay.contains(value);
+    }).toList();
+    final incomplete = occurrences
+        .where((value) => _isTask(value) && !value.isCompleted)
+        .toList();
+    final completed = occurrences
+        .where((value) => _isTask(value) && value.isCompleted)
+        .toList();
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      decoration: BoxDecoration(
+        color: Theme.of(
+          context,
+        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: ListView(
+        padding: const EdgeInsets.all(12),
+        children: [
+          Text(
+            '${date.year}-${_two(date.month)}-${_two(date.day)}  周${_weekday(date.weekday)}',
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          if (occurrences.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 28),
+              child: Center(child: Text('这一天没有事项')),
+            ),
+          _detailGroup(
+            '纪念日',
+            Icons.cake_outlined,
+            anniversaries,
+            calendar,
+            tasks,
+          ),
+          _detailGroup('全天 / 跨日', Icons.event_note, allDay, calendar, tasks),
+          _detailGroup('定时事件', Icons.schedule, timed, calendar, tasks),
+          _detailGroup('未完成任务', Icons.task_alt, incomplete, calendar, tasks),
+          if (completed.isNotEmpty)
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              initiallyExpanded: _completedExpanded,
+              onExpansionChanged: (value) => _completedExpanded = value,
+              title: Text('已完成 (${completed.length})'),
+              children: completed
+                  .map((value) => _occurrenceTile(value, calendar, tasks))
+                  .toList(),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _detailGroup(
+    String title,
+    IconData icon,
+    List<CalendarOccurrence> values,
+    CalendarProvider calendar,
+    TaskProvider tasks,
+  ) {
+    if (values.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 17),
+              const SizedBox(width: 6),
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+            ],
+          ),
+          ...values.map((value) => _occurrenceTile(value, calendar, tasks)),
+        ],
+      ),
+    );
+  }
+
+  Widget _occurrenceTile(
+    CalendarOccurrence occurrence,
+    CalendarProvider calendar,
+    TaskProvider tasks,
+  ) {
+    return ListTile(
+      dense: true,
+      contentPadding: EdgeInsets.zero,
+      leading: _isTask(occurrence)
+          ? Checkbox(
+              value: occurrence.isCompleted,
+              onChanged: (_) => occurrence.isCompleted
+                  ? tasks.uncompleteTask(occurrence.sourceId)
+                  : tasks.completeTask(occurrence.sourceId),
+            )
+          : Icon(
+              occurrence.kind == CalendarOccurrenceKind.anniversary
+                  ? Icons.cake_outlined
+                  : Icons.event_outlined,
+            ),
+      title: Text(
+        occurrence.title,
+        style: TextStyle(
+          decoration: occurrence.isCompleted
+              ? TextDecoration.lineThrough
+              : null,
+        ),
+      ),
+      subtitle: Text(_occurrenceSubtitle(occurrence)),
+      onTap: () => _editOccurrence(occurrence, calendar, tasks),
+    );
+  }
+
+  Widget _dayView(CalendarProvider calendar, TaskProvider tasks) {
+    final windowStart = _dayWindowStart ??= _dateOnly(
+      _focus,
+    ).subtract(const Duration(days: _dayHalf));
+    final windowEnd = windowStart.add(const Duration(days: _dayCount));
+    final occurrences = _occurrences(calendar, tasks, windowStart, windowEnd);
     final days = List.generate(
-      _dayWindowSize,
-      (i) => windowStart.add(Duration(days: i)),
+      _dayCount,
+      (index) => windowStart.add(Duration(days: index)),
     );
     final scheme = Theme.of(context).colorScheme;
-    final hourRowHeight = _baseHourRowHeight * _dayZoom;
-    final dayColumnWidth = _dayBaseColumnWidth * _dayZoom;
-    final timelineHeight = 24 * hourRowHeight;
-    final timelineWidth = days.length * dayColumnWidth;
-    final now = DateTime.now();
-    final showNow = days.any((date) => _sameDate(date, now));
-
-    return Listener(
-      onPointerSignal: _handleDayPointerSignal,
-      onPointerDown: _handleDayPointerDown,
-      onPointerMove: _handleDayPointerMove,
-      onPointerUp: _handleDayPointerEnd,
-      onPointerCancel: _handleDayPointerEnd,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
-        child: Container(
-          decoration: BoxDecoration(
-            color: scheme.surface,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: scheme.outlineVariant.withValues(alpha: 0.6),
-            ),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: Stack(
-            children: [
-              Column(
+    final timelineHeight = 24 * _hourHeight;
+    if (_dayNeedsCenter) {
+      _dayNeedsCenter = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _horizontalController.hasClients) {
+          _centerFocusedDay(jump: true);
+        }
+      });
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: scheme.outlineVariant),
+        ),
+        child: Column(
+          children: [
+            SizedBox(
+              height: _dayHeaderHeight,
+              child: Row(
                 children: [
-                  SizedBox(
-                    height: _dayHeaderHeight,
-                    child: Row(
-                      children: [
-                        SizedBox(
-                          width: _timeColumnWidth,
-                          child: Center(
-                            child: Text(
-                              '${(_dayZoom * 100).round()}%',
-                              style: TextStyle(
-                                fontSize: 10.5,
-                                color: scheme.onSurfaceVariant,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ),
-                        Expanded(
-                          child: SingleChildScrollView(
-                            controller: _dayHeaderHorizontalController,
-                            scrollDirection: Axis.horizontal,
-                            child: Row(
-                              children: days
-                                  .map(
-                                    (date) => _dayHeaderCell(
-                                      date,
-                                      scheme,
-                                      width: dayColumnWidth,
-                                    ),
-                                  )
-                                  .toList(),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  const SizedBox(width: _timeColumnWidth),
                   Expanded(
                     child: SingleChildScrollView(
-                      controller: _dayScrollController,
+                      controller: _headerController,
+                      scrollDirection: Axis.horizontal,
                       child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SizedBox(
-                            width: _timeColumnWidth,
-                            height: timelineHeight,
-                            child: Stack(
-                              children: [
-                                for (var h = 0; h < 24; h++)
-                                  Positioned(
-                                    top: h * hourRowHeight,
-                                    left: 0,
-                                    right: 0,
-                                    child: SizedBox(
-                                      height: hourRowHeight,
-                                      child: Align(
-                                        alignment: Alignment.topCenter,
-                                        child: Padding(
-                                          padding: const EdgeInsets.only(
-                                            top: 2,
-                                          ),
-                                          child: Text(
-                                            '${h.toString().padLeft(2, '0')}:00',
-                                            style: TextStyle(
-                                              fontSize: 10.5,
-                                              color: scheme.onSurfaceVariant,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
+                        children: days.map((date) {
+                          final values = _onDate(occurrences, date);
+                          final hasIncompleteTask = values.any(
+                            (value) => _isTask(value) && !value.isCompleted,
+                          );
+                          return InkWell(
+                            onTap: () => setState(() => _focus = date),
+                            child: Container(
+                              width: _dayColumnWidth,
+                              height: _dayHeaderHeight,
+                              decoration: BoxDecoration(
+                                color: _sameDate(date, _focus)
+                                    ? scheme.primaryContainer
+                                    : null,
+                                border: Border(
+                                  left: BorderSide(
+                                    color: scheme.outlineVariant,
                                   ),
-                                if (showNow)
-                                  _nowTimeLabel(
-                                    now,
-                                    scheme,
-                                    hourRowHeight: hourRowHeight,
+                                  bottom: BorderSide(
+                                    color: scheme.outlineVariant,
                                   ),
-                              ],
-                            ),
-                          ),
-                          Expanded(
-                            child: SingleChildScrollView(
-                              controller: _dayHorizontalController,
-                              scrollDirection: Axis.horizontal,
-                              child: SizedBox(
-                                width: timelineWidth,
-                                height: timelineHeight,
-                                child: Stack(
-                                  children: [
-                                    for (var h = 0; h < 24; h++)
-                                      Positioned(
-                                        top: h * hourRowHeight,
-                                        left: 0,
-                                        right: 0,
-                                        child: Divider(
-                                          height: 1,
-                                          color: scheme.outlineVariant
-                                              .withValues(alpha: 0.45),
-                                        ),
-                                      ),
-                                    for (var i = 0; i < days.length; i++)
-                                      Positioned(
-                                        left: i * dayColumnWidth,
-                                        top: 0,
-                                        width: dayColumnWidth,
-                                        height: timelineHeight,
-                                        child: DecoratedBox(
-                                          decoration: BoxDecoration(
-                                            border: Border(
-                                              left: BorderSide(
-                                                color: scheme.outlineVariant
-                                                    .withValues(alpha: 0.35),
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    for (var i = 0; i < days.length; i++)
-                                      ..._itemsOnDate(items, days[i]).map(
-                                        (item) => _dayScheduleBlock(
-                                          item,
-                                          days[i],
-                                          scheme,
-                                          hourRowHeight: hourRowHeight,
-                                          left: i * dayColumnWidth + 2,
-                                          width: dayColumnWidth - 4,
-                                        ),
-                                      ),
-                                    for (var i = 0; i < days.length; i++)
-                                      if (_sameDate(days[i], now))
-                                        _nowLine(
-                                          now,
-                                          scheme,
-                                          left: i * dayColumnWidth,
-                                          width: dayColumnWidth,
-                                          hourRowHeight: hourRowHeight,
-                                        ),
-                                  ],
                                 ),
                               ),
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text('周${_weekday(date.weekday)}'),
+                                      Text(
+                                        '${date.month}/${date.day}',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  if (hasIncompleteTask)
+                                    Positioned(
+                                      right: 8,
+                                      top: 8,
+                                      child: _marker(scheme.error),
+                                    ),
+                                ],
+                              ),
                             ),
-                          ),
-                        ],
+                          );
+                        }).toList(),
                       ),
                     ),
                   ),
                 ],
               ),
-              Positioned(
-                right: 12,
-                bottom: 12,
-                child: _backToNowButton(scheme),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _backToNowButton(ColorScheme scheme) {
-    return Material(
-      color: scheme.primaryContainer,
-      elevation: 3,
-      borderRadius: BorderRadius.circular(999),
-      child: InkWell(
-        onTap: _goToNow,
-        borderRadius: BorderRadius.circular(999),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.my_location,
-                size: 18,
-                color: scheme.onPrimaryContainer,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                '现在',
-                style: TextStyle(
-                  color: scheme.onPrimaryContainer,
-                  fontWeight: FontWeight.w800,
+            ),
+            _daySummaryRow(days, occurrences, calendar, tasks),
+            Expanded(
+              child: SingleChildScrollView(
+                controller: _verticalController,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: _timeColumnWidth,
+                      height: timelineHeight,
+                      child: Stack(
+                        children: [
+                          for (var hour = 0; hour < 24; hour++)
+                            Positioned(
+                              top: hour * _hourHeight,
+                              right: 4,
+                              child: Text(
+                                '${_two(hour)}:00',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        controller: _horizontalController,
+                        scrollDirection: Axis.horizontal,
+                        child: SizedBox(
+                          width: _dayCount * _dayColumnWidth,
+                          height: timelineHeight,
+                          child: Stack(
+                            children: [
+                              for (var hour = 0; hour < 24; hour++)
+                                Positioned(
+                                  top: hour * _hourHeight,
+                                  left: 0,
+                                  right: 0,
+                                  child: Divider(
+                                    height: 1,
+                                    color: scheme.outlineVariant,
+                                  ),
+                                ),
+                              for (var index = 0; index < days.length; index++)
+                                Positioned(
+                                  left: index * _dayColumnWidth,
+                                  top: 0,
+                                  width: _dayColumnWidth,
+                                  height: timelineHeight,
+                                  child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      border: Border(
+                                        left: BorderSide(
+                                          color: scheme.outlineVariant,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              for (var index = 0; index < days.length; index++)
+                                ..._timelineBlocks(
+                                  days[index],
+                                  _onDate(occurrences, days[index]),
+                                  index,
+                                  calendar,
+                                  tasks,
+                                ),
+                              if (days.any(
+                                (value) => _sameDate(value, DateTime.now()),
+                              ))
+                                _nowLine(days, DateTime.now(), scheme),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _dayHeaderCell(
-    DateTime date,
-    ColorScheme scheme, {
-    required double width,
-  }) {
-    final today = _sameDate(date, DateTime.now());
-    final focused = _sameDate(date, _focus);
-    return InkWell(
-      onTap: () => setState(() => _focus = _dateOnly(date)),
-      child: Container(
-        width: width,
-        height: _dayHeaderHeight,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: focused ? scheme.primary.withValues(alpha: 0.08) : null,
-          border: Border(
-            left: BorderSide(
-              color: scheme.outlineVariant.withValues(alpha: 0.35),
-            ),
-            bottom: BorderSide(
-              color: scheme.outlineVariant.withValues(alpha: 0.6),
-            ),
-          ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              _weekdayName(date.weekday),
-              style: TextStyle(fontSize: 10.5, color: scheme.onSurfaceVariant),
-            ),
-            Text(
-              '${date.month}/${date.day}',
-              style: TextStyle(
-                fontWeight: today ? FontWeight.w800 : FontWeight.w600,
-                color: today ? scheme.primary : null,
-              ),
             ),
           ],
         ),
@@ -1179,263 +732,263 @@ class _SchedulePageState extends State<_SchedulePage> {
     );
   }
 
-  Widget _nowTimeLabel(
-    DateTime now,
-    ColorScheme scheme, {
-    required double hourRowHeight,
-  }) {
-    final top = now.hour * hourRowHeight + now.minute / 60 * hourRowHeight;
-    return Positioned(
-      top: (top - 8).clamp(0, 24 * hourRowHeight - 16).toDouble(),
-      left: 0,
-      right: 4,
-      height: 16,
-      child: IgnorePointer(
-        child: Align(
-          alignment: Alignment.centerRight,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-            decoration: BoxDecoration(
-              color: scheme.errorContainer,
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(
-              '现在',
-              style: TextStyle(
-                fontSize: 9.5,
-                height: 1.1,
-                color: scheme.onErrorContainer,
-                fontWeight: FontWeight.w800,
+  Widget _daySummaryRow(
+    List<DateTime> days,
+    List<CalendarOccurrence> occurrences,
+    CalendarProvider calendar,
+    TaskProvider tasks,
+  ) {
+    return SizedBox(
+      height: 76,
+      child: Row(
+        children: [
+          const SizedBox(
+            width: _timeColumnWidth,
+            child: Center(child: Text('全天')),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              controller: _summaryController,
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: days.map((date) {
+                  final values = _onDate(occurrences, date).where((value) {
+                    return value.kind == CalendarOccurrenceKind.anniversary ||
+                        value.isAllDay ||
+                        _isTask(value);
+                  }).toList();
+                  return Container(
+                    width: _dayColumnWidth,
+                    height: 76,
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      border: Border(
+                        left: BorderSide(
+                          color: Theme.of(context).colorScheme.outlineVariant,
+                        ),
+                        bottom: BorderSide(
+                          color: Theme.of(context).colorScheme.outlineVariant,
+                        ),
+                      ),
+                    ),
+                    child: values.isEmpty
+                        ? null
+                        : ListView(
+                            children: values.take(3).map((value) {
+                              return InkWell(
+                                onTap: () =>
+                                    _editOccurrence(value, calendar, tasks),
+                                child: Text(
+                                  '${_occurrenceIconText(value)} ${value.title}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 10),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                  );
+                }).toList(),
               ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }
 
-  Widget _nowLine(
-    DateTime now,
-    ColorScheme scheme, {
-    required double left,
-    required double width,
-    required double hourRowHeight,
-  }) {
-    final top = now.hour * hourRowHeight + now.minute / 60 * hourRowHeight;
-    return Positioned(
-      top: top,
-      left: left,
-      width: width,
-      child: IgnorePointer(
-        child: Row(
-          children: [
-            Container(
-              width: 5,
-              height: 5,
-              decoration: BoxDecoration(
-                color: scheme.error,
-                shape: BoxShape.circle,
-              ),
-            ),
-            Expanded(
-              child: Container(
-                height: 1.6,
-                color: scheme.error.withValues(alpha: 0.75),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _dayScheduleBlock(
-    ScheduleItem item,
+  List<Widget> _timelineBlocks(
     DateTime date,
-    ColorScheme scheme, {
-    required double hourRowHeight,
-    double? left,
-    double? width,
-  }) {
-    final visibleStart = _visibleStartForDate(item, date);
-    final visibleEnd = _visibleEndForDate(item, date);
-    final top =
-        visibleStart.hour * hourRowHeight +
-        visibleStart.minute / 60 * hourRowHeight;
-    final height =
-        (visibleEnd.difference(visibleStart).inMinutes / 60 * hourRowHeight)
-            .clamp(26, 24 * hourRowHeight)
-            .toDouble();
-    final maxLines = ((height - 8) / 13.5).floor().clamp(1, 20);
-
-    return Positioned(
-      top: top,
-      left: left ?? 2,
-      right: width == null ? 2 : null,
-      width: width,
-      height: height,
-      child: InkWell(
-        onTap: () => _openScheduleEditor(item),
-        borderRadius: BorderRadius.circular(9),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
-          decoration: BoxDecoration(
-            color: scheme.primaryContainer,
-            borderRadius: BorderRadius.circular(9),
-            border: Border.all(color: scheme.primary.withValues(alpha: 0.18)),
-          ),
-          child: Text(
-            '${_timeLabelForDate(item, date)}  ${item.title}',
-            maxLines: maxLines,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 10.5, height: 1.25),
+    List<CalendarOccurrence> occurrences,
+    int dayIndex,
+    CalendarProvider calendar,
+    TaskProvider tasks,
+  ) {
+    final timed = occurrences.where((value) {
+      if (value.kind == CalendarOccurrenceKind.anniversary) return false;
+      if (_isTask(value)) {
+        final task = tasks.taskById(value.sourceId);
+        return task?.plannedDate == LocalDate.fromDateTime(date) &&
+            task?.plannedTime != null;
+      }
+      return !value.isAllDay;
+    }).toList();
+    final intervals = timed.map((value) {
+      final range = _visibleMinutes(value, LocalDate.fromDateTime(date));
+      final task = tasks.taskById(value.sourceId);
+      final startMinute = _isTask(value) && task?.plannedTime != null
+          ? _minuteOf(task!.plannedTime!)
+          : range.$1;
+      return CalendarTimelineInterval(
+        value: value,
+        startMinute: startMinute,
+        endMinute: _isTask(value) ? startMinute + 30 : range.$2,
+      );
+    });
+    return layoutCalendarTimeline(intervals).map((placement) {
+      final laneWidth = (_dayColumnWidth - 6) / placement.laneCount;
+      final top = placement.startMinute / 60 * _hourHeight;
+      final height =
+          ((placement.endMinute - placement.startMinute) / 60 * _hourHeight)
+              .clamp(24.0, 24 * _hourHeight)
+              .toDouble();
+      final occurrence = placement.value;
+      final task = _isTask(occurrence);
+      final scheme = Theme.of(context).colorScheme;
+      return Positioned(
+        left: dayIndex * _dayColumnWidth + 3 + placement.lane * laneWidth,
+        top: top,
+        width: laneWidth - 2,
+        height: height,
+        child: Material(
+          color: task ? scheme.errorContainer : scheme.primaryContainer,
+          borderRadius: BorderRadius.circular(7),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(7),
+            onTap: () => _editOccurrence(occurrence, calendar, tasks),
+            child: Padding(
+              padding: const EdgeInsets.all(4),
+              child: Text(
+                '${_timeText(occurrence.startTime)} ${occurrence.title}',
+                maxLines: (height / 13).floor().clamp(1, 8),
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 9.5, height: 1.2),
+              ),
+            ),
           ),
         ),
-      ),
+      );
+    }).toList();
+  }
+
+  (int, int) _visibleMinutes(CalendarOccurrence occurrence, LocalDate date) {
+    if (_isTask(occurrence)) {
+      final start = _minuteOf(occurrence.startTime!);
+      final end = occurrence.endTime == null
+          ? start + 30
+          : _minuteOf(occurrence.endTime!);
+      return (start, end <= start ? start + 30 : end);
+    }
+    final startsToday = occurrence.date == date;
+    final endExclusive =
+        occurrence.endDateExclusive ?? occurrence.date.addDays(1);
+    final endsToday = endExclusive == date.addDays(1);
+    final start = startsToday ? _minuteOf(occurrence.startTime!) : 0;
+    var end = endsToday && occurrence.endTime != null
+        ? _minuteOf(occurrence.endTime!)
+        : 24 * 60;
+    if (end <= start) end = 24 * 60;
+    // 跨日定时事件按当天可见区间裁剪，lane 计算只处理该日片段。
+    return (start, end);
+  }
+
+  Widget _nowLine(List<DateTime> days, DateTime now, ColorScheme scheme) {
+    final index = days.indexWhere((value) => _sameDate(value, now));
+    return Positioned(
+      left: index * _dayColumnWidth,
+      top: (now.hour * 60 + now.minute) / 60 * _hourHeight,
+      width: _dayColumnWidth,
+      child: Container(height: 2, color: scheme.error),
     );
   }
 
-  Widget _yearView(List<ScheduleItem> items) {
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+  void _updateDayFocus() {
+    if (_mode != _CalendarMode.day || !_horizontalController.hasClients) return;
+    final center =
+        _horizontalController.offset +
+        _horizontalController.position.viewportDimension / 2;
+    final index = (center / _dayColumnWidth).floor().clamp(0, _dayCount - 1);
+    final start = _dayWindowStart;
+    if (start == null) return;
+    final next = start.add(Duration(days: index));
+    if (!_sameDate(next, _focus)) setState(() => _focus = next);
+  }
+
+  void _centerFocusedDay({bool jump = false}) {
+    if (!_horizontalController.hasClients) return;
+    final start = _dayWindowStart;
+    if (start == null) return;
+    final index = _dateOnly(_focus).difference(start).inDays;
+    if (index < 0 || index >= _dayCount) return;
+    final target =
+        index * _dayColumnWidth -
+        (_horizontalController.position.viewportDimension - _dayColumnWidth) /
+            2;
+    if (jump) {
+      _horizontalController.jumpTo(
+        target.clamp(0, _horizontalController.position.maxScrollExtent),
+      );
+    } else {
+      _horizontalController.animateTo(
+        target.clamp(0, _horizontalController.position.maxScrollExtent),
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
+  Widget _yearView(CalendarProvider calendar, TaskProvider tasks) {
+    final yearStart = DateTime(_focus.year, 1, 1);
+    final yearEnd = DateTime(_focus.year + 1, 1, 1);
+    final occurrences = _occurrences(calendar, tasks, yearStart, yearEnd);
+    return GridView.builder(
+      padding: const EdgeInsets.all(12),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: MediaQuery.sizeOf(context).width >= 900 ? 3 : 1,
+        childAspectRatio: MediaQuery.sizeOf(context).width >= 900 ? 1.65 : 3.3,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 10,
+      ),
       itemCount: 12,
-      separatorBuilder: (context, index) => const SizedBox(height: 8),
-      itemBuilder: (context, i) {
-        final month = i + 1;
-        final monthStart = DateTime(_focus.year, month, 1);
-        final monthEnd = DateTime(_focus.year, month + 1, 1);
-        final monthItems = items
-            .where((e) => _itemOverlapsRange(e, monthStart, monthEnd))
-            .toList();
-        final count = monthItems.length;
+      itemBuilder: (context, index) {
+        final month = index + 1;
+        final values = occurrences.where((value) {
+          final monthStart = LocalDate(_focus.year, month, 1);
+          final monthEnd = LocalDate.fromDateTime(
+            DateTime(_focus.year, month + 1, 1),
+          );
+          return _occursInRange(value, monthStart, monthEnd);
+        }).toList();
+        final incomplete = values
+            .where((value) => _isTask(value) && !value.isCompleted)
+            .length;
         return Material(
           color: Theme.of(
             context,
-          ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+          ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
           borderRadius: BorderRadius.circular(14),
           child: InkWell(
             borderRadius: BorderRadius.circular(14),
             onTap: () => setState(() {
               _focus = DateTime(_focus.year, month, 1);
-              _selectedDate = null;
               _mode = _CalendarMode.month;
             }),
             child: Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(14),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 38,
-                        height: 38,
-                        decoration: BoxDecoration(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.primary.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Center(
-                          child: Text(
-                            '$month',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '$month 月',
-                              style: Theme.of(context).textTheme.titleMedium
-                                  ?.copyWith(fontWeight: FontWeight.w700),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              count == 0 ? '这个月没有事项' : '共 $count 条事项',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Icon(
-                        Icons.chevron_right,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ],
-                  ),
-                  if (monthItems.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final chipWidth = (constraints.maxWidth - 6) / 2;
-                        return Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: monthItems.take(6).map((item) {
-                            return InkWell(
-                              onTap: () {
-                                setState(() {
-                                  _focus = DateTime(
-                                    _focus.year,
-                                    month,
-                                    _visibleStartForDate(item, monthStart).day,
-                                  );
-                                  _selectedDate = DateTime(
-                                    _focus.year,
-                                    month,
-                                    _visibleStartForDate(item, monthStart).day,
-                                  );
-                                  _mode = _CalendarMode.month;
-                                });
-                              },
-                              borderRadius: BorderRadius.circular(16),
-                              child: SizedBox(
-                                width: chipWidth.clamp(128.0, 260.0),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 7,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.surface,
-                                    borderRadius: BorderRadius.circular(16),
-                                    border: Border.all(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .outlineVariant
-                                          .withValues(alpha: 0.5),
-                                    ),
-                                  ),
-                                  child: Text(
-                                    '${_visibleStartForDate(item, monthStart).month}/${_visibleStartForDate(item, monthStart).day} ${item.title}',
-                                    style: const TextStyle(fontSize: 11),
-                                    maxLines: 2,
-                                    softWrap: true,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                        );
-                      },
+                  Text(
+                    '$month 月',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
                     ),
-                  ],
+                  ),
+                  const Spacer(),
+                  Text('${values.length} 条事项'),
+                  if (incomplete > 0)
+                    Text(
+                      '$incomplete 个未完成任务',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  const SizedBox(height: 6),
+                  Text(
+                    values.take(3).map((value) => value.title).join(' · '),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ],
               ),
             ),
@@ -1445,450 +998,683 @@ class _SchedulePageState extends State<_SchedulePage> {
     );
   }
 
-  bool _sameDate(DateTime a, DateTime b) =>
-      a.year == b.year && a.month == b.month && a.day == b.day;
-
-  List<ScheduleItem> _itemsOnDate(List<ScheduleItem> items, DateTime date) {
-    final dayStart = _dateOnly(date);
-    final dayEnd = dayStart.add(const Duration(days: 1));
-    return items.where((e) => _itemOverlapsRange(e, dayStart, dayEnd)).toList();
+  bool _occursInRange(
+    CalendarOccurrence occurrence,
+    LocalDate start,
+    LocalDate end,
+  ) {
+    final occurrenceEnd =
+        occurrence.endDateExclusive ?? occurrence.date.addDays(1);
+    return occurrence.date.compareTo(end) < 0 &&
+        start.compareTo(occurrenceEnd) < 0;
   }
 
-  bool _itemOverlapsRange(ScheduleItem item, DateTime from, DateTime to) {
-    if (item.isTask) {
-      return !item.start.isBefore(from) && item.start.isBefore(to);
+  Future<void> _editOccurrence(
+    CalendarOccurrence occurrence,
+    CalendarProvider calendar,
+    TaskProvider tasks,
+  ) async {
+    switch (occurrence.kind) {
+      case CalendarOccurrenceKind.event:
+        await _openEventEditor(calendar.getEvent(occurrence.sourceId));
+      case CalendarOccurrenceKind.anniversary:
+        await _openAnniversaryEditor(
+          calendar.getAnniversary(occurrence.sourceId),
+        );
+      case CalendarOccurrenceKind.taskPlanned:
+      case CalendarOccurrenceKind.taskDue:
+      case CalendarOccurrenceKind.taskPlannedAndDue:
+        await _openTaskEditor(tasks.taskById(occurrence.sourceId));
     }
-    return item.start.isBefore(to) && item.end.isAfter(from);
   }
 
-  static DateTime _dateOnly(DateTime date) {
-    return DateTime(date.year, date.month, date.day);
-  }
-
-  String _weekdayName(int weekday) =>
-      const ['一', '二', '三', '四', '五', '六', '日'][weekday - 1];
-
-  String _time(DateTime time) =>
-      '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
-
-  String _timeRangeForDate(ScheduleItem item, DateTime date) {
-    final visibleStart = _visibleStartForDate(item, date);
-    final visibleEnd = _visibleEndForDate(item, date);
-    return '${_time(visibleStart)} - ${_time(visibleEnd)}';
-  }
-
-  String _timeLabelForDate(ScheduleItem item, DateTime date) {
-    if (item.isTask) return '任务 ${_time(item.start)}';
-    return _timeRangeForDate(item, date);
-  }
-
-  DateTime _visibleStartForDate(ScheduleItem item, DateTime date) {
-    final dayStart = _dateOnly(date);
-    return item.start.isAfter(dayStart) ? item.start : dayStart;
-  }
-
-  DateTime _visibleEndForDate(ScheduleItem item, DateTime date) {
-    final dayEnd = _dateOnly(date).add(const Duration(days: 1));
-    return item.end.isBefore(dayEnd) ? item.end : dayEnd;
-  }
-
-  Future<void> _newScheduleItem(String kind) async {
-    final isTask = kind == ScheduleItem.kindTask;
-    final titleCtrl = TextEditingController();
-    final noteCtrl = TextEditingController();
-    final baseDate = _mode == _CalendarMode.month
-        ? _selectedDate ?? _dateOnly(_focus)
-        : _focus;
-    var start = DateTime(
-      baseDate.year,
-      baseDate.month,
-      baseDate.day,
-      DateTime.now().hour,
-    );
-    var end = start.add(const Duration(hours: 1));
-    DateTime selectedDate = DateTime(
-      baseDate.year,
-      baseDate.month,
-      baseDate.day,
-    );
-    TimeOfDay startTime = TimeOfDay.fromDateTime(start);
-    TimeOfDay endTime = TimeOfDay.fromDateTime(end);
-    final result = await showDialog<bool>(
+  Future<void> _openEventEditor([CalendarEvent? event]) async {
+    final provider = context.read<CalendarProvider>();
+    final title = TextEditingController(text: event?.title ?? '');
+    final note = TextEditingController(text: event?.note ?? '');
+    final base = _selectedDate ?? _focus;
+    var allDay = event?.spec is AllDayCalendarEventSpec;
+    var startDate = switch (event?.spec) {
+      TimedCalendarEventSpec value => _dateOnly(value.start),
+      AllDayCalendarEventSpec value => value.startDate.atStartOfDay(),
+      _ => _dateOnly(base),
+    };
+    var endDate = switch (event?.spec) {
+      TimedCalendarEventSpec value => _dateOnly(value.end),
+      AllDayCalendarEventSpec value =>
+        value.endDateExclusive.addDays(-1).atStartOfDay(),
+      _ => _dateOnly(base),
+    };
+    var startTime = switch (event?.spec) {
+      TimedCalendarEventSpec value => TimeOfDay.fromDateTime(value.start),
+      _ => TimeOfDay.fromDateTime(DateTime.now()),
+    };
+    var endTime = switch (event?.spec) {
+      TimedCalendarEventSpec value => TimeOfDay.fromDateTime(value.end),
+      _ => TimeOfDay.fromDateTime(DateTime.now().add(const Duration(hours: 1))),
+    };
+    var reminderOffsets =
+        event?.reminders.map((value) => value.offsetMinutes).toSet() ?? <int>{};
+    final action = await showModalBottomSheet<String>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialog) {
-          return AlertDialog(
-            title: Text(isTask ? '新建任务' : '新建日程'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheet) => _editorSheet(
+          context,
+          title: event == null ? '新建事件' : '编辑事件',
+          titleController: title,
+          noteController: note,
+          onDelete: event == null
+              ? null
+              : () => Navigator.pop(context, 'delete'),
+          onSave: () => Navigator.pop(context, 'save'),
+          children: [
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('全天事件'),
+              value: allDay,
+              onChanged: (value) => setSheet(() => allDay = value),
+            ),
+            _dateTile(context, '开始日期', startDate, (value) {
+              setSheet(() {
+                startDate = value;
+                if (endDate.isBefore(startDate)) endDate = startDate;
+              });
+            }),
+            if (!allDay)
+              _timeTile(context, '开始时间', startTime, (value) {
+                setSheet(() => startTime = value);
+              }),
+            _dateTile(context, '结束日期', endDate, (value) {
+              setSheet(
+                () => endDate = value.isBefore(startDate) ? startDate : value,
+              );
+            }),
+            if (!allDay)
+              _timeTile(context, '结束时间', endTime, (value) {
+                setSheet(() => endTime = value);
+              }),
+            _reminderPicker(
+              reminderOffsets,
+              allDay: allDay,
+              onChanged: (value) => setSheet(() => reminderOffsets = value),
+            ),
+          ],
+        ),
+      ),
+    );
+    final titleText = title.text.trim();
+    final noteText = note.text.trim();
+    title.dispose();
+    note.dispose();
+    if (!mounted || action == null) return;
+    if (action == 'delete' && event != null) {
+      await provider.deleteEvent(event.id);
+      return;
+    }
+    if (titleText.isEmpty) return;
+    CalendarEventSpec spec;
+    if (allDay) {
+      spec = AllDayCalendarEventSpec(
+        startDate: LocalDate.fromDateTime(startDate),
+        endDateExclusive: LocalDate.fromDateTime(endDate).addDays(1),
+      );
+    } else {
+      final start = _combine(startDate, startTime);
+      var end = _combine(endDate, endTime);
+      if (!end.isAfter(start)) end = start.add(const Duration(hours: 1));
+      spec = TimedCalendarEventSpec(start: start, end: end);
+    }
+    final reminders = reconcilePresetReminders(
+      existing: event?.reminders ?? const [],
+      selectedOffsets: reminderOffsets,
+      anchor: ItemReminderAnchor.eventStart,
+      dateOnly: allDay,
+    );
+    final calendarBridge = context.read<CalendarPlatformBridge?>();
+    if (event == null) {
+      await provider.addEvent(
+        title: titleText,
+        note: noteText.isEmpty ? null : noteText,
+        spec: spec,
+        reminders: reminders,
+      );
+    } else {
+      await provider.updateEvent(
+        event.copyWith(
+          title: titleText,
+          note: noteText.isEmpty ? null : noteText,
+          spec: spec,
+          reminders: reminders,
+        ),
+      );
+    }
+    await ReminderNotificationPermissionService.requestAfterExplicitSave(
+      bridge: calendarBridge,
+      previousReminderCount: event?.reminders.length ?? 0,
+      savedReminderCount: reminders.length,
+    );
+  }
+
+  Future<void> _openTaskEditor([Task? task]) async {
+    final provider = context.read<TaskProvider>();
+    final title = TextEditingController(text: task?.title ?? '');
+    final note = TextEditingController(text: task?.note ?? '');
+    final base = _selectedDate ?? _focus;
+    DateTime? plannedDate =
+        task?.plannedDate?.atStartOfDay() ?? _dateOnly(base);
+    TimeOfDay? plannedTime = task?.plannedTime == null
+        ? null
+        : TimeOfDay(
+            hour: task!.plannedTime!.hour,
+            minute: task.plannedTime!.minute,
+          );
+    DateTime? dueDate = task?.dueDate?.atStartOfDay();
+    TimeOfDay? dueTime = task?.dueTime == null
+        ? null
+        : TimeOfDay(hour: task!.dueTime!.hour, minute: task.dueTime!.minute);
+    var completed = task?.isCompleted ?? false;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheet) => _editorSheet(
+          context,
+          title: task == null ? '新建任务' : '编辑任务',
+          titleController: title,
+          noteController: note,
+          onDelete: task == null
+              ? null
+              : () => Navigator.pop(context, 'delete'),
+          onSave: () => Navigator.pop(context, 'save'),
+          children: [
+            if (task != null)
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('已完成'),
+                value: completed,
+                onChanged: (value) =>
+                    setSheet(() => completed = value ?? false),
+              ),
+            _optionalDateTile(context, '计划日期', plannedDate, (value) {
+              setSheet(() {
+                plannedDate = value;
+                if (value == null) plannedTime = null;
+              });
+            }),
+            if (plannedDate != null)
+              _optionalTimeTile(context, '计划时间', plannedTime, (value) {
+                setSheet(() => plannedTime = value);
+              }),
+            _optionalDateTile(context, '截止日期', dueDate, (value) {
+              setSheet(() {
+                dueDate = value;
+                if (value == null) dueTime = null;
+              });
+            }),
+            if (dueDate != null)
+              _optionalTimeTile(context, '截止时间', dueTime, (value) {
+                setSheet(() => dueTime = value);
+              }),
+          ],
+        ),
+      ),
+    );
+    final titleText = title.text.trim();
+    final noteText = note.text.trim();
+    title.dispose();
+    note.dispose();
+    if (!mounted || action == null) return;
+    if (action == 'delete' && task != null) {
+      await provider.deleteTask(task.id);
+      return;
+    }
+    if (titleText.isEmpty) return;
+    final plannedLocalDate = plannedDate == null
+        ? null
+        : LocalDate.fromDateTime(plannedDate!);
+    final dueLocalDate = dueDate == null
+        ? null
+        : LocalDate.fromDateTime(dueDate!);
+    final plannedLocalTime = plannedTime == null
+        ? null
+        : LocalTime(plannedTime!.hour, plannedTime!.minute);
+    final dueLocalTime = dueTime == null
+        ? null
+        : LocalTime(dueTime!.hour, dueTime!.minute);
+    if (task == null) {
+      await provider.addTask(
+        title: titleText,
+        note: noteText.isEmpty ? null : noteText,
+        plannedDate: plannedLocalDate,
+        plannedTime: plannedLocalTime,
+        dueDate: dueLocalDate,
+        dueTime: dueLocalTime,
+      );
+    } else {
+      await provider.updateTask(
+        task.copyWith(
+          title: titleText,
+          note: noteText.isEmpty ? null : noteText,
+          plannedDate: plannedLocalDate,
+          plannedTime: plannedLocalTime,
+          dueDate: dueLocalDate,
+          dueTime: dueLocalTime,
+          completedAt: completed ? task.completedAt ?? DateTime.now() : null,
+        ),
+      );
+    }
+  }
+
+  Future<void> _openAnniversaryEditor([Anniversary? anniversary]) async {
+    final provider = context.read<CalendarProvider>();
+    final title = TextEditingController(text: anniversary?.title ?? '');
+    final note = TextEditingController(text: anniversary?.note ?? '');
+    final initialDate = switch (anniversary?.spec) {
+      OnceAnniversarySpec value => value.date.atStartOfDay(),
+      YearlyAnniversarySpec value => DateTime(2000, value.month, value.day),
+      _ => _selectedDate ?? _focus,
+    };
+    var yearly = anniversary?.spec is YearlyAnniversarySpec;
+    var date = initialDate;
+    var hasSourceYear =
+        anniversary?.spec is YearlyAnniversarySpec &&
+        (anniversary!.spec as YearlyAnniversarySpec).sourceYear != null;
+    var sourceYear = switch (anniversary?.spec) {
+      YearlyAnniversarySpec value => value.sourceYear ?? initialDate.year,
+      _ => initialDate.year,
+    };
+    var showYearCount = anniversary?.showYearCount ?? false;
+    var reminderOffsets =
+        anniversary?.reminders.map((value) => value.offsetMinutes).toSet() ??
+        <int>{};
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheet) => _editorSheet(
+          context,
+          title: anniversary == null ? '新建纪念日' : '编辑纪念日',
+          titleController: title,
+          noteController: note,
+          onDelete: anniversary == null
+              ? null
+              : () => Navigator.pop(context, 'delete'),
+          onSave: () => Navigator.pop(context, 'save'),
+          children: [
+            SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(value: false, label: Text('仅一次')),
+                ButtonSegment(value: true, label: Text('每年')),
+              ],
+              selected: {yearly},
+              onSelectionChanged: (value) =>
+                  setSheet(() => yearly = value.first),
+            ),
+            _dateTile(context, yearly ? '月日' : '日期', date, (value) {
+              setSheet(() => date = value);
+            }),
+            if (yearly)
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('记录来源年份'),
+                value: hasSourceYear,
+                onChanged: (value) => setSheet(() {
+                  hasSourceYear = value;
+                  if (!value) showYearCount = false;
+                }),
+              ),
+            if (yearly && hasSourceYear)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('来源年份'),
+                subtitle: Text('$sourceYear'),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      onPressed: () => setSheet(() => sourceYear--),
+                      icon: const Icon(Icons.remove),
+                    ),
+                    IconButton(
+                      onPressed: () => setSheet(() => sourceYear++),
+                      icon: const Icon(Icons.add),
+                    ),
+                  ],
+                ),
+              ),
+            if (yearly && hasSourceYear)
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('显示周年数'),
+                value: showYearCount,
+                onChanged: (value) => setSheet(() => showYearCount = value),
+              ),
+            if (yearly && date.month == 2 && date.day == 29)
+              const ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.info_outline),
+                title: Text('非闰年按 2 月 28 日显示'),
+              ),
+            _reminderPicker(
+              reminderOffsets,
+              allDay: true,
+              onChanged: (value) => setSheet(() => reminderOffsets = value),
+            ),
+          ],
+        ),
+      ),
+    );
+    final titleText = title.text.trim();
+    final noteText = note.text.trim();
+    title.dispose();
+    note.dispose();
+    if (!mounted || action == null) return;
+    if (action == 'delete' && anniversary != null) {
+      await provider.deleteAnniversary(anniversary.id);
+      return;
+    }
+    if (titleText.isEmpty) return;
+    final spec = yearly
+        ? YearlyAnniversarySpec(
+            month: date.month,
+            day: date.day,
+            sourceYear: hasSourceYear ? sourceYear : null,
+          )
+        : OnceAnniversarySpec(date: LocalDate.fromDateTime(date));
+    final reminders = reconcilePresetReminders(
+      existing: anniversary?.reminders ?? const [],
+      selectedOffsets: reminderOffsets,
+      anchor: ItemReminderAnchor.anniversaryDate,
+      dateOnly: true,
+    );
+    final calendarBridge = context.read<CalendarPlatformBridge?>();
+    if (anniversary == null) {
+      await provider.addAnniversary(
+        title: titleText,
+        note: noteText.isEmpty ? null : noteText,
+        spec: spec,
+        showYearCount: yearly && hasSourceYear && showYearCount,
+        reminders: reminders,
+      );
+    } else {
+      await provider.updateAnniversary(
+        anniversary.copyWith(
+          title: titleText,
+          note: noteText.isEmpty ? null : noteText,
+          spec: spec,
+          showYearCount: yearly && hasSourceYear && showYearCount,
+          reminders: reminders,
+        ),
+      );
+    }
+    await ReminderNotificationPermissionService.requestAfterExplicitSave(
+      bridge: calendarBridge,
+      previousReminderCount: anniversary?.reminders.length ?? 0,
+      savedReminderCount: reminders.length,
+    );
+  }
+
+  Widget _editorSheet(
+    BuildContext context, {
+    required String title,
+    required TextEditingController titleController,
+    required TextEditingController noteController,
+    required List<Widget> children,
+    required VoidCallback onSave,
+    VoidCallback? onDelete,
+  }) {
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          16,
+          4,
+          16,
+          MediaQuery.viewInsetsOf(context).bottom + 16,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(title, style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 14),
+              TextField(
+                controller: titleController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: '标题',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: noteController,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: '备注（可选）',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              ...children,
+              const SizedBox(height: 12),
+              Row(
                 children: [
-                  TextField(
-                    controller: titleCtrl,
-                    textInputAction: TextInputAction.done,
-                    onSubmitted: (_) => Navigator.pop(ctx, true),
-                    decoration: const InputDecoration(
-                      labelText: '标题',
-                      border: OutlineInputBorder(),
-                    ),
+                  FilledButton.icon(
+                    onPressed: onSave,
+                    icon: const Icon(Icons.save_outlined),
+                    label: const Text('保存'),
                   ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: noteCtrl,
-                    maxLines: 2,
-                    decoration: const InputDecoration(
-                      labelText: '备注（可选）',
-                      border: OutlineInputBorder(),
-                      alignLabelWithHint: true,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('日期'),
-                    subtitle: Text(
-                      '${selectedDate.year}-${selectedDate.month}-${selectedDate.day}',
-                    ),
-                    trailing: const Icon(Icons.date_range),
-                    onTap: () async {
-                      final date = await showDatePicker(
-                        context: ctx,
-                        firstDate: DateTime(2000),
-                        lastDate: DateTime(2100),
-                        initialDate: selectedDate,
-                      );
-                      if (date != null) {
-                        setDialog(() {
-                          selectedDate = date;
-                          start = DateTime(
-                            date.year,
-                            date.month,
-                            date.day,
-                            startTime.hour,
-                            startTime.minute,
-                          );
-                          end = DateTime(
-                            date.year,
-                            date.month,
-                            date.day,
-                            endTime.hour,
-                            endTime.minute,
-                          );
-                        });
-                      }
-                    },
-                  ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('开始时间'),
-                    subtitle: Text(_time(start)),
-                    trailing: const Icon(Icons.schedule),
-                    onTap: () async {
-                      final time = await showTimePicker(
-                        context: ctx,
-                        initialTime: startTime,
-                      );
-                      if (time != null) {
-                        setDialog(() {
-                          startTime = time;
-                          start = DateTime(
-                            selectedDate.year,
-                            selectedDate.month,
-                            selectedDate.day,
-                            time.hour,
-                            time.minute,
-                          );
-                          if (!end.isAfter(start)) {
-                            end = start.add(const Duration(hours: 1));
-                            endTime = TimeOfDay.fromDateTime(end);
-                          }
-                        });
-                      }
-                    },
-                  ),
-                  if (!isTask) ...[
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('结束时间'),
-                      subtitle: Text(_time(end)),
-                      trailing: const Icon(Icons.schedule_outlined),
-                      onTap: () async {
-                        final time = await showTimePicker(
-                          context: ctx,
-                          initialTime: endTime,
-                        );
-                        if (time != null) {
-                          setDialog(() {
-                            endTime = time;
-                            end = DateTime(
-                              selectedDate.year,
-                              selectedDate.month,
-                              selectedDate.day,
-                              time.hour,
-                              time.minute,
-                            );
-                            if (!end.isAfter(start)) {
-                              end = start.add(const Duration(hours: 1));
-                              endTime = TimeOfDay.fromDateTime(end);
-                            }
-                          });
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        '时长：${(end.difference(start).inMinutes / 60).toStringAsFixed(1)} 小时',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
+                  if (onDelete != null) ...[
+                    const SizedBox(width: 10),
+                    TextButton.icon(
+                      onPressed: onDelete,
+                      icon: const Icon(Icons.delete_outline),
+                      label: const Text('删除'),
                     ),
                   ],
                 ],
               ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('取消'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('保存'),
-              ),
             ],
-          );
-        },
+          ),
+        ),
       ),
-    );
-    final title = titleCtrl.text.trim();
-    final note = noteCtrl.text.trim();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      titleCtrl.dispose();
-      noteCtrl.dispose();
-    });
-    if (!mounted || result != true || title.isEmpty) return;
-    await context.read<FeatureProvider>().addSchedule(
-      title,
-      start,
-      end,
-      note: note.isEmpty ? null : note,
-      kind: kind,
     );
   }
 
-  Future<void> _openScheduleEditor(ScheduleItem schedule) async {
-    final fp = context.read<FeatureProvider>();
-    final titleCtrl = TextEditingController(text: schedule.title);
-    final noteCtrl = TextEditingController(text: schedule.note ?? '');
-    final isTask = schedule.isTask;
-    var start = schedule.start;
-    var end = schedule.end;
-    DateTime selectedDate = DateTime(
-      schedule.start.year,
-      schedule.start.month,
-      schedule.start.day,
+  Widget _dateTile(
+    BuildContext context,
+    String label,
+    DateTime value,
+    ValueChanged<DateTime> onChanged,
+  ) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(label),
+      subtitle: Text('${value.year}-${_two(value.month)}-${_two(value.day)}'),
+      trailing: const Icon(Icons.date_range_outlined),
+      onTap: () async {
+        final selected = await showDatePicker(
+          context: context,
+          firstDate: DateTime(1900),
+          lastDate: DateTime(2200),
+          initialDate: value,
+        );
+        if (selected != null) onChanged(selected);
+      },
     );
-    TimeOfDay startTime = TimeOfDay.fromDateTime(start);
-    TimeOfDay endTime = TimeOfDay.fromDateTime(end);
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialog) {
-          return Padding(
-            padding: EdgeInsets.only(
-              left: 16,
-              right: 16,
-              top: 8,
-              bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
-            ),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: titleCtrl,
-                    textInputAction: TextInputAction.done,
-                    onSubmitted: (_) => Navigator.pop(ctx, 'save'),
-                    decoration: const InputDecoration(
-                      labelText: '标题',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: noteCtrl,
-                    maxLines: 2,
-                    decoration: const InputDecoration(
-                      labelText: '备注（可选）',
-                      border: OutlineInputBorder(),
-                      alignLabelWithHint: true,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('日期'),
-                    subtitle: Text(
-                      '${selectedDate.year}-${selectedDate.month}-${selectedDate.day}',
-                    ),
-                    onTap: () async {
-                      final date = await showDatePicker(
-                        context: ctx,
-                        firstDate: DateTime(2000),
-                        lastDate: DateTime(2100),
-                        initialDate: selectedDate,
-                      );
-                      if (date != null) {
-                        setDialog(() {
-                          selectedDate = date;
-                          start = DateTime(
-                            date.year,
-                            date.month,
-                            date.day,
-                            startTime.hour,
-                            startTime.minute,
-                          );
-                          end = DateTime(
-                            date.year,
-                            date.month,
-                            date.day,
-                            endTime.hour,
-                            endTime.minute,
-                          );
-                        });
-                      }
-                    },
-                  ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('开始时间'),
-                    subtitle: Text(_time(start)),
-                    onTap: () async {
-                      final time = await showTimePicker(
-                        context: ctx,
-                        initialTime: startTime,
-                      );
-                      if (time != null) {
-                        setDialog(() {
-                          startTime = time;
-                          start = DateTime(
-                            selectedDate.year,
-                            selectedDate.month,
-                            selectedDate.day,
-                            time.hour,
-                            time.minute,
-                          );
-                          if (!end.isAfter(start)) {
-                            end = start.add(const Duration(hours: 1));
-                            endTime = TimeOfDay.fromDateTime(end);
-                          }
-                        });
-                      }
-                    },
-                  ),
-                  if (!isTask)
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('结束时间'),
-                      subtitle: Text(_time(end)),
-                      onTap: () async {
-                        final time = await showTimePicker(
-                          context: ctx,
-                          initialTime: endTime,
-                        );
-                        if (time != null) {
-                          setDialog(() {
-                            endTime = time;
-                            end = DateTime(
-                              selectedDate.year,
-                              selectedDate.month,
-                              selectedDate.day,
-                              time.hour,
-                              time.minute,
-                            );
-                            if (!end.isAfter(start)) {
-                              end = start.add(const Duration(hours: 1));
-                              endTime = TimeOfDay.fromDateTime(end);
-                            }
-                          });
-                        }
-                      },
-                    ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      FilledButton.icon(
-                        onPressed: () => Navigator.pop(ctx, 'save'),
-                        icon: const Icon(Icons.save),
-                        label: const Text('保存'),
-                      ),
-                      const SizedBox(width: 12),
-                      TextButton.icon(
-                        onPressed: () => Navigator.pop(ctx, 'delete'),
-                        icon: const Icon(Icons.delete_outline),
-                        label: const Text('删除'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-    if (!mounted || action == null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        titleCtrl.dispose();
-        noteCtrl.dispose();
-      });
-      return;
-    }
-    if (action == 'delete') {
-      final ok = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text(isTask ? '删除任务' : '删除日程'),
-          content: Text('确定删除 "${schedule.title}" 吗？'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('取消'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('删除'),
-            ),
-          ],
-        ),
-      );
-      if (ok == true) {
-        await fp.deleteSchedule(schedule.id);
-      }
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        titleCtrl.dispose();
-        noteCtrl.dispose();
-      });
-      return;
-    }
-    final title = titleCtrl.text.trim();
-    final note = noteCtrl.text.trim();
-    await fp.updateSchedule(
-      schedule.copyWith(
-        title: title.isEmpty ? schedule.title : title,
-        start: start,
-        end: isTask ? start.add(const Duration(minutes: 1)) : end,
-        note: note.isEmpty ? null : note,
-      ),
-    );
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      titleCtrl.dispose();
-      noteCtrl.dispose();
-    });
   }
+
+  Widget _optionalDateTile(
+    BuildContext context,
+    String label,
+    DateTime? value,
+    ValueChanged<DateTime?> onChanged,
+  ) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(label),
+      subtitle: Text(
+        value == null
+            ? '未设置'
+            : '${value.year}-${_two(value.month)}-${_two(value.day)}',
+      ),
+      trailing: value == null
+          ? const Icon(Icons.add)
+          : IconButton(
+              tooltip: '清除',
+              onPressed: () => onChanged(null),
+              icon: const Icon(Icons.close),
+            ),
+      onTap: () async {
+        final selected = await showDatePicker(
+          context: context,
+          firstDate: DateTime(1900),
+          lastDate: DateTime(2200),
+          initialDate: value ?? _dateOnly(DateTime.now()),
+        );
+        if (selected != null) onChanged(selected);
+      },
+    );
+  }
+
+  Widget _timeTile(
+    BuildContext context,
+    String label,
+    TimeOfDay value,
+    ValueChanged<TimeOfDay> onChanged,
+  ) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(label),
+      subtitle: Text(value.format(context)),
+      trailing: const Icon(Icons.schedule),
+      onTap: () async {
+        final selected = await showTimePicker(
+          context: context,
+          initialTime: value,
+        );
+        if (selected != null) onChanged(selected);
+      },
+    );
+  }
+
+  Widget _optionalTimeTile(
+    BuildContext context,
+    String label,
+    TimeOfDay? value,
+    ValueChanged<TimeOfDay?> onChanged,
+  ) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(label),
+      subtitle: Text(value?.format(context) ?? '未设置'),
+      trailing: value == null
+          ? const Icon(Icons.add_alarm_outlined)
+          : IconButton(
+              tooltip: '清除',
+              onPressed: () => onChanged(null),
+              icon: const Icon(Icons.close),
+            ),
+      onTap: () async {
+        final selected = await showTimePicker(
+          context: context,
+          initialTime: value ?? TimeOfDay.now(),
+        );
+        if (selected != null) onChanged(selected);
+      },
+    );
+  }
+
+  Widget _reminderPicker(
+    Set<int> selected, {
+    required bool allDay,
+    required ValueChanged<Set<int>> onChanged,
+  }) {
+    const choices = <int, String>{
+      0: '准时',
+      -10: '提前 10 分钟',
+      -30: '提前 30 分钟',
+      -60: '提前 1 小时',
+      -1440: '提前 1 天',
+    };
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(top: 8),
+          child: Text('提醒', style: TextStyle(fontWeight: FontWeight.w700)),
+        ),
+        Wrap(
+          spacing: 6,
+          children: choices.entries.map((entry) {
+            return FilterChip(
+              label: Text(entry.value),
+              selected: selected.contains(entry.key),
+              onSelected: (enabled) {
+                final next = Set<int>.of(selected);
+                enabled ? next.add(entry.key) : next.remove(entry.key);
+                onChanged(next);
+              },
+            );
+          }).toList(),
+        ),
+        if (allDay && selected.isNotEmpty)
+          const Text('日期型提醒默认在当天 09:00 触发', style: TextStyle(fontSize: 12)),
+      ],
+    );
+  }
+
+  String _occurrenceSubtitle(CalendarOccurrence occurrence) {
+    if (occurrence.kind == CalendarOccurrenceKind.anniversary) return '纪念日';
+    if (_isTask(occurrence)) {
+      final kind = switch (occurrence.kind) {
+        CalendarOccurrenceKind.taskPlanned => '计划',
+        CalendarOccurrenceKind.taskDue => '截止',
+        _ => '计划 / 截止',
+      };
+      return occurrence.startTime == null
+          ? kind
+          : '$kind ${_timeText(occurrence.startTime)}';
+    }
+    if (occurrence.isAllDay) return '全天 / 跨日事件';
+    return '${_timeText(occurrence.startTime)} - ${_timeText(occurrence.endTime)}';
+  }
+
+  String _occurrenceIconText(CalendarOccurrence occurrence) {
+    if (occurrence.kind == CalendarOccurrenceKind.anniversary) return '纪';
+    if (_isTask(occurrence)) return occurrence.isCompleted ? '✓' : '任';
+    return '事';
+  }
+
+  bool _isTask(CalendarOccurrence occurrence) {
+    return occurrence.kind == CalendarOccurrenceKind.taskPlanned ||
+        occurrence.kind == CalendarOccurrenceKind.taskDue ||
+        occurrence.kind == CalendarOccurrenceKind.taskPlannedAndDue;
+  }
+
+  static DateTime _dateOnly(DateTime value) =>
+      DateTime(value.year, value.month, value.day);
+
+  static bool _sameDate(DateTime first, DateTime second) =>
+      first.year == second.year &&
+      first.month == second.month &&
+      first.day == second.day;
+
+  static DateTime _combine(DateTime date, TimeOfDay time) =>
+      DateTime(date.year, date.month, date.day, time.hour, time.minute);
+
+  static int _minuteOf(LocalTime value) => value.hour * 60 + value.minute;
+
+  static String _timeText(LocalTime? value) =>
+      value == null ? '' : '${_two(value.hour)}:${_two(value.minute)}';
+
+  static String _two(int value) => value.toString().padLeft(2, '0');
+
+  static String _weekday(int value) =>
+      const ['一', '二', '三', '四', '五', '六', '日'][value - 1];
 }

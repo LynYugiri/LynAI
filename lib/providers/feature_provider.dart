@@ -1,38 +1,24 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show setEquals;
-import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 import '../models/note.dart';
 import '../models/merge_models.dart';
 import '../models/recycle_bin_item.dart';
-import '../models/schedule_item.dart';
-import '../models/todo_list.dart';
 import '../repositories/feature_repository.dart';
 import '../repositories/recycle_bin_repository.dart';
 import '../services/storage_v2_service.dart';
 import '../services/note_revision_merge.dart';
 import '../utils/file_name_utils.dart';
 
-/// 管理功能页数据：日程、笔记、笔记修订、文件夹、修改建议和待办清单。
-///
-/// 这些数据共享一个 Provider，是因为工具调用和备份导入经常需要跨功能区
-/// 读写。日程、聚合笔记数据和待办使用独立串行保存队列。
+/// 管理笔记、笔记分页、修订、文件夹和修改建议。
 class FeatureProvider extends ChangeNotifier {
-  static const _scheduleWidgetChannel = MethodChannel('lynai/schedule_widget');
   final _uuid = const Uuid();
-  Future<void> _scheduleSaveQueue = Future.value();
-  Future<void> _pendingScheduleSave = Future.value();
   Future<void> _notesDataSaveQueue = Future.value();
   Future<void> _pendingNotesDataSave = Future.value();
-  Future<void> _todoListSaveQueue = Future.value();
-  Future<void> _pendingTodoListSave = Future.value();
 
-  List<ScheduleItem> _schedules = [];
   List<Note> _notes = [];
   List<NoteRevision> _noteRevisions = [];
   List<NoteFolder> _noteFolders = [];
-  List<TodoList> _todoLists = [];
   final Map<String, NoteEditProposal> _noteEditProposals = {};
   final Map<String, NoteRevisionContent> _noteRevisionContentCache = {};
   final Map<String, List<NoteRevision>> _noteTimelineCache = {};
@@ -56,11 +42,9 @@ class FeatureProvider extends ChangeNotifier {
            recycleBinRepository ?? RecycleBinRepository(storageV2: storageV2),
        _authorDeviceId = authorDeviceId ?? (() async => 'local');
 
-  List<ScheduleItem> get schedules => List.unmodifiable(_schedules);
   List<Note> get notes => List.unmodifiable(_notes);
   List<NoteRevision> get noteRevisions => List.unmodifiable(_noteRevisions);
   List<NoteFolder> get noteFolders => List.unmodifiable(_noteFolders);
-  List<TodoList> get todoLists => List.unmodifiable(_todoLists);
   List<NoteEditProposal> get noteEditProposals =>
       List.unmodifiable(_noteEditProposals.values);
   bool get usingStorageV2 => _usingStorageV2;
@@ -241,24 +225,17 @@ class FeatureProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 批量替换一个或多个功能分区。
+  /// 批量替换一个或多个笔记分区。
   ///
   /// 主要供备份导入使用。未传入的分区保持不变；传入的分区会立即替换内存
   /// 状态并等待对应保存队列完成后再通知 UI。
   Future<void> replaceFeatureData({
-    List<ScheduleItem>? schedules,
     List<NoteFolder>? noteFolders,
     List<Note>? notes,
     List<NoteRevision>? noteRevisions,
-    List<TodoList>? todoLists,
   }) async {
     final storageV2Active = await _storageV2ActiveForSave();
     final saveTasks = <Future<void>>[];
-    if (schedules != null) {
-      _schedules = List<ScheduleItem>.from(schedules)
-        ..sort((a, b) => a.start.compareTo(b.start));
-      saveTasks.add(_queueSaveSchedules());
-    }
     if (noteFolders != null) {
       _noteFolders = List<NoteFolder>.from(noteFolders);
     }
@@ -270,10 +247,6 @@ class FeatureProvider extends ChangeNotifier {
       _noteRevisionContentCache.clear();
       await _loadRevisionContentStates(_noteRevisions);
       _noteTimelineCache.clear();
-    }
-    if (todoLists != null) {
-      _todoLists = List<TodoList>.from(todoLists);
-      saveTasks.add(_queueSaveTodoLists());
     }
     if (_usingStorageV2 &&
         storageV2Active &&
@@ -291,7 +264,6 @@ class FeatureProvider extends ChangeNotifier {
 
   Future<void> load() async {
     final result = await _repository.load();
-    _schedules = List<ScheduleItem>.from(result.schedules);
     _notes = List<Note>.from(result.notes);
     _noteFolders = List<NoteFolder>.from(result.noteFolders);
     _notePageTombstones = result.pageTombstones
@@ -349,7 +321,6 @@ class FeatureProvider extends ChangeNotifier {
                     _isRevisionTombstoned(pageId, revisionId),
               );
         });
-    _todoLists = List<TodoList>.from(result.todoLists);
     _usingStorageV2 = result.usingStorageV2;
     _storageV2PagesByNoteId = Map.fromEntries(
       result.pagesByNoteId.entries.map(
@@ -383,60 +354,12 @@ class FeatureProvider extends ChangeNotifier {
       }
       if (page != null) await reconcileNotePageHeads(page.noteId, page.id);
     }
-    await _refreshScheduleWidget();
-    await _rescheduleScheduleNotifications();
     final normalizedRevisions = _normalizeNoteRevisionState();
     final cleanedFolderRefs = _removeMissingNoteFolderReferences();
     if (normalizedRevisions || cleanedFolderRefs) {
       await _persistStorageV2NotesData();
     }
     notifyListeners();
-  }
-
-  Future<void> _queueSaveSchedules() {
-    final snapshot = List<ScheduleItem>.from(_schedules);
-    final operation = _scheduleSaveQueue.then(
-      (_) => _saveSchedulesSnapshot(snapshot),
-    );
-    _pendingScheduleSave = operation;
-    _scheduleSaveQueue = operation.catchError((Object error) {
-      debugPrint('保存日程失败: $error');
-    });
-    return operation;
-  }
-
-  Future<void> _saveSchedulesSnapshot(List<ScheduleItem> snapshot) async {
-    final storageV2Active = await _storageV2ActiveForSave();
-    if (_usingStorageV2 || storageV2Active) {
-      _usingStorageV2 = _usingStorageV2 || storageV2Active;
-      await _repository.saveSchedules(snapshot, usingStorageV2: true);
-      await _refreshScheduleWidget();
-      await _rescheduleScheduleNotifications();
-      return;
-    }
-    await _repository.saveSchedules(snapshot, usingStorageV2: false);
-    await _refreshScheduleWidget();
-    await _rescheduleScheduleNotifications();
-  }
-
-  Future<void> _refreshScheduleWidget() async {
-    if (!Platform.isAndroid) return;
-    try {
-      await _scheduleWidgetChannel.invokeMethod<void>('refresh');
-    } catch (e) {
-      debugPrint('刷新日程小组件失败: $e');
-    }
-  }
-
-  Future<void> _rescheduleScheduleNotifications() async {
-    if (!Platform.isAndroid) return;
-    try {
-      await _scheduleWidgetChannel.invokeMethod<void>(
-        'rescheduleNotifications',
-      );
-    } catch (e) {
-      debugPrint('重新安排日程通知失败: $e');
-    }
   }
 
   Future<bool> _storageV2ActiveForSave() => _repository.isStorageV2Active();
@@ -896,93 +819,7 @@ class FeatureProvider extends ChangeNotifier {
     await operation;
   }
 
-  Future<void> _queueSaveTodoLists() {
-    final snapshot = List<TodoList>.from(_todoLists);
-    final operation = _todoListSaveQueue.then(
-      (_) => _saveTodoListsSnapshot(snapshot),
-    );
-    _pendingTodoListSave = operation;
-    _todoListSaveQueue = operation.catchError((Object error) {
-      debugPrint('保存待办清单失败: $error');
-    });
-    return operation;
-  }
-
-  Future<void> flushPendingSaves() {
-    return Future.wait([
-      _pendingScheduleSave,
-      _pendingNotesDataSave,
-      _pendingTodoListSave,
-    ]);
-  }
-
-  Future<void> _saveTodoListsSnapshot(List<TodoList> snapshot) async {
-    final storageV2Active = await _storageV2ActiveForSave();
-    _usingStorageV2 = _usingStorageV2 || storageV2Active;
-    await _repository.saveTodoLists(snapshot, usingStorageV2: _usingStorageV2);
-  }
-
-  Future<String> addSchedule(
-    String title,
-    DateTime start,
-    DateTime end, {
-    String? note,
-    String kind = ScheduleItem.kindSchedule,
-  }) async {
-    final effectiveEnd = kind == ScheduleItem.kindTask
-        ? start.add(const Duration(minutes: 1))
-        : end;
-    final schedule = ScheduleItem(
-      id: _uuid.v4(),
-      title: title,
-      start: start,
-      end: effectiveEnd,
-      note: note,
-      kind: kind,
-    );
-    _schedules.add(schedule);
-    _schedules.sort((a, b) => a.start.compareTo(b.start));
-    await _queueSaveSchedules();
-    notifyListeners();
-    return schedule.id;
-  }
-
-  Future<void> updateSchedule(ScheduleItem schedule) async {
-    final index = _schedules.indexWhere((s) => s.id == schedule.id);
-    if (index == -1) return;
-    _schedules[index] = schedule;
-    _schedules.sort((a, b) => a.start.compareTo(b.start));
-    await _queueSaveSchedules();
-    notifyListeners();
-  }
-
-  Future<void> deleteSchedule(String id) async {
-    final schedule = getSchedule(id);
-    if (schedule == null) return;
-    await _recycleBinRepository.add(
-      RecycleBinItem(
-        owner: RecycleBinOwners.core,
-        category: RecycleBinCategories.schedules,
-        type: RecycleBinItemTypes.schedule,
-        title: schedule.title.isEmpty ? '未命名日程' : schedule.title,
-        preview: schedule.note ?? '',
-        payload: {'schedule': schedule.toJson()},
-      ),
-    );
-    final before = _schedules.length;
-    _schedules.removeWhere((s) => s.id == id);
-    if (_schedules.length == before) return;
-    await _queueSaveSchedules();
-    notifyListeners();
-  }
-
-  ScheduleItem? getSchedule(String id) {
-    try {
-      return _schedules.firstWhere((s) => s.id == id);
-    } catch (_) {
-      return null;
-    }
-  }
+  Future<void> flushPendingSaves() => _pendingNotesDataSave;
 
   Future<String> addNote(String title, {String? folderId}) {
     return addNoteWithContent(title, '', folderId: folderId);
@@ -1894,88 +1731,6 @@ class FeatureProvider extends ChangeNotifier {
         )
         .toList();
     await _persistStorageV2NotesData();
-    notifyListeners();
-  }
-
-  Future<String> addTodoList(String title) {
-    return addTodoListWithItems(title, <TodoItem>[]);
-  }
-
-  Future<String> addTodoListWithItems(
-    String title,
-    List<TodoItem> items,
-  ) async {
-    final now = DateTime.now();
-    final list = TodoList(
-      id: _uuid.v4(),
-      title: title,
-      items: items,
-      createdAt: now,
-      updatedAt: now,
-    );
-    _todoLists.insert(0, list);
-    await _queueSaveTodoLists();
-    notifyListeners();
-    return list.id;
-  }
-
-  TodoList? getTodoList(String id) {
-    try {
-      return _todoLists.firstWhere((n) => n.id == id);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<void> updateTodoList(TodoList list) async {
-    final index = _todoLists.indexWhere((n) => n.id == list.id);
-    if (index == -1) return;
-    _todoLists[index] = list;
-    await _queueSaveTodoLists();
-    notifyListeners();
-  }
-
-  Future<void> reorderTodoLists(int oldIndex, int newIndex) async {
-    if (oldIndex < 0 || oldIndex >= _todoLists.length) return;
-    if (newIndex < 0 || newIndex >= _todoLists.length) return;
-    final item = _todoLists.removeAt(oldIndex);
-    _todoLists.insert(newIndex, item);
-    await _queueSaveTodoLists();
-    notifyListeners();
-  }
-
-  Future<void> deleteTodoList(String id) async {
-    final list = getTodoList(id);
-    if (list == null) return;
-    await _recycleBinRepository.add(
-      RecycleBinItem(
-        owner: RecycleBinOwners.core,
-        category: RecycleBinCategories.todos,
-        type: RecycleBinItemTypes.todoList,
-        title: list.title.isEmpty ? '未命名待办' : list.title,
-        preview: '${list.items.length} 个待办项',
-        payload: {'todoList': list.toJson()},
-      ),
-    );
-    final before = _todoLists.length;
-    _todoLists.removeWhere((n) => n.id == id);
-    if (_todoLists.length == before) return;
-    await _queueSaveTodoLists();
-    notifyListeners();
-  }
-
-  Future<void> restoreSchedule(ScheduleItem schedule) async {
-    if (_schedules.any((item) => item.id == schedule.id)) return;
-    _schedules.add(schedule);
-    _schedules.sort((a, b) => a.start.compareTo(b.start));
-    await _queueSaveSchedules();
-    notifyListeners();
-  }
-
-  Future<void> restoreTodoList(TodoList list) async {
-    if (_todoLists.any((item) => item.id == list.id)) return;
-    _todoLists.insert(0, list);
-    await _queueSaveTodoLists();
     notifyListeners();
   }
 

@@ -12,26 +12,34 @@ import '../models/app_settings.dart';
 import '../models/agent_plan.dart';
 import '../models/agent_trace.dart';
 import '../models/agent_working_memory.dart';
+import '../models/anniversary.dart';
 import '../models/backup_models.dart';
+import '../models/calendar_event.dart';
 import '../models/chat_role.dart';
 import '../models/conversation.dart';
+import '../models/local_date.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
 import '../models/note.dart';
 import '../models/plugin.dart';
 import '../models/roleplay.dart';
 import '../models/schedule_item.dart';
+import '../models/task.dart';
+import '../models/task_list.dart';
 import '../models/todo_list.dart';
+import '../providers/calendar_provider.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/task_provider.dart';
 import '../repositories/plugin_repository.dart';
 import 'storage_v2_service.dart';
 import 'backup_encryption.dart';
 import 'bounded_zip_decoder.dart';
+import 'legacy_calendar_conversion_service.dart';
 import '../utils/file_name_utils.dart';
 
 /// 负责 LynAI ZIP 备份的导出、读取、预览和导入。
@@ -46,12 +54,17 @@ class BackupService {
     required this.conversationProvider,
     required this.featureProvider,
     required this.roleplayProvider,
+    TaskProvider? taskProvider,
+    CalendarProvider? calendarProvider,
     this.pluginProvider,
     PluginRepository? pluginRepository,
     this.storageV2,
     BackupEncryption? backupEncryption,
     Future<String> Function()? appVersionLoader,
-  }) : _pluginRepository = pluginRepository ?? PluginRepository(),
+  }) : taskProvider = taskProvider ?? TaskProvider(storageV2: storageV2),
+       calendarProvider =
+           calendarProvider ?? CalendarProvider(storageV2: storageV2),
+       _pluginRepository = pluginRepository ?? PluginRepository(),
        _backupEncryption = backupEncryption ?? const BackupEncryption(),
        _appVersionLoader = appVersionLoader;
 
@@ -60,6 +73,8 @@ class BackupService {
   final ConversationProvider conversationProvider;
   final FeatureProvider featureProvider;
   final RoleplayProvider roleplayProvider;
+  final TaskProvider taskProvider;
+  final CalendarProvider calendarProvider;
   final PluginProvider? pluginProvider;
   final StorageV2Service? storageV2;
   final PluginRepository _pluginRepository;
@@ -67,7 +82,7 @@ class BackupService {
   final Future<String> Function()? _appVersionLoader;
   final _uuid = const Uuid();
 
-  static const currentSchemaVersion = 8;
+  static const currentSchemaVersion = 9;
   static const oldestCompatibleSchemaVersion = 5;
   static const maxBackupZipInputBytes = 512 * 1024 * 1024;
   static const maxBackupZipEntries = 10000;
@@ -442,61 +457,43 @@ class BackupService {
         'revisionCount': revisions.length,
       };
     }
-    if (selection.contains(BackupSection.schedules)) {
-      final schedules = featureProvider.schedules
-          .where((item) => selection.scheduleIds.contains(item.id))
+    if (selection.contains(BackupSection.tasks)) {
+      final tasks = taskProvider.tasks
+          .where((item) => selection.taskIds.contains(item.id))
           .toList();
-      addJson('schedules.json', {
-        'schedules': schedules.map((item) => item.toJson()).toList(),
-      });
-      sections[BackupSection.schedules.key] = {
+      final lists = taskProvider.lists
+          .where((item) => selection.taskListIds.contains(item.id))
+          .toList();
+      final taskIds = tasks.map((item) => item.id).toSet();
+      final listIds = lists.map((item) => item.id).toSet();
+      final entries = taskProvider.entries
+          .where(
+            (item) =>
+                taskIds.contains(item.taskId) &&
+                listIds.contains(item.taskListId),
+          )
+          .toList();
+      addJson('tasks.json', _tasksPartition(tasks, lists, entries));
+      sections[BackupSection.tasks.key] = {
         'enabled': true,
-        'files': ['schedules.json'],
-        'count': schedules.length,
+        'files': ['tasks.json'],
+        'taskCount': tasks.length,
+        'listCount': lists.length,
       };
     }
-    if (selection.contains(BackupSection.todoLists)) {
-      final todoLists = featureProvider.todoLists
-          .where((item) => selection.todoListIds.contains(item.id))
+    if (selection.contains(BackupSection.calendar)) {
+      final events = calendarProvider.events
+          .where((item) => selection.calendarEventIds.contains(item.id))
           .toList();
-      final usingV2 = featureProvider.usingStorageV2;
-      if (usingV2) {
-        final listRows = <Map<String, dynamic>>[];
-        final itemRows = <Map<String, dynamic>>[];
-        for (final list in todoLists) {
-          listRows.add({
-            'id': list.id,
-            'title': list.title,
-            'createdAt': list.createdAt.toIso8601String(),
-            'updatedAt': list.updatedAt.toIso8601String(),
-          });
-          for (var i = 0; i < list.items.length; i++) {
-            final item = list.items[i];
-            itemRows.add({
-              'id': item.id,
-              'listId': list.id,
-              'text': item.text,
-              'done': item.done,
-              'sortOrder': i,
-              if (item.updatedAt != null)
-                'updatedAt': item.updatedAt!.toIso8601String(),
-            });
-          }
-        }
-        addJson('todo_lists.json', {
-          'todoLists': listRows,
-          'todoItems': itemRows,
-        });
-      } else {
-        addJson('todo_lists.json', {
-          'todoLists': todoLists.map((item) => item.toJson()).toList(),
-        });
-      }
-      sections[BackupSection.todoLists.key] = {
+      final anniversaries = calendarProvider.anniversaries
+          .where((item) => selection.anniversaryIds.contains(item.id))
+          .toList();
+      addJson('calendar.json', _calendarPartition(events, anniversaries));
+      sections[BackupSection.calendar.key] = {
         'enabled': true,
-        'files': ['todo_lists.json'],
-        if (usingV2) 'format': 'storage_v2',
-        'count': todoLists.length,
+        'files': ['calendar.json'],
+        'eventCount': events.length,
+        'anniversaryCount': anniversaries.length,
       };
     }
     if (selection.contains(BackupSection.roleplay)) {
@@ -701,8 +698,12 @@ class BackupService {
     final revisionsJson = readMap('notes/revisions.json');
     final proposalsJson = readMap('notes/edit_proposals.json');
     final blocksJson = readMap('notes/edit_blocks.json');
-    final schedulesJson = readMap('schedules.json');
-    final todoListsJson = readMap('todo_lists.json');
+    final schedulesJson = schemaVersion <= 8 ? readMap('schedules.json') : null;
+    final todoListsJson = schemaVersion <= 8
+        ? readMap('todo_lists.json')
+        : null;
+    final tasksJson = readMap('tasks.json');
+    final calendarJson = readMap('calendar.json');
     final roleplayJson = readMap('roleplay_scenarios.json');
     final roleplayThreadsJson = readMap('roleplay_threads.json');
     final pluginsJson = readMap('plugins/installed_plugins.json');
@@ -716,7 +717,9 @@ class BackupService {
       schemaVersion,
       warnings,
     );
-    final todoLists = _parseTodoLists(todoListsJson, schemaVersion, warnings);
+    final planning = schemaVersion >= 9
+        ? _parseCanonicalPlanning(tasksJson, calendarJson, warnings)
+        : _convertLegacyPlanning(schedulesJson, todoListsJson, warnings);
     final noteEditProposals = _parseNoteEditProposals(
       proposalsJson,
       blocksJson,
@@ -840,13 +843,11 @@ class BackupService {
           '笔记修订',
         ),
         noteEditProposals: noteEditProposals,
-        schedules: _parseList(
-          schedulesJson?['schedules'],
-          ScheduleItem.fromJson,
-          warnings,
-          '日程',
-        ),
-        todoLists: todoLists,
+        tasks: planning.tasks,
+        taskLists: planning.lists,
+        taskEntries: planning.entries,
+        calendarEvents: planning.events,
+        anniversaries: planning.anniversaries,
         roleplaySessions: _parseList(
           roleplayJson?['scenarios'],
           RoleplayScenario.fromJson,
@@ -1126,6 +1127,237 @@ class BackupService {
     return _parseList(json['todoLists'], TodoList.fromJson, warnings, '待办清单');
   }
 
+  static _PlanningData _parseCanonicalPlanning(
+    Map<String, dynamic>? tasksJson,
+    Map<String, dynamic>? calendarJson,
+    List<String> warnings,
+  ) {
+    final tasks = _parseList(
+      tasksJson?['tasks'],
+      Task.fromJson,
+      warnings,
+      '任务',
+    );
+    final lists = _parseList(
+      tasksJson?['lists'],
+      TaskList.fromJson,
+      warnings,
+      '任务清单',
+    );
+    final entries = _parseList(
+      tasksJson?['entries'],
+      (json) => TaskListEntry(
+        taskListId: json['listId'] as String,
+        taskId: json['taskId'] as String? ?? json['id'] as String,
+        position: (json['sortOrder'] as num).toInt(),
+        updatedAt: DateTime.parse(json['updatedAt'] as String),
+      ),
+      warnings,
+      '任务清单条目',
+    );
+    return _PlanningData(
+      tasks: tasks,
+      lists: lists,
+      entries: entries,
+      events: _parseList(
+        calendarJson?['events'],
+        _calendarEventFromPartition,
+        warnings,
+        '日历事件',
+      ),
+      anniversaries: _parseList(
+        calendarJson?['anniversaries'],
+        _anniversaryFromPartition,
+        warnings,
+        '纪念日',
+      ),
+    );
+  }
+
+  static _PlanningData _convertLegacyPlanning(
+    Map<String, dynamic>? schedulesJson,
+    Map<String, dynamic>? todoListsJson,
+    List<String> warnings,
+  ) {
+    if (schedulesJson == null && todoListsJson == null) {
+      return const _PlanningData();
+    }
+    const conversion = LegacyCalendarConversionService();
+    final schedules =
+        _parseList(
+          schedulesJson?['schedules'],
+          ScheduleItem.fromJson,
+          warnings,
+          '旧日程',
+        ) ??
+        const <ScheduleItem>[];
+    final todoLists =
+        _parseTodoLists(todoListsJson, currentSchemaVersion - 1, warnings) ??
+        const <TodoList>[];
+    final tasks = <Task>[];
+    final lists = <TaskList>[];
+    final entries = <TaskListEntry>[];
+    final events = <CalendarEvent>[];
+    final usedTaskIds = <String>{};
+
+    // schema 5-8 先按旧迁移顺序拆待办，再转换日程；这样碰撞结果与数据库迁移完全一致。
+    for (var index = 0; index < todoLists.length; index++) {
+      final converted = conversion.todoList(todoLists[index]);
+      lists.add(converted.taskList.copyWith(sortOrder: index));
+      tasks.addAll(converted.tasks);
+      entries.addAll(converted.entries);
+      usedTaskIds.addAll(converted.tasks.map((task) => task.id));
+    }
+    for (final schedule in schedules) {
+      if (!schedule.isTask) {
+        events.add(conversion.calendarEventFromSchedule(schedule));
+        continue;
+      }
+      var id = schedule.id;
+      if (usedTaskIds.contains(id)) {
+        final base = 'legacy-schedule-task-${schedule.id}';
+        id = base;
+        var suffix = 2;
+        while (usedTaskIds.contains(id)) {
+          id = '$base-$suffix';
+          suffix++;
+        }
+      }
+      final task = conversion.taskFromSchedule(schedule).copyWith(id: id);
+      tasks.add(task);
+      usedTaskIds.add(id);
+    }
+    final hasTaskData =
+        todoListsJson != null || schedules.any((item) => item.isTask);
+    final hasCalendarData = schedules.any((item) => !item.isTask);
+    return _PlanningData(
+      tasks: hasTaskData ? tasks : null,
+      lists: hasTaskData ? lists : null,
+      entries: hasTaskData ? entries : null,
+      events: hasCalendarData ? events : null,
+    );
+  }
+
+  static Map<String, dynamic> _tasksPartition(
+    List<Task> tasks,
+    List<TaskList> lists,
+    List<TaskListEntry> entries,
+  ) => {
+    'tasks': tasks.map((task) => task.toJson()).toList(),
+    'lists': lists.map((list) => list.toJson()).toList(),
+    'entries': entries
+        .map(
+          (entry) => {
+            'id': entry.taskId,
+            'taskId': entry.taskId,
+            'listId': entry.taskListId,
+            'sortOrder': entry.position,
+            'updatedAt': entry.updatedAt.toIso8601String(),
+          },
+        )
+        .toList(),
+  };
+
+  static Map<String, dynamic> _calendarPartition(
+    List<CalendarEvent> events,
+    List<Anniversary> anniversaries,
+  ) => {
+    'events': events.map(_calendarEventToPartition).toList(),
+    'anniversaries': anniversaries.map(_anniversaryToPartition).toList(),
+  };
+
+  static CalendarEvent _calendarEventFromPartition(Map<String, dynamic> json) {
+    final spec = switch (json['timeKind']) {
+      'timed' => TimedCalendarEventSpec(
+        start: DateTime.parse(json['startAt'] as String),
+        end: DateTime.parse(json['endAt'] as String),
+      ),
+      'allDay' => AllDayCalendarEventSpec(
+        startDate: LocalDate.fromJson(json['startDate'] as String),
+        endDateExclusive: LocalDate.fromJson(
+          json['endDateExclusive'] as String,
+        ),
+      ),
+      final value => throw FormatException('未知日历事件时间类型', value),
+    };
+    return CalendarEvent.fromJson({...json, 'spec': spec.toJson()});
+  }
+
+  static Map<String, dynamic> _calendarEventToPartition(CalendarEvent event) {
+    final time = switch (event.spec) {
+      TimedCalendarEventSpec spec => {
+        'timeKind': 'timed',
+        'startAt': spec.start.toIso8601String(),
+        'endAt': spec.end.toIso8601String(),
+      },
+      AllDayCalendarEventSpec spec => {
+        'timeKind': 'allDay',
+        'startDate': spec.startDate.toJson(),
+        'endDateExclusive': spec.endDateExclusive.toJson(),
+      },
+    };
+    return {
+      'id': event.id,
+      'title': event.title,
+      if (event.note != null) 'note': event.note,
+      ...time,
+      'reminders': event.reminders.map((value) => value.toJson()).toList(),
+      'createdAt': event.createdAt.toIso8601String(),
+      'updatedAt': event.updatedAt.toIso8601String(),
+    };
+  }
+
+  static Anniversary _anniversaryFromPartition(Map<String, dynamic> json) {
+    final month = json['month'] as int;
+    final day = json['day'] as int;
+    final year = json['year'] as int?;
+    final spec = switch (json['recurrence']) {
+      'once' => OnceAnniversarySpec(
+        date: LocalDate(
+          year ?? (throw const FormatException('一次性纪念日缺少年份')),
+          month,
+          day,
+        ),
+      ),
+      'yearly' => YearlyAnniversarySpec(
+        month: month,
+        day: day,
+        sourceYear: year,
+      ),
+      final value => throw FormatException('未知纪念日重复类型', value),
+    };
+    return Anniversary.fromJson({...json, 'spec': spec.toJson()});
+  }
+
+  static Map<String, dynamic> _anniversaryToPartition(Anniversary anniversary) {
+    final date = switch (anniversary.spec) {
+      OnceAnniversarySpec spec => {
+        'month': spec.date.month,
+        'day': spec.date.day,
+        'year': spec.date.year,
+        'recurrence': 'once',
+      },
+      YearlyAnniversarySpec spec => {
+        'month': spec.month,
+        'day': spec.day,
+        if (spec.sourceYear != null) 'year': spec.sourceYear,
+        'recurrence': 'yearly',
+      },
+    };
+    return {
+      'id': anniversary.id,
+      'title': anniversary.title,
+      if (anniversary.note != null) 'note': anniversary.note,
+      ...date,
+      'showYearCount': anniversary.showYearCount,
+      'reminders': anniversary.reminders
+          .map((value) => value.toJson())
+          .toList(),
+      'createdAt': anniversary.createdAt.toIso8601String(),
+      'updatedAt': anniversary.updatedAt.toIso8601String(),
+    };
+  }
+
   static List<TodoList>? _parseTodoListsFlat(
     Map<String, dynamic> json,
     List<String> warnings,
@@ -1305,14 +1537,14 @@ class BackupService {
         replaced += result.replaced;
         skipped += result.skipped;
       }
-      if (plan.sections.contains(BackupSection.schedules)) {
-        final result = await _applySchedules(data, plan);
+      if (plan.sections.contains(BackupSection.tasks)) {
+        final result = await _applyTasks(data, plan);
         added += result.added;
         replaced += result.replaced;
         skipped += result.skipped;
       }
-      if (plan.sections.contains(BackupSection.todoLists)) {
-        final result = await _applyTodoLists(data, plan);
+      if (plan.sections.contains(BackupSection.calendar)) {
+        final result = await _applyCalendar(data, plan);
         added += result.added;
         replaced += result.replaced;
         skipped += result.skipped;
@@ -1862,95 +2094,193 @@ class BackupService {
     return ImportResult(added: added, replaced: replaced, skipped: skipped);
   }
 
-  Future<ImportResult> _applySchedules(BackupData data, ImportPlan plan) async {
-    final incomingItems = data.schedules;
-    if (incomingItems == null) {
+  Future<ImportResult> _applyTasks(BackupData data, ImportPlan plan) async {
+    final incomingTasks = data.tasks;
+    final incomingLists = data.taskLists;
+    final incomingEntries = data.taskEntries;
+    if (incomingTasks == null &&
+        incomingLists == null &&
+        incomingEntries == null) {
       return const ImportResult(added: 0, replaced: 0, skipped: 0);
     }
-    if (plan.mode == ImportMode.replaceSection) {
-      final incomingIds = incomingItems.map((item) => item.id).toSet();
-      final items = featureProvider.schedules
-          .where((item) => !incomingIds.contains(item.id))
-          .toList();
-      items.addAll(incomingItems);
-      await featureProvider.replaceFeatureData(schedules: items);
-      return ImportResult(added: 0, replaced: incomingItems.length, skipped: 0);
-    }
+    final tasks = plan.mode == ImportMode.replaceSection
+        ? <Task>[]
+        : taskProvider.tasks.toList();
+    final lists = plan.mode == ImportMode.replaceSection
+        ? <TaskList>[]
+        : taskProvider.lists.toList();
+    final taskIds = <String, String>{};
+    final listIds = <String, String>{};
+    final preservedTaskTopologyIds = <String>{};
     var added = 0;
     var replaced = 0;
     var skipped = 0;
-    final items = List<ScheduleItem>.from(featureProvider.schedules);
-    for (final incoming in incomingItems) {
-      final index = items.indexWhere((item) => item.id == incoming.id);
+
+    for (final incoming in incomingLists ?? const <TaskList>[]) {
+      final index = lists.indexWhere((item) => item.id == incoming.id);
       if (index == -1) {
-        items.add(incoming);
+        lists.add(incoming);
+        listIds[incoming.id] = incoming.id;
         added++;
-      } else if (_sameJson(items[index], incoming)) {
+      } else if (_sameJson(lists[index], incoming)) {
+        listIds[incoming.id] = incoming.id;
         skipped++;
       } else if (plan.mode == ImportMode.addOnly) {
+        listIds[incoming.id] = incoming.id;
         skipped++;
       } else {
-        final action = plan.actionFor(
-          _conflictId(BackupSection.schedules, incoming.id),
-        );
+        final action = plan.mode == ImportMode.replaceSection
+            ? ImportConflictAction.replaceLocal
+            : plan.actionFor(
+                _conflictId(BackupSection.tasks, 'list:${incoming.id}'),
+              );
         if (action == ImportConflictAction.replaceLocal) {
-          items[index] = incoming;
+          lists[index] = incoming;
+          listIds[incoming.id] = incoming.id;
           replaced++;
         } else if (action == ImportConflictAction.keepBoth) {
-          items.add(incoming.copyWith(id: _uuid.v4()));
+          final id = _uuid.v4();
+          listIds[incoming.id] = id;
+          lists.add(incoming.copyWith(id: id));
           added++;
         } else {
+          listIds[incoming.id] = incoming.id;
           skipped++;
         }
       }
     }
-    await featureProvider.replaceFeatureData(schedules: items);
+    for (final incoming in incomingTasks ?? const <Task>[]) {
+      final index = tasks.indexWhere((item) => item.id == incoming.id);
+      if (index == -1) {
+        tasks.add(incoming);
+        taskIds[incoming.id] = incoming.id;
+        added++;
+      } else if (_sameJson(tasks[index], incoming)) {
+        taskIds[incoming.id] = incoming.id;
+        preservedTaskTopologyIds.add(incoming.id);
+        skipped++;
+      } else if (plan.mode == ImportMode.addOnly) {
+        taskIds[incoming.id] = incoming.id;
+        preservedTaskTopologyIds.add(incoming.id);
+        skipped++;
+      } else {
+        final action = plan.mode == ImportMode.replaceSection
+            ? ImportConflictAction.replaceLocal
+            : plan.actionFor(
+                _conflictId(BackupSection.tasks, 'task:${incoming.id}'),
+              );
+        if (action == ImportConflictAction.replaceLocal) {
+          tasks[index] = incoming;
+          taskIds[incoming.id] = incoming.id;
+          replaced++;
+        } else if (action == ImportConflictAction.keepBoth) {
+          final id = _uuid.v4();
+          taskIds[incoming.id] = id;
+          tasks.add(incoming.copyWith(id: id));
+          added++;
+        } else {
+          taskIds[incoming.id] = incoming.id;
+          preservedTaskTopologyIds.add(incoming.id);
+          skipped++;
+        }
+      }
+    }
+
+    final entries = plan.mode == ImportMode.replaceSection
+        ? <TaskListEntry>[]
+        : taskProvider.entries.toList();
+    // 清单条目只描述拓扑；复制清单不能夺走本地任务，冲突时在拓扑层克隆并重映射任务。
+    for (final entry in incomingEntries ?? const <TaskListEntry>[]) {
+      var taskId = taskIds[entry.taskId];
+      final listId = listIds[entry.taskListId];
+      if (taskId == null || listId == null) continue;
+      final existingEntryIndex = entries.indexWhere(
+        (item) => item.taskId == taskId,
+      );
+      final existingEntry = existingEntryIndex == -1
+          ? null
+          : entries[existingEntryIndex];
+      final copiedList = listId != entry.taskListId;
+      if (copiedList &&
+          existingEntry != null &&
+          existingEntry.taskListId != listId) {
+        final resolvedTaskIndex = tasks.indexWhere((item) => item.id == taskId);
+        if (resolvedTaskIndex == -1) continue;
+        taskId = _uuid.v4();
+        taskIds[entry.taskId] = taskId;
+        tasks.add(tasks[resolvedTaskIndex].copyWith(id: taskId));
+      } else if (preservedTaskTopologyIds.contains(entry.taskId) &&
+          existingEntry != null) {
+        continue;
+      }
+      entries.removeWhere((item) => item.taskId == taskId);
+      entries.add(entry.copyWith(taskId: taskId, taskListId: listId));
+    }
+    await taskProvider.replaceAll(tasks: tasks, lists: lists, entries: entries);
+    if (plan.mode == ImportMode.replaceSection) {
+      return ImportResult(
+        added: 0,
+        replaced: (incomingTasks?.length ?? 0) + (incomingLists?.length ?? 0),
+        skipped: 0,
+      );
+    }
     return ImportResult(added: added, replaced: replaced, skipped: skipped);
   }
 
-  Future<ImportResult> _applyTodoLists(BackupData data, ImportPlan plan) async {
-    final incomingItems = data.todoLists;
-    if (incomingItems == null) {
+  Future<ImportResult> _applyCalendar(BackupData data, ImportPlan plan) async {
+    final incoming = <Object>[...?data.calendarEvents, ...?data.anniversaries];
+    if (data.calendarEvents == null && data.anniversaries == null) {
       return const ImportResult(added: 0, replaced: 0, skipped: 0);
     }
-    if (plan.mode == ImportMode.replaceSection) {
-      final incomingIds = incomingItems.map((item) => item.id).toSet();
-      final items = featureProvider.todoLists
-          .where((item) => !incomingIds.contains(item.id))
-          .toList();
-      items.addAll(incomingItems);
-      await featureProvider.replaceFeatureData(todoLists: items);
-      return ImportResult(added: 0, replaced: incomingItems.length, skipped: 0);
-    }
+    final events = plan.mode == ImportMode.replaceSection
+        ? <CalendarEvent>[]
+        : calendarProvider.events.toList();
+    final anniversaries = plan.mode == ImportMode.replaceSection
+        ? <Anniversary>[]
+        : calendarProvider.anniversaries.toList();
     var added = 0;
     var replaced = 0;
     var skipped = 0;
-    final items = List<TodoList>.from(featureProvider.todoLists);
-    for (final incoming in incomingItems) {
-      final index = items.indexWhere((item) => item.id == incoming.id);
+    for (final item in incoming) {
+      final id = (item as dynamic).id as String;
+      final target = item is CalendarEvent ? events : anniversaries;
+      final index = target.indexWhere((value) => (value as dynamic).id == id);
       if (index == -1) {
-        items.add(incoming);
+        target.add(item as dynamic);
         added++;
-      } else if (_sameJson(items[index], incoming)) {
+      } else if (_sameJson(target[index], item)) {
         skipped++;
       } else if (plan.mode == ImportMode.addOnly) {
         skipped++;
       } else {
-        final action = plan.actionFor(
-          _conflictId(BackupSection.todoLists, incoming.id),
-        );
+        final kind = item is CalendarEvent ? 'event' : 'anniversary';
+        final action = plan.mode == ImportMode.replaceSection
+            ? ImportConflictAction.replaceLocal
+            : plan.actionFor(_conflictId(BackupSection.calendar, '$kind:$id'));
         if (action == ImportConflictAction.replaceLocal) {
-          items[index] = incoming;
+          target[index] = item as dynamic;
           replaced++;
         } else if (action == ImportConflictAction.keepBoth) {
-          items.add(_copyTodoListWithNewIds(incoming));
+          target.add((item as dynamic).copyWith(id: _uuid.v4()));
           added++;
         } else {
           skipped++;
         }
       }
     }
-    await featureProvider.replaceFeatureData(todoLists: items);
+    await calendarProvider.replaceAll(
+      events: events,
+      anniversaries: anniversaries,
+    );
+    if (plan.mode == ImportMode.replaceSection) {
+      return ImportResult(
+        added: 0,
+        replaced:
+            (data.calendarEvents?.length ?? 0) +
+            (data.anniversaries?.length ?? 0),
+        skipped: 0,
+      );
+    }
     return ImportResult(added: added, replaced: replaced, skipped: skipped);
   }
 
@@ -2216,35 +2546,64 @@ class BackupService {
         }
       }
     }
-    if (sections.contains(BackupSection.schedules)) {
-      for (final incoming in data.schedules ?? const <ScheduleItem>[]) {
-        final local = _findById(featureProvider.schedules, incoming.id);
+    if (sections.contains(BackupSection.tasks)) {
+      for (final incoming in data.taskLists ?? const <TaskList>[]) {
+        final local = _findById(taskProvider.lists, incoming.id);
         if (local != null && !_sameJson(local, incoming)) {
           conflicts.add(
             ImportConflict(
-              id: _conflictId(BackupSection.schedules, incoming.id),
-              section: BackupSection.schedules,
+              id: _conflictId(BackupSection.tasks, 'list:${incoming.id}'),
+              section: BackupSection.tasks,
+              title: '清单：${incoming.title}',
+              localSummary: _formatUpdated(local.updatedAt),
+              incomingSummary: _formatUpdated(incoming.updatedAt),
+            ),
+          );
+        }
+      }
+      for (final incoming in data.tasks ?? const <Task>[]) {
+        final local = _findById(taskProvider.tasks, incoming.id);
+        if (local != null && !_sameJson(local, incoming)) {
+          conflicts.add(
+            ImportConflict(
+              id: _conflictId(BackupSection.tasks, 'task:${incoming.id}'),
+              section: BackupSection.tasks,
               title: incoming.title,
-              localSummary: _formatRange(local.start, local.end),
-              incomingSummary: _formatRange(incoming.start, incoming.end),
+              localSummary: _formatUpdated(local.updatedAt),
+              incomingSummary: _formatUpdated(incoming.updatedAt),
             ),
           );
         }
       }
     }
-    if (sections.contains(BackupSection.todoLists)) {
-      for (final incoming in data.todoLists ?? const <TodoList>[]) {
-        final local = _findById(featureProvider.todoLists, incoming.id);
+    if (sections.contains(BackupSection.calendar)) {
+      for (final incoming in data.calendarEvents ?? const <CalendarEvent>[]) {
+        final local = _findById(calendarProvider.events, incoming.id);
         if (local != null && !_sameJson(local, incoming)) {
           conflicts.add(
             ImportConflict(
-              id: _conflictId(BackupSection.todoLists, incoming.id),
-              section: BackupSection.todoLists,
+              id: _conflictId(BackupSection.calendar, 'event:${incoming.id}'),
+              section: BackupSection.calendar,
               title: incoming.title,
-              localSummary:
-                  '${local.items.length} 项，${_formatUpdated(local.updatedAt)}',
-              incomingSummary:
-                  '${incoming.items.length} 项，${_formatUpdated(incoming.updatedAt)}',
+              localSummary: _formatUpdated(local.updatedAt),
+              incomingSummary: _formatUpdated(incoming.updatedAt),
+            ),
+          );
+        }
+      }
+      for (final incoming in data.anniversaries ?? const <Anniversary>[]) {
+        final local = _findById(calendarProvider.anniversaries, incoming.id);
+        if (local != null && !_sameJson(local, incoming)) {
+          conflicts.add(
+            ImportConflict(
+              id: _conflictId(
+                BackupSection.calendar,
+                'anniversary:${incoming.id}',
+              ),
+              section: BackupSection.calendar,
+              title: incoming.title,
+              localSummary: _formatUpdated(local.updatedAt),
+              incomingSummary: _formatUpdated(incoming.updatedAt),
             ),
           );
         }
@@ -2621,15 +2980,6 @@ class BackupService {
               timestamp: message.timestamp,
             ),
           )
-          .toList(growable: false),
-    );
-  }
-
-  TodoList _copyTodoListWithNewIds(TodoList list) {
-    return list.copyWith(
-      id: _uuid.v4(),
-      items: list.items
-          .map((item) => item.copyWith(id: _uuid.v4()))
           .toList(growable: false),
     );
   }
@@ -3020,8 +3370,11 @@ class BackupService {
       notePageContents: data.notePageContents,
       noteRevisions: data.noteRevisions,
       noteEditProposals: data.noteEditProposals,
-      schedules: data.schedules,
-      todoLists: data.todoLists,
+      tasks: data.tasks,
+      taskLists: data.taskLists,
+      taskEntries: data.taskEntries,
+      calendarEvents: data.calendarEvents,
+      anniversaries: data.anniversaries,
       roleplaySessions: data.roleplaySessions,
       roleplayThreads: data.roleplayThreads,
       plugins: data.plugins,
@@ -3187,11 +3540,24 @@ class BackupService {
       noteEditProposals: data.noteEditProposals
           ?.where((item) => noteIds.contains(item.noteId))
           .toList(),
-      schedules: data.schedules
-          ?.where((item) => selection.scheduleIds.contains(item.id))
+      tasks: data.tasks
+          ?.where((item) => selection.taskIds.contains(item.id))
           .toList(),
-      todoLists: data.todoLists
-          ?.where((item) => selection.todoListIds.contains(item.id))
+      taskLists: data.taskLists
+          ?.where((item) => selection.taskListIds.contains(item.id))
+          .toList(),
+      taskEntries: data.taskEntries
+          ?.where(
+            (item) =>
+                selection.taskIds.contains(item.taskId) &&
+                selection.taskListIds.contains(item.taskListId),
+          )
+          .toList(),
+      calendarEvents: data.calendarEvents
+          ?.where((item) => selection.calendarEventIds.contains(item.id))
+          .toList(),
+      anniversaries: data.anniversaries
+          ?.where((item) => selection.anniversaryIds.contains(item.id))
           .toList(),
       roleplaySessions: data.roleplaySessions
           ?.where((item) => selection.roleplaySessionIds.contains(item.id))
@@ -3284,10 +3650,10 @@ class BackupService {
         final pageCount = data.notePages?.length;
         final pageDetail = pageCount == null ? '' : '，$pageCount 个分页';
         return '${data.notes?.length ?? 0} 篇笔记$pageDetail，${data.noteFolders?.length ?? 0} 个文件夹';
-      case BackupSection.schedules:
-        return '${data.schedules?.length ?? 0} 条日程';
-      case BackupSection.todoLists:
-        return '${data.todoLists?.length ?? 0} 个清单';
+      case BackupSection.tasks:
+        return '${data.tasks?.length ?? 0} 个任务，${data.taskLists?.length ?? 0} 个清单';
+      case BackupSection.calendar:
+        return '${data.calendarEvents?.length ?? 0} 个事件，${data.anniversaries?.length ?? 0} 个纪念日';
       case BackupSection.roleplay:
         return '${data.roleplaySessions?.length ?? 0} 个情景，${data.roleplayThreads?.length ?? 0} 次演绎';
       case BackupSection.plugins:
@@ -3296,10 +3662,6 @@ class BackupService {
   }
 
   static String _formatUpdated(DateTime value) => '更新时间 ${_formatTime(value)}';
-
-  static String _formatRange(DateTime start, DateTime end) {
-    return '${_formatTime(start)} - ${_formatTime(end)}';
-  }
 
   static String _formatTime(DateTime value) {
     String two(int n) => n.toString().padLeft(2, '0');
@@ -3471,4 +3833,20 @@ class _ImportIdMap {
   final noteRevisionIds = <String, String>{};
   final noteProposalIds = <String, String>{};
   final noteEditBlockIds = <String, String>{};
+}
+
+class _PlanningData {
+  const _PlanningData({
+    this.tasks,
+    this.lists,
+    this.entries,
+    this.events,
+    this.anniversaries,
+  });
+
+  final List<Task>? tasks;
+  final List<TaskList>? lists;
+  final List<TaskListEntry>? entries;
+  final List<CalendarEvent>? events;
+  final List<Anniversary>? anniversaries;
 }

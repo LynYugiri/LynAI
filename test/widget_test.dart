@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import 'package:lynai/main.dart';
 import 'package:lynai/providers/account_provider.dart';
+import 'package:lynai/providers/calendar_provider.dart';
 import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
@@ -14,7 +15,10 @@ import 'package:lynai/providers/recycle_bin_provider.dart';
 import 'package:lynai/providers/roleplay_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/providers/sync_provider.dart';
+import 'package:lynai/providers/task_provider.dart';
 import 'package:lynai/services/backend_client.dart';
+import 'package:lynai/services/calendar_platform_bridge.dart';
+import 'package:lynai/services/calendar_platform_projection_coordinator.dart';
 import 'package:lynai/services/device_identity_service.dart';
 import 'package:lynai/services/secret_store.dart';
 
@@ -33,6 +37,7 @@ void main() {
           ChangeNotifierProvider(create: (_) => BackendClient()),
           ChangeNotifierProvider(create: (_) => ConversationProvider()),
           ChangeNotifierProvider(create: (_) => FeatureProvider()),
+          ChangeNotifierProvider(create: (_) => CalendarProvider()),
           ChangeNotifierProvider(create: (_) => ModelConfigProvider()),
           ChangeNotifierProvider(create: (_) => PluginProvider()),
           ChangeNotifierProvider(
@@ -46,6 +51,20 @@ void main() {
           ),
           ChangeNotifierProvider(create: (_) => RecycleBinProvider()),
           ChangeNotifierProvider(create: (_) => RoleplayProvider()),
+          ChangeNotifierProvider(create: (_) => TaskProvider()),
+          Provider(create: (_) => const CalendarPlatformBridge()),
+          Provider(
+            create: (ctx) {
+              final coordinator = CalendarPlatformProjectionCoordinator(
+                tasks: ctx.read<TaskProvider>(),
+                calendar: ctx.read<CalendarProvider>(),
+                bridge: ctx.read<CalendarPlatformBridge>(),
+              );
+              coordinator.attach();
+              return coordinator;
+            },
+            dispose: (_, coordinator) => coordinator.dispose(),
+          ),
           ChangeNotifierProvider(create: (_) => SettingsProvider()),
         ],
         child: const LynAIApp(),

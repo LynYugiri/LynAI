@@ -5,6 +5,10 @@ class RecycleBinItemTypes {
   static const note = 'note';
   static const notePage = 'notePage';
   static const schedule = 'schedule';
+  static const calendarEvent = 'calendarEvent';
+  static const anniversary = 'anniversary';
+  static const task = 'task';
+  static const taskList = 'taskList';
   static const todoList = 'todoList';
   static const roleplayScenario = 'roleplayScenario';
   static const roleplayThread = 'roleplayThread';
@@ -29,6 +33,7 @@ class RecycleBinCategories {
   static const conversations = 'conversations';
   static const notes = 'notes';
   static const schedules = 'schedules';
+  static const calendar = 'calendar';
   static const todos = 'todos';
   static const roleplay = 'roleplay';
 

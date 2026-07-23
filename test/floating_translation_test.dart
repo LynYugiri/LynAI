@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/model_config.dart';
 import 'package:lynai/providers/feature_provider.dart';
+import 'package:lynai/providers/calendar_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
 import 'package:lynai/providers/plugin_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
+import 'package:lynai/providers/task_provider.dart';
 import 'package:lynai/services/api_service.dart';
 import 'package:lynai/services/floating_chat_session_controller.dart';
 import 'package:lynai/services/floating_translation_controller.dart';
@@ -46,6 +48,8 @@ FloatingChatSessionController _chat(SettingsProvider settings) {
     conversations: memoryConversationProvider(),
     models: memoryModelConfigProvider(),
     features: FeatureProvider(),
+    tasks: TaskProvider(),
+    calendar: CalendarProvider(),
     plugins: PluginProvider(),
   );
 }
@@ -231,6 +235,67 @@ void main() {
     } finally {
       await controller.dispose();
     }
+  });
+
+  test(
+    'native capture errors are exposed instead of reported as no text',
+    () async {
+      final providers = await _providers();
+      final controller = FloatingTranslationController(
+        settings: providers.settings,
+        models: providers.models,
+        captureOcrGroups: () => Future.error('screenshot unavailable'),
+        sendStreamRequest: (model, messages) => const Stream.empty(),
+        replaceTranslations: (_) async {},
+        clearTranslations: () async {},
+      );
+      try {
+        await controller.translateManually();
+
+        expect(controller.error, contains('screenshot unavailable'));
+        expect(controller.error, isNot(contains('没有可读取文本')));
+        expect(controller.isTranslating, isFalse);
+      } finally {
+        await controller.dispose();
+      }
+    },
+  );
+
+  test(
+    'overlay display errors complete the translation with an error',
+    () async {
+      final providers = await _providers();
+      final controller = FloatingTranslationController(
+        settings: providers.settings,
+        models: providers.models,
+        captureOcrGroups: () async => _ocrGroups,
+        sendStreamRequest: (model, messages) => Stream.value(
+          const StreamChunk(content: '[{"id":"group-1","translation":"你好"}]'),
+        ),
+        replaceTranslations: (_) => Future.error('overlay permission denied'),
+        clearTranslations: () async {},
+      );
+      try {
+        await controller.translateManually();
+        await _flushEvents();
+
+        expect(controller.error, contains('overlay permission denied'));
+        expect(controller.translationText, isEmpty);
+        expect(controller.isTranslating, isFalse);
+      } finally {
+        await controller.dispose();
+      }
+    },
+  );
+
+  test('translation prompt requires plain text output', () {
+    final prompt = FloatingTranslationController.buildTranslationPrompt(
+      '简体中文',
+      'com.example.manga',
+    );
+
+    expect(prompt, contains('纯文本'));
+    expect(prompt, contains('不要使用 Markdown'));
   });
 
   test('JSON response maps translations by opaque OCR id', () {

@@ -8,10 +8,12 @@ import 'package:webview_all/webview_all.dart';
 
 import '../models/plugin.dart';
 import '../providers/conversation_provider.dart';
+import '../providers/calendar_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/task_provider.dart';
 import '../services/lynai_call_identity.dart';
 import '../services/lynai_function_service.dart';
 import '../services/backend_client.dart';
@@ -425,6 +427,8 @@ class _PluginFeatureWebViewState extends State<PluginFeatureWebView> {
           toolName: method,
         ),
         features: context.read<FeatureProvider>(),
+        tasks: context.read<TaskProvider>(),
+        calendar: context.read<CalendarProvider>(),
         modelConfigs: context.read<ModelConfigProvider>(),
         settings: context.read<SettingsProvider>(),
         plugins: context.read<PluginProvider>(),

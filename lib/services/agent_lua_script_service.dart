@@ -4,10 +4,12 @@ import 'package:lua_dardo/lua.dart';
 
 import '../models/plugin.dart';
 import '../providers/conversation_provider.dart';
+import '../providers/calendar_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/task_provider.dart';
 import 'lynai_call_identity.dart';
 import 'device_run_controller.dart';
 import 'agent_runtime_service.dart';
@@ -25,6 +27,8 @@ class AgentLuaScriptService {
     required String code,
     required String purpose,
     FeatureProvider? features,
+    TaskProvider? tasks,
+    CalendarProvider? calendar,
     ModelConfigProvider? modelConfigs,
     PluginProvider? plugins,
     SettingsProvider? settings,
@@ -57,6 +61,8 @@ class AgentLuaScriptService {
             method,
             args,
             features: features,
+            tasks: tasks,
+            calendar: calendar,
             modelConfigs: modelConfigs,
             plugins: plugins,
             settings: settings,
@@ -83,6 +89,8 @@ class AgentLuaScriptService {
           state: state,
           generatedImages: generatedImages,
           features: features,
+          tasks: tasks,
+          calendar: calendar,
           modelConfigs: modelConfigs,
           plugins: plugins,
           settings: settings,
@@ -106,6 +114,8 @@ class AgentLuaScriptService {
         depth: 0,
         generatedImages: generatedImages,
         features: features,
+        tasks: tasks,
+        calendar: calendar,
         modelConfigs: modelConfigs,
         plugins: plugins,
         settings: settings,
@@ -187,6 +197,8 @@ class AgentLuaScriptService {
     String method,
     Map<String, dynamic> args, {
     FeatureProvider? features,
+    TaskProvider? tasks,
+    CalendarProvider? calendar,
     ModelConfigProvider? modelConfigs,
     PluginProvider? plugins,
     SettingsProvider? settings,
@@ -247,6 +259,8 @@ class AgentLuaScriptService {
             toolName: method,
           ),
       features: features,
+      tasks: tasks,
+      calendar: calendar,
       modelConfigs: modelConfigs,
       plugins: plugins,
       settings: settings,
@@ -331,6 +345,8 @@ class AgentLuaScriptService {
     required LuaState state,
     required List<Map<String, dynamic>> generatedImages,
     FeatureProvider? features,
+    TaskProvider? tasks,
+    CalendarProvider? calendar,
     ModelConfigProvider? modelConfigs,
     PluginProvider? plugins,
     SettingsProvider? settings,
@@ -357,6 +373,8 @@ class AgentLuaScriptService {
       args,
       generatedImages: generatedImages,
       features: features,
+      tasks: tasks,
+      calendar: calendar,
       modelConfigs: modelConfigs,
       plugins: plugins,
       settings: settings,
@@ -373,6 +391,8 @@ class AgentLuaScriptService {
     required int depth,
     required List<Map<String, dynamic>> generatedImages,
     FeatureProvider? features,
+    TaskProvider? tasks,
+    CalendarProvider? calendar,
     ModelConfigProvider? modelConfigs,
     PluginProvider? plugins,
     SettingsProvider? settings,
@@ -401,6 +421,8 @@ class AgentLuaScriptService {
       args,
       generatedImages: generatedImages,
       features: features,
+      tasks: tasks,
+      calendar: calendar,
       modelConfigs: modelConfigs,
       plugins: plugins,
       settings: settings,
@@ -455,6 +477,8 @@ class AgentLuaScriptService {
     Map<String, dynamic> args, {
     List<Map<String, dynamic>>? generatedImages,
     FeatureProvider? features,
+    TaskProvider? tasks,
+    CalendarProvider? calendar,
     ModelConfigProvider? modelConfigs,
     PluginProvider? plugins,
     SettingsProvider? settings,
@@ -475,6 +499,8 @@ class AgentLuaScriptService {
                 toolName: name,
               ),
           features: features,
+          tasks: tasks,
+          calendar: calendar,
           modelConfigs: modelConfigs,
           plugins: plugins,
           settings: settings,
@@ -546,6 +572,8 @@ class AgentLuaScriptService {
       function: function,
       arguments: functionArgs,
       features: features,
+      tasks: tasks,
+      calendar: calendar,
       modelConfigs: modelConfigs,
       plugins: plugins,
       settings: settings,
@@ -641,7 +669,59 @@ class AgentLuaScriptService {
       },
     });
     _installDeviceTable(state, -1, onCall, asyncCalls: asyncCalls);
+    // 规范便捷表保留 lynai.call 的完整能力，同时避免脚本拼错函数名。
+    _installFunctionTable(state, -1, 'tasks', 'tasks', onCall, asyncCalls);
+    _installFunctionTable(
+      state,
+      -1,
+      'calendar',
+      'calendar',
+      onCall,
+      asyncCalls,
+    );
+    _installFunctionTable(
+      state,
+      -1,
+      'anniversaries',
+      'anniversaries',
+      onCall,
+      asyncCalls,
+    );
     state.setGlobal('lynai');
+  }
+
+  void _installFunctionTable(
+    LuaState state,
+    int parentIndex,
+    String tableName,
+    String prefix,
+    Map<String, dynamic> Function(String method, Map<String, dynamic> args)
+    onCall,
+    bool asyncCalls,
+  ) {
+    int invoke(LuaState ls, String operation) {
+      final args = _mapArg(ls, 1);
+      final result = onCall('$prefix.$operation', args);
+      final isCommand = result['__lynai_function'] is String;
+      if (isCommand && result['__lynai_next'] is! String && asyncCalls) {
+        ls.yieldAsync(result);
+      }
+      _pushJsonValue(ls, result);
+      return 1;
+    }
+
+    final parent = state.absIndex(parentIndex);
+    state.newTable();
+    final table = state.absIndex(-1);
+    for (final operation in const ['list', 'create', 'update', 'delete']) {
+      int function(LuaState ls) => invoke(ls, operation);
+      if (asyncCalls) {
+        _setAsyncFunction(state, table, operation, function);
+      } else {
+        _setFunction(state, table, operation, function);
+      }
+    }
+    state.setField(parent, tableName);
   }
 
   void _installDeviceTable(

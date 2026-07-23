@@ -272,27 +272,20 @@ class NoteEditBlockRows extends Table {
   Set<Column> get primaryKey => {id};
 }
 
-class ScheduleRows extends Table {
+class TaskRows extends Table {
   @override
-  String get tableName => 'schedules';
+  String get tableName => 'tasks';
 
   TextColumn get id => text()();
   TextColumn get title => text()();
-  TextColumn get startTime => text().named('start_time')();
-  TextColumn get endTime => text().named('end_time')();
   TextColumn get note => text().nullable()();
-  TextColumn get kind => text()();
-
-  @override
-  Set<Column> get primaryKey => {id};
-}
-
-class TodoListRows extends Table {
-  @override
-  String get tableName => 'todo_lists';
-
-  TextColumn get id => text()();
-  TextColumn get title => text()();
+  TextColumn get plannedDate => text().named('planned_date').nullable()();
+  TextColumn get plannedTime => text().named('planned_time').nullable()();
+  TextColumn get dueDate => text().named('due_date').nullable()();
+  TextColumn get dueTime => text().named('due_time').nullable()();
+  TextColumn get completedAt => text().named('completed_at').nullable()();
+  TextColumn get remindersJson =>
+      text().named('reminders_json').withDefault(const Constant('[]'))();
   TextColumn get createdAt => text().named('created_at')();
   TextColumn get updatedAt => text().named('updated_at')();
 
@@ -300,17 +293,81 @@ class TodoListRows extends Table {
   Set<Column> get primaryKey => {id};
 }
 
-class TodoItemRows extends Table {
+class TaskListRows extends Table {
   @override
-  String get tableName => 'todo_items';
+  String get tableName => 'task_lists';
 
   TextColumn get id => text()();
-  TextColumn get listId => text().named('list_id')();
-  TextColumn get itemText => text().named('text')();
-  IntColumn get done => integer()();
+  TextColumn get title => text()();
   IntColumn get sortOrder => integer().named('sort_order')();
-  TextColumn get updatedAt =>
-      text().named('updated_at').withDefault(const Constant(''))();
+  TextColumn get createdAt => text().named('created_at')();
+  TextColumn get updatedAt => text().named('updated_at')();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+class TaskListEntryRows extends Table {
+  @override
+  String get tableName => 'task_list_entries';
+
+  TextColumn get taskId => text()
+      .named('task_id')
+      .customConstraint('NOT NULL REFERENCES tasks(id) ON DELETE CASCADE')();
+  TextColumn get listId => text()
+      .named('list_id')
+      .customConstraint(
+        'NOT NULL REFERENCES task_lists(id) ON DELETE CASCADE',
+      )();
+  IntColumn get sortOrder => integer().named('sort_order')();
+  TextColumn get updatedAt => text().named('updated_at')();
+
+  @override
+  Set<Column> get primaryKey => {taskId};
+}
+
+class CalendarEventRows extends Table {
+  @override
+  String get tableName => 'calendar_events';
+
+  TextColumn get id => text()();
+  TextColumn get title => text()();
+  TextColumn get note => text().nullable()();
+  TextColumn get timeKind => text()
+      .named('time_kind')
+      .customConstraint("NOT NULL CHECK (time_kind IN ('timed', 'allDay'))")();
+  TextColumn get startAt => text().named('start_at').nullable()();
+  TextColumn get endAt => text().named('end_at').nullable()();
+  TextColumn get startDate => text().named('start_date').nullable()();
+  TextColumn get endDateExclusive =>
+      text().named('end_date_exclusive').nullable()();
+  TextColumn get remindersJson =>
+      text().named('reminders_json').withDefault(const Constant('[]'))();
+  TextColumn get createdAt => text().named('created_at')();
+  TextColumn get updatedAt => text().named('updated_at')();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+class AnniversaryRows extends Table {
+  @override
+  String get tableName => 'anniversaries';
+
+  TextColumn get id => text()();
+  TextColumn get title => text()();
+  TextColumn get note => text().nullable()();
+  IntColumn get month => integer()();
+  IntColumn get day => integer()();
+  IntColumn get year => integer().nullable()();
+  TextColumn get recurrence => text().customConstraint(
+    "NOT NULL CHECK (recurrence IN ('once', 'yearly'))",
+  )();
+  IntColumn get showYearCount => integer().named('show_year_count')();
+  TextColumn get remindersJson =>
+      text().named('reminders_json').withDefault(const Constant('[]'))();
+  TextColumn get createdAt => text().named('created_at')();
+  TextColumn get updatedAt => text().named('updated_at')();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -465,9 +522,11 @@ class SyncAppliedChangeRows extends Table {
     NotePageConflictRows,
     NoteEditProposalRows,
     NoteEditBlockRows,
-    ScheduleRows,
-    TodoListRows,
-    TodoItemRows,
+    TaskRows,
+    TaskListRows,
+    TaskListEntryRows,
+    CalendarEventRows,
+    AnniversaryRows,
     RoleplayScenarioRows,
     RoleplayThreadRows,
     RecycleBinRows,
@@ -491,7 +550,7 @@ class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
   /// This is separate from [StorageV2Service.currentLayoutVersion], which
   /// describes the storage_v2 directory layout.
   @override
-  int get schemaVersion => 14;
+  int get schemaVersion => 15;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -650,8 +709,182 @@ SET captures_local = active
           await customStatement('DELETE FROM sync_scope_baselines');
         }
       }
+      if (from < 15) {
+        await _migratePlanningSchemaV15(m);
+      }
     },
   );
+
+  Future<void> _migratePlanningSchemaV15(Migrator m) async {
+    await m.createTable(taskRows);
+    await m.createTable(taskListRows);
+    await m.createTable(taskListEntryRows);
+    await m.createTable(calendarEventRows);
+    await m.createTable(anniversaryRows);
+    final migrationTimestamp = DateTime.now().toIso8601String();
+
+    if (await _tableExists('todo_lists')) {
+      final lists = await customSelect(
+        'SELECT id, title, created_at, updated_at FROM todo_lists ORDER BY rowid',
+      ).get();
+      for (var index = 0; index < lists.length; index++) {
+        final row = lists[index];
+        await into(taskListRows).insert(
+          TaskListRowsCompanion.insert(
+            id: row.read<String>('id'),
+            title: row.read<String>('title'),
+            sortOrder: index,
+            createdAt: row.read<String>('created_at'),
+            updatedAt: row.read<String>('updated_at'),
+          ),
+        );
+      }
+    }
+    if (await _tableExists('todo_items')) {
+      final items = await customSelect('''
+SELECT i.id, i.list_id, i.text, i.done, i.sort_order, i.updated_at,
+       l.created_at AS list_created_at, l.updated_at AS list_updated_at
+FROM todo_items i
+JOIN todo_lists l ON l.id = i.list_id
+ORDER BY i.list_id, i.sort_order, i.rowid
+''').get();
+      for (final row in items) {
+        final createdAt = row.read<String>('list_created_at');
+        final itemUpdatedAt = row.read<String>('updated_at');
+        final listUpdatedAt = row.read<String>('list_updated_at');
+        final updatedAt = itemUpdatedAt.isNotEmpty
+            ? itemUpdatedAt
+            : listUpdatedAt.isNotEmpty
+            ? listUpdatedAt
+            : createdAt.isNotEmpty
+            ? createdAt
+            : migrationTimestamp;
+        final id = row.read<String>('id');
+        await into(taskRows).insert(
+          TaskRowsCompanion.insert(
+            id: id,
+            title: row.read<String>('text'),
+            completedAt: Value(row.read<int>('done') != 0 ? updatedAt : null),
+            createdAt: createdAt.isEmpty ? migrationTimestamp : createdAt,
+            updatedAt: updatedAt,
+          ),
+        );
+        await into(taskListEntryRows).insert(
+          TaskListEntryRowsCompanion.insert(
+            taskId: id,
+            listId: row.read<String>('list_id'),
+            sortOrder: row.read<int>('sort_order'),
+            updatedAt: updatedAt,
+          ),
+        );
+      }
+    }
+    if (await _tableExists('schedules')) {
+      final schedules = await customSelect(
+        'SELECT id, title, start_time, end_time, note, kind '
+        'FROM schedules ORDER BY rowid',
+      ).get();
+      for (final row in schedules) {
+        final oldId = row.read<String>('id');
+        final start = row.read<String>('start_time');
+        final kind = row.read<String>('kind');
+        if (kind == 'task') {
+          var id = oldId;
+          if (await _migrationRecordExists('tasks', id)) {
+            final base = 'legacy-schedule-task-$oldId';
+            id = base;
+            var suffix = 2;
+            while (await _migrationRecordExists('tasks', id)) {
+              id = '$base-$suffix';
+              suffix++;
+            }
+          }
+          final migratedStart =
+              DateTime.tryParse(start) ?? DateTime.parse(migrationTimestamp);
+          final localStart = migratedStart.toLocal();
+          await into(taskRows).insert(
+            TaskRowsCompanion.insert(
+              id: id,
+              title: row.read<String>('title'),
+              note: Value(row.readNullable<String>('note')),
+              plannedDate: Value(_datePart(localStart)),
+              plannedTime: Value(_timePart(localStart)),
+              createdAt: start.isEmpty ? migrationTimestamp : start,
+              updatedAt: start.isEmpty ? migrationTimestamp : start,
+            ),
+          );
+        } else {
+          await into(calendarEventRows).insert(
+            CalendarEventRowsCompanion.insert(
+              id: oldId,
+              title: row.read<String>('title'),
+              note: Value(row.readNullable<String>('note')),
+              timeKind: 'timed',
+              startAt: Value(start),
+              endAt: Value(row.read<String>('end_time')),
+              createdAt: start.isEmpty ? migrationTimestamp : start,
+              updatedAt: start.isEmpty ? migrationTimestamp : start,
+            ),
+          );
+        }
+      }
+    }
+
+    // 旧规划数据与 v15 的同步协议不兼容，清空而不是尝试双协议转换。
+    for (final table in [
+      'sync_outbox',
+      'sync_conflicts',
+      'sync_scope_baselines',
+    ]) {
+      if (await _tableExists(table)) {
+        await customStatement(
+          'DELETE FROM $table WHERE table_name IN (?, ?, ?)',
+          ['schedules', 'todo_lists', 'todo_items'],
+        );
+      }
+    }
+    if (await _tableExists('sync_state')) {
+      // 强制所有既有作用域重新建立基线，使下次绑定上传完整的 v15 规范快照。
+      await customStatement('UPDATE sync_state SET initialized = 0');
+    }
+    if (await _tableExists('todo_items')) {
+      await customStatement('DROP TABLE todo_items');
+    }
+    if (await _tableExists('todo_lists')) {
+      await customStatement('DROP TABLE todo_lists');
+    }
+    if (await _tableExists('schedules')) {
+      await customStatement('DROP TABLE schedules');
+    }
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_task_list_entries_list '
+      'ON task_list_entries(list_id, sort_order)',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_tasks_planned '
+      'ON tasks(planned_date, planned_time)',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_calendar_events_start '
+      'ON calendar_events(start_at, start_date)',
+    );
+  }
+
+  Future<bool> _migrationRecordExists(String table, String id) async =>
+      await customSelect(
+        'SELECT 1 FROM $table WHERE id = ? LIMIT 1',
+        variables: [Variable.withString(id)],
+      ).getSingleOrNull() !=
+      null;
+
+  static String _datePart(DateTime value) =>
+      '${value.year.toString().padLeft(4, '0')}-'
+      '${value.month.toString().padLeft(2, '0')}-'
+      '${value.day.toString().padLeft(2, '0')}';
+
+  static String _timePart(DateTime value) =>
+      '${value.hour.toString().padLeft(2, '0')}:'
+      '${value.minute.toString().padLeft(2, '0')}';
 
   Future<void> _migrateNoteRevisionDag() async {
     final legacyExists = await customSelect(
@@ -779,8 +1012,8 @@ class StorageV2Database {
       'model_configs.json' => await _loadModelConfigs(db),
       'conversations.json' => await _loadConversations(db),
       'notes.json' => await _loadNotes(db),
-      'schedules.json' => await _loadSchedules(db),
-      'todo_lists.json' => await _loadTodoLists(db),
+      'tasks.json' => await _loadTasks(db),
+      'calendar.json' => await _loadCalendar(db),
       'resources.json' => await _loadResources(db),
       'roleplay_scenarios.json' => await _loadRoleplayScenarios(db),
       'roleplay_threads.json' => await _loadRoleplayThreads(db),
@@ -803,10 +1036,10 @@ class StorageV2Database {
           await _replaceConversations(db, data);
         case 'notes.json':
           await _replaceNotes(db, data);
-        case 'schedules.json':
-          await _replaceSchedules(db, data);
-        case 'todo_lists.json':
-          await _replaceTodoLists(db, data);
+        case 'tasks.json':
+          await _replaceTasks(db, data);
+        case 'calendar.json':
+          await _replaceCalendar(db, data);
         case 'resources.json':
           await _replaceResources(db, data);
         case 'roleplay_scenarios.json':
@@ -987,7 +1220,7 @@ class StorageV2Database {
     await (db.delete(db.resourceRows)..where((t) => t.id.equals(id))).go();
   }
 
-  Future<void> upsertScheduleRow(
+  Future<void> upsertTaskRow(
     Map<String, dynamic> json, {
     StorageV2DriftDatabase? transactionDb,
   }) async {
@@ -995,56 +1228,33 @@ class StorageV2Database {
     final id = json['id'] as String?;
     if (id == null || id.isEmpty) return;
     await db
-        .into(db.scheduleRows)
+        .into(db.taskRows)
         .insertOnConflictUpdate(
-          ScheduleRowsCompanion.insert(
+          TaskRowsCompanion.insert(
             id: id,
             title: json['title'] as String? ?? '',
-            startTime:
-                json['start'] as String? ?? json['startTime'] as String? ?? '',
-            endTime: json['end'] as String? ?? json['endTime'] as String? ?? '',
             note: Value(json['note'] as String?),
-            kind: json['kind'] as String? ?? '',
-          ),
-        );
-  }
-
-  Future<void> deleteScheduleRow(
-    String id, {
-    StorageV2DriftDatabase? transactionDb,
-  }) async {
-    final db = transactionDb ?? await _open();
-    await (db.delete(db.scheduleRows)..where((t) => t.id.equals(id))).go();
-  }
-
-  Future<void> upsertTodoListRow(
-    Map<String, dynamic> json, {
-    StorageV2DriftDatabase? transactionDb,
-  }) async {
-    final db = transactionDb ?? await _open();
-    final id = json['id'] as String?;
-    if (id == null || id.isEmpty) return;
-    await db
-        .into(db.todoListRows)
-        .insertOnConflictUpdate(
-          TodoListRowsCompanion.insert(
-            id: id,
-            title: json['title'] as String? ?? '',
+            plannedDate: Value(json['plannedDate'] as String?),
+            plannedTime: Value(json['plannedTime'] as String?),
+            dueDate: Value(json['dueDate'] as String?),
+            dueTime: Value(json['dueTime'] as String?),
+            completedAt: Value(json['completedAt'] as String?),
+            remindersJson: Value(jsonEncode(json['reminders'] ?? const [])),
             createdAt: json['createdAt'] as String? ?? '',
             updatedAt: json['updatedAt'] as String? ?? '',
           ),
         );
   }
 
-  Future<void> deleteTodoListRow(
+  Future<void> deleteTaskRow(
     String id, {
     StorageV2DriftDatabase? transactionDb,
   }) async {
     final db = transactionDb ?? await _open();
-    await (db.delete(db.todoListRows)..where((t) => t.id.equals(id))).go();
+    await (db.delete(db.taskRows)..where((t) => t.id.equals(id))).go();
   }
 
-  Future<void> upsertTodoItemRow(
+  Future<void> upsertTaskListRow(
     Map<String, dynamic> json, {
     StorageV2DriftDatabase? transactionDb,
   }) async {
@@ -1052,31 +1262,126 @@ class StorageV2Database {
     final id = json['id'] as String?;
     if (id == null || id.isEmpty) return;
     await db
-        .into(db.todoItemRows)
+        .into(db.taskListRows)
         .insertOnConflictUpdate(
-          TodoItemRowsCompanion.insert(
+          TaskListRowsCompanion.insert(
             id: id,
+            title: json['title'] as String? ?? '',
+            sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
+            createdAt: json['createdAt'] as String? ?? '',
+            updatedAt: json['updatedAt'] as String? ?? '',
+          ),
+        );
+  }
+
+  Future<void> deleteTaskListRow(
+    String id, {
+    StorageV2DriftDatabase? transactionDb,
+  }) async {
+    final db = transactionDb ?? await _open();
+    await (db.delete(db.taskListRows)..where((t) => t.id.equals(id))).go();
+  }
+
+  Future<void> upsertTaskListEntryRow(
+    Map<String, dynamic> json, {
+    StorageV2DriftDatabase? transactionDb,
+  }) async {
+    final db = transactionDb ?? await _open();
+    final taskId = json['taskId'] as String? ?? json['id'] as String?;
+    if (taskId == null || taskId.isEmpty) return;
+    await db
+        .into(db.taskListEntryRows)
+        .insertOnConflictUpdate(
+          TaskListEntryRowsCompanion.insert(
+            taskId: taskId,
             listId: json['listId'] as String? ?? '',
-            itemText:
-                json['text'] as String? ?? json['itemText'] as String? ?? '',
-            done: switch (json['done']) {
+            sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
+            updatedAt: json['updatedAt'] as String? ?? '',
+          ),
+        );
+  }
+
+  Future<void> deleteTaskListEntryRow(
+    String taskId, {
+    StorageV2DriftDatabase? transactionDb,
+  }) async {
+    final db = transactionDb ?? await _open();
+    await (db.delete(
+      db.taskListEntryRows,
+    )..where((t) => t.taskId.equals(taskId))).go();
+  }
+
+  Future<void> upsertCalendarEventRow(
+    Map<String, dynamic> json, {
+    StorageV2DriftDatabase? transactionDb,
+  }) async {
+    final db = transactionDb ?? await _open();
+    final id = json['id'] as String?;
+    if (id == null || id.isEmpty) return;
+    await db
+        .into(db.calendarEventRows)
+        .insertOnConflictUpdate(
+          CalendarEventRowsCompanion.insert(
+            id: id,
+            title: json['title'] as String? ?? '',
+            note: Value(json['note'] as String?),
+            timeKind: json['timeKind'] as String? ?? 'timed',
+            startAt: Value(json['startAt'] as String?),
+            endAt: Value(json['endAt'] as String?),
+            startDate: Value(json['startDate'] as String?),
+            endDateExclusive: Value(json['endDateExclusive'] as String?),
+            remindersJson: Value(jsonEncode(json['reminders'] ?? const [])),
+            createdAt: json['createdAt'] as String? ?? '',
+            updatedAt: json['updatedAt'] as String? ?? '',
+          ),
+        );
+  }
+
+  Future<void> deleteCalendarEventRow(
+    String id, {
+    StorageV2DriftDatabase? transactionDb,
+  }) async {
+    final db = transactionDb ?? await _open();
+    await (db.delete(db.calendarEventRows)..where((t) => t.id.equals(id))).go();
+  }
+
+  Future<void> upsertAnniversaryRow(
+    Map<String, dynamic> json, {
+    StorageV2DriftDatabase? transactionDb,
+  }) async {
+    final db = transactionDb ?? await _open();
+    final id = json['id'] as String?;
+    if (id == null || id.isEmpty) return;
+    await db
+        .into(db.anniversaryRows)
+        .insertOnConflictUpdate(
+          AnniversaryRowsCompanion.insert(
+            id: id,
+            title: json['title'] as String? ?? '',
+            note: Value(json['note'] as String?),
+            month: (json['month'] as num?)?.toInt() ?? 1,
+            day: (json['day'] as num?)?.toInt() ?? 1,
+            year: Value((json['year'] as num?)?.toInt()),
+            recurrence: json['recurrence'] as String? ?? 'yearly',
+            showYearCount: switch (json['showYearCount']) {
               true => 1,
               false || null => 0,
               final num value => value.toInt(),
               _ => 0,
             },
-            sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
-            updatedAt: Value(json['updatedAt'] as String? ?? ''),
+            remindersJson: Value(jsonEncode(json['reminders'] ?? const [])),
+            createdAt: json['createdAt'] as String? ?? '',
+            updatedAt: json['updatedAt'] as String? ?? '',
           ),
         );
   }
 
-  Future<void> deleteTodoItemRow(
+  Future<void> deleteAnniversaryRow(
     String id, {
     StorageV2DriftDatabase? transactionDb,
   }) async {
     final db = transactionDb ?? await _open();
-    await (db.delete(db.todoItemRows)..where((t) => t.id.equals(id))).go();
+    await (db.delete(db.anniversaryRows)..where((t) => t.id.equals(id))).go();
   }
 
   Future<void> upsertRoleplayScenarioRow(
@@ -1202,7 +1507,7 @@ class StorageV2Database {
         await _repairOutboxIdentity(db, scope, deviceId);
         return;
       }
-      if (!sameFamilyExists) {
+      if (state != null || !sameFamilyExists) {
         final snapshot = await _syncSnapshot(db, _syncTableNames);
         for (final table in snapshot.entries) {
           for (final row in table.value.entries) {
@@ -1223,7 +1528,7 @@ class StorageV2Database {
           .insertOnConflictUpdate(
             SyncStateRowsCompanion.insert(
               scope: scope,
-              since: const Value(0),
+              since: Value(state?.since ?? 0),
               initialized: const Value(true),
               active: const Value(true),
               capturesLocal: const Value(true),
@@ -1499,6 +1804,12 @@ class StorageV2Database {
         });
       }
       for (final op in orderedOps) {
+        if (remote && _legacyPlanningSyncTableNames.contains(op.table)) {
+          throw StateError(
+            'sync schema upgrade required: legacy planning table '
+            '${op.table} is not supported by storage schema v15',
+          );
+        }
         final changeId = op.change?.changeId;
         if (remote && changeId != null) {
           final existing = await (db.select(
@@ -1660,29 +1971,44 @@ class StorageV2Database {
                 transactionDb: db,
               );
             }
-          case 'schedules':
+          case 'tasks':
             if (op.op == 'upsert' && op.data != null) {
-              await upsertScheduleRow(op.data!, transactionDb: db);
+              await upsertTaskRow(op.data!, transactionDb: db);
             } else if (op.op == 'delete') {
-              await deleteScheduleRow(
+              await deleteTaskRow(op.data!['id'] as String, transactionDb: db);
+            }
+          case 'task_lists':
+            if (op.op == 'upsert' && op.data != null) {
+              await upsertTaskListRow(op.data!, transactionDb: db);
+            } else if (op.op == 'delete') {
+              await deleteTaskListRow(
                 op.data!['id'] as String,
                 transactionDb: db,
               );
             }
-          case 'todo_lists':
+          case 'task_list_entries':
             if (op.op == 'upsert' && op.data != null) {
-              await upsertTodoListRow(op.data!, transactionDb: db);
+              await upsertTaskListEntryRow(op.data!, transactionDb: db);
             } else if (op.op == 'delete') {
-              await deleteTodoListRow(
+              await deleteTaskListEntryRow(
                 op.data!['id'] as String,
                 transactionDb: db,
               );
             }
-          case 'todo_items':
+          case 'calendar_events':
             if (op.op == 'upsert' && op.data != null) {
-              await upsertTodoItemRow(op.data!, transactionDb: db);
+              await upsertCalendarEventRow(op.data!, transactionDb: db);
             } else if (op.op == 'delete') {
-              await deleteTodoItemRow(
+              await deleteCalendarEventRow(
+                op.data!['id'] as String,
+                transactionDb: db,
+              );
+            }
+          case 'anniversaries':
+            if (op.op == 'upsert' && op.data != null) {
+              await upsertAnniversaryRow(op.data!, transactionDb: db);
+            } else if (op.op == 'delete') {
+              await deleteAnniversaryRow(
                 op.data!['id'] as String,
                 transactionDb: db,
               );
@@ -2180,6 +2506,9 @@ class StorageV2Database {
     return switch (table) {
       'note_folders' => 0,
       'notes' => 1,
+      'tasks' => op == 'delete' ? 9 : 0,
+      'task_lists' => op == 'delete' ? 9 : 1,
+      'task_list_entries' => op == 'delete' ? 0 : 2,
       'note_pages' => 3,
       'note_revisions' => 4,
       'note_page_heads' => 5,
@@ -2506,28 +2835,59 @@ CREATE TABLE IF NOT EXISTS note_edit_blocks (
   sort_order INTEGER NOT NULL,
   FOREIGN KEY (proposal_id) REFERENCES note_edit_proposals(id) ON DELETE CASCADE
 );
-CREATE TABLE IF NOT EXISTS schedules (
+CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
-  start_time TEXT NOT NULL,
-  end_time TEXT NOT NULL,
   note TEXT,
-  kind TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS todo_lists (
-  id TEXT PRIMARY KEY,
-  title TEXT NOT NULL,
+  planned_date TEXT,
+  planned_time TEXT,
+  due_date TEXT,
+  due_time TEXT,
+  completed_at TEXT,
+  reminders_json TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS todo_items (
+CREATE TABLE IF NOT EXISTS task_lists (
   id TEXT PRIMARY KEY,
-  list_id TEXT NOT NULL,
-  text TEXT NOT NULL,
-  done INTEGER NOT NULL,
+  title TEXT NOT NULL,
   sort_order INTEGER NOT NULL,
-  updated_at TEXT NOT NULL DEFAULT '',
-  FOREIGN KEY (list_id) REFERENCES todo_lists(id) ON DELETE CASCADE
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS task_list_entries (
+  task_id TEXT PRIMARY KEY,
+  list_id TEXT NOT NULL,
+  sort_order INTEGER NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+  FOREIGN KEY (list_id) REFERENCES task_lists(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS calendar_events (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  note TEXT,
+  time_kind TEXT NOT NULL CHECK (time_kind IN ('timed', 'allDay')),
+  start_at TEXT,
+  end_at TEXT,
+  start_date TEXT,
+  end_date_exclusive TEXT,
+  reminders_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS anniversaries (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  note TEXT,
+  month INTEGER NOT NULL,
+  day INTEGER NOT NULL,
+  year INTEGER,
+  recurrence TEXT NOT NULL CHECK (recurrence IN ('once', 'yearly')),
+  show_year_count INTEGER NOT NULL,
+  reminders_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_attachments_message ON message_attachments(message_id, sort_order);
@@ -2536,7 +2896,9 @@ CREATE INDEX IF NOT EXISTS idx_note_revisions_page_created ON note_revisions(pag
 CREATE INDEX IF NOT EXISTS idx_note_revisions_content_hash ON note_revisions(content_hash);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_note_page_heads_page ON note_page_heads(page_id);
 CREATE INDEX IF NOT EXISTS idx_note_page_tombstones_page ON note_page_tombstones(page_id);
-CREATE INDEX IF NOT EXISTS idx_todo_items_list ON todo_items(list_id, sort_order);
+CREATE INDEX IF NOT EXISTS idx_task_list_entries_list ON task_list_entries(list_id, sort_order);
+CREATE INDEX IF NOT EXISTS idx_tasks_planned ON tasks(planned_date, planned_time);
+CREATE INDEX IF NOT EXISTS idx_calendar_events_start ON calendar_events(start_at, start_date);
 CREATE INDEX IF NOT EXISTS idx_resources_hash_size ON resources(sha256, size);
 CREATE TABLE IF NOT EXISTS sync_outbox (
   scope TEXT NOT NULL,
@@ -2844,57 +3206,107 @@ CREATE TABLE IF NOT EXISTS sync_applied_changes (
     };
   }
 
-  Future<Map<String, dynamic>> _loadSchedules(StorageV2DriftDatabase db) async {
-    final rows = await (db.select(
-      db.scheduleRows,
-    )..orderBy([(table) => OrderingTerm.asc(table.startTime)])).get();
-    return {
-      'schedules': rows
-          .map(
-            (row) => {
-              'id': row.id,
-              'title': row.title,
-              'start': row.startTime,
-              'end': row.endTime,
-              if (row.note != null) 'note': row.note,
-              if (row.kind != 'schedule') 'kind': row.kind,
-            },
-          )
-          .toList(),
-    };
-  }
-
-  Future<Map<String, dynamic>> _loadTodoLists(StorageV2DriftDatabase db) async {
-    final todoLists =
+  Future<Map<String, dynamic>> _loadTasks(StorageV2DriftDatabase db) async {
+    final tasks =
         (await (db.select(
-              db.todoListRows,
+              db.taskRows,
             )..orderBy([(table) => OrderingTerm.desc(table.updatedAt)])).get())
             .map(
               (row) => {
                 'id': row.id,
                 'title': row.title,
+                if (row.note != null) 'note': row.note,
+                if (row.plannedDate != null) 'plannedDate': row.plannedDate,
+                if (row.plannedTime != null) 'plannedTime': row.plannedTime,
+                if (row.dueDate != null) 'dueDate': row.dueDate,
+                if (row.dueTime != null) 'dueTime': row.dueTime,
+                if (row.completedAt != null) 'completedAt': row.completedAt,
+                'reminders': jsonDecode(row.remindersJson),
                 'createdAt': row.createdAt,
                 'updatedAt': row.updatedAt,
               },
             )
             .toList();
-    final todoItems =
-        (await (db.select(db.todoItemRows)..orderBy([
+    final lists =
+        (await (db.select(
+              db.taskListRows,
+            )..orderBy([(table) => OrderingTerm.asc(table.sortOrder)])).get())
+            .map(
+              (row) => {
+                'id': row.id,
+                'title': row.title,
+                'sortOrder': row.sortOrder,
+                'createdAt': row.createdAt,
+                'updatedAt': row.updatedAt,
+              },
+            )
+            .toList();
+    final entries =
+        (await (db.select(db.taskListEntryRows)..orderBy([
                   (table) => OrderingTerm.asc(table.listId),
                   (table) => OrderingTerm.asc(table.sortOrder),
                 ]))
                 .get())
             .map(
               (row) => {
-                'id': row.id,
+                'id': row.taskId,
+                'taskId': row.taskId,
                 'listId': row.listId,
-                'text': row.itemText,
-                'done': row.done != 0,
                 'sortOrder': row.sortOrder,
+                'updatedAt': row.updatedAt,
               },
             )
             .toList();
-    return {'todoLists': todoLists, 'todoItems': todoItems};
+    return {'tasks': tasks, 'lists': lists, 'entries': entries};
+  }
+
+  Future<Map<String, dynamic>> _loadCalendar(StorageV2DriftDatabase db) async {
+    final events =
+        (await (db.select(db.calendarEventRows)..orderBy([
+                  (table) => OrderingTerm.asc(table.startAt),
+                  (table) => OrderingTerm.asc(table.startDate),
+                ]))
+                .get())
+            .map(
+              (row) => {
+                'id': row.id,
+                'title': row.title,
+                if (row.note != null) 'note': row.note,
+                'timeKind': row.timeKind,
+                if (row.startAt != null) 'startAt': row.startAt,
+                if (row.endAt != null) 'endAt': row.endAt,
+                if (row.startDate != null) 'startDate': row.startDate,
+                if (row.endDateExclusive != null)
+                  'endDateExclusive': row.endDateExclusive,
+                'reminders': jsonDecode(row.remindersJson),
+                'createdAt': row.createdAt,
+                'updatedAt': row.updatedAt,
+              },
+            )
+            .toList();
+    final anniversaries =
+        (await (db.select(db.anniversaryRows)..orderBy([
+                  (table) => OrderingTerm.asc(table.month),
+                  (table) => OrderingTerm.asc(table.day),
+                ]))
+                .get())
+            .map(
+              (row) => {
+                'id': row.id,
+                'title': row.title,
+                if (row.note != null) 'note': row.note,
+                'month': row.month,
+                'day': row.day,
+                if (row.year != null) 'year': row.year,
+                'recurrence': row.recurrence,
+                'showYearCount': row.showYearCount != 0,
+                'reminders': jsonDecode(row.remindersJson),
+                'createdAt': row.createdAt,
+                'updatedAt': row.updatedAt,
+              },
+            )
+            .toList();
+    return {'events': events, 'anniversaries': anniversaries};
   }
 
   Future<Map<String, dynamic>> _loadRoleplayScenarios(
@@ -3368,78 +3780,66 @@ CREATE TABLE IF NOT EXISTS sync_applied_changes (
     }
   }
 
-  Future<void> _replaceSchedules(
+  Future<void> _replaceTasks(
     StorageV2DriftDatabase db,
     Map<String, dynamic> data,
   ) async {
-    await db.delete(db.scheduleRows).go();
-    for (final item in data['schedules'] as List<dynamic>? ?? const []) {
+    await db.delete(db.taskListEntryRows).go();
+    await db.delete(db.taskListRows).go();
+    await db.delete(db.taskRows).go();
+    final taskIds = <String>{};
+    for (final item in data['tasks'] as List<dynamic>? ?? const []) {
       if (item is! Map) continue;
       final json = Map<String, dynamic>.from(item);
       final id = json['id'] as String?;
       if (id == null || id.isEmpty) continue;
-      await db
-          .into(db.scheduleRows)
-          .insert(
-            ScheduleRowsCompanion.insert(
-              id: id,
-              title: json['title'] as String? ?? '',
-              startTime: json['start'] as String? ?? '',
-              endTime: json['end'] as String? ?? '',
-              note: Value(json['note'] as String?),
-              kind: json['kind'] as String? ?? 'schedule',
-            ),
-          );
+      await upsertTaskRow(json, transactionDb: db);
+      taskIds.add(id);
+    }
+    final listIds = <String>{};
+    for (final item in data['lists'] as List<dynamic>? ?? const []) {
+      if (item is! Map) continue;
+      final json = Map<String, dynamic>.from(item);
+      final id = json['id'] as String?;
+      if (id == null || id.isEmpty) continue;
+      await upsertTaskListRow(json, transactionDb: db);
+      listIds.add(id);
+    }
+    for (final item in data['entries'] as List<dynamic>? ?? const []) {
+      if (item is! Map) continue;
+      final json = Map<String, dynamic>.from(item);
+      final taskId = json['taskId'] as String? ?? json['id'] as String?;
+      final listId = json['listId'] as String?;
+      if (taskId == null ||
+          taskId.isEmpty ||
+          listId == null ||
+          !listIds.contains(listId) ||
+          !taskIds.contains(taskId)) {
+        continue;
+      }
+      await upsertTaskListEntryRow(json, transactionDb: db);
     }
   }
 
-  Future<void> _replaceTodoLists(
+  Future<void> _replaceCalendar(
     StorageV2DriftDatabase db,
     Map<String, dynamic> data,
   ) async {
-    await db.delete(db.todoItemRows).go();
-    await db.delete(db.todoListRows).go();
-    final listIds = <String>{};
-    for (final item in data['todoLists'] as List<dynamic>? ?? const []) {
+    await db.delete(db.calendarEventRows).go();
+    await db.delete(db.anniversaryRows).go();
+    for (final item in data['events'] as List<dynamic>? ?? const []) {
       if (item is! Map) continue;
-      final json = Map<String, dynamic>.from(item);
-      final id = json['id'] as String?;
-      if (id == null || id.isEmpty) continue;
-      await db
-          .into(db.todoListRows)
-          .insert(
-            TodoListRowsCompanion.insert(
-              id: id,
-              title: json['title'] as String? ?? '',
-              createdAt: json['createdAt'] as String? ?? '',
-              updatedAt: json['updatedAt'] as String? ?? '',
-            ),
-          );
-      listIds.add(id);
+      await upsertCalendarEventRow(
+        Map<String, dynamic>.from(item),
+        transactionDb: db,
+      );
     }
-    for (final item in data['todoItems'] as List<dynamic>? ?? const []) {
+    for (final item in data['anniversaries'] as List<dynamic>? ?? const []) {
       if (item is! Map) continue;
-      final json = Map<String, dynamic>.from(item);
-      final id = json['id'] as String?;
-      final listId = json['listId'] as String?;
-      if (id == null ||
-          id.isEmpty ||
-          listId == null ||
-          !listIds.contains(listId)) {
-        continue;
-      }
-      await db
-          .into(db.todoItemRows)
-          .insert(
-            TodoItemRowsCompanion.insert(
-              id: id,
-              listId: listId,
-              itemText: json['text'] as String? ?? '',
-              done: json['done'] == true ? 1 : 0,
-              sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
-              updatedAt: Value(json['updatedAt'] as String? ?? ''),
-            ),
-          );
+      await upsertAnniversaryRow(
+        Map<String, dynamic>.from(item),
+        transactionDb: db,
+      );
     }
   }
 
@@ -3530,9 +3930,11 @@ CREATE TABLE IF NOT EXISTS sync_applied_changes (
     'conversations',
     'messages',
     'message_attachments',
-    'schedules',
-    'todo_lists',
-    'todo_items',
+    'tasks',
+    'task_lists',
+    'task_list_entries',
+    'calendar_events',
+    'anniversaries',
     'roleplay_scenarios',
     'roleplay_threads',
     'recycle_bin',
@@ -3549,6 +3951,13 @@ CREATE TABLE IF NOT EXISTS sync_applied_changes (
     'plugin_config',
   };
 
+  // v15 intentionally has no mixed-version planning sync compatibility.
+  static const _legacyPlanningSyncTableNames = <String>{
+    'schedules',
+    'todo_lists',
+    'todo_items',
+  };
+
   Set<String> _syncTablesForFile(String fileName) => switch (fileName) {
     'app_settings.json' => {'shared_settings'},
     'model_configs.json' => {'synced_model_configs'},
@@ -3558,8 +3967,8 @@ CREATE TABLE IF NOT EXISTS sync_applied_changes (
       'messages',
       'message_attachments',
     },
-    'schedules.json' => {'schedules'},
-    'todo_lists.json' => {'todo_lists', 'todo_items'},
+    'tasks.json' => {'tasks', 'task_lists', 'task_list_entries'},
+    'calendar.json' => {'calendar_events', 'anniversaries'},
     'roleplay_scenarios.json' => {'roleplay_scenarios'},
     'roleplay_threads.json' => {'roleplay_threads'},
     'recycle_bin.json' => {'recycle_bin'},
@@ -3648,13 +4057,16 @@ CREATE TABLE IF NOT EXISTS sync_applied_changes (
         );
       }
     }
-    if (tables.contains('schedules')) {
-      add('schedules', (await _loadSchedules(db))['schedules'] as List);
+    if (tables.any({'tasks', 'task_lists', 'task_list_entries'}.contains)) {
+      final data = await _loadTasks(db);
+      add('tasks', data['tasks'] as List);
+      add('task_lists', data['lists'] as List);
+      add('task_list_entries', data['entries'] as List);
     }
-    if (tables.any({'todo_lists', 'todo_items'}.contains)) {
-      final data = await _loadTodoLists(db);
-      add('todo_lists', data['todoLists'] as List);
-      add('todo_items', data['todoItems'] as List);
+    if (tables.any({'calendar_events', 'anniversaries'}.contains)) {
+      final data = await _loadCalendar(db);
+      add('calendar_events', data['events'] as List);
+      add('anniversaries', data['anniversaries'] as List);
     }
     if (tables.contains('roleplay_scenarios')) {
       add(
@@ -3899,7 +4311,11 @@ CREATE TABLE IF NOT EXISTS sync_applied_changes (
     if (table == 'messages') {
       return MergePlanner.latestWins(local: local, incoming: remote);
     }
-    if (table == 'todo_items') {
+    if (table == 'tasks' ||
+        table == 'task_lists' ||
+        table == 'task_list_entries' ||
+        table == 'calendar_events' ||
+        table == 'anniversaries') {
       return MergePlanner.latestWins(
         local: local,
         incoming: remote,
@@ -3983,23 +4399,35 @@ CREATE TABLE IF NOT EXISTS sync_applied_changes (
             transactionDb: db,
           );
         }
-      case 'schedules':
+      case 'tasks':
         if (op == 'upsert') {
-          await upsertScheduleRow(data, transactionDb: db);
+          await upsertTaskRow(data, transactionDb: db);
         } else {
-          await deleteScheduleRow(data['id'] as String, transactionDb: db);
+          await deleteTaskRow(data['id'] as String, transactionDb: db);
         }
-      case 'todo_lists':
+      case 'task_lists':
         if (op == 'upsert') {
-          await upsertTodoListRow(data, transactionDb: db);
+          await upsertTaskListRow(data, transactionDb: db);
         } else {
-          await deleteTodoListRow(data['id'] as String, transactionDb: db);
+          await deleteTaskListRow(data['id'] as String, transactionDb: db);
         }
-      case 'todo_items':
+      case 'task_list_entries':
         if (op == 'upsert') {
-          await upsertTodoItemRow(data, transactionDb: db);
+          await upsertTaskListEntryRow(data, transactionDb: db);
         } else {
-          await deleteTodoItemRow(data['id'] as String, transactionDb: db);
+          await deleteTaskListEntryRow(data['id'] as String, transactionDb: db);
+        }
+      case 'calendar_events':
+        if (op == 'upsert') {
+          await upsertCalendarEventRow(data, transactionDb: db);
+        } else {
+          await deleteCalendarEventRow(data['id'] as String, transactionDb: db);
+        }
+      case 'anniversaries':
+        if (op == 'upsert') {
+          await upsertAnniversaryRow(data, transactionDb: db);
+        } else {
+          await deleteAnniversaryRow(data['id'] as String, transactionDb: db);
         }
       case 'roleplay_scenarios':
         if (op == 'upsert') {

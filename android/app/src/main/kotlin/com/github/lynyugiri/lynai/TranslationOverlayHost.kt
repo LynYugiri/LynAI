@@ -18,10 +18,18 @@ object TranslationOverlayHost {
         opacity: Double,
         layoutMode: String,
         targetLanguage: String = "zh-CN",
-    ) {
-        if (!canDrawOverlays(context)) return
+    ): Map<String, Any?> {
+        if (!canDrawOverlays(context)) {
+            return error("overlay_permission_denied", "Display over other apps permission is required")
+        }
+        val rawBlocks = args["blocks"] as? List<*> ?: emptyList<Any?>()
         val blocks = TranslationOverlayBlock.fromArguments(args, layoutMode, targetLanguage)
-        if (blocks.isEmpty()) return clear()
+        if (blocks.size != rawBlocks.size) {
+            return error("invalid_overlay_blocks", "Translation blocks contain invalid text or geometry")
+        }
+        if (blocks.isEmpty()) {
+            return clear()
+        }
         val wm = windowManager ?: (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).also { windowManager = it }
         val view = overlayView ?: TranslationOverlayView(context).also {
             overlayView = it
@@ -38,25 +46,29 @@ object TranslationOverlayHost {
             ).apply { gravity = Gravity.TOP or Gravity.START }
             try {
                 wm.addView(it, params)
-            } catch (_: Exception) {
+            } catch (exception: Exception) {
                 overlayView = null
-                return
+                return error("overlay_add_failed", exception.message ?: "Unable to display translation overlay")
             }
         }
         view.setScene(blocks, TranslationOverlayStyle.from(overlayStyle, opacity))
+        return success("blockCount" to blocks.size)
     }
 
     fun onScrollDelta(deltaX: Int, deltaY: Int) {
         overlayView?.scrollSceneBy(-deltaX.toFloat(), -deltaY.toFloat())
     }
 
-    fun clear() {
-        val view = overlayView ?: return
-        try {
+    fun clear(): Map<String, Any?> {
+        val view = overlayView ?: return success()
+        return try {
             windowManager?.removeView(view)
-        } catch (_: Exception) {
+            success()
+        } catch (exception: Exception) {
+            error("overlay_remove_failed", exception.message ?: "Unable to remove translation overlay")
+        } finally {
+            overlayView = null
         }
-        overlayView = null
     }
 
     fun dispose() {
@@ -73,4 +85,11 @@ object TranslationOverlayHost {
 
     private fun canDrawOverlays(context: Context) =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
+
+    private fun success(vararg values: Pair<String, Any?>) = mapOf("ok" to true, *values)
+
+    private fun error(code: String, message: String) = mapOf(
+        "ok" to false,
+        "error" to mapOf("code" to code, "message" to message),
+    )
 }

@@ -2,11 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/conversation.dart';
+import '../models/calendar_event.dart';
+import '../models/anniversary.dart';
 import '../models/plugin.dart';
 import '../models/recycle_bin_item.dart';
 import '../models/roleplay.dart';
 import '../models/schedule_item.dart';
 import '../models/todo_list.dart';
+import '../models/task.dart';
+import '../models/task_list.dart';
+import '../providers/calendar_provider.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
@@ -14,6 +19,8 @@ import '../providers/plugin_provider.dart';
 import '../providers/recycle_bin_provider.dart';
 import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/task_provider.dart';
+import '../services/legacy_calendar_conversion_service.dart';
 import '../services/plugin_lua_runtime_service.dart';
 
 class RecycleBinPage extends StatefulWidget {
@@ -139,6 +146,10 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
       RecycleBinItemTypes.note ||
       RecycleBinItemTypes.notePage => Icons.note_outlined,
       RecycleBinItemTypes.schedule => Icons.event_outlined,
+      RecycleBinItemTypes.calendarEvent => Icons.event_outlined,
+      RecycleBinItemTypes.anniversary => Icons.cake_outlined,
+      RecycleBinItemTypes.task ||
+      RecycleBinItemTypes.taskList ||
       RecycleBinItemTypes.todoList => Icons.checklist,
       RecycleBinItemTypes.roleplayScenario ||
       RecycleBinItemTypes.roleplayThread => Icons.theater_comedy_outlined,
@@ -150,62 +161,58 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
 
   Future<void> _restore(RecycleBinItem item) async {
     final recycleBinProvider = context.read<RecycleBinProvider>();
+    final tasks = context.read<TaskProvider>();
+    final calendar = context.read<CalendarProvider>();
+    final conversations = context.read<ConversationProvider>();
+    final features = context.read<FeatureProvider>();
+    final roleplay = context.read<RoleplayProvider>();
     try {
-      switch (item.type) {
-        case RecycleBinItemTypes.conversation:
-          final raw = item.payload['conversation'];
-          if (raw is! Map) throw Exception('回收站数据损坏');
-          await context.read<ConversationProvider>().restoreConversation(
-            Conversation.fromJson(Map<String, dynamic>.from(raw)),
-          );
-        case RecycleBinItemTypes.note:
-          await context.read<FeatureProvider>().restoreNotePayload(
-            item.payload,
-          );
-        case RecycleBinItemTypes.notePage:
-          await context.read<FeatureProvider>().restoreNotePagePayload(
-            item.payload,
-          );
-        case RecycleBinItemTypes.schedule:
-          final raw = item.payload['schedule'];
-          if (raw is! Map) throw Exception('回收站数据损坏');
-          await context.read<FeatureProvider>().restoreSchedule(
-            ScheduleItem.fromJson(Map<String, dynamic>.from(raw)),
-          );
-        case RecycleBinItemTypes.todoList:
-          final raw = item.payload['todoList'];
-          if (raw is! Map) throw Exception('回收站数据损坏');
-          await context.read<FeatureProvider>().restoreTodoList(
-            TodoList.fromJson(Map<String, dynamic>.from(raw)),
-          );
-        case RecycleBinItemTypes.roleplayScenario:
-          final raw = item.payload['scenario'];
-          if (raw is! Map) throw Exception('回收站数据损坏');
-          final threads =
-              (item.payload['threads'] as List<dynamic>? ?? const [])
-                  .whereType<Map>()
-                  .map(
-                    (thread) => RoleplayThread.fromJson(
-                      Map<String, dynamic>.from(thread),
-                    ),
-                  )
-                  .toList();
-          await context.read<RoleplayProvider>().restoreScenario(
-            RoleplayScenario.fromJson(Map<String, dynamic>.from(raw)),
-            threads,
-          );
-        case RecycleBinItemTypes.roleplayThread:
-          final raw = item.payload['thread'];
-          if (raw is! Map) throw Exception('回收站数据损坏');
-          await context.read<RoleplayProvider>().restoreThread(
-            RoleplayThread.fromJson(Map<String, dynamic>.from(raw)),
-          );
-        case RecycleBinItemTypes.pluginFile:
-          await _restorePluginFile(item);
-        case RecycleBinItemTypes.pluginData:
-          await _restorePluginData(item);
-        default:
-          throw Exception('此类型暂不支持在页面恢复');
+      final planningRestored = await restorePlanningRecycleBinItem(
+        item,
+        tasks: tasks,
+        calendar: calendar,
+      );
+      if (!planningRestored) {
+        switch (item.type) {
+          case RecycleBinItemTypes.conversation:
+            final raw = item.payload['conversation'];
+            if (raw is! Map) throw Exception('回收站数据损坏');
+            await conversations.restoreConversation(
+              Conversation.fromJson(Map<String, dynamic>.from(raw)),
+            );
+          case RecycleBinItemTypes.note:
+            await features.restoreNotePayload(item.payload);
+          case RecycleBinItemTypes.notePage:
+            await features.restoreNotePagePayload(item.payload);
+          case RecycleBinItemTypes.roleplayScenario:
+            final raw = item.payload['scenario'];
+            if (raw is! Map) throw Exception('回收站数据损坏');
+            final threads =
+                (item.payload['threads'] as List<dynamic>? ?? const [])
+                    .whereType<Map>()
+                    .map(
+                      (thread) => RoleplayThread.fromJson(
+                        Map<String, dynamic>.from(thread),
+                      ),
+                    )
+                    .toList();
+            await roleplay.restoreScenario(
+              RoleplayScenario.fromJson(Map<String, dynamic>.from(raw)),
+              threads,
+            );
+          case RecycleBinItemTypes.roleplayThread:
+            final raw = item.payload['thread'];
+            if (raw is! Map) throw Exception('回收站数据损坏');
+            await roleplay.restoreThread(
+              RoleplayThread.fromJson(Map<String, dynamic>.from(raw)),
+            );
+          case RecycleBinItemTypes.pluginFile:
+            await _restorePluginFile(item);
+          case RecycleBinItemTypes.pluginData:
+            await _restorePluginData(item);
+          default:
+            throw Exception('此类型暂不支持在页面恢复');
+        }
       }
       await recycleBinProvider.deleteForever(item.id);
       if (mounted) {
@@ -251,6 +258,8 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
       ),
       arguments: {'item': item.toJson()},
       features: context.read<FeatureProvider>(),
+      tasks: context.read<TaskProvider>(),
+      calendar: context.read<CalendarProvider>(),
       modelConfigs: context.read<ModelConfigProvider>(),
       plugins: context.read<PluginProvider>(),
       settings: context.read<SettingsProvider>(),
@@ -301,6 +310,8 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
       ),
       arguments: {'item': item.toJson()},
       features: context.read<FeatureProvider>(),
+      tasks: context.read<TaskProvider>(),
+      calendar: context.read<CalendarProvider>(),
       modelConfigs: context.read<ModelConfigProvider>(),
       plugins: context.read<PluginProvider>(),
       settings: context.read<SettingsProvider>(),
@@ -354,4 +365,73 @@ class _EmptyRecycleBin extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 恢复新规划领域对象及旧日程/待办回收站载荷；非规划类型返回 false。
+Future<bool> restorePlanningRecycleBinItem(
+  RecycleBinItem item, {
+  required TaskProvider tasks,
+  required CalendarProvider calendar,
+}) async {
+  const conversion = LegacyCalendarConversionService();
+  switch (item.type) {
+    case RecycleBinItemTypes.schedule:
+      final raw = item.payload['schedule'];
+      if (raw is! Map) throw const FormatException('回收站旧日程损坏');
+      final schedule = ScheduleItem.fromJson(Map<String, dynamic>.from(raw));
+      if (schedule.isTask) {
+        await tasks.restoreTask(conversion.taskFromSchedule(schedule));
+      } else {
+        await calendar.restoreEvent(
+          conversion.calendarEventFromSchedule(schedule),
+        );
+      }
+    case RecycleBinItemTypes.todoList:
+      final raw = item.payload['todoList'];
+      if (raw is! Map) throw const FormatException('回收站旧待办清单损坏');
+      final converted = conversion.todoList(
+        TodoList.fromJson(Map<String, dynamic>.from(raw)),
+      );
+      for (final task in converted.tasks) {
+        await tasks.restoreTask(task);
+      }
+      await tasks.restoreList(converted.taskList, entries: converted.entries);
+    case RecycleBinItemTypes.task:
+      final raw = item.payload['task'];
+      if (raw is! Map) throw const FormatException('回收站任务损坏');
+      final entry = item.payload['entry'];
+      await tasks.restoreTask(
+        Task.fromJson(Map<String, dynamic>.from(raw)),
+        entry: entry is Map
+            ? TaskListEntry.fromJson(Map<String, dynamic>.from(entry))
+            : null,
+      );
+    case RecycleBinItemTypes.taskList:
+      final raw = item.payload['list'];
+      if (raw is! Map) throw const FormatException('回收站任务清单损坏');
+      await tasks.restoreList(
+        TaskList.fromJson(Map<String, dynamic>.from(raw)),
+        entries: (item.payload['entries'] as List<dynamic>? ?? const [])
+            .whereType<Map>()
+            .map(
+              (entry) =>
+                  TaskListEntry.fromJson(Map<String, dynamic>.from(entry)),
+            ),
+      );
+    case RecycleBinItemTypes.calendarEvent:
+      final raw = item.payload['event'];
+      if (raw is! Map) throw const FormatException('回收站日历事件损坏');
+      await calendar.restoreEvent(
+        CalendarEvent.fromJson(Map<String, dynamic>.from(raw)),
+      );
+    case RecycleBinItemTypes.anniversary:
+      final raw = item.payload['anniversary'];
+      if (raw is! Map) throw const FormatException('回收站纪念日损坏');
+      await calendar.restoreAnniversary(
+        Anniversary.fromJson(Map<String, dynamic>.from(raw)),
+      );
+    default:
+      return false;
+  }
+  return true;
 }

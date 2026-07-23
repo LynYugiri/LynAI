@@ -1,12 +1,14 @@
 import 'app_settings.dart';
+import 'anniversary.dart';
+import 'calendar_event.dart';
 import 'conversation.dart';
 import 'model_config.dart';
 import 'merge_models.dart';
 import 'note.dart';
 import 'plugin.dart';
 import 'roleplay.dart';
-import 'schedule_item.dart';
-import 'todo_list.dart';
+import 'task.dart';
+import 'task_list.dart';
 
 /// 备份数据的分类。
 ///
@@ -21,11 +23,11 @@ enum BackupSection {
   /// 笔记。
   notes,
 
-  /// 日程。
-  schedules,
+  /// 任务。
+  tasks,
 
-  /// 待办清单。
-  todoLists,
+  /// 日历。
+  calendar,
 
   /// 情景演绎。
   roleplay,
@@ -79,10 +81,10 @@ extension BackupSectionInfo on BackupSection {
         return 'conversations';
       case BackupSection.notes:
         return 'notes';
-      case BackupSection.schedules:
-        return 'schedules';
-      case BackupSection.todoLists:
-        return 'todoLists';
+      case BackupSection.tasks:
+        return 'tasks';
+      case BackupSection.calendar:
+        return 'calendar';
       case BackupSection.roleplay:
         return 'roleplay';
       case BackupSection.plugins:
@@ -99,10 +101,10 @@ extension BackupSectionInfo on BackupSection {
         return '对话记录';
       case BackupSection.notes:
         return '笔记';
-      case BackupSection.schedules:
-        return '日程';
-      case BackupSection.todoLists:
-        return '待办清单';
+      case BackupSection.tasks:
+        return '任务';
+      case BackupSection.calendar:
+        return '日历';
       case BackupSection.roleplay:
         return '情景演绎';
       case BackupSection.plugins:
@@ -127,11 +129,17 @@ class BackupSelection {
   /// 选中的笔记 ID 集合。
   final Set<String> noteIds;
 
-  /// 选中的日程 ID 集合。
-  final Set<String> scheduleIds;
+  /// 选中的任务 ID 集合。
+  final Set<String> taskIds;
 
-  /// 选中的待办清单 ID 集合。
-  final Set<String> todoListIds;
+  /// 选中的任务清单 ID 集合。
+  final Set<String> taskListIds;
+
+  /// 选中的日历事件 ID 集合。
+  final Set<String> calendarEventIds;
+
+  /// 选中的纪念日 ID 集合。
+  final Set<String> anniversaryIds;
 
   /// 选中的情景演绎会话 ID 集合。
   final Set<String> roleplaySessionIds;
@@ -145,8 +153,10 @@ class BackupSelection {
     this.settingsParts = const {},
     this.conversationIds = const {},
     this.noteIds = const {},
-    this.scheduleIds = const {},
-    this.todoListIds = const {},
+    this.taskIds = const {},
+    this.taskListIds = const {},
+    this.calendarEventIds = const {},
+    this.anniversaryIds = const {},
     this.roleplaySessionIds = const {},
     this.pluginIds = const {},
   });
@@ -178,8 +188,12 @@ class BackupSelection {
       conversationIds:
           data.conversations?.map((item) => item.id).toSet() ?? const {},
       noteIds: data.notes?.map((item) => item.id).toSet() ?? const {},
-      scheduleIds: data.schedules?.map((item) => item.id).toSet() ?? const {},
-      todoListIds: data.todoLists?.map((item) => item.id).toSet() ?? const {},
+      taskIds: data.tasks?.map((item) => item.id).toSet() ?? const {},
+      taskListIds: data.taskLists?.map((item) => item.id).toSet() ?? const {},
+      calendarEventIds:
+          data.calendarEvents?.map((item) => item.id).toSet() ?? const {},
+      anniversaryIds:
+          data.anniversaries?.map((item) => item.id).toSet() ?? const {},
       roleplaySessionIds:
           data.roleplaySessions?.map((item) => item.id).toSet() ?? const {},
       pluginIds:
@@ -196,8 +210,10 @@ class BackupSelection {
     Set<BackupSettingsPart>? settingsParts,
     Set<String>? conversationIds,
     Set<String>? noteIds,
-    Set<String>? scheduleIds,
-    Set<String>? todoListIds,
+    Set<String>? taskIds,
+    Set<String>? taskListIds,
+    Set<String>? calendarEventIds,
+    Set<String>? anniversaryIds,
     Set<String>? roleplaySessionIds,
     Set<String>? pluginIds,
   }) {
@@ -206,8 +222,10 @@ class BackupSelection {
       settingsParts: settingsParts ?? this.settingsParts,
       conversationIds: conversationIds ?? this.conversationIds,
       noteIds: noteIds ?? this.noteIds,
-      scheduleIds: scheduleIds ?? this.scheduleIds,
-      todoListIds: todoListIds ?? this.todoListIds,
+      taskIds: taskIds ?? this.taskIds,
+      taskListIds: taskListIds ?? this.taskListIds,
+      calendarEventIds: calendarEventIds ?? this.calendarEventIds,
+      anniversaryIds: anniversaryIds ?? this.anniversaryIds,
       roleplaySessionIds: roleplaySessionIds ?? this.roleplaySessionIds,
       pluginIds: pluginIds ?? this.pluginIds,
     );
@@ -392,11 +410,20 @@ class BackupData {
   /// 笔记编辑建议列表。
   final List<NoteEditProposal>? noteEditProposals;
 
-  /// 日程列表。
-  final List<ScheduleItem>? schedules;
+  /// 任务列表。
+  final List<Task>? tasks;
 
-  /// 待办清单列表。
-  final List<TodoList>? todoLists;
+  /// 任务清单列表。
+  final List<TaskList>? taskLists;
+
+  /// 任务清单归属和顺序条目。
+  final List<TaskListEntry>? taskEntries;
+
+  /// 日历事件列表。
+  final List<CalendarEvent>? calendarEvents;
+
+  /// 纪念日列表。
+  final List<Anniversary>? anniversaries;
 
   /// 情景演绎场景模板列表。
   final List<RoleplayScenario>? roleplaySessions;
@@ -419,8 +446,11 @@ class BackupData {
     this.notePageContents,
     this.noteRevisions,
     this.noteEditProposals,
-    this.schedules,
-    this.todoLists,
+    this.tasks,
+    this.taskLists,
+    this.taskEntries,
+    this.calendarEvents,
+    this.anniversaries,
     this.roleplaySessions,
     this.roleplayThreads,
     this.plugins,
@@ -439,10 +469,10 @@ class BackupData {
             notePages != null ||
             noteRevisions != null ||
             noteEditProposals != null;
-      case BackupSection.schedules:
-        return schedules != null;
-      case BackupSection.todoLists:
-        return todoLists != null;
+      case BackupSection.tasks:
+        return tasks != null || taskLists != null || taskEntries != null;
+      case BackupSection.calendar:
+        return calendarEvents != null || anniversaries != null;
       case BackupSection.roleplay:
         return roleplaySessions != null || roleplayThreads != null;
       case BackupSection.plugins:

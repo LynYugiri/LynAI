@@ -22,47 +22,62 @@ import java.io.File
 
 class MainActivity : FlutterActivity() {
     private var pendingLocationResult: MethodChannel.Result? = null
+    private var backgroundServiceChannel: MethodChannel? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
     }
 
     override fun onDestroy() {
+        if (isFinishing) stopGenerationService()
         // 释放悬浮窗持有的广播接收器和 Activity 引用，避免内存泄漏。
-        FloatingAssistantOverlay.uninstall()
+        FloatingAssistantOverlay.uninstall(this)
         super.onDestroy()
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(
+        backgroundServiceChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "lynai/background_service"
-        ).setMethodCallHandler { call, result ->
-            when (call.method) {
-                "startGeneration" -> {
-                    startGenerationService()
-                    result.success(null)
+        ).also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "startGeneration" -> {
+                        startGenerationService()
+                        result.success(null)
+                    }
+                    "stopGeneration" -> {
+                        stopGenerationService()
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
                 }
-                "stopGeneration" -> {
-                    stopService(Intent(this, GenerationForegroundService::class.java))
-                    result.success(null)
-                }
-                else -> result.notImplemented()
             }
         }
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
-            "lynai/schedule_widget"
+            "lynai/calendar_platform"
         ).setMethodCallHandler { call, result ->
             when (call.method) {
-                "refresh" -> {
+                "syncProjection" -> {
+                    val projection = call.argument<Map<*, *>>("projection")
+                    if (projection == null) {
+                        result.error("invalid_projection", "缺少日历平台投影", null)
+                        return@setMethodCallHandler
+                    }
+                    if (!CalendarProjectionStore.write(this, projection)) {
+                        result.error("projection_write_failed", "无法持久化日历平台投影", null)
+                        return@setMethodCallHandler
+                    }
+                    ScheduleNotificationReceiver.reschedule(this)
                     ScheduleWidgetProvider.refresh(this)
                     result.success(null)
                 }
-                "rescheduleNotifications" -> {
+                "requestNotificationPermission" -> {
+                    // 权限请求只响应 Dart 的显式用户操作；同步投影不会自动弹窗。
                     requestNotificationPermissionIfNeeded()
-                    result.success(ScheduleNotificationReceiver.reschedule(this))
+                    result.success(null)
                 }
                 else -> result.notImplemented()
             }
@@ -107,12 +122,32 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun startGenerationService() {
-        val intent = Intent(this, GenerationForegroundService::class.java)
+        val intent = Intent(this, GenerationForegroundService::class.java).apply {
+            action = GenerationForegroundService.ACTION_START
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             ContextCompat.startForegroundService(this, intent)
         } else {
             startService(intent)
         }
+    }
+
+    private fun stopGenerationService() {
+        val intent = Intent(this, GenerationForegroundService::class.java).apply {
+            action = GenerationForegroundService.ACTION_STOP
+        }
+        try {
+            startService(intent)
+        } catch (_: IllegalStateException) {
+            stopService(intent)
+        }
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        backgroundServiceChannel?.setMethodCallHandler(null)
+        backgroundServiceChannel = null
+        stopGenerationService()
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     private fun requestNotificationPermissionIfNeeded() {

@@ -10,10 +10,12 @@ import '../models/conversation.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
 import '../providers/conversation_provider.dart';
+import '../providers/calendar_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/task_provider.dart';
 import 'api_service.dart';
 import 'backend_client.dart';
 import 'tool_call_service.dart';
@@ -24,12 +26,16 @@ class FloatingChatSessionController extends ChangeNotifier {
     required ConversationProvider conversations,
     required ModelConfigProvider models,
     required FeatureProvider features,
+    required TaskProvider tasks,
+    required CalendarProvider calendar,
     required PluginProvider plugins,
     BackendClient? backend,
   }) : _settings = settings,
        _conversations = conversations,
        _models = models,
        _features = features,
+       _tasks = tasks,
+       _calendar = calendar,
        _plugins = plugins,
        _api = ApiService(backend: backend),
        _backend = backend;
@@ -41,6 +47,8 @@ class FloatingChatSessionController extends ChangeNotifier {
   final ConversationProvider _conversations;
   final ModelConfigProvider _models;
   final FeatureProvider _features;
+  final TaskProvider _tasks;
+  final CalendarProvider _calendar;
   final PluginProvider _plugins;
   final ApiService _api;
   final BackendClient? _backend;
@@ -389,6 +397,8 @@ class FloatingChatSessionController extends ChangeNotifier {
         notifyListeners();
         final service = ToolCallService(
           _features,
+          tasks: _tasks,
+          calendar: _calendar,
           plugins: _plugins,
           modelConfigs: _models,
           settings: _settings,

@@ -37,6 +37,8 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
+      - run: ./gradlew app:testDebugUnitTest
+        working-directory: android
 
   production-https-gate:
     name: Production HTTPS gate

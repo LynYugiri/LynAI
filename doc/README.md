@@ -65,11 +65,11 @@ lib/
 | 应用入口 | `lib/main.dart` | 注册 Provider、执行 storage_v2 升级、加载数据、迁移托管模型 ID、检查更新日志。 |
 | 主导航 | `lib/pages/home_page.dart` | 五个主 Tab、返回键协调、背景图和状态保活。 |
 | 对话 | `lib/pages/chat_page.dart` | 输入、附件、语音、流式请求、工具调用、重试、分享。 |
-| 功能页 | `lib/pages/feature_page.dart` | Dashboard、历史、日程、笔记、待办、情景演绎。 |
+| 功能页 | `lib/pages/feature_page.dart` | Dashboard、历史、规范日历、笔记、规范任务清单、情景演绎。 |
 | 设置 | `lib/pages/settings_page.dart` | 关于、背景、API、主题、数据管理入口。 |
 | 数据管理 | `lib/pages/data_management_page.dart` | ZIP 备份、预览、导入和冲突处理。 |
 | API 服务 | `lib/services/api_service.dart` | Chat/OCR/Speech/Image 请求、流式解析、附件转换。 |
-| 工具调用 | `lib/services/tool_call_service.dart` | 工具 schema、fallback JSON、日程/笔记/待办/平台工具执行。 |
+| 工具调用 | `lib/services/tool_call_service.dart` | 工具 schema、fallback JSON、规范任务/日历、旧别名、笔记和平台工具执行。 |
 | 备份服务 | `lib/services/backup_service.dart` | manifest、分区 JSON、私有附件归档和恢复。 |
 | 存储服务 | `lib/services/storage_v2_service.dart` | storage_v2 根目录、数据库、数据文件、资源文件和安全路径。 |
 | 插件运行时 | `lib/services/plugin_lua_runtime_service.dart` | Lua 沙箱执行、工具/函数注册、延续链、权限注入。 |
@@ -83,7 +83,9 @@ lib/
 | 对话 | `ConversationProvider` | `ConversationRepository` |
 | 模型 | `ModelConfigProvider` | `ModelConfigRepository` |
 | 设置、角色、提示词 | `SettingsProvider` | `SettingsRepository` |
-| 日程、笔记、待办 | `FeatureProvider` | `FeatureRepository` |
+| 任务、任务清单 | `TaskProvider` | `TaskRepository`（`tasks.json` 分区门面） |
+| 日历事件、纪念日 | `CalendarProvider` | `CalendarRepository`（`calendar.json` 分区门面） |
+| 笔记 | `FeatureProvider` | `FeatureRepository` |
 | 情景演绎 | `RoleplayProvider` | `RoleplayRepository` |
 | 插件 | `PluginProvider` | `PluginRepository` |
 | storage_v2 | 多个 Repository 共用 | `StorageV2Service`、`StorageV2Database` |
@@ -94,7 +96,7 @@ lib/
 | 改动 | 同步文档 |
 |------|----------|
 | 新增页面、入口或用户路径 | `pages.md` |
-| 新增模型字段、旧字段 fallback 或存储分区 | `models.md`、`providers.md` |
+| 新增模型字段、旧字段 fallback 或存储分区 | `models.md`、`providers.md`、`services.md` |
 | 修改 Provider 行为、保存队列或容错策略 | `providers.md` |
 | 修改 API 协议、工具调用、备份或存储升级 | `services.md`、`architecture.md` |
 | 修改整体分层、启动流程或存储权威源 | `architecture.md`、本文件 |

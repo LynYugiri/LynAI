@@ -10,13 +10,54 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 
 class GenerationForegroundService : Service() {
+    private var foregroundStarted = false
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        createChannel()
-        startForeground(NOTIFICATION_ID, notification())
+        when (commandForAction(intent?.action)) {
+            GenerationServiceCommand.START -> startForegroundIfNeeded()
+            GenerationServiceCommand.STOP -> stopForegroundAndSelf(startId)
+        }
         return START_NOT_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        stopForegroundAndSelf()
+        super.onTaskRemoved(rootIntent)
+    }
+
+    override fun onDestroy() {
+        removeForegroundNotification()
+        super.onDestroy()
+    }
+
+    private fun startForegroundIfNeeded() {
+        if (foregroundStarted) return
+        createChannel()
+        startForeground(NOTIFICATION_ID, notification())
+        foregroundStarted = true
+    }
+
+    private fun stopForegroundAndSelf(startId: Int? = null) {
+        removeForegroundNotification()
+        if (startId == null) {
+            stopSelf()
+        } else {
+            stopSelfResult(startId)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun removeForegroundNotification() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            stopForeground(true)
+        }
+        getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
+        foregroundStarted = false
+    }
 
     private fun createChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -42,7 +83,19 @@ class GenerationForegroundService : Service() {
     }
 
     companion object {
+        internal const val ACTION_START =
+            "com.github.lynyugiri.lynai.action.START_GENERATION_FOREGROUND"
+        internal const val ACTION_STOP =
+            "com.github.lynyugiri.lynai.action.STOP_GENERATION_FOREGROUND"
         private const val CHANNEL_ID = "lynai_generation"
         private const val NOTIFICATION_ID = 1201
+
+        internal fun commandForAction(action: String?): GenerationServiceCommand =
+            if (action == ACTION_START) GenerationServiceCommand.START else GenerationServiceCommand.STOP
     }
+}
+
+internal enum class GenerationServiceCommand {
+    START,
+    STOP
 }

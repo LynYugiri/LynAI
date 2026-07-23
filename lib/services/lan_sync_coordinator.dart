@@ -67,6 +67,7 @@ class LanSyncCoordinator {
   String _displayName = 'LynAI device';
   int _activeConnections = 0;
   Future<void> _syncQueue = Future.value();
+  Future<int>? _hostStart;
   Future<void>? _closeFuture;
 
   static const _maxConnections = 8;
@@ -81,32 +82,45 @@ class LanSyncCoordinator {
     int activeConnections,
   ) => selectedProtocol == 'lynai-lan/1' && activeConnections < _maxConnections;
 
-  Future<int> startHost({String? displayName}) async {
+  Future<int> startHost({String? displayName}) {
     _displayName = displayName?.trim().isNotEmpty == true
         ? displayName!.trim()
         : _displayName;
+    if (_server != null) return Future.value(_server!.port);
+    return _hostStart ??= _startHost().whenComplete(() => _hostStart = null);
+  }
+
+  Future<int> _startHost() async {
     final identity = await identityService.initialize();
     await syncStorage.activate(identity.deviceId);
-    if (_server != null) return _server!.port;
     final material = await certificateService.loadOrCreate();
-    final server = await SecureServerSocket.bind(
-      InternetAddress.anyIPv4,
-      0,
-      material.serverContext(),
-      shared: true,
-    );
-    _server = server;
-    _serverSubscription = server.listen(
-      (socket) => unawaited(_accept(socket)),
-      onError: (_) {},
-    );
-    await mdnsService.advertise(
-      displayName: _displayName,
-      deviceId: identity.deviceId,
-      port: server.port,
-      protocolVersion: LanPairingPayloadCodec.protocolVersion,
-    );
-    return server.port;
+    SecureServerSocket? server;
+    StreamSubscription<SecureSocket>? subscription;
+    try {
+      server = await SecureServerSocket.bind(
+        InternetAddress.anyIPv4,
+        0,
+        material.serverContext(),
+        shared: true,
+      );
+      subscription = server.listen(
+        (socket) => unawaited(_accept(socket)),
+        onError: (_) {},
+      );
+      await mdnsService.advertise(
+        displayName: _displayName,
+        deviceId: identity.deviceId,
+        port: server.port,
+        protocolVersion: LanPairingPayloadCodec.protocolVersion,
+      );
+      _server = server;
+      _serverSubscription = subscription;
+      return server.port;
+    } catch (_) {
+      await subscription?.cancel();
+      await server?.close();
+      rethrow;
+    }
   }
 
   Future<String> createPairingPayload({
@@ -1180,6 +1194,9 @@ class LanSyncCoordinator {
   bool _validHash(String value) => RegExp(r'^[a-f0-9]{64}$').hasMatch(value);
 
   Future<void> stopHost() async {
+    try {
+      await _hostStart;
+    } catch (_) {}
     await mdnsService.stopAdvertising();
     await _serverSubscription?.cancel();
     _serverSubscription = null;

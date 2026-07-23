@@ -7,16 +7,23 @@ import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
 import '../models/model_config.dart';
+import '../models/anniversary.dart';
+import '../models/calendar_event.dart';
+import '../models/item_reminder.dart';
+import '../models/local_date.dart';
+import '../models/local_time.dart';
 import '../models/note.dart';
 import '../models/plugin.dart';
 import '../models/recycle_bin_item.dart';
-import '../models/schedule_item.dart';
-import '../models/todo_list.dart';
+import '../models/task.dart';
+import '../models/task_list.dart';
+import '../providers/calendar_provider.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/task_provider.dart';
 import '../repositories/recycle_bin_repository.dart';
 import 'api_service.dart';
 import 'backend_client.dart';
@@ -41,6 +48,8 @@ class LynAIFunctionCall {
 class LynAIFunctionContext {
   final LynAICallIdentity identity;
   final FeatureProvider? features;
+  final TaskProvider? tasks;
+  final CalendarProvider? calendar;
   final ModelConfigProvider? modelConfigs;
   final SettingsProvider? settings;
   final PluginProvider? plugins;
@@ -52,6 +61,8 @@ class LynAIFunctionContext {
   const LynAIFunctionContext({
     this.identity = const LynAICallIdentity(type: LynAICallerType.system),
     this.features,
+    this.tasks,
+    this.calendar,
     this.modelConfigs,
     this.settings,
     this.plugins,
@@ -179,6 +190,8 @@ class _ParsedRegexSearch {
   const _ParsedRegexSearch(this.pattern, {required this.caseSensitive});
 }
 
+enum _LegacyScheduleKind { task, schedule, unspecified }
+
 /// 解析用户输入的正则表示式搜索语法。
 ///
 /// 支持两种格式：
@@ -220,6 +233,18 @@ class LynAIFunctionService {
   /// 工具别名映射表，将 comfyui 风格的短名映射到内部标准化函数名。
   /// 供 [ToolCallService] 在接收到旧版工具调用名称时进行兼容转换。
   static const aiToolAliases = {
+    'list_tasks': 'tasks.list',
+    'create_task': 'tasks.create',
+    'update_task': 'tasks.update',
+    'delete_task': 'tasks.delete',
+    'list_calendar_events': 'calendar.list',
+    'create_calendar_event': 'calendar.create',
+    'update_calendar_event': 'calendar.update',
+    'delete_calendar_event': 'calendar.delete',
+    'list_anniversaries': 'anniversaries.list',
+    'create_anniversary': 'anniversaries.create',
+    'update_anniversary': 'anniversaries.update',
+    'delete_anniversary': 'anniversaries.delete',
     'list_schedules': 'schedules.list',
     'create_schedule': 'schedules.create',
     'update_schedule': 'schedules.update',
@@ -318,33 +343,58 @@ class LynAIFunctionService {
           _features(context),
           call.arguments,
         ),
-        'todos.list' => _listTodoLists(_features(context), call.arguments),
-        'todos.read' => _readTodoList(_features(context), call.arguments),
+        'todos.list' => _listTodoLists(_tasks(context), call.arguments),
+        'todos.read' => _readTodoList(_tasks(context), call.arguments),
         'todos.saveList' => await _saveTodoList(
-          _features(context),
+          _tasks(context),
           call.arguments,
         ),
         'todos.saveItem' => await _saveTodoItem(
-          _features(context),
+          _tasks(context),
           call.arguments,
         ),
         'todos.deleteList' => await _deleteTodoList(
-          _features(context),
+          _tasks(context),
           call.arguments,
         ),
-        'schedules.list' => _listSchedules(_features(context), call.arguments),
-        'schedules.create' => await _createSchedule(
-          _features(context),
+        'tasks.list' => _listTasks(_tasks(context), call.arguments),
+        'tasks.create' => await _createTask(_tasks(context), call.arguments),
+        'tasks.update' => await _updateTask(_tasks(context), call.arguments),
+        'tasks.delete' => await _deleteTask(_tasks(context), call.arguments),
+        'calendar.list' => _listCalendar(_calendar(context), call.arguments),
+        'calendar.create' => await _createCalendar(
+          _calendar(context),
           call.arguments,
         ),
-        'schedules.update' => await _updateSchedule(
-          _features(context),
+        'calendar.update' => await _updateCalendar(
+          _calendar(context),
           call.arguments,
         ),
-        'schedules.delete' => await _deleteSchedule(
-          _features(context),
+        'calendar.delete' => await _deleteCalendar(
+          _calendar(context),
           call.arguments,
         ),
+        'anniversaries.list' => _listAnniversaries(
+          _calendar(context),
+          call.arguments,
+        ),
+        'anniversaries.create' => await _createAnniversary(
+          _calendar(context),
+          call.arguments,
+        ),
+        'anniversaries.update' => await _updateAnniversary(
+          _calendar(context),
+          call.arguments,
+        ),
+        'anniversaries.delete' => await _deleteAnniversary(
+          _calendar(context),
+          call.arguments,
+        ),
+        // 兼容旧日程 API，但数据统一写入新任务和日历分区。
+        'schedules.list' => _listSchedules(context, call.arguments),
+        'schedules.create' => await _createSchedule(context, call.arguments),
+        'schedules.update' => await _updateSchedule(context, call.arguments),
+        'schedules.delete' => await _deleteSchedule(context, call.arguments),
         'model.chat' => await _modelChat(context, call.arguments),
         'model.ocr' => await _modelOcr(context, call.arguments),
         'model.recognizeFile' => await _modelRecognizeFile(
@@ -384,9 +434,15 @@ class LynAIFunctionService {
           call.arguments,
         ),
         'notes.folders.list' => _listNoteFolders(_features(context)),
-        'todos.list' => _listTodoLists(_features(context), call.arguments),
-        'todos.read' => _readTodoList(_features(context), call.arguments),
-        'schedules.list' => _listSchedules(_features(context), call.arguments),
+        'todos.list' => _listTodoLists(_tasks(context), call.arguments),
+        'todos.read' => _readTodoList(_tasks(context), call.arguments),
+        'tasks.list' => _listTasks(_tasks(context), call.arguments),
+        'calendar.list' => _listCalendar(_calendar(context), call.arguments),
+        'anniversaries.list' => _listAnniversaries(
+          _calendar(context),
+          call.arguments,
+        ),
+        'schedules.list' => _listSchedules(context, call.arguments),
         'conversations.count' => _conversationCount(context),
         'system.status' => _systemStatus(context),
         'device.service.status' => DeviceRunController.instance.statusJson(),
@@ -428,7 +484,19 @@ class LynAIFunctionService {
       'todos.saveList' ||
       'todos.saveItem' ||
       'todos.deleteList' => LynAIPermissions.todosWrite,
+      'tasks.list' => LynAIPermissions.todosRead,
+      'tasks.create' ||
+      'tasks.update' ||
+      'tasks.delete' => LynAIPermissions.todosWrite,
+      'calendar.list' ||
+      'anniversaries.list' ||
       'schedules.list' => LynAIPermissions.schedulesRead,
+      'calendar.create' ||
+      'calendar.update' ||
+      'calendar.delete' ||
+      'anniversaries.create' ||
+      'anniversaries.update' ||
+      'anniversaries.delete' ||
       'schedules.create' ||
       'schedules.update' ||
       'schedules.delete' => LynAIPermissions.schedulesWrite,
@@ -487,6 +555,9 @@ class LynAIFunctionService {
     }
     return switch (functionName) {
       'notes.delete' ||
+      'tasks.delete' ||
+      'calendar.delete' ||
+      'anniversaries.delete' ||
       'todos.deleteList' ||
       'schedules.delete' ||
       'plugin.file.delete' ||
@@ -500,6 +571,18 @@ class LynAIFunctionService {
     final features = context.features;
     if (features == null) throw Exception('LynAI function 需要功能上下文');
     return features;
+  }
+
+  TaskProvider _tasks(LynAIFunctionContext context) {
+    final tasks = context.tasks;
+    if (tasks == null) throw Exception('LynAI function 需要任务上下文');
+    return tasks;
+  }
+
+  CalendarProvider _calendar(LynAIFunctionContext context) {
+    final calendar = context.calendar;
+    if (calendar == null) throw Exception('LynAI function 需要日历上下文');
+    return calendar;
   }
 
   Map<String, dynamic> _pluginInfo(LynAIFunctionContext context) {
@@ -938,18 +1021,14 @@ class LynAIFunctionService {
     };
   }
 
-  /// 聚合统计：笔记总数、待办完成数/总数、对话数。
+  /// 聚合统计：笔记总数、规范任务完成数/总数、对话数。
   Map<String, dynamic> _funcStats(LynAIFunctionContext context) {
     final features = context.features;
+    final tasks = context.tasks?.tasks ?? const <Task>[];
     final conversations = context.conversations;
     final noteCount = features?.notes.length ?? 0;
-    var done = 0, total = 0;
-    for (final list in features?.todoLists ?? const []) {
-      for (final item in list.items) {
-        total++;
-        if (item.done) done++;
-      }
-    }
+    final done = tasks.where((task) => task.isCompleted).length;
+    final total = tasks.length;
     return {
       'ok': true,
       'notes': noteCount,
@@ -997,108 +1076,572 @@ class LynAIFunctionService {
     return {'ok': true};
   }
 
-  Map<String, dynamic> _listSchedules(
-    FeatureProvider features,
+  Map<String, dynamic> _listTasks(
+    TaskProvider tasks,
+    Map<String, dynamic> args,
+  ) {
+    final query = (args['query'] as String? ?? '').trim().toLowerCase();
+    final completed = args['completed'] as bool?;
+    final listId = (args['listId'] as String? ?? '').trim();
+    return {
+      'ok': true,
+      'tasks': tasks.tasks
+          .where((task) {
+            if (completed != null && task.isCompleted != completed) {
+              return false;
+            }
+            if (listId.isNotEmpty &&
+                tasks.entryForTask(task.id)?.taskListId != listId) {
+              return false;
+            }
+            return query.isEmpty ||
+                task.title.toLowerCase().contains(query) ||
+                (task.note ?? '').toLowerCase().contains(query);
+          })
+          .map((task) => _taskJson(tasks, task))
+          .toList(),
+    };
+  }
+
+  Future<Map<String, dynamic>> _createTask(
+    TaskProvider tasks,
+    Map<String, dynamic> args,
+  ) async {
+    final title = (args['title'] as String? ?? '').trim();
+    if (title.isEmpty) return _error('tasks.create 缺少 title');
+    final id = await tasks.addTask(
+      title: title,
+      note: _optionalString(args['note']),
+      plannedDate: _localDateArg(args, 'plannedDate'),
+      plannedTime: _localTimeArg(args, 'plannedTime'),
+      dueDate: _localDateArg(args, 'dueDate'),
+      dueTime: _localTimeArg(args, 'dueTime'),
+      reminders: _taskRemindersArg(
+        args,
+        plannedDate: _localDateArg(args, 'plannedDate'),
+        plannedTime: _localTimeArg(args, 'plannedTime'),
+        dueDate: _localDateArg(args, 'dueDate'),
+        dueTime: _localTimeArg(args, 'dueTime'),
+      ),
+      listId: _optionalString(args['listId']),
+    );
+    if (args['completed'] == true) await tasks.completeTask(id);
+    return {'ok': true, 'task': _taskJson(tasks, tasks.taskById(id)!)};
+  }
+
+  Future<Map<String, dynamic>> _updateTask(
+    TaskProvider tasks,
+    Map<String, dynamic> args,
+  ) async {
+    final id = (args['id'] as String? ?? '').trim();
+    final current = tasks.taskById(id);
+    if (current == null) return _error('未找到任务: $id');
+    final plannedDate = args.containsKey('plannedDate')
+        ? _localDateArg(args, 'plannedDate')
+        : current.plannedDate;
+    final dueDate = args.containsKey('dueDate')
+        ? _localDateArg(args, 'dueDate')
+        : current.dueDate;
+    final plannedTime = plannedDate == null
+        ? null
+        : args.containsKey('plannedTime')
+        ? _localTimeArg(args, 'plannedTime')
+        : current.plannedTime;
+    final dueTime = dueDate == null
+        ? null
+        : args.containsKey('dueTime')
+        ? _localTimeArg(args, 'dueTime')
+        : current.dueTime;
+    final updated = current.copyWith(
+      title: args.containsKey('title')
+          ? (args['title'] as String? ?? '').trim()
+          : null,
+      note: args.containsKey('note')
+          ? _optionalString(args['note'])
+          : current.note,
+      plannedDate: plannedDate,
+      plannedTime: plannedTime,
+      dueDate: dueDate,
+      dueTime: dueTime,
+      reminders: _taskRemindersArg(
+        args,
+        current: current.reminders,
+        plannedDate: plannedDate,
+        plannedTime: plannedTime,
+        dueDate: dueDate,
+        dueTime: dueTime,
+      ),
+    );
+    if (updated.title.isEmpty) return _error('任务标题不能为空');
+    await tasks.updateTask(updated);
+    if (args.containsKey('listId')) {
+      await tasks.moveTask(id, _optionalString(args['listId']));
+    }
+    if (args['completed'] == true) await tasks.completeTask(id);
+    if (args['completed'] == false) await tasks.uncompleteTask(id);
+    return {'ok': true, 'task': _taskJson(tasks, tasks.taskById(id)!)};
+  }
+
+  Future<Map<String, dynamic>> _deleteTask(
+    TaskProvider tasks,
+    Map<String, dynamic> args,
+  ) async {
+    final id = (args['id'] as String? ?? '').trim();
+    if (tasks.taskById(id) == null) return _error('未找到任务: $id');
+    await tasks.deleteTask(id);
+    return {'ok': true};
+  }
+
+  Map<String, dynamic> _listCalendar(
+    CalendarProvider calendar,
     Map<String, dynamic> args,
   ) {
     final from = _dateArg(args, 'from');
     final to = _dateArg(args, 'to');
-    final items = features.schedules
-        .where((item) {
-          if (from != null && !_scheduleVisibleEnd(item).isAfter(from)) {
-            return false;
-          }
-          if (to != null && !item.start.isBefore(to)) return false;
-          return true;
-        })
-        .map(_scheduleJson)
-        .toList();
     return {
       'ok': true,
-      'timezone': DateTime.now().timeZoneName,
-      'timezoneOffsetMinutes': DateTime.now().timeZoneOffset.inMinutes,
-      'schedules': items,
+      'events': calendar.events
+          .where((event) {
+            final range = _eventRange(event);
+            if (from != null && !range.$2.isAfter(from)) return false;
+            if (to != null && !range.$1.isBefore(to)) return false;
+            return true;
+          })
+          .map(_calendarEventJson)
+          .toList(),
     };
   }
 
-  Future<Map<String, dynamic>> _createSchedule(
-    FeatureProvider features,
+  Future<Map<String, dynamic>> _createCalendar(
+    CalendarProvider calendar,
     Map<String, dynamic> args,
   ) async {
     final title = (args['title'] as String? ?? '').trim();
-    final start = _dateArg(args, 'start');
-    final kind = _scheduleKindArg(args);
-    final end = kind == ScheduleItem.kindTask
-        ? start?.add(const Duration(minutes: 1))
-        : _dateArg(args, 'end');
-    if (title.isEmpty || start == null || end == null) {
-      return _error(
-        kind == ScheduleItem.kindTask
-            ? '创建任务需要 title、start'
-            : '创建日程需要 title、start、end',
-      );
-    }
-    if (kind != ScheduleItem.kindTask && !end.isAfter(start)) {
-      return _error('结束时间必须晚于开始时间');
-    }
-    final id = await features.addSchedule(
-      title,
-      start,
-      end,
-      note: args['note'] as String?,
-      kind: kind,
+    if (title.isEmpty) return _error('calendar.create 缺少 title');
+    final spec = _calendarSpecArg(args);
+    final id = await calendar.addEvent(
+      title: title,
+      note: _optionalString(args['note']),
+      spec: spec,
+      reminders: _calendarRemindersArg(args, spec: spec),
     );
-    final schedule = features.getSchedule(id);
+    return {'ok': true, 'event': _calendarEventJson(calendar.getEvent(id)!)};
+  }
+
+  Future<Map<String, dynamic>> _updateCalendar(
+    CalendarProvider calendar,
+    Map<String, dynamic> args,
+  ) async {
+    final id = (args['id'] as String? ?? '').trim();
+    final current = calendar.getEvent(id);
+    if (current == null) return _error('未找到日历事件: $id');
+    final hasSpec = args.keys.any(
+      const {
+        'allDay',
+        'start',
+        'end',
+        'startDate',
+        'endDateExclusive',
+      }.contains,
+    );
+    final spec = hasSpec
+        ? _calendarSpecArg(args, current: current.spec)
+        : current.spec;
+    final updated = current.copyWith(
+      title: args.containsKey('title')
+          ? (args['title'] as String? ?? '').trim()
+          : null,
+      note: args.containsKey('note')
+          ? _optionalString(args['note'])
+          : current.note,
+      spec: spec,
+      reminders: _calendarRemindersArg(
+        args,
+        current: current.reminders,
+        spec: spec,
+      ),
+    );
+    if (updated.title.isEmpty) return _error('日历事件标题不能为空');
+    await calendar.updateEvent(updated);
+    return {'ok': true, 'event': _calendarEventJson(calendar.getEvent(id)!)};
+  }
+
+  Future<Map<String, dynamic>> _deleteCalendar(
+    CalendarProvider calendar,
+    Map<String, dynamic> args,
+  ) async {
+    final id = (args['id'] as String? ?? '').trim();
+    if (calendar.getEvent(id) == null) return _error('未找到日历事件: $id');
+    await calendar.deleteEvent(id);
+    return {'ok': true};
+  }
+
+  Map<String, dynamic> _listAnniversaries(
+    CalendarProvider calendar,
+    Map<String, dynamic> args,
+  ) {
+    final query = (args['query'] as String? ?? '').trim().toLowerCase();
     return {
       'ok': true,
-      'schedule': schedule == null ? null : _scheduleJson(schedule),
+      'anniversaries': calendar.anniversaries
+          .where(
+            (item) =>
+                query.isEmpty ||
+                item.title.toLowerCase().contains(query) ||
+                (item.note ?? '').toLowerCase().contains(query),
+          )
+          .map(_anniversaryJson)
+          .toList(),
+    };
+  }
+
+  Future<Map<String, dynamic>> _createAnniversary(
+    CalendarProvider calendar,
+    Map<String, dynamic> args,
+  ) async {
+    final title = (args['title'] as String? ?? '').trim();
+    if (title.isEmpty) return _error('anniversaries.create 缺少 title');
+    final id = await calendar.addAnniversary(
+      title: title,
+      note: _optionalString(args['note']),
+      spec: _anniversarySpecArg(args),
+      showYearCount: args['showYearCount'] == true,
+      reminders: _anniversaryRemindersArg(args),
+    );
+    return {
+      'ok': true,
+      'anniversary': _anniversaryJson(calendar.getAnniversary(id)!),
+    };
+  }
+
+  Future<Map<String, dynamic>> _updateAnniversary(
+    CalendarProvider calendar,
+    Map<String, dynamic> args,
+  ) async {
+    final id = (args['id'] as String? ?? '').trim();
+    final current = calendar.getAnniversary(id);
+    if (current == null) return _error('未找到纪念日: $id');
+    final hasSpec = args.keys.any(
+      const {'type', 'date', 'month', 'day', 'sourceYear'}.contains,
+    );
+    final updated = current.copyWith(
+      title: args.containsKey('title')
+          ? (args['title'] as String? ?? '').trim()
+          : null,
+      note: args.containsKey('note')
+          ? _optionalString(args['note'])
+          : current.note,
+      spec: hasSpec
+          ? _anniversarySpecArg(args, current: current.spec)
+          : current.spec,
+      showYearCount: args['showYearCount'] as bool?,
+      reminders: _anniversaryRemindersArg(args, current: current.reminders),
+    );
+    if (updated.title.isEmpty) return _error('纪念日标题不能为空');
+    await calendar.updateAnniversary(updated);
+    return {
+      'ok': true,
+      'anniversary': _anniversaryJson(calendar.getAnniversary(id)!),
+    };
+  }
+
+  Future<Map<String, dynamic>> _deleteAnniversary(
+    CalendarProvider calendar,
+    Map<String, dynamic> args,
+  ) async {
+    final id = (args['id'] as String? ?? '').trim();
+    if (calendar.getAnniversary(id) == null) return _error('未找到纪念日: $id');
+    await calendar.deleteAnniversary(id);
+    return {'ok': true};
+  }
+
+  Map<String, dynamic> _listSchedules(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) {
+    final from = _dateArg(args, 'from');
+    final to = _dateArg(args, 'to');
+    final taskItems = (_listTasks(_tasks(context), const {})['tasks'] as List)
+        .where((item) => item['plannedDate'] != null)
+        .map((item) => _legacyTaskScheduleJson(Map<String, dynamic>.from(item)))
+        .where((item) {
+          final start = DateTime.parse(item['start'] as String);
+          if (from != null && start.isBefore(from)) return false;
+          if (to != null && !start.isBefore(to)) return false;
+          return true;
+        });
+    final eventItems =
+        (_listCalendar(_calendar(context), args)['events'] as List).map(
+          (item) => _legacyEventScheduleJson(Map<String, dynamic>.from(item)),
+        );
+    final items = [...taskItems, ...eventItems];
+    items.sort(
+      (a, b) => a['start'].toString().compareTo(b['start'].toString()),
+    );
+    return {'ok': true, 'schedules': items};
+  }
+
+  Future<Map<String, dynamic>> _createSchedule(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) async {
+    final start = _dateArg(args, 'start');
+    if (start == null) return _error('schedules.create 缺少 start');
+    if (_legacyScheduleIsTask(args)) {
+      final result = await _createTask(_tasks(context), {
+        ...args,
+        'plannedDate': LocalDate.fromDateTime(start).toString(),
+        'plannedTime': LocalTime.fromDateTime(start).toString(),
+      });
+      return {
+        'ok': result['ok'],
+        if (result['task'] != null)
+          'schedule': _legacyTaskScheduleJson(
+            Map<String, dynamic>.from(result['task'] as Map),
+          ),
+        if (result['error'] != null) 'error': result['error'],
+      };
+    }
+    final result = await _createCalendar(_calendar(context), args);
+    return {
+      'ok': result['ok'],
+      if (result['event'] != null)
+        'schedule': _legacyEventScheduleJson(
+          Map<String, dynamic>.from(result['event'] as Map),
+        ),
+      if (result['error'] != null) 'error': result['error'],
     };
   }
 
   Future<Map<String, dynamic>> _updateSchedule(
-    FeatureProvider features,
+    LynAIFunctionContext context,
     Map<String, dynamic> args,
   ) async {
     final id = (args['id'] as String? ?? '').trim();
-    final current = features.getSchedule(id);
-    if (current == null) return _error('未找到日程: $id');
-    final nextKind = args.containsKey('kind')
-        ? _scheduleKindArg(args)
-        : current.kind;
-    final nextStart = _dateArg(args, 'start') ?? current.start;
-    final parsedEnd = _dateArg(args, 'end');
-    final nextEnd = nextKind == ScheduleItem.kindTask
-        ? nextStart.add(const Duration(minutes: 1))
-        : parsedEnd ?? current.end;
-    final updated = args.containsKey('note')
-        ? current.copyWith(
-            title: (args['title'] as String?)?.trim(),
-            start: nextStart,
-            end: nextEnd,
-            note: args['note'] as String?,
-            kind: nextKind,
-          )
-        : current.copyWith(
-            title: (args['title'] as String?)?.trim(),
-            start: nextStart,
-            end: nextEnd,
-            kind: nextKind,
-          );
-    if (!updated.isTask && !updated.end.isAfter(updated.start)) {
-      return _error('结束时间必须晚于开始时间');
+    final task = context.tasks?.taskById(id);
+    final event = context.calendar?.getEvent(id);
+    if (task != null && event != null) {
+      return _error('日程 id 同时匹配任务和事件: $id');
     }
-    await features.updateSchedule(updated);
-    return {'ok': true, 'schedule': _scheduleJson(updated)};
+    final requestedKind = _legacyScheduleKind(args);
+    if (task != null && requestedKind == _LegacyScheduleKind.schedule) {
+      return _convertTaskToSchedule(context, task, args);
+    }
+    if (event != null && requestedKind == _LegacyScheduleKind.task) {
+      return _convertScheduleToTask(context, event, args);
+    }
+    if (task != null || requestedKind == _LegacyScheduleKind.task) {
+      final start = _dateArg(args, 'start');
+      final result = await _updateTask(_tasks(context), {
+        ...args,
+        if (start != null)
+          'plannedDate': LocalDate.fromDateTime(start).toString(),
+        if (start != null)
+          'plannedTime': LocalTime.fromDateTime(start).toString(),
+      });
+      return {
+        'ok': result['ok'],
+        if (result['task'] != null)
+          'schedule': _legacyTaskScheduleJson(
+            Map<String, dynamic>.from(result['task'] as Map),
+          ),
+        if (result['error'] != null) 'error': result['error'],
+      };
+    }
+    if (event == null) return _error('未找到日程或任务: $id');
+    final result = await _updateCalendar(_calendar(context), args);
+    return {
+      'ok': result['ok'],
+      if (result['event'] != null)
+        'schedule': _legacyEventScheduleJson(
+          Map<String, dynamic>.from(result['event'] as Map),
+        ),
+      if (result['error'] != null) 'error': result['error'],
+    };
+  }
+
+  Future<Map<String, dynamic>> _convertTaskToSchedule(
+    LynAIFunctionContext context,
+    Task task,
+    Map<String, dynamic> args,
+  ) async {
+    final start = _dateArg(args, 'start') ?? _taskPlannedDateTime(task);
+    final end = _dateArg(args, 'end');
+    if (start == null || end == null) {
+      return _error('任务转换为日程需要 start、end');
+    }
+    final title = args.containsKey('title')
+        ? (args['title'] as String? ?? '').trim()
+        : task.title;
+    if (title.isEmpty) return _error('日历事件标题不能为空');
+    final event = CalendarEvent(
+      id: task.id,
+      title: title,
+      note: args.containsKey('note')
+          ? _optionalString(args['note'])
+          : task.note,
+      spec: TimedCalendarEventSpec(start: start, end: end),
+      reminders: [
+        for (final reminder in task.reminders)
+          if (reminder.anchor == ItemReminderAnchor.taskPlanned)
+            reminder.copyWith(
+              anchor: ItemReminderAnchor.eventStart,
+              dateOnlyTime: null,
+            ),
+      ],
+      createdAt: task.createdAt,
+      updatedAt: DateTime.now(),
+    );
+    final calendar = _calendar(context);
+    final previousEvents = calendar.events;
+    final previousAnniversaries = calendar.anniversaries;
+    final tasks = _tasks(context);
+    final previousTasks = tasks.tasks;
+    final previousLists = tasks.lists;
+    final previousEntries = tasks.entries;
+    await _convertLegacyScheduleKind(
+      description: '任务转换为日程',
+      saveTarget: () => calendar.restoreEvent(event),
+      removeSource: () => tasks.replaceAll(
+        tasks: previousTasks.where((item) => item.id != task.id).toList(),
+        lists: previousLists,
+        entries: previousEntries,
+      ),
+      restoreSource: () => tasks.replaceAll(
+        tasks: previousTasks,
+        lists: previousLists,
+        entries: previousEntries,
+      ),
+      rollbackTarget: () => calendar.replaceAll(
+        events: previousEvents,
+        anniversaries: previousAnniversaries,
+      ),
+    );
+    return {
+      'ok': true,
+      'schedule': _legacyEventScheduleJson(_calendarEventJson(event)),
+    };
+  }
+
+  Future<Map<String, dynamic>> _convertScheduleToTask(
+    LynAIFunctionContext context,
+    CalendarEvent event,
+    Map<String, dynamic> args,
+  ) async {
+    final suppliedStart = _dateArg(args, 'start');
+    final start = suppliedStart ?? _eventRange(event).$1.toLocal();
+    final hasTime =
+        suppliedStart != null || event.spec is TimedCalendarEventSpec;
+    final title = args.containsKey('title')
+        ? (args['title'] as String? ?? '').trim()
+        : event.title;
+    if (title.isEmpty) return _error('任务标题不能为空');
+    final now = DateTime.now();
+    final task = Task(
+      id: event.id,
+      title: title,
+      note: args.containsKey('note')
+          ? _optionalString(args['note'])
+          : event.note,
+      plannedDate: LocalDate.fromDateTime(start),
+      plannedTime: hasTime ? LocalTime.fromDateTime(start) : null,
+      createdAt: event.createdAt,
+      updatedAt: now,
+      reminders: [
+        for (final reminder in event.reminders)
+          reminder.copyWith(anchor: ItemReminderAnchor.taskPlanned),
+      ],
+    );
+    final tasks = _tasks(context);
+    final previousTasks = tasks.tasks;
+    final previousLists = tasks.lists;
+    final previousEntries = tasks.entries;
+    final calendar = _calendar(context);
+    final previousEvents = calendar.events;
+    final previousAnniversaries = calendar.anniversaries;
+    await _convertLegacyScheduleKind(
+      description: '日程转换为任务',
+      saveTarget: () => tasks.restoreTask(task),
+      removeSource: () => calendar.replaceAll(
+        events: previousEvents.where((item) => item.id != event.id).toList(),
+        anniversaries: previousAnniversaries,
+      ),
+      restoreSource: () => calendar.replaceAll(
+        events: previousEvents,
+        anniversaries: previousAnniversaries,
+      ),
+      rollbackTarget: () => tasks.replaceAll(
+        tasks: previousTasks,
+        lists: previousLists,
+        entries: previousEntries,
+      ),
+    );
+    return {
+      'ok': true,
+      'schedule': _legacyTaskScheduleJson(_taskJson(tasks, task)),
+    };
+  }
+
+  Future<void> _convertLegacyScheduleKind({
+    required String description,
+    required Future<void> Function() saveTarget,
+    required Future<void> Function() removeSource,
+    required Future<void> Function() restoreSource,
+    required Future<void> Function() rollbackTarget,
+  }) async {
+    try {
+      await saveTarget();
+    } catch (error) {
+      final compensationError = await _bestEffortCompensation(rollbackTarget);
+      throw Exception(
+        '$description失败：目标分区保存失败: $error'
+        '${_compensationErrorSuffix(compensationError)}',
+      );
+    }
+
+    try {
+      await removeSource();
+    } catch (error) {
+      // 任务与日历属于独立分区，无法使用数据库事务，只能显式恢复源并回滚目标。
+      final sourceError = await _bestEffortCompensation(restoreSource);
+      final targetError = await _bestEffortCompensation(rollbackTarget);
+      final compensationErrors = [
+        if (sourceError != null) '恢复源分区失败: $sourceError',
+        if (targetError != null) '回滚目标分区失败: $targetError',
+      ];
+      throw Exception(
+        '$description失败：源分区移除保存失败: $error'
+        '${_compensationErrorSuffix(compensationErrors)}',
+      );
+    }
+  }
+
+  Future<Object?> _bestEffortCompensation(
+    Future<void> Function() compensate,
+  ) async {
+    try {
+      await compensate();
+      return null;
+    } catch (error) {
+      return error;
+    }
+  }
+
+  String _compensationErrorSuffix(Object? error) {
+    if (error == null || error is List && error.isEmpty) return '';
+    if (error is List) return '；补偿未完全成功: ${error.join('; ')}';
+    return '；补偿失败: $error';
   }
 
   Future<Map<String, dynamic>> _deleteSchedule(
-    FeatureProvider features,
+    LynAIFunctionContext context,
     Map<String, dynamic> args,
   ) async {
     final id = (args['id'] as String? ?? '').trim();
-    if (id.isEmpty) return _error('schedules.delete 缺少 id');
-    await features.deleteSchedule(id);
-    return {'ok': true};
+    if (context.tasks?.taskById(id) != null) {
+      return _deleteTask(_tasks(context), args);
+    }
+    return _deleteCalendar(_calendar(context), args);
   }
 
   Map<String, dynamic> _listNotes(
@@ -1627,82 +2170,142 @@ class LynAIFunctionService {
   }
 
   Map<String, dynamic> _listTodoLists(
-    FeatureProvider features,
+    TaskProvider tasks,
     Map<String, dynamic> args,
   ) {
     final query = (args['query'] as String? ?? '').trim().toLowerCase();
     final includeItems = _boolArg(args, 'includeItems') ?? false;
-    final lists = features.todoLists.where((list) {
+    final lists = tasks.lists.where((list) {
+      final items = tasks.tasksForList(list.id);
       if (query.isEmpty) return true;
       return list.title.toLowerCase().contains(query) ||
-          list.items.any((item) => item.text.toLowerCase().contains(query));
+          items.any((item) => item.title.toLowerCase().contains(query));
     });
     return {
       'ok': true,
       'todoLists': lists.map((list) {
-        final done = list.items.where((item) => item.done).length;
+        final items = tasks.tasksForList(list.id);
+        final done = items.where((item) => item.isCompleted).length;
         return {
           'id': list.id,
           'title': list.title,
           'createdAt': list.createdAt.toIso8601String(),
           'updatedAt': list.updatedAt.toIso8601String(),
-          'totalItems': list.items.length,
+          'totalItems': items.length,
           'doneItems': done,
-          'totalCount': list.items.length,
+          'totalCount': items.length,
           'doneCount': done,
-          if (includeItems) 'items': list.items.map(_todoItemJson).toList(),
+          if (includeItems) 'items': items.map(_legacyTodoItemJson).toList(),
         };
       }).toList(),
     };
   }
 
   Map<String, dynamic> _readTodoList(
-    FeatureProvider features,
+    TaskProvider tasks,
     Map<String, dynamic> args,
   ) {
-    final list = _findTodoList(features, args);
+    final list = _findTodoList(tasks, args);
     if (list == null) return _error('未找到匹配的待办清单，请先调用 list_todo_lists 查看可用清单');
-    return {'ok': true, 'todoList': _todoListJson(list)};
+    return {'ok': true, 'todoList': _legacyTodoListJson(tasks, list)};
   }
 
   Future<Map<String, dynamic>> _saveTodoList(
-    FeatureProvider features,
+    TaskProvider tasks,
     Map<String, dynamic> args,
   ) async {
     final title = (args['title'] as String? ?? '').trim();
     final id = (args['id'] as String? ?? '').trim();
     final rawItems = args['items'];
-    final items = rawItems is List
-        ? rawItems.map(_todoItemFromRaw).whereType<TodoItem>().toList()
-        : <TodoItem>[];
-    if (id.isEmpty) {
-      if (title.isEmpty) return _error('创建待办清单需要 title');
-      final newId = await features.addTodoListWithItems(title, items);
-      final list = features.getTodoList(newId);
-      return {
-        'ok': true,
-        'todoList': list == null ? null : _todoListJson(list),
-      };
-    }
-    final current = features.getTodoList(id);
-    if (current == null) return _error('未找到待办清单: $id');
-    if (title.isEmpty && rawItems is! List) {
+    final current = id.isEmpty ? null : tasks.listById(id);
+    if (id.isNotEmpty && current == null) return _error('未找到待办清单: $id');
+    if (current == null && title.isEmpty) return _error('创建待办清单需要 title');
+    if (current != null && title.isEmpty && rawItems is! List) {
       return _error('修改待办清单需要 title 或 items');
     }
-    final updated = rawItems is List
-        ? current.copyWith(title: title.isEmpty ? null : title, items: items)
-        : current.copyWith(title: title);
-    await features.updateTodoList(updated);
-    return {'ok': true, 'todoList': _todoListJson(updated)};
+    if (current == null && rawItems is! List) {
+      final listId = await tasks.addList(title);
+      return {
+        'ok': true,
+        'todoList': _legacyTodoListJson(tasks, tasks.listById(listId)!),
+      };
+    }
+
+    final now = DateTime.now();
+    final listId = current?.id ?? _uuid.v4();
+    final list = current == null
+        ? TaskList(
+            id: listId,
+            title: title,
+            sortOrder: tasks.lists.length,
+            createdAt: now,
+            updatedAt: now,
+          )
+        : current.copyWith(title: title.isEmpty ? null : title, updatedAt: now);
+    if (rawItems is! List) {
+      await tasks.updateList(list);
+      return {
+        'ok': true,
+        'todoList': _legacyTodoListJson(tasks, tasks.listById(listId)!),
+      };
+    }
+
+    final existingTaskIds = tasks.tasks.map((task) => task.id).toSet();
+    final taskById = current == null
+        ? const <String, Task>{}
+        : {for (final task in tasks.tasksForList(listId)) task.id: task};
+    final selected = <Task>[];
+    final selectedIds = <String>{};
+    for (final raw in rawItems) {
+      final item = _legacyTodoTaskFromRaw(raw, taskById, existingTaskIds, now);
+      if (item == null || !selectedIds.add(item.id)) continue;
+      selected.add(item);
+    }
+    final replacements = {for (final task in selected) task.id: task};
+    final replacedTaskIds = taskById.keys.where(
+      (taskId) => !selectedIds.contains(taskId),
+    );
+    final nextTasks = <Task>[
+      for (final task in tasks.tasks)
+        if (!replacedTaskIds.contains(task.id))
+          replacements.remove(task.id) ?? task,
+      ...replacements.values,
+    ];
+    final nextLists = <TaskList>[
+      for (final existing in tasks.lists)
+        if (existing.id == listId) list else existing,
+      if (current == null) list,
+    ];
+    final nextEntries = <TaskListEntry>[
+      for (final entry in tasks.entries)
+        if (entry.taskListId != listId && !selectedIds.contains(entry.taskId))
+          entry,
+      for (var position = 0; position < selected.length; position++)
+        TaskListEntry(
+          taskListId: listId,
+          taskId: selected[position].id,
+          position: position,
+          updatedAt: now,
+        ),
+    ];
+    await tasks.replaceAll(
+      tasks: nextTasks,
+      lists: nextLists,
+      entries: nextEntries,
+    );
+    return {
+      'ok': true,
+      'todoList': _legacyTodoListJson(tasks, tasks.listById(listId)!),
+    };
   }
 
   Future<Map<String, dynamic>> _saveTodoItem(
-    FeatureProvider features,
+    TaskProvider tasks,
     Map<String, dynamic> args,
   ) async {
     final listId = (args['listId'] as String? ?? '').trim();
     if (listId.isEmpty) return _error('缺少 listId');
-    final list = features.getTodoList(listId);
+    final list = tasks.listById(listId);
     if (list == null) return _error('未找到待办清单: $listId');
     final itemId = (args['itemId'] as String? ?? '').trim();
     final delete = _boolArg(args, 'delete') ?? false;
@@ -1710,90 +2313,85 @@ class LynAIFunctionService {
       if (delete) return _error('删除待办项需要 itemId');
       final text = (args['text'] as String? ?? '').trim();
       if (text.isEmpty) return _error('创建待办项需要 text');
-      final item = TodoItem(
-        id: _uuid.v4(),
-        text: text,
-        done: _boolArg(args, 'done') ?? false,
-      );
-      final updated = list.copyWith(items: [item, ...list.items]);
-      await features.updateTodoList(updated);
+      final id = await tasks.addTask(title: text, listId: listId);
+      await tasks.moveTask(id, listId, position: 0);
+      if (_boolArg(args, 'done') ?? false) await tasks.completeTask(id);
+      final item = tasks.taskById(id)!;
       return {
         'ok': true,
-        'todoList': _todoListJson(updated),
-        'item': _todoItemJson(item),
+        'todoList': _legacyTodoListJson(tasks, list),
+        'item': _legacyTodoItemJson(item),
       };
     }
-    final index = list.items.indexWhere((item) => item.id == itemId);
-    if (index == -1) return _error('未找到待办项: $itemId');
-    if (delete) {
-      final updated = list.copyWith(
-        items: list.items.where((item) => item.id != itemId).toList(),
-      );
-      await features.updateTodoList(updated);
-      return {'ok': true, 'todoList': _todoListJson(updated)};
+    final current = tasks.taskById(itemId);
+    final entry = tasks.entryForTask(itemId);
+    if (current == null || entry?.taskListId != listId) {
+      return _error('未找到待办项: $itemId');
     }
-    final current = list.items[index];
+    if (delete) {
+      await tasks.deleteTask(itemId);
+      return {'ok': true, 'todoList': _legacyTodoListJson(tasks, list)};
+    }
     final text = (args['text'] as String?)?.trim();
     final done = _boolArg(args, 'done');
-    final item = current.copyWith(
-      text: text == null || text.isEmpty ? null : text,
-      done: done,
-    );
-    final items = List<TodoItem>.from(list.items)..[index] = item;
-    final updated = list.copyWith(items: items);
-    await features.updateTodoList(updated);
+    if (text != null && text.isNotEmpty) {
+      await tasks.updateTask(current.copyWith(title: text));
+    }
+    if (done == true) await tasks.completeTask(itemId);
+    if (done == false) await tasks.uncompleteTask(itemId);
+    final item = tasks.taskById(itemId)!;
     return {
       'ok': true,
-      'todoList': _todoListJson(updated),
-      'item': _todoItemJson(item),
+      'todoList': _legacyTodoListJson(tasks, list),
+      'item': _legacyTodoItemJson(item),
     };
   }
 
   Future<Map<String, dynamic>> _deleteTodoList(
-    FeatureProvider features,
+    TaskProvider tasks,
     Map<String, dynamic> args,
   ) async {
     final id = (args['id'] as String? ?? '').trim();
     if (id.isEmpty) return _error('todos.deleteList 缺少 id');
-    await features.deleteTodoList(id);
+    await tasks.deleteList(id);
     return {'ok': true};
   }
 
-  TodoList? _findTodoList(FeatureProvider features, Map<String, dynamic> args) {
+  TaskList? _findTodoList(TaskProvider tasks, Map<String, dynamic> args) {
     final id = (args['id'] as String? ?? '').trim();
     final title = (args['title'] as String? ?? '').trim().toLowerCase();
     final query = (args['query'] as String? ?? '').trim().toLowerCase();
-    if (id.isNotEmpty) return features.getTodoList(id);
+    if (id.isNotEmpty) return tasks.listById(id);
     if (title.isNotEmpty) {
       return _bestTodoListMatch(
-            features,
+            tasks,
             (list) => list.title.toLowerCase() == title,
           ) ??
           _bestTodoListMatch(
-            features,
+            tasks,
             (list) => list.title.toLowerCase().contains(title),
           );
     }
     if (query.isNotEmpty) {
       return _bestTodoListMatch(
-            features,
+            tasks,
             (list) => list.title.toLowerCase().contains(query),
           ) ??
           _bestTodoListMatch(
-            features,
-            (list) => list.items.any(
-              (item) => item.text.toLowerCase().contains(query),
-            ),
+            tasks,
+            (list) => tasks
+                .tasksForList(list.id)
+                .any((item) => item.title.toLowerCase().contains(query)),
           );
     }
     return null;
   }
 
-  TodoList? _bestTodoListMatch(
-    FeatureProvider features,
-    bool Function(TodoList list) test,
+  TaskList? _bestTodoListMatch(
+    TaskProvider tasks,
+    bool Function(TaskList list) test,
   ) {
-    for (final list in features.todoLists) {
+    for (final list in tasks.lists) {
       if (test(list)) return list;
     }
     return null;
@@ -2303,35 +2901,56 @@ class LynAIFunctionService {
     return '-$removed 行';
   }
 
-  static TodoItem? _todoItemFromRaw(Object? raw) {
+  static Task? _legacyTodoTaskFromRaw(
+    Object? raw,
+    Map<String, Task> taskById,
+    Set<String> existingTaskIds,
+    DateTime now,
+  ) {
     if (raw is! Map) return null;
-    final item = _todoItemFromJson(Map<String, dynamic>.from(raw));
-    return item.text.isEmpty ? null : item;
-  }
-
-  static TodoItem _todoItemFromJson(Map<String, dynamic> json) {
+    final json = Map<String, dynamic>.from(raw);
     final id = (json['id'] as String? ?? '').trim();
-    return TodoItem(
-      id: id.isEmpty ? _uuid.v4() : id,
-      text: (json['text'] as String? ?? '').trim(),
-      done: _boolArg(json, 'done') ?? false,
+    final text = (json['text'] as String? ?? '').trim();
+    if (text.isEmpty) return null;
+    final existing = id.isEmpty ? null : taskById[id];
+    final taskId =
+        id.isEmpty || (existing == null && existingTaskIds.contains(id))
+        ? _uuid.v4()
+        : id;
+    final done = _boolArg(json, 'done') ?? false;
+    return Task(
+      id: taskId,
+      title: text,
+      note: existing?.note,
+      plannedDate: existing?.plannedDate,
+      plannedTime: existing?.plannedTime,
+      dueDate: existing?.dueDate,
+      dueTime: existing?.dueTime,
+      completedAt: done ? existing?.completedAt ?? now : null,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      reminders: existing?.reminders ?? const [],
     );
   }
 
-  static Map<String, dynamic> _todoListJson(TodoList list) {
+  static Map<String, dynamic> _legacyTodoListJson(
+    TaskProvider provider,
+    TaskList list,
+  ) {
+    final items = provider.tasksForList(list.id);
     return {
       'id': list.id,
       'title': list.title,
       'createdAt': list.createdAt.toIso8601String(),
       'updatedAt': list.updatedAt.toIso8601String(),
-      'items': list.items.map(_todoItemJson).toList(),
-      'totalCount': list.items.length,
-      'doneCount': list.items.where((item) => item.done).length,
+      'items': items.map(_legacyTodoItemJson).toList(),
+      'totalCount': items.length,
+      'doneCount': items.where((item) => item.isCompleted).length,
     };
   }
 
-  static Map<String, dynamic> _todoItemJson(TodoItem item) {
-    return {'id': item.id, 'text': item.text, 'done': item.done};
+  static Map<String, dynamic> _legacyTodoItemJson(Task item) {
+    return {'id': item.id, 'text': item.title, 'done': item.isCompleted};
   }
 
   static bool? _boolArg(Map<String, dynamic> args, String key) {
@@ -2351,29 +2970,308 @@ class LynAIFunctionService {
     return DateTime.tryParse(raw.trim())?.toLocal();
   }
 
-  static String _scheduleKindArg(Map<String, dynamic> args) {
-    final raw = (args['kind'] as String? ?? '').trim().toLowerCase();
-    if (raw == ScheduleItem.kindTask || raw == '任务') {
-      return ScheduleItem.kindTask;
+  static String? _optionalString(Object? raw) {
+    final value = raw?.toString().trim() ?? '';
+    return value.isEmpty ? null : value;
+  }
+
+  static LocalDate? _localDateArg(Map<String, dynamic> args, String key) {
+    final value = _optionalString(args[key]);
+    if (value == null) return null;
+    return LocalDate.parse(value);
+  }
+
+  static LocalTime? _localTimeArg(Map<String, dynamic> args, String key) {
+    final value = _optionalString(args[key]);
+    if (value == null) return null;
+    return LocalTime.parse(value);
+  }
+
+  static List<ItemReminder> _taskRemindersArg(
+    Map<String, dynamic> args, {
+    List<ItemReminder> current = const [],
+    required LocalDate? plannedDate,
+    required LocalTime? plannedTime,
+    required LocalDate? dueDate,
+    required LocalTime? dueTime,
+  }) {
+    final reminders = args.containsKey('reminders')
+        ? _remindersArg(args['reminders'], const {
+            ItemReminderAnchor.taskPlanned,
+            ItemReminderAnchor.taskDue,
+          })
+        : current;
+    for (final reminder in reminders) {
+      final planned = reminder.anchor == ItemReminderAnchor.taskPlanned;
+      if (planned ? plannedDate == null : dueDate == null) {
+        throw FormatException('${planned ? '计划' : '截止'}提醒缺少对应日期');
+      }
+      if ((planned ? plannedTime : dueTime) != null &&
+          reminder.dateOnlyTime != null) {
+        throw FormatException('${planned ? '计划' : '截止'}时间明确时不能设置 dateOnlyTime');
+      }
     }
-    return ScheduleItem.kindSchedule;
+    return reminders;
   }
 
-  static DateTime _scheduleVisibleEnd(ScheduleItem item) {
-    return item.isTask ? item.start.add(const Duration(minutes: 1)) : item.end;
+  static List<ItemReminder> _calendarRemindersArg(
+    Map<String, dynamic> args, {
+    List<ItemReminder> current = const [],
+    required CalendarEventSpec spec,
+  }) {
+    final reminders = args.containsKey('reminders')
+        ? _remindersArg(args['reminders'], const {
+            ItemReminderAnchor.eventStart,
+          })
+        : current;
+    if (spec is TimedCalendarEventSpec &&
+        reminders.any((reminder) => reminder.dateOnlyTime != null)) {
+      throw const FormatException('定时事件提醒不能设置 dateOnlyTime');
+    }
+    return reminders;
   }
 
-  static Map<String, dynamic> _scheduleJson(ScheduleItem item) {
+  static List<ItemReminder> _anniversaryRemindersArg(
+    Map<String, dynamic> args, {
+    List<ItemReminder> current = const [],
+  }) {
+    if (!args.containsKey('reminders')) return current;
+    return _remindersArg(args['reminders'], const {
+      ItemReminderAnchor.anniversaryDate,
+    });
+  }
+
+  static List<ItemReminder> _remindersArg(
+    Object? raw,
+    Set<ItemReminderAnchor> validAnchors,
+  ) {
+    if (raw is! List) throw const FormatException('reminders 必须是数组');
+    final reminders = [
+      for (final value in raw) _reminderArg(value, validAnchors),
+    ];
+    try {
+      return validatedReminders(reminders);
+    } on ArgumentError catch (error) {
+      throw FormatException(error.message?.toString() ?? '提醒列表无效');
+    }
+  }
+
+  static ItemReminder _reminderArg(
+    Object? raw,
+    Set<ItemReminderAnchor> validAnchors,
+  ) {
+    if (raw is! Map) throw const FormatException('提醒必须是对象');
+    final json = Map<String, dynamic>.from(raw);
+    final id = _optionalString(json['id']) ?? _uuid.v4();
+    final anchor = json['anchor'];
+    if (anchor is! String || anchor.trim().isEmpty) {
+      throw const FormatException('提醒缺少 anchor');
+    }
+    final offset = _integerArg(json['offsetMinutes']);
+    if (offset == null) {
+      throw const FormatException('提醒缺少整数 offsetMinutes');
+    }
+    final reminder = ItemReminder.fromJson({
+      'id': id,
+      'anchor': anchor,
+      'offsetMinutes': offset,
+      if (json.containsKey('dateOnlyTime'))
+        'dateOnlyTime': json['dateOnlyTime'],
+    });
+    if (!validAnchors.contains(reminder.anchor)) {
+      throw FormatException('提醒锚点不适用于当前实体: ${reminder.anchor.name}');
+    }
+    return reminder;
+  }
+
+  static Map<String, dynamic> _taskJson(TaskProvider provider, Task task) {
+    return {
+      'id': task.id,
+      'title': task.title,
+      if (task.note != null) 'note': task.note,
+      'plannedDate': task.plannedDate?.toString(),
+      'plannedTime': task.plannedTime?.toString(),
+      'dueDate': task.dueDate?.toString(),
+      'dueTime': task.dueTime?.toString(),
+      'completed': task.isCompleted,
+      'completedAt': task.completedAt?.toIso8601String(),
+      'listId': provider.entryForTask(task.id)?.taskListId,
+      'createdAt': task.createdAt.toIso8601String(),
+      'updatedAt': task.updatedAt.toIso8601String(),
+      'reminders': task.reminders.map((value) => value.toJson()).toList(),
+    };
+  }
+
+  static CalendarEventSpec _calendarSpecArg(
+    Map<String, dynamic> args, {
+    CalendarEventSpec? current,
+  }) {
+    final allDay =
+        args['allDay'] as bool? ?? current is AllDayCalendarEventSpec;
+    if (allDay) {
+      final old = current is AllDayCalendarEventSpec ? current : null;
+      final start = args.containsKey('startDate')
+          ? _localDateArg(args, 'startDate')
+          : old?.startDate;
+      final end = args.containsKey('endDateExclusive')
+          ? _localDateArg(args, 'endDateExclusive')
+          : old?.endDateExclusive;
+      if (start == null) throw const FormatException('全天事件需要 startDate');
+      return AllDayCalendarEventSpec(
+        startDate: start,
+        endDateExclusive: end ?? start.addDays(1),
+      );
+    }
+    final old = current is TimedCalendarEventSpec ? current : null;
+    final start = _dateArg(args, 'start') ?? old?.start;
+    final end = _dateArg(args, 'end') ?? old?.end;
+    if (start == null || end == null) {
+      throw const FormatException('定时事件需要 start、end');
+    }
+    return TimedCalendarEventSpec(start: start, end: end);
+  }
+
+  static Map<String, dynamic> _calendarEventJson(CalendarEvent event) {
+    return {
+      'id': event.id,
+      'title': event.title,
+      if (event.note != null) 'note': event.note,
+      'allDay': event.spec is AllDayCalendarEventSpec,
+      ...switch (event.spec) {
+        TimedCalendarEventSpec spec => {
+          'start': spec.start.toLocal().toIso8601String(),
+          'end': spec.end.toLocal().toIso8601String(),
+        },
+        AllDayCalendarEventSpec spec => {
+          'startDate': spec.startDate.toString(),
+          'endDateExclusive': spec.endDateExclusive.toString(),
+        },
+      },
+      'createdAt': event.createdAt.toIso8601String(),
+      'updatedAt': event.updatedAt.toIso8601String(),
+      'reminders': event.reminders.map((value) => value.toJson()).toList(),
+    };
+  }
+
+  static (DateTime, DateTime) _eventRange(CalendarEvent event) {
+    return switch (event.spec) {
+      TimedCalendarEventSpec spec => (spec.start, spec.end),
+      AllDayCalendarEventSpec spec => (
+        spec.startDate.atStartOfDay(),
+        spec.endDateExclusive.atStartOfDay(),
+      ),
+    };
+  }
+
+  static AnniversarySpec _anniversarySpecArg(
+    Map<String, dynamic> args, {
+    AnniversarySpec? current,
+  }) {
+    final type = (args['type'] as String? ?? '').trim();
+    final once =
+        type == 'once' || (type.isEmpty && current is OnceAnniversarySpec);
+    if (once) {
+      final date = args.containsKey('date')
+          ? _localDateArg(args, 'date')
+          : current is OnceAnniversarySpec
+          ? current.date
+          : null;
+      if (date == null) throw const FormatException('一次性纪念日需要 date');
+      return OnceAnniversarySpec(date: date);
+    }
+    final old = current is YearlyAnniversarySpec ? current : null;
+    final month = _integerArg(args['month']) ?? old?.month;
+    final day = _integerArg(args['day']) ?? old?.day;
+    if (month == null || day == null) {
+      throw const FormatException('年度纪念日需要 month、day');
+    }
+    return YearlyAnniversarySpec(
+      month: month,
+      day: day,
+      sourceYear: args.containsKey('sourceYear')
+          ? _integerArg(args['sourceYear'])
+          : old?.sourceYear,
+    );
+  }
+
+  static Map<String, dynamic> _anniversaryJson(Anniversary item) {
     return {
       'id': item.id,
-      'kind': item.kind,
       'title': item.title,
-      'start': item.start.toLocal().toIso8601String(),
-      if (!item.isTask) 'end': item.end.toLocal().toIso8601String(),
-      'isTask': item.isTask,
-      'timezone': item.start.toLocal().timeZoneName,
-      'timezoneOffsetMinutes': item.start.toLocal().timeZoneOffset.inMinutes,
       if (item.note != null) 'note': item.note,
+      ...switch (item.spec) {
+        OnceAnniversarySpec spec => {
+          'type': 'once',
+          'date': spec.date.toString(),
+        },
+        YearlyAnniversarySpec spec => {
+          'type': 'yearly',
+          'month': spec.month,
+          'day': spec.day,
+          'sourceYear': spec.sourceYear,
+        },
+      },
+      'showYearCount': item.showYearCount,
+      'createdAt': item.createdAt.toIso8601String(),
+      'updatedAt': item.updatedAt.toIso8601String(),
+      'reminders': item.reminders.map((value) => value.toJson()).toList(),
+    };
+  }
+
+  static bool _legacyScheduleIsTask(Map<String, dynamic> args) {
+    return _legacyScheduleKind(args) == _LegacyScheduleKind.task;
+  }
+
+  static _LegacyScheduleKind _legacyScheduleKind(Map<String, dynamic> args) {
+    final kind = (args['kind'] as String? ?? '').trim().toLowerCase();
+    return switch (kind) {
+      'task' || '任务' => _LegacyScheduleKind.task,
+      'schedule' || 'event' || '日程' => _LegacyScheduleKind.schedule,
+      _ => _LegacyScheduleKind.unspecified,
+    };
+  }
+
+  static DateTime? _taskPlannedDateTime(Task task) {
+    final date = task.plannedDate;
+    if (date == null) return null;
+    return (task.plannedTime ?? LocalTime(0, 0)).on(date);
+  }
+
+  static int? _integerArg(Object? raw) {
+    if (raw is int) return raw;
+    if (raw is num) return raw.toInt();
+    return int.tryParse(raw?.toString().trim() ?? '');
+  }
+
+  static Map<String, dynamic> _legacyTaskScheduleJson(
+    Map<String, dynamic> task,
+  ) {
+    final date = task['plannedDate'] as String;
+    final time = task['plannedTime'] as String? ?? '00:00';
+    return {
+      'id': task['id'],
+      'kind': 'task',
+      'isTask': true,
+      'title': task['title'],
+      'start': DateTime.parse('${date}T$time').toIso8601String(),
+      if (task['note'] != null) 'note': task['note'],
+    };
+  }
+
+  static Map<String, dynamic> _legacyEventScheduleJson(
+    Map<String, dynamic> event,
+  ) {
+    final allDay = event['allDay'] == true;
+    return {
+      'id': event['id'],
+      'kind': 'schedule',
+      'isTask': false,
+      'title': event['title'],
+      'start': allDay ? '${event['startDate']}T00:00:00.000' : event['start'],
+      'end': allDay
+          ? '${event['endDateExclusive']}T00:00:00.000'
+          : event['end'],
+      if (event['note'] != null) 'note': event['note'],
     };
   }
 

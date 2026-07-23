@@ -5,9 +5,11 @@ import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/model_config.dart';
 import 'package:lynai/models/system_prompt.dart';
 import 'package:lynai/pages/chat_page.dart';
+import 'package:lynai/providers/calendar_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
 import 'package:lynai/providers/plugin_provider.dart';
+import 'package:lynai/providers/task_provider.dart';
 import 'package:lynai/services/api_service.dart';
 import 'package:lynai/services/backend_client.dart';
 import 'package:lynai/services/tool_call_service.dart';
@@ -88,6 +90,8 @@ void main() {
             ChangeNotifierProvider.value(value: conversations),
             ChangeNotifierProvider.value(value: settings),
             ChangeNotifierProvider(create: (_) => FeatureProvider()),
+            ChangeNotifierProvider(create: (_) => TaskProvider()),
+            ChangeNotifierProvider(create: (_) => CalendarProvider()),
             ChangeNotifierProvider(create: (_) => ModelConfigProvider()),
             ChangeNotifierProvider(create: (_) => PluginProvider()),
             ChangeNotifierProvider(create: (_) => BackendClient()),
@@ -150,6 +154,8 @@ void main() {
           ChangeNotifierProvider.value(value: settings),
           ChangeNotifierProvider.value(value: models),
           ChangeNotifierProvider(create: (_) => FeatureProvider()),
+          ChangeNotifierProvider(create: (_) => TaskProvider()),
+          ChangeNotifierProvider(create: (_) => CalendarProvider()),
           ChangeNotifierProvider(create: (_) => PluginProvider()),
           ChangeNotifierProvider(create: (_) => BackendClient()),
         ],
@@ -209,6 +215,8 @@ void main() {
           ChangeNotifierProvider.value(value: settings),
           ChangeNotifierProvider.value(value: models),
           ChangeNotifierProvider(create: (_) => FeatureProvider()),
+          ChangeNotifierProvider(create: (_) => TaskProvider()),
+          ChangeNotifierProvider(create: (_) => CalendarProvider()),
           ChangeNotifierProvider(create: (_) => PluginProvider()),
           ChangeNotifierProvider(create: (_) => BackendClient()),
         ],

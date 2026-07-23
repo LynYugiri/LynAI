@@ -21,14 +21,14 @@ void main() {
 
     test('folds repeated row mutations and keeps scopes isolated', () async {
       await database.activateSyncScope('server|user-a', deviceId: _deviceId);
-      await database.writeDataFile('schedules.json', {
-        'schedules': [_schedule('s1', 'first')],
+      await database.writeDataFile('tasks.json', {
+        'tasks': [_task('t1', 'first')],
       });
       final first = await database.loadSyncOutbox('server|user-a');
       final retry = await database.loadSyncOutbox('server|user-a');
 
-      await database.writeDataFile('schedules.json', {
-        'schedules': [_schedule('s1', 'second')],
+      await database.writeDataFile('tasks.json', {
+        'tasks': [_task('t1', 'second', updatedAt: '2026-01-01T00:00:01Z')],
       });
       final folded = await database.loadSyncOutbox('server|user-a');
       await database.activateSyncScope('server|user-b', deviceId: _deviceId);
@@ -56,8 +56,8 @@ void main() {
         await database.close();
 
         database = StorageV2Database(Directory('${root.path}/storage_v2'));
-        await database.writeDataFile('schedules.json', {
-          'schedules': [_schedule('s1', 'while inactive')],
+        await database.writeDataFile('tasks.json', {
+          'tasks': [_task('t1', 'while inactive')],
         });
         await database.close();
 
@@ -75,8 +75,8 @@ void main() {
       'inactive initialized scope captures deletes across restart',
       () async {
         const scope = 'server|user-a';
-        await database.writeDataFile('schedules.json', {
-          'schedules': [_schedule('s1', 'before')],
+        await database.writeDataFile('tasks.json', {
+          'tasks': [_task('t1', 'before')],
         });
         await database.activateSyncScope(scope, deviceId: _deviceId);
         final initial = await database.loadSyncOutbox(scope);
@@ -85,7 +85,7 @@ void main() {
         await database.close();
 
         database = StorageV2Database(Directory('${root.path}/storage_v2'));
-        await database.writeDataFile('schedules.json', {'schedules': const []});
+        await database.writeDataFile('tasks.json', {'tasks': const []});
         await database.close();
 
         database = StorageV2Database(Directory('${root.path}/storage_v2'));
@@ -93,7 +93,7 @@ void main() {
 
         final outbox = await database.loadSyncOutbox(scope);
         expect(outbox, hasLength(1));
-        expect(outbox.single.recordId, 's1');
+        expect(outbox.single.recordId, 't1');
         expect(outbox.single.op, 'delete');
         expect(outbox.single.data, isNull);
       },
@@ -106,8 +106,8 @@ void main() {
       await database.deactivateSyncScope(inactiveScope);
       await database.activateSyncScope(activeScope, deviceId: _deviceId);
 
-      await database.writeDataFile('schedules.json', {
-        'schedules': [_schedule('s1', 'active only')],
+      await database.writeDataFile('tasks.json', {
+        'tasks': [_task('t1', 'active only')],
       });
 
       expect(await database.loadSyncOutbox(inactiveScope), isEmpty);
@@ -129,7 +129,14 @@ void main() {
       await database.deactivateSyncScope(scopeA);
       await database.activateSyncScope(scopeB, deviceId: _deviceId);
       await database.batchIncremental(
-        [_remote('schedules', 's1', _schedule('s1', 'remote B'), seq: 1)],
+        [
+          _remote(
+            'calendar_events',
+            'event-1',
+            _calendarEvent('event-1', 'remote B'),
+            seq: 1,
+          ),
+        ],
         remote: true,
         scope: scopeB,
         nextSince: 1,
@@ -150,8 +157,8 @@ void main() {
       );
       await database.deactivateSyncScope(scopeA);
       await database.activateSyncScope(scopeB, deviceId: _deviceId);
-      await database.writeDataFile('schedules.json', {
-        'schedules': [_schedule('s1', 'local B')],
+      await database.writeDataFile('calendar.json', {
+        'anniversaries': [_anniversary('anniversary-1', 'local B')],
       });
 
       expect(await database.loadSyncOutbox(scopeA), isEmpty);
@@ -166,27 +173,37 @@ void main() {
       () async {
         const scope = 'server|user-a';
         await database.activateSyncScope(scope, deviceId: _deviceId);
-        await database.writeDataFile('schedules.json', {
-          'schedules': [_schedule('s1', 'local')],
+        await database.writeDataFile('conversations.json', {
+          'conversations': [_conversation('c1', 'local')],
         });
         await database.batchIncremental(
           [
-            _remote('schedules', 's1', _schedule('s1', 'remote'), seq: 6),
-            _remote('schedules', 's2', _schedule('s2', 'remote-only'), seq: 7),
+            _remote(
+              'conversations',
+              'c1',
+              _conversation('c1', 'remote'),
+              seq: 6,
+            ),
+            _remote(
+              'conversations',
+              'c2',
+              _conversation('c2', 'remote-only'),
+              seq: 7,
+            ),
           ],
           remote: true,
           scope: scope,
           nextSince: 7,
         );
 
-        final data = await database.loadDataFile('schedules.json');
-        final schedules = (data?['schedules'] as List).cast<Map>();
+        final data = await database.loadDataFile('conversations.json');
+        final conversations = (data?['conversations'] as List).cast<Map>();
         expect(
-          schedules.firstWhere((row) => row['id'] == 's1')['title'],
+          conversations.firstWhere((row) => row['id'] == 'c1')['title'],
           'local',
         );
         expect(
-          schedules.firstWhere((row) => row['id'] == 's2')['title'],
+          conversations.firstWhere((row) => row['id'] == 'c2')['title'],
           'remote-only',
         );
         expect(await database.syncSince(scope), 7);
@@ -201,10 +218,10 @@ void main() {
           conflicts.single.seq,
           SyncConflictResolution.useRemote,
         );
-        final resolved = await database.loadDataFile('schedules.json');
+        final resolved = await database.loadDataFile('conversations.json');
         expect(
-          (resolved?['schedules'] as List).singleWhere(
-            (row) => row['id'] == 's1',
+          (resolved?['conversations'] as List).singleWhere(
+            (row) => row['id'] == 'c1',
           )['title'],
           'remote',
         );
@@ -215,11 +232,11 @@ void main() {
     test('keeping local conflict creates a fresh outbox mutation', () async {
       const scope = 'server|user-a';
       await database.activateSyncScope(scope, deviceId: _deviceId);
-      await database.writeDataFile('schedules.json', {
-        'schedules': [_schedule('s1', 'local')],
+      await database.writeDataFile('conversations.json', {
+        'conversations': [_conversation('c1', 'local')],
       });
       await database.batchIncremental(
-        [_remote('schedules', 's1', _schedule('s1', 'remote'), seq: 6)],
+        [_remote('conversations', 'c1', _conversation('c1', 'remote'), seq: 6)],
         remote: true,
         scope: scope,
         nextSince: 6,
@@ -237,103 +254,113 @@ void main() {
       expect(outbox.single.data?['title'], 'local');
     });
 
-    test('message revisions and todo updatedAt resolve latest-wins', () async {
-      const scope = 'server|user-a';
-      await database.activateSyncScope(scope, deviceId: _deviceId);
-      await database.batchIncremental(
-        [
-          _remote('conversations', 'c1', {
-            'id': 'c1',
-            'title': 'test',
-            'modelId': '',
-            'settings': const <String, dynamic>{},
-            'roleId': 'default',
-            'createdAt': '2026-01-01T00:00:00Z',
-            'updatedAt': '2026-01-01T00:00:00Z',
-          }, seq: 1),
-          _remote('todo_lists', 'l1', {
-            'id': 'l1',
-            'title': 'test',
-            'createdAt': '2026-01-01T00:00:00Z',
-            'updatedAt': '2026-01-01T00:00:00Z',
-          }, seq: 2),
-        ],
-        remote: true,
-        scope: scope,
-        nextSince: 2,
-      );
-      await database.batchIncremental([
-        (
-          table: 'messages',
-          op: 'upsert',
-          data: {
-            'id': 'm1',
-            'conversationId': 'c1',
-            'role': 'user',
-            'content': 'local',
-            'timestamp': '2026-01-01T00:00:00Z',
-            'revision': 1,
-            'updatedAt': '2026-01-01T00:00:00Z',
-          },
-          change: null,
-        ),
-        (
-          table: 'todo_items',
-          op: 'upsert',
-          data: {
-            'id': 't1',
-            'listId': 'l1',
-            'text': 'local',
-            'done': false,
-            'sortOrder': 0,
-            'updatedAt': '2026-01-01T00:00:00Z',
-          },
-          change: null,
-        ),
-      ]);
+    test(
+      'message revisions and planning updatedAt resolve latest-wins',
+      () async {
+        const scope = 'server|user-a';
+        await database.activateSyncScope(scope, deviceId: _deviceId);
+        await database.batchIncremental(
+          [
+            _remote('conversations', 'c1', {
+              'id': 'c1',
+              'title': 'test',
+              'modelId': '',
+              'settings': const <String, dynamic>{},
+              'roleId': 'default',
+              'createdAt': '2026-01-01T00:00:00Z',
+              'updatedAt': '2026-01-01T00:00:00Z',
+            }, seq: 1),
+            _remote('task_lists', 'l1', _taskList('l1', 'test'), seq: 2),
+            _remote('tasks', 't1', _task('t1', 'test'), seq: 3),
+            _remote(
+              'calendar_events',
+              'event-1',
+              _calendarEvent('event-1', 'test'),
+              seq: 4,
+            ),
+            _remote(
+              'anniversaries',
+              'anniversary-1',
+              _anniversary('anniversary-1', 'test'),
+              seq: 5,
+            ),
+          ],
+          remote: true,
+          scope: scope,
+          nextSince: 5,
+        );
+        await database.batchIncremental([
+          (
+            table: 'messages',
+            op: 'upsert',
+            data: {
+              'id': 'm1',
+              'conversationId': 'c1',
+              'role': 'user',
+              'content': 'local',
+              'timestamp': '2026-01-01T00:00:00Z',
+              'revision': 1,
+              'updatedAt': '2026-01-01T00:00:00Z',
+            },
+            change: null,
+          ),
+          (
+            table: 'task_list_entries',
+            op: 'upsert',
+            data: _taskListEntry('t1', 'l1', updatedAt: '2026-01-01T00:00:00Z'),
+            change: null,
+          ),
+        ]);
 
-      await database.batchIncremental(
-        [
-          _remote('messages', 'm1', {
-            'id': 'm1',
-            'conversationId': 'c1',
-            'role': 'user',
-            'content': 'remote',
-            'timestamp': '2026-01-01T00:00:00Z',
-            'revision': 2,
-            'updatedAt': '2026-01-01T00:00:01Z',
-          }, seq: 8),
-          _remote('todo_items', 't1', {
-            'id': 't1',
-            'listId': 'l1',
-            'text': 'remote',
-            'done': true,
-            'sortOrder': 0,
-            'updatedAt': '2026-01-01T00:00:01Z',
-          }, seq: 9),
-        ],
-        remote: true,
-        scope: scope,
-        nextSince: 9,
-      );
+        await database.batchIncremental(
+          [
+            _remote('messages', 'm1', {
+              'id': 'm1',
+              'conversationId': 'c1',
+              'role': 'user',
+              'content': 'remote',
+              'timestamp': '2026-01-01T00:00:00Z',
+              'revision': 2,
+              'updatedAt': '2026-01-01T00:00:01Z',
+            }, seq: 8),
+            _remote(
+              'task_list_entries',
+              't1',
+              _taskListEntry(
+                't1',
+                'l1',
+                sortOrder: 1,
+                updatedAt: '2026-01-01T00:00:01Z',
+              ),
+              seq: 9,
+            ),
+          ],
+          remote: true,
+          scope: scope,
+          nextSince: 9,
+        );
 
-      final conversations = await database.loadDataFile('conversations.json');
-      final todos = await database.loadDataFile('todo_lists.json');
-      expect((conversations?['messages'] as List).single['content'], 'remote');
-      expect((todos?['todoItems'] as List).single['text'], 'remote');
-      expect(await database.loadSyncOutbox(scope), isEmpty);
-      expect(await database.loadSyncConflicts(scope), isEmpty);
-    });
+        final conversations = await database.loadDataFile('conversations.json');
+        final tasks = await database.loadDataFile('tasks.json');
+        expect(
+          (conversations?['messages'] as List).single['content'],
+          'remote',
+        );
+        expect((tasks?['entries'] as List).single['sortOrder'], 1);
+        expect(await database.loadSyncOutbox(scope), isEmpty);
+        expect(await database.loadSyncConflicts(scope), isEmpty);
+      },
+    );
 
     test('ack only removes the uploaded mutation version', () async {
       const scope = 'server|user-a';
       await database.activateSyncScope(scope, deviceId: _deviceId);
-      await database.writeDataFile('schedules.json', {
-        'schedules': [_schedule('s1', 'one')],
+      await database.writeDataFile('tasks.json', {
+        'tasks': [_task('t1', 'one')],
       });
       final uploaded = await database.loadSyncOutbox(scope);
-      await database.writeDataFile('schedules.json', {
-        'schedules': [_schedule('s1', 'two')],
+      await database.writeDataFile('tasks.json', {
+        'tasks': [_task('t1', 'two', updatedAt: '2026-01-01T00:00:01Z')],
       });
 
       await database.acknowledgeSyncOutbox(scope, uploaded);
@@ -429,12 +456,66 @@ SyncRemoteOperation _remote(
   ),
 );
 
-Map<String, dynamic> _schedule(String id, String title) => {
+Map<String, dynamic> _task(
+  String id,
+  String title, {
+  String updatedAt = '2026-01-01T00:00:00Z',
+}) => {
   'id': id,
   'title': title,
-  'start': '2026-07-15T10:00:00.000',
-  'end': '2026-07-15T11:00:00.000',
-  'kind': 'schedule',
+  'createdAt': '2026-01-01T00:00:00Z',
+  'updatedAt': updatedAt,
+};
+
+Map<String, dynamic> _taskList(String id, String title) => {
+  'id': id,
+  'title': title,
+  'sortOrder': 0,
+  'createdAt': '2026-01-01T00:00:00Z',
+  'updatedAt': '2026-01-01T00:00:00Z',
+};
+
+Map<String, dynamic> _taskListEntry(
+  String taskId,
+  String listId, {
+  int sortOrder = 0,
+  required String updatedAt,
+}) => {
+  'id': taskId,
+  'taskId': taskId,
+  'listId': listId,
+  'sortOrder': sortOrder,
+  'updatedAt': updatedAt,
+};
+
+Map<String, dynamic> _calendarEvent(String id, String title) => {
+  'id': id,
+  'title': title,
+  'timeKind': 'timed',
+  'startAt': '2026-07-15T10:00:00.000',
+  'endAt': '2026-07-15T11:00:00.000',
+  'createdAt': '2026-01-01T00:00:00Z',
+  'updatedAt': '2026-01-01T00:00:00Z',
+};
+
+Map<String, dynamic> _anniversary(String id, String title) => {
+  'id': id,
+  'title': title,
+  'month': 7,
+  'day': 15,
+  'recurrence': 'yearly',
+  'createdAt': '2026-01-01T00:00:00Z',
+  'updatedAt': '2026-01-01T00:00:00Z',
+};
+
+Map<String, dynamic> _conversation(String id, String title) => {
+  'id': id,
+  'title': title,
+  'modelId': '',
+  'settings': const <String, dynamic>{},
+  'roleId': 'default',
+  'createdAt': '2026-01-01T00:00:00Z',
+  'updatedAt': '2026-01-01T00:00:00Z',
 };
 
 Map<String, dynamic> _resource(String id, {required String role}) => {

@@ -30,6 +30,7 @@ main()
   -> 注册 SecretStore / DeviceIdentityService / DeviceRegistrationService
   -> 注册 ConversationProvider
   -> 注册 FeatureProvider
+  -> 注册 CalendarProvider / TaskProvider
   -> 注册 ModelConfigProvider
   -> 注册 PluginProvider
   -> 注册 AccountProvider
@@ -37,13 +38,14 @@ main()
   -> 注册 RoleplayProvider
   -> 注册 SettingsProvider
   -> StorageV2UpgradeService.ensureReady()
-  -> 并行加载对话、功能数据、插件、回收站、情景演绎、模型、设置
+  -> 并行加载对话、笔记、规范任务、规范日历、插件、回收站、情景演绎、模型、设置
   -> 同步托管模型并精确迁移旧模型 ID
   -> 根据设置配置 BackendClient
   -> 初始化并校验设备 Ed25519 身份
   -> 从安全存储恢复账号令牌并绑定账号同步作用域
   -> 若已登录则拉取业务增量并同步 LynAI 托管 Provider
   -> 同步内置插件
+  -> 合并任务与日历快照并同步 Android 平台投影
   -> 构建 MaterialApp / HomePage
   -> 检查更新日志
 ```
@@ -59,9 +61,9 @@ HomePage (NavigationBar, 5 tabs)
 ├── FeaturePage (功能)
 │   ├── Dashboard
 │   ├── History
-│   ├── Schedule
+│   ├── Calendar
 │   ├── Notes
-│   ├── Todo Lists
+│   ├── Tasks
 │   └── Roleplay
 ├── PluginMarketPage (插件市场)
 ├── ChatPage (对话)
@@ -148,13 +150,33 @@ storage_v2 中的资源注册表使用 content-addressed blob 路径。对话附
 
 ```text
 模型返回 tool calls
-   -> ToolCallService / PluginLuaRuntimeService
-   -> FeatureProvider / Provider / 平台通道
+   -> ToolCallService / LynAIFunctionService / PluginLuaRuntimeService
+   -> TaskProvider / CalendarProvider / FeatureProvider / 平台通道
   -> 工具结果回传模型
   -> 模型生成最终回复
 ```
 
-工具可读取或修改日程、笔记、待办，也可以调用 Android 平台能力。工具能力应只在可信模型和可信对话中启用。
+规范工具使用 `tasks.*`、`calendar.*` 和 `anniversaries.*` 读取或修改 `TaskProvider`/`CalendarProvider`；`todos.*` 和 `schedules.*` 只是已发布兼容别名，仍写入规范 Provider。权限 ID 继续复用 `todos:*` 和 `schedules:*`，避免破坏插件授权。工具也可修改笔记或调用 Android 平台能力，应只在可信模型和可信对话中启用。
+
+## 任务与日历链路
+
+任务内容、清单元数据和归属关系分离；日历事件、纪念日和发生记录也分离。页面、工具、备份和同步只能修改 canonical source models，不能把 `CalendarOccurrence` 或 Android 投影当成反向写入源。
+
+```text
+TaskProvider                 CalendarProvider
+  ├── Task                     ├── CalendarEvent
+  ├── TaskList                 └── Anniversary
+  └── TaskListEntry                    │
+           └──────────────┬────────────┘
+                          v
+             CalendarOccurrenceService
+                          v
+          CalendarOccurrence（只读 UI 投影）
+```
+
+`TaskRepository` 和 `CalendarRepository` 分别暴露 `tasks.json`/`calendar.json` 逻辑分区；底层 `StorageV2Service` 将这些分区映射到 `app.db` 的规范表。Provider 仍遵守先内存通知、后串行保存。两边任一完整快照持久化后，`CalendarPlatformProjectionCoordinator` 等待两个队列，再生成一份合并 Android 投影，防止任务和日历并发保存互相覆盖原生状态。
+
+`ScheduleItem`、`TodoList` 和 `TodoItem` 不出现在上述当前链路中。它们只由数据库迁移、旧备份、旧回收站和旧 API 适配器读取，再通过 `LegacyCalendarConversionService` 转换。
 
 ## Android 悬浮助手
 
@@ -201,6 +223,10 @@ storage_v2/
 
 Repository 只读写 storage_v2。启动阶段由 `StorageV2UpgradeService` 创建或升级 storage_v2，运行时不再从旧 JSON 恢复业务数据。
 
+Drift 数据库 schema v15 把规划数据规范化为 `tasks`、`task_lists`、`task_list_entries`、`calendar_events` 和 `anniversaries`。升级将旧 `todo_lists`/`todo_items` 拆分为任务、清单和关系，将旧 `schedules.kind=task` 转成任务、其余 schedule 转成事件，然后删除旧表和旧规划同步记录。这个数据库版本仅描述 `app.db` 内部 schema，不得与目录布局常量 `StorageV2Service.currentLayoutVersion` 混用。
+
+`tasks.json`/`calendar.json` 是 Repository、备份和同步的逻辑分区名称，不是在 `storage_v2/data/` 下维护的镜像。结构化唯一权威仍是 `app.db`。
+
 ## 笔记时间线
 
 笔记支持修订树。当前内容与历史版本通过 delta 关联。
@@ -232,8 +258,8 @@ backup.zip
 │   ├── edit_proposals.json
 │   ├── edit_blocks.json
 │   └── page_contents/
-├── schedules.json
-├── todo_lists.json
+├── tasks.json
+├── calendar.json
 ├── roleplay_scenarios.json
 ├── roleplay_threads.json
 ├── plugins.json
@@ -241,7 +267,23 @@ backup.zip
 └── assets/blobs/{sha256Prefix}/{sha256}
 ```
 
-导入时先读取 ZIP，生成预览和冲突列表。用户确认导入计划后，服务恢复 blob、重映射资源引用、处理 ID 冲突，再调用 Provider 替换或合并数据。ZIP 内附件使用和 storage_v2 一致的 SHA blob 路径，备份不再兼容旧数字前缀格式。加密备份先验证 Argon2id/XChaCha20-Poly1305 信封，再解析内层 ZIP；只有该路径可以恢复模型 API-key 分区。
+导入时先读取 ZIP，生成预览和冲突列表。用户确认导入计划后，服务恢复 blob、重映射资源引用、处理 ID 冲突，再调用 Provider 替换或合并数据。`BackupService.currentSchemaVersion` 写入规范 `tasks.json`/`calendar.json`；兼容读取 schema 5-8 的 `schedules.json`/`todo_lists.json` 时，会按与数据库迁移相同的顺序转换和处理任务 ID 碰撞。ZIP 内附件使用和 storage_v2 一致的 SHA blob 路径，备份不再兼容旧数字前缀格式。加密备份先验证 Argon2id/XChaCha20-Poly1305 信封，再解析内层 ZIP；只有该路径可以恢复模型 API-key 分区。
+
+## Android 任务与日历投影
+
+Android 原生层不读取 Dart Provider、数据库表或旧 JSON。`CalendarPlatformProjectionService` 从 canonical source models 生成未来窗口内的 widget occurrences 和每个 `ItemReminder` 的 trigger；`CalendarPlatformBridge` 通过 `lynai/calendar_platform` 一次性提交完整版本化投影到原生 SharedPreferences。
+
+```text
+TaskProvider + CalendarProvider
+  -> 等待两个保存队列
+  -> CalendarPlatformProjectionService
+  -> MethodChannel syncProjection
+  -> CalendarProjectionStore
+  -> ScheduleWidgetProvider.refresh()
+  -> ScheduleNotificationReceiver.reschedule()
+```
+
+原生通知使用非精确 `AlarmManager.setAndAllowWhileIdle`，稳定 trigger ID 用于取消旧 `PendingIntent`。开机、日期、时间和时区变化会从同一投影重排闹钟；小组件也在日期/时间/时区变化时刷新。已完成任务不生成通知 trigger。Android 13+ 通知权限只能由明确用户操作请求，投影同步不自动请求权限。Dart 的提醒模型可跨平台保存，但系统级提醒、小组件和原生重排目前仅 Android 支持。
 
 ## 更新日志
 
@@ -256,6 +298,7 @@ backup.zip
 | 模型 ID 指向已删除配置 | 自动回填同类第一个可用模型或清空。 |
 | 流式 chunk 格式异常 | 跳过坏 chunk，不中断已收到正文。 |
 | 工具参数异常 | 工具返回结构化错误，不破坏对话。 |
+| 旧 schedule/todo 数据 | 只在兼容边界解析并转换为 canonical task/calendar 模型，不恢复旧运行时权威。 |
 | 页面销毁后的异步回调 | 检查 `mounted` 后再更新 UI。 |
 
 ## 维护底线
@@ -267,6 +310,8 @@ backup.zip
 | 普通备份和云同步不包含 API Key | API key 只在本机 `SecretStore`；完整密钥恢复必须使用密码加密备份。 |
 | storage_v2 路径必须通过安全检查 | 避免相对路径逃逸到应用目录外。 |
 | 备份 ZIP 不直接打包 `app.db` | 保留分区导入、冲突处理和跨平台恢复能力。 |
+| `ScheduleItem` / `TodoList` 不是当前权威 | 只允许用于旧数据库、旧备份、旧回收站和旧工具兼容。 |
+| 系统提醒仅 Android | 其他平台保存提醒数据，但没有原生 widget/AlarmManager 投递。 |
 ## LAN Pairing And Sync
 
 LAN sync is not scoped to a cloud account and runs beside cloud sync. It

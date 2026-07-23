@@ -3,7 +3,7 @@
   "name": "状态",
   "version": "1.0.0",
   "author": "LynAI",
-  "description": "显示笔记、待办、对话和系统状态概览",
+  "description": "显示笔记、任务、对话和系统状态概览",
   "icon": "icon.svg",
   "entry": "main.lua",
   "permissions": [
@@ -19,7 +19,7 @@
     {
       "name": "stats",
       "title": "统计聚合",
-      "description": "汇总当前用户的笔记数量、待办完成情况和对话数量，适合状态面板或 Agent 做概览。",
+      "description": "汇总当前用户的笔记数量、规范任务完成情况和对话数量，适合状态面板或 Agent 做概览。",
       "handler": "get_stats",
       "parameters": {"type": "object", "properties": {}}
     },

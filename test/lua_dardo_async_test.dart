@@ -5,6 +5,7 @@ import 'package:lynai/models/app_settings.dart';
 import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/device_control.dart';
 import 'package:lynai/providers/feature_provider.dart';
+import 'package:lynai/providers/task_provider.dart';
 import 'package:lynai/services/agent_lua_script_service.dart';
 import 'package:lynai/services/device_control_service.dart';
 import 'package:lynai/services/device_run_controller.dart';
@@ -79,6 +80,21 @@ return { ok = true, ms = slept.ms }
 
     expect(result['ok'], isTrue);
     expect((result['result'] as Map)['ms'], 1);
+  });
+
+  test('Agent Lua exposes canonical task convenience table', () async {
+    final tasks = TaskProvider();
+    final result = await AgentLuaScriptService().execute(
+      purpose: 'test canonical task table',
+      tasks: tasks,
+      code: r'''
+local listed = lynai.tasks.list({})
+return { ok = listed.ok, count = #listed.tasks }
+''',
+    );
+
+    expect(result['ok'], isTrue);
+    expect((result['result'] as Map)['count'], 0);
   });
 
   test('Agent Lua exposes lynai.device query helper', () async {

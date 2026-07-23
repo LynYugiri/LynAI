@@ -12,19 +12,23 @@ import 'package:lynai/models/agent_trace.dart';
 import 'package:lynai/models/agent_working_memory.dart';
 import 'package:lynai/models/backup_models.dart';
 import 'package:lynai/models/chat_role.dart';
+import 'package:lynai/models/calendar_event.dart';
 import 'package:lynai/models/conversation.dart';
+import 'package:lynai/models/local_date.dart';
+import 'package:lynai/models/local_time.dart';
 import 'package:lynai/models/message.dart';
 import 'package:lynai/models/model_config.dart';
 import 'package:lynai/models/note.dart';
 import 'package:lynai/models/roleplay.dart';
 import 'package:lynai/models/schedule_item.dart';
-import 'package:lynai/models/todo_list.dart';
 import 'package:lynai/providers/conversation_provider.dart';
+import 'package:lynai/providers/calendar_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
 import 'package:lynai/providers/plugin_provider.dart';
 import 'package:lynai/providers/roleplay_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
+import 'package:lynai/providers/task_provider.dart';
 import 'package:lynai/repositories/plugin_repository.dart';
 import 'package:lynai/repositories/settings_repository.dart';
 import 'package:lynai/services/api_service.dart';
@@ -279,6 +283,26 @@ void main() {
     expect(restored.panelWidth, FloatingAssistantSettings.defaultPosition);
     expect(restored.panelHeight, FloatingAssistantSettings.defaultPosition);
     expect(restored.translationModelId, isNull);
+  });
+
+  test('floating assistant settings reject invalid persisted numbers', () {
+    final restored = FloatingAssistantSettings.fromJson({
+      'mangaOverlayOpacity': double.nan,
+      'bubbleX': '12',
+      'bubbleY': double.infinity,
+      'panelX': 12.9,
+      'panelY': -20,
+      'panelWidth': null,
+      'panelHeight': 1e30,
+    });
+
+    expect(restored.mangaOverlayOpacity, 0.92);
+    expect(restored.bubbleX, FloatingAssistantSettings.defaultPosition);
+    expect(restored.bubbleY, FloatingAssistantSettings.defaultPosition);
+    expect(restored.panelX, 12);
+    expect(restored.panelY, FloatingAssistantSettings.defaultPosition);
+    expect(restored.panelWidth, FloatingAssistantSettings.defaultPosition);
+    expect(restored.panelHeight, FloatingAssistantSettings.defaultPosition);
   });
 
   test('role and conversation settings serialize sub model names', () {
@@ -1522,13 +1546,16 @@ return { ok = true, note = "image generated" }
             {'name': 'broken'},
           ],
         });
-        await storage.writeDataFile('schedules.json', {
-          'schedules': [
+        await storage.writeDataFile('calendar.json', {
+          'events': [
             {
-              'id': 's1',
+              'id': 'event-1',
               'title': 'demo',
-              'start': '2026-01-01T09:00:00.000Z',
-              'end': '2026-01-01T10:00:00.000Z',
+              'timeKind': 'timed',
+              'startAt': '2026-01-01T09:00:00.000Z',
+              'endAt': '2026-01-01T10:00:00.000Z',
+              'createdAt': now.toIso8601String(),
+              'updatedAt': now.toIso8601String(),
             },
             {'title': 'broken'},
           ],
@@ -1556,14 +1583,16 @@ return { ok = true, note = "image generated" }
         final conversationProvider = ConversationProvider(storageV2: storage);
         final modelProvider = ModelConfigProvider(storageV2: storage);
         final featureProvider = FeatureProvider(storageV2: storage);
+        final calendarProvider = CalendarProvider(storageV2: storage);
 
         await conversationProvider.loadConversations();
         await modelProvider.loadModels();
         await featureProvider.load();
+        await calendarProvider.load();
 
         expect(conversationProvider.conversations, hasLength(1));
         expect(modelProvider.models, hasLength(1));
-        expect(featureProvider.schedules, hasLength(1));
+        expect(calendarProvider.events, hasLength(1));
         expect(featureProvider.notes, hasLength(1));
       });
     });
@@ -1644,43 +1673,51 @@ return { ok = true, note = "image generated" }
     expect(legacy.toJson().containsKey('kind'), isFalse);
   });
 
-  test('ToolCallService creates schedule tasks with start only', () async {
-    await _withFeatureProvider('lynai_tool_schedule_test_', (
-      featureProvider,
-    ) async {
-      final service = ToolCallService(featureProvider);
+  test(
+    'schedule task alias creates canonical Task without synthetic end',
+    () async {
+      await _withStorageV2('lynai_tool_schedule_test_', (storage, _) async {
+        final featureProvider = await _loadedFeatureProvider(storage);
+        final taskProvider = TaskProvider(storageV2: storage);
+        final calendarProvider = CalendarProvider(storageV2: storage);
+        await Future.wait([taskProvider.load(), calendarProvider.load()]);
+        final service = ToolCallService(
+          featureProvider,
+          tasks: taskProvider,
+          calendar: calendarProvider,
+        );
 
-      final taskResult = await service.execute(
-        const ChatToolCall(
-          id: 'create-task',
-          name: 'create_schedule',
-          arguments: {
-            'kind': 'task',
-            'title': '交材料',
-            'start': '2026-01-01T09:00:00.000',
-          },
-        ),
-        const [],
-      );
+        final taskResult = await service.execute(
+          const ChatToolCall(
+            id: 'create-task',
+            name: 'create_schedule',
+            arguments: {
+              'kind': 'task',
+              'title': '交材料',
+              'start': '2026-01-01T09:00:00.000',
+            },
+          ),
+          const [],
+        );
 
-      expect(taskResult['ok'], isTrue);
-      expect(taskResult['schedule']['kind'], 'task');
-      expect(taskResult['schedule'].containsKey('end'), isFalse);
-      expect(featureProvider.schedules.single.isTask, isTrue);
-      expect(
-        featureProvider.schedules.single.end.difference(
-          featureProvider.schedules.single.start,
-        ),
-        const Duration(minutes: 1),
-      );
-    });
-  });
+        expect(taskResult['ok'], isTrue);
+        expect(taskResult['schedule']['kind'], 'task');
+        expect(taskResult['schedule'].containsKey('end'), isFalse);
+        expect(taskProvider.tasks, hasLength(1));
+        expect(taskProvider.tasks.single.title, '交材料');
+        expect(taskProvider.tasks.single.plannedDate?.toJson(), '2026-01-01');
+        expect(taskProvider.tasks.single.plannedTime?.toJson(), '09:00');
+        expect(calendarProvider.events, isEmpty);
+      });
+    },
+  );
 
   test('ToolCallService manages todo lists and items', () async {
-    await _withFeatureProvider('lynai_tool_todo_test_', (
-      featureProvider,
-    ) async {
-      final service = ToolCallService(featureProvider);
+    await _withStorageV2('lynai_tool_todo_test_', (storage, _) async {
+      final featureProvider = await _loadedFeatureProvider(storage);
+      final taskProvider = TaskProvider(storageV2: storage);
+      await taskProvider.load();
+      final service = ToolCallService(featureProvider, tasks: taskProvider);
 
       final createResult = await service.execute(
         const ChatToolCall(
@@ -1741,6 +1778,8 @@ return { ok = true, note = "image generated" }
       expect(renameResult['ok'], isTrue);
       expect(renameResult['todoList']['title'], '购物');
       expect(renameResult['todoList']['items'], isEmpty);
+      expect(taskProvider.lists.single.title, '购物');
+      expect(taskProvider.tasks, isEmpty);
     });
   });
 
@@ -3613,9 +3652,13 @@ PRAGMA user_version = 2;
       final modelProvider = ModelConfigProvider(storageV2: storage);
       final conversationProvider = ConversationProvider(storageV2: storage);
       final featureProvider = FeatureProvider(storageV2: storage);
+      final taskProvider = TaskProvider(storageV2: storage);
+      final calendarProvider = CalendarProvider(storageV2: storage);
       await modelProvider.loadModels();
       await conversationProvider.loadConversations();
       await featureProvider.load();
+      await taskProvider.load();
+      await calendarProvider.load();
 
       await modelProvider.replaceModels([
         ModelConfig(
@@ -3633,22 +3676,32 @@ PRAGMA user_version = 2;
       );
       conversationProvider.addMessage(conversationId, 'user', 'hello');
       await conversationProvider.flushPendingSaves();
-      await featureProvider.addSchedule(
-        'demo',
-        DateTime(2026, 1, 1, 9),
-        DateTime(2026, 1, 1, 10),
+      await calendarProvider.addEvent(
+        title: 'demo',
+        spec: TimedCalendarEventSpec(
+          start: DateTime(2026, 1, 1, 9),
+          end: DateTime(2026, 1, 1, 10),
+        ),
       );
-      await featureProvider.addTodoListWithItems('todos', [
-        const TodoItem(id: 't1', text: 'task'),
-      ]);
+      final listId = await taskProvider.addList('todos');
+      await taskProvider.addTask(
+        title: 'task',
+        plannedDate: LocalDate(2026, 1, 2),
+        plannedTime: LocalTime(9, 30),
+        listId: listId,
+      );
       await featureProvider.addNoteWithContent('note', 'body');
 
       final loadedConversations = ConversationProvider(storageV2: storage);
       final loadedModels = ModelConfigProvider(storageV2: storage);
       final loadedFeatures = FeatureProvider(storageV2: storage);
+      final loadedTasks = TaskProvider(storageV2: storage);
+      final loadedCalendar = CalendarProvider(storageV2: storage);
       await loadedConversations.loadConversations();
       await loadedModels.loadModels();
       await loadedFeatures.load();
+      await loadedTasks.load();
+      await loadedCalendar.load();
 
       expect(loadedConversations.usingStorageV2, isTrue);
       expect(
@@ -3658,8 +3711,13 @@ PRAGMA user_version = 2;
       expect(loadedModels.usingStorageV2, isTrue);
       expect(loadedModels.models.single.id, 'm1');
       expect(loadedFeatures.usingStorageV2, isTrue);
-      expect(loadedFeatures.schedules.single.title, 'demo');
-      expect(loadedFeatures.todoLists.single.items.single.text, 'task');
+      expect(loadedCalendar.events.single.title, 'demo');
+      expect(loadedTasks.lists.single.title, 'todos');
+      expect(loadedTasks.tasks.single.title, 'task');
+      expect(
+        loadedTasks.entries.single.taskListId,
+        loadedTasks.lists.single.id,
+      );
       expect(loadedFeatures.notes.single.content, 'body');
     } finally {
       await root.delete(recursive: true);

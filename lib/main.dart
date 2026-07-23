@@ -7,6 +7,7 @@ import 'package:fluent_ui/fluent_ui.dart' as fluent;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'providers/conversation_provider.dart';
+import 'providers/calendar_provider.dart';
 import 'providers/feature_provider.dart';
 import 'providers/model_config_provider.dart';
 import 'providers/plugin_provider.dart';
@@ -14,12 +15,15 @@ import 'providers/account_provider.dart';
 import 'providers/recycle_bin_provider.dart';
 import 'providers/roleplay_provider.dart';
 import 'providers/settings_provider.dart';
+import 'providers/task_provider.dart';
 import 'repositories/plugin_repository.dart';
 import 'pages/home_page.dart';
 import 'pages/changelog_page.dart';
 import 'services/floating_assistant_service.dart';
 import 'services/storage_v2_upgrade_service.dart';
 import 'services/backend_client.dart';
+import 'services/calendar_platform_bridge.dart';
+import 'services/calendar_platform_projection_coordinator.dart';
 import 'services/device_identity_service.dart';
 import 'services/device_registration_service.dart';
 import 'services/secret_store.dart';
@@ -92,6 +96,10 @@ Future<void> main() async {
           ),
         ),
         ChangeNotifierProvider(
+          create: (ctx) =>
+              CalendarProvider(storageV2: ctx.read<StorageV2Service>()),
+        ),
+        ChangeNotifierProvider(
           create: (ctx) => ModelConfigProvider(
             storageV2: ctx.read<StorageV2Service>(),
             secretStore: ctx.read<SecretStore>(),
@@ -108,6 +116,23 @@ Future<void> main() async {
         ChangeNotifierProvider(
           create: (ctx) =>
               RoleplayProvider(storageV2: ctx.read<StorageV2Service>()),
+        ),
+        ChangeNotifierProvider(
+          create: (ctx) =>
+              TaskProvider(storageV2: ctx.read<StorageV2Service>()),
+        ),
+        Provider(create: (_) => const CalendarPlatformBridge()),
+        Provider(
+          create: (ctx) {
+            final coordinator = CalendarPlatformProjectionCoordinator(
+              tasks: ctx.read<TaskProvider>(),
+              calendar: ctx.read<CalendarProvider>(),
+              bridge: ctx.read<CalendarPlatformBridge>(),
+            );
+            coordinator.attach();
+            return coordinator;
+          },
+          dispose: (_, coordinator) => coordinator.dispose(),
         ),
         ChangeNotifierProvider(
           create: (ctx) =>
@@ -128,23 +153,31 @@ Future<void> main() async {
             beforeRemoteApply: () async {
               final conversations = ctx.read<ConversationProvider>();
               final features = ctx.read<FeatureProvider>();
+              final calendar = ctx.read<CalendarProvider>();
               final roleplay = ctx.read<RoleplayProvider>();
+              final tasks = ctx.read<TaskProvider>();
               final settings = ctx.read<SettingsProvider>();
               final models = ctx.read<ModelConfigProvider>();
               final plugins = ctx.read<PluginProvider>();
               await flushAllTasks([
                 (name: 'conversations', flush: conversations.flushPendingSaves),
                 (name: 'features', flush: features.flushPendingSaves),
+                (name: 'calendar', flush: calendar.flushPendingSaves),
                 (name: 'roleplay', flush: roleplay.flushPendingSaves),
+                (name: 'tasks', flush: tasks.flushPendingSaves),
                 (name: 'settings', flush: settings.flushPendingSaves),
                 (name: 'models', flush: models.flushPendingSaves),
               ]);
               await plugins.syncAllPlugins();
             },
             onRemoteApplied: () async {
+              final projectionCoordinator = ctx
+                  .read<CalendarPlatformProjectionCoordinator>();
               final conversations = ctx.read<ConversationProvider>();
               final features = ctx.read<FeatureProvider>();
+              final calendar = ctx.read<CalendarProvider>();
               final roleplay = ctx.read<RoleplayProvider>();
+              final tasks = ctx.read<TaskProvider>();
               final recycleBin = ctx.read<RecycleBinProvider>();
               final settings = ctx.read<SettingsProvider>();
               final models = ctx.read<ModelConfigProvider>();
@@ -155,7 +188,9 @@ Future<void> main() async {
               await Future.wait([
                 conversations.loadConversations(),
                 features.load(),
+                calendar.load(),
                 roleplay.loadSessions(),
+                tasks.load(),
                 recycleBin.load(),
                 settings.loadSettings(),
                 models.loadModels(),
@@ -168,6 +203,7 @@ Future<void> main() async {
                 roleplay: roleplay,
                 plugins: plugins,
               );
+              await projectionCoordinator.syncAfterPersistence();
             },
           ),
         ),
@@ -176,14 +212,18 @@ Future<void> main() async {
             Future<void> beforeRemoteApply() async {
               final conversations = ctx.read<ConversationProvider>();
               final features = ctx.read<FeatureProvider>();
+              final calendar = ctx.read<CalendarProvider>();
               final roleplay = ctx.read<RoleplayProvider>();
+              final tasks = ctx.read<TaskProvider>();
               final settings = ctx.read<SettingsProvider>();
               final models = ctx.read<ModelConfigProvider>();
               final plugins = ctx.read<PluginProvider>();
               await flushAllTasks([
                 (name: 'conversations', flush: conversations.flushPendingSaves),
                 (name: 'features', flush: features.flushPendingSaves),
+                (name: 'calendar', flush: calendar.flushPendingSaves),
                 (name: 'roleplay', flush: roleplay.flushPendingSaves),
+                (name: 'tasks', flush: tasks.flushPendingSaves),
                 (name: 'settings', flush: settings.flushPendingSaves),
                 (name: 'models', flush: models.flushPendingSaves),
               ]);
@@ -191,9 +231,13 @@ Future<void> main() async {
             }
 
             Future<void> onRemoteApplied() async {
+              final projectionCoordinator = ctx
+                  .read<CalendarPlatformProjectionCoordinator>();
               final conversations = ctx.read<ConversationProvider>();
               final features = ctx.read<FeatureProvider>();
+              final calendar = ctx.read<CalendarProvider>();
               final roleplay = ctx.read<RoleplayProvider>();
+              final tasks = ctx.read<TaskProvider>();
               final recycleBin = ctx.read<RecycleBinProvider>();
               final settings = ctx.read<SettingsProvider>();
               final models = ctx.read<ModelConfigProvider>();
@@ -203,7 +247,9 @@ Future<void> main() async {
               await Future.wait([
                 conversations.loadConversations(),
                 features.load(),
+                calendar.load(),
                 roleplay.loadSessions(),
+                tasks.load(),
                 recycleBin.load(),
                 settings.loadSettings(),
                 models.loadModels(),
@@ -216,6 +262,7 @@ Future<void> main() async {
                 roleplay: roleplay,
                 plugins: plugins,
               );
+              await projectionCoordinator.syncAfterPersistence();
             }
 
             final mdns = ctx.read<LanMdnsService>();
@@ -327,10 +374,13 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   String _errorMessage = '';
   ConversationProvider? _conversationProvider;
   FeatureProvider? _featureProvider;
+  CalendarProvider? _calendarProvider;
   RoleplayProvider? _roleplayProvider;
+  TaskProvider? _taskProvider;
   SettingsProvider? _settingsProvider;
   ModelConfigProvider? _modelProvider;
   SyncProvider? _syncProvider;
+  CalendarPlatformProjectionCoordinator? _calendarProjectionCoordinator;
   AccountProvider? _accountProvider;
   final _navigatorKey = GlobalKey<NavigatorState>();
 
@@ -347,10 +397,14 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
     super.didChangeDependencies();
     _conversationProvider ??= context.read<ConversationProvider>();
     _featureProvider ??= context.read<FeatureProvider>();
+    _calendarProvider ??= context.read<CalendarProvider>();
     _roleplayProvider ??= context.read<RoleplayProvider>();
+    _taskProvider ??= context.read<TaskProvider>();
     _settingsProvider ??= context.read<SettingsProvider>();
     _modelProvider ??= context.read<ModelConfigProvider>();
     _syncProvider ??= context.read<SyncProvider>();
+    _calendarProjectionCoordinator ??= context
+        .read<CalendarPlatformProjectionCoordinator>();
     _accountProvider ??= context.read<AccountProvider>();
     if (_settingsProvider != null) {
       FloatingAssistantService.instance.start(
@@ -358,6 +412,8 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         conversations: context.read<ConversationProvider>(),
         models: context.read<ModelConfigProvider>(),
         features: context.read<FeatureProvider>(),
+        tasks: context.read<TaskProvider>(),
+        calendar: context.read<CalendarProvider>(),
         plugins: context.read<PluginProvider>(),
         backend: context.read<BackendClient>(),
       );
@@ -384,8 +440,12 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
           (name: 'conversations', flush: provider.flushPendingSaves),
         if (_featureProvider case final provider?)
           (name: 'features', flush: provider.flushPendingSaves),
+        if (_calendarProvider case final provider?)
+          (name: 'calendar', flush: provider.flushPendingSaves),
         if (_roleplayProvider case final provider?)
           (name: 'roleplay', flush: provider.flushPendingSaves),
+        if (_taskProvider case final provider?)
+          (name: 'tasks', flush: provider.flushPendingSaves),
         if (_settingsProvider case final provider?)
           (name: 'settings', flush: provider.flushPendingSaves),
         if (_modelProvider case final provider?)
@@ -400,6 +460,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    unawaited(_flushCriticalSaves());
     FloatingAssistantService.instance.dispose();
     super.dispose();
   }
@@ -419,10 +480,12 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       final modelProvider = context.read<ModelConfigProvider>();
       final settingsProvider = context.read<SettingsProvider>();
       final featureProvider = context.read<FeatureProvider>();
+      final calendarProvider = context.read<CalendarProvider>();
       final pluginProvider = context.read<PluginProvider>();
       final accountProvider = context.read<AccountProvider>();
       final recycleBinProvider = context.read<RecycleBinProvider>();
       final roleplayProvider = context.read<RoleplayProvider>();
+      final taskProvider = context.read<TaskProvider>();
       final backendClient = context.read<BackendClient>();
       final deviceIdentityService = context.read<DeviceIdentityService>();
       await StorageV2UpgradeService().ensureReady();
@@ -430,12 +493,15 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       await Future.wait([
         conversationProvider.loadConversations(),
         featureProvider.load(),
+        calendarProvider.load(),
         pluginProvider.load(),
         recycleBinProvider.load(),
         roleplayProvider.loadSessions(),
+        taskProvider.load(),
         modelProvider.loadModels(),
         settingsProvider.loadSettings(),
       ]);
+      await _calendarProjectionCoordinator?.syncAfterPersistence();
 
       await settingsProvider.initializeDefaultBackend(
         BackendClient.defaultBackendUrl,

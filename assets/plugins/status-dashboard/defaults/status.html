@@ -12,7 +12,7 @@
     <div class="hero-copy">
       <p class="eyebrow">LynAI Status</p>
       <h1>LynAI状态</h1>
-      <p class="subtitle">笔记、待办、对话和系统运行情况一屏掌握</p>
+      <p class="subtitle">笔记、任务、对话和系统运行情况一屏掌握</p>
       <div class="hero-tags">
         <span class="hero-tag">实时聚合</span>
         <span class="hero-tag">内置插件</span>
@@ -42,7 +42,7 @@
         <span class="metric-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
         </span>
-        <span class="metric-label">待办已完成</span>
+        <span class="metric-label">任务已完成</span>
       </div>
       <div class="metric-value" id="todos-done">--</div>
       <div class="metric-sub" id="todos-rate">--</div>
@@ -163,7 +163,7 @@
 
     animateValue(el('notes-count'), 0, notes, 600);
     animateValue(el('todos-done'), 0, done, 600);
-    el('todos-rate').textContent = total > 0 ? done + '/' + total + ' · ' + pct + '%' : '暂无待办';
+    el('todos-rate').textContent = total > 0 ? done + '/' + total + ' · ' + pct + '%' : '暂无任务';
     animateValue(el('conversations-count'), 0, convs, 600);
   }
 

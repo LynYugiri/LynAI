@@ -5,9 +5,11 @@ import 'package:lua_dardo/lua.dart';
 
 import '../models/plugin.dart';
 import '../providers/feature_provider.dart';
+import '../providers/calendar_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/task_provider.dart';
 import '../utils/plugin_path_utils.dart';
 import 'lynai_call_identity.dart';
 import 'lua_sandbox_utils.dart';
@@ -38,6 +40,8 @@ class PluginLuaRuntimeService {
     required PluginToolDefinition tool,
     required Map<String, dynamic> arguments,
     FeatureProvider? features,
+    TaskProvider? tasks,
+    CalendarProvider? calendar,
     ModelConfigProvider? modelConfigs,
     PluginProvider? plugins,
     SettingsProvider? settings,
@@ -47,6 +51,8 @@ class PluginLuaRuntimeService {
       handler: tool.handler,
       arguments: arguments,
       features: features,
+      tasks: tasks,
+      calendar: calendar,
       modelConfigs: modelConfigs,
       plugins: plugins,
       settings: settings,
@@ -58,6 +64,8 @@ class PluginLuaRuntimeService {
     required PluginFunctionDefinition function,
     required Map<String, dynamic> arguments,
     FeatureProvider? features,
+    TaskProvider? tasks,
+    CalendarProvider? calendar,
     ModelConfigProvider? modelConfigs,
     PluginProvider? plugins,
     SettingsProvider? settings,
@@ -67,6 +75,8 @@ class PluginLuaRuntimeService {
       handler: function.handler,
       arguments: arguments,
       features: features,
+      tasks: tasks,
+      calendar: calendar,
       modelConfigs: modelConfigs,
       plugins: plugins,
       settings: settings,
@@ -78,6 +88,8 @@ class PluginLuaRuntimeService {
     required String handler,
     required Map<String, dynamic> arguments,
     FeatureProvider? features,
+    TaskProvider? tasks,
+    CalendarProvider? calendar,
     ModelConfigProvider? modelConfigs,
     PluginProvider? plugins,
     SettingsProvider? settings,
@@ -102,6 +114,8 @@ class PluginLuaRuntimeService {
     final preloadedConfig = await _preloadPluginConfig(
       plugin: plugin,
       features: features,
+      tasks: tasks,
+      calendar: calendar,
       modelConfigs: modelConfigs,
       plugins: plugins,
       settings: settings,
@@ -110,6 +124,8 @@ class PluginLuaRuntimeService {
       state,
       plugin: plugin,
       features: features,
+      tasks: tasks,
+      calendar: calendar,
       modelConfigs: modelConfigs,
       plugins: plugins,
       settings: settings,
@@ -140,6 +156,8 @@ class PluginLuaRuntimeService {
       originalArguments: arguments,
       plugin: plugin,
       features: features,
+      tasks: tasks,
+      calendar: calendar,
       modelConfigs: modelConfigs,
       plugins: plugins,
       settings: settings,
@@ -170,6 +188,8 @@ class PluginLuaRuntimeService {
     LuaState state, {
     required InstalledPlugin plugin,
     required FeatureProvider? features,
+    required TaskProvider? tasks,
+    required CalendarProvider? calendar,
     required ModelConfigProvider? modelConfigs,
     required PluginProvider? plugins,
     required SettingsProvider? settings,
@@ -181,6 +201,8 @@ class PluginLuaRuntimeService {
         pluginId: plugin.id,
       ),
       features: features,
+      tasks: tasks,
+      calendar: calendar,
       modelConfigs: modelConfigs,
       settings: settings,
       plugins: plugins,
@@ -380,7 +402,67 @@ class PluginLuaRuntimeService {
         return 1;
       },
     });
+    // 规范 API 与旧 todos/schedules 并存，插件可逐步迁移。
+    _installCrudTable(state, -1, 'tasks', 'tasks', functions, context);
+    _installCrudTable(state, -1, 'calendar', 'calendar', functions, context);
+    _installCrudTable(
+      state,
+      -1,
+      'anniversaries',
+      'anniversaries',
+      functions,
+      context,
+    );
     state.setGlobal('lynai');
+  }
+
+  void _installCrudTable(
+    LuaState state,
+    int parentIndex,
+    String tableName,
+    String functionPrefix,
+    LynAIFunctionService functions,
+    LynAIFunctionContext context,
+  ) {
+    _setTable(state, parentIndex, tableName, {
+      'list': (LuaState ls) {
+        _pushJsonValue(
+          ls,
+          functions.executeSync(
+            LynAIFunctionCall(
+              name: '$functionPrefix.list',
+              arguments: _mapArg(ls, 1),
+            ),
+            context,
+          ),
+        );
+        return 1;
+      },
+      'create': (LuaState ls) {
+        _pushFunctionCommand(
+          ls,
+          '$functionPrefix.create',
+          _readJsonValue(ls, 1),
+        );
+        return 1;
+      },
+      'update': (LuaState ls) {
+        _pushFunctionCommand(
+          ls,
+          '$functionPrefix.update',
+          _readJsonValue(ls, 1),
+        );
+        return 1;
+      },
+      'delete': (LuaState ls) {
+        _pushFunctionCommand(
+          ls,
+          '$functionPrefix.delete',
+          _readJsonValue(ls, 1),
+        );
+        return 1;
+      },
+    });
   }
 
   void _installDeviceTable(LuaState state, int parentIndex) {
@@ -561,6 +643,8 @@ class PluginLuaRuntimeService {
   Future<Map<String, dynamic>?> _preloadPluginConfig({
     required InstalledPlugin plugin,
     required FeatureProvider? features,
+    required TaskProvider? tasks,
+    required CalendarProvider? calendar,
     required ModelConfigProvider? modelConfigs,
     required PluginProvider? plugins,
     required SettingsProvider? settings,
@@ -577,6 +661,8 @@ class PluginLuaRuntimeService {
           pluginId: plugin.id,
         ),
         features: features,
+        tasks: tasks,
+        calendar: calendar,
         modelConfigs: modelConfigs,
         settings: settings,
         plugins: plugins,
@@ -654,6 +740,8 @@ class PluginLuaRuntimeService {
     required Map<String, dynamic> originalArguments,
     required InstalledPlugin plugin,
     required FeatureProvider? features,
+    required TaskProvider? tasks,
+    required CalendarProvider? calendar,
     required ModelConfigProvider? modelConfigs,
     required PluginProvider? plugins,
     required SettingsProvider? settings,
@@ -679,6 +767,8 @@ class PluginLuaRuntimeService {
           toolName: method,
         ),
         features: features,
+        tasks: tasks,
+        calendar: calendar,
         modelConfigs: modelConfigs,
         plugins: plugins,
         settings: settings,
@@ -708,6 +798,8 @@ class PluginLuaRuntimeService {
       originalArguments: originalArguments,
       plugin: plugin,
       features: features,
+      tasks: tasks,
+      calendar: calendar,
       modelConfigs: modelConfigs,
       plugins: plugins,
       settings: settings,

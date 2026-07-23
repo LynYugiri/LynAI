@@ -1,6 +1,6 @@
 # 时钟与闹钟
 
-当用户要求设置系统闹钟、倒计时、查看世界钟或时间时使用。本地提醒走 `schedules.create`，本 skill 仅用于系统级闹钟。
+当用户要求设置系统闹钟、倒计时、查看世界钟或时间时使用。本地任务走 `tasks.create`，本地日历事件走 `calendar.create`；本 skill 仅用于系统级闹钟。
 
 ## 应用信息
 
@@ -13,7 +13,7 @@
 - 优先用 `lynai.device.openApp` 打开时钟后用 `lynai.device.waitAndClick` 按文案导航到闹钟/倒计时页签。
 - 新建闹钟走"+ 添加"或"新建"入口，输入时间后保存。
 - 只读已有闹钟列表时不要点删除按钮。
-- 与本地 `schedule_item` 区分：系统级闹钟触发响铃由系统发起；本地 `schedules.create` 仅在 LynAI 内提醒。
+- 与 LynAI 规范任务/日历区分：系统级闹钟触发响铃由系统发起；`tasks.create` 和 `calendar.create` 仅管理 LynAI 内数据。
 - 点击保存/确定成功不等于闹钟创建成功；必须回到列表或重新读屏验证目标时间/标签存在且启用。
 - 候选页签、添加、保存按钮先读屏筛选当前可见项，再点击；普通按钮 timeout 不超过 `800ms`，页面跳转不超过 `1500ms`，保存验证不超过 `2500ms`。
 - 设置完成写入 `agent.memory.update` 供主 Agent 继续使用。
@@ -21,7 +21,8 @@
 ## 分流原则
 
 - 用户说"设明天 7 点的闹钟"：进闹钟页签→新建→设时间→保存。
-- 用户说"X 分钟后提醒我"：进倒计时页签或用本地 `schedules.create`；本 skill 走倒计时。
+- 用户说"X 分钟后提醒我"：可进倒计时页签，或用 `tasks.create` 创建带 `reminders` 的本地规范任务；本 skill 只走系统倒计时。
+- 用户说"任务截止前 30 分钟提醒"：不要打开时钟，调用 `tasks.create`/`tasks.update`，使用 `anchor=taskDue`、`offsetMinutes=-30`。
 - 用户说"我有哪些闹钟"：进闹钟页签读取列表返回。
 - 用户说"删掉某闹钟"：返回 `confirm_required` 列出目标闹钟，由主模型确认后再删。
 

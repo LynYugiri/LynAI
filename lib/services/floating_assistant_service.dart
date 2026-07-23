@@ -5,10 +5,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import '../providers/settings_provider.dart';
+import '../providers/calendar_provider.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
+import '../providers/task_provider.dart';
 import 'backend_client.dart';
 import 'device_control_service.dart';
 import 'device_run_controller.dart';
@@ -37,6 +39,8 @@ class FloatingAssistantService with WidgetsBindingObserver {
     required ConversationProvider conversations,
     required ModelConfigProvider models,
     required FeatureProvider features,
+    required TaskProvider tasks,
+    required CalendarProvider calendar,
     required PluginProvider plugins,
     BackendClient? backend,
   }) {
@@ -49,6 +53,8 @@ class FloatingAssistantService with WidgetsBindingObserver {
       conversations: conversations,
       models: models,
       features: features,
+      tasks: tasks,
+      calendar: calendar,
       plugins: plugins,
       backend: backend,
     );
@@ -180,22 +186,22 @@ class FloatingAssistantService with WidgetsBindingObserver {
         return {'ok': true};
       case 'bubbleMoved':
         _persistPosition(
-          bubbleX: _callArgs(call)['x'] as int?,
-          bubbleY: _callArgs(call)['y'] as int?,
+          bubbleX: floatingAssistantChannelInt(_callArgs(call)['x']),
+          bubbleY: floatingAssistantChannelInt(_callArgs(call)['y']),
         );
         return {'ok': true};
       case 'panelMoved':
         _persistPosition(
-          panelX: _callArgs(call)['x'] as int?,
-          panelY: _callArgs(call)['y'] as int?,
+          panelX: floatingAssistantChannelInt(_callArgs(call)['x']),
+          panelY: floatingAssistantChannelInt(_callArgs(call)['y']),
         );
         return {'ok': true};
       case 'panelResized':
         _persistPosition(
-          panelWidth: _callArgs(call)['width'] as int?,
-          panelHeight: _callArgs(call)['height'] as int?,
-          panelX: _callArgs(call)['x'] as int?,
-          panelY: _callArgs(call)['y'] as int?,
+          panelWidth: floatingAssistantChannelInt(_callArgs(call)['width']),
+          panelHeight: floatingAssistantChannelInt(_callArgs(call)['height']),
+          panelX: floatingAssistantChannelInt(_callArgs(call)['x']),
+          panelY: floatingAssistantChannelInt(_callArgs(call)['y']),
         );
         return {'ok': true};
       default:
@@ -213,16 +219,24 @@ class FloatingAssistantService with WidgetsBindingObserver {
     int? panelWidth,
     int? panelHeight,
   }) {
+    if (bubbleX == null &&
+        bubbleY == null &&
+        panelX == null &&
+        panelY == null &&
+        panelWidth == null &&
+        panelHeight == null) {
+      return;
+    }
     // A5: debounce persist + settings sync so a live drag does not cascade
     // configure/agentPlan/chatState channel calls every move frame.
-    _pendingPersist = (
+    _pendingPersist = mergeFloatingAssistantPosition(_pendingPersist, (
       bubbleX: bubbleX,
       bubbleY: bubbleY,
       panelX: panelX,
       panelY: panelY,
       panelWidth: panelWidth,
       panelHeight: panelHeight,
-    );
+    ));
     _persistPositionTimer?.cancel();
     _persistPositionTimer = Timer(const Duration(milliseconds: 150), () {
       _persistPositionTimer = null;
@@ -254,15 +268,7 @@ class FloatingAssistantService with WidgetsBindingObserver {
   bool get hasPendingPositionPersistForTest =>
       _pendingPersist != null || (_persistPositionTimer?.isActive ?? false);
 
-  ({
-    int? bubbleX,
-    int? bubbleY,
-    int? panelX,
-    int? panelY,
-    int? panelWidth,
-    int? panelHeight,
-  })?
-  _pendingPersist;
+  FloatingAssistantPosition? _pendingPersist;
 
   void _sync() {
     final settings = _settings?.settings.floatingAssistant;
@@ -378,4 +384,36 @@ class FloatingAssistantService with WidgetsBindingObserver {
     if (arguments is Map) return Map<String, dynamic>.from(arguments);
     return const {};
   }
+}
+
+@visibleForTesting
+int? floatingAssistantChannelInt(Object? value) {
+  if (value is! num || !value.isFinite || value < 0 || value > 0x7fffffff) {
+    return null;
+  }
+  return value.toInt();
+}
+
+typedef FloatingAssistantPosition = ({
+  int? bubbleX,
+  int? bubbleY,
+  int? panelX,
+  int? panelY,
+  int? panelWidth,
+  int? panelHeight,
+});
+
+@visibleForTesting
+FloatingAssistantPosition mergeFloatingAssistantPosition(
+  FloatingAssistantPosition? current,
+  FloatingAssistantPosition update,
+) {
+  return (
+    bubbleX: update.bubbleX ?? current?.bubbleX,
+    bubbleY: update.bubbleY ?? current?.bubbleY,
+    panelX: update.panelX ?? current?.panelX,
+    panelY: update.panelY ?? current?.panelY,
+    panelWidth: update.panelWidth ?? current?.panelWidth,
+    panelHeight: update.panelHeight ?? current?.panelHeight,
+  );
 }

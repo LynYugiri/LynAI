@@ -4,6 +4,16 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+class TranslationBridgeException implements Exception {
+  const TranslationBridgeException(this.code, this.message);
+
+  final String code;
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 class FloatingAssistantBridge {
   FloatingAssistantBridge._();
 
@@ -43,9 +53,15 @@ class FloatingAssistantBridge {
 
   Future<List<Map<String, dynamic>>> captureOcrGroups() async {
     final response = await _invokeTranslationResult('captureAndRecognize');
-    final result = response is Map ? response['result'] : null;
+    if (response == null) return const [];
+    final result = response['result'];
     final groups = result is Map ? result['groups'] : null;
-    if (groups is! List) return const [];
+    if (groups is! List) {
+      throw const TranslationBridgeException(
+        'invalid_capture_result',
+        'Screen capture returned an invalid OCR result',
+      );
+    }
     return groups
         .whereType<Map>()
         .map(Map<String, dynamic>.from)
@@ -57,19 +73,34 @@ class FloatingAssistantBridge {
 
   Future<void> clearTranslations() => _invokeTranslation('clearTranslations');
 
-  Future<dynamic> _invokeTranslationResult(
+  Future<Map<dynamic, dynamic>?> _invokeTranslationResult(
     String method, [
     Map<String, dynamic>? arguments,
   ]) async {
     if (!isSupported) return null;
     try {
-      return await _translationChannel.invokeMethod<dynamic>(
+      final response = await _translationChannel.invokeMethod<dynamic>(
         method,
         arguments ?? const {},
       );
+      if (response is! Map) {
+        throw TranslationBridgeException(
+          'invalid_native_result',
+          '$method returned an invalid native result',
+        );
+      }
+      if (response['ok'] == true) return response;
+      final error = response['error'];
+      final code = error is Map
+          ? error['code']?.toString() ?? 'translation_failed'
+          : 'translation_failed';
+      final message = error is Map
+          ? error['message']?.toString() ?? '$method failed'
+          : error?.toString() ?? '$method failed';
+      throw TranslationBridgeException(code, message);
     } catch (e) {
       debugPrint('FloatingAssistantBridge.translation.$method failed: $e');
-      return null;
+      rethrow;
     }
   }
 

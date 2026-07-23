@@ -122,7 +122,13 @@ class FloatingTranslationController extends ChangeNotifier {
     _scrolling = false;
     final wasTranslating = _translating;
     await _cancelRequest();
-    if (wasTranslating) await _restoreCurrentTranslations();
+    if (wasTranslating) {
+      try {
+        await _restoreCurrentTranslations();
+      } catch (exception) {
+        _error = '恢复已有译文失败: $exception';
+      }
+    }
     _status = _translations.isEmpty ? '已停止自动翻译' : '已停止自动翻译，保留当前译文';
     notifyListeners();
   }
@@ -134,7 +140,11 @@ class FloatingTranslationController extends ChangeNotifier {
     _translations = const [];
     _status = '';
     _error = '';
-    await _clearTranslations();
+    try {
+      await _clearTranslations();
+    } catch (exception) {
+      _error = '清除译文失败: $exception';
+    }
     notifyListeners();
   }
 
@@ -143,7 +153,13 @@ class FloatingTranslationController extends ChangeNotifier {
     _scrolling = true;
     final wasTranslating = _translating;
     await _cancelRequest();
-    if (wasTranslating) await _restoreCurrentTranslations();
+    if (wasTranslating) {
+      try {
+        await _restoreCurrentTranslations();
+      } catch (exception) {
+        _error = '恢复已有译文失败: $exception';
+      }
+    }
     _status = '滚动中，已保留当前译文';
     notifyListeners();
   }
@@ -157,14 +173,14 @@ class FloatingTranslationController extends ChangeNotifier {
   Future<void> _translateCapturedScreen() async {
     await _cancelRequest();
     final requestId = ++_requestId;
-    await _clearTranslations();
-    if (requestId != _requestId) return;
     _error = '';
     _status = '正在读取当前页面...';
     _translating = true;
     notifyListeners();
 
     try {
+      await _clearTranslations();
+      if (requestId != _requestId) return;
       final groups = await _captureOcrGroups();
       if (requestId != _requestId) return;
       final blocks = _normalizeGroups(groups).take(_maxBlocks).toList();
@@ -220,33 +236,37 @@ class FloatingTranslationController extends ChangeNotifier {
     String response,
     List<Map<String, dynamic>> blocks,
   ) async {
-    final mapped = parseTranslations(response, blocks);
-    if (requestId != _requestId) return;
-    final translated = blocks
-        .where((block) => mapped.containsKey(block['id']))
-        .map(
-          (block) => <String, dynamic>{
-            ...block,
-            'translatedText': mapped[block['id']]!,
-          },
-        )
-        .toList(growable: false);
-    final floating = _settings.settings.floatingAssistant;
-    await _replaceTranslations({
-      'blocks': translated,
-      'style': floating.mangaOverlayStyle,
-      'opacity': floating.mangaOverlayOpacity,
-      'layoutMode': floating.mangaLayoutMode,
-      'targetLanguage': floating.mangaTargetLanguage,
-    });
-    if (requestId != _requestId) return;
-    _translations = translated;
-    _translating = false;
-    _status = translated.isEmpty
-        ? '未获得译文'
-        : '已翻译 ${translated.length}/${blocks.length} 段';
-    if (!_automatic) await _saveToHistory(translated);
-    notifyListeners();
+    try {
+      final mapped = parseTranslations(response, blocks);
+      if (requestId != _requestId) return;
+      final translated = blocks
+          .where((block) => mapped.containsKey(block['id']))
+          .map(
+            (block) => <String, dynamic>{
+              ...block,
+              'translatedText': mapped[block['id']]!,
+            },
+          )
+          .toList(growable: false);
+      final floating = _settings.settings.floatingAssistant;
+      await _replaceTranslations({
+        'blocks': translated,
+        'style': floating.mangaOverlayStyle,
+        'opacity': floating.mangaOverlayOpacity,
+        'layoutMode': floating.mangaLayoutMode,
+        'targetLanguage': floating.mangaTargetLanguage,
+      });
+      if (requestId != _requestId) return;
+      _translations = translated;
+      _translating = false;
+      _status = translated.isEmpty
+          ? '未获得译文'
+          : '已翻译 ${translated.length}/${blocks.length} 段';
+      if (!_automatic) await _saveToHistory(translated);
+      notifyListeners();
+    } catch (exception) {
+      await _finishWithError(requestId, '显示译文失败: $exception');
+    }
   }
 
   Future<void> _cancelRequest() async {
@@ -259,7 +279,11 @@ class FloatingTranslationController extends ChangeNotifier {
 
   Future<void> _finishWithError(int requestId, String message) async {
     if (requestId != _requestId) return;
-    await _restoreCurrentTranslations();
+    try {
+      await _restoreCurrentTranslations();
+    } catch (exception) {
+      message = '$message；恢复已有译文失败: $exception';
+    }
     if (requestId != _requestId) return;
     _translating = false;
     _error = message;
@@ -336,6 +360,7 @@ class FloatingTranslationController extends ChangeNotifier {
     return '你是屏幕文本翻译助手。$contextHint'
         '将输入 JSON 数组中每个对象的 text 翻译成$targetLanguage。'
         '如果文本已经是$targetLanguage，则原样返回。'
+        'translation 必须是纯文本，不要使用 Markdown、HTML、代码围栏或其他格式标记。'
         '严格返回 JSON 数组，每个元素只包含原始 "id" 和对应的 "translation"。'
         '不得修改 id，不要合并或拆分文本块，不要输出 JSON 之外的内容。';
   }

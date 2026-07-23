@@ -3,12 +3,15 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/backup_models.dart';
+import '../models/anniversary.dart';
+import '../models/calendar_event.dart';
 import '../models/conversation.dart';
 import '../models/note.dart';
 import '../models/plugin.dart';
 import '../models/roleplay.dart';
-import '../models/schedule_item.dart';
-import '../models/todo_list.dart';
+import '../models/task.dart';
+import '../models/task_list.dart';
+import '../providers/calendar_provider.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
@@ -16,6 +19,7 @@ import '../providers/plugin_provider.dart';
 import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/sync_provider.dart';
+import '../providers/task_provider.dart';
 import '../services/backup_service.dart';
 import '../services/backend_client.dart';
 import '../services/backup_encryption.dart';
@@ -53,6 +57,8 @@ class _DataManagementPageState extends State<DataManagementPage> {
       conversationProvider: context.read<ConversationProvider>(),
       featureProvider: context.read<FeatureProvider>(),
       roleplayProvider: context.read<RoleplayProvider>(),
+      taskProvider: context.read<TaskProvider>(),
+      calendarProvider: context.read<CalendarProvider>(),
       pluginProvider: context.read<PluginProvider>(),
       storageV2: StorageV2Service(),
     );
@@ -67,6 +73,8 @@ class _DataManagementPageState extends State<DataManagementPage> {
   BackupSelection _selectionForLocalData(BuildContext context) {
     final conversations = context.read<ConversationProvider>().conversations;
     final features = context.read<FeatureProvider>();
+    final tasks = context.read<TaskProvider>();
+    final calendar = context.read<CalendarProvider>();
     final roleplays = context.read<RoleplayProvider>().scenarios;
     final plugins = context.read<PluginProvider>().plugins;
     return BackupSelection(
@@ -74,8 +82,10 @@ class _DataManagementPageState extends State<DataManagementPage> {
       settingsParts: Set.of(BackupSettingsPart.values),
       conversationIds: conversations.map((item) => item.id).toSet(),
       noteIds: features.notes.map((item) => item.id).toSet(),
-      scheduleIds: features.schedules.map((item) => item.id).toSet(),
-      todoListIds: features.todoLists.map((item) => item.id).toSet(),
+      taskIds: tasks.tasks.map((item) => item.id).toSet(),
+      taskListIds: tasks.lists.map((item) => item.id).toSet(),
+      calendarEventIds: calendar.events.map((item) => item.id).toSet(),
+      anniversaryIds: calendar.anniversaries.map((item) => item.id).toSet(),
       roleplaySessionIds: roleplays.map((item) => item.id).toSet(),
       pluginIds: plugins.map((item) => item.id).toSet(),
     );
@@ -492,6 +502,8 @@ class _ExportCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final conversations = context.watch<ConversationProvider>().conversations;
     final features = context.watch<FeatureProvider>();
+    final tasks = context.watch<TaskProvider>();
+    final calendar = context.watch<CalendarProvider>();
     final roleplays = context.watch<RoleplayProvider>().scenarios;
     final plugins = context.watch<PluginProvider>().plugins;
     return Card(
@@ -507,8 +519,10 @@ class _ExportCard extends StatelessWidget {
               availableSections: Set.of(BackupSection.values),
               conversations: conversations,
               notes: features.notes,
-              schedules: features.schedules,
-              todoLists: features.todoLists,
+              tasks: tasks.tasks,
+              taskLists: tasks.lists,
+              calendarEvents: calendar.events,
+              anniversaries: calendar.anniversaries,
               roleplays: roleplays,
               plugins: plugins,
               busy: busy,
@@ -600,8 +614,10 @@ class _ImportCard extends StatelessWidget {
                 availableSections: archive.availableSections,
                 conversations: archive.data.conversations ?? const [],
                 notes: archive.data.notes ?? const [],
-                schedules: archive.data.schedules ?? const [],
-                todoLists: archive.data.todoLists ?? const [],
+                tasks: archive.data.tasks ?? const [],
+                taskLists: archive.data.taskLists ?? const [],
+                calendarEvents: archive.data.calendarEvents ?? const [],
+                anniversaries: archive.data.anniversaries ?? const [],
                 roleplays: archive.data.roleplaySessions ?? const [],
                 plugins:
                     archive.data.plugins
@@ -683,8 +699,10 @@ class _SelectionTree extends StatelessWidget {
     required this.availableSections,
     required this.conversations,
     required this.notes,
-    required this.schedules,
-    required this.todoLists,
+    required this.tasks,
+    required this.taskLists,
+    required this.calendarEvents,
+    required this.anniversaries,
     required this.roleplays,
     required this.plugins,
     required this.busy,
@@ -695,8 +713,10 @@ class _SelectionTree extends StatelessWidget {
   final Set<BackupSection> availableSections;
   final List<Conversation> conversations;
   final List<Note> notes;
-  final List<ScheduleItem> schedules;
-  final List<TodoList> todoLists;
+  final List<Task> tasks;
+  final List<TaskList> taskLists;
+  final List<CalendarEvent> calendarEvents;
+  final List<Anniversary> anniversaries;
   final List<RoleplayScenario> roleplays;
   final List<InstalledPlugin> plugins;
   final bool busy;
@@ -740,31 +760,57 @@ class _SelectionTree extends StatelessWidget {
           busy: busy,
           onChanged: onChanged,
         ),
-        _ItemSelectionTile<ScheduleItem>(
-          section: BackupSection.schedules,
+        _PlanningSelectionTile(
+          section: BackupSection.tasks,
           selection: selection,
-          enabled: availableSections.contains(BackupSection.schedules),
-          items: schedules,
-          selectedIds: selection.scheduleIds,
-          idFor: (item) => item.id,
-          titleFor: (item) => item.title,
-          subtitleFor: (item) => _formatDate(item.start),
-          copyWithIds: (ids, sections) =>
-              selection.copyWith(sections: sections, scheduleIds: ids),
+          enabled: availableSections.contains(BackupSection.tasks),
+          groups: [
+            _PlanningSelectionGroup<Task>(
+              label: '任务',
+              items: tasks,
+              selectedIds: selection.taskIds,
+              idFor: (item) => item.id,
+              titleFor: (item) => item.title,
+              subtitleFor: (item) => _formatDate(item.updatedAt),
+              update: (value, ids) => value.copyWith(taskIds: ids),
+            ),
+            _PlanningSelectionGroup<TaskList>(
+              label: '清单',
+              items: taskLists,
+              selectedIds: selection.taskListIds,
+              idFor: (item) => item.id,
+              titleFor: (item) => item.title,
+              subtitleFor: (item) => _formatDate(item.updatedAt),
+              update: (value, ids) => value.copyWith(taskListIds: ids),
+            ),
+          ],
           busy: busy,
           onChanged: onChanged,
         ),
-        _ItemSelectionTile<TodoList>(
-          section: BackupSection.todoLists,
+        _PlanningSelectionTile(
+          section: BackupSection.calendar,
           selection: selection,
-          enabled: availableSections.contains(BackupSection.todoLists),
-          items: todoLists,
-          selectedIds: selection.todoListIds,
-          idFor: (item) => item.id,
-          titleFor: (item) => item.title,
-          subtitleFor: (item) => '${item.items.length} 项',
-          copyWithIds: (ids, sections) =>
-              selection.copyWith(sections: sections, todoListIds: ids),
+          enabled: availableSections.contains(BackupSection.calendar),
+          groups: [
+            _PlanningSelectionGroup<CalendarEvent>(
+              label: '事件',
+              items: calendarEvents,
+              selectedIds: selection.calendarEventIds,
+              idFor: (item) => item.id,
+              titleFor: (item) => item.title,
+              subtitleFor: (item) => _formatDate(item.updatedAt),
+              update: (value, ids) => value.copyWith(calendarEventIds: ids),
+            ),
+            _PlanningSelectionGroup<Anniversary>(
+              label: '纪念日',
+              items: anniversaries,
+              selectedIds: selection.anniversaryIds,
+              idFor: (item) => item.id,
+              titleFor: (item) => item.title,
+              subtitleFor: (item) => _formatDate(item.updatedAt),
+              update: (value, ids) => value.copyWith(anniversaryIds: ids),
+            ),
+          ],
           busy: busy,
           onChanged: onChanged,
         ),
@@ -968,6 +1014,126 @@ class _ItemSelectionTile<T> extends StatelessWidget {
       sections.add(section);
     }
     onChanged(copyWithIds(ids, sections));
+  }
+}
+
+class _PlanningSelectionGroup<T> {
+  const _PlanningSelectionGroup({
+    required this.label,
+    required this.items,
+    required this.selectedIds,
+    required this.idFor,
+    required this.titleFor,
+    required this.subtitleFor,
+    required this.update,
+  });
+
+  final String label;
+  final List<T> items;
+  final Set<String> selectedIds;
+  final String Function(T item) idFor;
+  final String Function(T item) titleFor;
+  final String Function(T item) subtitleFor;
+  final BackupSelection Function(BackupSelection value, Set<String> ids) update;
+}
+
+class _PlanningSelectionTile extends StatelessWidget {
+  const _PlanningSelectionTile({
+    required this.section,
+    required this.selection,
+    required this.enabled,
+    required this.groups,
+    required this.busy,
+    required this.onChanged,
+  });
+
+  final BackupSection section;
+  final BackupSelection selection;
+  final bool enabled;
+  final List<_PlanningSelectionGroup<dynamic>> groups;
+  final bool busy;
+  final ValueChanged<BackupSelection> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = groups.fold<int>(0, (sum, group) => sum + group.items.length);
+    final selected = groups.fold<int>(
+      0,
+      (sum, group) =>
+          sum +
+          group.selectedIds
+              .intersection(group.items.map(group.idFor).toSet())
+              .length,
+    );
+    return _SectionShell(
+      child: ExpansionTile(
+        tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+        childrenPadding: const EdgeInsets.only(left: 20, right: 8, bottom: 8),
+        leading: Checkbox(
+          tristate: true,
+          value: enabled ? _triStateValue(selected, total) : false,
+          onChanged: !enabled || busy
+              ? null
+              : (_) => _toggleAll(selected, total),
+        ),
+        title: Text(
+          section.label,
+          style: const TextStyle(fontWeight: FontWeight.w800),
+        ),
+        subtitle: Text('$selected / $total 项'),
+        children: [
+          for (final group in groups) ...[
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 8, 8, 2),
+                child: Text(group.label),
+              ),
+            ),
+            for (final item in group.items)
+              _ChildSelectionRow(
+                value: group.selectedIds.contains(group.idFor(item)),
+                title: group.titleFor(item),
+                subtitle: group.subtitleFor(item),
+                onChanged: busy
+                    ? null
+                    : (value) =>
+                          _toggleItem(group, group.idFor(item), value ?? false),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  void _toggleAll(int selected, int total) {
+    var next = selection;
+    final selectAll = selected != total;
+    for (final group in groups) {
+      final ids = selectAll ? group.items.map(group.idFor).toSet() : <String>{};
+      next = group.update(next, ids);
+    }
+    final sections = Set<BackupSection>.from(next.sections);
+    selectAll ? sections.add(section) : sections.remove(section);
+    onChanged(next.copyWith(sections: sections));
+  }
+
+  void _toggleItem(
+    _PlanningSelectionGroup<dynamic> group,
+    String id,
+    bool selected,
+  ) {
+    final ids = Set<String>.from(group.selectedIds);
+    selected ? ids.add(id) : ids.remove(id);
+    var next = group.update(selection, ids);
+    final anySelected = groups.any(
+      (candidate) => identical(candidate, group)
+          ? ids.isNotEmpty
+          : candidate.selectedIds.isNotEmpty,
+    );
+    final sections = Set<BackupSection>.from(next.sections);
+    anySelected ? sections.add(section) : sections.remove(section);
+    onChanged(next.copyWith(sections: sections));
   }
 }
 

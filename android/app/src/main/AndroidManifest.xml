@@ -46,7 +46,8 @@
         <service
             android:name=".GenerationForegroundService"
             android:exported="false"
-            android:foregroundServiceType="dataSync"/>
+            android:foregroundServiceType="dataSync"
+            android:stopWithTask="true"/>
         <service
             android:name=".LynAIAccessibilityService"
             android:exported="true"

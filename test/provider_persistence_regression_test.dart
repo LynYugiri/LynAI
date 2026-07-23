@@ -65,10 +65,12 @@ void main() {
 
       final featureRepository = _FeatureRepository();
       final features = FeatureProvider(repository: featureRepository);
-      await features.addTodoList('todo');
+      await features.load();
+      featureRepository.allowSave.complete();
+      await features.addNoteWithContent('note', 'body');
       featureRepository.failLoad = true;
       await expectLater(features.load(), throwsStateError);
-      expect(features.todoLists.single.title, 'todo');
+      expect(features.notes.single.title, 'note');
     },
   );
 
@@ -345,12 +347,10 @@ class _FeatureRepository implements FeatureRepository {
   Future<FeatureLoadResult> load() async {
     if (failLoad) throw StateError('load failed');
     return const FeatureLoadResult(
-      schedules: [],
       notes: [],
       noteFolders: [],
       noteRevisions: [],
       noteEditProposals: [],
-      todoLists: [],
       pagesByNoteId: {},
       activePageIds: {},
       revisionContents: {},
@@ -375,12 +375,6 @@ class _FeatureRepository implements FeatureRepository {
     if (!saveStarted.isCompleted) saveStarted.complete();
     await allowSave.future;
   }
-
-  @override
-  Future<void> saveTodoLists(
-    List<dynamic> lists, {
-    required bool usingStorageV2,
-  }) async {}
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

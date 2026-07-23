@@ -1,12 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 
 import 'package:basic_utils/basic_utils.dart';
 
 import '../models/lan_pairing_payload.dart';
 import 'device_identity_service.dart';
 import 'lan_pairing_payload_codec.dart';
+import 'lan_p256_certificate.dart';
 import 'secret_store.dart';
 
 class LanTlsMaterial {
@@ -50,8 +50,12 @@ class LanTlsCertificateService {
   final SecretStore _secretStore;
   final DeviceIdentityService _identityService;
   final LanPairingPayloadCodec _codec;
+  Future<LanTlsMaterial>? _loading;
 
-  Future<LanTlsMaterial> loadOrCreate({DateTime? now}) async {
+  Future<LanTlsMaterial> loadOrCreate({DateTime? now}) =>
+      _loading ??= _loadOrCreate(now: now).whenComplete(() => _loading = null);
+
+  Future<LanTlsMaterial> _loadOrCreate({DateTime? now}) async {
     final clock = (now ?? DateTime.now()).toUtc();
     final stored = await Future.wait([
       _secretStore.read(_certificateKey),
@@ -64,7 +68,13 @@ class LanTlsCertificateService {
         expires != null &&
         _certificateIsValid(stored[0]!, clock) &&
         expires.isAfter(clock.add(_rotationLead))) {
-      return _material(stored[0]!, stored[1]!);
+      try {
+        final material = _material(stored[0]!, stored[1]!);
+        material.serverContext();
+        return material;
+      } catch (_) {
+        // Reissue legacy certificates that Dart's TLS backend cannot parse.
+      }
     }
     return _create(clock, existingPrivateKeyPem: stored[1]);
   }
@@ -97,47 +107,45 @@ class LanTlsCertificateService {
     DateTime now, {
     String? existingPrivateKeyPem,
   }) async {
-    final pair = existingPrivateKeyPem == null
+    ECPrivateKey? privateKey;
+    if (existingPrivateKeyPem != null) {
+      try {
+        privateKey = CryptoUtils.ecPrivateKeyFromPem(existingPrivateKeyPem);
+        final curve = privateKey.parameters?.domainName;
+        if (curve != 'prime256v1' && curve != 'secp256r1') {
+          privateKey = null;
+        }
+      } catch (_) {
+        // A corrupt TLS key is replaceable; the Ed25519 device identity remains.
+      }
+    }
+    final pair = privateKey == null
         ? CryptoUtils.generateEcKeyPair(curve: 'prime256v1')
         : null;
-    final privateKey = existingPrivateKeyPem == null
-        ? pair!.privateKey as ECPrivateKey
-        : CryptoUtils.ecPrivateKeyFromPem(existingPrivateKeyPem);
-    final publicKey = existingPrivateKeyPem == null
-        ? pair!.publicKey as ECPublicKey
-        : ECPublicKey(
-            privateKey.parameters!.G * privateKey.d!,
-            privateKey.parameters,
-          );
+    privateKey ??= pair!.privateKey as ECPrivateKey;
+    final publicKey =
+        pair?.publicKey as ECPublicKey? ??
+        ECPublicKey(
+          privateKey.parameters!.G * privateKey.d!,
+          privateKey.parameters,
+        );
     final identity = await _identityService.initialize();
-    final csr = X509Utils.generateEccCsrPem(
-      {'CN': 'LynAI ${identity.deviceId.substring(0, 12)}'},
-      privateKey,
-      publicKey,
-      san: const ['lynai.local'],
-    );
-    final certificate = X509Utils.generateSelfSignedCertificate(
-      privateKey,
-      csr,
-      _validityDays,
-      sans: const ['lynai.local'],
-      keyUsage: const [KeyUsage.DIGITAL_SIGNATURE, KeyUsage.KEY_AGREEMENT],
-      extKeyUsage: const [
-        ExtendedKeyUsage.SERVER_AUTH,
-        ExtendedKeyUsage.CLIENT_AUTH,
-      ],
-      serialNumber: _serialNumber(),
+    final certificate = generateLanP256Certificate(
+      privateKey: privateKey,
+      publicKey: publicKey,
+      commonName: 'LynAI ${identity.deviceId.substring(0, 12)}',
       notBefore: now.subtract(const Duration(minutes: 5)),
+      notAfter: now.add(const Duration(days: _validityDays)),
     );
-    final privatePem =
-        existingPrivateKeyPem ??
-        CryptoUtils.encodeEcPrivateKeyToPem(privateKey);
+    final privatePem = CryptoUtils.encodeEcPrivateKeyToPem(privateKey);
     final parsed = X509Utils.x509CertificateFromPem(certificate);
     final expires = parsed.tbsCertificate!.validity.notAfter.toUtc();
+    final material = _material(certificate, privatePem);
+    material.serverContext();
     await _secretStore.write(_certificateKey, certificate);
     await _secretStore.write(_privateKeyKey, privatePem);
     await _secretStore.write(_expiresKey, expires.toIso8601String());
-    return _material(certificate, privatePem);
+    return material;
   }
 
   LanTlsMaterial _material(String certificate, String privateKey) {
@@ -185,14 +193,5 @@ class LanTlsCertificateService {
     } catch (_) {
       return false;
     }
-  }
-
-  String _serialNumber() {
-    final random = Random.secure();
-    var value = BigInt.zero;
-    for (var index = 0; index < 16; index++) {
-      value = (value << 8) | BigInt.from(random.nextInt(256));
-    }
-    return value.toString();
   }
 }

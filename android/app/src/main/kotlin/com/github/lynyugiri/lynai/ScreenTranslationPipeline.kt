@@ -18,19 +18,19 @@ class ScreenTranslationPipeline(private val activity: Activity) {
             "captureAndRecognize" -> captureAndRecognize(result)
             "showTranslations" -> {
                 val args = arguments(call.arguments)
-                TranslationOverlayHost.setBlocks(
-                    activity,
-                    args,
-                    args["style"]?.toString() ?: "auto",
-                    (args["opacity"] as? Number)?.toDouble() ?: 0.92,
-                    args["layoutMode"]?.toString() ?: "auto",
-                    args["targetLanguage"]?.toString() ?: "zh-CN",
+                result.success(
+                    TranslationOverlayHost.setBlocks(
+                        activity,
+                        args,
+                        args["style"]?.toString() ?: "auto",
+                        (args["opacity"] as? Number)?.toDouble() ?: 0.92,
+                        args["layoutMode"]?.toString() ?: "auto",
+                        args["targetLanguage"]?.toString() ?: "zh-CN",
+                    )
                 )
-                result.success(mapOf("ok" to true))
             }
             "clearTranslations" -> {
-                TranslationOverlayHost.clear()
-                result.success(mapOf("ok" to true))
+                result.success(TranslationOverlayHost.clear())
             }
             "scrollSceneBy" -> {
                 val args = arguments(call.arguments)

@@ -5,7 +5,6 @@ import 'dart:math' as math;
 import 'package:crypto/crypto.dart';
 import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart' show FileType;
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter/services.dart';
@@ -20,28 +19,39 @@ import 'latex_formula_editor_page.dart';
 import 'role_management_page.dart';
 import '../models/chat_role.dart';
 import '../models/app_settings.dart';
+import '../models/anniversary.dart';
+import '../models/calendar_event.dart';
+import '../models/calendar_occurrence.dart';
 import '../models/conversation.dart';
+import '../models/item_reminder.dart';
+import '../models/local_date.dart';
+import '../models/local_time.dart';
 import '../models/model_config.dart';
 import '../models/message.dart';
 import '../models/merge_models.dart';
 import '../models/note.dart';
 import '../models/plugin.dart';
 import '../models/roleplay.dart';
-import '../models/schedule_item.dart';
-import '../models/todo_list.dart';
+import '../models/task.dart';
+import '../models/task_list.dart';
+import '../providers/calendar_provider.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/task_provider.dart';
 import '../services/attachment_storage_service.dart';
 import '../services/api_service.dart';
 import '../services/backend_client.dart';
+import '../services/calendar_platform_bridge.dart';
+import '../services/reminder_notification_permission_service.dart';
 import '../services/roleplay_service.dart';
 import '../services/storage_v2_service.dart';
 import '../services/system_scroll_capture_service.dart';
 import '../utils/file_share_utils.dart';
+import '../utils/calendar_timeline_layout.dart';
 import '../utils/file_name_utils.dart';
 import '../utils/chat_search_matcher.dart';
 import '../utils/share_image_utils.dart';
@@ -53,6 +63,7 @@ import '../widgets/plugin_feature_webview.dart';
 import '../widgets/plugin_icon.dart';
 import '../widgets/text_editing_controller_host.dart';
 import '../utils/file_picker_io_utils.dart';
+import '../utils/reminder_editor.dart';
 part 'features/shared.dart';
 part 'features/feature_shell.dart';
 part 'features/dashboard.dart';
@@ -66,7 +77,6 @@ part 'features/plugin_feature_page.dart';
 const _exportImagePixelRatio = 2.5;
 const _exportTextChunkLength = 2800;
 const _exportTodoPageWeight = 3200;
-const _exportTodoItemChunkLength = 1200;
 
 /// 搜索匹配器。
 ///
@@ -418,7 +428,7 @@ class _FeaturePageState extends State<FeaturePage> {
     return switch (feature) {
       'schedule' => '日程表',
       'notes' => '笔记',
-      'todos' => '待办清单',
+      'todos' => '任务',
       'history' => '对话历史',
       'roleplay' => '情景演绎',
       _ => _pluginFeatureFor(feature, plugins)?.page.title ?? '功能',
@@ -484,12 +494,12 @@ class _FeaturePageState extends State<FeaturePage> {
     if (feature == 'todos') {
       return [
         IconButton(
-          tooltip: '新建待办清单',
+          tooltip: '新建任务清单',
           icon: const Icon(Icons.add),
           onPressed: _newTodoList,
         ),
         IconButton(
-          tooltip: '导入待办清单',
+          tooltip: '导入任务清单',
           icon: const Icon(Icons.upload_file),
           onPressed: _importTodoList,
         ),
@@ -513,7 +523,7 @@ class _FeaturePageState extends State<FeaturePage> {
     }
     if (feature == 'todos') {
       return _AddMenuButton(
-        items: const [_AddMenuItem('todo', Icons.checklist, '新建待办清单')],
+        items: const [_AddMenuItem('todo', Icons.checklist, '新建任务清单')],
         onSelected: (_) => _newTodoList(),
       );
     }
@@ -639,7 +649,7 @@ class _FeaturePageState extends State<FeaturePage> {
         builder: (ctx, controllers) {
           final ctrl = controllers.single;
           return AlertDialog(
-            title: const Text('新建待办清单'),
+            title: const Text('新建任务清单'),
             content: TextField(
               controller: ctrl,
               autofocus: true,
@@ -662,17 +672,17 @@ class _FeaturePageState extends State<FeaturePage> {
       ),
     );
     if (!mounted || title == null || title.isEmpty) return;
-    await context.read<FeatureProvider>().addTodoList(title);
+    await context.read<TaskProvider>().addList(title);
     if (!mounted) return;
     _clearSearch();
   }
 
   Future<void> _importTodoList() async {
-    final features = context.read<FeatureProvider>();
+    final tasks = context.read<TaskProvider>();
     final messenger = ScaffoldMessenger.of(context);
     try {
       final file = await pickSingleFilePayload(
-        dialogTitle: '导入待办清单',
+        dialogTitle: '导入任务清单',
         type: FileType.custom,
         allowedExtensions: ['md', 'markdown', 'txt'],
       );
@@ -680,7 +690,11 @@ class _FeaturePageState extends State<FeaturePage> {
       final bytes = await file.readBytes();
       final content = utf8.decode(bytes, allowMalformed: true);
       final title = _todoTitleFromFileName(file.name);
-      await features.addTodoListWithItems(title, _parseTodoItems(content));
+      final listId = await tasks.addList(title);
+      for (final item in _parseTodoItems(content)) {
+        final taskId = await tasks.addTask(title: item.title, listId: listId);
+        if (item.completed) await tasks.completeTask(taskId);
+      }
       if (!mounted) return;
       _clearSearch();
       messenger.showSnackBar(SnackBar(content: Text('已导入 $title')));
@@ -694,12 +708,10 @@ class _FeaturePageState extends State<FeaturePage> {
     final cleaned = name
         .replaceAll(RegExp(r'\.(md|markdown|txt)$', caseSensitive: false), '')
         .trim();
-    return cleaned.isEmpty ? '导入待办清单' : cleaned;
+    return cleaned.isEmpty ? '导入任务清单' : cleaned;
   }
 
-  // 将 Markdown 有序/无序列表项解析为 TodoItem。
-  List<TodoItem> _parseTodoItems(String content) {
-    const uuid = Uuid();
+  List<({String title, bool completed})> _parseTodoItems(String content) {
     return content
         .split(RegExp(r'\r?\n'))
         .map((line) {
@@ -709,16 +721,15 @@ class _FeaturePageState extends State<FeaturePage> {
             r'^[-*+]\s+\[([ xX])\]\s+(.*)$',
           ).firstMatch(text);
           if (match != null) {
-            return TodoItem(
-              id: uuid.v4(),
-              text: match.group(2)!.trim(),
-              done: match.group(1)!.toLowerCase() == 'x',
+            return (
+              title: match.group(2)!.trim(),
+              completed: match.group(1)!.toLowerCase() == 'x',
             );
           }
           final plain = text.replaceFirst(RegExp(r'^[-*+]\s+'), '').trim();
-          return plain.isEmpty ? null : TodoItem(id: uuid.v4(), text: plain);
+          return plain.isEmpty ? null : (title: plain, completed: false);
         })
-        .whereType<TodoItem>()
+        .whereType<({String title, bool completed})>()
         .toList();
   }
 

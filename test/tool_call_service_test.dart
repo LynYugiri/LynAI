@@ -10,10 +10,12 @@ import 'package:lynai/models/message.dart';
 import 'package:lynai/models/model_config.dart';
 import 'package:lynai/models/plugin.dart';
 import 'package:lynai/providers/conversation_provider.dart';
+import 'package:lynai/providers/calendar_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
 import 'package:lynai/providers/plugin_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
+import 'package:lynai/providers/task_provider.dart';
 import 'package:lynai/repositories/plugin_repository.dart';
 import 'package:lynai/services/device_control_service.dart';
 import 'package:lynai/services/floating_chat_session_controller.dart';
@@ -241,6 +243,155 @@ void main() {
     expect((webFetch['parameters'] as Map)['required'], contains('url'));
   });
 
+  test('canonical organizer tools and legacy aliases are exposed', () {
+    final tools = ToolCallService.openAITools();
+    final names = tools
+        .map((tool) => tool['function']?['name'])
+        .whereType<String>()
+        .toSet();
+
+    expect(
+      names,
+      containsAll(const [
+        'list_tasks',
+        'create_task',
+        'update_task',
+        'delete_task',
+        'list_calendar_events',
+        'create_calendar_event',
+        'update_calendar_event',
+        'delete_calendar_event',
+        'list_anniversaries',
+        'create_anniversary',
+        'update_anniversary',
+        'delete_anniversary',
+        'list_schedules',
+        'create_schedule',
+        'update_schedule',
+        'list_todo_lists',
+      ]),
+    );
+    expect(ToolCallService.nativeSystemPrompt, contains('YYYY-MM-DD'));
+    expect(ToolCallService.nativeSystemPrompt, contains('只调用一次 create_task'));
+    for (final name in const [
+      'create_task',
+      'update_task',
+      'create_calendar_event',
+      'update_calendar_event',
+      'create_anniversary',
+      'update_anniversary',
+    ]) {
+      final function = tools
+          .map((tool) => tool['function'])
+          .whereType<Map>()
+          .firstWhere((value) => value['name'] == name);
+      final properties = (function['parameters'] as Map)['properties'] as Map;
+      final reminders = properties['reminders'] as Map;
+      final items = reminders['items'] as Map;
+      expect(reminders['type'], 'array');
+      expect(items['required'], containsAll(['anchor', 'offsetMinutes']));
+      expect(items['required'], isNot(contains('id')));
+      expect(
+        ((items['properties'] as Map)['anchor'] as Map)['enum'],
+        containsAll([
+          'eventStart',
+          'taskPlanned',
+          'taskDue',
+          'anniversaryDate',
+        ]),
+      );
+      expect(
+        (((items['properties'] as Map)['dateOnlyTime'] as Map)['pattern']),
+        isNotEmpty,
+      );
+    }
+  });
+
+  test(
+    'canonical task CRUD and schedule task alias share TaskProvider',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'lynai_canonical_task_',
+      );
+      try {
+        final storage = await _readyStorageV2(root);
+        final features = FeatureProvider(storageV2: storage);
+        final tasks = TaskProvider(storageV2: storage);
+        final calendar = CalendarProvider(storageV2: storage);
+        await Future.wait([features.load(), tasks.load(), calendar.load()]);
+        final service = ToolCallService(
+          features,
+          tasks: tasks,
+          calendar: calendar,
+        );
+
+        final created = await service.execute(
+          const ChatToolCall(
+            id: 'canonical-task',
+            name: 'create_task',
+            arguments: {
+              'title': '提交报告',
+              'plannedDate': '2026-07-23',
+              'plannedTime': '09:30',
+            },
+          ),
+          const [],
+        );
+        final compatibility = await service.execute(
+          const ChatToolCall(
+            id: 'legacy-task',
+            name: 'create_schedule',
+            arguments: {
+              'kind': 'task',
+              'title': '准备材料',
+              'start': '2026-07-24T10:15:00',
+            },
+          ),
+          const [],
+        );
+
+        expect(created['ok'], isTrue);
+        expect(compatibility['ok'], isTrue);
+        expect(tasks.tasks, hasLength(2));
+        expect(calendar.events, isEmpty);
+        expect((compatibility['schedule'] as Map), isNot(contains('end')));
+      } finally {
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'canonical organizer permissions reuse todos and schedules grants',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final settings = memorySettingsProvider();
+      await settings.replaceSettings(
+        AppSettings.defaults().copyWith(agentGrantedPermissions: const []),
+      );
+      final service = LynAIFunctionService();
+      final deniedTask = await service.execute(
+        const LynAIFunctionCall(name: 'tasks.list', arguments: {}),
+        LynAIFunctionContext(
+          identity: const LynAICallIdentity(type: LynAICallerType.agentLua),
+          tasks: TaskProvider(),
+          settings: settings,
+        ),
+      );
+      final deniedCalendar = await service.execute(
+        const LynAIFunctionCall(name: 'calendar.list', arguments: {}),
+        LynAIFunctionContext(
+          identity: const LynAICallIdentity(type: LynAICallerType.agentLua),
+          calendar: CalendarProvider(),
+          settings: settings,
+        ),
+      );
+
+      expect(deniedTask['error'], contains(LynAIPermissions.todosRead));
+      expect(deniedCalendar['error'], contains(LynAIPermissions.schedulesRead));
+    },
+  );
+
   test('get_current_screen is exposed only for floating screen context', () {
     final regularTools = ToolCallService.openAITools();
     final floatingTools = ToolCallService.openAITools(
@@ -311,6 +462,8 @@ void main() {
       conversations: ConversationProvider(),
       models: ModelConfigProvider(),
       features: FeatureProvider(),
+      tasks: TaskProvider(),
+      calendar: CalendarProvider(),
       plugins: PluginProvider(),
     );
     try {
