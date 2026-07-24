@@ -12,11 +12,13 @@ import 'providers/feature_provider.dart';
 import 'providers/model_config_provider.dart';
 import 'providers/plugin_provider.dart';
 import 'providers/account_provider.dart';
+import 'providers/cloud_data_provider.dart';
 import 'providers/recycle_bin_provider.dart';
 import 'providers/roleplay_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/task_provider.dart';
 import 'repositories/plugin_repository.dart';
+import 'repositories/cloud_data_repository.dart';
 import 'pages/home_page.dart';
 import 'pages/changelog_page.dart';
 import 'services/floating_assistant_service.dart';
@@ -28,6 +30,8 @@ import 'services/device_identity_service.dart';
 import 'services/device_registration_service.dart';
 import 'services/secret_store.dart';
 import 'services/storage_v2_service.dart';
+import 'services/cloud_data_service.dart';
+import 'services/sync_service.dart';
 import 'providers/sync_provider.dart';
 import 'providers/lan_sync_provider.dart';
 import 'repositories/lan_peer_repository.dart';
@@ -174,6 +178,26 @@ Future<void> main() async {
             installPluginBlob: (hash, bytes) =>
                 ctx.read<PluginProvider>().installSyncBlob(hash, bytes),
             storage: StorageV2SyncStorage(ctx.read<StorageV2Service>()),
+            beforeLocalSnapshot: () async {
+              final conversations = ctx.read<ConversationProvider>();
+              final features = ctx.read<FeatureProvider>();
+              final calendar = ctx.read<CalendarProvider>();
+              final roleplay = ctx.read<RoleplayProvider>();
+              final tasks = ctx.read<TaskProvider>();
+              final settings = ctx.read<SettingsProvider>();
+              final models = ctx.read<ModelConfigProvider>();
+              final plugins = ctx.read<PluginProvider>();
+              await flushAllTasks([
+                (name: 'conversations', flush: conversations.flushPendingSaves),
+                (name: 'features', flush: features.flushPendingSaves),
+                (name: 'calendar', flush: calendar.flushPendingSaves),
+                (name: 'roleplay', flush: roleplay.flushPendingSaves),
+                (name: 'tasks', flush: tasks.flushPendingSaves),
+                (name: 'settings', flush: settings.flushPendingSaves),
+                (name: 'models', flush: models.flushPendingSaves),
+              ]);
+              await plugins.syncAllPlugins();
+            },
             beforeRemoteApply: (summary) async {
               final conversations = ctx.read<ConversationProvider>();
               final features = ctx.read<FeatureProvider>();
@@ -256,6 +280,23 @@ Future<void> main() async {
               }
             },
           ),
+        ),
+        ChangeNotifierProvider(
+          create: (ctx) {
+            final backend = ctx.read<BackendClient>();
+            final remoteSync = RemoteSyncService(
+              backend,
+              identity: ctx.read<DeviceIdentityService>(),
+              registration: ctx.read<DeviceRegistrationService>(),
+            );
+            return CloudDataProvider(
+              backend: backend,
+              repository: StorageV2CloudDataRepository(
+                ctx.read<StorageV2Service>(),
+              ),
+              service: RemoteCloudDataService(backend, remoteSync),
+            );
+          },
         ),
         ChangeNotifierProvider(
           create: (ctx) {
@@ -380,12 +421,16 @@ Future<void> main() async {
               },
               onSessionChanged: (user) async {
                 final sync = ctx.read<SyncProvider>();
+                final cloud = ctx.read<CloudDataProvider>();
+                final cloudBind = cloud.bind(user);
                 if (user == null) {
                   enrollmentReady = false;
                   await sync.unbind();
+                  await cloudBind;
                   return;
                 }
                 await sync.bindScope(user.id);
+                await cloudBind;
                 if (enrollmentReady) await sync.autoDownload();
               },
             );

@@ -82,8 +82,8 @@ class BackupService {
   final Future<String> Function()? _appVersionLoader;
   final _uuid = const Uuid();
 
-  static const currentSchemaVersion = 9;
-  static const oldestCompatibleSchemaVersion = 5;
+  static const currentSchemaVersion = 10;
+  static const oldestCompatibleSchemaVersion = 1;
   static const maxBackupZipInputBytes = 512 * 1024 * 1024;
   static const maxBackupZipEntries = 10000;
   static const maxBackupZipEntryBytes = 256 * 1024 * 1024;
@@ -166,18 +166,21 @@ class BackupService {
       archive.addFile(ArchiveFile(path, bytes.length, bytes));
     }
 
-    Future<void> addPrivateAsset(
+    Future<String?> addPrivateAsset(
       String? originalPath,
       String role, {
       String? name,
       String? mimeType,
     }) async {
-      if (originalPath == null || originalPath.isEmpty) return;
-      if (archivedAssetPaths.containsKey(originalPath)) return;
-      final file = File(originalPath);
-      if (!await file.exists()) return;
+      if (originalPath == null || originalPath.isEmpty) return null;
+      final existing = archivedAssetPaths[originalPath];
+      if (existing != null) return existing;
+      var file = File(originalPath);
+      if (!await file.exists()) return null;
       privateRoots ??= await _privateStorageRoots();
-      if (!_isInPrivateStorage(file, privateRoots!)) return;
+      final resolvedPath = await file.resolveSymbolicLinks();
+      file = File(resolvedPath);
+      if (!await _isInPrivateStorage(file, privateRoots!)) return null;
       final originalName = name ?? file.uri.pathSegments.last;
       final bytes = await file.readAsBytes();
       final hash = sha256.convert(bytes).toString();
@@ -195,11 +198,13 @@ class BackupService {
         );
         return location.relativePath;
       });
-      archivedAssetPaths[originalPath] = archivePath;
+      final sourceRef = 'asset://${location.resourceId}';
+      archivedAssetPaths[originalPath] = sourceRef;
       assetRecords.add({
         'kind': location.kind,
         'role': role,
-        'originalPath': originalPath,
+        'sourceRef': sourceRef,
+        '_originalPath': originalPath,
         'archivePath': archivePath,
         'originalName': originalName,
         'name': location.safeName,
@@ -208,6 +213,7 @@ class BackupService {
         'resourceId': location.resourceId,
         'sha256': hash,
       });
+      return sourceRef;
     }
 
     if (selection.contains(BackupSection.settings)) {
@@ -217,23 +223,34 @@ class BackupService {
           ? modelConfigProvider.models
           : const <ModelConfig>[];
       final settingsJson = _settingsToJson(settings, selection.settingsParts);
-      if (settingsProvider.usingStorageV2 && storageV2 != null) {
+      if (selection.settingsParts.contains(BackupSettingsPart.appearance) &&
+          settingsProvider.usingStorageV2 &&
+          storageV2 != null) {
         try {
           final current = await storageV2!.loadDataFile('app_settings.json');
           final storageSub = current['storageV2'];
-          if (storageSub is Map && storageSub.isNotEmpty) {
-            settingsJson['storageV2'] = Map<String, dynamic>.from(storageSub);
+          if (storageSub is Map) {
+            final backgroundResourceId = storageSub['backgroundResourceId'];
+            if (backgroundResourceId is String &&
+                backgroundResourceId.isNotEmpty) {
+              settingsJson['storageV2'] = {
+                'backgroundResourceId': backgroundResourceId,
+              };
+            }
           }
         } catch (_) {}
       }
-      addJson('settings.json', {'appSettings': settingsJson});
       if (selection.settingsParts.contains(BackupSettingsPart.appearance)) {
-        await addPrivateAsset(
+        final backgroundRef = await addPrivateAsset(
           settings.backgroundImagePath,
           'background',
           name: 'background${_extensionFromPath(settings.backgroundImagePath)}',
         );
+        if (backgroundRef != null) {
+          settingsJson['backgroundImagePath'] = backgroundRef;
+        }
       }
+      addJson('settings.json', {'appSettings': settingsJson});
       addJson('model_configs.json', {
         'models': models.map((model) => model.toJson()).toList(),
       });
@@ -315,8 +332,7 @@ class BackupService {
                 'name': image.name,
                 'mimeType': image.mimeType,
                 'size': image.size,
-                'path': image.path,
-                'legacyPath': image.path,
+                'path': archivedAssetPaths[image.path] ?? '',
                 'sortOrder': j,
               });
             }
@@ -329,7 +345,9 @@ class BackupService {
         });
       } else {
         addJson('conversations.json', {
-          'conversations': conversations.map((item) => item.toJson()).toList(),
+          'conversations': conversations
+              .map((item) => _conversationForExport(item, archivedAssetPaths))
+              .toList(),
         });
       }
       sections[BackupSection.conversations.key] = {
@@ -434,7 +452,10 @@ class BackupService {
         final exportedHashes = <String>{};
         for (final revision in revisions) {
           final hash = revision.contentHash;
-          if (hash.isEmpty || !exportedHashes.add(hash)) continue;
+          if (!_isSha256(hash)) {
+            throw FormatException('笔记修订 contentHash 无效：$hash');
+          }
+          if (!exportedHashes.add(hash)) continue;
           final bytes = storageV2 == null
               ? await featureProvider.readNoteRevisionBlob(hash)
               : await storageV2!.readNoteBlob(hash);
@@ -524,6 +545,10 @@ class BackupService {
       for (final plugin in plugins) {
         final pluginSegment = safeStorageSegment(plugin.id, fallback: 'plugin');
         final files = <BackupPluginFile>[];
+        final builtIn = PluginRepository.builtInPluginIds.contains(plugin.id);
+        final builtInPaths = builtIn
+            ? _builtInBackupOverridePaths(plugin)
+            : const <String>{};
         final root = Directory(plugin.path);
         if (await root.exists()) {
           await for (final entity in root.list(
@@ -533,9 +558,12 @@ class BackupService {
             if (entity is! File) continue;
             final relativePath = _relativePath(root.path, entity.path);
             if (relativePath.isEmpty ||
-                !_isSafePluginRelativePath(relativePath)) {
+                !_isSafePluginRelativePath(relativePath) ||
+                _isUnsafePluginBackupPath(relativePath) ||
+                (builtIn && !builtInPaths.contains(relativePath))) {
               continue;
             }
+            _rejectBackupInternalPath(relativePath);
             final archivePath =
                 'plugins/installed/$pluginSegment/$relativePath';
             final bytes = await entity.readAsBytes();
@@ -553,9 +581,18 @@ class BackupService {
         }
         pluginData.add(
           BackupPluginData(
-            plugin: plugin.copyWith(path: ''),
-            settings: await pluginProvider!.loadSettings(plugin.id),
-            storage: await pluginProvider!.loadStorage(plugin.id),
+            plugin: plugin.copyWith(
+              path: '',
+              loadError: null,
+              syncedOrigin: false,
+              syncOriginScope: null,
+            ),
+            settings:
+                _scrubSecrets(await pluginProvider!.loadSettings(plugin.id))
+                    as Map<String, dynamic>,
+            storage:
+                _scrubSecrets(await pluginProvider!.loadStorage(plugin.id))
+                    as Map<String, dynamic>,
             files: files,
           ),
         );
@@ -570,7 +607,7 @@ class BackupService {
       };
     }
 
-    final exportedResources = await _collectExportResources(assetRecords);
+    final exportedResources = _collectExportResources(assetRecords);
     if (exportedResources.isNotEmpty) {
       addJson('resources.json', {'resources': exportedResources});
     }
@@ -582,7 +619,13 @@ class BackupService {
       'createdAt': createdAt.toUtc().toIso8601String(),
       'format': 'zip',
       'sections': sections,
-      if (assetRecords.isNotEmpty) 'assets': assetRecords,
+      if (assetRecords.isNotEmpty)
+        'assets': assetRecords
+            .map(
+              (record) =>
+                  Map<String, dynamic>.from(record)..remove('_originalPath'),
+            )
+            .toList(),
       if (exportedResources.isNotEmpty) 'resourcesFile': 'resources.json',
       if (modelApiKeys != null)
         'secrets': {'modelApiKeys': 'secrets/model_api_keys.json'},
@@ -633,6 +676,7 @@ class BackupService {
     final pluginFiles = <String, List<int>>{};
     for (final entry in decoded.files) {
       _validateArchiveEntryPath(entry.name);
+      _rejectBackupInternalPath(entry.name);
       if (entry.name.endsWith('/')) continue;
       if (files.containsKey(entry.name)) {
         throw FormatException('备份包包含重复文件：${entry.name}');
@@ -670,7 +714,11 @@ class BackupService {
         schemaVersion > currentSchemaVersion) {
       throw const FormatException('备份版本不兼容，请使用新版备份文件');
     }
-    _validateManifestFiles(manifest, files);
+    _validateManifestFiles(
+      manifest,
+      files,
+      rejectUndeclared: schemaVersion >= 5,
+    );
     final secretsManifest = manifest['secrets'];
     final hasSecretFiles = files.keys.any(
       (path) => path.startsWith('secrets/'),
@@ -687,6 +735,19 @@ class BackupService {
       }
     } else if (allowSecrets && hasSecretFiles) {
       throw const FormatException('备份密钥分区清单无效');
+    }
+
+    if (schemaVersion <= 4) {
+      if (allowSecrets || secretsManifest != null || hasSecretFiles) {
+        throw const FormatException('历史备份不支持密钥分区');
+      }
+      return _readLegacyArchive(
+        files: files,
+        manifest: manifest,
+        schemaVersion: schemaVersion,
+        warnings: warnings,
+        assetFiles: assetFiles,
+      );
     }
 
     final settingsJson = readMap('settings.json');
@@ -711,6 +772,35 @@ class BackupService {
     final modelApiKeys = allowSecrets && secretsManifest != null
         ? _parseModelApiKeys(readMap('secrets/model_api_keys.json'))
         : null;
+    _validateCanonicalContainers(
+      files: files,
+      schemaVersion: schemaVersion,
+      settingsJson: settingsJson,
+      modelsJson: modelsJson,
+      conversationsJson: conversationsJson,
+      foldersJson: foldersJson,
+      notesJson: notesJson,
+      pagesJson: pagesJson,
+      revisionsJson: revisionsJson,
+      proposalsJson: proposalsJson,
+      blocksJson: blocksJson,
+      schedulesJson: schedulesJson,
+      todoListsJson: todoListsJson,
+      tasksJson: tasksJson,
+      calendarJson: calendarJson,
+      roleplayJson: roleplayJson,
+      roleplayThreadsJson: roleplayThreadsJson,
+      pluginsJson: pluginsJson,
+      resourcesJson: resourcesJson,
+    );
+    final plugins = schemaVersion < 8
+        ? _parseLegacyPlugins(pluginsJson, warnings)
+        : _parseList(
+            pluginsJson?['plugins'],
+            BackupPluginData.fromJson,
+            warnings,
+            '插件',
+          );
 
     final conversations = _parseConversations(
       conversationsJson,
@@ -757,6 +847,9 @@ class BackupService {
         }
       }
       for (final hash in hashes) {
+        if (!_isSha256(hash)) {
+          throw FormatException('笔记修订 contentHash 无效：$hash');
+        }
         final path = 'notes/blobs/${hash.substring(0, 2)}/$hash';
         final entry = files[path];
         if (entry == null) {
@@ -786,6 +879,42 @@ class BackupService {
             content.length != size ||
             sha256.convert(content).toString() != hash) {
           throw FormatException('资源文件校验失败：${path ?? 'unknown'}');
+        }
+        final resourceId = raw['resourceId'] as String?;
+        final originalName = raw['originalName'] as String? ?? 'asset';
+        final mimeType =
+            raw['mimeType'] as String? ?? 'application/octet-stream';
+        final role = raw['role'] as String? ?? 'unknown';
+        final location = storageV2ResourceLocation(
+          sha256Hash: hash,
+          originalName: originalName,
+          mimeType: mimeType,
+          role: role,
+        );
+        if (path != location.relativePath ||
+            resourceId != location.resourceId) {
+          throw FormatException('资源文件路径与内容寻址信息不一致：$path');
+        }
+      }
+      for (final raw
+          in resourcesJson?['resources'] as List<dynamic>? ?? const []) {
+        if (raw is! Map) throw const FormatException('资源记录无效');
+        final resource = StorageV2Resource.fromJson(
+          Map<String, dynamic>.from(raw),
+        );
+        final hash = resource.sha256Hash;
+        if (!resource.missing && hash != null) {
+          if (!_isSha256(hash)) throw const FormatException('资源 SHA-256 无效');
+          final location = storageV2ResourceLocation(
+            sha256Hash: hash,
+            originalName: resource.originalName,
+            mimeType: resource.mimeType,
+            role: resource.role,
+          );
+          if (resource.id != location.resourceId ||
+              resource.relativePath != location.relativePath) {
+            throw FormatException('资源记录路径与内容寻址信息不一致：${resource.id}');
+          }
         }
       }
       for (final item
@@ -860,12 +989,7 @@ class BackupService {
           warnings,
           '演绎对话',
         ),
-        plugins: _parseList(
-          pluginsJson?['plugins'],
-          BackupPluginData.fromJson,
-          warnings,
-          '插件',
-        ),
+        plugins: plugins,
       ),
       assetFiles: assetFiles,
       pluginFiles: pluginFiles,
@@ -876,8 +1000,9 @@ class BackupService {
 
   static void _validateManifestFiles(
     Map<String, dynamic> manifest,
-    Map<String, ArchiveFile> files,
-  ) {
+    Map<String, ArchiveFile> files, {
+    required bool rejectUndeclared,
+  }) {
     final sections = manifest['sections'];
     if (sections is! Map) throw const FormatException('备份分区清单无效');
     final declared = <String>{'manifest.json'};
@@ -888,6 +1013,7 @@ class BackupService {
         throw const FormatException('备份分区文件清单无效');
       }
       for (final path in listed.cast<String>()) {
+        _rejectBackupInternalPath(path);
         if (!_isSafeArchivePath(path) || !files.containsKey(path)) {
           throw FormatException('备份分区文件缺失：$path');
         }
@@ -905,11 +1031,591 @@ class BackupService {
         if (path is String) declared.add(path);
       }
     }
+    final pluginIndex = files['plugins/installed_plugins.json'];
+    if (pluginIndex != null) {
+      try {
+        final decoded = jsonDecode(
+          utf8.decode(pluginIndex.content as List<int>),
+        );
+        if (decoded is Map && decoded['plugins'] is List) {
+          for (final plugin in (decoded['plugins'] as List).whereType<Map>()) {
+            for (final file
+                in (plugin['files'] as List? ?? const <Object>[])
+                    .whereType<Map>()) {
+              final path = file['archivePath'];
+              if (path is String && path.startsWith('plugins/installed/')) {
+                declared.add(path);
+              }
+            }
+          }
+        }
+      } catch (_) {
+        // Container validation below reports the malformed plugin index.
+      }
+    }
+    final pagesIndex = files['notes/pages.json'];
+    if (pagesIndex != null) {
+      try {
+        final decoded = jsonDecode(
+          utf8.decode(pagesIndex.content as List<int>),
+        );
+        if (decoded is Map && decoded['pages'] is List) {
+          for (final page in (decoded['pages'] as List).whereType<Map>()) {
+            final path = page['contentPath'];
+            if (path is String && path.startsWith('notes/page_contents/')) {
+              declared.add(path);
+            }
+          }
+        }
+      } catch (_) {
+        // Container validation below reports the malformed page index.
+      }
+    }
     for (final path in declared) {
+      _rejectBackupInternalPath(path);
       if (!_isSafeArchivePath(path) || !files.containsKey(path)) {
         throw FormatException('备份声明文件缺失：$path');
       }
     }
+    if (rejectUndeclared) {
+      for (final path in files.keys) {
+        if (!declared.contains(path)) {
+          throw FormatException('备份包含 manifest 未声明的文件：$path');
+        }
+      }
+    }
+  }
+
+  static void _validateCanonicalContainers({
+    required Map<String, ArchiveFile> files,
+    required int schemaVersion,
+    required Map<String, dynamic>? settingsJson,
+    required Map<String, dynamic>? modelsJson,
+    required Map<String, dynamic>? conversationsJson,
+    required Map<String, dynamic>? foldersJson,
+    required Map<String, dynamic>? notesJson,
+    required Map<String, dynamic>? pagesJson,
+    required Map<String, dynamic>? revisionsJson,
+    required Map<String, dynamic>? proposalsJson,
+    required Map<String, dynamic>? blocksJson,
+    required Map<String, dynamic>? schedulesJson,
+    required Map<String, dynamic>? todoListsJson,
+    required Map<String, dynamic>? tasksJson,
+    required Map<String, dynamic>? calendarJson,
+    required Map<String, dynamic>? roleplayJson,
+    required Map<String, dynamic>? roleplayThreadsJson,
+    required Map<String, dynamic>? pluginsJson,
+    required Map<String, dynamic>? resourcesJson,
+  }) {
+    void require(
+      String path,
+      Map<String, dynamic>? json,
+      String key,
+      Type type,
+    ) {
+      if (!files.containsKey(path)) return;
+      final value = json?[key];
+      if ((type == List && value is! List) || (type == Map && value is! Map)) {
+        throw FormatException('$path 的 $key 容器格式无效');
+      }
+    }
+
+    require('settings.json', settingsJson, 'appSettings', Map);
+    require('model_configs.json', modelsJson, 'models', List);
+    require('conversations.json', conversationsJson, 'conversations', List);
+    if (conversationsJson != null) {
+      final hasMessages = conversationsJson.containsKey('messages');
+      final hasAttachments = conversationsJson.containsKey(
+        'messageAttachments',
+      );
+      if (hasMessages != hasAttachments ||
+          (hasMessages &&
+              (conversationsJson['messages'] is! List ||
+                  conversationsJson['messageAttachments'] is! List))) {
+        throw const FormatException('conversations.json 扁平容器不完整');
+      }
+    }
+    require('notes/folders.json', foldersJson, 'folders', List);
+    require('notes/notes.json', notesJson, 'notes', List);
+    require('notes/pages.json', pagesJson, 'pages', List);
+    require('notes/revisions.json', revisionsJson, 'revisions', List);
+    require('notes/edit_proposals.json', proposalsJson, 'proposals', List);
+    require('notes/edit_blocks.json', blocksJson, 'blocks', List);
+    require('roleplay_scenarios.json', roleplayJson, 'scenarios', List);
+    require('roleplay_threads.json', roleplayThreadsJson, 'threads', List);
+    require('plugins/installed_plugins.json', pluginsJson, 'plugins', List);
+    require('resources.json', resourcesJson, 'resources', List);
+    if (schemaVersion <= 8) {
+      require('schedules.json', schedulesJson, 'schedules', List);
+      require('todo_lists.json', todoListsJson, 'todoLists', List);
+    } else {
+      require('tasks.json', tasksJson, 'tasks', List);
+      require('tasks.json', tasksJson, 'lists', List);
+      require('tasks.json', tasksJson, 'entries', List);
+      require('calendar.json', calendarJson, 'events', List);
+      require('calendar.json', calendarJson, 'anniversaries', List);
+    }
+  }
+
+  static BackupArchiveData _readLegacyArchive({
+    required Map<String, ArchiveFile> files,
+    required Map<String, dynamic> manifest,
+    required int schemaVersion,
+    required List<String> warnings,
+    required Map<String, List<int>> assetFiles,
+  }) {
+    const commonFiles = {
+      'manifest.json',
+      'settings.json',
+      'model_configs.json',
+      'conversations.json',
+      'notes/folders.json',
+      'notes/notes.json',
+      'notes/revisions.json',
+      'schedules.json',
+      'todo_lists.json',
+    };
+    const schema3Files = {
+      'notes/pages.json',
+      'notes/edit_proposals.json',
+      'notes/edit_blocks.json',
+      'resources.json',
+      'roleplay_sessions.json',
+    };
+    const schema4Files = {
+      'roleplay_scenarios.json',
+      'roleplay_threads.json',
+      'plugins/installed_plugins.json',
+    };
+    final allowedFiles = <String>{...commonFiles};
+    if (schemaVersion >= 3) allowedFiles.addAll(schema3Files);
+    if (schemaVersion >= 4) allowedFiles.addAll(schema4Files);
+    for (final path in files.keys) {
+      final allowedPayload =
+          path.startsWith('assets/') ||
+          (schemaVersion == 3 && path.startsWith('notes/page_contents/')) ||
+          (schemaVersion == 4 &&
+              (path.startsWith('notes/page_contents/') ||
+                  path.startsWith('plugins/installed/')));
+      if (!allowedFiles.contains(path) && !allowedPayload) {
+        throw FormatException('历史备份包含不属于 schema $schemaVersion 的文件：$path');
+      }
+    }
+
+    final sections = manifest['sections'];
+    if (sections is! Map) throw const FormatException('历史备份分区清单无效');
+    const commonSections = {
+      'settings',
+      'conversations',
+      'notes',
+      'schedules',
+      'todoLists',
+    };
+    final allowedSections = <String>{...commonSections};
+    if (schemaVersion >= 3) allowedSections.add('roleplay');
+    if (schemaVersion >= 4) allowedSections.add('plugins');
+    if (sections.keys.any(
+      (key) => key is! String || !allowedSections.contains(key),
+    )) {
+      throw FormatException('历史备份包含不属于 schema $schemaVersion 的分区');
+    }
+
+    Map<String, dynamic>? readObject(String path) {
+      final entry = files[path];
+      if (entry == null) return null;
+      Object? decoded;
+      try {
+        decoded = jsonDecode(utf8.decode(entry.content as List<int>));
+      } catch (error) {
+        throw FormatException('$path 不是有效 JSON', error);
+      }
+      if (decoded is! Map) throw FormatException('$path 顶层必须是对象');
+      return Map<String, dynamic>.from(decoded);
+    }
+
+    final settingsJson = readObject('settings.json');
+    final modelsJson = readObject('model_configs.json');
+    final conversationsJson = readObject('conversations.json');
+    final foldersJson = readObject('notes/folders.json');
+    final notesJson = readObject('notes/notes.json');
+    final pagesJson = readObject('notes/pages.json');
+    final revisionsJson = readObject('notes/revisions.json');
+    final proposalsJson = readObject('notes/edit_proposals.json');
+    final blocksJson = readObject('notes/edit_blocks.json');
+    final schedulesJson = readObject('schedules.json');
+    final todoListsJson = readObject('todo_lists.json');
+    final resourcesJson = readObject('resources.json');
+    final roleplaySessionsJson = readObject('roleplay_sessions.json');
+    final roleplayScenariosJson = readObject('roleplay_scenarios.json');
+    final roleplayThreadsJson = readObject('roleplay_threads.json');
+    final pluginsJson = readObject('plugins/installed_plugins.json');
+
+    _requireLegacyContainer(
+      settingsJson,
+      'appSettings',
+      'settings.json',
+      map: true,
+    );
+    _requireLegacyContainer(modelsJson, 'models', 'model_configs.json');
+    _validateLegacyConversationShape(conversationsJson, schemaVersion);
+    _requireLegacyContainer(foldersJson, 'folders', 'notes/folders.json');
+    _requireLegacyContainer(notesJson, 'notes', 'notes/notes.json');
+    _requireLegacyContainer(pagesJson, 'pages', 'notes/pages.json');
+    _requireLegacyContainer(revisionsJson, 'revisions', 'notes/revisions.json');
+    _requireLegacyContainer(
+      proposalsJson,
+      'proposals',
+      'notes/edit_proposals.json',
+    );
+    _requireLegacyContainer(blocksJson, 'blocks', 'notes/edit_blocks.json');
+    _requireLegacyContainer(schedulesJson, 'schedules', 'schedules.json');
+    _validateLegacyTodoShape(todoListsJson, schemaVersion);
+    _requireLegacyContainer(resourcesJson, 'resources', 'resources.json');
+    _requireLegacyContainer(
+      roleplaySessionsJson,
+      'sessions',
+      'roleplay_sessions.json',
+    );
+    _requireLegacyContainer(
+      roleplayScenariosJson,
+      'scenarios',
+      'roleplay_scenarios.json',
+    );
+    _requireLegacyContainer(
+      roleplayThreadsJson,
+      'threads',
+      'roleplay_threads.json',
+    );
+    _requireLegacyContainer(
+      pluginsJson,
+      'plugins',
+      'plugins/installed_plugins.json',
+    );
+    if (roleplaySessionsJson != null &&
+        (roleplayScenariosJson != null || roleplayThreadsJson != null)) {
+      throw const FormatException('历史情景演绎格式存在歧义');
+    }
+
+    final planning = _convertLegacyPlanning(
+      schedulesJson,
+      todoListsJson,
+      warnings,
+    );
+    final pages = _parseRawMapList(pagesJson?['pages'], warnings, '笔记分页');
+    final pageContents = _readLegacyPageContents(pages, files, warnings);
+    final modelConfigs = _parseModelConfigs(
+      modelsJson?['models'],
+      warnings: warnings,
+    );
+    final roleplay = roleplaySessionsJson == null
+        ? (
+            scenarios: _parseList(
+              roleplayScenariosJson?['scenarios'],
+              RoleplayScenario.fromJson,
+              warnings,
+              '情景演绎',
+            ),
+            threads: _parseList(
+              roleplayThreadsJson?['threads'],
+              RoleplayThread.fromJson,
+              warnings,
+              '演绎对话',
+            ),
+          )
+        : _convertLegacyRoleplaySessions(
+            roleplaySessionsJson['sessions'],
+            modelConfigs?.map((model) => model.id).toSet() ?? const {},
+            warnings,
+          );
+    final plugins = _parseLegacyPlugins(pluginsJson, warnings);
+
+    return BackupArchiveData(
+      manifest: manifest,
+      warnings: warnings,
+      assetFiles: assetFiles,
+      resources: _parseRawMapList(resourcesJson?['resources'], warnings, '资源'),
+      data: BackupData(
+        appSettings: _parseOne(
+          _legacyAppSettings(settingsJson?['appSettings']),
+          AppSettings.fromJson,
+          warnings,
+          '设置',
+        ),
+        modelConfigs: modelConfigs,
+        conversations: _parseConversations(
+          conversationsJson,
+          schemaVersion,
+          warnings,
+        ),
+        noteFolders: _parseList(
+          foldersJson?['folders'],
+          NoteFolder.fromJson,
+          warnings,
+          '笔记文件夹',
+        ),
+        notes: _parseList(notesJson?['notes'], Note.fromJson, warnings, '笔记'),
+        notePages: pages,
+        notePageContents: pageContents.isEmpty ? null : pageContents,
+        noteRevisions: _parseList(
+          revisionsJson?['revisions'],
+          NoteRevision.fromJson,
+          warnings,
+          '笔记修订',
+        ),
+        noteEditProposals: _parseNoteEditProposals(
+          proposalsJson,
+          blocksJson,
+          schemaVersion,
+          warnings,
+        ),
+        tasks: planning.tasks,
+        taskLists: planning.lists,
+        taskEntries: planning.entries,
+        calendarEvents: planning.events,
+        anniversaries: planning.anniversaries,
+        roleplaySessions: roleplay.scenarios,
+        roleplayThreads: roleplay.threads,
+        plugins: plugins,
+      ),
+    );
+  }
+
+  static void _requireLegacyContainer(
+    Map<String, dynamic>? json,
+    String key,
+    String path, {
+    bool map = false,
+  }) {
+    if (json == null) return;
+    final value = json[key];
+    if (map ? value is! Map : value is! List) {
+      throw FormatException('$path 的 $key 容器格式无效');
+    }
+  }
+
+  static void _validateLegacyConversationShape(
+    Map<String, dynamic>? json,
+    int schemaVersion,
+  ) {
+    if (json == null) return;
+    if (json['conversations'] is! List) {
+      throw const FormatException('conversations.json 的 conversations 容器格式无效');
+    }
+    final hasMessages = json.containsKey('messages');
+    final hasAttachments = json.containsKey('messageAttachments');
+    if (hasMessages != hasAttachments ||
+        (hasMessages &&
+            (json['messages'] is! List ||
+                json['messageAttachments'] is! List))) {
+      throw const FormatException('conversations.json 扁平容器不完整');
+    }
+    if (schemaVersion < 3 && hasMessages) {
+      throw FormatException('schema $schemaVersion 不接受扁平对话格式');
+    }
+  }
+
+  static void _validateLegacyTodoShape(
+    Map<String, dynamic>? json,
+    int schemaVersion,
+  ) {
+    if (json == null) return;
+    if (json['todoLists'] is! List) {
+      throw const FormatException('todo_lists.json 的 todoLists 容器格式无效');
+    }
+    final hasItems = json.containsKey('todoItems');
+    if (hasItems && json['todoItems'] is! List) {
+      throw const FormatException('todo_lists.json 的 todoItems 容器格式无效');
+    }
+    if (schemaVersion < 3 && hasItems) {
+      throw FormatException('schema $schemaVersion 不接受扁平待办格式');
+    }
+  }
+
+  static Map<String, String> _readLegacyPageContents(
+    List<Map<String, dynamic>>? pages,
+    Map<String, ArchiveFile> files,
+    List<String> warnings,
+  ) {
+    final result = <String, String>{};
+    for (final page in pages ?? const <Map<String, dynamic>>[]) {
+      final id = page['id'];
+      final noteId = page['noteId'];
+      final path = page['contentPath'];
+      if (id is! String || id.isEmpty || noteId is! String || noteId.isEmpty) {
+        warnings.add('跳过无法定位的历史笔记分页');
+        continue;
+      }
+      if (path is! String || !_isSafeArchivePath(path)) {
+        warnings.add('历史笔记分页 $id 缺少可解释的正文路径');
+        continue;
+      }
+      final entry = files[path];
+      if (entry == null) {
+        warnings.add('笔记分页正文缺失：$path');
+        continue;
+      }
+      try {
+        result[id] = utf8.decode(entry.content as List<int>);
+      } catch (error) {
+        warnings.add('笔记分页正文解析失败：$path，$error');
+      }
+    }
+    return result;
+  }
+
+  static ({List<RoleplayScenario>? scenarios, List<RoleplayThread>? threads})
+  _convertLegacyRoleplaySessions(
+    Object? raw,
+    Set<String> modelIds,
+    List<String> warnings,
+  ) {
+    if (raw is! List) throw const FormatException('历史情景演绎容器无效');
+    final scenarios = <RoleplayScenario>[];
+    final threads = <RoleplayThread>[];
+    for (final item in raw) {
+      if (item is! Map) {
+        warnings.add('跳过损坏的历史情景演绎：记录不是对象');
+        continue;
+      }
+      try {
+        final json = Map<String, dynamic>.from(item);
+        final id = json['id'] as String? ?? '';
+        final createdAt = DateTime.tryParse(json['createdAt'] as String? ?? '');
+        final updatedAt = DateTime.tryParse(json['updatedAt'] as String? ?? '');
+        final participantsRaw = json['participants'];
+        if (id.isEmpty ||
+            createdAt == null ||
+            updatedAt == null ||
+            participantsRaw is! List) {
+          throw const FormatException('缺少稳定 ID、时间或参与者');
+        }
+        final participants = <RoleplayParticipant>[];
+        for (final participant in participantsRaw) {
+          if (participant is! Map) continue;
+          participants.add(
+            RoleplayParticipant.fromJson(
+              Map<String, dynamic>.from(participant),
+            ),
+          );
+        }
+        final playerId = json['playerParticipantId'] as String? ?? '';
+        RoleplayParticipant? player;
+        for (final participant in participants) {
+          if (participant.id == playerId) {
+            player = participant;
+            break;
+          }
+        }
+        if (player == null) throw const FormatException('无法定位玩家角色');
+        final director = RoleplayDirector.fromJson(
+          Map<String, dynamic>.from(json['director'] as Map? ?? const {}),
+        );
+        final referencedModelIds = <String>{};
+        final directorModelId = director.model.modelId;
+        if (directorModelId != null && directorModelId.isNotEmpty) {
+          referencedModelIds.add(directorModelId);
+        }
+        for (final participant in participants) {
+          final modelId = participant.model.modelId;
+          if (modelId != null && modelId.isNotEmpty) {
+            referencedModelIds.add(modelId);
+          }
+        }
+        if (referencedModelIds.isEmpty ||
+            !modelIds.containsAll(referencedModelIds)) {
+          throw const FormatException('历史模型配置无法定位');
+        }
+        final title = json['title'] as String? ?? '情景演绎';
+        final scenarioText = json['scenario'] as String? ?? '';
+        final scenarioId = 'legacy-scenario-$id';
+        scenarios.add(
+          RoleplayScenario(
+            id: scenarioId,
+            title: title,
+            scenario: scenarioText,
+            director: director,
+            defaultPlayer: player,
+            defaultParticipants: participants
+                .where((item) => item.id != playerId)
+                .toList(growable: false),
+            maxAutoTurns: (json['maxAutoTurns'] as num?)?.toInt() ?? 3,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+          ),
+        );
+        final messages = <RoleplayMessage>[];
+        for (final message in json['messages'] as List<dynamic>? ?? const []) {
+          if (message is! Map) continue;
+          try {
+            messages.add(
+              RoleplayMessage.fromJson(Map<String, dynamic>.from(message)),
+            );
+          } catch (error) {
+            warnings.add('跳过历史演绎 $id 的损坏消息：$error');
+          }
+        }
+        threads.add(
+          RoleplayThread(
+            id: id,
+            scenarioId: scenarioId,
+            title: title,
+            scenarioTitle: title,
+            scenario: scenarioText,
+            director: director,
+            participants: participants,
+            playerParticipantId: playerId,
+            messages: messages,
+            maxAutoTurns: (json['maxAutoTurns'] as num?)?.toInt() ?? 3,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+          ),
+        );
+      } catch (error) {
+        warnings.add('跳过无法安全迁移的历史情景演绎：$error');
+      }
+    }
+    return (scenarios: scenarios, threads: threads);
+  }
+
+  static Object? _legacyAppSettings(Object? raw) {
+    if (raw is! Map || raw.isEmpty) return null;
+    final json = Map<String, dynamic>.from(raw);
+    for (final key in [
+      'storageV2',
+      'sync',
+      'syncState',
+      'syncCursor',
+      'deviceId',
+      'deviceName',
+      'privateKey',
+      'accountToken',
+      'refreshToken',
+      'backendUrl',
+      'hasConfiguredBackend',
+    ]) {
+      json.remove(key);
+    }
+    return json.isEmpty ? null : json;
+  }
+
+  static List<BackupPluginData>? _parseLegacyPlugins(
+    Map<String, dynamic>? json,
+    List<String> warnings,
+  ) {
+    if (json == null) return null;
+    final parsed = _parseList(
+      json['plugins'],
+      BackupPluginData.fromJson,
+      warnings,
+      '插件',
+    );
+    if (parsed == null) return null;
+    for (final plugin in parsed) {
+      warnings.add(
+        '历史插件 ${plugin.plugin.id} 已跳过：schema 8 前的可执行文件和关联设置不恢复，请重新安装并审查插件',
+      );
+    }
+    return const [];
   }
 
   static Map<String, String>? _parseModelApiKeys(Map<String, dynamic>? json) {
@@ -951,7 +1657,11 @@ class BackupService {
       try {
         if (item is! Map) throw const FormatException('not an object');
         final json = Map<String, dynamic>.from(item);
+        if (json['apiKey'] is String && (json['apiKey'] as String).isNotEmpty) {
+          warnings.add('模型配置 ${json['id'] ?? 'unknown'} 的明文 API key 已丢弃');
+        }
         json.remove('apiKey');
+        json.remove('apiKeySecretRef');
         models.add(ModelConfig.fromJson(json));
       } catch (error) {
         warnings.add('跳过损坏的模型配置: $error');
@@ -1498,15 +2208,26 @@ class BackupService {
     BackupArchiveData archive,
     ImportPlan plan,
   ) async {
+    final filteredData = _filterData(archive.data, plan.selection);
+    await _validateImportBeforeWrites(archive, filteredData, plan);
+    final selectedNoteHashes =
+        filteredData.noteRevisions
+            ?.map((revision) => revision.contentHash)
+            .where(_isSha256)
+            .toSet() ??
+        const <String>{};
+    final selectedNoteBlobs = {
+      for (final entry in archive.noteBlobs.entries)
+        if (selectedNoteHashes.contains(entry.key)) entry.key: entry.value,
+    };
     final storage = storageV2;
     if (storage != null) {
-      for (final entry in archive.noteBlobs.entries) {
+      for (final entry in selectedNoteBlobs.entries) {
         await storage.installNoteBlob(entry.key, entry.value);
       }
     } else {
-      await featureProvider.installNoteRevisionBlobs(archive.noteBlobs);
+      await featureProvider.installNoteRevisionBlobs(selectedNoteBlobs);
     }
-    final filteredData = _filterData(archive.data, plan.selection);
     final restoredAssetPaths = await _restoreAssets(
       archive,
       _referencedAssetPaths(filteredData, plan.selection.settingsParts),
@@ -2103,12 +2824,23 @@ class BackupService {
         incomingEntries == null) {
       return const ImportResult(added: 0, replaced: 0, skipped: 0);
     }
-    final tasks = plan.mode == ImportMode.replaceSection
-        ? <Task>[]
-        : taskProvider.tasks.toList();
-    final lists = plan.mode == ImportMode.replaceSection
-        ? <TaskList>[]
-        : taskProvider.lists.toList();
+    final replacingSection = plan.mode == ImportMode.replaceSection;
+    final incomingTaskIds = (incomingTasks ?? const <Task>[])
+        .map((item) => item.id)
+        .toSet();
+    final incomingListIds = (incomingLists ?? const <TaskList>[])
+        .map((item) => item.id)
+        .toSet();
+    final tasks = taskProvider.tasks
+        .where(
+          (item) => !replacingSection || !incomingTaskIds.contains(item.id),
+        )
+        .toList();
+    final lists = taskProvider.lists
+        .where(
+          (item) => !replacingSection || !incomingListIds.contains(item.id),
+        )
+        .toList();
     final taskIds = <String, String>{};
     final listIds = <String, String>{};
     final preservedTaskTopologyIds = <String>{};
@@ -2186,9 +2918,14 @@ class BackupService {
       }
     }
 
-    final entries = plan.mode == ImportMode.replaceSection
-        ? <TaskListEntry>[]
-        : taskProvider.entries.toList();
+    final entries = taskProvider.entries
+        .where(
+          (item) =>
+              !replacingSection ||
+              (!incomingTaskIds.contains(item.taskId) &&
+                  !incomingListIds.contains(item.taskListId)),
+        )
+        .toList();
     // 清单条目只描述拓扑；复制清单不能夺走本地任务，冲突时在拓扑层克隆并重映射任务。
     for (final entry in incomingEntries ?? const <TaskListEntry>[]) {
       var taskId = taskIds[entry.taskId];
@@ -2232,12 +2969,24 @@ class BackupService {
     if (data.calendarEvents == null && data.anniversaries == null) {
       return const ImportResult(added: 0, replaced: 0, skipped: 0);
     }
-    final events = plan.mode == ImportMode.replaceSection
-        ? <CalendarEvent>[]
-        : calendarProvider.events.toList();
-    final anniversaries = plan.mode == ImportMode.replaceSection
-        ? <Anniversary>[]
-        : calendarProvider.anniversaries.toList();
+    final replacingSection = plan.mode == ImportMode.replaceSection;
+    final incomingEventIds = (data.calendarEvents ?? const <CalendarEvent>[])
+        .map((item) => item.id)
+        .toSet();
+    final incomingAnniversaryIds = (data.anniversaries ?? const <Anniversary>[])
+        .map((item) => item.id)
+        .toSet();
+    final events = calendarProvider.events
+        .where(
+          (item) => !replacingSection || !incomingEventIds.contains(item.id),
+        )
+        .toList();
+    final anniversaries = calendarProvider.anniversaries
+        .where(
+          (item) =>
+              !replacingSection || !incomingAnniversaryIds.contains(item.id),
+        )
+        .toList();
     var added = 0;
     var replaced = 0;
     var skipped = 0;
@@ -2415,11 +3164,38 @@ class BackupService {
         skipped++;
         continue;
       }
-      await _pluginRepository.restorePluginDirectory(pluginId, restoredFiles);
+      final builtIn = PluginRepository.builtInPluginIds.contains(pluginId);
+      if (builtIn) {
+        final local = exists ? nextPlugins[index] : null;
+        if (local == null) {
+          throw FormatException('备份中的内置插件 $pluginId 无本机可信安装，拒绝恢复');
+        }
+        final allowedPaths = _builtInBackupOverridePaths(local);
+        if (!allowedPaths.containsAll(restoredFiles.keys)) {
+          throw FormatException('备份中的内置插件 $pluginId 包含不可覆盖文件');
+        }
+        for (final entry in restoredFiles.entries) {
+          await _pluginRepository.writePluginFileBytes(
+            local,
+            entry.key,
+            entry.value,
+          );
+        }
+      } else {
+        await _pluginRepository.restorePluginDirectory(pluginId, restoredFiles);
+      }
       final pluginDir = await _pluginRepository.pluginDirectory(pluginId);
       await _pluginRepository.savePluginSettings(pluginId, incoming.settings);
       await _pluginRepository.savePluginStorage(pluginId, incoming.storage);
-      final restored = incoming.plugin.copyWith(path: pluginDir.path);
+      final restored = (builtIn ? nextPlugins[index] : incoming.plugin)
+          .copyWith(
+            path: pluginDir.path,
+            enabled: false,
+            needsReview: true,
+            loadError: null,
+            syncedOrigin: false,
+            syncOriginScope: null,
+          );
       if (exists) {
         nextPlugins[index] = restored;
         replaced++;
@@ -2432,6 +3208,99 @@ class BackupService {
     await _pluginRepository.saveInstalledPlugins(nextPlugins);
     await pluginProvider?.load();
     return ImportResult(added: added, replaced: replaced, skipped: skipped);
+  }
+
+  Future<void> _validateImportBeforeWrites(
+    BackupArchiveData archive,
+    BackupData data,
+    ImportPlan plan,
+  ) async {
+    if (featureProvider.usingStorageV2 && data.notePages != null) {
+      final pageContents = data.notePageContents ?? const <String, String>{};
+      for (final raw in data.notePages!) {
+        final page = StorageV2NotePage.fromJson(raw);
+        if (!pageContents.containsKey(page.id)) {
+          throw FormatException('笔记分页正文缺失：${page.title} (${page.id})');
+        }
+      }
+    } else if (data.notePages != null || data.noteEditProposals != null) {
+      throw StateError('备份包含新版分页和修改建议，但当前存储模式不支持导入。请先执行存储迁移。');
+    }
+    final schemaVersion = (archive.manifest['schemaVersion'] as num?)?.toInt();
+    for (final revision in data.noteRevisions ?? const <NoteRevision>[]) {
+      if (schemaVersion != null &&
+          schemaVersion >= 7 &&
+          (!_isSha256(revision.contentHash) ||
+              !archive.noteBlobs.containsKey(revision.contentHash))) {
+        throw FormatException('笔记修订 blob 缺失或无效：${revision.contentHash}');
+      }
+    }
+    if (plan.sections.contains(BackupSection.plugins)) {
+      final currentPlugins =
+          pluginProvider?.plugins ??
+          await _pluginRepository.loadInstalledPlugins();
+      for (final incoming in data.plugins ?? const <BackupPluginData>[]) {
+        final pluginId = incoming.plugin.id;
+        if (pluginId.isEmpty) throw const FormatException('插件 ID 为空');
+        final restoredFiles = <String, List<int>>{};
+        for (final file in incoming.files) {
+          if (!_isSafePluginRelativePath(file.path) ||
+              _isUnsafePluginBackupPath(file.path) ||
+              !_isSafeArchivePath(file.archivePath)) {
+            throw FormatException('插件备份文件路径不安全：${file.path}');
+          }
+          final bytes = archive.pluginFiles[file.archivePath];
+          if (bytes == null) throw FormatException('插件备份文件缺失：${file.path}');
+          restoredFiles[file.path] = bytes;
+        }
+        final builtIn = PluginRepository.builtInPluginIds.contains(pluginId);
+        if (builtIn) {
+          InstalledPlugin? local;
+          for (final plugin in currentPlugins) {
+            if (plugin.id == pluginId) {
+              local = plugin;
+              break;
+            }
+          }
+          if (local == null) {
+            throw FormatException('备份中的内置插件 $pluginId 无本机可信安装，拒绝恢复');
+          }
+          final allowedPaths = _builtInBackupOverridePaths(local);
+          if (!allowedPaths.containsAll(restoredFiles.keys)) {
+            throw FormatException('备份中的内置插件 $pluginId 包含不可覆盖文件');
+          }
+          continue;
+        }
+        if (!restoredFiles.containsKey('plugin.json')) {
+          throw FormatException('插件 $pluginId 缺少 plugin.json');
+        }
+        final staged = await Directory.systemTemp.createTemp(
+          'lynai_backup_plugin_',
+        );
+        try {
+          for (final entry in restoredFiles.entries) {
+            final path = '${staged.path}/${entry.key}';
+            final file = File(path);
+            await file.parent.create(recursive: true);
+            await file.writeAsBytes(entry.value, flush: true);
+          }
+          final manifest = await _pluginRepository.readManifest(staged.path);
+          if (manifest.id != pluginId) {
+            throw FormatException('插件 $pluginId 清单 ID 不匹配');
+          }
+        } finally {
+          await staged.delete(recursive: true);
+        }
+      }
+    }
+  }
+
+  static Set<String> _builtInBackupOverridePaths(InstalledPlugin plugin) {
+    return {
+      for (final file in plugin.manifest.editableFiles) file.path,
+      for (final skill in plugin.manifest.skills)
+        if (skill.editable) 'skills/${skill.name}.md',
+    };
   }
 
   List<ImportConflict> _findConflicts(
@@ -3224,7 +4093,8 @@ class BackupService {
     final restored = <String, String>{};
     for (final raw in records) {
       if (raw is! Map) continue;
-      final originalPath = raw['originalPath'] as String?;
+      final originalPath =
+          raw['sourceRef'] as String? ?? raw['originalPath'] as String?;
       final archivePath = raw['archivePath'] as String?;
       if (originalPath == null ||
           archivePath == null ||
@@ -3237,21 +4107,37 @@ class BackupService {
         restored[originalPath] = '';
         continue;
       }
-      final kind = raw['kind'] as String? ?? 'assets';
-      final targetFolder = kind == 'backgrounds'
-          ? 'backgrounds'
-          : 'message_images';
-      final targetDir = Directory('${dir.path}/$targetFolder');
-      if (!await targetDir.exists()) await targetDir.create(recursive: true);
-      final name = safeStorageFileName(
-        raw['name'] as String? ?? File(originalPath).uri.pathSegments.last,
-        fallback: 'asset',
-      );
-      final file = File(
-        '${targetDir.path}/${DateTime.now().microsecondsSinceEpoch}_$name',
-      );
-      await file.writeAsBytes(bytes, flush: true);
-      restored[originalPath] = file.path;
+      final hash = raw['sha256'] as String?;
+      final originalName = raw['originalName'] as String? ?? 'asset';
+      final mimeType = raw['mimeType'] as String? ?? 'application/octet-stream';
+      final role = raw['role'] as String? ?? 'unknown';
+      if (storage != null && hash != null) {
+        await storage.installResourceBlob(hash, bytes);
+        final location = storageV2ResourceLocation(
+          sha256Hash: hash,
+          originalName: originalName,
+          mimeType: mimeType,
+          role: role,
+        );
+        final root = await storage.storageRoot();
+        restored[originalPath] = '${root.path}/${location.relativePath}';
+      } else {
+        final kind = raw['kind'] as String? ?? 'assets';
+        final targetFolder = kind == 'backgrounds'
+            ? 'backgrounds'
+            : 'message_images';
+        final targetDir = Directory('${dir.path}/$targetFolder');
+        if (!await targetDir.exists()) await targetDir.create(recursive: true);
+        final name = safeStorageFileName(
+          raw['name'] as String? ?? 'asset',
+          fallback: 'asset',
+        );
+        final file = File(
+          '${targetDir.path}/${DateTime.now().microsecondsSinceEpoch}_$name',
+        );
+        await file.writeAsBytes(bytes, flush: true);
+        restored[originalPath] = file.path;
+      }
     }
     return restored;
   }
@@ -3273,9 +4159,37 @@ class BackupService {
     var changed = false;
     for (final raw in resources) {
       try {
-        final resource = StorageV2Resource.fromJson(raw);
-        if (existing.any((r) => r.id == resource.id)) continue;
-        existing.add(resource);
+        final resourceJson = Map<String, dynamic>.from(raw);
+        final resourceId = resourceJson['id'] as String?;
+        if (resourceId != null) {
+          resourceJson['originalPath'] =
+              restoredAssetPaths['asset://$resourceId'] ?? '';
+        }
+        final resource = StorageV2Resource.fromJson(resourceJson);
+        final hash = resource.sha256Hash;
+        if (!resource.missing && hash != null) {
+          final path = resourceJson['originalPath'] as String? ?? '';
+          final file = File(path);
+          if (!await file.exists() ||
+              resource.relativePath !=
+                  storageV2ResourceLocation(
+                    sha256Hash: hash,
+                    originalName: resource.originalName,
+                    mimeType: resource.mimeType,
+                    role: resource.role,
+                  ).relativePath) {
+            throw const FormatException('资源记录与实际落地路径不一致');
+          }
+        }
+        final index = existing.indexWhere((item) => item.id == resource.id);
+        if (index == -1) {
+          existing.add(resource);
+        } else if (jsonEncode(existing[index].toJson()) !=
+            jsonEncode(resource.toJson())) {
+          existing[index] = resource;
+        } else {
+          continue;
+        }
         changed = true;
       } catch (_) {}
     }
@@ -3293,6 +4207,7 @@ class BackupService {
     Iterable<String> restoredPaths,
     List<String> warnings,
   ) async {
+    if (storageV2 != null) return;
     final restored = restoredPaths.map(_normalizePath).toSet();
     if (restored.isEmpty) return;
 
@@ -3436,10 +4351,18 @@ class BackupService {
     return roots;
   }
 
-  static bool _isInPrivateStorage(File file, List<Directory> roots) {
+  static Future<bool> _isInPrivateStorage(
+    File file,
+    List<Directory> roots,
+  ) async {
     final path = _normalizePath(file.absolute.path);
     for (final root in roots) {
-      final rootPath = _normalizePath(root.absolute.path);
+      String rootPath;
+      try {
+        rootPath = _normalizePath(await root.resolveSymbolicLinks());
+      } catch (_) {
+        rootPath = _normalizePath(root.absolute.path);
+      }
       if (path == rootPath || path.startsWith('$rootPath/')) return true;
     }
     return false;
@@ -3460,10 +4383,111 @@ class BackupService {
     return normalized != 'plugin.json' || normalized.split('/').length == 1;
   }
 
+  static bool _isUnsafePluginBackupPath(String path) {
+    final parts = path.toLowerCase().replaceAll('\\', '/').split('/');
+    if (parts.any(
+      const {'cache', 'caches', 'tmp', 'temp', '.cache'}.contains,
+    )) {
+      return true;
+    }
+    final name = parts.last;
+    return name == '.env' ||
+        name.startsWith('.env.') ||
+        name == 'credentials' ||
+        name.startsWith('credentials.') ||
+        name == 'secrets.json' ||
+        name == 'tokens.json' ||
+        name == 'authorization.json' ||
+        name.endsWith('.pem') ||
+        name.endsWith('.key') ||
+        name.endsWith('.p12') ||
+        name.endsWith('.pfx') ||
+        name.endsWith('.jks') ||
+        name.endsWith('.keystore') ||
+        name.endsWith('.db') ||
+        name.endsWith('.sqlite') ||
+        name.endsWith('.sqlite3') ||
+        name.endsWith('.tmp') ||
+        name.endsWith('.log') ||
+        name == '.ds_store';
+  }
+
+  static Object? _scrubSecrets(Object? value) {
+    if (value is Map) {
+      final clean = <String, dynamic>{};
+      for (final entry in value.entries) {
+        final key = entry.key.toString();
+        if (RegExp(
+          r'(api.?key|authorization|token|key|password|secret|credential)',
+          caseSensitive: false,
+        ).hasMatch(key)) {
+          continue;
+        }
+        clean[key] = _scrubSecrets(entry.value);
+      }
+      return clean;
+    }
+    if (value is List) return value.map(_scrubSecrets).toList();
+    return value;
+  }
+
   static void _validateArchiveEntryPath(String path) {
     if (!_isSafeArchivePath(path, allowDirectory: true)) {
       throw FormatException('备份包包含不安全路径：$path');
     }
+  }
+
+  static void _rejectBackupInternalPath(String path) {
+    final parts = path.toLowerCase().split('/');
+    for (var index = 0; index < parts.length; index++) {
+      final part = parts[index];
+      final stem = part.split('.').first;
+      final inSyncDirectory = index > 0 && parts[index - 1] == 'sync';
+      if (part.startsWith('app.db') ||
+          part.contains('.sqlite') ||
+          stem == 'sync_outbox' ||
+          stem == 'sync_state' ||
+          stem == 'sync_conflicts' ||
+          stem == 'sync_scope_baselines' ||
+          stem == 'sync_baselines' ||
+          stem == 'sync_baseline' ||
+          stem == 'device_identity' ||
+          stem == 'device_private_key' ||
+          stem == 'private_key' ||
+          stem == 'account_token' ||
+          stem == 'refresh_token' ||
+          (inSyncDirectory &&
+              {
+                'outbox',
+                'state',
+                'conflicts',
+                'baselines',
+                'baseline',
+              }.contains(stem))) {
+        throw FormatException('备份包包含禁止的内部文件：$path');
+      }
+    }
+  }
+
+  static bool _isSha256(String value) =>
+      RegExp(r'^[0-9a-f]{64}$').hasMatch(value);
+
+  static Map<String, dynamic> _conversationForExport(
+    Conversation conversation,
+    Map<String, String> assetRefs,
+  ) {
+    final json = conversation.toJson();
+    final messages = json['messages'];
+    if (messages is! List) return json;
+    for (final message in messages.whereType<Map>()) {
+      final images = message['images'];
+      if (images is! List) continue;
+      for (final image in images.whereType<Map>()) {
+        final path = image['path'];
+        image['path'] = path is String ? assetRefs[path] ?? '' : '';
+      }
+    }
+    return json;
   }
 
   static bool _isSafeArchivePath(String path, {bool allowDirectory = false}) {
@@ -3739,48 +4763,18 @@ class BackupService {
     return 'notes/page_contents/${safeStorageSegment(pageId, fallback: 'page')}.md';
   }
 
-  Future<List<Map<String, dynamic>>> _collectExportResources(
+  List<Map<String, dynamic>> _collectExportResources(
     List<Map<String, dynamic>> assetRecords,
-  ) async {
+  ) {
     if (storageV2 == null) return [];
     if (!featureProvider.usingStorageV2) return [];
-    List<StorageV2Resource> existing;
-    try {
-      existing = await storageV2!.loadResources();
-    } catch (_) {
-      return [];
-    }
     final items = <Map<String, dynamic>>[];
     final seenIds = <String>{};
     for (final record in assetRecords) {
-      final originalPath = record['originalPath'] as String? ?? '';
+      final originalPath = record['_originalPath'] as String? ?? '';
       if (originalPath.isEmpty) continue;
       final hash = record['sha256'] as String?;
       final size = (record['size'] as num?)?.toInt();
-      final matchedByPath = existing.where(
-        (res) =>
-            !res.missing &&
-            _normalizePath(res.originalPath) == _normalizePath(originalPath),
-      );
-      final matchedByHash = hash == null || size == null
-          ? const Iterable<StorageV2Resource>.empty()
-          : existing.where(
-              (res) =>
-                  !res.missing && res.sha256Hash == hash && res.size == size,
-            );
-      final resource = matchedByPath.isNotEmpty
-          ? matchedByPath.first
-          : matchedByHash.isNotEmpty
-          ? matchedByHash.first
-          : null;
-      if (resource != null) {
-        if (seenIds.add(resource.id)) {
-          items.add(resource.toJson());
-        }
-        record['resourceId'] = resource.id;
-        record['sha256'] = resource.sha256Hash;
-        continue;
-      }
       if (hash == null || size == null) continue;
       final originalName =
           record['originalName'] as String? ??
@@ -3809,7 +4803,7 @@ class BackupService {
       );
       record['resourceId'] = next.id;
       if (seenIds.add(next.id)) {
-        items.add(next.toJson());
+        items.add(next.toJson()..remove('originalPath'));
       }
     }
     return items;

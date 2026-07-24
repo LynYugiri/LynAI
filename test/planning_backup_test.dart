@@ -24,7 +24,7 @@ import 'package:lynai/services/storage_v2_upgrade_service.dart';
 
 void main() {
   test(
-    'schema 9 writes canonical planning wire shape and round-trips',
+    'schema 10 writes canonical planning wire shape and round-trips',
     () async {
       final sourceRoot = await Directory.systemTemp.createTemp(
         'planning_backup_source_',
@@ -108,7 +108,7 @@ void main() {
                   ),
                 )
                 as Map<String, dynamic>;
-        expect(jsonFile('manifest.json')['schemaVersion'], 9);
+        expect(jsonFile('manifest.json')['schemaVersion'], 10);
         expect(jsonFile('tasks.json')['entries'].single, {
           'id': 'task',
           'taskId': 'task',
@@ -179,19 +179,61 @@ void main() {
           ],
         );
         final service = _service(targetTasks, targetCalendar, targetStorage);
-        final archive = await service.readZipBytes(bytes);
+        final archive = await service.readZipBytes(
+          _withSchemaVersion(bytes, 9),
+        );
         await service.importArchive(
           archive,
           ImportPlan(
-            selection: BackupSelection.fromData(archive.data),
+            selection: const BackupSelection(
+              {BackupSection.tasks, BackupSection.calendar},
+              taskIds: {'task'},
+              taskListIds: {'list'},
+              calendarEventIds: {'event'},
+              anniversaryIds: {'anniversary'},
+            ),
             mode: ImportMode.replaceSection,
           ),
         );
         expect(targetTasks.tasksForList('list').single.id, 'task');
-        expect(targetTasks.tasks.map((item) => item.id), ['task']);
-        expect(targetTasks.lists.map((item) => item.id), ['list']);
-        expect(targetCalendar.events.single.id, 'event');
-        expect(targetCalendar.anniversaries.single.id, 'anniversary');
+        expect(targetTasks.tasks.map((item) => item.id).toSet(), {
+          'task',
+          'extra-task',
+        });
+        expect(targetTasks.lists.map((item) => item.id).toSet(), {
+          'list',
+          'extra-list',
+        });
+        expect(targetTasks.tasksForList('extra-list').single.id, 'extra-task');
+        expect(targetCalendar.events.map((item) => item.id).toSet(), {
+          'event',
+          'extra-event',
+        });
+        expect(targetCalendar.anniversaries.map((item) => item.id).toSet(), {
+          'anniversary',
+          'extra-anniversary',
+        });
+        final roundTrip = await service.exportZipBytes(
+          const BackupSelection(
+            {BackupSection.tasks, BackupSection.calendar},
+            taskIds: {'task'},
+            taskListIds: {'list'},
+            calendarEventIds: {'event'},
+            anniversaryIds: {'anniversary'},
+          ),
+        );
+        final roundTripZip = ZipDecoder().decodeBytes(roundTrip);
+        final roundTripManifest =
+            jsonDecode(
+                  utf8.decode(
+                    roundTripZip.files
+                            .singleWhere((file) => file.name == 'manifest.json')
+                            .content
+                        as List<int>,
+                  ),
+                )
+                as Map<String, dynamic>;
+        expect(roundTripManifest['schemaVersion'], 10);
       } finally {
         await sourceRoot.delete(recursive: true);
         await targetRoot.delete(recursive: true);
@@ -476,6 +518,26 @@ void main() {
       },
     );
   });
+}
+
+List<int> _withSchemaVersion(List<int> bytes, int schemaVersion) {
+  final source = ZipDecoder().decodeBytes(bytes);
+  final archive = Archive();
+  for (final file in source.files) {
+    if (file.name != 'manifest.json') {
+      archive.addFile(
+        ArchiveFile(file.name, file.size, List<int>.from(file.content as List)),
+      );
+      continue;
+    }
+    final manifest =
+        jsonDecode(utf8.decode(file.content as List<int>))
+            as Map<String, dynamic>;
+    manifest['schemaVersion'] = schemaVersion;
+    final content = utf8.encode(jsonEncode(manifest));
+    archive.addFile(ArchiveFile(file.name, content.length, content));
+  }
+  return ZipEncoder().encode(archive);
 }
 
 Future<StorageV2Service> _readyStorage(Directory root) async {

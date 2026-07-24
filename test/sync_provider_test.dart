@@ -261,6 +261,77 @@ void main() {
       expect(storage.outbox, isEmpty);
     });
 
+    test('flushes all local saves before reading the outbox', () async {
+      final storage = _FakeSyncStorage();
+      var flushes = 0;
+      final provider = SyncProvider(
+        service: _FakeSyncService(),
+        storage: storage,
+        beforeLocalSnapshot: () async {
+          flushes++;
+          storage.outbox.add(_entry('flushed', version: 1));
+        },
+      );
+
+      await provider.bindScope('user-1');
+      await provider.manualSync();
+
+      expect(flushes, 1);
+      expect(storage.loadOutboxCalls, greaterThan(0));
+      expect(storage.acknowledged.map((entry) => entry.recordId), ['flushed']);
+    });
+
+    test('generation change resets and uploads a full snapshot', () async {
+      final storage = _FakeSyncStorage()..generation = 1;
+      var flushes = 0;
+      final provider = SyncProvider(
+        service: _FakeSyncService(statusGeneration: 2),
+        storage: storage,
+        beforeLocalSnapshot: () async => flushes++,
+      );
+
+      await provider.bindScope('user-1');
+      await provider.manualSync();
+
+      expect(flushes, 1);
+      expect(storage.resetGenerations, [2]);
+      expect(storage.snapshotGenerations, [2]);
+    });
+
+    test('cursor ahead of server enters reseed', () async {
+      final storage = _FakeSyncStorage()..sinceByScope['injected|user-1'] = 9;
+      final provider = SyncProvider(
+        service: _FakeSyncService(statusGeneration: 1, statusLastSeq: 4),
+        storage: storage,
+      );
+
+      await provider.bindScope('user-1');
+      await provider.manualSync();
+
+      expect(storage.resetGenerations, [1]);
+      expect(storage.snapshotGenerations, [1]);
+      expect(provider.error, isNull);
+    });
+
+    test('cursor below server retention enters reseed', () async {
+      final storage = _FakeSyncStorage()..sinceByScope['injected|user-1'] = 2;
+      final provider = SyncProvider(
+        service: _FakeSyncService(
+          statusGeneration: 1,
+          statusLastSeq: 8,
+          statusMinAvailableSeq: 4,
+        ),
+        storage: storage,
+      );
+
+      await provider.bindScope('user-1');
+      await provider.manualSync();
+
+      expect(storage.resetGenerations, [1]);
+      expect(storage.snapshotGenerations, [1]);
+      expect(provider.error, isNull);
+    });
+
     test('serializes concurrent public sync calls', () async {
       final service = _FakeSyncService(delay: const Duration(milliseconds: 20));
       final provider = SyncProvider(
@@ -955,8 +1026,13 @@ class _FakeSyncStorage implements SyncStorage {
   final List<SyncRemoteOperation> appliedOps = [];
   final List<int?> loadOutboxLimits = [];
   final List<String> readBlobHashes = [];
+  final List<int> resetGenerations = [];
+  final List<int> snapshotGenerations = [];
+  int generation = 0;
+  bool fullReseedRequired = false;
   int maxLoadedOutbox = 0;
   int materializeCalls = 0;
+  int loadOutboxCalls = 0;
 
   @override
   Future<void> activateScope(String scope, String deviceId) async {
@@ -971,11 +1047,35 @@ class _FakeSyncStorage implements SyncStorage {
   Future<int> since(String scope) async => sinceByScope[scope] ?? 0;
 
   @override
+  Future<SyncScopeState> scopeState(String scope) async => SyncScopeState(
+    since: sinceByScope[scope] ?? 0,
+    generation: generation,
+    fullReseedRequired: fullReseedRequired,
+  );
+
+  @override
+  Future<void> resetCloudScope(String scope, int nextGeneration) async {
+    resetGenerations.add(nextGeneration);
+    outbox.clear();
+    sinceByScope[scope] = 0;
+    generation = nextGeneration;
+    fullReseedRequired = true;
+  }
+
+  @override
+  Future<void> prepareFullSnapshot(String scope, int nextGeneration) async {
+    snapshotGenerations.add(nextGeneration);
+    generation = nextGeneration;
+    fullReseedRequired = false;
+  }
+
+  @override
   Future<List<SyncOutboxEntry>> loadOutbox(
     String scope, {
     int? limit,
     int offset = 0,
   }) async {
+    loadOutboxCalls++;
     loadOutboxLimits.add(limit);
     final end = limit == null
         ? outbox.length
@@ -1122,6 +1222,9 @@ class _FakeSyncService implements SyncService {
     this.downloadedBlobs = const {},
     this.uploadResult,
     this.limits = const SyncLimits(),
+    this.statusGeneration = 0,
+    this.statusLastSeq = 0,
+    this.statusMinAvailableSeq = 0,
   }) : _pages = List.of(pages);
 
   final List<SyncDownloadResult> _pages;
@@ -1132,6 +1235,9 @@ class _FakeSyncService implements SyncService {
   final Map<String, List<int>> downloadedBlobs;
   final SyncUploadResult? uploadResult;
   final SyncLimits limits;
+  final int statusGeneration;
+  final int statusLastSeq;
+  final int statusMinAvailableSeq;
   final List<int> requestedSince = [];
   final List<int> requestedLimits = [];
   final List<String> uploadedBlobs = [];
@@ -1203,8 +1309,13 @@ class _FakeSyncService implements SyncService {
       });
 
   @override
-  Future<SyncStatus> getStatus() async =>
-      SyncStatus(lastSeq: 0, blobCount: 0, limits: limits);
+  Future<SyncStatus> getStatus() async => SyncStatus(
+    lastSeq: statusLastSeq,
+    blobCount: 0,
+    generation: statusGeneration,
+    minAvailableSeq: statusMinAvailableSeq,
+    limits: limits,
+  );
 
   @override
   Future<List<BlobInfo>> listBlobs({int limit = 1000}) async {

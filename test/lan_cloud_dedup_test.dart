@@ -38,6 +38,16 @@ class MemorySyncStorage implements SyncStorage {
   @override
   Future<int> since(String scope) async => _since;
   @override
+  Future<SyncScopeState> scopeState(String scope) async =>
+      SyncScopeState(since: _since, generation: 0, fullReseedRequired: false);
+  @override
+  Future<void> resetCloudScope(String scope, int generation) async {
+    _since = 0;
+  }
+
+  @override
+  Future<void> prepareFullSnapshot(String scope, int generation) async {}
+  @override
   Future<List<SyncOutboxEntry>> loadOutbox(
     String scope, {
     int? limit,

@@ -573,6 +573,18 @@ class StorageV2Service {
     return (await _storageDatabase()).syncSince(scope);
   }
 
+  Future<SyncScopeState> syncScopeState(String scope) async {
+    return (await _storageDatabase()).syncScopeState(scope);
+  }
+
+  Future<void> resetCloudSyncScope(String scope, int generation) async {
+    await (await _storageDatabase()).resetCloudSyncScope(scope, generation);
+  }
+
+  Future<void> prepareFullSyncSnapshot(String scope, int generation) async {
+    await (await _storageDatabase()).prepareFullSyncSnapshot(scope, generation);
+  }
+
   Future<List<SyncOutboxEntry>> loadSyncOutbox(
     String scope, {
     int? limit,

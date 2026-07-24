@@ -43,7 +43,7 @@ PRAGMA user_version = 11;
             .single;
         expect(row['local_head_id'], 'local');
         expect(row['incoming_head_id'], 'incoming');
-        expect(migrated.userVersion, 16);
+        expect(migrated.userVersion, 18);
       } finally {
         migrated.close();
       }

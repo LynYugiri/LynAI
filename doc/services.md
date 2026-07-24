@@ -12,7 +12,9 @@
 
 同步服务只上传两个版本化配置投影：单例 `SharedSettingsV1` 和逐 Provider 的 `SyncedModelConfigV1`。前者不包含后端连接、登录/changelog、最近功能、悬浮助手、权限和本地路径；后者仅接受用户明确开启同步的非托管 Provider，并删除 API key、secure-store 引用、URL userinfo 及疑似凭证的嵌套参数。远端写入使用 storage_v2 的现有 Outbox/conflict 事务，存在本地 pending mutation 时不覆盖本地值。
 
-`RemoteSyncService` 对上传和下载响应执行结构校验后才交给 Provider：上传要求 `latestSeq` 合法，ACK 数量与批次一致，并且只能是完整 legacy seq ACK 或不重复且精确覆盖请求 changeId 的 ACK；下载要求 changes 为列表、change 字段和 upsert `data.id` 合法、seq 从 since 起严格递增、changeId 页内不重复，且 `nextSince` 覆盖本页最大 seq。格式异常不会推进游标或删除 Outbox。
+`RemoteSyncService` 对上传和下载响应执行结构校验后才交给 Provider：上传要求 `latestSeq` 合法，ACK 数量与批次一致，并且只能是完整 legacy seq ACK 或不重复且精确覆盖请求 changeId 的 ACK；下载要求 changes 为列表、change 字段和 upsert `data.id` 合法、seq 从 since 起严格递增、changeId 页内不重复，且 `nextSince` 覆盖本页最大 seq。格式异常不会推进游标或删除 Outbox。`postSignedJson()` 复用同一 enrollment、token refresh、稳定 body bytes 和 Ed25519 重签链路，供 purge 与 operation ACK 使用，管理签名逻辑不散落到页面或 Provider。
+
+`RemoteCloudDataService` 实现 `/sync/index/status`、按分类 keyset 分页的 `/sync/index/objects`、对象详情、purge preview、签名 purge、pending operations 和签名 ACK。所有对象分页绑定同一个 `expectedIndexRevision`；revision 冲突作为刷新失败返回，不提交部分缓存。管理 API 不实现 Blob 物理 GC。
 
 ## ApiService
 
@@ -357,7 +359,7 @@ storage_v2/
 
 Drift 内的 `sync_outbox` 保存尚未确认上传的行级变化，`sync_state` 保存各作用域的服务端游标、激活状态和持久化本地 mutation 捕获权。当前数据库布局不再通过停用时快照做账号 catch-up，而是在 mutation 发生时直接写入其目标云端/LAN Outbox；因此重启可保留归属，远端 apply 也不会被后续快照误判为本地编辑。Outbox 支持稳定排序的 limit/offset 窗口读取，资源可按 ID 集合查询，以便同步先处理记录描述符、需要上传时再读取 Blob。消息附件资源通过 `resources` 行和 SHA Blob 同步；下载文件只写入标准内容寻址路径，不采用远端提供的本地路径。
 
-Drift 数据库 schema v16 在 v15 规划表基础上增加 `sync_outbox(scope, updated_at, table_name, record_id)`、`sync_outbox(scope, change_id, mutation_version)` 和 `sync_conflicts(scope, table_name, record_id)` 索引，服务于窗口读取、精确 ACK 和冲突记录查询。v15 引入 `tasks`、`task_lists`、`task_list_entries`、`calendar_events` 和 `anniversaries`；升级先创建新表，再按稳定顺序拆分旧 `todo_lists`/`todo_items`，把旧 task schedule 转成任务、普通 schedule 转成定时事件，任务 ID 碰撞时生成稳定 legacy 前缀 ID。迁移完成后删除旧表及其旧同步队列记录，并创建任务日期、清单顺序和事件开始索引。数据库 schema 版本与 `StorageV2Service.currentLayoutVersion` 是不同概念。
+Drift 数据库 schema v17 在 v16 同步索引基础上增加 generation/full-reseed 状态和按 scope 隔离的 `cloud_index_states`、`cloud_index_objects`、`cloud_index_category_stats`、`cloud_reseed_tasks`。云端状态与对象以 JSON 载荷缓存完整接口字段，分类表保存对象数量；刷新成功后事务替换，失败保留旧值。reseed task 以 operation ID 幂等持久化，full reseed 不删除 task，只有服务端 ACK 成功后移除。v16 增加 Outbox/conflict 查询索引，v15 引入规范任务和日历表。数据库 schema 版本与 `StorageV2Service.currentLayoutVersion` 是不同概念。
 
 运行时的 `tasks.json` 和 `calendar.json` 是 Repository/备份/同步使用的逻辑分区门面，不是 `storage_v2/data/*.json` 镜像文件；结构化权威仍是 `app.db`。任务与日历日常 mutation 通过 `applyLocalRowChanges()` 在一个事务中按行 upsert/delete 并捕获 Outbox，完整 replace 留给备份恢复和远端重载。`tasks.json` 包含 `tasks`、`lists`、`entries`，其中 entry 使用 `listId`、`taskId`、`sortOrder`；`calendar.json` 包含 `events` 和 `anniversaries`，事件使用扁平 `timeKind` 字段，全天结束日期始终为 exclusive。
 
@@ -395,7 +397,7 @@ storage_v2 schemaVersion < current
 
 文件：`lib/services/backup_service.dart`
 
-`BackupService` 负责 ZIP 备份导出、读取、预览和导入。schema 常量以 `BackupService.currentSchemaVersion` 为准，并接受 `BackupService.oldestCompatibleSchemaVersion` 起的旧格式。普通 ZIP 永不包含 API key；加密“包含密钥”模式在内层 ZIP 加入独立模型 API-key 分区，再以 `BackupEncryption` 的 Argon2id + XChaCha20-Poly1305 信封认证加密精确 ZIP bytes。设备私钥、账号 token 和其他设备私有密钥不参与备份。
+`BackupService` 负责 ZIP 备份导出、读取、预览和导入。schema 常量以 `BackupService.currentSchemaVersion` 为准，并接受 `BackupService.oldestCompatibleSchemaVersion` 起的旧格式。普通 ZIP 永不包含 API key；加密“包含密钥”模式在内层 ZIP 加入独立模型 API-key 分区，再以 `BackupEncryption` 的 Argon2id + XChaCha20-Poly1305 信封认证加密精确 ZIP bytes。设备私钥、账号 token、同步 outbox/state/conflict/baseline 和数据库文件不参与备份；读取 ZIP 时也显式拒绝这些内部路径。
 
 ### 导出结构
 
@@ -419,7 +421,7 @@ resources.json
 assets/blobs/{sha256Prefix}/{sha256}
 ```
 
-实际写入哪些文件由 `BackupSelection` 决定。`manifest.json` 会记录类型、schema、应用版本、创建时间、分区信息和附件映射。被引用的私有附件使用和 storage_v2 资源一致的 SHA blob 路径；多个旧路径引用同一内容时可共享同一个 ZIP 条目。
+实际写入哪些文件由 `BackupSelection` 决定。`manifest.json` 会记录类型、schema、应用版本、创建时间、分区信息和附件映射。被引用的私有附件使用和 storage_v2 资源一致的 SHA blob 路径；多个旧路径引用同一内容时可共享同一个 ZIP 条目。当前导出使用归档内 `asset://` 引用完成恢复映射，不写消息 `legacyPath`、资源 `originalPath` 或设备绝对路径；`settings.storageV2` 只允许背景资源 ID。
 
 ### 分区
 
@@ -439,10 +441,10 @@ assets/blobs/{sha256Prefix}/{sha256}
 3. `preview()` 生成分区摘要和冲突列表。
 4. 用户选择导入模式和冲突动作。
 5. `importArchive()` 恢复私有附件并重映射路径。
-6. 按分区应用到 Provider；storage_v2 笔记会恢复分页元数据和 Markdown 正文。
+6. 按分区应用到 Provider；storage_v2 笔记会恢复分页元数据和 Markdown 正文，修订 blob 只安装所选笔记引用的 SHA-256。
 7. 清理最终数据没有引用的临时恢复附件。
 
-当前 canonical 备份 schema 以 `BackupService.currentSchemaVersion` 为准，导出 `tasks.json`/`calendar.json`。读取兼容范围由 `BackupService.oldestCompatibleSchemaVersion` 决定；其中 schema 5-8 使用 `schedules.json` 和 `todo_lists.json`，导入时先按旧清单顺序拆出任务/条目，再转换旧 schedule，以保持与数据库迁移相同的 ID 碰撞结果。当前格式直接解析规范分区。旧文件只在兼容读取时接受，新导出不会重新生成它们。
+当前 canonical 备份 schema 以 `BackupService.currentSchemaVersion` 为准，导出 `tasks.json`/`calendar.json`。读取兼容范围由 `BackupService.oldestCompatibleSchemaVersion` 决定。schema 1-4 走独立的历史迁移读取器，只接受对应版本实际存在的分区、文件名和嵌套/扁平 shape，先清除模型配置中的明文 API key，再把对话、可解释的笔记/分页、日程和待办归一化为当前 `BackupData`；旧 `roleplay_sessions.json` 仅在玩家和历史模型引用可定位时转换为 scenario/thread。记录级缺失或字段损失产生 warning，容器歧义、跨版本载荷和危险 shape 直接拒绝。schema 5-8 使用 `schedules.json` 和 `todo_lists.json`，导入时先按旧清单顺序拆出任务/条目，再转换旧 schedule，以保持与数据库迁移相同的 ID 碰撞结果。当前格式直接解析规范分区。旧文件只在兼容读取时接受，新导出不会重新生成它们。
 
 ### 导入模式
 
@@ -454,7 +456,11 @@ assets/blobs/{sha256Prefix}/{sha256}
 
 ### 附件恢复
 
-备份只归档应用私有目录中被引用的附件。导入时附件会按 manifest 的 `archivePath` 读取并恢复为 storage_v2 blob，再把业务记录指向对应资源。旧数字前缀附件路径不再作为新版备份格式支持。
+备份只归档解析符号链接后仍位于应用私有目录中的引用附件。schema 10 的 `archivePath`、资源 `relativePath` 和实际恢复位置统一使用 storage_v2 的 SHA 内容寻址 blob 路径，导入后业务记录可直接读取该文件；旧数字前缀附件路径不再作为新版备份格式支持。manifest 必须声明所有业务文件，schema 5-10 已声明 JSON 的顶层容器损坏时直接拒绝，不会把错误容器降级为空列表。
+
+插件备份复用与插件同步等价的秘密文件过滤，设置和 storage 对 Map/List 递归删除 API key、token、authorization、password、secret 和 credential 等秘密键。任何从备份归档恢复的插件代码都不被信任，恢复状态统一为 disabled + needsReview；伪造内置 ID 不能恢复可执行包，真实内置插件也只接受本机 manifest 声明的可编辑覆盖文件。schema 1-7 中的插件安装载荷一律跳过，不恢复可执行文件及与其身份绑定的设置/storage，并给出要求重新安装审查的 warning。所有 schema 都拒绝 `app.db`/SQLite、sync metadata、secret 和设备私有文件；历史迁移也不会生成或恢复 sync cursor、outbox、ACK、baseline 或设备身份。
+
+导入在安装 note/resource blob、写 Provider 或替换插件目录前，先验证全部所选业务对象、分页正文、修订 blob 和插件包到临时 staging，避免常见后段格式错误造成前面分区部分提交。Provider、数据库和多个文件目录尚未组成跨介质原子事务；进程中断、磁盘 I/O 错误或后续持久化失败仍可能留下已安装的内容寻址 blob 或部分业务提交，未引用恢复资源会在正常退出路径清理。
 
 如果 manifest 引用了某个附件但 ZIP 中缺失该文件，导入会记录 warning，并清除对应背景图或消息附件引用，避免导入后指向另一台设备上的无效路径。
 

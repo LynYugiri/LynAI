@@ -93,15 +93,22 @@ class RemoteSyncService implements SyncService {
     return SyncStatus(
       lastSeq: (json['lastSeq'] as num?)?.toInt() ?? 0,
       blobCount: (json['blobCount'] as num?)?.toInt() ?? 0,
+      generation: (json['generation'] as num?)?.toInt() ?? 0,
+      indexRevision: (json['indexRevision'] as num?)?.toInt() ?? 0,
+      minAvailableSeq: (json['minAvailableSeq'] as num?)?.toInt() ?? 0,
       limits: SyncLimits.fromJson(json['limits']),
     );
   }
 
   @override
-  Future<SyncUploadResult> uploadChanges(List<SyncChangeRecord> changes) async {
+  Future<SyncUploadResult> uploadChanges(
+    List<SyncChangeRecord> changes, {
+    int generation = 0,
+  }) async {
     final requestId = requestIdForChanges(changes);
     final body = {
       'requestId': requestId,
+      'expectedGeneration': generation,
       'changes': changes.map((c) => c.toJson()).toList(),
     };
     final bodyBytes = utf8.encode(jsonEncode(body));
@@ -213,6 +220,21 @@ class RemoteSyncService implements SyncService {
     sha256.convert(utf8.encode('blob\n$hash')).bytes.sublist(0, 24),
   );
 
+  /// Sends a signed JSON sync-management write through the shared enrollment,
+  /// token-refresh, replay, and signature-retry path.
+  Future<http.Response> postSignedJson({
+    required String path,
+    required String target,
+    required String requestId,
+    required Map<String, dynamic> body,
+  }) => _postSignedBytes(
+    path: path,
+    requestId: requestId,
+    target: target,
+    bodyBytes: utf8.encode(jsonEncode(body)),
+    generation: (body['expectedGeneration'] as num?)?.toInt(),
+  );
+
   /// Builds the domain-separated CBE1 request signature input.
   static List<int> buildSyncRequestMessage({
     required int protocolVersion,
@@ -224,6 +246,7 @@ class RemoteSyncService implements SyncService {
     required String method,
     required String target,
     required List<int> bodySha256,
+    int expectedGeneration = 0,
   }) {
     final version = ByteData(2)..setUint16(0, protocolVersion);
     final timestampBytes = ByteData(8)..setUint64(0, timestamp);
@@ -237,6 +260,7 @@ class RemoteSyncService implements SyncService {
       utf8.encode(method),
       utf8.encode(target),
       bodySha256,
+      (ByteData(8)..setUint64(0, expectedGeneration)).buffer.asUint8List(),
     ];
     final output = BytesBuilder(copy: false)
       ..add(utf8.encode(_signatureDomain));
@@ -277,7 +301,9 @@ class RemoteSyncService implements SyncService {
           'signature_rejected',
           'signature_required',
           'unknown_device',
+          'device_session_mismatch',
           'revoked_device',
+          'invalid_signed_request',
           'replayed_request',
         };
         for (final value in values) {
@@ -305,9 +331,13 @@ class RemoteSyncService implements SyncService {
   @override
   Future<SyncDownloadResult> getChanges({
     required int since,
+    int generation = 0,
     int limit = 500,
   }) async {
-    final resp = await _client.get('/sync/changes?since=$since&limit=$limit');
+    final resp = await _client.get(
+      '/sync/changes?since=$since&limit=$limit',
+      headers: {'X-LynAI-Expected-Generation': '$generation'},
+    );
     if (resp.statusCode != 200) {
       throw Exception(_errorMessage(resp.body, '获取变更失败'));
     }
@@ -350,21 +380,40 @@ class RemoteSyncService implements SyncService {
     if (hasMore is! bool) {
       throw const FormatException('sync download hasMore is invalid');
     }
+    final globalLatestSeq = json['globalLatestSeq'] ?? latestSeq;
+    if (globalLatestSeq is! int || globalLatestSeq < 0) {
+      throw const FormatException('sync download globalLatestSeq is invalid');
+    }
+    if (nextSince > globalLatestSeq) {
+      throw const FormatException(
+        'sync download nextSince exceeds globalLatestSeq',
+      );
+    }
     return SyncDownloadResult(
       changes: changes,
       latestSeq: latestSeq,
       hasMore: hasMore,
       nextSince: nextSince,
+      generation: (json['generation'] as num?)?.toInt() ?? 0,
+      indexRevision: (json['indexRevision'] as num?)?.toInt() ?? 0,
+      minAvailableSeq: (json['minAvailableSeq'] as num?)?.toInt() ?? 0,
+      globalLatestSeq: globalLatestSeq,
     );
   }
 
   @override
-  Future<List<BlobInfo>> listBlobs({int limit = 1000}) async {
+  Future<List<BlobInfo>> listBlobs({
+    int generation = 0,
+    int limit = 1000,
+  }) async {
     var after = 0;
     final blobs = <BlobInfo>[];
     while (true) {
       final path = '/sync/blobs?after=$after&limit=$limit';
-      final resp = await _client.get(path);
+      final resp = await _client.get(
+        path,
+        headers: {'X-LynAI-Expected-Generation': '$generation'},
+      );
       if (resp.statusCode != 200) {
         throw Exception(_errorMessage(resp.body, '获取 blob 列表失败'));
       }
@@ -385,7 +434,11 @@ class RemoteSyncService implements SyncService {
   }
 
   @override
-  Future<void> uploadBlob(String sha256, List<int> bytes) async {
+  Future<void> uploadBlob(
+    String sha256,
+    List<int> bytes, {
+    int generation = 0,
+  }) async {
     final requestId = requestIdForBlob(sha256);
     final resp = await _postSignedBytes(
       path: '/sync/blobs/$sha256',
@@ -394,6 +447,7 @@ class RemoteSyncService implements SyncService {
       bodyBytes: bytes,
       contentType: 'application/octet-stream',
       timeout: blobUploadTimeout,
+      generation: generation,
     );
     if (resp.statusCode != 200) {
       if (_isExplicitSignatureRejection(resp.body)) {
@@ -410,6 +464,7 @@ class RemoteSyncService implements SyncService {
     required List<int> bodyBytes,
     String contentType = 'application/json',
     Duration? timeout,
+    int? generation,
   }) async {
     Future<http.Response> send() => _client.postReplayableBytes(
       path,
@@ -418,6 +473,7 @@ class RemoteSyncService implements SyncService {
         target: target,
         bodyBytes: bodyBytes,
         contentType: contentType,
+        generation: generation,
       ),
       bodyBytes: bodyBytes,
       timeout: timeout,
@@ -426,7 +482,9 @@ class RemoteSyncService implements SyncService {
     var response = await send();
     final rejection = _deviceRejectionCode(response.body);
     if (response.statusCode != 200 && rejection != null) {
-      _registration.invalidateCurrentEnrollment();
+      if (rejection == 'unknown_device' || rejection == 'revoked_device') {
+        _registration.invalidateCurrentEnrollment();
+      }
       if (rejection == 'unknown_device') response = await send();
     }
     return response;
@@ -437,6 +495,7 @@ class RemoteSyncService implements SyncService {
     required String target,
     required List<int> bodyBytes,
     String contentType = 'application/json',
+    int? generation,
   }) async {
     final claims = DeviceRegistrationService.accessTokenClaims(
       _client.accessToken,
@@ -464,6 +523,7 @@ class RemoteSyncService implements SyncService {
       method: 'POST',
       target: target,
       bodySha256: bodyDigest,
+      expectedGeneration: generation ?? 0,
     );
     return {
       'Content-Type': contentType,
@@ -475,12 +535,16 @@ class RemoteSyncService implements SyncService {
       'X-LynAI-Signature': _base64Url(
         await _identity.sign(message, scope: scope),
       ),
+      if (generation != null) 'X-LynAI-Expected-Generation': '$generation',
     };
   }
 
   @override
-  Future<List<int>> downloadBlob(String sha256) async {
-    final resp = await _client.get('/sync/blobs/$sha256');
+  Future<List<int>> downloadBlob(String sha256, {int generation = 0}) async {
+    final resp = await _client.get(
+      '/sync/blobs/$sha256',
+      headers: {'X-LynAI-Expected-Generation': '$generation'},
+    );
     if (resp.statusCode != 200) {
       throw Exception(_errorMessage(resp.body, '下载 blob 失败'));
     }

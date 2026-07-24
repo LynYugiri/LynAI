@@ -107,12 +107,19 @@ class SyncStatus {
   /// 已上传的 blob 数量。
   final int blobCount;
 
+  final int generation;
+  final int indexRevision;
+  final int minAvailableSeq;
+
   final SyncLimits limits;
 
   /// 创建同步状态实例。
   const SyncStatus({
     required this.lastSeq,
     required this.blobCount,
+    this.generation = 0,
+    this.indexRevision = 0,
+    this.minAvailableSeq = 0,
     this.limits = const SyncLimits(),
   });
 }
@@ -209,11 +216,19 @@ class SyncDownloadResult {
   final int latestSeq;
   final bool hasMore;
   final int nextSince;
+  final int generation;
+  final int indexRevision;
+  final int minAvailableSeq;
+  final int globalLatestSeq;
 
   const SyncDownloadResult({
     required this.changes,
     required this.latestSeq,
     required this.hasMore,
     required this.nextSince,
-  });
+    this.generation = 0,
+    this.indexRevision = 0,
+    this.minAvailableSeq = 0,
+    int? globalLatestSeq,
+  }) : globalLatestSeq = globalLatestSeq ?? latestSeq;
 }

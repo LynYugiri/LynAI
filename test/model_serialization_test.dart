@@ -719,7 +719,11 @@ void main() {
       );
 
       final restored = targetPlugins.pluginById('backup_plugin')!;
-      expect(restored.enabled, isTrue);
+      expect(restored.enabled, isFalse);
+      expect(restored.needsReview, isTrue);
+      expect(restored.syncedOrigin, isFalse);
+      expect(restored.syncOriginScope, isNull);
+      expect(restored.loadError, isNull);
       expect(restored.grantedPermissions, ['storage:read']);
       expect(restored.enabledFeaturePages, ['panel']);
       expect(await targetPlugins.loadSettings('backup_plugin'), {
@@ -3333,6 +3337,50 @@ return { ok = true, note = "image generated" }
         ),
         isTrue,
       );
+
+      final targetRoot = await Directory.systemTemp.createTemp(
+        'lynai_backup_asset_restore_test_',
+      );
+      try {
+        final targetStorage = await _readyStorageV2(targetRoot);
+        final targetConversations = ConversationProvider(
+          storageV2: targetStorage,
+        );
+        await targetConversations.loadConversations();
+        final service = BackupService(
+          settingsProvider: SettingsProvider(storageV2: targetStorage),
+          modelConfigProvider: ModelConfigProvider(storageV2: targetStorage),
+          conversationProvider: targetConversations,
+          featureProvider: FeatureProvider(storageV2: targetStorage),
+          roleplayProvider: RoleplayProvider(storageV2: targetStorage),
+          storageV2: targetStorage,
+        );
+        final parsed = await service.readZipBytes(bytes);
+        await service.importArchive(
+          parsed,
+          ImportPlan(
+            selection: BackupSelection.fromData(parsed.data),
+            mode: ImportMode.merge,
+          ),
+        );
+        final restoredPaths = targetConversations
+            .conversations
+            .single
+            .messages
+            .single
+            .images
+            .map((image) => image.path)
+            .toSet();
+        expect(restoredPaths, hasLength(1));
+        final restored = File(restoredPaths.single);
+        expect(await restored.exists(), isTrue);
+        expect(await restored.readAsBytes(), [1, 2, 3]);
+        final storageRoot = await targetStorage.storageRoot();
+        expect(restored.path, '${storageRoot.path}/${assetPaths.single}');
+        await targetStorage.close();
+      } finally {
+        await targetRoot.delete(recursive: true);
+      }
     } finally {
       await root.delete(recursive: true);
     }

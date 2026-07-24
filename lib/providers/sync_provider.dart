@@ -15,6 +15,9 @@ abstract class SyncStorage {
   Future<void> activateScope(String scope, String deviceId);
   Future<void> deactivateScope(String scope);
   Future<int> since(String scope);
+  Future<SyncScopeState> scopeState(String scope);
+  Future<void> resetCloudScope(String scope, int generation);
+  Future<void> prepareFullSnapshot(String scope, int generation);
   Future<List<SyncOutboxEntry>> loadOutbox(
     String scope, {
     int? limit,
@@ -105,6 +108,18 @@ class StorageV2SyncStorage implements SyncStorage {
 
   @override
   Future<int> since(String scope) => _storage.syncSince(scope);
+
+  @override
+  Future<SyncScopeState> scopeState(String scope) =>
+      _storage.syncScopeState(scope);
+
+  @override
+  Future<void> resetCloudScope(String scope, int generation) =>
+      _storage.resetCloudSyncScope(scope, generation);
+
+  @override
+  Future<void> prepareFullSnapshot(String scope, int generation) =>
+      _storage.prepareFullSyncSnapshot(scope, generation);
 
   @override
   Future<List<SyncOutboxEntry>> loadOutbox(
@@ -247,6 +262,7 @@ class SyncProvider extends ChangeNotifier {
     BackendClient? backend,
     SyncService? service,
     SyncStorage? storage,
+    Future<void> Function()? beforeLocalSnapshot,
     Future<void> Function(SyncApplySummary summary)? beforeRemoteApply,
     Future<void> Function(SyncApplySummary summary)? onRemoteApplied,
     DeviceIdentityService? identity,
@@ -259,6 +275,7 @@ class SyncProvider extends ChangeNotifier {
   }) : _backend = backend,
        _injectedService = service,
        _storage = storage ?? StorageV2SyncStorage(StorageV2Service()),
+       _beforeLocalSnapshot = beforeLocalSnapshot,
        _beforeRemoteApply = beforeRemoteApply,
        _onRemoteApplied = onRemoteApplied,
        _identity = identity,
@@ -275,6 +292,7 @@ class SyncProvider extends ChangeNotifier {
   final BackendClient? _backend;
   final SyncService? _injectedService;
   final SyncStorage _storage;
+  final Future<void> Function()? _beforeLocalSnapshot;
   final Future<void> Function(SyncApplySummary summary)? _beforeRemoteApply;
   final Future<void> Function(SyncApplySummary summary)? _onRemoteApplied;
   final DeviceIdentityService? _identity;
@@ -316,6 +334,19 @@ class SyncProvider extends ChangeNotifier {
   DateTime? get lastSyncAt => _lastSyncAt;
   String? get scope => _scope;
   List<SyncConflictEntry> get conflicts => _conflicts;
+
+  Future<bool> canAcknowledgeManagement(
+    String expectedScope,
+    int expectedGeneration,
+  ) async {
+    final generation = _generation;
+    if (!_isCurrentScope(generation, expectedScope)) return false;
+    final state = await _storage.scopeState(expectedScope);
+    return _isCurrentScope(generation, expectedScope) &&
+        state.generation == expectedGeneration &&
+        !state.fullReseedRequired &&
+        _error == null;
+  }
 
   bool get canSync {
     if (_scope == null || _service == null) return false;
@@ -378,14 +409,14 @@ class SyncProvider extends ChangeNotifier {
     });
   }
 
-  Future<void> autoDownload() {
+  Future<bool> autoDownload() {
     final generation = _generation;
-    return _enqueue(() => _syncDownloadThenUpload(generation));
+    return _enqueueBool(() => _syncDownloadThenUpload(generation));
   }
 
-  Future<void> manualSync() {
+  Future<bool> manualSync() {
     final generation = _generation;
-    return _enqueue(() => _syncDownloadThenUpload(generation));
+    return _enqueueBool(() => _syncDownloadThenUpload(generation));
   }
 
   Future<void> flushUpload() {
@@ -393,32 +424,58 @@ class SyncProvider extends ChangeNotifier {
     return _enqueue(() => _flushUpload(generation));
   }
 
-  Future<void> _syncDownloadThenUpload(int generation) async {
-    if (!_isCurrent(generation) || !canSync) return;
+  Future<bool> _syncDownloadThenUpload(int generation) async {
+    if (!_isCurrent(generation) || !canSync) return false;
     final currentScope = _scope;
-    if (currentScope == null) return;
-    final limits = (await _service!.getStatus()).limits;
-    if (!_isCurrentScope(generation, currentScope)) return;
+    if (currentScope == null) return false;
+    final status = await _service!.getStatus();
+    if (!_isCurrentScope(generation, currentScope)) return false;
+    var localSnapshotFlushed = false;
+    final state = await _storage.scopeState(currentScope);
+    if (!_isCurrentScope(generation, currentScope)) return false;
+    final serverGenerationChanged =
+        status.generation > 0 && state.generation != status.generation;
+    final cursorUnavailable =
+        state.since > status.lastSeq || state.since < status.minAvailableSeq;
+    if (state.fullReseedRequired ||
+        serverGenerationChanged ||
+        cursorUnavailable) {
+      await _beforeLocalSnapshot?.call();
+      localSnapshotFlushed = true;
+      if (!_isCurrentScope(generation, currentScope)) return false;
+      await _storage.resetCloudScope(currentScope, status.generation);
+      if (!_isCurrentScope(generation, currentScope)) return false;
+      await _storage.prepareFullSnapshot(currentScope, status.generation);
+      if (!_isCurrentScope(generation, currentScope)) return false;
+      _conflicts = const [];
+    }
     final changedTables = <String>{};
     final flushedTables = <String>{};
     changedTables.addAll(
-      await _downloadPages(limits, generation, flushedTables),
+      await _downloadPages(status.limits, generation, flushedTables),
     );
-    if (!_isCurrentScope(generation, currentScope)) return;
+    if (!_isCurrentScope(generation, currentScope)) return false;
+    if (!localSnapshotFlushed) {
+      await _beforeLocalSnapshot?.call();
+      if (!_isCurrentScope(generation, currentScope)) return false;
+    }
     final uploaded = await _uploadOutbox(
-      advertisedLimits: limits,
+      advertisedLimits: status.limits,
       generation: generation,
       changedTables: changedTables,
     );
     if (uploaded && _isCurrentScope(generation, currentScope)) {
       changedTables.addAll(
-        await _downloadPages(limits, generation, flushedTables),
+        await _downloadPages(status.limits, generation, flushedTables),
       );
     }
-    if (!_isCurrentScope(generation, currentScope)) return;
+    if (!_isCurrentScope(generation, currentScope)) return false;
     await _finishRemoteApply(currentScope, changedTables, generation);
-    if (!_isCurrentScope(generation, currentScope)) return;
+    if (!_isCurrentScope(generation, currentScope)) return false;
     _lastSyncAt = DateTime.now();
+    final finalState = await _storage.scopeState(currentScope);
+    return _isCurrentScope(generation, currentScope) &&
+        !finalState.fullReseedRequired;
   }
 
   Future<Set<String>> _downloadPages(
@@ -438,8 +495,10 @@ class SyncProvider extends ChangeNotifier {
     if (!_isCurrentScope(generation, currentScope)) return const {};
     final changedTables = <String>{};
     while (true) {
-      final page = await service.getChanges(
+      final page = await _getChanges(
+        service,
         since: cursor,
+        generation: (await _storage.scopeState(currentScope)).generation,
         limit: limits.maxChangesPageSize,
       );
       if (!_isCurrentScope(generation, currentScope)) return const {};
@@ -477,8 +536,32 @@ class SyncProvider extends ChangeNotifier {
   Future<void> _flushUpload(int generation) async {
     final currentScope = _scope;
     if (currentScope == null || !_isCurrent(generation)) return;
+    final service = _service;
+    if (service == null || !canSync) return;
+    final status = await service.getStatus();
+    if (!_isCurrentScope(generation, currentScope)) return;
+    final state = await _storage.scopeState(currentScope);
+    if (!_isCurrentScope(generation, currentScope)) return;
+    if (state.fullReseedRequired ||
+        (status.generation > 0 && state.generation != status.generation) ||
+        state.since > status.lastSeq ||
+        state.since < status.minAvailableSeq) {
+      await _beforeLocalSnapshot?.call();
+      if (!_isCurrentScope(generation, currentScope)) return;
+      await _storage.resetCloudScope(currentScope, status.generation);
+      await _storage.prepareFullSnapshot(currentScope, status.generation);
+      if (!_isCurrentScope(generation, currentScope)) return;
+      _conflicts = const [];
+    } else {
+      await _beforeLocalSnapshot?.call();
+      if (!_isCurrentScope(generation, currentScope)) return;
+    }
     final changedTables = <String>{};
-    await _uploadOutbox(generation: generation, changedTables: changedTables);
+    await _uploadOutbox(
+      advertisedLimits: status.limits,
+      generation: generation,
+      changedTables: changedTables,
+    );
     if (!_isCurrentScope(generation, currentScope)) return;
     await _finishRemoteApply(currentScope, changedTables, generation);
   }
@@ -568,8 +651,10 @@ class SyncProvider extends ChangeNotifier {
       if (!_isCurrentScope(generation, currentScope)) return false;
       for (final batch in _uploadBatches(uploadable, limits)) {
         final entries = batch.map((item) => item.entry).toList(growable: false);
-        final result = await service.uploadChanges(
+        final result = await _uploadChanges(
+          service,
           batch.map((item) => item.record).toList(growable: false),
+          generation: (await _storage.scopeState(currentScope)).generation,
         );
         if (!_isCurrentScope(generation, currentScope)) return false;
         _validateAcknowledgements(result, entries);
@@ -631,7 +716,9 @@ class SyncProvider extends ChangeNotifier {
     };
     final wantedHashes = byHash.keys.toSet();
     final remoteHashes = <String>{};
-    for (final blob in await service.listBlobs(
+    for (final blob in await _listBlobs(
+      service,
+      generation: (await _storage.scopeState(currentScope)).generation,
       limit: limits.maxBlobsPageSize,
     )) {
       if (wantedHashes.contains(blob.sha256)) remoteHashes.add(blob.sha256);
@@ -645,7 +732,12 @@ class SyncProvider extends ChangeNotifier {
           'sync blob ${descriptor.sha256} exceeds ${limits.maxBlobBytes} bytes',
         );
       }
-      await service.uploadBlob(descriptor.sha256, bytes);
+      await _uploadBlob(
+        service,
+        descriptor.sha256,
+        bytes,
+        generation: (await _storage.scopeState(currentScope)).generation,
+      );
       if (!_isCurrentScope(generation, currentScope)) return;
     }
   }
@@ -767,7 +859,11 @@ class SyncProvider extends ChangeNotifier {
         if (!await _storage.hasNoteBlob(hash)) {
           await _storage.installNoteBlob(
             hash,
-            await service.downloadBlob(hash),
+            await _downloadBlob(
+              service,
+              hash,
+              generation: (await _storage.scopeState(_scope!)).generation,
+            ),
           );
         }
         prepared.add(change);
@@ -779,7 +875,14 @@ class SyncProvider extends ChangeNotifier {
             _hasPluginBlob != null &&
             _installPluginBlob != null &&
             !await _hasPluginBlob(hash)) {
-          await _installPluginBlob(hash, await service.downloadBlob(hash));
+          await _installPluginBlob(
+            hash,
+            await _downloadBlob(
+              service,
+              hash,
+              generation: (await _storage.scopeState(_scope!)).generation,
+            ),
+          );
         }
         prepared.add(change);
         continue;
@@ -799,7 +902,11 @@ class SyncProvider extends ChangeNotifier {
         if (!await _storage.hasResourceBlob(hash)) {
           await _storage.installResourceBlob(
             hash,
-            await service.downloadBlob(hash),
+            await _downloadBlob(
+              service,
+              hash,
+              generation: (await _storage.scopeState(_scope!)).generation,
+            ),
           );
         }
       }
@@ -859,6 +966,12 @@ class SyncProvider extends ChangeNotifier {
       throw StateError(
         '同步分页未前进，nextSince 未覆盖最大 seq: '
         '${page.nextSince} < $previousSeq',
+      );
+    }
+    if (page.nextSince > page.globalLatestSeq) {
+      throw StateError(
+        '同步分页游标超过全局高水位: '
+        '${page.nextSince} > ${page.globalLatestSeq}',
       );
     }
     if (page.hasMore && page.nextSince <= since) {
@@ -923,10 +1036,59 @@ class SyncProvider extends ChangeNotifier {
     }
   }
 
+  Future<SyncDownloadResult> _getChanges(
+    SyncService service, {
+    required int since,
+    required int generation,
+    required int limit,
+  }) => service is RemoteSyncService
+      ? service.getChanges(since: since, generation: generation, limit: limit)
+      : service.getChanges(since: since, limit: limit);
+
+  Future<SyncUploadResult> _uploadChanges(
+    SyncService service,
+    List<SyncChangeRecord> changes, {
+    required int generation,
+  }) => service is RemoteSyncService
+      ? service.uploadChanges(changes, generation: generation)
+      : service.uploadChanges(changes);
+
+  Future<List<BlobInfo>> _listBlobs(
+    SyncService service, {
+    required int generation,
+    required int limit,
+  }) => service is RemoteSyncService
+      ? service.listBlobs(generation: generation, limit: limit)
+      : service.listBlobs(limit: limit);
+
+  Future<void> _uploadBlob(
+    SyncService service,
+    String hash,
+    List<int> bytes, {
+    required int generation,
+  }) => service is RemoteSyncService
+      ? service.uploadBlob(hash, bytes, generation: generation)
+      : service.uploadBlob(hash, bytes);
+
+  Future<List<int>> _downloadBlob(
+    SyncService service,
+    String hash, {
+    required int generation,
+  }) => service is RemoteSyncService
+      ? service.downloadBlob(hash, generation: generation)
+      : service.downloadBlob(hash);
+
   Future<void> _enqueue(Future<void> Function() action) {
     if (_disposed) return Future.value();
     final result = _queue.then((_) => _run(action));
     _queue = result.catchError((_) {});
+    return result;
+  }
+
+  Future<bool> _enqueueBool(Future<bool> Function() action) {
+    if (_disposed) return Future.value(false);
+    final result = _queue.then((_) => _runBool(action));
+    _queue = result.then<void>((_) {}).catchError((_) {});
     return result;
   }
 
@@ -940,6 +1102,23 @@ class SyncProvider extends ChangeNotifier {
     } catch (e) {
       _error = e.toString();
       debugPrint('同步失败: $e');
+    } finally {
+      _syncing = false;
+      if (!_disposed) notifyListeners();
+    }
+  }
+
+  Future<bool> _runBool(Future<bool> Function() action) async {
+    if (_disposed) return false;
+    _syncing = true;
+    _error = null;
+    notifyListeners();
+    try {
+      return await action();
+    } catch (e) {
+      _error = e.toString();
+      debugPrint('同步失败: $e');
+      return false;
     } finally {
       _syncing = false;
       if (!_disposed) notifyListeners();

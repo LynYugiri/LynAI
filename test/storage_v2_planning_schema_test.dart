@@ -75,30 +75,32 @@ INSERT INTO schedules VALUES (
   '2026-07-05T13:00:00.000', 'event note', ''
 );
 INSERT INTO sync_outbox VALUES (
-  'scope', 'schedules', 'event-1', 'upsert', NULL, 'c1', 'd', 'now', 1, 'now'
+  'lan:v1', 'schedules', 'event-1', 'upsert', NULL, 'c1', 'd', 'now', 1, 'now'
 );
 INSERT INTO sync_outbox VALUES (
-  'scope', 'conversations', 'conversation-1', 'delete', NULL,
+  'lan:v1', 'conversations', 'conversation-1', 'delete', NULL,
   'unrelated-change', 'device-before', '2026-07-01T00:00:00Z', 3,
   '2026-07-01T00:00:00Z'
 );
 INSERT INTO sync_conflicts VALUES (
-  'scope', 1, 'todo_items', 'shared', 'upsert', NULL, 'c2', 'd', 'now', NULL,
+  'lan:v1', 1, 'todo_items', 'shared', 'upsert', NULL, 'c2', 'd', 'now', NULL,
   'upsert', NULL, 'c3', 1
 );
 INSERT INTO sync_conflicts VALUES (
-  'scope', 2, 'conversations', 'conversation-2', 'delete', NULL,
+  'lan:v1', 2, 'conversations', 'conversation-2', 'delete', NULL,
   'unrelated-remote', 'remote-device', 'before', NULL,
   'upsert', '{}', 'unrelated-local', 2
 );
 INSERT INTO sync_scope_baselines VALUES (
-  'scope', 'todo_lists', 'list-1', '{}'
+  'lan:v1', 'todo_lists', 'list-1', '{}'
 );
 INSERT INTO sync_scope_baselines VALUES (
-  'scope', 'conversations', 'conversation-1', '{}'
+  'lan:v1', 'conversations', 'conversation-1', '{}'
 );
-INSERT INTO sync_state VALUES (
-  'scope', 47, 1, 1, 1, 'device-before', 'before'
+INSERT INTO sync_state (
+  scope, since, initialized, active, captures_local, device_id, updated_at
+) VALUES (
+  'lan:v1', 47, 1, 1, 1, 'device-before', 'before'
 );
 DROP INDEX idx_sync_outbox_scope_updated_table_record;
 DROP INDEX idx_sync_outbox_scope_change_mutation;
@@ -134,7 +136,7 @@ PRAGMA user_version = 14;
 
         final migrated = sqlite3.open('${storageRoot.path}/app.db');
         try {
-          expect(migrated.userVersion, 16);
+          expect(migrated.userVersion, 18);
           final tables = migrated
               .select("SELECT name FROM sqlite_master WHERE type = 'table'")
               .map((row) => row['name'])
@@ -160,7 +162,7 @@ PRAGMA user_version = 14;
             }),
           );
           final state = migrated
-              .select("SELECT * FROM sync_state WHERE scope = 'scope'")
+              .select("SELECT * FROM sync_state WHERE scope = 'lan:v1'")
               .single;
           expect(state['since'], 47);
           expect(state['initialized'], 0);
@@ -184,10 +186,10 @@ PRAGMA user_version = 14;
           migrated.close();
         }
 
-        await storage.activateSyncScope('scope', deviceId: 'device-after');
+        await storage.activateSyncScope('lan:v1', deviceId: 'device-after');
 
-        expect(await storage.syncSince('scope'), 47);
-        final outbox = await storage.loadSyncOutbox('scope');
+        expect(await storage.syncSince('lan:v1'), 47);
+        final outbox = await storage.loadSyncOutbox('lan:v1');
         expect(
           outbox.map((entry) => '${entry.table}:${entry.recordId}'),
           containsAll({

@@ -267,7 +267,7 @@ backup.zip
 └── assets/blobs/{sha256Prefix}/{sha256}
 ```
 
-导入时先读取 ZIP，生成预览和冲突列表。用户确认导入计划后，服务恢复 blob、重映射资源引用、处理 ID 冲突，再调用 Provider 替换或合并数据。`BackupService.currentSchemaVersion` 写入规范 `tasks.json`/`calendar.json`；兼容读取 schema 5-8 的 `schedules.json`/`todo_lists.json` 时，会按与数据库迁移相同的顺序转换和处理任务 ID 碰撞。ZIP 内附件使用和 storage_v2 一致的 SHA blob 路径，备份不再兼容旧数字前缀格式。加密备份先验证 Argon2id/XChaCha20-Poly1305 信封，再解析内层 ZIP；只有该路径可以恢复模型 API-key 分区。
+导入时先读取 ZIP，生成预览和冲突列表。用户确认导入计划后，服务先对全部所选业务对象和插件包完成无持久写的校验/staging，再恢复 blob、重映射资源引用、处理 ID 冲突并调用 Provider 替换或合并数据；这降低后段格式错误导致部分提交的风险，但尚不是覆盖 Provider、数据库和文件系统的跨介质原子事务。`replaceSection` 对单项 selection 只替换选中 ID，不删除同分区未选中的任务、清单、事件或纪念日。`BackupService.currentSchemaVersion` 写入规范 `tasks.json`/`calendar.json`；兼容读取 schema 5-8 的 `schedules.json`/`todo_lists.json` 时，会按与数据库迁移相同的顺序转换和处理任务 ID 碰撞。ZIP 内附件使用和 storage_v2 一致的 SHA blob 路径，备份不再兼容旧数字前缀格式。加密备份先验证 Argon2id/XChaCha20-Poly1305 信封，再解析内层 ZIP；只有该路径可以恢复模型 API-key 分区。
 
 ## Android 任务与日历投影
 
@@ -343,6 +343,17 @@ accumulated for the synchronization run so only affected Provider save queues ar
 flushed and reloaded; note Markdown materialization runs once at the end when a
 note table changed. Outbox reads use 256-row windows, and referenced resource and
 note blobs are loaded only when the remote side still needs an upload.
+
+Cloud data management is a separate read/model boundary layered on the same
+account scope: `DataManagementPage -> CloudDataProvider -> CloudDataService` for
+remote index and management APIs, and `CloudDataRepository -> storage_v2` for
+durable cache and pending operation state. Index refreshes stage a complete
+status plus all category pages before replacing scope-local cache, so partial
+network failure leaves the previous snapshot readable. Purge never edits local
+domain rows directly. Its pending operation is persisted first, then the manual
+sync path marks the existing `SyncProvider` scope for full reseed; only a
+successful reseed/upload is followed by signed operation ACK. Blob GC remains a
+server concern and has no manual client action.
 
 Plugin synchronization is limited to sanitized files, settings, and configuration.
 Cloud and LAN use the same package validator. A schema-versioned package marker

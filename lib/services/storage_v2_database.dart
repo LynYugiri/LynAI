@@ -6,6 +6,7 @@ import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:uuid/uuid.dart';
 
+import '../models/cloud_data.dart';
 import '../models/model_config.dart';
 import '../models/merge_models.dart';
 import '../models/shared_sync_models.dart';
@@ -485,6 +486,10 @@ class SyncStateRows extends Table {
       boolean().named('captures_local').withDefault(const Constant(false))();
   TextColumn get deviceId =>
       text().named('device_id').withDefault(const Constant(''))();
+  IntColumn get generation => integer().withDefault(const Constant(0))();
+  BoolColumn get fullReseedRequired => boolean()
+      .named('full_reseed_required')
+      .withDefault(const Constant(false))();
   TextColumn get updatedAt => text().named('updated_at')();
 
   @override
@@ -508,12 +513,98 @@ class SyncAppliedChangeRows extends Table {
   @override
   String get tableName => 'sync_applied_changes';
 
+  TextColumn get scope => text()();
   TextColumn get changeId => text().named('change_id')();
   TextColumn get source => text()();
   TextColumn get appliedAt => text().named('applied_at')();
 
   @override
-  Set<Column> get primaryKey => {changeId};
+  Set<Column> get primaryKey => {scope, changeId};
+}
+
+class CloudIndexStateRows extends Table {
+  @override
+  String get tableName => 'cloud_index_states';
+
+  TextColumn get scope => text()();
+  IntColumn get generation => integer().withDefault(const Constant(0))();
+  TextColumn get statusJson =>
+      text().named('status_json').withDefault(const Constant('{}'))();
+  TextColumn get updatedAt => text().named('updated_at')();
+
+  @override
+  Set<Column> get primaryKey => {scope};
+}
+
+class CloudIndexObjectRows extends Table {
+  @override
+  String get tableName => 'cloud_index_objects';
+
+  TextColumn get scope => text()();
+  TextColumn get category => text()();
+  TextColumn get objectId => text().named('object_id')();
+  TextColumn get contentHash => text().named('content_hash')();
+  TextColumn get objectJson =>
+      text().named('object_json').withDefault(const Constant('{}'))();
+  TextColumn get updatedAt => text().named('updated_at')();
+
+  @override
+  Set<Column> get primaryKey => {scope, category, objectId};
+}
+
+class CloudIndexCategoryStatRows extends Table {
+  @override
+  String get tableName => 'cloud_index_category_stats';
+
+  TextColumn get scope => text()();
+  TextColumn get category => text()();
+  IntColumn get objectCount => integer().named('object_count')();
+  TextColumn get updatedAt => text().named('updated_at')();
+
+  @override
+  Set<Column> get primaryKey => {scope, category};
+}
+
+class CloudReseedTaskRows extends Table {
+  @override
+  String get tableName => 'cloud_reseed_tasks';
+
+  TextColumn get scope => text()();
+  TextColumn get operationId => text().named('operation_id')();
+  IntColumn get generation => integer()();
+  TextColumn get status => text()();
+  TextColumn get operationJson =>
+      text().named('operation_json').withDefault(const Constant('{}'))();
+  TextColumn get createdAt => text().named('created_at')();
+  TextColumn get updatedAt => text().named('updated_at')();
+
+  @override
+  Set<Column> get primaryKey => {scope, operationId};
+}
+
+class CloudRequestRows extends Table {
+  @override
+  String get tableName => 'cloud_requests';
+
+  TextColumn get scope => text()();
+  TextColumn get requestKey => text().named('request_key')();
+  TextColumn get requestId => text().named('request_id')();
+  TextColumn get updatedAt => text().named('updated_at')();
+
+  @override
+  Set<Column> get primaryKey => {scope, requestKey};
+}
+
+class SyncScopeState {
+  final int since;
+  final int generation;
+  final bool fullReseedRequired;
+
+  const SyncScopeState({
+    required this.since,
+    required this.generation,
+    required this.fullReseedRequired,
+  });
 }
 
 @DriftDatabase(
@@ -547,6 +638,11 @@ class SyncAppliedChangeRows extends Table {
     SyncStateRows,
     SyncScopeBaselineRows,
     SyncAppliedChangeRows,
+    CloudIndexStateRows,
+    CloudIndexObjectRows,
+    CloudIndexCategoryStatRows,
+    CloudReseedTaskRows,
+    CloudRequestRows,
   ],
 )
 class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
@@ -562,7 +658,7 @@ class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
   /// This is separate from [StorageV2Service.currentLayoutVersion], which
   /// describes the storage_v2 directory layout.
   @override
-  int get schemaVersion => 16;
+  int get schemaVersion => 18;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -745,8 +841,131 @@ SET captures_local = active
           );
         }
       }
+      if (from < 17) {
+        await _migrateSyncSchemaV17(m);
+      }
+      if (from < 18) {
+        await m.createTable(cloudRequestRows);
+      }
+      await _ensureCloudDataColumns();
     },
   );
+
+  Future<void> _migrateSyncSchemaV17(Migrator m) async {
+    await _addColumnIfMissing(
+      'sync_state',
+      'generation',
+      'INTEGER NOT NULL DEFAULT 0',
+    );
+    await _addColumnIfMissing(
+      'sync_state',
+      'full_reseed_required',
+      'INTEGER NOT NULL DEFAULT 0',
+    );
+
+    if (await _tableExists('sync_applied_changes')) {
+      await customStatement(
+        'ALTER TABLE sync_applied_changes RENAME TO sync_applied_changes_v16',
+      );
+    }
+    await m.createTable(syncAppliedChangeRows);
+    if (await _tableExists('sync_applied_changes_v16')) {
+      await customStatement('''
+INSERT OR IGNORE INTO sync_applied_changes(scope, change_id, source, applied_at)
+SELECT 'lan:v1', change_id, source, applied_at
+FROM sync_applied_changes_v16
+WHERE source = 'lan'
+''');
+      await customStatement('DROP TABLE sync_applied_changes_v16');
+    }
+
+    await m.createTable(cloudIndexStateRows);
+    await m.createTable(cloudIndexObjectRows);
+    await m.createTable(cloudIndexCategoryStatRows);
+    await m.createTable(cloudReseedTaskRows);
+
+    if (await _tableExists('sync_outbox')) {
+      await customStatement(
+        "DELETE FROM sync_outbox WHERE scope NOT LIKE 'lan:%' AND op <> 'delete'",
+      );
+    }
+    if (await _tableExists('sync_conflicts')) {
+      await customStatement(
+        "DELETE FROM sync_conflicts WHERE scope NOT LIKE 'lan:%'",
+      );
+    }
+    if (await _tableExists('sync_state')) {
+      await customStatement('''
+UPDATE sync_state
+SET since = 0,
+    initialized = 0,
+    generation = 0,
+    full_reseed_required = 1
+WHERE scope NOT LIKE 'lan:%'
+''');
+    }
+  }
+
+  Future<void> _ensureCloudDataColumns() async {
+    await _addColumnIfMissing(
+      'cloud_index_states',
+      'status_json',
+      "TEXT NOT NULL DEFAULT '{}'",
+    );
+    await _addColumnIfMissing(
+      'cloud_index_objects',
+      'object_json',
+      "TEXT NOT NULL DEFAULT '{}'",
+    );
+    await _addColumnIfMissing(
+      'cloud_reseed_tasks',
+      'operation_id',
+      "TEXT NOT NULL DEFAULT ''",
+    );
+    await _addColumnIfMissing(
+      'cloud_reseed_tasks',
+      'operation_json',
+      "TEXT NOT NULL DEFAULT '{}'",
+    );
+    if (await _tableExists('cloud_reseed_tasks')) {
+      final columns = await customSelect(
+        'PRAGMA table_info(cloud_reseed_tasks)',
+      ).get();
+      final operationIdIsPrimaryKey = columns.any(
+        (row) => row.data['name'] == 'operation_id' && row.data['pk'] == 2,
+      );
+      if (!operationIdIsPrimaryKey) {
+        await customStatement(
+          'ALTER TABLE cloud_reseed_tasks RENAME TO cloud_reseed_tasks_legacy',
+        );
+        await customStatement('''
+CREATE TABLE cloud_reseed_tasks (
+  scope TEXT NOT NULL,
+  operation_id TEXT NOT NULL,
+  generation INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  operation_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (scope, operation_id)
+)
+''');
+        await customStatement('''
+INSERT OR IGNORE INTO cloud_reseed_tasks(
+  scope, operation_id, generation, status, operation_json, created_at, updated_at
+)
+SELECT scope, operation_id, generation, status, operation_json, created_at, updated_at
+FROM cloud_reseed_tasks_legacy
+WHERE operation_id <> ''
+''');
+        await customStatement('DROP TABLE cloud_reseed_tasks_legacy');
+      }
+      await customStatement(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_cloud_reseed_scope_operation '
+        'ON cloud_reseed_tasks(scope, operation_id)',
+      );
+    }
+  }
 
   Future<void> _migratePlanningSchemaV15(Migrator m) async {
     await m.createTable(taskRows);
@@ -1622,6 +1841,386 @@ class StorageV2Database {
     return row?.since ?? 0;
   }
 
+  Future<SyncScopeState> syncScopeState(String scope) async {
+    final db = await _open();
+    final row = await (db.select(
+      db.syncStateRows,
+    )..where((row) => row.scope.equals(scope))).getSingleOrNull();
+    return SyncScopeState(
+      since: row?.since ?? 0,
+      generation: row?.generation ?? 0,
+      fullReseedRequired: row?.fullReseedRequired ?? false,
+    );
+  }
+
+  Future<CloudDataSnapshot> loadCloudData(String scope) async {
+    final db = await _open();
+    final state = await (db.select(
+      db.cloudIndexStateRows,
+    )..where((row) => row.scope.equals(scope))).getSingleOrNull();
+    final objectRows =
+        await (db.select(db.cloudIndexObjectRows)
+              ..where((row) => row.scope.equals(scope))
+              ..orderBy([
+                (row) => OrderingTerm.asc(row.category),
+                (row) => OrderingTerm.asc(row.objectId),
+              ]))
+            .get();
+    final statRows = await (db.select(
+      db.cloudIndexCategoryStatRows,
+    )..where((row) => row.scope.equals(scope))).get();
+    CloudIndexStatus? status;
+    if (state != null) {
+      final decoded = jsonDecode(state.statusJson);
+      if (decoded is Map) {
+        status = CloudIndexStatus.fromJson(Map<String, dynamic>.from(decoded));
+      }
+    }
+    final objects = <CloudIndexObject>[];
+    for (final row in objectRows) {
+      final decoded = jsonDecode(row.objectJson);
+      if (decoded is Map) {
+        objects.add(
+          CloudIndexObject.fromJson(Map<String, dynamic>.from(decoded)),
+        );
+      }
+    }
+    return CloudDataSnapshot(
+      status: status,
+      objects: objects,
+      categoryCounts: {
+        for (final row in statRows) row.category: row.objectCount,
+      },
+      updatedAt: state == null ? null : DateTime.tryParse(state.updatedAt),
+    );
+  }
+
+  Future<void> replaceCloudData(
+    String scope,
+    CloudIndexStatus status,
+    List<CloudIndexObject> objects,
+  ) async {
+    final db = await _open();
+    final now = DateTime.now().toIso8601String();
+    await db.transaction(() async {
+      await db
+          .into(db.cloudIndexStateRows)
+          .insertOnConflictUpdate(
+            CloudIndexStateRowsCompanion.insert(
+              scope: scope,
+              generation: Value(status.generation),
+              statusJson: Value(jsonEncode(status.toJson())),
+              updatedAt: now,
+            ),
+          );
+      await (db.delete(
+        db.cloudIndexObjectRows,
+      )..where((row) => row.scope.equals(scope))).go();
+      await (db.delete(
+        db.cloudIndexCategoryStatRows,
+      )..where((row) => row.scope.equals(scope))).go();
+      final counts = <String, int>{};
+      for (final object in objects) {
+        counts.update(object.category, (value) => value + 1, ifAbsent: () => 1);
+        final objectJson = jsonEncode(object.toJson());
+        await db
+            .into(db.cloudIndexObjectRows)
+            .insert(
+              CloudIndexObjectRowsCompanion.insert(
+                scope: scope,
+                category: object.category,
+                objectId: object.objectId,
+                contentHash: sha256.convert(utf8.encode(objectJson)).toString(),
+                objectJson: Value(objectJson),
+                updatedAt: now,
+              ),
+            );
+      }
+      for (final entry in counts.entries) {
+        await db
+            .into(db.cloudIndexCategoryStatRows)
+            .insert(
+              CloudIndexCategoryStatRowsCompanion.insert(
+                scope: scope,
+                category: entry.key,
+                objectCount: entry.value,
+                updatedAt: now,
+              ),
+            );
+      }
+    });
+  }
+
+  Future<void> saveCloudOperations(
+    String scope,
+    Iterable<CloudManagementOperation> operations,
+  ) async {
+    final db = await _open();
+    final now = DateTime.now().toIso8601String();
+    for (final operation in operations) {
+      await db
+          .into(db.cloudReseedTaskRows)
+          .insertOnConflictUpdate(
+            CloudReseedTaskRowsCompanion.insert(
+              scope: scope,
+              operationId: operation.id,
+              generation: operation.generation,
+              status: 'pending',
+              operationJson: Value(
+                jsonEncode({
+                  'id': operation.id,
+                  'kind': operation.kind,
+                  'selectorType': operation.selectorType,
+                  if (operation.category != null)
+                    'category': operation.category,
+                  if (operation.objectId != null)
+                    'objectId': operation.objectId,
+                  'generation': operation.generation,
+                  'indexRevision': operation.indexRevision,
+                  'createdAt': operation.createdAt.toUtc().toIso8601String(),
+                }),
+              ),
+              createdAt: operation.createdAt.toUtc().toIso8601String(),
+              updatedAt: now,
+            ),
+          );
+    }
+  }
+
+  Future<List<CloudManagementOperation>> loadCloudOperations(
+    String scope,
+  ) async {
+    final db = await _open();
+    final rows =
+        await (db.select(db.cloudReseedTaskRows)
+              ..where(
+                (row) => row.scope.equals(scope) & row.status.equals('pending'),
+              )
+              ..orderBy([(row) => OrderingTerm.asc(row.createdAt)]))
+            .get();
+    return rows
+        .map(
+          (row) => CloudManagementOperation.fromJson(
+            Map<String, dynamic>.from(jsonDecode(row.operationJson) as Map),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  Future<void> removeCloudOperation(String scope, String operationId) async {
+    final db = await _open();
+    await (db.delete(db.cloudReseedTaskRows)..where(
+          (row) =>
+              row.scope.equals(scope) & row.operationId.equals(operationId),
+        ))
+        .go();
+  }
+
+  Future<void> reconcileCloudOperations(
+    String scope,
+    Iterable<CloudManagementOperation> operations,
+  ) async {
+    final ids = operations.map((operation) => operation.id).toSet();
+    final db = await _open();
+    await db.transaction(() async {
+      final rows = await (db.select(
+        db.cloudReseedTaskRows,
+      )..where((row) => row.scope.equals(scope))).get();
+      for (final row in rows) {
+        if (!ids.contains(row.operationId)) {
+          await (db.delete(db.cloudReseedTaskRows)..where(
+                (item) =>
+                    item.scope.equals(scope) &
+                    item.operationId.equals(row.operationId),
+              ))
+              .go();
+        }
+      }
+      final now = DateTime.now().toIso8601String();
+      for (final operation in operations) {
+        await db
+            .into(db.cloudReseedTaskRows)
+            .insertOnConflictUpdate(
+              CloudReseedTaskRowsCompanion.insert(
+                scope: scope,
+                operationId: operation.id,
+                generation: operation.generation,
+                status: 'pending',
+                operationJson: Value(
+                  jsonEncode({
+                    'id': operation.id,
+                    'kind': operation.kind,
+                    'selectorType': operation.selectorType,
+                    if (operation.category != null)
+                      'category': operation.category,
+                    if (operation.objectId != null)
+                      'objectId': operation.objectId,
+                    'generation': operation.generation,
+                    'indexRevision': operation.indexRevision,
+                    'createdAt': operation.createdAt.toUtc().toIso8601String(),
+                  }),
+                ),
+                createdAt: operation.createdAt.toUtc().toIso8601String(),
+                updatedAt: now,
+              ),
+            );
+      }
+    });
+  }
+
+  Future<String?> loadCloudRequestId(String scope, String requestKey) async {
+    final db = await _open();
+    final row =
+        await (db.select(db.cloudRequestRows)..where(
+              (row) =>
+                  row.scope.equals(scope) & row.requestKey.equals(requestKey),
+            ))
+            .getSingleOrNull();
+    return row?.requestId;
+  }
+
+  Future<void> saveCloudRequestId(
+    String scope,
+    String requestKey,
+    String requestId,
+  ) async {
+    final db = await _open();
+    await db
+        .into(db.cloudRequestRows)
+        .insertOnConflictUpdate(
+          CloudRequestRowsCompanion.insert(
+            scope: scope,
+            requestKey: requestKey,
+            requestId: requestId,
+            updatedAt: DateTime.now().toUtc().toIso8601String(),
+          ),
+        );
+  }
+
+  Future<void> removeCloudRequestId(String scope, String requestKey) async {
+    final db = await _open();
+    await (db.delete(db.cloudRequestRows)..where(
+          (row) => row.scope.equals(scope) & row.requestKey.equals(requestKey),
+        ))
+        .go();
+  }
+
+  Future<void> requireCloudReseed(String scope, int generation) async {
+    final db = await _open();
+    await (db.update(
+      db.syncStateRows,
+    )..where((row) => row.scope.equals(scope))).write(
+      SyncStateRowsCompanion(
+        generation: Value(generation),
+        fullReseedRequired: const Value(true),
+        updatedAt: Value(DateTime.now().toIso8601String()),
+      ),
+    );
+  }
+
+  Future<void> resetCloudSyncScope(String scope, int generation) async {
+    if (scope.startsWith('lan:')) {
+      throw ArgumentError.value(scope, 'scope', 'cloud scope is required');
+    }
+    final db = await _open();
+    await db.transaction(() async {
+      await (db.delete(db.syncOutboxRows)
+            ..where((row) => row.scope.equals(scope) & row.op.equals('upsert')))
+          .go();
+      await (db.delete(
+        db.syncConflictRows,
+      )..where((row) => row.scope.equals(scope))).go();
+      await (db.delete(
+        db.syncAppliedChangeRows,
+      )..where((row) => row.scope.equals(scope))).go();
+      await (db.delete(
+        db.syncScopeBaselineRows,
+      )..where((row) => row.scope.equals(scope))).go();
+      await (db.delete(
+        db.cloudIndexStateRows,
+      )..where((row) => row.scope.equals(scope))).go();
+      await (db.delete(
+        db.cloudIndexObjectRows,
+      )..where((row) => row.scope.equals(scope))).go();
+      await (db.delete(
+        db.cloudIndexCategoryStatRows,
+      )..where((row) => row.scope.equals(scope))).go();
+      await (db.update(
+        db.syncStateRows,
+      )..where((row) => row.scope.equals(scope))).write(
+        SyncStateRowsCompanion(
+          since: const Value(0),
+          initialized: const Value(true),
+          generation: Value(generation),
+          fullReseedRequired: const Value(true),
+          updatedAt: Value(DateTime.now().toIso8601String()),
+        ),
+      );
+    });
+  }
+
+  Future<void> prepareFullSyncSnapshot(String scope, int generation) async {
+    final db = await _open();
+    await db.transaction(() async {
+      final state = await (db.select(
+        db.syncStateRows,
+      )..where((row) => row.scope.equals(scope))).getSingleOrNull();
+      if (state == null || state.deviceId.isEmpty) {
+        throw StateError('sync scope is not active');
+      }
+      final pendingDeletes =
+          await (db.select(db.syncOutboxRows)..where(
+                (row) => row.scope.equals(scope) & row.op.equals('delete'),
+              ))
+              .get();
+      await (db.delete(db.syncOutboxRows)
+            ..where((row) => row.scope.equals(scope) & row.op.equals('upsert')))
+          .go();
+      final snapshot = await _syncSnapshot(db, _syncTableNames);
+      for (final table in snapshot.entries) {
+        for (final row in table.value.entries) {
+          await _putOutbox(
+            db,
+            scope,
+            table.key,
+            row.key,
+            'upsert',
+            row.value,
+            deviceId: state.deviceId,
+          );
+        }
+      }
+      for (final row in pendingDeletes) {
+        await db
+            .into(db.syncOutboxRows)
+            .insertOnConflictUpdate(
+              SyncOutboxRowsCompanion.insert(
+                scope: row.scope,
+                table: row.table,
+                recordId: row.recordId,
+                op: row.op,
+                dataJson: Value(row.dataJson),
+                changeId: row.changeId,
+                deviceId: row.deviceId,
+                clientCreatedAt: row.clientCreatedAt,
+                mutationVersion: row.mutationVersion,
+                updatedAt: row.updatedAt,
+              ),
+            );
+      }
+      await (db.update(
+        db.syncStateRows,
+      )..where((row) => row.scope.equals(scope))).write(
+        SyncStateRowsCompanion(
+          since: const Value(0),
+          generation: Value(generation),
+          fullReseedRequired: const Value(false),
+          updatedAt: Value(DateTime.now().toIso8601String()),
+        ),
+      );
+    });
+  }
+
   Future<List<SyncOutboxEntry>> loadSyncOutbox(
     String scope, {
     int? limit,
@@ -1872,6 +2471,9 @@ END, client_created_at, updated_at, table_name, record_id$pagination
     int? nextSince,
     String appliedSource = 'cloud',
   }) async {
+    if (remote && (scope == null || scope.isEmpty)) {
+      throw ArgumentError.value(scope, 'scope', 'remote scope is required');
+    }
     final db = await _open();
     await db.transaction(() async {
       final orderedOps = remote ? List<SyncRemoteOperation>.from(ops) : ops;
@@ -1893,10 +2495,15 @@ END, client_created_at, updated_at, table_name, record_id$pagination
           );
         }
         final changeId = op.change?.changeId;
-        if (remote && changeId != null) {
-          final existing = await (db.select(
-            db.syncAppliedChangeRows,
-          )..where((row) => row.changeId.equals(changeId))).getSingleOrNull();
+        final remoteScope = remote ? scope : null;
+        if (remoteScope != null && changeId != null) {
+          final existing =
+              await (db.select(db.syncAppliedChangeRows)..where(
+                    (row) =>
+                        row.scope.equals(remoteScope) &
+                        row.changeId.equals(changeId),
+                  ))
+                  .getSingleOrNull();
           if (existing != null) continue;
         }
         final id = op.data?['id'] as String?;
@@ -1909,7 +2516,6 @@ END, client_created_at, updated_at, table_name, record_id$pagination
         if (id == null || id.isEmpty) {
           throw StateError('remote sync operation is missing record id');
         }
-        final remoteScope = remote ? scope : null;
         final local = remoteScope != null && !_isNoteDagTable(op.table)
             ? await _pendingOutbox(db, remoteScope, op.table, id)
             : null;
@@ -1919,6 +2525,7 @@ END, client_created_at, updated_at, table_name, record_id$pagination
           if (change == null) {
             throw StateError('remote conflict metadata is missing');
           }
+          if (local.op == 'delete') continue;
           final automatic = _automaticConflictAction(
             op.table,
             local.dataJson == null
@@ -2175,11 +2782,12 @@ END, client_created_at, updated_at, table_name, record_id$pagination
             );
           }
         }
-        if (remote && changeId != null) {
+        if (remoteScope != null && changeId != null) {
           await db
               .into(db.syncAppliedChangeRows)
               .insert(
                 SyncAppliedChangeRowsCompanion.insert(
+                  scope: remoteScope,
                   changeId: changeId,
                   source: appliedSource,
                   appliedAt: DateTime.now().toUtc().toIso8601String(),
@@ -2621,6 +3229,7 @@ END, client_created_at, updated_at, table_name, record_id$pagination
       final db = StorageV2DriftDatabase(file);
       await db.customStatement('PRAGMA foreign_keys = ON');
       await _createSchema(db);
+      await db._ensureCloudDataColumns();
       await db._addColumnIfMissing('note_pages', 'current_revision_id', 'TEXT');
       await _finishLegacyNoteRevisionMigration(db);
       _openDatabases[path] = db;
@@ -3019,13 +3628,51 @@ CREATE TABLE IF NOT EXISTS sync_state (
   scope TEXT PRIMARY KEY,
   since INTEGER NOT NULL DEFAULT 0,
   initialized INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 0,
+  captures_local INTEGER NOT NULL DEFAULT 0,
   device_id TEXT NOT NULL DEFAULT '',
+  generation INTEGER NOT NULL DEFAULT 0,
+  full_reseed_required INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS sync_applied_changes (
-  change_id TEXT PRIMARY KEY,
+  scope TEXT NOT NULL,
+  change_id TEXT NOT NULL,
   source TEXT NOT NULL,
-  applied_at TEXT NOT NULL
+  applied_at TEXT NOT NULL,
+  PRIMARY KEY (scope, change_id)
+);
+CREATE TABLE IF NOT EXISTS cloud_index_states (
+  scope TEXT PRIMARY KEY,
+  generation INTEGER NOT NULL DEFAULT 0,
+  status_json TEXT NOT NULL DEFAULT '{}',
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS cloud_index_objects (
+  scope TEXT NOT NULL,
+  category TEXT NOT NULL,
+  object_id TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  object_json TEXT NOT NULL DEFAULT '{}',
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (scope, category, object_id)
+);
+CREATE TABLE IF NOT EXISTS cloud_index_category_stats (
+  scope TEXT NOT NULL,
+  category TEXT NOT NULL,
+  object_count INTEGER NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (scope, category)
+);
+CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
+  scope TEXT NOT NULL,
+  operation_id TEXT NOT NULL,
+  generation INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  operation_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (scope, operation_id)
 );
 ''');
   }

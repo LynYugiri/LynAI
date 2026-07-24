@@ -12517,6 +12517,32 @@ class $SyncStateRowsTable extends SyncStateRows
     requiredDuringInsert: false,
     defaultValue: const Constant(''),
   );
+  static const VerificationMeta _generationMeta = const VerificationMeta(
+    'generation',
+  );
+  @override
+  late final GeneratedColumn<int> generation = GeneratedColumn<int>(
+    'generation',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _fullReseedRequiredMeta =
+      const VerificationMeta('fullReseedRequired');
+  @override
+  late final GeneratedColumn<bool> fullReseedRequired = GeneratedColumn<bool>(
+    'full_reseed_required',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("full_reseed_required" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   static const VerificationMeta _updatedAtMeta = const VerificationMeta(
     'updatedAt',
   );
@@ -12536,6 +12562,8 @@ class $SyncStateRowsTable extends SyncStateRows
     active,
     capturesLocal,
     deviceId,
+    generation,
+    fullReseedRequired,
     updatedAt,
   ];
   @override
@@ -12594,6 +12622,21 @@ class $SyncStateRowsTable extends SyncStateRows
         deviceId.isAcceptableOrUnknown(data['device_id']!, _deviceIdMeta),
       );
     }
+    if (data.containsKey('generation')) {
+      context.handle(
+        _generationMeta,
+        generation.isAcceptableOrUnknown(data['generation']!, _generationMeta),
+      );
+    }
+    if (data.containsKey('full_reseed_required')) {
+      context.handle(
+        _fullReseedRequiredMeta,
+        fullReseedRequired.isAcceptableOrUnknown(
+          data['full_reseed_required']!,
+          _fullReseedRequiredMeta,
+        ),
+      );
+    }
     if (data.containsKey('updated_at')) {
       context.handle(
         _updatedAtMeta,
@@ -12635,6 +12678,14 @@ class $SyncStateRowsTable extends SyncStateRows
         DriftSqlType.string,
         data['${effectivePrefix}device_id'],
       )!,
+      generation: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}generation'],
+      )!,
+      fullReseedRequired: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}full_reseed_required'],
+      )!,
       updatedAt: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}updated_at'],
@@ -12655,6 +12706,8 @@ class SyncStateRow extends DataClass implements Insertable<SyncStateRow> {
   final bool active;
   final bool capturesLocal;
   final String deviceId;
+  final int generation;
+  final bool fullReseedRequired;
   final String updatedAt;
   const SyncStateRow({
     required this.scope,
@@ -12663,6 +12716,8 @@ class SyncStateRow extends DataClass implements Insertable<SyncStateRow> {
     required this.active,
     required this.capturesLocal,
     required this.deviceId,
+    required this.generation,
+    required this.fullReseedRequired,
     required this.updatedAt,
   });
   @override
@@ -12674,6 +12729,8 @@ class SyncStateRow extends DataClass implements Insertable<SyncStateRow> {
     map['active'] = Variable<bool>(active);
     map['captures_local'] = Variable<bool>(capturesLocal);
     map['device_id'] = Variable<String>(deviceId);
+    map['generation'] = Variable<int>(generation);
+    map['full_reseed_required'] = Variable<bool>(fullReseedRequired);
     map['updated_at'] = Variable<String>(updatedAt);
     return map;
   }
@@ -12686,6 +12743,8 @@ class SyncStateRow extends DataClass implements Insertable<SyncStateRow> {
       active: Value(active),
       capturesLocal: Value(capturesLocal),
       deviceId: Value(deviceId),
+      generation: Value(generation),
+      fullReseedRequired: Value(fullReseedRequired),
       updatedAt: Value(updatedAt),
     );
   }
@@ -12702,6 +12761,8 @@ class SyncStateRow extends DataClass implements Insertable<SyncStateRow> {
       active: serializer.fromJson<bool>(json['active']),
       capturesLocal: serializer.fromJson<bool>(json['capturesLocal']),
       deviceId: serializer.fromJson<String>(json['deviceId']),
+      generation: serializer.fromJson<int>(json['generation']),
+      fullReseedRequired: serializer.fromJson<bool>(json['fullReseedRequired']),
       updatedAt: serializer.fromJson<String>(json['updatedAt']),
     );
   }
@@ -12715,6 +12776,8 @@ class SyncStateRow extends DataClass implements Insertable<SyncStateRow> {
       'active': serializer.toJson<bool>(active),
       'capturesLocal': serializer.toJson<bool>(capturesLocal),
       'deviceId': serializer.toJson<String>(deviceId),
+      'generation': serializer.toJson<int>(generation),
+      'fullReseedRequired': serializer.toJson<bool>(fullReseedRequired),
       'updatedAt': serializer.toJson<String>(updatedAt),
     };
   }
@@ -12726,6 +12789,8 @@ class SyncStateRow extends DataClass implements Insertable<SyncStateRow> {
     bool? active,
     bool? capturesLocal,
     String? deviceId,
+    int? generation,
+    bool? fullReseedRequired,
     String? updatedAt,
   }) => SyncStateRow(
     scope: scope ?? this.scope,
@@ -12734,6 +12799,8 @@ class SyncStateRow extends DataClass implements Insertable<SyncStateRow> {
     active: active ?? this.active,
     capturesLocal: capturesLocal ?? this.capturesLocal,
     deviceId: deviceId ?? this.deviceId,
+    generation: generation ?? this.generation,
+    fullReseedRequired: fullReseedRequired ?? this.fullReseedRequired,
     updatedAt: updatedAt ?? this.updatedAt,
   );
   SyncStateRow copyWithCompanion(SyncStateRowsCompanion data) {
@@ -12748,6 +12815,12 @@ class SyncStateRow extends DataClass implements Insertable<SyncStateRow> {
           ? data.capturesLocal.value
           : this.capturesLocal,
       deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
+      generation: data.generation.present
+          ? data.generation.value
+          : this.generation,
+      fullReseedRequired: data.fullReseedRequired.present
+          ? data.fullReseedRequired.value
+          : this.fullReseedRequired,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
   }
@@ -12761,6 +12834,8 @@ class SyncStateRow extends DataClass implements Insertable<SyncStateRow> {
           ..write('active: $active, ')
           ..write('capturesLocal: $capturesLocal, ')
           ..write('deviceId: $deviceId, ')
+          ..write('generation: $generation, ')
+          ..write('fullReseedRequired: $fullReseedRequired, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
         .toString();
@@ -12774,6 +12849,8 @@ class SyncStateRow extends DataClass implements Insertable<SyncStateRow> {
     active,
     capturesLocal,
     deviceId,
+    generation,
+    fullReseedRequired,
     updatedAt,
   );
   @override
@@ -12786,6 +12863,8 @@ class SyncStateRow extends DataClass implements Insertable<SyncStateRow> {
           other.active == this.active &&
           other.capturesLocal == this.capturesLocal &&
           other.deviceId == this.deviceId &&
+          other.generation == this.generation &&
+          other.fullReseedRequired == this.fullReseedRequired &&
           other.updatedAt == this.updatedAt);
 }
 
@@ -12796,6 +12875,8 @@ class SyncStateRowsCompanion extends UpdateCompanion<SyncStateRow> {
   final Value<bool> active;
   final Value<bool> capturesLocal;
   final Value<String> deviceId;
+  final Value<int> generation;
+  final Value<bool> fullReseedRequired;
   final Value<String> updatedAt;
   final Value<int> rowid;
   const SyncStateRowsCompanion({
@@ -12805,6 +12886,8 @@ class SyncStateRowsCompanion extends UpdateCompanion<SyncStateRow> {
     this.active = const Value.absent(),
     this.capturesLocal = const Value.absent(),
     this.deviceId = const Value.absent(),
+    this.generation = const Value.absent(),
+    this.fullReseedRequired = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
@@ -12815,6 +12898,8 @@ class SyncStateRowsCompanion extends UpdateCompanion<SyncStateRow> {
     this.active = const Value.absent(),
     this.capturesLocal = const Value.absent(),
     this.deviceId = const Value.absent(),
+    this.generation = const Value.absent(),
+    this.fullReseedRequired = const Value.absent(),
     required String updatedAt,
     this.rowid = const Value.absent(),
   }) : scope = Value(scope),
@@ -12826,6 +12911,8 @@ class SyncStateRowsCompanion extends UpdateCompanion<SyncStateRow> {
     Expression<bool>? active,
     Expression<bool>? capturesLocal,
     Expression<String>? deviceId,
+    Expression<int>? generation,
+    Expression<bool>? fullReseedRequired,
     Expression<String>? updatedAt,
     Expression<int>? rowid,
   }) {
@@ -12836,6 +12923,9 @@ class SyncStateRowsCompanion extends UpdateCompanion<SyncStateRow> {
       if (active != null) 'active': active,
       if (capturesLocal != null) 'captures_local': capturesLocal,
       if (deviceId != null) 'device_id': deviceId,
+      if (generation != null) 'generation': generation,
+      if (fullReseedRequired != null)
+        'full_reseed_required': fullReseedRequired,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (rowid != null) 'rowid': rowid,
     });
@@ -12848,6 +12938,8 @@ class SyncStateRowsCompanion extends UpdateCompanion<SyncStateRow> {
     Value<bool>? active,
     Value<bool>? capturesLocal,
     Value<String>? deviceId,
+    Value<int>? generation,
+    Value<bool>? fullReseedRequired,
     Value<String>? updatedAt,
     Value<int>? rowid,
   }) {
@@ -12858,6 +12950,8 @@ class SyncStateRowsCompanion extends UpdateCompanion<SyncStateRow> {
       active: active ?? this.active,
       capturesLocal: capturesLocal ?? this.capturesLocal,
       deviceId: deviceId ?? this.deviceId,
+      generation: generation ?? this.generation,
+      fullReseedRequired: fullReseedRequired ?? this.fullReseedRequired,
       updatedAt: updatedAt ?? this.updatedAt,
       rowid: rowid ?? this.rowid,
     );
@@ -12884,6 +12978,12 @@ class SyncStateRowsCompanion extends UpdateCompanion<SyncStateRow> {
     if (deviceId.present) {
       map['device_id'] = Variable<String>(deviceId.value);
     }
+    if (generation.present) {
+      map['generation'] = Variable<int>(generation.value);
+    }
+    if (fullReseedRequired.present) {
+      map['full_reseed_required'] = Variable<bool>(fullReseedRequired.value);
+    }
     if (updatedAt.present) {
       map['updated_at'] = Variable<String>(updatedAt.value);
     }
@@ -12902,6 +13002,8 @@ class SyncStateRowsCompanion extends UpdateCompanion<SyncStateRow> {
           ..write('active: $active, ')
           ..write('capturesLocal: $capturesLocal, ')
           ..write('deviceId: $deviceId, ')
+          ..write('generation: $generation, ')
+          ..write('fullReseedRequired: $fullReseedRequired, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
@@ -13228,6 +13330,15 @@ class $SyncAppliedChangeRowsTable extends SyncAppliedChangeRows
   final GeneratedDatabase attachedDatabase;
   final String? _alias;
   $SyncAppliedChangeRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _scopeMeta = const VerificationMeta('scope');
+  @override
+  late final GeneratedColumn<String> scope = GeneratedColumn<String>(
+    'scope',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
   static const VerificationMeta _changeIdMeta = const VerificationMeta(
     'changeId',
   );
@@ -13260,7 +13371,7 @@ class $SyncAppliedChangeRowsTable extends SyncAppliedChangeRows
     requiredDuringInsert: true,
   );
   @override
-  List<GeneratedColumn> get $columns => [changeId, source, appliedAt];
+  List<GeneratedColumn> get $columns => [scope, changeId, source, appliedAt];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -13273,6 +13384,14 @@ class $SyncAppliedChangeRowsTable extends SyncAppliedChangeRows
   }) {
     final context = VerificationContext();
     final data = instance.toColumns(true);
+    if (data.containsKey('scope')) {
+      context.handle(
+        _scopeMeta,
+        scope.isAcceptableOrUnknown(data['scope']!, _scopeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_scopeMeta);
+    }
     if (data.containsKey('change_id')) {
       context.handle(
         _changeIdMeta,
@@ -13301,11 +13420,15 @@ class $SyncAppliedChangeRowsTable extends SyncAppliedChangeRows
   }
 
   @override
-  Set<GeneratedColumn> get $primaryKey => {changeId};
+  Set<GeneratedColumn> get $primaryKey => {scope, changeId};
   @override
   SyncAppliedChangeRow map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
     return SyncAppliedChangeRow(
+      scope: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}scope'],
+      )!,
       changeId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}change_id'],
@@ -13329,10 +13452,12 @@ class $SyncAppliedChangeRowsTable extends SyncAppliedChangeRows
 
 class SyncAppliedChangeRow extends DataClass
     implements Insertable<SyncAppliedChangeRow> {
+  final String scope;
   final String changeId;
   final String source;
   final String appliedAt;
   const SyncAppliedChangeRow({
+    required this.scope,
     required this.changeId,
     required this.source,
     required this.appliedAt,
@@ -13340,6 +13465,7 @@ class SyncAppliedChangeRow extends DataClass
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
+    map['scope'] = Variable<String>(scope);
     map['change_id'] = Variable<String>(changeId);
     map['source'] = Variable<String>(source);
     map['applied_at'] = Variable<String>(appliedAt);
@@ -13348,6 +13474,7 @@ class SyncAppliedChangeRow extends DataClass
 
   SyncAppliedChangeRowsCompanion toCompanion(bool nullToAbsent) {
     return SyncAppliedChangeRowsCompanion(
+      scope: Value(scope),
       changeId: Value(changeId),
       source: Value(source),
       appliedAt: Value(appliedAt),
@@ -13360,6 +13487,7 @@ class SyncAppliedChangeRow extends DataClass
   }) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return SyncAppliedChangeRow(
+      scope: serializer.fromJson<String>(json['scope']),
       changeId: serializer.fromJson<String>(json['changeId']),
       source: serializer.fromJson<String>(json['source']),
       appliedAt: serializer.fromJson<String>(json['appliedAt']),
@@ -13369,6 +13497,7 @@ class SyncAppliedChangeRow extends DataClass
   Map<String, dynamic> toJson({ValueSerializer? serializer}) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
+      'scope': serializer.toJson<String>(scope),
       'changeId': serializer.toJson<String>(changeId),
       'source': serializer.toJson<String>(source),
       'appliedAt': serializer.toJson<String>(appliedAt),
@@ -13376,16 +13505,19 @@ class SyncAppliedChangeRow extends DataClass
   }
 
   SyncAppliedChangeRow copyWith({
+    String? scope,
     String? changeId,
     String? source,
     String? appliedAt,
   }) => SyncAppliedChangeRow(
+    scope: scope ?? this.scope,
     changeId: changeId ?? this.changeId,
     source: source ?? this.source,
     appliedAt: appliedAt ?? this.appliedAt,
   );
   SyncAppliedChangeRow copyWithCompanion(SyncAppliedChangeRowsCompanion data) {
     return SyncAppliedChangeRow(
+      scope: data.scope.present ? data.scope.value : this.scope,
       changeId: data.changeId.present ? data.changeId.value : this.changeId,
       source: data.source.present ? data.source.value : this.source,
       appliedAt: data.appliedAt.present ? data.appliedAt.value : this.appliedAt,
@@ -13395,6 +13527,7 @@ class SyncAppliedChangeRow extends DataClass
   @override
   String toString() {
     return (StringBuffer('SyncAppliedChangeRow(')
+          ..write('scope: $scope, ')
           ..write('changeId: $changeId, ')
           ..write('source: $source, ')
           ..write('appliedAt: $appliedAt')
@@ -13403,11 +13536,12 @@ class SyncAppliedChangeRow extends DataClass
   }
 
   @override
-  int get hashCode => Object.hash(changeId, source, appliedAt);
+  int get hashCode => Object.hash(scope, changeId, source, appliedAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is SyncAppliedChangeRow &&
+          other.scope == this.scope &&
           other.changeId == this.changeId &&
           other.source == this.source &&
           other.appliedAt == this.appliedAt);
@@ -13415,31 +13549,37 @@ class SyncAppliedChangeRow extends DataClass
 
 class SyncAppliedChangeRowsCompanion
     extends UpdateCompanion<SyncAppliedChangeRow> {
+  final Value<String> scope;
   final Value<String> changeId;
   final Value<String> source;
   final Value<String> appliedAt;
   final Value<int> rowid;
   const SyncAppliedChangeRowsCompanion({
+    this.scope = const Value.absent(),
     this.changeId = const Value.absent(),
     this.source = const Value.absent(),
     this.appliedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   SyncAppliedChangeRowsCompanion.insert({
+    required String scope,
     required String changeId,
     required String source,
     required String appliedAt,
     this.rowid = const Value.absent(),
-  }) : changeId = Value(changeId),
+  }) : scope = Value(scope),
+       changeId = Value(changeId),
        source = Value(source),
        appliedAt = Value(appliedAt);
   static Insertable<SyncAppliedChangeRow> custom({
+    Expression<String>? scope,
     Expression<String>? changeId,
     Expression<String>? source,
     Expression<String>? appliedAt,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
+      if (scope != null) 'scope': scope,
       if (changeId != null) 'change_id': changeId,
       if (source != null) 'source': source,
       if (appliedAt != null) 'applied_at': appliedAt,
@@ -13448,12 +13588,14 @@ class SyncAppliedChangeRowsCompanion
   }
 
   SyncAppliedChangeRowsCompanion copyWith({
+    Value<String>? scope,
     Value<String>? changeId,
     Value<String>? source,
     Value<String>? appliedAt,
     Value<int>? rowid,
   }) {
     return SyncAppliedChangeRowsCompanion(
+      scope: scope ?? this.scope,
       changeId: changeId ?? this.changeId,
       source: source ?? this.source,
       appliedAt: appliedAt ?? this.appliedAt,
@@ -13464,6 +13606,9 @@ class SyncAppliedChangeRowsCompanion
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
+    if (scope.present) {
+      map['scope'] = Variable<String>(scope.value);
+    }
     if (changeId.present) {
       map['change_id'] = Variable<String>(changeId.value);
     }
@@ -13482,9 +13627,1882 @@ class SyncAppliedChangeRowsCompanion
   @override
   String toString() {
     return (StringBuffer('SyncAppliedChangeRowsCompanion(')
+          ..write('scope: $scope, ')
           ..write('changeId: $changeId, ')
           ..write('source: $source, ')
           ..write('appliedAt: $appliedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $CloudIndexStateRowsTable extends CloudIndexStateRows
+    with TableInfo<$CloudIndexStateRowsTable, CloudIndexStateRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $CloudIndexStateRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _scopeMeta = const VerificationMeta('scope');
+  @override
+  late final GeneratedColumn<String> scope = GeneratedColumn<String>(
+    'scope',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _generationMeta = const VerificationMeta(
+    'generation',
+  );
+  @override
+  late final GeneratedColumn<int> generation = GeneratedColumn<int>(
+    'generation',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _statusJsonMeta = const VerificationMeta(
+    'statusJson',
+  );
+  @override
+  late final GeneratedColumn<String> statusJson = GeneratedColumn<String>(
+    'status_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('{}'),
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    scope,
+    generation,
+    statusJson,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'cloud_index_states';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<CloudIndexStateRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('scope')) {
+      context.handle(
+        _scopeMeta,
+        scope.isAcceptableOrUnknown(data['scope']!, _scopeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_scopeMeta);
+    }
+    if (data.containsKey('generation')) {
+      context.handle(
+        _generationMeta,
+        generation.isAcceptableOrUnknown(data['generation']!, _generationMeta),
+      );
+    }
+    if (data.containsKey('status_json')) {
+      context.handle(
+        _statusJsonMeta,
+        statusJson.isAcceptableOrUnknown(data['status_json']!, _statusJsonMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {scope};
+  @override
+  CloudIndexStateRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CloudIndexStateRow(
+      scope: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}scope'],
+      )!,
+      generation: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}generation'],
+      )!,
+      statusJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status_json'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $CloudIndexStateRowsTable createAlias(String alias) {
+    return $CloudIndexStateRowsTable(attachedDatabase, alias);
+  }
+}
+
+class CloudIndexStateRow extends DataClass
+    implements Insertable<CloudIndexStateRow> {
+  final String scope;
+  final int generation;
+  final String statusJson;
+  final String updatedAt;
+  const CloudIndexStateRow({
+    required this.scope,
+    required this.generation,
+    required this.statusJson,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['scope'] = Variable<String>(scope);
+    map['generation'] = Variable<int>(generation);
+    map['status_json'] = Variable<String>(statusJson);
+    map['updated_at'] = Variable<String>(updatedAt);
+    return map;
+  }
+
+  CloudIndexStateRowsCompanion toCompanion(bool nullToAbsent) {
+    return CloudIndexStateRowsCompanion(
+      scope: Value(scope),
+      generation: Value(generation),
+      statusJson: Value(statusJson),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory CloudIndexStateRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CloudIndexStateRow(
+      scope: serializer.fromJson<String>(json['scope']),
+      generation: serializer.fromJson<int>(json['generation']),
+      statusJson: serializer.fromJson<String>(json['statusJson']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'scope': serializer.toJson<String>(scope),
+      'generation': serializer.toJson<int>(generation),
+      'statusJson': serializer.toJson<String>(statusJson),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+    };
+  }
+
+  CloudIndexStateRow copyWith({
+    String? scope,
+    int? generation,
+    String? statusJson,
+    String? updatedAt,
+  }) => CloudIndexStateRow(
+    scope: scope ?? this.scope,
+    generation: generation ?? this.generation,
+    statusJson: statusJson ?? this.statusJson,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  CloudIndexStateRow copyWithCompanion(CloudIndexStateRowsCompanion data) {
+    return CloudIndexStateRow(
+      scope: data.scope.present ? data.scope.value : this.scope,
+      generation: data.generation.present
+          ? data.generation.value
+          : this.generation,
+      statusJson: data.statusJson.present
+          ? data.statusJson.value
+          : this.statusJson,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CloudIndexStateRow(')
+          ..write('scope: $scope, ')
+          ..write('generation: $generation, ')
+          ..write('statusJson: $statusJson, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(scope, generation, statusJson, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CloudIndexStateRow &&
+          other.scope == this.scope &&
+          other.generation == this.generation &&
+          other.statusJson == this.statusJson &&
+          other.updatedAt == this.updatedAt);
+}
+
+class CloudIndexStateRowsCompanion extends UpdateCompanion<CloudIndexStateRow> {
+  final Value<String> scope;
+  final Value<int> generation;
+  final Value<String> statusJson;
+  final Value<String> updatedAt;
+  final Value<int> rowid;
+  const CloudIndexStateRowsCompanion({
+    this.scope = const Value.absent(),
+    this.generation = const Value.absent(),
+    this.statusJson = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  CloudIndexStateRowsCompanion.insert({
+    required String scope,
+    this.generation = const Value.absent(),
+    this.statusJson = const Value.absent(),
+    required String updatedAt,
+    this.rowid = const Value.absent(),
+  }) : scope = Value(scope),
+       updatedAt = Value(updatedAt);
+  static Insertable<CloudIndexStateRow> custom({
+    Expression<String>? scope,
+    Expression<int>? generation,
+    Expression<String>? statusJson,
+    Expression<String>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (scope != null) 'scope': scope,
+      if (generation != null) 'generation': generation,
+      if (statusJson != null) 'status_json': statusJson,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  CloudIndexStateRowsCompanion copyWith({
+    Value<String>? scope,
+    Value<int>? generation,
+    Value<String>? statusJson,
+    Value<String>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return CloudIndexStateRowsCompanion(
+      scope: scope ?? this.scope,
+      generation: generation ?? this.generation,
+      statusJson: statusJson ?? this.statusJson,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (scope.present) {
+      map['scope'] = Variable<String>(scope.value);
+    }
+    if (generation.present) {
+      map['generation'] = Variable<int>(generation.value);
+    }
+    if (statusJson.present) {
+      map['status_json'] = Variable<String>(statusJson.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CloudIndexStateRowsCompanion(')
+          ..write('scope: $scope, ')
+          ..write('generation: $generation, ')
+          ..write('statusJson: $statusJson, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $CloudIndexObjectRowsTable extends CloudIndexObjectRows
+    with TableInfo<$CloudIndexObjectRowsTable, CloudIndexObjectRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $CloudIndexObjectRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _scopeMeta = const VerificationMeta('scope');
+  @override
+  late final GeneratedColumn<String> scope = GeneratedColumn<String>(
+    'scope',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _categoryMeta = const VerificationMeta(
+    'category',
+  );
+  @override
+  late final GeneratedColumn<String> category = GeneratedColumn<String>(
+    'category',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _objectIdMeta = const VerificationMeta(
+    'objectId',
+  );
+  @override
+  late final GeneratedColumn<String> objectId = GeneratedColumn<String>(
+    'object_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _contentHashMeta = const VerificationMeta(
+    'contentHash',
+  );
+  @override
+  late final GeneratedColumn<String> contentHash = GeneratedColumn<String>(
+    'content_hash',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _objectJsonMeta = const VerificationMeta(
+    'objectJson',
+  );
+  @override
+  late final GeneratedColumn<String> objectJson = GeneratedColumn<String>(
+    'object_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('{}'),
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    scope,
+    category,
+    objectId,
+    contentHash,
+    objectJson,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'cloud_index_objects';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<CloudIndexObjectRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('scope')) {
+      context.handle(
+        _scopeMeta,
+        scope.isAcceptableOrUnknown(data['scope']!, _scopeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_scopeMeta);
+    }
+    if (data.containsKey('category')) {
+      context.handle(
+        _categoryMeta,
+        category.isAcceptableOrUnknown(data['category']!, _categoryMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_categoryMeta);
+    }
+    if (data.containsKey('object_id')) {
+      context.handle(
+        _objectIdMeta,
+        objectId.isAcceptableOrUnknown(data['object_id']!, _objectIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_objectIdMeta);
+    }
+    if (data.containsKey('content_hash')) {
+      context.handle(
+        _contentHashMeta,
+        contentHash.isAcceptableOrUnknown(
+          data['content_hash']!,
+          _contentHashMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_contentHashMeta);
+    }
+    if (data.containsKey('object_json')) {
+      context.handle(
+        _objectJsonMeta,
+        objectJson.isAcceptableOrUnknown(data['object_json']!, _objectJsonMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {scope, category, objectId};
+  @override
+  CloudIndexObjectRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CloudIndexObjectRow(
+      scope: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}scope'],
+      )!,
+      category: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}category'],
+      )!,
+      objectId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}object_id'],
+      )!,
+      contentHash: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}content_hash'],
+      )!,
+      objectJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}object_json'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $CloudIndexObjectRowsTable createAlias(String alias) {
+    return $CloudIndexObjectRowsTable(attachedDatabase, alias);
+  }
+}
+
+class CloudIndexObjectRow extends DataClass
+    implements Insertable<CloudIndexObjectRow> {
+  final String scope;
+  final String category;
+  final String objectId;
+  final String contentHash;
+  final String objectJson;
+  final String updatedAt;
+  const CloudIndexObjectRow({
+    required this.scope,
+    required this.category,
+    required this.objectId,
+    required this.contentHash,
+    required this.objectJson,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['scope'] = Variable<String>(scope);
+    map['category'] = Variable<String>(category);
+    map['object_id'] = Variable<String>(objectId);
+    map['content_hash'] = Variable<String>(contentHash);
+    map['object_json'] = Variable<String>(objectJson);
+    map['updated_at'] = Variable<String>(updatedAt);
+    return map;
+  }
+
+  CloudIndexObjectRowsCompanion toCompanion(bool nullToAbsent) {
+    return CloudIndexObjectRowsCompanion(
+      scope: Value(scope),
+      category: Value(category),
+      objectId: Value(objectId),
+      contentHash: Value(contentHash),
+      objectJson: Value(objectJson),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory CloudIndexObjectRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CloudIndexObjectRow(
+      scope: serializer.fromJson<String>(json['scope']),
+      category: serializer.fromJson<String>(json['category']),
+      objectId: serializer.fromJson<String>(json['objectId']),
+      contentHash: serializer.fromJson<String>(json['contentHash']),
+      objectJson: serializer.fromJson<String>(json['objectJson']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'scope': serializer.toJson<String>(scope),
+      'category': serializer.toJson<String>(category),
+      'objectId': serializer.toJson<String>(objectId),
+      'contentHash': serializer.toJson<String>(contentHash),
+      'objectJson': serializer.toJson<String>(objectJson),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+    };
+  }
+
+  CloudIndexObjectRow copyWith({
+    String? scope,
+    String? category,
+    String? objectId,
+    String? contentHash,
+    String? objectJson,
+    String? updatedAt,
+  }) => CloudIndexObjectRow(
+    scope: scope ?? this.scope,
+    category: category ?? this.category,
+    objectId: objectId ?? this.objectId,
+    contentHash: contentHash ?? this.contentHash,
+    objectJson: objectJson ?? this.objectJson,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  CloudIndexObjectRow copyWithCompanion(CloudIndexObjectRowsCompanion data) {
+    return CloudIndexObjectRow(
+      scope: data.scope.present ? data.scope.value : this.scope,
+      category: data.category.present ? data.category.value : this.category,
+      objectId: data.objectId.present ? data.objectId.value : this.objectId,
+      contentHash: data.contentHash.present
+          ? data.contentHash.value
+          : this.contentHash,
+      objectJson: data.objectJson.present
+          ? data.objectJson.value
+          : this.objectJson,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CloudIndexObjectRow(')
+          ..write('scope: $scope, ')
+          ..write('category: $category, ')
+          ..write('objectId: $objectId, ')
+          ..write('contentHash: $contentHash, ')
+          ..write('objectJson: $objectJson, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    scope,
+    category,
+    objectId,
+    contentHash,
+    objectJson,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CloudIndexObjectRow &&
+          other.scope == this.scope &&
+          other.category == this.category &&
+          other.objectId == this.objectId &&
+          other.contentHash == this.contentHash &&
+          other.objectJson == this.objectJson &&
+          other.updatedAt == this.updatedAt);
+}
+
+class CloudIndexObjectRowsCompanion
+    extends UpdateCompanion<CloudIndexObjectRow> {
+  final Value<String> scope;
+  final Value<String> category;
+  final Value<String> objectId;
+  final Value<String> contentHash;
+  final Value<String> objectJson;
+  final Value<String> updatedAt;
+  final Value<int> rowid;
+  const CloudIndexObjectRowsCompanion({
+    this.scope = const Value.absent(),
+    this.category = const Value.absent(),
+    this.objectId = const Value.absent(),
+    this.contentHash = const Value.absent(),
+    this.objectJson = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  CloudIndexObjectRowsCompanion.insert({
+    required String scope,
+    required String category,
+    required String objectId,
+    required String contentHash,
+    this.objectJson = const Value.absent(),
+    required String updatedAt,
+    this.rowid = const Value.absent(),
+  }) : scope = Value(scope),
+       category = Value(category),
+       objectId = Value(objectId),
+       contentHash = Value(contentHash),
+       updatedAt = Value(updatedAt);
+  static Insertable<CloudIndexObjectRow> custom({
+    Expression<String>? scope,
+    Expression<String>? category,
+    Expression<String>? objectId,
+    Expression<String>? contentHash,
+    Expression<String>? objectJson,
+    Expression<String>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (scope != null) 'scope': scope,
+      if (category != null) 'category': category,
+      if (objectId != null) 'object_id': objectId,
+      if (contentHash != null) 'content_hash': contentHash,
+      if (objectJson != null) 'object_json': objectJson,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  CloudIndexObjectRowsCompanion copyWith({
+    Value<String>? scope,
+    Value<String>? category,
+    Value<String>? objectId,
+    Value<String>? contentHash,
+    Value<String>? objectJson,
+    Value<String>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return CloudIndexObjectRowsCompanion(
+      scope: scope ?? this.scope,
+      category: category ?? this.category,
+      objectId: objectId ?? this.objectId,
+      contentHash: contentHash ?? this.contentHash,
+      objectJson: objectJson ?? this.objectJson,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (scope.present) {
+      map['scope'] = Variable<String>(scope.value);
+    }
+    if (category.present) {
+      map['category'] = Variable<String>(category.value);
+    }
+    if (objectId.present) {
+      map['object_id'] = Variable<String>(objectId.value);
+    }
+    if (contentHash.present) {
+      map['content_hash'] = Variable<String>(contentHash.value);
+    }
+    if (objectJson.present) {
+      map['object_json'] = Variable<String>(objectJson.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CloudIndexObjectRowsCompanion(')
+          ..write('scope: $scope, ')
+          ..write('category: $category, ')
+          ..write('objectId: $objectId, ')
+          ..write('contentHash: $contentHash, ')
+          ..write('objectJson: $objectJson, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $CloudIndexCategoryStatRowsTable extends CloudIndexCategoryStatRows
+    with
+        TableInfo<$CloudIndexCategoryStatRowsTable, CloudIndexCategoryStatRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $CloudIndexCategoryStatRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _scopeMeta = const VerificationMeta('scope');
+  @override
+  late final GeneratedColumn<String> scope = GeneratedColumn<String>(
+    'scope',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _categoryMeta = const VerificationMeta(
+    'category',
+  );
+  @override
+  late final GeneratedColumn<String> category = GeneratedColumn<String>(
+    'category',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _objectCountMeta = const VerificationMeta(
+    'objectCount',
+  );
+  @override
+  late final GeneratedColumn<int> objectCount = GeneratedColumn<int>(
+    'object_count',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    scope,
+    category,
+    objectCount,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'cloud_index_category_stats';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<CloudIndexCategoryStatRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('scope')) {
+      context.handle(
+        _scopeMeta,
+        scope.isAcceptableOrUnknown(data['scope']!, _scopeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_scopeMeta);
+    }
+    if (data.containsKey('category')) {
+      context.handle(
+        _categoryMeta,
+        category.isAcceptableOrUnknown(data['category']!, _categoryMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_categoryMeta);
+    }
+    if (data.containsKey('object_count')) {
+      context.handle(
+        _objectCountMeta,
+        objectCount.isAcceptableOrUnknown(
+          data['object_count']!,
+          _objectCountMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_objectCountMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {scope, category};
+  @override
+  CloudIndexCategoryStatRow map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CloudIndexCategoryStatRow(
+      scope: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}scope'],
+      )!,
+      category: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}category'],
+      )!,
+      objectCount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}object_count'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $CloudIndexCategoryStatRowsTable createAlias(String alias) {
+    return $CloudIndexCategoryStatRowsTable(attachedDatabase, alias);
+  }
+}
+
+class CloudIndexCategoryStatRow extends DataClass
+    implements Insertable<CloudIndexCategoryStatRow> {
+  final String scope;
+  final String category;
+  final int objectCount;
+  final String updatedAt;
+  const CloudIndexCategoryStatRow({
+    required this.scope,
+    required this.category,
+    required this.objectCount,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['scope'] = Variable<String>(scope);
+    map['category'] = Variable<String>(category);
+    map['object_count'] = Variable<int>(objectCount);
+    map['updated_at'] = Variable<String>(updatedAt);
+    return map;
+  }
+
+  CloudIndexCategoryStatRowsCompanion toCompanion(bool nullToAbsent) {
+    return CloudIndexCategoryStatRowsCompanion(
+      scope: Value(scope),
+      category: Value(category),
+      objectCount: Value(objectCount),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory CloudIndexCategoryStatRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CloudIndexCategoryStatRow(
+      scope: serializer.fromJson<String>(json['scope']),
+      category: serializer.fromJson<String>(json['category']),
+      objectCount: serializer.fromJson<int>(json['objectCount']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'scope': serializer.toJson<String>(scope),
+      'category': serializer.toJson<String>(category),
+      'objectCount': serializer.toJson<int>(objectCount),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+    };
+  }
+
+  CloudIndexCategoryStatRow copyWith({
+    String? scope,
+    String? category,
+    int? objectCount,
+    String? updatedAt,
+  }) => CloudIndexCategoryStatRow(
+    scope: scope ?? this.scope,
+    category: category ?? this.category,
+    objectCount: objectCount ?? this.objectCount,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  CloudIndexCategoryStatRow copyWithCompanion(
+    CloudIndexCategoryStatRowsCompanion data,
+  ) {
+    return CloudIndexCategoryStatRow(
+      scope: data.scope.present ? data.scope.value : this.scope,
+      category: data.category.present ? data.category.value : this.category,
+      objectCount: data.objectCount.present
+          ? data.objectCount.value
+          : this.objectCount,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CloudIndexCategoryStatRow(')
+          ..write('scope: $scope, ')
+          ..write('category: $category, ')
+          ..write('objectCount: $objectCount, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(scope, category, objectCount, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CloudIndexCategoryStatRow &&
+          other.scope == this.scope &&
+          other.category == this.category &&
+          other.objectCount == this.objectCount &&
+          other.updatedAt == this.updatedAt);
+}
+
+class CloudIndexCategoryStatRowsCompanion
+    extends UpdateCompanion<CloudIndexCategoryStatRow> {
+  final Value<String> scope;
+  final Value<String> category;
+  final Value<int> objectCount;
+  final Value<String> updatedAt;
+  final Value<int> rowid;
+  const CloudIndexCategoryStatRowsCompanion({
+    this.scope = const Value.absent(),
+    this.category = const Value.absent(),
+    this.objectCount = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  CloudIndexCategoryStatRowsCompanion.insert({
+    required String scope,
+    required String category,
+    required int objectCount,
+    required String updatedAt,
+    this.rowid = const Value.absent(),
+  }) : scope = Value(scope),
+       category = Value(category),
+       objectCount = Value(objectCount),
+       updatedAt = Value(updatedAt);
+  static Insertable<CloudIndexCategoryStatRow> custom({
+    Expression<String>? scope,
+    Expression<String>? category,
+    Expression<int>? objectCount,
+    Expression<String>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (scope != null) 'scope': scope,
+      if (category != null) 'category': category,
+      if (objectCount != null) 'object_count': objectCount,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  CloudIndexCategoryStatRowsCompanion copyWith({
+    Value<String>? scope,
+    Value<String>? category,
+    Value<int>? objectCount,
+    Value<String>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return CloudIndexCategoryStatRowsCompanion(
+      scope: scope ?? this.scope,
+      category: category ?? this.category,
+      objectCount: objectCount ?? this.objectCount,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (scope.present) {
+      map['scope'] = Variable<String>(scope.value);
+    }
+    if (category.present) {
+      map['category'] = Variable<String>(category.value);
+    }
+    if (objectCount.present) {
+      map['object_count'] = Variable<int>(objectCount.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CloudIndexCategoryStatRowsCompanion(')
+          ..write('scope: $scope, ')
+          ..write('category: $category, ')
+          ..write('objectCount: $objectCount, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $CloudReseedTaskRowsTable extends CloudReseedTaskRows
+    with TableInfo<$CloudReseedTaskRowsTable, CloudReseedTaskRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $CloudReseedTaskRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _scopeMeta = const VerificationMeta('scope');
+  @override
+  late final GeneratedColumn<String> scope = GeneratedColumn<String>(
+    'scope',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _operationIdMeta = const VerificationMeta(
+    'operationId',
+  );
+  @override
+  late final GeneratedColumn<String> operationId = GeneratedColumn<String>(
+    'operation_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _generationMeta = const VerificationMeta(
+    'generation',
+  );
+  @override
+  late final GeneratedColumn<int> generation = GeneratedColumn<int>(
+    'generation',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _operationJsonMeta = const VerificationMeta(
+    'operationJson',
+  );
+  @override
+  late final GeneratedColumn<String> operationJson = GeneratedColumn<String>(
+    'operation_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('{}'),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<String> createdAt = GeneratedColumn<String>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    scope,
+    operationId,
+    generation,
+    status,
+    operationJson,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'cloud_reseed_tasks';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<CloudReseedTaskRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('scope')) {
+      context.handle(
+        _scopeMeta,
+        scope.isAcceptableOrUnknown(data['scope']!, _scopeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_scopeMeta);
+    }
+    if (data.containsKey('operation_id')) {
+      context.handle(
+        _operationIdMeta,
+        operationId.isAcceptableOrUnknown(
+          data['operation_id']!,
+          _operationIdMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_operationIdMeta);
+    }
+    if (data.containsKey('generation')) {
+      context.handle(
+        _generationMeta,
+        generation.isAcceptableOrUnknown(data['generation']!, _generationMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_generationMeta);
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_statusMeta);
+    }
+    if (data.containsKey('operation_json')) {
+      context.handle(
+        _operationJsonMeta,
+        operationJson.isAcceptableOrUnknown(
+          data['operation_json']!,
+          _operationJsonMeta,
+        ),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {scope, operationId};
+  @override
+  CloudReseedTaskRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CloudReseedTaskRow(
+      scope: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}scope'],
+      )!,
+      operationId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}operation_id'],
+      )!,
+      generation: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}generation'],
+      )!,
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      operationJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}operation_json'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $CloudReseedTaskRowsTable createAlias(String alias) {
+    return $CloudReseedTaskRowsTable(attachedDatabase, alias);
+  }
+}
+
+class CloudReseedTaskRow extends DataClass
+    implements Insertable<CloudReseedTaskRow> {
+  final String scope;
+  final String operationId;
+  final int generation;
+  final String status;
+  final String operationJson;
+  final String createdAt;
+  final String updatedAt;
+  const CloudReseedTaskRow({
+    required this.scope,
+    required this.operationId,
+    required this.generation,
+    required this.status,
+    required this.operationJson,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['scope'] = Variable<String>(scope);
+    map['operation_id'] = Variable<String>(operationId);
+    map['generation'] = Variable<int>(generation);
+    map['status'] = Variable<String>(status);
+    map['operation_json'] = Variable<String>(operationJson);
+    map['created_at'] = Variable<String>(createdAt);
+    map['updated_at'] = Variable<String>(updatedAt);
+    return map;
+  }
+
+  CloudReseedTaskRowsCompanion toCompanion(bool nullToAbsent) {
+    return CloudReseedTaskRowsCompanion(
+      scope: Value(scope),
+      operationId: Value(operationId),
+      generation: Value(generation),
+      status: Value(status),
+      operationJson: Value(operationJson),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory CloudReseedTaskRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CloudReseedTaskRow(
+      scope: serializer.fromJson<String>(json['scope']),
+      operationId: serializer.fromJson<String>(json['operationId']),
+      generation: serializer.fromJson<int>(json['generation']),
+      status: serializer.fromJson<String>(json['status']),
+      operationJson: serializer.fromJson<String>(json['operationJson']),
+      createdAt: serializer.fromJson<String>(json['createdAt']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'scope': serializer.toJson<String>(scope),
+      'operationId': serializer.toJson<String>(operationId),
+      'generation': serializer.toJson<int>(generation),
+      'status': serializer.toJson<String>(status),
+      'operationJson': serializer.toJson<String>(operationJson),
+      'createdAt': serializer.toJson<String>(createdAt),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+    };
+  }
+
+  CloudReseedTaskRow copyWith({
+    String? scope,
+    String? operationId,
+    int? generation,
+    String? status,
+    String? operationJson,
+    String? createdAt,
+    String? updatedAt,
+  }) => CloudReseedTaskRow(
+    scope: scope ?? this.scope,
+    operationId: operationId ?? this.operationId,
+    generation: generation ?? this.generation,
+    status: status ?? this.status,
+    operationJson: operationJson ?? this.operationJson,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  CloudReseedTaskRow copyWithCompanion(CloudReseedTaskRowsCompanion data) {
+    return CloudReseedTaskRow(
+      scope: data.scope.present ? data.scope.value : this.scope,
+      operationId: data.operationId.present
+          ? data.operationId.value
+          : this.operationId,
+      generation: data.generation.present
+          ? data.generation.value
+          : this.generation,
+      status: data.status.present ? data.status.value : this.status,
+      operationJson: data.operationJson.present
+          ? data.operationJson.value
+          : this.operationJson,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CloudReseedTaskRow(')
+          ..write('scope: $scope, ')
+          ..write('operationId: $operationId, ')
+          ..write('generation: $generation, ')
+          ..write('status: $status, ')
+          ..write('operationJson: $operationJson, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    scope,
+    operationId,
+    generation,
+    status,
+    operationJson,
+    createdAt,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CloudReseedTaskRow &&
+          other.scope == this.scope &&
+          other.operationId == this.operationId &&
+          other.generation == this.generation &&
+          other.status == this.status &&
+          other.operationJson == this.operationJson &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class CloudReseedTaskRowsCompanion extends UpdateCompanion<CloudReseedTaskRow> {
+  final Value<String> scope;
+  final Value<String> operationId;
+  final Value<int> generation;
+  final Value<String> status;
+  final Value<String> operationJson;
+  final Value<String> createdAt;
+  final Value<String> updatedAt;
+  final Value<int> rowid;
+  const CloudReseedTaskRowsCompanion({
+    this.scope = const Value.absent(),
+    this.operationId = const Value.absent(),
+    this.generation = const Value.absent(),
+    this.status = const Value.absent(),
+    this.operationJson = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  CloudReseedTaskRowsCompanion.insert({
+    required String scope,
+    required String operationId,
+    required int generation,
+    required String status,
+    this.operationJson = const Value.absent(),
+    required String createdAt,
+    required String updatedAt,
+    this.rowid = const Value.absent(),
+  }) : scope = Value(scope),
+       operationId = Value(operationId),
+       generation = Value(generation),
+       status = Value(status),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<CloudReseedTaskRow> custom({
+    Expression<String>? scope,
+    Expression<String>? operationId,
+    Expression<int>? generation,
+    Expression<String>? status,
+    Expression<String>? operationJson,
+    Expression<String>? createdAt,
+    Expression<String>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (scope != null) 'scope': scope,
+      if (operationId != null) 'operation_id': operationId,
+      if (generation != null) 'generation': generation,
+      if (status != null) 'status': status,
+      if (operationJson != null) 'operation_json': operationJson,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  CloudReseedTaskRowsCompanion copyWith({
+    Value<String>? scope,
+    Value<String>? operationId,
+    Value<int>? generation,
+    Value<String>? status,
+    Value<String>? operationJson,
+    Value<String>? createdAt,
+    Value<String>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return CloudReseedTaskRowsCompanion(
+      scope: scope ?? this.scope,
+      operationId: operationId ?? this.operationId,
+      generation: generation ?? this.generation,
+      status: status ?? this.status,
+      operationJson: operationJson ?? this.operationJson,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (scope.present) {
+      map['scope'] = Variable<String>(scope.value);
+    }
+    if (operationId.present) {
+      map['operation_id'] = Variable<String>(operationId.value);
+    }
+    if (generation.present) {
+      map['generation'] = Variable<int>(generation.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (operationJson.present) {
+      map['operation_json'] = Variable<String>(operationJson.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<String>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CloudReseedTaskRowsCompanion(')
+          ..write('scope: $scope, ')
+          ..write('operationId: $operationId, ')
+          ..write('generation: $generation, ')
+          ..write('status: $status, ')
+          ..write('operationJson: $operationJson, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $CloudRequestRowsTable extends CloudRequestRows
+    with TableInfo<$CloudRequestRowsTable, CloudRequestRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $CloudRequestRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _scopeMeta = const VerificationMeta('scope');
+  @override
+  late final GeneratedColumn<String> scope = GeneratedColumn<String>(
+    'scope',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _requestKeyMeta = const VerificationMeta(
+    'requestKey',
+  );
+  @override
+  late final GeneratedColumn<String> requestKey = GeneratedColumn<String>(
+    'request_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _requestIdMeta = const VerificationMeta(
+    'requestId',
+  );
+  @override
+  late final GeneratedColumn<String> requestId = GeneratedColumn<String>(
+    'request_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    scope,
+    requestKey,
+    requestId,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'cloud_requests';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<CloudRequestRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('scope')) {
+      context.handle(
+        _scopeMeta,
+        scope.isAcceptableOrUnknown(data['scope']!, _scopeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_scopeMeta);
+    }
+    if (data.containsKey('request_key')) {
+      context.handle(
+        _requestKeyMeta,
+        requestKey.isAcceptableOrUnknown(data['request_key']!, _requestKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_requestKeyMeta);
+    }
+    if (data.containsKey('request_id')) {
+      context.handle(
+        _requestIdMeta,
+        requestId.isAcceptableOrUnknown(data['request_id']!, _requestIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_requestIdMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {scope, requestKey};
+  @override
+  CloudRequestRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CloudRequestRow(
+      scope: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}scope'],
+      )!,
+      requestKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}request_key'],
+      )!,
+      requestId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}request_id'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $CloudRequestRowsTable createAlias(String alias) {
+    return $CloudRequestRowsTable(attachedDatabase, alias);
+  }
+}
+
+class CloudRequestRow extends DataClass implements Insertable<CloudRequestRow> {
+  final String scope;
+  final String requestKey;
+  final String requestId;
+  final String updatedAt;
+  const CloudRequestRow({
+    required this.scope,
+    required this.requestKey,
+    required this.requestId,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['scope'] = Variable<String>(scope);
+    map['request_key'] = Variable<String>(requestKey);
+    map['request_id'] = Variable<String>(requestId);
+    map['updated_at'] = Variable<String>(updatedAt);
+    return map;
+  }
+
+  CloudRequestRowsCompanion toCompanion(bool nullToAbsent) {
+    return CloudRequestRowsCompanion(
+      scope: Value(scope),
+      requestKey: Value(requestKey),
+      requestId: Value(requestId),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory CloudRequestRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CloudRequestRow(
+      scope: serializer.fromJson<String>(json['scope']),
+      requestKey: serializer.fromJson<String>(json['requestKey']),
+      requestId: serializer.fromJson<String>(json['requestId']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'scope': serializer.toJson<String>(scope),
+      'requestKey': serializer.toJson<String>(requestKey),
+      'requestId': serializer.toJson<String>(requestId),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+    };
+  }
+
+  CloudRequestRow copyWith({
+    String? scope,
+    String? requestKey,
+    String? requestId,
+    String? updatedAt,
+  }) => CloudRequestRow(
+    scope: scope ?? this.scope,
+    requestKey: requestKey ?? this.requestKey,
+    requestId: requestId ?? this.requestId,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  CloudRequestRow copyWithCompanion(CloudRequestRowsCompanion data) {
+    return CloudRequestRow(
+      scope: data.scope.present ? data.scope.value : this.scope,
+      requestKey: data.requestKey.present
+          ? data.requestKey.value
+          : this.requestKey,
+      requestId: data.requestId.present ? data.requestId.value : this.requestId,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CloudRequestRow(')
+          ..write('scope: $scope, ')
+          ..write('requestKey: $requestKey, ')
+          ..write('requestId: $requestId, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(scope, requestKey, requestId, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CloudRequestRow &&
+          other.scope == this.scope &&
+          other.requestKey == this.requestKey &&
+          other.requestId == this.requestId &&
+          other.updatedAt == this.updatedAt);
+}
+
+class CloudRequestRowsCompanion extends UpdateCompanion<CloudRequestRow> {
+  final Value<String> scope;
+  final Value<String> requestKey;
+  final Value<String> requestId;
+  final Value<String> updatedAt;
+  final Value<int> rowid;
+  const CloudRequestRowsCompanion({
+    this.scope = const Value.absent(),
+    this.requestKey = const Value.absent(),
+    this.requestId = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  CloudRequestRowsCompanion.insert({
+    required String scope,
+    required String requestKey,
+    required String requestId,
+    required String updatedAt,
+    this.rowid = const Value.absent(),
+  }) : scope = Value(scope),
+       requestKey = Value(requestKey),
+       requestId = Value(requestId),
+       updatedAt = Value(updatedAt);
+  static Insertable<CloudRequestRow> custom({
+    Expression<String>? scope,
+    Expression<String>? requestKey,
+    Expression<String>? requestId,
+    Expression<String>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (scope != null) 'scope': scope,
+      if (requestKey != null) 'request_key': requestKey,
+      if (requestId != null) 'request_id': requestId,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  CloudRequestRowsCompanion copyWith({
+    Value<String>? scope,
+    Value<String>? requestKey,
+    Value<String>? requestId,
+    Value<String>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return CloudRequestRowsCompanion(
+      scope: scope ?? this.scope,
+      requestKey: requestKey ?? this.requestKey,
+      requestId: requestId ?? this.requestId,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (scope.present) {
+      map['scope'] = Variable<String>(scope.value);
+    }
+    if (requestKey.present) {
+      map['request_key'] = Variable<String>(requestKey.value);
+    }
+    if (requestId.present) {
+      map['request_id'] = Variable<String>(requestId.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CloudRequestRowsCompanion(')
+          ..write('scope: $scope, ')
+          ..write('requestKey: $requestKey, ')
+          ..write('requestId: $requestId, ')
+          ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -13549,6 +15567,17 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
       $SyncScopeBaselineRowsTable(this);
   late final $SyncAppliedChangeRowsTable syncAppliedChangeRows =
       $SyncAppliedChangeRowsTable(this);
+  late final $CloudIndexStateRowsTable cloudIndexStateRows =
+      $CloudIndexStateRowsTable(this);
+  late final $CloudIndexObjectRowsTable cloudIndexObjectRows =
+      $CloudIndexObjectRowsTable(this);
+  late final $CloudIndexCategoryStatRowsTable cloudIndexCategoryStatRows =
+      $CloudIndexCategoryStatRowsTable(this);
+  late final $CloudReseedTaskRowsTable cloudReseedTaskRows =
+      $CloudReseedTaskRowsTable(this);
+  late final $CloudRequestRowsTable cloudRequestRows = $CloudRequestRowsTable(
+    this,
+  );
   late final Index idxSyncOutboxScopeUpdatedTableRecord = Index(
     'idx_sync_outbox_scope_updated_table_record',
     'CREATE INDEX idx_sync_outbox_scope_updated_table_record ON sync_outbox (scope, updated_at, table_name, record_id)',
@@ -13595,6 +15624,11 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
     syncStateRows,
     syncScopeBaselineRows,
     syncAppliedChangeRows,
+    cloudIndexStateRows,
+    cloudIndexObjectRows,
+    cloudIndexCategoryStatRows,
+    cloudReseedTaskRows,
+    cloudRequestRows,
     idxSyncOutboxScopeUpdatedTableRecord,
     idxSyncOutboxScopeChangeMutation,
     idxSyncConflictsScopeTableRecord,
@@ -20701,6 +22735,8 @@ typedef $$SyncStateRowsTableCreateCompanionBuilder =
       Value<bool> active,
       Value<bool> capturesLocal,
       Value<String> deviceId,
+      Value<int> generation,
+      Value<bool> fullReseedRequired,
       required String updatedAt,
       Value<int> rowid,
     });
@@ -20712,6 +22748,8 @@ typedef $$SyncStateRowsTableUpdateCompanionBuilder =
       Value<bool> active,
       Value<bool> capturesLocal,
       Value<String> deviceId,
+      Value<int> generation,
+      Value<bool> fullReseedRequired,
       Value<String> updatedAt,
       Value<int> rowid,
     });
@@ -20752,6 +22790,16 @@ class $$SyncStateRowsTableFilterComposer
 
   ColumnFilters<String> get deviceId => $composableBuilder(
     column: $table.deviceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get generation => $composableBuilder(
+    column: $table.generation,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get fullReseedRequired => $composableBuilder(
+    column: $table.fullReseedRequired,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -20800,6 +22848,16 @@ class $$SyncStateRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get generation => $composableBuilder(
+    column: $table.generation,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get fullReseedRequired => $composableBuilder(
+    column: $table.fullReseedRequired,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get updatedAt => $composableBuilder(
     column: $table.updatedAt,
     builder: (column) => ColumnOrderings(column),
@@ -20836,6 +22894,16 @@ class $$SyncStateRowsTableAnnotationComposer
 
   GeneratedColumn<String> get deviceId =>
       $composableBuilder(column: $table.deviceId, builder: (column) => column);
+
+  GeneratedColumn<int> get generation => $composableBuilder(
+    column: $table.generation,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get fullReseedRequired => $composableBuilder(
+    column: $table.fullReseedRequired,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<String> get updatedAt =>
       $composableBuilder(column: $table.updatedAt, builder: (column) => column);
@@ -20884,6 +22952,8 @@ class $$SyncStateRowsTableTableManager
                 Value<bool> active = const Value.absent(),
                 Value<bool> capturesLocal = const Value.absent(),
                 Value<String> deviceId = const Value.absent(),
+                Value<int> generation = const Value.absent(),
+                Value<bool> fullReseedRequired = const Value.absent(),
                 Value<String> updatedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => SyncStateRowsCompanion(
@@ -20893,6 +22963,8 @@ class $$SyncStateRowsTableTableManager
                 active: active,
                 capturesLocal: capturesLocal,
                 deviceId: deviceId,
+                generation: generation,
+                fullReseedRequired: fullReseedRequired,
                 updatedAt: updatedAt,
                 rowid: rowid,
               ),
@@ -20904,6 +22976,8 @@ class $$SyncStateRowsTableTableManager
                 Value<bool> active = const Value.absent(),
                 Value<bool> capturesLocal = const Value.absent(),
                 Value<String> deviceId = const Value.absent(),
+                Value<int> generation = const Value.absent(),
+                Value<bool> fullReseedRequired = const Value.absent(),
                 required String updatedAt,
                 Value<int> rowid = const Value.absent(),
               }) => SyncStateRowsCompanion.insert(
@@ -20913,6 +22987,8 @@ class $$SyncStateRowsTableTableManager
                 active: active,
                 capturesLocal: capturesLocal,
                 deviceId: deviceId,
+                generation: generation,
+                fullReseedRequired: fullReseedRequired,
                 updatedAt: updatedAt,
                 rowid: rowid,
               ),
@@ -21147,6 +23223,7 @@ typedef $$SyncScopeBaselineRowsTableProcessedTableManager =
     >;
 typedef $$SyncAppliedChangeRowsTableCreateCompanionBuilder =
     SyncAppliedChangeRowsCompanion Function({
+      required String scope,
       required String changeId,
       required String source,
       required String appliedAt,
@@ -21154,6 +23231,7 @@ typedef $$SyncAppliedChangeRowsTableCreateCompanionBuilder =
     });
 typedef $$SyncAppliedChangeRowsTableUpdateCompanionBuilder =
     SyncAppliedChangeRowsCompanion Function({
+      Value<String> scope,
       Value<String> changeId,
       Value<String> source,
       Value<String> appliedAt,
@@ -21169,6 +23247,11 @@ class $$SyncAppliedChangeRowsTableFilterComposer
     super.$addJoinBuilderToRootComposer,
     super.$removeJoinBuilderFromRootComposer,
   });
+  ColumnFilters<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnFilters<String> get changeId => $composableBuilder(
     column: $table.changeId,
     builder: (column) => ColumnFilters(column),
@@ -21194,6 +23277,11 @@ class $$SyncAppliedChangeRowsTableOrderingComposer
     super.$addJoinBuilderToRootComposer,
     super.$removeJoinBuilderFromRootComposer,
   });
+  ColumnOrderings<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get changeId => $composableBuilder(
     column: $table.changeId,
     builder: (column) => ColumnOrderings(column),
@@ -21219,6 +23307,9 @@ class $$SyncAppliedChangeRowsTableAnnotationComposer
     super.$addJoinBuilderToRootComposer,
     super.$removeJoinBuilderFromRootComposer,
   });
+  GeneratedColumn<String> get scope =>
+      $composableBuilder(column: $table.scope, builder: (column) => column);
+
   GeneratedColumn<String> get changeId =>
       $composableBuilder(column: $table.changeId, builder: (column) => column);
 
@@ -21275,11 +23366,13 @@ class $$SyncAppliedChangeRowsTableTableManager
               ),
           updateCompanionCallback:
               ({
+                Value<String> scope = const Value.absent(),
                 Value<String> changeId = const Value.absent(),
                 Value<String> source = const Value.absent(),
                 Value<String> appliedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => SyncAppliedChangeRowsCompanion(
+                scope: scope,
                 changeId: changeId,
                 source: source,
                 appliedAt: appliedAt,
@@ -21287,11 +23380,13 @@ class $$SyncAppliedChangeRowsTableTableManager
               ),
           createCompanionCallback:
               ({
+                required String scope,
                 required String changeId,
                 required String source,
                 required String appliedAt,
                 Value<int> rowid = const Value.absent(),
               }) => SyncAppliedChangeRowsCompanion.insert(
+                scope: scope,
                 changeId: changeId,
                 source: source,
                 appliedAt: appliedAt,
@@ -21324,6 +23419,1104 @@ typedef $$SyncAppliedChangeRowsTableProcessedTableManager =
         >,
       ),
       SyncAppliedChangeRow,
+      PrefetchHooks Function()
+    >;
+typedef $$CloudIndexStateRowsTableCreateCompanionBuilder =
+    CloudIndexStateRowsCompanion Function({
+      required String scope,
+      Value<int> generation,
+      Value<String> statusJson,
+      required String updatedAt,
+      Value<int> rowid,
+    });
+typedef $$CloudIndexStateRowsTableUpdateCompanionBuilder =
+    CloudIndexStateRowsCompanion Function({
+      Value<String> scope,
+      Value<int> generation,
+      Value<String> statusJson,
+      Value<String> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$CloudIndexStateRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $CloudIndexStateRowsTable> {
+  $$CloudIndexStateRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get generation => $composableBuilder(
+    column: $table.generation,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get statusJson => $composableBuilder(
+    column: $table.statusJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$CloudIndexStateRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $CloudIndexStateRowsTable> {
+  $$CloudIndexStateRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get generation => $composableBuilder(
+    column: $table.generation,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get statusJson => $composableBuilder(
+    column: $table.statusJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$CloudIndexStateRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $CloudIndexStateRowsTable> {
+  $$CloudIndexStateRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get scope =>
+      $composableBuilder(column: $table.scope, builder: (column) => column);
+
+  GeneratedColumn<int> get generation => $composableBuilder(
+    column: $table.generation,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get statusJson => $composableBuilder(
+    column: $table.statusJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$CloudIndexStateRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $CloudIndexStateRowsTable,
+          CloudIndexStateRow,
+          $$CloudIndexStateRowsTableFilterComposer,
+          $$CloudIndexStateRowsTableOrderingComposer,
+          $$CloudIndexStateRowsTableAnnotationComposer,
+          $$CloudIndexStateRowsTableCreateCompanionBuilder,
+          $$CloudIndexStateRowsTableUpdateCompanionBuilder,
+          (
+            CloudIndexStateRow,
+            BaseReferences<
+              _$StorageV2DriftDatabase,
+              $CloudIndexStateRowsTable,
+              CloudIndexStateRow
+            >,
+          ),
+          CloudIndexStateRow,
+          PrefetchHooks Function()
+        > {
+  $$CloudIndexStateRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $CloudIndexStateRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$CloudIndexStateRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$CloudIndexStateRowsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$CloudIndexStateRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> scope = const Value.absent(),
+                Value<int> generation = const Value.absent(),
+                Value<String> statusJson = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => CloudIndexStateRowsCompanion(
+                scope: scope,
+                generation: generation,
+                statusJson: statusJson,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String scope,
+                Value<int> generation = const Value.absent(),
+                Value<String> statusJson = const Value.absent(),
+                required String updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => CloudIndexStateRowsCompanion.insert(
+                scope: scope,
+                generation: generation,
+                statusJson: statusJson,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$CloudIndexStateRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $CloudIndexStateRowsTable,
+      CloudIndexStateRow,
+      $$CloudIndexStateRowsTableFilterComposer,
+      $$CloudIndexStateRowsTableOrderingComposer,
+      $$CloudIndexStateRowsTableAnnotationComposer,
+      $$CloudIndexStateRowsTableCreateCompanionBuilder,
+      $$CloudIndexStateRowsTableUpdateCompanionBuilder,
+      (
+        CloudIndexStateRow,
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $CloudIndexStateRowsTable,
+          CloudIndexStateRow
+        >,
+      ),
+      CloudIndexStateRow,
+      PrefetchHooks Function()
+    >;
+typedef $$CloudIndexObjectRowsTableCreateCompanionBuilder =
+    CloudIndexObjectRowsCompanion Function({
+      required String scope,
+      required String category,
+      required String objectId,
+      required String contentHash,
+      Value<String> objectJson,
+      required String updatedAt,
+      Value<int> rowid,
+    });
+typedef $$CloudIndexObjectRowsTableUpdateCompanionBuilder =
+    CloudIndexObjectRowsCompanion Function({
+      Value<String> scope,
+      Value<String> category,
+      Value<String> objectId,
+      Value<String> contentHash,
+      Value<String> objectJson,
+      Value<String> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$CloudIndexObjectRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $CloudIndexObjectRowsTable> {
+  $$CloudIndexObjectRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get category => $composableBuilder(
+    column: $table.category,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get objectId => $composableBuilder(
+    column: $table.objectId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get contentHash => $composableBuilder(
+    column: $table.contentHash,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get objectJson => $composableBuilder(
+    column: $table.objectJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$CloudIndexObjectRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $CloudIndexObjectRowsTable> {
+  $$CloudIndexObjectRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get category => $composableBuilder(
+    column: $table.category,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get objectId => $composableBuilder(
+    column: $table.objectId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get contentHash => $composableBuilder(
+    column: $table.contentHash,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get objectJson => $composableBuilder(
+    column: $table.objectJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$CloudIndexObjectRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $CloudIndexObjectRowsTable> {
+  $$CloudIndexObjectRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get scope =>
+      $composableBuilder(column: $table.scope, builder: (column) => column);
+
+  GeneratedColumn<String> get category =>
+      $composableBuilder(column: $table.category, builder: (column) => column);
+
+  GeneratedColumn<String> get objectId =>
+      $composableBuilder(column: $table.objectId, builder: (column) => column);
+
+  GeneratedColumn<String> get contentHash => $composableBuilder(
+    column: $table.contentHash,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get objectJson => $composableBuilder(
+    column: $table.objectJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$CloudIndexObjectRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $CloudIndexObjectRowsTable,
+          CloudIndexObjectRow,
+          $$CloudIndexObjectRowsTableFilterComposer,
+          $$CloudIndexObjectRowsTableOrderingComposer,
+          $$CloudIndexObjectRowsTableAnnotationComposer,
+          $$CloudIndexObjectRowsTableCreateCompanionBuilder,
+          $$CloudIndexObjectRowsTableUpdateCompanionBuilder,
+          (
+            CloudIndexObjectRow,
+            BaseReferences<
+              _$StorageV2DriftDatabase,
+              $CloudIndexObjectRowsTable,
+              CloudIndexObjectRow
+            >,
+          ),
+          CloudIndexObjectRow,
+          PrefetchHooks Function()
+        > {
+  $$CloudIndexObjectRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $CloudIndexObjectRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$CloudIndexObjectRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$CloudIndexObjectRowsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$CloudIndexObjectRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> scope = const Value.absent(),
+                Value<String> category = const Value.absent(),
+                Value<String> objectId = const Value.absent(),
+                Value<String> contentHash = const Value.absent(),
+                Value<String> objectJson = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => CloudIndexObjectRowsCompanion(
+                scope: scope,
+                category: category,
+                objectId: objectId,
+                contentHash: contentHash,
+                objectJson: objectJson,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String scope,
+                required String category,
+                required String objectId,
+                required String contentHash,
+                Value<String> objectJson = const Value.absent(),
+                required String updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => CloudIndexObjectRowsCompanion.insert(
+                scope: scope,
+                category: category,
+                objectId: objectId,
+                contentHash: contentHash,
+                objectJson: objectJson,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$CloudIndexObjectRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $CloudIndexObjectRowsTable,
+      CloudIndexObjectRow,
+      $$CloudIndexObjectRowsTableFilterComposer,
+      $$CloudIndexObjectRowsTableOrderingComposer,
+      $$CloudIndexObjectRowsTableAnnotationComposer,
+      $$CloudIndexObjectRowsTableCreateCompanionBuilder,
+      $$CloudIndexObjectRowsTableUpdateCompanionBuilder,
+      (
+        CloudIndexObjectRow,
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $CloudIndexObjectRowsTable,
+          CloudIndexObjectRow
+        >,
+      ),
+      CloudIndexObjectRow,
+      PrefetchHooks Function()
+    >;
+typedef $$CloudIndexCategoryStatRowsTableCreateCompanionBuilder =
+    CloudIndexCategoryStatRowsCompanion Function({
+      required String scope,
+      required String category,
+      required int objectCount,
+      required String updatedAt,
+      Value<int> rowid,
+    });
+typedef $$CloudIndexCategoryStatRowsTableUpdateCompanionBuilder =
+    CloudIndexCategoryStatRowsCompanion Function({
+      Value<String> scope,
+      Value<String> category,
+      Value<int> objectCount,
+      Value<String> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$CloudIndexCategoryStatRowsTableFilterComposer
+    extends
+        Composer<_$StorageV2DriftDatabase, $CloudIndexCategoryStatRowsTable> {
+  $$CloudIndexCategoryStatRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get category => $composableBuilder(
+    column: $table.category,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get objectCount => $composableBuilder(
+    column: $table.objectCount,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$CloudIndexCategoryStatRowsTableOrderingComposer
+    extends
+        Composer<_$StorageV2DriftDatabase, $CloudIndexCategoryStatRowsTable> {
+  $$CloudIndexCategoryStatRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get category => $composableBuilder(
+    column: $table.category,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get objectCount => $composableBuilder(
+    column: $table.objectCount,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$CloudIndexCategoryStatRowsTableAnnotationComposer
+    extends
+        Composer<_$StorageV2DriftDatabase, $CloudIndexCategoryStatRowsTable> {
+  $$CloudIndexCategoryStatRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get scope =>
+      $composableBuilder(column: $table.scope, builder: (column) => column);
+
+  GeneratedColumn<String> get category =>
+      $composableBuilder(column: $table.category, builder: (column) => column);
+
+  GeneratedColumn<int> get objectCount => $composableBuilder(
+    column: $table.objectCount,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$CloudIndexCategoryStatRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $CloudIndexCategoryStatRowsTable,
+          CloudIndexCategoryStatRow,
+          $$CloudIndexCategoryStatRowsTableFilterComposer,
+          $$CloudIndexCategoryStatRowsTableOrderingComposer,
+          $$CloudIndexCategoryStatRowsTableAnnotationComposer,
+          $$CloudIndexCategoryStatRowsTableCreateCompanionBuilder,
+          $$CloudIndexCategoryStatRowsTableUpdateCompanionBuilder,
+          (
+            CloudIndexCategoryStatRow,
+            BaseReferences<
+              _$StorageV2DriftDatabase,
+              $CloudIndexCategoryStatRowsTable,
+              CloudIndexCategoryStatRow
+            >,
+          ),
+          CloudIndexCategoryStatRow,
+          PrefetchHooks Function()
+        > {
+  $$CloudIndexCategoryStatRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $CloudIndexCategoryStatRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$CloudIndexCategoryStatRowsTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$CloudIndexCategoryStatRowsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$CloudIndexCategoryStatRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> scope = const Value.absent(),
+                Value<String> category = const Value.absent(),
+                Value<int> objectCount = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => CloudIndexCategoryStatRowsCompanion(
+                scope: scope,
+                category: category,
+                objectCount: objectCount,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String scope,
+                required String category,
+                required int objectCount,
+                required String updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => CloudIndexCategoryStatRowsCompanion.insert(
+                scope: scope,
+                category: category,
+                objectCount: objectCount,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$CloudIndexCategoryStatRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $CloudIndexCategoryStatRowsTable,
+      CloudIndexCategoryStatRow,
+      $$CloudIndexCategoryStatRowsTableFilterComposer,
+      $$CloudIndexCategoryStatRowsTableOrderingComposer,
+      $$CloudIndexCategoryStatRowsTableAnnotationComposer,
+      $$CloudIndexCategoryStatRowsTableCreateCompanionBuilder,
+      $$CloudIndexCategoryStatRowsTableUpdateCompanionBuilder,
+      (
+        CloudIndexCategoryStatRow,
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $CloudIndexCategoryStatRowsTable,
+          CloudIndexCategoryStatRow
+        >,
+      ),
+      CloudIndexCategoryStatRow,
+      PrefetchHooks Function()
+    >;
+typedef $$CloudReseedTaskRowsTableCreateCompanionBuilder =
+    CloudReseedTaskRowsCompanion Function({
+      required String scope,
+      required String operationId,
+      required int generation,
+      required String status,
+      Value<String> operationJson,
+      required String createdAt,
+      required String updatedAt,
+      Value<int> rowid,
+    });
+typedef $$CloudReseedTaskRowsTableUpdateCompanionBuilder =
+    CloudReseedTaskRowsCompanion Function({
+      Value<String> scope,
+      Value<String> operationId,
+      Value<int> generation,
+      Value<String> status,
+      Value<String> operationJson,
+      Value<String> createdAt,
+      Value<String> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$CloudReseedTaskRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $CloudReseedTaskRowsTable> {
+  $$CloudReseedTaskRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get operationId => $composableBuilder(
+    column: $table.operationId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get generation => $composableBuilder(
+    column: $table.generation,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get operationJson => $composableBuilder(
+    column: $table.operationJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$CloudReseedTaskRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $CloudReseedTaskRowsTable> {
+  $$CloudReseedTaskRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get operationId => $composableBuilder(
+    column: $table.operationId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get generation => $composableBuilder(
+    column: $table.generation,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get operationJson => $composableBuilder(
+    column: $table.operationJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$CloudReseedTaskRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $CloudReseedTaskRowsTable> {
+  $$CloudReseedTaskRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get scope =>
+      $composableBuilder(column: $table.scope, builder: (column) => column);
+
+  GeneratedColumn<String> get operationId => $composableBuilder(
+    column: $table.operationId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get generation => $composableBuilder(
+    column: $table.generation,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<String> get operationJson => $composableBuilder(
+    column: $table.operationJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$CloudReseedTaskRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $CloudReseedTaskRowsTable,
+          CloudReseedTaskRow,
+          $$CloudReseedTaskRowsTableFilterComposer,
+          $$CloudReseedTaskRowsTableOrderingComposer,
+          $$CloudReseedTaskRowsTableAnnotationComposer,
+          $$CloudReseedTaskRowsTableCreateCompanionBuilder,
+          $$CloudReseedTaskRowsTableUpdateCompanionBuilder,
+          (
+            CloudReseedTaskRow,
+            BaseReferences<
+              _$StorageV2DriftDatabase,
+              $CloudReseedTaskRowsTable,
+              CloudReseedTaskRow
+            >,
+          ),
+          CloudReseedTaskRow,
+          PrefetchHooks Function()
+        > {
+  $$CloudReseedTaskRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $CloudReseedTaskRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$CloudReseedTaskRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$CloudReseedTaskRowsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$CloudReseedTaskRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> scope = const Value.absent(),
+                Value<String> operationId = const Value.absent(),
+                Value<int> generation = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<String> operationJson = const Value.absent(),
+                Value<String> createdAt = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => CloudReseedTaskRowsCompanion(
+                scope: scope,
+                operationId: operationId,
+                generation: generation,
+                status: status,
+                operationJson: operationJson,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String scope,
+                required String operationId,
+                required int generation,
+                required String status,
+                Value<String> operationJson = const Value.absent(),
+                required String createdAt,
+                required String updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => CloudReseedTaskRowsCompanion.insert(
+                scope: scope,
+                operationId: operationId,
+                generation: generation,
+                status: status,
+                operationJson: operationJson,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$CloudReseedTaskRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $CloudReseedTaskRowsTable,
+      CloudReseedTaskRow,
+      $$CloudReseedTaskRowsTableFilterComposer,
+      $$CloudReseedTaskRowsTableOrderingComposer,
+      $$CloudReseedTaskRowsTableAnnotationComposer,
+      $$CloudReseedTaskRowsTableCreateCompanionBuilder,
+      $$CloudReseedTaskRowsTableUpdateCompanionBuilder,
+      (
+        CloudReseedTaskRow,
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $CloudReseedTaskRowsTable,
+          CloudReseedTaskRow
+        >,
+      ),
+      CloudReseedTaskRow,
+      PrefetchHooks Function()
+    >;
+typedef $$CloudRequestRowsTableCreateCompanionBuilder =
+    CloudRequestRowsCompanion Function({
+      required String scope,
+      required String requestKey,
+      required String requestId,
+      required String updatedAt,
+      Value<int> rowid,
+    });
+typedef $$CloudRequestRowsTableUpdateCompanionBuilder =
+    CloudRequestRowsCompanion Function({
+      Value<String> scope,
+      Value<String> requestKey,
+      Value<String> requestId,
+      Value<String> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$CloudRequestRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $CloudRequestRowsTable> {
+  $$CloudRequestRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get requestKey => $composableBuilder(
+    column: $table.requestKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get requestId => $composableBuilder(
+    column: $table.requestId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$CloudRequestRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $CloudRequestRowsTable> {
+  $$CloudRequestRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get requestKey => $composableBuilder(
+    column: $table.requestKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get requestId => $composableBuilder(
+    column: $table.requestId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$CloudRequestRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $CloudRequestRowsTable> {
+  $$CloudRequestRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get scope =>
+      $composableBuilder(column: $table.scope, builder: (column) => column);
+
+  GeneratedColumn<String> get requestKey => $composableBuilder(
+    column: $table.requestKey,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get requestId =>
+      $composableBuilder(column: $table.requestId, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$CloudRequestRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $CloudRequestRowsTable,
+          CloudRequestRow,
+          $$CloudRequestRowsTableFilterComposer,
+          $$CloudRequestRowsTableOrderingComposer,
+          $$CloudRequestRowsTableAnnotationComposer,
+          $$CloudRequestRowsTableCreateCompanionBuilder,
+          $$CloudRequestRowsTableUpdateCompanionBuilder,
+          (
+            CloudRequestRow,
+            BaseReferences<
+              _$StorageV2DriftDatabase,
+              $CloudRequestRowsTable,
+              CloudRequestRow
+            >,
+          ),
+          CloudRequestRow,
+          PrefetchHooks Function()
+        > {
+  $$CloudRequestRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $CloudRequestRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$CloudRequestRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$CloudRequestRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$CloudRequestRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> scope = const Value.absent(),
+                Value<String> requestKey = const Value.absent(),
+                Value<String> requestId = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => CloudRequestRowsCompanion(
+                scope: scope,
+                requestKey: requestKey,
+                requestId: requestId,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String scope,
+                required String requestKey,
+                required String requestId,
+                required String updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => CloudRequestRowsCompanion.insert(
+                scope: scope,
+                requestKey: requestKey,
+                requestId: requestId,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$CloudRequestRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $CloudRequestRowsTable,
+      CloudRequestRow,
+      $$CloudRequestRowsTableFilterComposer,
+      $$CloudRequestRowsTableOrderingComposer,
+      $$CloudRequestRowsTableAnnotationComposer,
+      $$CloudRequestRowsTableCreateCompanionBuilder,
+      $$CloudRequestRowsTableUpdateCompanionBuilder,
+      (
+        CloudRequestRow,
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $CloudRequestRowsTable,
+          CloudRequestRow
+        >,
+      ),
+      CloudRequestRow,
       PrefetchHooks Function()
     >;
 
@@ -21388,4 +24581,18 @@ class $StorageV2DriftDatabaseManager {
       $$SyncScopeBaselineRowsTableTableManager(_db, _db.syncScopeBaselineRows);
   $$SyncAppliedChangeRowsTableTableManager get syncAppliedChangeRows =>
       $$SyncAppliedChangeRowsTableTableManager(_db, _db.syncAppliedChangeRows);
+  $$CloudIndexStateRowsTableTableManager get cloudIndexStateRows =>
+      $$CloudIndexStateRowsTableTableManager(_db, _db.cloudIndexStateRows);
+  $$CloudIndexObjectRowsTableTableManager get cloudIndexObjectRows =>
+      $$CloudIndexObjectRowsTableTableManager(_db, _db.cloudIndexObjectRows);
+  $$CloudIndexCategoryStatRowsTableTableManager
+  get cloudIndexCategoryStatRows =>
+      $$CloudIndexCategoryStatRowsTableTableManager(
+        _db,
+        _db.cloudIndexCategoryStatRows,
+      );
+  $$CloudReseedTaskRowsTableTableManager get cloudReseedTaskRows =>
+      $$CloudReseedTaskRowsTableTableManager(_db, _db.cloudReseedTaskRows);
+  $$CloudRequestRowsTableTableManager get cloudRequestRows =>
+      $$CloudRequestRowsTableTableManager(_db, _db.cloudRequestRows);
 }

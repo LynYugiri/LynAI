@@ -6,20 +6,29 @@ import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:crypto/crypto.dart';
 import 'package:lynai/models/backup_models.dart';
+import 'package:lynai/models/conversation.dart';
+import 'package:lynai/models/message.dart';
 import 'package:lynai/models/model_config.dart';
+import 'package:lynai/models/note.dart';
+import 'package:lynai/models/plugin.dart';
+import 'package:lynai/models/task.dart';
 import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
+import 'package:lynai/providers/plugin_provider.dart';
 import 'package:lynai/providers/roleplay_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
+import 'package:lynai/providers/task_provider.dart';
 import 'package:lynai/repositories/model_config_repository.dart';
 import 'package:lynai/services/backup_encryption.dart';
 import 'package:lynai/services/backup_service.dart';
 import 'package:lynai/services/secret_store.dart';
 import 'package:lynai/services/storage_v2_service.dart';
 import 'package:lynai/services/storage_v2_upgrade_service.dart';
+import 'package:lynai/repositories/plugin_repository.dart';
 import 'package:sqlite3/sqlite3.dart';
 
+import 'support/fake_path_provider.dart';
 import 'support/memory_repositories.dart';
 
 const _apiKey = 'sk-plaintext-must-never-leak';
@@ -52,6 +61,22 @@ BackupService _backupService(
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  Directory? pathProviderRoot;
+
+  setUp(() async {
+    pathProviderRoot = await installFakePathProvider(
+      'lynai_secure_backup_path_provider_',
+    );
+  });
+
+  tearDown(() async {
+    final root = pathProviderRoot;
+    pathProviderRoot = null;
+    await deleteFakePathProviderRoot(root);
+  });
+
   test(
     'plaintext model config migration is idempotent and scrubs SQLite',
     () async {
@@ -276,6 +301,189 @@ void main() {
     expect(parsed.data.modelConfigs!.single.apiKey, isEmpty);
   });
 
+  test(
+    'schema 10 export scrubs device paths and plugin runtime state',
+    () async {
+      final root = await Directory.systemTemp.createTemp('lynai_backup_scrub_');
+      final pluginRoot = await Directory.systemTemp.createTemp(
+        'lynai_backup_plugin_scrub_',
+      );
+      final storage = StorageV2Service(rootDirectory: root);
+      try {
+        await StorageV2UpgradeService(storageV2: storage).ensureReady();
+        final attachment = File('${root.path}/attachment.txt');
+        await attachment.writeAsString('attachment', flush: true);
+        final background = File('${root.path}/background.png');
+        await background.writeAsBytes([1, 2, 3], flush: true);
+        final pluginRepository = PluginRepository(rootOverride: pluginRoot);
+        final plugins = PluginProvider(repository: pluginRepository);
+        final pluginDir = Directory('${pluginRoot.path}/installed/p');
+        await pluginDir.create(recursive: true);
+        await File('${pluginDir.path}/main.lua').writeAsString('return true');
+        await File('${pluginDir.path}/secrets.json').writeAsString('secret');
+        await File('${pluginDir.path}/.env').writeAsString('TOKEN=secret');
+        await pluginRepository.saveInstalledPlugins([
+          InstalledPlugin(
+            manifest: PluginManifest.fromJson({
+              'id': 'p',
+              'name': 'P',
+              'version': '1',
+              'entry': 'main.lua',
+            }),
+            path: pluginDir.path,
+            enabled: true,
+            grantedPermissions: const [],
+            enabledFeaturePages: const [],
+            loadError: 'old error',
+            syncedOrigin: true,
+            syncOriginScope: 'server|user',
+          ),
+        ]);
+        await plugins.load();
+        await pluginRepository.savePluginSettings('p', {
+          'safe': true,
+          'nested': {
+            'apiKey': 'secret',
+            'items': [
+              {'password': 'secret', 'value': 1},
+            ],
+          },
+        });
+        await pluginRepository.savePluginStorage('p', {
+          'token': 'secret',
+          'items': [
+            {'authorization': 'secret', 'value': 2},
+          ],
+        });
+        final settings = SettingsProvider(storageV2: storage);
+        await storage.writeDataFile('app_settings.json', {
+          ...settings.settings.toJson(),
+          'storageV2': {
+            'backgroundResourceId': 'old-background',
+            'syncCursor': 'must-not-export',
+          },
+        });
+        await settings.loadSettings();
+        await settings.replaceSettings(
+          settings.settings.copyWith(backgroundImagePath: background.path),
+        );
+        final conversations = ConversationProvider(storageV2: storage);
+        await conversations.loadConversations();
+        await conversations.replaceConversations([
+          Conversation(
+            id: 'c',
+            title: 'C',
+            messages: [
+              Message(
+                id: 'm',
+                role: 'user',
+                content: 'x',
+                images: [
+                  MessageImage(
+                    path: attachment.path,
+                    name: 'attachment.txt',
+                    size: await attachment.length(),
+                  ),
+                ],
+                timestamp: DateTime.utc(2026),
+              ),
+            ],
+            modelId: 'model',
+            createdAt: DateTime.utc(2026),
+            updatedAt: DateTime.utc(2026),
+          ),
+        ]);
+        final features = FeatureProvider(storageV2: storage);
+        await features.load();
+        final bytes =
+            await BackupService(
+              settingsProvider: settings,
+              modelConfigProvider: memoryModelConfigProvider(),
+              conversationProvider: conversations,
+              featureProvider: features,
+              roleplayProvider: RoleplayProvider(),
+              pluginProvider: plugins,
+              pluginRepository: pluginRepository,
+              storageV2: storage,
+              appVersionLoader: () async => 'test',
+            ).exportZipBytes(
+              const BackupSelection(
+                {
+                  BackupSection.settings,
+                  BackupSection.conversations,
+                  BackupSection.plugins,
+                },
+                settingsParts: {BackupSettingsPart.appearance},
+                conversationIds: {'c'},
+                pluginIds: {'p'},
+              ),
+            );
+
+        final archive = ZipDecoder().decodeBytes(bytes);
+        Map<String, dynamic> jsonFile(String name) =>
+            jsonDecode(
+                  utf8.decode(
+                    archive.files
+                            .singleWhere((file) => file.name == name)
+                            .content
+                        as List<int>,
+                  ),
+                )
+                as Map<String, dynamic>;
+        expect(jsonFile('manifest.json')['schemaVersion'], 10);
+        final manifest = jsonFile('manifest.json');
+        expect(jsonEncode(manifest), isNot(contains(root.path)));
+        expect(jsonEncode(manifest), isNot(contains('originalPath')));
+        final settingsJson = jsonFile('settings.json')['appSettings'] as Map;
+        expect(settingsJson['storageV2'], {
+          'backgroundResourceId': isA<String>(),
+        });
+        expect(settingsJson['backgroundImagePath'], startsWith('asset://'));
+        final conversationsJson = jsonFile('conversations.json');
+        expect(jsonEncode(conversationsJson), isNot(contains(root.path)));
+        expect(jsonEncode(conversationsJson), isNot(contains('legacyPath')));
+        final attachmentRow =
+            (conversationsJson['messageAttachments'] as List).single as Map;
+        expect(attachmentRow['path'], startsWith('asset://'));
+        final resources = jsonFile('resources.json')['resources'] as List;
+        expect(
+          resources.every((item) => !(item as Map).containsKey('originalPath')),
+          isTrue,
+        );
+        final plugin =
+            (jsonFile('plugins/installed_plugins.json')['plugins'] as List)
+                    .single
+                as Map;
+        expect(jsonEncode(plugin), isNot(contains('secret')));
+        expect(plugin['settings'], {
+          'safe': true,
+          'nested': {
+            'items': [
+              {'value': 1},
+            ],
+          },
+        });
+        expect(plugin['storage'], {
+          'items': [
+            {'value': 2},
+          ],
+        });
+        expect(
+          (plugin['files'] as List).map((item) => (item as Map)['path']),
+          isNot(contains(anyOf('secrets.json', '.env'))),
+        );
+        final pluginState = plugin['plugin'] as Map;
+        expect(pluginState['syncedOrigin'], isNull);
+        expect(pluginState['syncOriginScope'], isNull);
+        expect(pluginState['loadError'], isNull);
+      } finally {
+        await storage.close();
+        await root.delete(recursive: true);
+        await pluginRoot.delete(recursive: true);
+      }
+    },
+  );
+
   test('schema 8 rejects plugin size or hash mismatch while reading', () async {
     final archive = Archive();
     void add(String name, List<int> bytes) {
@@ -328,6 +536,67 @@ void main() {
     );
   });
 
+  test('schema 5-7 skip plugin installation payloads with warnings', () async {
+    for (final schemaVersion in [5, 6, 7]) {
+      final archive = Archive();
+      void add(String name, Object value) {
+        final bytes = value is String
+            ? utf8.encode(value)
+            : utf8.encode(jsonEncode(value));
+        archive.addFile(ArchiveFile(name, bytes.length, bytes));
+      }
+
+      add('plugins/installed/p/main.lua', 'return true');
+      add('plugins/installed_plugins.json', {
+        'plugins': [
+          {
+            'plugin': {
+              'manifest': {
+                'id': 'p',
+                'name': 'P',
+                'version': '1',
+                'entry': 'main.lua',
+              },
+              'path': '/old/device/plugin',
+              'enabled': true,
+            },
+            'settings': {'enabled': true},
+            'storage': {'value': 1},
+            'files': [
+              {
+                'path': 'main.lua',
+                'archivePath': 'plugins/installed/p/main.lua',
+              },
+            ],
+          },
+        ],
+      });
+      add('manifest.json', {
+        'type': 'lynai.backup',
+        'schemaVersion': schemaVersion,
+        'sections': {
+          'plugins': {
+            'enabled': true,
+            'files': [
+              'plugins/installed_plugins.json',
+              'plugins/installed/p/main.lua',
+            ],
+          },
+        },
+      });
+
+      final parsed = await _backupService(
+        memoryModelConfigProvider(),
+      ).readZipBytes(ZipEncoder().encode(archive));
+      expect(parsed.data.plugins, isEmpty, reason: 'schema $schemaVersion');
+      expect(
+        parsed.warnings,
+        contains(contains('可执行文件和关联设置不恢复')),
+        reason: 'schema $schemaVersion',
+      );
+    }
+  });
+
   test('backup ZIP rejects duplicates, traversal, and symlinks', () async {
     final service = _backupService(memoryModelConfigProvider());
     final archives = <List<int>>[
@@ -355,6 +624,277 @@ void main() {
         throwsA(isA<FormatException>()),
       );
     }
+  });
+
+  test('backup ZIP rejects database and sync internal files', () async {
+    final service = _backupService(memoryModelConfigProvider());
+    for (final path in [
+      'app.db',
+      'data.sqlite3',
+      'sync_outbox.json',
+      'sync/state.json',
+      'sync_conflicts',
+      'sync_scope_baselines.json',
+      'device_identity.json',
+      'device_private_key.json',
+      'account_token.json',
+      'refresh_token.json',
+    ]) {
+      final archive = Archive()
+        ..addFile(
+          ArchiveFile.string(
+            'manifest.json',
+            jsonEncode({
+              'type': 'lynai.backup',
+              'schemaVersion': 10,
+              'sections': <String, dynamic>{},
+            }),
+          ),
+        )
+        ..addFile(ArchiveFile.string(path, 'x'));
+      await expectLater(
+        service.readZipBytes(ZipEncoder().encode(archive)),
+        throwsA(isA<FormatException>()),
+        reason: path,
+      );
+    }
+  });
+
+  test('schema 5-10 malformed declared containers fail closed', () async {
+    for (final schemaVersion in [5, 6, 7, 8, 9, 10]) {
+      final archive = Archive()
+        ..addFile(
+          ArchiveFile.string(
+            'model_configs.json',
+            jsonEncode({'models': <String, Object>{}}),
+          ),
+        )
+        ..addFile(
+          ArchiveFile.string(
+            'manifest.json',
+            jsonEncode({
+              'type': 'lynai.backup',
+              'schemaVersion': schemaVersion,
+              'sections': {
+                'settings': {
+                  'enabled': true,
+                  'files': ['model_configs.json'],
+                },
+              },
+            }),
+          ),
+        );
+      await expectLater(
+        _backupService(
+          memoryModelConfigProvider(),
+        ).readZipBytes(ZipEncoder().encode(archive)),
+        throwsA(isA<FormatException>()),
+        reason: 'schema $schemaVersion',
+      );
+    }
+  });
+
+  test('canonical backup rejects undeclared business files', () async {
+    final archive = Archive()
+      ..addFile(
+        ArchiveFile.string(
+          'manifest.json',
+          jsonEncode({
+            'type': 'lynai.backup',
+            'schemaVersion': 10,
+            'sections': <String, Object>{},
+          }),
+        ),
+      )
+      ..addFile(ArchiveFile.string('tasks.json', '{"tasks":[]}'));
+
+    await expectLater(
+      _backupService(
+        memoryModelConfigProvider(),
+      ).readZipBytes(ZipEncoder().encode(archive)),
+      throwsA(isA<FormatException>()),
+    );
+  });
+
+  test(
+    'plugin validation completes before selected task persistence',
+    () async {
+      final now = DateTime.utc(2026);
+      final tasks = TaskProvider();
+      await tasks.replaceAll(
+        tasks: [
+          Task(id: 'local', title: 'Local', createdAt: now, updatedAt: now),
+        ],
+        lists: const [],
+        entries: const [],
+      );
+      final service = BackupService(
+        settingsProvider: SettingsProvider(
+          repository: MemorySettingsRepository(),
+        ),
+        modelConfigProvider: memoryModelConfigProvider(),
+        conversationProvider: memoryConversationProvider(),
+        featureProvider: FeatureProvider(),
+        roleplayProvider: memoryRoleplayProvider(),
+        taskProvider: tasks,
+        appVersionLoader: () async => 'test',
+      );
+      final incomingPlugin = BackupPluginData(
+        plugin: InstalledPlugin(
+          manifest: PluginManifest.fromJson({
+            'id': 'bad-plugin',
+            'name': 'Bad',
+            'version': '1',
+            'entry': 'main.lua',
+          }),
+          path: '',
+          enabled: true,
+          grantedPermissions: const [],
+          enabledFeaturePages: const [],
+        ),
+        files: const [
+          BackupPluginFile(
+            path: 'main.lua',
+            archivePath: 'plugins/installed/bad-plugin/main.lua',
+          ),
+        ],
+      );
+
+      await expectLater(
+        service.importArchive(
+          BackupArchiveData(
+            manifest: const {'schemaVersion': 10},
+            data: BackupData(
+              tasks: [
+                Task(
+                  id: 'incoming',
+                  title: 'Incoming',
+                  createdAt: now,
+                  updatedAt: now,
+                ),
+              ],
+              plugins: [incomingPlugin],
+            ),
+            pluginFiles: {
+              'plugins/installed/bad-plugin/main.lua': utf8.encode(
+                'return true',
+              ),
+            },
+          ),
+          const ImportPlan(
+            selection: BackupSelection(
+              {BackupSection.tasks, BackupSection.plugins},
+              taskIds: {'incoming'},
+              pluginIds: {'bad-plugin'},
+            ),
+            mode: ImportMode.merge,
+          ),
+        ),
+        throwsA(isA<FormatException>()),
+      );
+      expect(tasks.tasks.map((item) => item.id), ['local']);
+    },
+  );
+
+  test(
+    'note contentHash must be 64 lowercase hex before path slicing',
+    () async {
+      final archive = Archive();
+      archive.addFile(
+        ArchiveFile.string(
+          'notes/revisions.json',
+          jsonEncode({
+            'revisions': [
+              {
+                'id': 'r',
+                'noteId': 'n',
+                'parentIds': const <String>[],
+                'authorDeviceId': 'test',
+                'contentHash': 'A',
+                'createdAt': '2026-01-01T00:00:00Z',
+              },
+            ],
+          }),
+        ),
+      );
+      archive.addFile(
+        ArchiveFile.string(
+          'manifest.json',
+          jsonEncode({
+            'type': 'lynai.backup',
+            'schemaVersion': 10,
+            'sections': {
+              'notes': {
+                'enabled': true,
+                'files': ['notes/revisions.json'],
+              },
+            },
+          }),
+        ),
+      );
+
+      await expectLater(
+        _backupService(
+          memoryModelConfigProvider(),
+        ).readZipBytes(ZipEncoder().encode(archive)),
+        throwsA(isA<FormatException>()),
+      );
+    },
+  );
+
+  test('note blobs are installed only for selected notes', () async {
+    final selected = utf8.encode('selected');
+    final skipped = utf8.encode('skipped');
+    final selectedHash = sha256.convert(selected).toString();
+    final skippedHash = sha256.convert(skipped).toString();
+    final feature = _RecordingFeatureProvider();
+    final service = BackupService(
+      settingsProvider: SettingsProvider(
+        repository: MemorySettingsRepository(),
+      ),
+      modelConfigProvider: memoryModelConfigProvider(),
+      conversationProvider: memoryConversationProvider(),
+      featureProvider: feature,
+      roleplayProvider: memoryRoleplayProvider(),
+      appVersionLoader: () async => 'test',
+    );
+    final now = DateTime.utc(2026);
+    final archive = BackupArchiveData(
+      manifest: const {},
+      data: BackupData(
+        notes: [
+          Note(
+            id: 'selected',
+            title: 'Selected',
+            content: '',
+            createdAt: now,
+            updatedAt: now,
+          ),
+          Note(
+            id: 'skipped',
+            title: 'Skipped',
+            content: '',
+            createdAt: now,
+            updatedAt: now,
+          ),
+        ],
+        noteRevisions: [
+          NoteRevision(id: 'r1', noteId: 'selected', contentHash: selectedHash),
+          NoteRevision(id: 'r2', noteId: 'skipped', contentHash: skippedHash),
+        ],
+      ),
+      noteBlobs: {selectedHash: selected, skippedHash: skipped},
+    );
+
+    await service.importArchive(
+      archive,
+      const ImportPlan(
+        selection: BackupSelection({}, noteIds: {'selected'}),
+        mode: ImportMode.merge,
+      ),
+    );
+
+    expect(feature.installedBlobs.keys, {selectedHash});
   });
 
   test('read and preview stage note blobs without installing them', () async {
@@ -418,6 +958,15 @@ void main() {
       await root.delete(recursive: true);
     }
   });
+}
+
+class _RecordingFeatureProvider extends FeatureProvider {
+  final Map<String, List<int>> installedBlobs = {};
+
+  @override
+  Future<void> installNoteRevisionBlobs(Map<String, List<int>> blobs) async {
+    installedBlobs.addAll(blobs);
+  }
 }
 
 List<int> _markFirstZipEntryAsSymlink(Archive archive) {

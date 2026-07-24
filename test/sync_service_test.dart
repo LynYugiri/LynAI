@@ -31,11 +31,11 @@ void main() {
 
       expect(
         message.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join(),
-        '4c796e41492f76312f73796e632d72657175657374000001000000020001000200000002343200030000001073657373696f6e2d766563746f722d310004000000346b7a6476766a32756d6e64757961756633356f33366b366b773436326d756a7672613436746e337571677a6f766d69686f6367610005000000080000018bcfe5687b00060000002041414543417751464267634943516f4c4441304f4478415245684d5546525958000700000004504f535400080000000d2f73796e632f6368616e676573000900000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f',
+        '4c796e41492f76312f73796e632d72657175657374000001000000020001000200000002343200030000001073657373696f6e2d766563746f722d310004000000346b7a6476766a32756d6e64757961756633356f33366b366b773436326d756a7672613436746e337571677a6f766d69686f6367610005000000080000018bcfe5687b00060000002041414543417751464267634943516f4c4441304f4478415245684d5546525958000700000004504f535400080000000d2f73796e632f6368616e676573000900000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000a000000080000000000000000',
       );
       expect(
         base64UrlEncode(signature.bytes).replaceAll('=', ''),
-        'ijPzt7fLykodsX18MwAXhwlvPUMMdtWqraTQUUwREshEkGTXxu09x8Ziz8a3dqkU2dCL6GVLgRoBKxzcGXSaCw',
+        'FT5HcRYQxD7mcUoZCUEJZJ2AvqBsdHELp3zmXdS1p7JqpZhKG3j3zY6CbA6-WPclbx1j7b1KydgUZEOm7UBtAw',
       );
     });
 
@@ -415,6 +415,56 @@ void main() {
       expect(limits.maxChangeDataBytes, 14);
       expect(limits.maxChangesPageSize, 15);
       expect(limits.maxBlobsPageSize, 16);
+    });
+
+    test('decodes generation and global cursor metadata', () async {
+      final service = _remoteSyncService(
+        _FakeBackendClient(
+          getResponses: {
+            '/sync/status': _jsonResponse(
+              '{"lastSeq":8,"blobCount":3,"generation":4,'
+              '"indexRevision":7,"minAvailableSeq":2}',
+              200,
+            ),
+            '/sync/changes?since=2&limit=500': _jsonResponse(
+              '{"changes":[],"latestSeq":2,"globalLatestSeq":8,'
+              '"hasMore":false,"nextSince":2,"generation":4,'
+              '"indexRevision":7,"minAvailableSeq":2}',
+              200,
+            ),
+          },
+        ),
+      );
+
+      final status = await service.getStatus();
+      final page = await service.getChanges(since: 2);
+
+      expect(status.generation, 4);
+      expect(status.indexRevision, 7);
+      expect(status.minAvailableSeq, 2);
+      expect(page.generation, 4);
+      expect(page.indexRevision, 7);
+      expect(page.minAvailableSeq, 2);
+      expect(page.globalLatestSeq, 8);
+    });
+
+    test('rejects nextSince above globalLatestSeq', () async {
+      final service = _remoteSyncService(
+        _FakeBackendClient(
+          getResponses: {
+            '/sync/changes?since=0&limit=500': _jsonResponse(
+              '{"changes":[],"latestSeq":3,"globalLatestSeq":2,'
+              '"hasMore":false,"nextSince":3}',
+              200,
+            ),
+          },
+        ),
+      );
+
+      await expectLater(
+        service.getChanges(since: 0),
+        throwsA(isA<FormatException>()),
+      );
     });
 
     test('lists every blob page using backend nextAfter cursor', () async {

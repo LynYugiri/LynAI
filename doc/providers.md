@@ -19,6 +19,7 @@ MultiProvider(
     ChangeNotifierProvider(create: (_) => SettingsProvider()),
     ChangeNotifierProvider(create: (_) => PluginProvider()),
     ChangeNotifierProvider(create: (_) => AccountProvider()),
+    ChangeNotifierProvider(create: (_) => CloudDataProvider()),
   ],
 )
 ```
@@ -263,6 +264,14 @@ Provider 的更新策略是：先改内存并通知 UI，再把持久化操作�
 当前同步覆盖对话、消息、消息附件、附件资源、`tasks`/`task_lists`/`task_list_entries`、`calendar_events`/`anniversaries`、笔记、情景演绎和回收站。下载页会校验 change 必填字段、操作类型、`data.id`、页内严格递增 seq、重复 changeId 和 nextSince；上传只有在 legacy 整批 ACK 或精确匹配当前批次的 changeId/mutation version ACK 通过校验后才删除 Outbox。Outbox 以 256 行窗口读取，Blob 先收集描述符，确认远端缺失后才读取本地字节。资源 Blob 在引用记录之前上传或下载，并校验大小与 SHA-256。
 
 每次同步累积 `changedTables`，远端应用前只 flush 可能冲突的 Provider，完成后只重载受影响 Provider、插件或 Android 规划投影。涉及笔记表时，分页 Markdown materialization 在整次云同步结束时执行一次，而不是每个下载页执行；冲突解决仍按受影响表单独刷新。
+
+## CloudDataProvider
+
+文件：`lib/providers/cloud_data_provider.dart`
+
+`CloudDataProvider` 是数据管理页的云端管理状态入口。它按规范化后端 origin 和用户 ID 绑定 scope，从 `CloudDataRepository` 先恢复索引状态、分类统计、对象列表和 pending management operation 缓存，再通过 `CloudDataService` 刷新真实后端。刷新只有在 status 和全部分类对象页都成功后才原子替换缓存；网络或 revision 冲突不会清空旧缓存。
+
+purge 先由页面请求 preview 并确认，Provider 提交签名写后立即持久化返回的 operation，再刷新索引。手动双向同步前会拉取 `/sync/manage/operations`、持久化 `cloud_reseed_tasks` 并把现有云 scope 标为 full reseed；`SyncProvider` 完成 reseed 和上传后才逐个签名 ACK。同步或 ACK 中途失败时 task 保留，下次手动同步继续处理。
 
 ## PluginProvider
 

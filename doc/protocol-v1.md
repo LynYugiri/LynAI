@@ -123,7 +123,7 @@ signature = Ed25519-Sign(identityPrivateKey, enrollmentMessage)
 
 ## 5. 同步变更请求签名与幂等
 
-同步仍使用 Bearer token，设备签名不替代 TLS。v1 签名适用于 `POST /sync/changes`、兼容别名 `POST /sync/v1/changes` 和 `POST /sync/blobs/:sha256`。canonical target 使用服务端路由模板，不含 scheme、authority、query 或 fragment。blob 的 body hash 必须是实际传输的原始 octet-stream bytes；同一 blob 重试必须复用稳定 request ID 和完全相同的 body bytes。
+同步仍使用 Bearer token，设备签名不替代 TLS。v1 签名适用于 `POST /sync/changes`、兼容别名 `POST /sync/v1/changes`、`POST /sync/blobs/:sha256`、`POST /sync/manage/purge` 和 `POST /sync/manage/operations/:id/ack`。canonical target 使用服务端路由模板，不含 scheme、authority、query 或 fragment；后两个管理路由的 canonical target 精确为 `/sync/manage/purge` 和 `/sync/manage/operations/:id/ack`，不得把实际 operation ID 代入模板。blob 的 body hash 必须是实际传输的原始 octet-stream bytes；同一写请求重试必须复用稳定 request ID 和完全相同的 body bytes。
 
 请求头：
 
@@ -171,15 +171,27 @@ body schema：
 }
 ```
 
-服务端 MUST 在一个数据库事务中分配 seq、插入新 change、更新用户 latest seq，并保存精确 HTTP response bytes。`(userId, changeId)` 全局唯一于该用户：table/op/recordId/data/clientCreatedAt 相同的 change 可跨请求或设备返回原 seq ACK，不同内容冲突；首次接受该 change 的签名设备记入 `deviceId` 审计字段。`(userId, requestId)` 是 durable request key：相同 operation 和 body hash 必须返回精确原始 status、content type 和 body；不同 operation 或 body hash 必须返回 HTTP 409。响应包含每个 change 的 `changeId` 和已分配 `seq`。
+服务端 MUST 在一个数据库事务中分配 seq、插入新 change、更新用户 latest seq、维护当前记录投影及其 blob 引用，并保存精确 HTTP response bytes。`(userId, changeId)` 全局唯一于该用户：table/op/recordId/data/clientCreatedAt 相同的 change 可跨请求或设备返回原 seq ACK，不同内容冲突；首次接受该 change 的签名设备记入 `deviceId` 审计字段。`(userId, requestId)` 是 durable request key：相同 operation 和 body hash 必须返回精确原始 status、content type 和 body；不同 operation 或 body hash 必须返回 HTTP 409。响应包含每个 change 的 `changeId` 和已分配 `seq`。所有 upsert 的 `data` 必须是 JSON object，且 `data.id` 必须严格等于 `recordId`。
 
 客户端必须按“规范化后端 origin + 稳定 user ID”隔离云同步游标、Outbox 和冲突状态。切换账号不得确认、上传或应用另一账号作用域中的变更。兼容旧后端时，若成功上传响应中的 `changes` 条目没有可用 `changeId`，客户端可把响应视为旧式整批 ACK，并仅确认本次提交时捕获的精确 Outbox 快照；不得据此确认随后产生的新 mutation。
 
-业务 table allowlist 包含 `shared_settings` 和 `synced_model_configs`。`shared_settings` 的 v1 record ID 固定为 `app-settings`，payload 必须是 `SharedSettingsV1`，不得上传完整本地设置 JSON。`synced_model_configs` 以 Provider ID 为 record ID，payload 必须是 `SyncedModelConfigV1`，不得包含 `apiKey`、`apiKeySecretRef` 或其他秘密字段；托管 Relay Provider 不得由客户端上传。
+业务 table allowlist 为 `resources`、`conversations`、`messages`、`message_attachments`、`calendar_events`、`anniversaries`、`tasks`、`task_lists`、`task_list_entries`、`roleplay_scenarios`、`roleplay_threads`、`recycle_bin`、`note_folders`、`notes`、`note_pages`、`note_revisions`、`note_page_heads`、`note_page_tombstones`、`shared_settings`、`synced_model_configs`、`plugin_files`、`plugin_settings`、`plugin_config`。旧 planning 名 `schedules`、`todo_lists`、`todo_items` 不再接受。`shared_settings` 的 v1 record ID 固定为 `app-settings`，payload 必须是 `SharedSettingsV1`，不得上传完整本地设置 JSON。`synced_model_configs` 以 Provider ID 为 record ID，payload 必须是 `SyncedModelConfigV1`，不得在任何嵌套 Map/List 中包含 `apiKey`、`apiKeySecretRef` 或其他 secret-like key；托管 Relay Provider 不得由客户端上传。
 
-签名时间戳必须在服务端配置的 clock skew 内。未知设备、非当前 session 设备、已撤销设备、无效 body hash 或签名均被拒绝。客户端云同步在发送变更或 blob 前 MUST 完成 enrollment，并且每个上传请求 MUST 携带完整签名头；客户端不得在 enrollment、签名构造或签名验证失败时降级为 unsigned 请求。
+签名时间戳必须在服务端配置的 clock skew 内。未知设备、非当前 session 设备和已撤销设备分别返回 `unknown_device`、`device_session_mismatch`、`revoked_device`；无效 body hash 或签名返回 `invalid_signed_request`。客户端云同步在发送变更或 blob 前 MUST 完成 enrollment，并且每个上传请求 MUST 携带完整签名头；客户端不得在 enrollment、签名构造或签名验证失败时降级为 unsigned 请求。
 
-### 5.1 Sync 固定测试向量
+`GET /sync/status` 和别名 `GET /sync/index/status` 返回 `lastSeq`、`generation`、`indexRevision`、`minAvailableSeq`、兼容字段 `blobCount`、`usage` 和 `limits`。`usage` 至少包含当前 `recordCount`、`blobCount`、`blobBytes`、`blobRefCount`。新用户 `generation=1`、`minAvailableSeq=0`；`indexRevision` 是每用户单调递增的 projection revision，普通 change 至少推进到最新 seq，purge 额外推进一次，不能假定它始终等于 `lastSeq`。
+
+### 5.1 云端索引与 purge/reseed
+
+`GET /sync/index/objects` 必须传 `category` 和 `expectedIndexRevision`，可选 `after` 与 `limit`（1..500）。服务端按 `objectId` 严格升序 keyset 分页；`after` 是 opaque canonical base64url cursor。整个分页过程必须固定同一个 revision，若当前 revision 不等于 expected 值返回 HTTP 409 `index_revision_conflict`。`GET /sync/index/objects/:category/:objectId` 返回对象汇总和组成该对象的全部当前 projection records。
+
+稳定 category 映射如下：`conversations`；`messages`；`message_attachments -> attachments`；`resources`；所有 `note_*` 与 `notes -> notes`；`tasks/task_lists/task_list_entries -> tasks`；`calendar_events/anniversaries -> calendar`；`roleplay_scenarios/roleplay_threads -> roleplay`；以及 `recycle_bin`、`shared_settings -> settings`、`synced_model_configs -> models`、所有 `plugin_* -> plugins`。objectId 默认取 record ID；服务端可从 payload 提取父 ID：message 的 `conversationId`、attachment 的 `messageId`、note 子记录的 `noteId`、task list entry 的 `listId`、roleplay thread 的 `scenarioId`、plugin 子记录的 `pluginId`。父字段缺失时回退 record ID。
+
+`POST /sync/manage/purge/preview` 接受 `expectedIndexRevision` 和 selector，不修改数据。签名 `POST /sync/manage/purge` 还必须包含与签名头一致的 `requestId`。selector schema 为 `{"type":"object","category":"messages","objectId":"conversation-1"}`、`{"type":"category","category":"notes"}` 或 `{"type":"all"}`，未知字段和尾随 JSON 均拒绝。selective purge 删除匹配 projection、对应历史 change 和 projection blob refs，创建 `kind=selective` pending operation；all purge 删除该用户全部 projection/change/blob refs，递增 generation、把 `lastSeq/minAvailableSeq` 归零，并创建 `kind=full` pending operation。purge 不生成 tombstone，不删除 `sync_blobs` metadata 或文件；响应中的 `releasedBlobCandidates` 仅统计本次后不再被 projection 引用的 hash。
+
+`GET /sync/manage/operations` 只返回当前用户 pending operations。客户端完成对应 selective/full reseed 后，用签名 `POST /sync/manage/operations/:id/ack` 提交 `{"requestId":"..."}`。purge 与 ACK 都使用 `(userId, requestId)` durable replay：相同 operation/body hash 返回精确原响应，不同 operation/body hash 返回 HTTP 409。管理写在 per-user transaction lock 下执行，`expectedIndexRevision` 的比较、删除、generation/revision 更新、operation 创建和 replay 持久化必须原子提交。
+
+### 5.2 Sync 固定测试向量
 
 沿用第 8 节测试 seed/public key，并使用：
 

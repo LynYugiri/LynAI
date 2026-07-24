@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/sync_change.dart';
 import 'package:lynai/services/storage_v2_database.dart';
+import 'package:sqlite3/sqlite3.dart';
 
 void main() {
   group('StorageV2 sync persistence', () {
@@ -432,6 +433,152 @@ void main() {
       );
     });
 
+    test('full reseed resets cloud metadata and rebuilds canonical outbox', () async {
+      const scope = 'https://cloud.example|user-a';
+      await database.writeDataFile('tasks.json', {
+        'tasks': [_task('t1', 'snapshot')],
+      });
+      await database.activateSyncScope(scope, deviceId: _deviceId);
+      await database.updateSyncSince(scope, 12);
+      await database.batchIncremental(
+        [
+          _remote(
+            'tasks',
+            't1',
+            _task('t1', 'remote'),
+            seq: 13,
+            changeId: 'remote-before-reseed',
+          ),
+        ],
+        remote: true,
+        scope: scope,
+        nextSince: 13,
+      );
+      expect(await database.loadSyncConflicts(scope), hasLength(1));
+      await database.close();
+      final raw = sqlite3.open('${root.path}/storage_v2/app.db');
+      try {
+        raw.execute(
+          "INSERT INTO cloud_index_states(scope, generation, status_json, updated_at) VALUES (?, 2, '{}', 'before')",
+          [scope],
+        );
+        raw.execute(
+          "INSERT INTO cloud_index_objects(scope, category, object_id, content_hash, object_json, updated_at) VALUES (?, 'tasks', 't1', 'hash', '{}', 'before')",
+          [scope],
+        );
+        raw.execute(
+          "INSERT INTO cloud_index_category_stats VALUES (?, 'tasks', 1, 'before')",
+          [scope],
+        );
+        raw.execute(
+          "INSERT INTO cloud_reseed_tasks(scope, operation_id, generation, status, operation_json, created_at, updated_at) VALUES (?, 'operation-1', 2, 'pending', ?, 'before', 'before')",
+          [
+            scope,
+            '{"id":"operation-1","kind":"full","selectorType":"all","generation":2,"indexRevision":2,"createdAt":"2026-07-24T00:00:00Z"}',
+          ],
+        );
+      } finally {
+        raw.close();
+      }
+
+      await database.resetCloudSyncScope(scope, 3);
+      final reset = await database.syncScopeState(scope);
+      expect(reset.since, 0);
+      expect(reset.generation, 3);
+      expect(reset.fullReseedRequired, isTrue);
+      expect(await database.loadSyncOutbox(scope), isEmpty);
+      expect(await database.loadSyncConflicts(scope), isEmpty);
+
+      await database.prepareFullSyncSnapshot(scope, 3);
+      final prepared = await database.syncScopeState(scope);
+      final outbox = await database.loadSyncOutbox(scope);
+      expect(prepared.since, 0);
+      expect(prepared.generation, 3);
+      expect(prepared.fullReseedRequired, isFalse);
+      expect(
+        outbox.where((entry) => entry.table == 'tasks').single.recordId,
+        't1',
+      );
+      expect(
+        ((await database.loadDataFile('tasks.json'))?['tasks'] as List)
+            .single['title'],
+        'snapshot',
+      );
+      await database.close();
+      final verified = sqlite3.open('${root.path}/storage_v2/app.db');
+      try {
+        final state = verified.select(
+          'SELECT active, captures_local FROM sync_state WHERE scope = ?',
+          [scope],
+        ).single;
+        expect(state['active'], 1);
+        expect(state['captures_local'], 1);
+        expect(
+          verified.select(
+            'SELECT * FROM sync_applied_changes WHERE scope = ?',
+            [scope],
+          ),
+          isEmpty,
+        );
+        for (final table in [
+          'cloud_index_states',
+          'cloud_index_objects',
+          'cloud_index_category_stats',
+        ]) {
+          expect(
+            verified.select('SELECT * FROM $table WHERE scope = ?', [scope]),
+            isEmpty,
+          );
+        }
+        expect(
+          verified.select(
+            'SELECT operation_id FROM cloud_reseed_tasks WHERE scope = ?',
+            [scope],
+          ).single['operation_id'],
+          'operation-1',
+        );
+      } finally {
+        verified.close();
+      }
+    });
+
+    test(
+      'full reseed preserves deletes and blocks remote resurrection',
+      () async {
+        const scope = 'https://cloud.example|user-delete';
+        await database.writeDataFile('tasks.json', {
+          'tasks': [_task('deleted-task', 'local')],
+        });
+        await database.activateSyncScope(scope, deviceId: _deviceId);
+        await database.writeDataFile('tasks.json', {'tasks': <Object>[]});
+        expect((await database.loadSyncOutbox(scope)).single.op, 'delete');
+
+        await database.resetCloudSyncScope(scope, 2);
+        await database.prepareFullSyncSnapshot(scope, 2);
+        final outbox = await database.loadSyncOutbox(scope);
+        expect(outbox, hasLength(1));
+        expect(outbox.single.op, 'delete');
+        expect(outbox.single.recordId, 'deleted-task');
+
+        await database.batchIncremental(
+          [
+            _remote(
+              'tasks',
+              'deleted-task',
+              _task('deleted-task', 'stale remote'),
+              seq: 1,
+              changeId: 'stale-upsert',
+            ),
+          ],
+          remote: true,
+          scope: scope,
+          nextSince: 1,
+        );
+        expect((await database.loadDataFile('tasks.json'))?['tasks'], isEmpty);
+        expect((await database.loadSyncOutbox(scope)).single.op, 'delete');
+      },
+    );
+
     test('remote resources apply incrementally without outbox echo', () async {
       const scope = 'server|user-a';
       await database.activateSyncScope(scope, deviceId: _deviceId);
@@ -456,6 +603,220 @@ void main() {
       expect(await database.loadSyncOutbox(scope), isEmpty);
       expect(await database.syncSince(scope), 4);
     });
+
+    test('applied change ids are isolated by remote scope', () async {
+      const scopeA = 'https://a.example|user';
+      const scopeB = 'https://b.example|user';
+      await database.batchIncremental(
+        [
+          _remote(
+            'tasks',
+            'task-1',
+            _task('task-1', 'scope A'),
+            seq: 1,
+            changeId: 'shared-change',
+          ),
+        ],
+        remote: true,
+        scope: scopeA,
+        nextSince: 1,
+      );
+      await database.batchIncremental(
+        [
+          _remote(
+            'tasks',
+            'task-1',
+            _task('task-1', 'scope B', updatedAt: '2026-01-01T00:00:01Z'),
+            seq: 1,
+            changeId: 'shared-change',
+          ),
+        ],
+        remote: true,
+        scope: scopeB,
+        nextSince: 1,
+      );
+      await database.batchIncremental(
+        [
+          _remote(
+            'tasks',
+            'task-1',
+            _task('task-1', 'duplicate A', updatedAt: '2026-01-01T00:00:02Z'),
+            seq: 2,
+            changeId: 'shared-change',
+          ),
+        ],
+        remote: true,
+        scope: scopeA,
+        nextSince: 2,
+      );
+
+      final tasks = await database.loadDataFile('tasks.json');
+      expect((tasks?['tasks'] as List).single['title'], 'scope B');
+      await database.close();
+      final raw = sqlite3.open('${root.path}/storage_v2/app.db');
+      try {
+        final applied = raw.select(
+          "SELECT scope FROM sync_applied_changes WHERE change_id = 'shared-change'",
+        );
+        expect(
+          applied.map((row) => row['scope']),
+          unorderedEquals([scopeA, scopeB]),
+        );
+      } finally {
+        raw.close();
+      }
+    });
+
+    test('v16 to v17 preserves LAN state and resets cloud state', () async {
+      final storageRoot = Directory('${root.path}/storage_v2');
+      await storageRoot.create(recursive: true);
+      final raw = sqlite3.open('${storageRoot.path}/app.db');
+      try {
+        raw.execute('''
+CREATE TABLE storage_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+INSERT INTO storage_meta VALUES ('business.sentinel', 'unchanged');
+CREATE TABLE sync_state (
+  scope TEXT PRIMARY KEY,
+  since INTEGER NOT NULL DEFAULT 0,
+  initialized INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 0,
+  captures_local INTEGER NOT NULL DEFAULT 0,
+  device_id TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE sync_outbox (
+  scope TEXT NOT NULL,
+  table_name TEXT NOT NULL,
+  record_id TEXT NOT NULL,
+  op TEXT NOT NULL,
+  data_json TEXT,
+  change_id TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  client_created_at TEXT NOT NULL,
+  mutation_version INTEGER NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (scope, table_name, record_id)
+);
+CREATE TABLE sync_conflicts (
+  scope TEXT NOT NULL,
+  seq INTEGER NOT NULL,
+  table_name TEXT NOT NULL,
+  record_id TEXT NOT NULL,
+  op TEXT NOT NULL,
+  data_json TEXT,
+  change_id TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  client_created_at TEXT NOT NULL,
+  created_at TEXT,
+  local_op TEXT NOT NULL,
+  local_data_json TEXT,
+  local_change_id TEXT NOT NULL,
+  local_mutation_version INTEGER NOT NULL,
+  PRIMARY KEY (scope, seq)
+);
+CREATE TABLE sync_applied_changes (
+  change_id TEXT PRIMARY KEY,
+  source TEXT NOT NULL,
+  applied_at TEXT NOT NULL
+);
+INSERT INTO sync_state VALUES ('lan:v1', 8, 1, 1, 1, 'lan-device', 'before');
+INSERT INTO sync_state VALUES (
+  'https://cloud.example|user', 27, 1, 1, 1, 'cloud-device', 'before'
+);
+INSERT INTO sync_outbox VALUES (
+  'lan:v1', 'tasks', 'lan-task', 'upsert', '{}', 'lan-outbox',
+  'lan-device', 'before', 1, 'before'
+);
+INSERT INTO sync_outbox VALUES (
+  'https://cloud.example|user', 'tasks', 'cloud-task', 'upsert', '{}',
+  'cloud-outbox', 'cloud-device', 'before', 1, 'before'
+);
+INSERT INTO sync_outbox VALUES (
+  'https://cloud.example|user', 'tasks', 'cloud-deleted', 'delete', NULL,
+  'cloud-delete', 'cloud-device', 'before', 1, 'before'
+);
+INSERT INTO sync_conflicts VALUES (
+  'lan:v1', 1, 'tasks', 'lan-task', 'upsert', '{}', 'lan-conflict',
+  'remote', 'before', NULL, 'upsert', '{}', 'local', 1
+);
+INSERT INTO sync_conflicts VALUES (
+  'https://cloud.example|user', 2, 'tasks', 'cloud-task', 'upsert', '{}',
+  'cloud-conflict', 'remote', 'before', NULL, 'upsert', '{}', 'local', 1
+);
+INSERT INTO sync_applied_changes VALUES ('lan-applied', 'lan', 'before');
+INSERT INTO sync_applied_changes VALUES ('cloud-applied', 'cloud', 'before');
+PRAGMA user_version = 16;
+''');
+      } finally {
+        raw.close();
+      }
+
+      await database.loadDataFile('tasks.json');
+      await database.close();
+      final migrated = sqlite3.open('${storageRoot.path}/app.db');
+      try {
+        expect(migrated.userVersion, 18);
+        expect(
+          migrated
+              .select(
+                "SELECT value FROM storage_meta WHERE key = 'business.sentinel'",
+              )
+              .single['value'],
+          'unchanged',
+        );
+        final states = {
+          for (final row in migrated.select('SELECT * FROM sync_state'))
+            row['scope'] as String: row,
+        };
+        final lan = states['lan:v1']!;
+        expect(lan['since'], 8);
+        expect(lan['initialized'], 1);
+        expect(lan['active'], 1);
+        expect(lan['captures_local'], 1);
+        expect(lan['device_id'], 'lan-device');
+        expect(lan['generation'], 0);
+        expect(lan['full_reseed_required'], 0);
+        final cloud = states['https://cloud.example|user']!;
+        expect(cloud['since'], 0);
+        expect(cloud['initialized'], 0);
+        expect(cloud['active'], 1);
+        expect(cloud['captures_local'], 1);
+        expect(cloud['device_id'], 'cloud-device');
+        expect(cloud['generation'], 0);
+        expect(cloud['full_reseed_required'], 1);
+
+        final outbox = migrated.select(
+          'SELECT scope, op, record_id FROM sync_outbox ORDER BY scope',
+        );
+        expect(outbox, hasLength(2));
+        expect(outbox.map((row) => row['scope']), contains('lan:v1'));
+        expect(
+          outbox.where((row) => row['scope'] != 'lan:v1').single['op'],
+          'delete',
+        );
+        expect(
+          migrated.select('SELECT scope FROM sync_conflicts').single['scope'],
+          'lan:v1',
+        );
+        final applied = migrated.select('SELECT * FROM sync_applied_changes');
+        expect(applied, hasLength(1));
+        expect(applied.single['scope'], 'lan:v1');
+        expect(applied.single['change_id'], 'lan-applied');
+        expect(
+          migrated
+              .select("SELECT name FROM sqlite_master WHERE type = 'table'")
+              .map((row) => row['name']),
+          containsAll({
+            'cloud_index_states',
+            'cloud_index_objects',
+            'cloud_index_category_stats',
+            'cloud_reseed_tasks',
+          }),
+        );
+      } finally {
+        migrated.close();
+      }
+    });
   });
 }
 
@@ -466,13 +827,14 @@ SyncRemoteOperation _remote(
   String recordId,
   Map<String, dynamic> data, {
   required int seq,
+  String? changeId,
 }) => (
   table: table,
   op: 'upsert',
   data: data,
   change: SyncChange(
     seq: seq,
-    changeId: 'change-$seq',
+    changeId: changeId ?? 'change-$seq',
     deviceId: _deviceId,
     clientCreatedAt: DateTime.utc(2026, 7, 16),
     table: table,

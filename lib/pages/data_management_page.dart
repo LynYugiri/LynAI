@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/backup_models.dart';
+import '../models/cloud_data.dart';
 import '../models/anniversary.dart';
 import '../models/calendar_event.dart';
 import '../models/conversation.dart';
@@ -12,6 +13,8 @@ import '../models/roleplay.dart';
 import '../models/task.dart';
 import '../models/task_list.dart';
 import '../providers/calendar_provider.dart';
+import '../providers/account_provider.dart';
+import '../providers/cloud_data_provider.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
@@ -41,6 +44,7 @@ class DataManagementPage extends StatefulWidget {
 }
 
 class _DataManagementPageState extends State<DataManagementPage> {
+  bool _cloud = false;
   BackupSelection? _exportSelection;
   BackupSelection? _importSelection;
   BackupArchiveData? _archive;
@@ -96,52 +100,85 @@ class _DataManagementPageState extends State<DataManagementPage> {
     final exportSelection = _currentExportSelection(context);
     return Scaffold(
       appBar: AppBar(title: const Text('数据管理'), centerTitle: true),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
+      body: Column(
         children: [
-          _InfoCard(),
-          const SizedBox(height: 12),
-          _SyncCard(onManualSync: () => _manualSync(context)),
-          const SizedBox(height: 12),
-          _ExportCard(
-            selection: exportSelection,
-            busy: _busy,
-            onSelectionChanged: (selection) {
-              setState(() => _exportSelection = selection);
-            },
-            includeSecrets: _includeSecrets,
-            onIncludeSecretsChanged: (value) {
-              setState(() => _includeSecrets = value);
-            },
-            onExport: !_busy && exportSelection.sections.isNotEmpty
-                ? () => _export(exportSelection)
-                : null,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment(
+                    value: false,
+                    icon: Icon(Icons.storage_outlined),
+                    label: Text('本地'),
+                  ),
+                  ButtonSegment(
+                    value: true,
+                    icon: Icon(Icons.cloud_outlined),
+                    label: Text('云端'),
+                  ),
+                ],
+                selected: {_cloud},
+                onSelectionChanged: (value) =>
+                    setState(() => _cloud = value.single),
+              ),
+            ),
           ),
-          const SizedBox(height: 12),
-          _ImportCard(
-            archive: _archive,
-            preview: _preview,
-            selection: _importSelection,
-            mode: _mode,
-            conflictActions: _conflictActions,
-            busy: _busy,
-            onPick: _busy ? null : _pickImportFile,
-            onSelectionChanged: (selection) {
-              setState(() {
-                _importSelection = selection;
-                _refreshPreview();
-              });
-            },
-            onModeChanged: (mode) {
-              setState(() {
-                _mode = mode;
-                _refreshPreview();
-              });
-            },
-            onConflictChanged: (id, action) {
-              setState(() => _conflictActions[id] = action);
-            },
-            onImport: _canImport ? _import : null,
+          Expanded(
+            child: _cloud
+                ? _CloudDataView(
+                    onSync: () => _manualSync(context),
+                    onPreviewPurge: _previewPurge,
+                  )
+                : ListView(
+                    key: const ValueKey('local-data-management'),
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      _InfoCard(),
+                      const SizedBox(height: 12),
+                      _ExportCard(
+                        selection: exportSelection,
+                        busy: _busy,
+                        onSelectionChanged: (selection) {
+                          setState(() => _exportSelection = selection);
+                        },
+                        includeSecrets: _includeSecrets,
+                        onIncludeSecretsChanged: (value) {
+                          setState(() => _includeSecrets = value);
+                        },
+                        onExport: !_busy && exportSelection.sections.isNotEmpty
+                            ? () => _export(exportSelection)
+                            : null,
+                      ),
+                      const SizedBox(height: 12),
+                      _ImportCard(
+                        archive: _archive,
+                        preview: _preview,
+                        selection: _importSelection,
+                        mode: _mode,
+                        conflictActions: _conflictActions,
+                        busy: _busy,
+                        onPick: _busy ? null : _pickImportFile,
+                        onSelectionChanged: (selection) {
+                          setState(() {
+                            _importSelection = selection;
+                            _refreshPreview();
+                          });
+                        },
+                        onModeChanged: (mode) {
+                          setState(() {
+                            _mode = mode;
+                            _refreshPreview();
+                          });
+                        },
+                        onConflictChanged: (id, action) {
+                          setState(() => _conflictActions[id] = action);
+                        },
+                        onImport: _canImport ? _import : null,
+                      ),
+                    ],
+                  ),
           ),
         ],
       ),
@@ -309,7 +346,73 @@ class _DataManagementPageState extends State<DataManagementPage> {
       _showSnack('请先连接服务端并登录');
       return;
     }
-    await sync.manualSync();
+    final cloud = context.read<CloudDataProvider>();
+    await cloud.syncNow(sync.manualSync, sync.canAcknowledgeManagement);
+  }
+
+  Future<void> _previewPurge(CloudPurgeSelector selector) async {
+    final cloud = context.read<CloudDataProvider>();
+    final preview = await cloud.preview(selector);
+    if (!mounted || preview == null) return;
+    final isAll = selector.type == CloudPurgeType.all;
+    final confirmation = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(isAll ? '清空全部云端数据' : '确认删除云端数据'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '将删除 ${preview.recordCount} 条记录、${preview.changeCount} 条历史变更，涉及 ${preview.blobRefCount} 个 Blob 引用。',
+              ),
+              const SizedBox(height: 12),
+              const Text('此操作只删除云端数据，不删除本机数据。若继续使用双向同步，本机数据会在下次完整同步时重新上传。'),
+              if (isAll) ...[
+                const SizedBox(height: 12),
+                Text(
+                  '这是不可撤销的全量云端清空。请输入“清空云端”继续。',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.error,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: confirmation,
+                  autofocus: true,
+                  onChanged: (_) => setDialogState(() {}),
+                  decoration: const InputDecoration(labelText: '确认短语'),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: isAll && confirmation.text != '清空云端'
+                  ? null
+                  : () => Navigator.pop(context, true),
+              style: isAll
+                  ? FilledButton.styleFrom(
+                      backgroundColor: Theme.of(context).colorScheme.error,
+                    )
+                  : null,
+              child: Text(isAll ? '清空云端' : '删除云端数据'),
+            ),
+          ],
+        ),
+      ),
+    );
+    confirmation.dispose();
+    if (confirmed != true || !mounted) return;
+    final succeeded = await cloud.purge(preview);
+    if (succeeded) _showSnack('云端删除已提交；请执行立即双向同步完成 reseed');
   }
 
   Future<String?> _requestPassword({bool confirm = false}) async {
@@ -361,6 +464,319 @@ class _DataManagementPageState extends State<DataManagementPage> {
       password.dispose();
       confirmation.dispose();
     }
+  }
+}
+
+class _CloudDataView extends StatelessWidget {
+  const _CloudDataView({required this.onSync, required this.onPreviewPurge});
+
+  final VoidCallback onSync;
+  final ValueChanged<CloudPurgeSelector> onPreviewPurge;
+
+  @override
+  Widget build(BuildContext context) {
+    final account = context.watch<AccountProvider>();
+    final cloud = context.watch<CloudDataProvider>();
+    final status = cloud.snapshot.status;
+    return ListView(
+      key: const ValueKey('cloud-data-management'),
+      padding: const EdgeInsets.all(16),
+      children: [
+        Card(
+          child: ListTile(
+            leading: const CircleAvatar(child: Icon(Icons.cloud_outlined)),
+            title: Text(
+              account.user?.displayName.isNotEmpty == true
+                  ? account.user!.displayName
+                  : '云端账号',
+            ),
+            subtitle: Text(
+              account.isLoggedIn
+                  ? '${account.user!.phone} · ${account.isBackendConnected ? '已连接' : '未连接'}'
+                  : '未登录，请先在设置中连接服务端并登录',
+            ),
+            trailing: cloud.operations.isEmpty
+                ? null
+                : Chip(label: Text('${cloud.operations.length} 个待 reseed 操作')),
+          ),
+        ),
+        const SizedBox(height: 12),
+        _CloudStatusCard(
+          status: status,
+          updatedAt: cloud.snapshot.updatedAt,
+          loading: cloud.loading,
+          canManage: cloud.canManage,
+          onRefresh: cloud.refresh,
+          onSync: onSync,
+          onPurgeAll: status == null
+              ? null
+              : () => onPreviewPurge(const CloudPurgeSelector.all()),
+        ),
+        if (cloud.error case final error?) ...[
+          const SizedBox(height: 8),
+          Text(
+            error,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+          if (cloud.snapshot.status != null)
+            Text(
+              '刷新失败，仍显示上次成功缓存。',
+              style: TextStyle(color: Theme.of(context).colorScheme.outline),
+            ),
+        ],
+        if (status != null) ...[
+          const SizedBox(height: 12),
+          _CloudCategoryCard(
+            counts: cloud.snapshot.categoryCounts,
+            onPurge: (category) =>
+                onPreviewPurge(CloudPurgeSelector.category(category)),
+          ),
+        ],
+        const SizedBox(height: 12),
+        _SyncCard(onManualSync: onSync),
+        const SizedBox(height: 12),
+        _CloudObjectsCard(
+          objects: cloud.snapshot.objects,
+          onPreviewPurge: onPreviewPurge,
+        ),
+      ],
+    );
+  }
+}
+
+class _CloudStatusCard extends StatelessWidget {
+  const _CloudStatusCard({
+    required this.status,
+    required this.updatedAt,
+    required this.loading,
+    required this.canManage,
+    required this.onRefresh,
+    required this.onSync,
+    required this.onPurgeAll,
+  });
+
+  final CloudIndexStatus? status;
+  final DateTime? updatedAt;
+  final bool loading;
+  final bool canManage;
+  final VoidCallback onRefresh;
+  final VoidCallback onSync;
+  final VoidCallback? onPurgeAll;
+
+  @override
+  Widget build(BuildContext context) {
+    final usage = status?.usage;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    '云端索引与容量',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                  ),
+                ),
+                IconButton(
+                  onPressed: loading || !canManage ? null : onRefresh,
+                  tooltip: '刷新',
+                  icon: const Icon(Icons.refresh),
+                ),
+              ],
+            ),
+            if (status == null)
+              const Text('尚无索引缓存，点击刷新读取云端状态。')
+            else ...[
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  Chip(label: Text('Generation ${status!.generation}')),
+                  Chip(label: Text('Revision ${status!.indexRevision}')),
+                  Chip(label: Text('${usage!.recordCount} 条记录')),
+                  Chip(label: Text('${usage.blobCount} 个 Blob')),
+                  Chip(label: Text(_formatBytes(usage.blobBytes))),
+                ],
+              ),
+              if (updatedAt != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    '缓存更新于 ${_formatTime(updatedAt!)}',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
+                  ),
+                ),
+            ],
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.icon(
+                  onPressed: loading || !canManage ? null : onSync,
+                  icon: const Icon(Icons.cloud_sync_outlined),
+                  label: const Text('立即双向同步'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: loading ? null : onPurgeAll,
+                  icon: const Icon(Icons.delete_sweep_outlined),
+                  label: const Text('清空全部云端'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CloudCategoryCard extends StatelessWidget {
+  const _CloudCategoryCard({required this.counts, required this.onPurge});
+
+  final Map<String, int> counts;
+  final ValueChanged<String> onPurge;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '分类统计',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          ...cloudDataCategories
+              .where((category) => (counts[category] ?? 0) > 0)
+              .map(
+                (category) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(_categoryLabel(category)),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('${counts[category]}'),
+                      IconButton(
+                        onPressed: () => onPurge(category),
+                        tooltip: '删除该分类云端数据',
+                        icon: const Icon(Icons.delete_outline),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _CloudObjectsCard extends StatelessWidget {
+  const _CloudObjectsCard({
+    required this.objects,
+    required this.onPreviewPurge,
+  });
+
+  final List<CloudIndexObject> objects;
+  final ValueChanged<CloudPurgeSelector> onPreviewPurge;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '云端对象 (${objects.length})',
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+          ),
+          if (objects.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text('暂无缓存对象。'),
+            )
+          else
+            ...objects.map(
+              (object) => ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                  object.objectId,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                  '${_categoryLabel(object.category)} · ${object.recordCount} 条记录 · ${object.blobRefCount} 个 Blob 引用',
+                ),
+                onTap: () => _showCloudDetail(context, object),
+                trailing: IconButton(
+                  onPressed: () => onPreviewPurge(
+                    CloudPurgeSelector.object(object.category, object.objectId),
+                  ),
+                  tooltip: '删除该云端对象',
+                  icon: const Icon(Icons.delete_outline),
+                ),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+
+  Future<void> _showCloudDetail(
+    BuildContext context,
+    CloudIndexObject object,
+  ) async {
+    final detail = await context.read<CloudDataProvider>().loadDetail(object);
+    if (detail == null || !context.mounted) {
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(object.objectId),
+        content: SizedBox(
+          width: 620,
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              Text(
+                '${_categoryLabel(object.category)} · ${detail.records.length} 条投影记录',
+              ),
+              const SizedBox(height: 12),
+              ...detail.records.map(
+                (record) => Card(
+                  child: ListTile(
+                    title: Text(
+                      '${record['table'] ?? ''} / ${record['recordId'] ?? ''}',
+                    ),
+                    subtitle: Text(
+                      '${record['data'] ?? ''}',
+                      maxLines: 5,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -458,6 +874,34 @@ class _SyncCard extends StatelessWidget {
     return '上次同步: ${last.month}/${last.day} ${last.hour}:${last.minute.toString().padLeft(2, '0')}';
   }
 }
+
+String _categoryLabel(String category) => switch (category) {
+  'conversations' => '对话',
+  'messages' => '消息',
+  'attachments' => '消息附件',
+  'resources' => '资源',
+  'notes' => '笔记',
+  'tasks' => '任务',
+  'calendar' => '日历',
+  'roleplay' => '情景演绎',
+  'recycle_bin' => '回收站',
+  'settings' => '设置',
+  'models' => '模型配置',
+  'plugins' => '插件',
+  _ => category,
+};
+
+String _formatBytes(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KiB';
+  if (bytes < 1024 * 1024 * 1024) {
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MiB';
+  }
+  return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GiB';
+}
+
+String _formatTime(DateTime value) =>
+    '${value.month}/${value.day} ${value.hour}:${value.minute.toString().padLeft(2, '0')}';
 
 /// 隐私提示卡片。
 class _InfoCard extends StatelessWidget {
