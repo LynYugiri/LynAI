@@ -425,7 +425,7 @@ final class _MemoryTaskRepository implements TaskRepository {
   }
 
   @override
-  Future<void> save({
+  Future<void> replace({
     required List<Task> tasks,
     required List<TaskList> lists,
     required List<TaskListEntry> entries,
@@ -437,6 +437,47 @@ final class _MemoryTaskRepository implements TaskRepository {
     savedTasks = List.of(tasks);
     savedLists = List.of(lists);
     savedEntries = List.of(entries);
+  }
+
+  @override
+  Future<void> saveChanges({
+    Iterable<Task> upsertTasks = const [],
+    Iterable<String> deleteTaskIds = const [],
+    Iterable<TaskList> upsertLists = const [],
+    Iterable<String> deleteListIds = const [],
+    Iterable<TaskListEntry> upsertEntries = const [],
+    Iterable<String> deleteEntryTaskIds = const [],
+  }) async {
+    if (failNextSave) {
+      failNextSave = false;
+      throw Exception('task save failed');
+    }
+    final tasks = {for (final task in savedTasks) task.id: task};
+    final lists = {for (final list in savedLists) list.id: list};
+    final entries = {for (final entry in savedEntries) entry.taskId: entry};
+    for (final id in deleteEntryTaskIds) {
+      entries.remove(id);
+    }
+    for (final id in deleteTaskIds) {
+      tasks.remove(id);
+      entries.remove(id);
+    }
+    for (final id in deleteListIds) {
+      lists.remove(id);
+      entries.removeWhere((_, entry) => entry.taskListId == id);
+    }
+    for (final task in upsertTasks) {
+      tasks[task.id] = task;
+    }
+    for (final list in upsertLists) {
+      lists[list.id] = list;
+    }
+    for (final entry in upsertEntries) {
+      entries[entry.taskId] = entry;
+    }
+    savedTasks = tasks.values.toList();
+    savedLists = lists.values.toList();
+    savedEntries = entries.values.toList();
   }
 }
 
@@ -454,7 +495,7 @@ final class _MemoryCalendarRepository extends CalendarRepository {
   }
 
   @override
-  Future<void> save({
+  Future<void> replace({
     required List<CalendarEvent> events,
     required List<Anniversary> anniversaries,
   }) async {
@@ -464,6 +505,37 @@ final class _MemoryCalendarRepository extends CalendarRepository {
     }
     savedEvents = List.of(events);
     savedAnniversaries = List.of(anniversaries);
+  }
+
+  @override
+  Future<void> saveChanges({
+    Iterable<CalendarEvent> upsertEvents = const [],
+    Iterable<String> deleteEventIds = const [],
+    Iterable<Anniversary> upsertAnniversaries = const [],
+    Iterable<String> deleteAnniversaryIds = const [],
+  }) async {
+    if (failNextSave) {
+      failNextSave = false;
+      throw Exception('target save failed');
+    }
+    final events = {for (final event in savedEvents) event.id: event};
+    final anniversaries = {
+      for (final anniversary in savedAnniversaries) anniversary.id: anniversary,
+    };
+    for (final id in deleteEventIds) {
+      events.remove(id);
+    }
+    for (final id in deleteAnniversaryIds) {
+      anniversaries.remove(id);
+    }
+    for (final event in upsertEvents) {
+      events[event.id] = event;
+    }
+    for (final anniversary in upsertAnniversaries) {
+      anniversaries[anniversary.id] = anniversary;
+    }
+    savedEvents = events.values.toList();
+    savedAnniversaries = anniversaries.values.toList();
   }
 }
 

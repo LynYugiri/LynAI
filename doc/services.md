@@ -4,13 +4,15 @@
 
 ## 安全基础
 
-`SecretStore` 抽象敏感字符串存储；生产实现使用 `flutter_secure_storage`，测试使用内存实现。`ModelConfigRepository` 只把非秘密模型 JSON 和稳定 `apiKeySecretRef` 写入数据库，API key 按模型 ID 单独存入 `SecretStore`；首次加载旧版 plaintext `apiKey` 时先写安全存储，再重写数据库，迁移可重复且不会把 key 放入同步 outbox。`DeviceIdentityService` 在首次启动生成 Ed25519 密钥，并以完整公钥 SHA-256 的 52 字符小写、无填充 Base32 作为稳定 `deviceId`；后续启动会校验私钥、公钥和 ID 一致性，损坏时拒绝静默重建。`DeviceRegistrationService` 在真实后端恢复会话、登录或注册成功后，以绑定 challenge、认证用户/session、设备 ID、公钥、显示名称、平台和协议版本的 CBE1 消息完成幂等注册；离线或旧后端不阻塞账号使用。账号 access/refresh token 也保存在 `SecretStore`，并按规范化完整 Base URL（含 path prefix）隔离；SharedPreferences 中只保留同作用域的用户和过期时间元数据。旧 origin-only 会话仅在当前 Base URL 没有 path prefix 时迁移，避免把同源不同路径的凭证错误归属。设备私钥不会写入 SharedPreferences、数据库或备份。
+`SecretStore` 抽象敏感字符串存储；生产实现使用 `flutter_secure_storage`，测试使用内存实现。`ModelConfigRepository` 只把非秘密模型 JSON 和稳定 `apiKeySecretRef` 写入数据库，API key 按模型 ID 单独存入 `SecretStore`；首次加载旧版 plaintext `apiKey` 时先写安全存储，再重写数据库，迁移可重复且不会把 key 放入同步 outbox。`DeviceIdentityService` 在首次启动生成 Ed25519 密钥，并以完整公钥 SHA-256 的 52 字符小写、无填充 Base32 作为稳定 `deviceId`；后续启动会校验私钥、公钥和 ID 一致性，损坏时拒绝静默重建。`DeviceRegistrationService` 在真实后端恢复会话、登录或注册成功后，以绑定 challenge、认证用户/session、设备 ID、公钥、显示名称、平台和协议版本的 CBE1 消息完成幂等注册；成功 enrollment 按后端 origin、用户 ID 和 session ID 在进程内缓存，同一键的并发调用复用一个 in-flight Future，失败不会进入缓存。服务端明确返回 `unknown_device` 时会失效缓存并只重新 enrollment、重签一次；`revoked_device` 只失效缓存并返回错误，不会通过普通 enrollment 静默恢复。离线或旧后端不阻塞账号使用。账号 access/refresh token 也保存在 `SecretStore`，并按规范化完整 Base URL（含 path prefix）隔离；SharedPreferences 中只保留同作用域的用户和过期时间元数据。旧 origin-only 会话仅在当前 Base URL 没有 path prefix 时迁移，避免把同源不同路径的凭证错误归属。设备私钥不会写入 SharedPreferences、数据库或备份。
 
 默认后端通过编译环境变量 `LYNAI_BACKEND_URL` 提供；未传入时保持未配置。UI 对所有 HTTP 后端显示明示风险，真实账号和生产数据必须使用可信 HTTPS 后端。
 
-`BackendClient` 为 JSON POST/PUT/PATCH/DELETE 和内存 multipart 上传提供统一 Bearer token、超时、401 刷新和重放。`RemoteCommunityService` 在 `/community` 下实现公开动态、评论、用户资料和媒体读取，以及登录后的发布、互动、收藏、资料修改和置顶操作。社区图片先上传为当前用户拥有的临时 media，再由帖子 JSON 中的有序 `mediaIds` 原子关联；客户端只渲染后端显式返回的媒体，社区 Markdown 会隐藏图片语法、危险 scheme 链接和原始 HTML 标签。
+`BackendClient` 为 JSON POST/PUT/PATCH/DELETE、可重放字节请求和内存 multipart 上传提供统一 Bearer token、超时、401 刷新和重放。同步上传保留稳定 body bytes，但通过 `postReplayableBytes()` 在首次发送和 token refresh 后分别重建鉴权与设备签名头，避免使用旧 session 的签名重放。`RemoteCommunityService` 在 `/community` 下实现公开动态、评论、用户资料和媒体读取，以及登录后的发布、互动、收藏、资料修改和置顶操作。社区图片先上传为当前用户拥有的临时 media，再由帖子 JSON 中的有序 `mediaIds` 原子关联；客户端只渲染后端显式返回的媒体，社区 Markdown 会隐藏图片语法、危险 scheme 链接和原始 HTML 标签。
 
 同步服务只上传两个版本化配置投影：单例 `SharedSettingsV1` 和逐 Provider 的 `SyncedModelConfigV1`。前者不包含后端连接、登录/changelog、最近功能、悬浮助手、权限和本地路径；后者仅接受用户明确开启同步的非托管 Provider，并删除 API key、secure-store 引用、URL userinfo 及疑似凭证的嵌套参数。远端写入使用 storage_v2 的现有 Outbox/conflict 事务，存在本地 pending mutation 时不覆盖本地值。
+
+`RemoteSyncService` 对上传和下载响应执行结构校验后才交给 Provider：上传要求 `latestSeq` 合法，ACK 数量与批次一致，并且只能是完整 legacy seq ACK 或不重复且精确覆盖请求 changeId 的 ACK；下载要求 changes 为列表、change 字段和 upsert `data.id` 合法、seq 从 since 起严格递增、changeId 页内不重复，且 `nextSince` 覆盖本页最大 seq。格式异常不会推进游标或删除 Outbox。
 
 ## ApiService
 
@@ -353,11 +355,11 @@ storage_v2/
 | `notes/*.md` | 笔记分页正文。 |
 | `assets/blobs/*` | 资源文件，按 SHA-256 内容寻址保存。 |
 
-Drift 内的 `sync_outbox` 保存尚未确认上传的行级变化，`sync_state` 保存各作用域的服务端游标、激活状态和持久化本地 mutation 捕获权。当前数据库布局不再通过停用时快照做账号 catch-up，而是在 mutation 发生时直接写入其目标云端/LAN Outbox；因此重启可保留归属，远端 apply 也不会被后续快照误判为本地编辑。消息附件资源通过 `resources` 行和 SHA Blob 同步；下载文件只写入标准内容寻址路径，不采用远端提供的本地路径。
+Drift 内的 `sync_outbox` 保存尚未确认上传的行级变化，`sync_state` 保存各作用域的服务端游标、激活状态和持久化本地 mutation 捕获权。当前数据库布局不再通过停用时快照做账号 catch-up，而是在 mutation 发生时直接写入其目标云端/LAN Outbox；因此重启可保留归属，远端 apply 也不会被后续快照误判为本地编辑。Outbox 支持稳定排序的 limit/offset 窗口读取，资源可按 ID 集合查询，以便同步先处理记录描述符、需要上传时再读取 Blob。消息附件资源通过 `resources` 行和 SHA Blob 同步；下载文件只写入标准内容寻址路径，不采用远端提供的本地路径。
 
-Drift 数据库 schema v15 引入 `tasks`、`task_lists`、`task_list_entries`、`calendar_events` 和 `anniversaries`。`tasks` 保存计划/截止字段、完成时间和提醒 JSON；`task_list_entries.task_id` 是主键并通过外键关联任务与清单；事件以 `time_kind` 区分 timed/allDay；纪念日以 `recurrence` 区分 once/yearly。升级先创建新表，再按稳定顺序拆分旧 `todo_lists`/`todo_items`，把旧 task schedule 转成任务、普通 schedule 转成定时事件；任务 ID 碰撞时生成稳定 legacy 前缀 ID。迁移完成后删除旧表及其旧同步队列记录，并创建任务日期、清单顺序和事件开始索引。数据库 schema 版本与 `StorageV2Service.currentLayoutVersion` 是不同概念。
+Drift 数据库 schema v16 在 v15 规划表基础上增加 `sync_outbox(scope, updated_at, table_name, record_id)`、`sync_outbox(scope, change_id, mutation_version)` 和 `sync_conflicts(scope, table_name, record_id)` 索引，服务于窗口读取、精确 ACK 和冲突记录查询。v15 引入 `tasks`、`task_lists`、`task_list_entries`、`calendar_events` 和 `anniversaries`；升级先创建新表，再按稳定顺序拆分旧 `todo_lists`/`todo_items`，把旧 task schedule 转成任务、普通 schedule 转成定时事件，任务 ID 碰撞时生成稳定 legacy 前缀 ID。迁移完成后删除旧表及其旧同步队列记录，并创建任务日期、清单顺序和事件开始索引。数据库 schema 版本与 `StorageV2Service.currentLayoutVersion` 是不同概念。
 
-运行时的 `tasks.json` 和 `calendar.json` 是 Repository/备份/同步使用的逻辑分区门面，不是 `storage_v2/data/*.json` 镜像文件；结构化权威仍是 `app.db`。`tasks.json` 包含 `tasks`、`lists`、`entries`，其中 entry 使用 `listId`、`taskId`、`sortOrder`；`calendar.json` 包含 `events` 和 `anniversaries`，事件使用扁平 `timeKind` 字段，全天结束日期始终为 exclusive。
+运行时的 `tasks.json` 和 `calendar.json` 是 Repository/备份/同步使用的逻辑分区门面，不是 `storage_v2/data/*.json` 镜像文件；结构化权威仍是 `app.db`。任务与日历日常 mutation 通过 `applyLocalRowChanges()` 在一个事务中按行 upsert/delete 并捕获 Outbox，完整 replace 留给备份恢复和远端重载。`tasks.json` 包含 `tasks`、`lists`、`entries`，其中 entry 使用 `listId`、`taskId`、`sortOrder`；`calendar.json` 包含 `events` 和 `anniversaries`，事件使用扁平 `timeKind` 字段，全天结束日期始终为 exclusive。
 
 笔记修订正文同样使用内容寻址 blob。分页出现并行 DAG 头时，`note_page_conflicts` 持久化稳定的本地头、传入头和共同祖先；合并提交必须重新校验完整头集合，避免基于过期冲突覆盖新到达的头。`note_page_tombstones` 中 `revision_id='*'` 表示整个分页删除，具体 ID 表示单个修订删除；应用 tombstone 会同步清理修订、分页头、当前修订引用和失效冲突，后续远端修订或分页头应用必须先检查 tombstone。显式恢复会同步删除对应 tombstone；同一恢复批次必须先应用 tombstone delete，再应用 revision/page-head upsert，而 tombstone upsert 仍在 revision/page-head 后应用以保持删除优先。
 
@@ -509,8 +511,14 @@ Configuration keys whose names contain `token`, `key`, `password`, or `secret` (
   `SecretStore`, requires TLS 1.3, and calculates certificate SPKI pins.
 - `LanMdnsService` advertises/discovers `_lynai._tcp` with only protocol version
   and device ID in TXT records.
-- `LanSecureTransport` enforces framed message, body, timeout, session ID, and bounded chunked blob frames up to 64 MiB,
-  and monotonic counter limits.
+- `LanSecureTransport` enforces framed message, body, timeout, session ID, and
+  monotonic counter limits. Blob descriptors are limited to 64 MiB each and 128
+  MiB per session; resource and note files are sent in 384 KiB chunks with size
+  and SHA-256 revalidation. Incoming blobs are written one at a time to a bounded
+  temporary directory and checked for chunk order, declared size and SHA-256.
+  Descriptors not referenced by the change set are rejected; verified files are
+  installed only after the complete requested transfer succeeds, and cleanup
+  also runs on failure.
 - `LanPeerProofService` exchanges mutual Ed25519 identity proofs over pinned TLS.
 - `LanSyncCoordinator` pairs, confirms fingerprints, consumes nonces, syncs
   installation-local changes/blobs independently of the active cloud account,
@@ -526,9 +534,10 @@ Configuration keys whose names contain `token`, `key`, `password`, or `secret` (
 
 Cloud device identities are stored per normalized backend origin and user ID.
 Remote sync requires successful enrollment and signed uploads with no unsigned
-client fallback. `BackendClient.sendAuthenticatedStreamed` rebuilds streamed and
-multipart requests after one authenticated 401 refresh, and all managed relay
-protocols use that sender.
+client fallback. `BackendClient.postReplayableBytes` rebuilds sync signature
+headers after an authenticated 401 refresh while replaying the same bytes.
+`BackendClient.sendAuthenticatedStreamed` similarly rebuilds streamed and
+multipart requests, and all managed relay protocols use that sender.
 
 ## CI And Platform Builds
 

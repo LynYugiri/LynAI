@@ -106,25 +106,32 @@ class LanSecureTransport {
         !const {'initiator', 'responder'}.contains(role)) {
       throw const LanFrameException('invalid frame metadata');
     }
-    final bodyBytes = utf8.encode(jsonEncode(body));
+    final bodyBytes = Uint8List.fromList(JsonUtf8Encoder().convert(body));
     if (bodyBytes.length > maxBodyBytes) {
       throw LanFrameException('frame body exceeds $maxBodyBytes bytes');
     }
-    final bytes = utf8.encode(
-      jsonEncode({
-        'type': type,
-        'sessionId': sessionId,
-        'counter': counter,
-        'purpose': purpose,
-        'role': role,
-        'body': body,
-      }),
+    final prefix = utf8.encode(
+      '{"type":${jsonEncode(type)},'
+      '"sessionId":${jsonEncode(sessionId)},'
+      '"counter":$counter,'
+      '"purpose":${jsonEncode(purpose)},'
+      '"role":${jsonEncode(role)},'
+      '"body":',
     );
-    if (bytes.length > maxFrameBytes) {
+    final payloadLength = prefix.length + bodyBytes.length + 1;
+    if (payloadLength > maxFrameBytes) {
       throw LanFrameException('frame exceeds $maxFrameBytes bytes');
     }
-    final header = ByteData(4)..setUint32(0, bytes.length, Endian.big);
-    return Uint8List.fromList([...header.buffer.asUint8List(), ...bytes]);
+    final frame = Uint8List(4 + payloadLength);
+    ByteData.sublistView(frame, 0, 4).setUint32(0, payloadLength, Endian.big);
+    frame.setRange(4, 4 + prefix.length, prefix);
+    frame.setRange(
+      4 + prefix.length,
+      4 + prefix.length + bodyBytes.length,
+      bodyBytes,
+    );
+    frame[frame.length - 1] = 0x7d;
+    return frame;
   }
 
   Future<void> send(String type, Map<String, dynamic> body) async {
@@ -243,7 +250,7 @@ class LanSecureTransport {
     final all = _buffer.takeBytes();
     final result = Uint8List.sublistView(all, 0, length);
     if (all.length > length) _buffer.add(all.sublist(length));
-    return Uint8List.fromList(result);
+    return result;
   }
 
   Future<void> close() => _closeFuture ??= _close();

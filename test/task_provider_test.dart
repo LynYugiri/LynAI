@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/local_date.dart';
@@ -8,6 +9,7 @@ import 'package:lynai/models/task_list.dart';
 import 'package:lynai/providers/task_provider.dart';
 import 'package:lynai/repositories/recycle_bin_repository.dart';
 import 'package:lynai/repositories/task_repository.dart';
+import 'package:lynai/services/storage_v2_service.dart';
 
 void main() {
   test('mutations notify before one serialized snapshot save queue', () async {
@@ -192,6 +194,90 @@ void main() {
     expect(recycled.payload['list'], isA<Map>());
     expect(recycled.payload['entries'], hasLength(1));
   });
+
+  test('runtime mutations capture task and entry row outbox changes', () async {
+    final root = await Directory.systemTemp.createTemp('lynai_task_rows_');
+    final storage = StorageV2Service(rootDirectory: root);
+    const scope = 'server|task-provider';
+    try {
+      await storage.activateSyncScope(scope, deviceId: 'device-task');
+      final provider = TaskProvider(
+        storageV2: storage,
+        recycleBinRepository: _RecycleBinRepository(),
+      );
+      final firstList = await provider.addList('First');
+      final secondList = await provider.addList('Second');
+      final firstTask = await provider.addTask(
+        title: 'First task',
+        listId: firstList,
+      );
+      final secondTask = await provider.addTask(
+        title: 'Second task',
+        listId: firstList,
+      );
+      await _ackOutbox(storage, scope);
+
+      await provider.completeTask(firstTask);
+      var outbox = await storage.loadSyncOutbox(scope);
+      expect(outbox, hasLength(1));
+      expect(outbox.single.table, 'tasks');
+      expect(outbox.single.data?['completedAt'], isNotNull);
+      await _ackOutbox(storage, scope);
+
+      await provider.reorderTaskEntries(firstList, 1, 0);
+      outbox = await storage.loadSyncOutbox(scope);
+      expect(
+        outbox.map((entry) => '${entry.table}:${entry.recordId}'),
+        unorderedEquals([
+          'task_list_entries:$firstTask',
+          'task_list_entries:$secondTask',
+        ]),
+      );
+      expect(
+        outbox.singleWhere((entry) => entry.recordId == secondTask).data,
+        containsPair('sortOrder', 0),
+      );
+      await _ackOutbox(storage, scope);
+
+      await provider.moveTask(firstTask, secondList);
+      outbox = await storage.loadSyncOutbox(scope);
+      expect(
+        outbox.map((entry) => '${entry.table}:${entry.recordId}'),
+        unorderedEquals([
+          'task_list_entries:$firstTask',
+          'task_list_entries:$secondTask',
+        ]),
+      );
+      expect(
+        outbox.singleWhere((entry) => entry.recordId == firstTask).data,
+        containsPair('listId', secondList),
+      );
+      await _ackOutbox(storage, scope);
+
+      await provider.deleteTask(secondTask);
+      outbox = await storage.loadSyncOutbox(scope);
+      expect(
+        outbox.map((entry) => '${entry.table}:${entry.recordId}:${entry.op}'),
+        containsAll([
+          'tasks:$secondTask:delete',
+          'task_list_entries:$secondTask:delete',
+        ]),
+      );
+      final loaded = await TaskRepository(storageV2: storage).load();
+      expect(loaded.tasks.map((task) => task.id), isNot(contains(secondTask)));
+      expect(loaded.entries.map((entry) => entry.taskId), [firstTask]);
+    } finally {
+      await storage.close();
+      if (await root.exists()) await root.delete(recursive: true);
+    }
+  });
+}
+
+Future<void> _ackOutbox(StorageV2Service storage, String scope) async {
+  await storage.acknowledgeSyncOutbox(
+    scope,
+    await storage.loadSyncOutbox(scope),
+  );
 }
 
 final class _TaskSnapshot {
@@ -237,21 +323,78 @@ final class _TaskRepository implements TaskRepository {
   }
 
   @override
-  Future<void> save({
+  Future<void> replace({
     required List<Task> tasks,
     required List<TaskList> lists,
     required List<TaskListEntry> entries,
-  }) async {
+  }) {
+    return _persist(() {
+      persistedSnapshot = _TaskSnapshot(tasks, lists, entries);
+    });
+  }
+
+  @override
+  Future<void> saveChanges({
+    Iterable<Task> upsertTasks = const [],
+    Iterable<String> deleteTaskIds = const [],
+    Iterable<TaskList> upsertLists = const [],
+    Iterable<String> deleteListIds = const [],
+    Iterable<TaskListEntry> upsertEntries = const [],
+    Iterable<String> deleteEntryTaskIds = const [],
+  }) {
+    return _persist(() {
+      final tasks = {
+        for (final task in persistedSnapshot?.tasks ?? const <Task>[])
+          task.id: task,
+      };
+      final lists = {
+        for (final list in persistedSnapshot?.lists ?? const <TaskList>[])
+          list.id: list,
+      };
+      final entries = {
+        for (final entry
+            in persistedSnapshot?.entries ?? const <TaskListEntry>[])
+          entry.taskId: entry,
+      };
+      for (final id in deleteEntryTaskIds) {
+        entries.remove(id);
+      }
+      for (final id in deleteTaskIds) {
+        tasks.remove(id);
+        entries.remove(id);
+      }
+      for (final id in deleteListIds) {
+        lists.remove(id);
+        entries.removeWhere((_, entry) => entry.taskListId == id);
+      }
+      for (final task in upsertTasks) {
+        tasks[task.id] = task;
+      }
+      for (final list in upsertLists) {
+        lists[list.id] = list;
+      }
+      for (final entry in upsertEntries) {
+        entries[entry.taskId] = entry;
+      }
+      persistedSnapshot = _TaskSnapshot(
+        tasks.values.toList(),
+        lists.values.toList(),
+        entries.values.toList(),
+      );
+    });
+  }
+
+  Future<void> _persist(void Function() apply) async {
     concurrentSaves++;
     if (concurrentSaves > maxConcurrentSaves) {
       maxConcurrentSaves = concurrentSaves;
     }
-    snapshots.add(_TaskSnapshot(tasks, lists, entries));
     if (!firstSaveStarted.isCompleted) {
       firstSaveStarted.complete();
       if (blockFirstSave) await allowFirstSave.future;
     }
-    persistedSnapshot = _TaskSnapshot(tasks, lists, entries);
+    apply();
+    snapshots.add(persistedSnapshot!);
     concurrentSaves--;
   }
 }

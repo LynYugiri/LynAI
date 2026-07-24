@@ -102,6 +102,13 @@ class StorageV2Service {
     await database.writeDataFile(fileName, data);
   }
 
+  /// Applies local row mutations atomically and captures their sync outbox rows.
+  Future<void> applyLocalRowChanges(
+    List<SyncRemoteOperation> operations,
+  ) async {
+    await (await _storageDatabase()).batchIncremental(operations);
+  }
+
   Future<Map<String, dynamic>> loadNotesData() {
     return loadDataFile('notes.json');
   }
@@ -216,10 +223,15 @@ class StorageV2Service {
   }
 
   Future<StorageV2Resource?> findResourceById(String id) async {
-    for (final resource in await loadResources()) {
-      if (resource.id == id) return resource;
-    }
-    return null;
+    final resource = await (await _storageDatabase()).findResourceById(id);
+    return resource == null ? null : StorageV2Resource.fromJson(resource);
+  }
+
+  Future<List<StorageV2Resource>> findResourcesByIds(
+    Iterable<String> ids,
+  ) async {
+    final resources = await (await _storageDatabase()).findResourcesByIds(ids);
+    return resources.map(StorageV2Resource.fromJson).toList(growable: false);
   }
 
   Future<StorageV2Resource> importResourceFile(
@@ -561,8 +573,16 @@ class StorageV2Service {
     return (await _storageDatabase()).syncSince(scope);
   }
 
-  Future<List<SyncOutboxEntry>> loadSyncOutbox(String scope) async {
-    return (await _storageDatabase()).loadSyncOutbox(scope);
+  Future<List<SyncOutboxEntry>> loadSyncOutbox(
+    String scope, {
+    int? limit,
+    int offset = 0,
+  }) async {
+    return (await _storageDatabase()).loadSyncOutbox(
+      scope,
+      limit: limit,
+      offset: offset,
+    );
   }
 
   Future<List<SyncConflictEntry>> loadSyncConflicts(String scope) async {
@@ -612,7 +632,6 @@ class StorageV2Service {
       nextSince: nextSince,
       appliedSource: appliedSource,
     );
-    await recoverNoteMaterialization();
   }
 
   Future<void> recoverNoteMaterialization() async {

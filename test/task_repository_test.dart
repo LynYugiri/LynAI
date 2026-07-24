@@ -35,7 +35,7 @@ void main() {
         updatedAt: createdAt,
       );
 
-      await repository.save(tasks: [task], lists: [list], entries: [entry]);
+      await repository.replace(tasks: [task], lists: [list], entries: [entry]);
 
       final raw = await storage.loadDataFile('tasks.json');
       expect(raw.keys, containsAll(['tasks', 'lists', 'entries']));
@@ -51,6 +51,15 @@ void main() {
       expect(loaded.tasks.single.toJson(), task.toJson());
       expect(loaded.lists.single.toJson(), list.toJson());
       expect(loaded.entries.single.toJson(), entry.toJson());
+
+      await repository.saveChanges(
+        upsertTasks: [task.copyWith(title: 'Updated')],
+        deleteEntryTaskIds: [task.id],
+      );
+      final incrementallyLoaded = await repository.load();
+      expect(incrementallyLoaded.tasks.single.title, 'Updated');
+      expect(incrementallyLoaded.lists.single.id, list.id);
+      expect(incrementallyLoaded.entries, isEmpty);
     } finally {
       await storage.close();
       if (await root.exists()) await root.delete(recursive: true);

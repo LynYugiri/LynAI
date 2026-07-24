@@ -25,7 +25,8 @@ void main() {
       try {
         await StorageV2UpgradeService(storageV2: source).ensureReady();
         await StorageV2UpgradeService(storageV2: target).ensureReady();
-        final sourceLan = _lan(source, sourceBlobs);
+        final reads = <String>[];
+        final sourceLan = _lan(source, sourceBlobs, reads: reads);
         final targetLan = _lan(target, targetBlobs);
         await sourceLan.activate('source-device');
         await targetLan.activate('target-device');
@@ -99,14 +100,21 @@ void main() {
         final blobs = await sourceLan.blobsForChanges(entries);
         expect(blobs.keys, containsAll({fileHash, settingsHash, configHash}));
         expect(blobs.values.every((blob) => blob.kind == 'plugin'), isTrue);
+        expect(reads, isEmpty);
         for (final entry in blobs.entries) {
-          expect(sha256.convert(entry.value.bytes).toString(), entry.key);
-          await targetLan.installBlob(
+          final bytes = <int>[];
+          await for (final chunk in sourceLan.readBlobChunks(
             entry.key,
-            entry.value.kind,
-            entry.value.bytes,
-          );
+            entry.value,
+            4,
+          )) {
+            expect(chunk.length, lessThanOrEqualTo(4));
+            bytes.addAll(chunk);
+          }
+          expect(sha256.convert(bytes).toString(), entry.key);
+          await targetLan.installBlob(entry.key, entry.value.kind, bytes);
         }
+        expect(reads.toSet(), blobs.keys.toSet());
         await targetLan.apply(entries.map(_change).toList());
         final restored = await target.loadPluginSyncRows();
         expect(restored, hasLength(4));
@@ -199,6 +207,42 @@ void main() {
     },
   );
 
+  test('LAN resource blobs are read from storage in bounded chunks', () async {
+    final root = await Directory.systemTemp.createTemp('lynai_lan_resource_');
+    final storage = StorageV2Service(rootDirectory: root);
+    var pluginReads = 0;
+    try {
+      await StorageV2UpgradeService(storageV2: storage).ensureReady();
+      final bytes = List<int>.generate(19, (index) => index);
+      final hash = sha256.convert(bytes).toString();
+      await storage.installResourceBlob(hash, bytes);
+      final lan = LanSyncStorage(
+        storage: storage,
+        readPluginBlob: (_) async {
+          pluginReads++;
+          return const [];
+        },
+        hasPluginBlob: (_) async => false,
+        installPluginBlob: (_, _) async {},
+      );
+
+      final chunks = await lan
+          .readBlobChunks(
+            hash,
+            LanSyncBlob(size: bytes.length, kind: 'resource'),
+            5,
+          )
+          .toList();
+
+      expect(chunks.map((chunk) => chunk.length), [5, 5, 5, 4]);
+      expect(chunks.expand((chunk) => chunk), bytes);
+      expect(pluginReads, 0);
+    } finally {
+      await storage.close();
+      if (await root.exists()) await root.delete(recursive: true);
+    }
+  });
+
   test('plugin sync paths use canonical platform-independent segments', () {
     const hash =
         'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
@@ -248,13 +292,19 @@ void main() {
   });
 }
 
-LanSyncStorage _lan(StorageV2Service storage, Map<String, List<int>> blobs) =>
-    LanSyncStorage(
-      storage: storage,
-      readPluginBlob: (hash) async => blobs[hash]!,
-      hasPluginBlob: (hash) async => blobs.containsKey(hash),
-      installPluginBlob: (hash, bytes) async => blobs[hash] = List.of(bytes),
-    );
+LanSyncStorage _lan(
+  StorageV2Service storage,
+  Map<String, List<int>> blobs, {
+  List<String>? reads,
+}) => LanSyncStorage(
+  storage: storage,
+  readPluginBlob: (hash) async {
+    reads?.add(hash);
+    return blobs[hash]!;
+  },
+  hasPluginBlob: (hash) async => blobs.containsKey(hash),
+  installPluginBlob: (hash, bytes) async => blobs[hash] = List.of(bytes),
+);
 
 SyncChange _change(dynamic entry) => SyncChange(
   seq: 1,

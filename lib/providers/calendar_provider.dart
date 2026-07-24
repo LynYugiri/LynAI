@@ -73,7 +73,14 @@ class CalendarProvider extends ChangeNotifier {
     _events = List.of(events);
     _anniversaries = List.of(anniversaries);
     notifyListeners();
-    await _queueSave();
+    final replacementEvents = List<CalendarEvent>.of(_events);
+    final replacementAnniversaries = List<Anniversary>.of(_anniversaries);
+    await _queueSave(
+      () => _repository.replace(
+        events: replacementEvents,
+        anniversaries: replacementAnniversaries,
+      ),
+    );
   }
 
   CalendarEvent? getEvent(String id) =>
@@ -101,7 +108,7 @@ class CalendarProvider extends ChangeNotifier {
     );
     _events = [..._events, event];
     notifyListeners();
-    await _queueSave();
+    await _queueSave(() => _repository.saveChanges(upsertEvents: [event]));
     return event.id;
   }
 
@@ -115,7 +122,7 @@ class CalendarProvider extends ChangeNotifier {
     );
     _events = [..._events]..[index] = updated;
     notifyListeners();
-    await _queueSave();
+    await _queueSave(() => _repository.saveChanges(upsertEvents: [updated]));
   }
 
   Future<void> deleteEvent(String id) async {
@@ -134,7 +141,7 @@ class CalendarProvider extends ChangeNotifier {
     _mutationGeneration++;
     _events = _events.where((value) => value.id != id).toList();
     notifyListeners();
-    await _queueSave();
+    await _queueSave(() => _repository.saveChanges(deleteEventIds: [id]));
   }
 
   Future<void> restoreEvent(
@@ -146,6 +153,7 @@ class CalendarProvider extends ChangeNotifier {
     _events = [..._events, event];
     notifyListeners();
     await _queueSave(
+      () => _repository.saveChanges(upsertEvents: [event]),
       afterSave: recycleBinItemId == null
           ? null
           : () => _recycleBinRepository.remove(recycleBinItemId),
@@ -173,7 +181,9 @@ class CalendarProvider extends ChangeNotifier {
     );
     _anniversaries = [..._anniversaries, anniversary];
     notifyListeners();
-    await _queueSave();
+    await _queueSave(
+      () => _repository.saveChanges(upsertAnniversaries: [anniversary]),
+    );
     return anniversary.id;
   }
 
@@ -189,7 +199,9 @@ class CalendarProvider extends ChangeNotifier {
     );
     _anniversaries = [..._anniversaries]..[index] = updated;
     notifyListeners();
-    await _queueSave();
+    await _queueSave(
+      () => _repository.saveChanges(upsertAnniversaries: [updated]),
+    );
   }
 
   Future<void> deleteAnniversary(String id) async {
@@ -208,7 +220,7 @@ class CalendarProvider extends ChangeNotifier {
     _mutationGeneration++;
     _anniversaries = _anniversaries.where((value) => value.id != id).toList();
     notifyListeners();
-    await _queueSave();
+    await _queueSave(() => _repository.saveChanges(deleteAnniversaryIds: [id]));
   }
 
   Future<void> restoreAnniversary(
@@ -220,6 +232,7 @@ class CalendarProvider extends ChangeNotifier {
     _anniversaries = [..._anniversaries, anniversary];
     notifyListeners();
     await _queueSave(
+      () => _repository.saveChanges(upsertAnniversaries: [anniversary]),
       afterSave: recycleBinItemId == null
           ? null
           : () => _recycleBinRepository.remove(recycleBinItemId),
@@ -266,15 +279,14 @@ class CalendarProvider extends ChangeNotifier {
 
   Future<void> flushPendingSaves() => _pendingSave;
 
-  Future<void> _queueSave({
+  Future<void> _queueSave(
+    Future<void> Function() save, {
     Future<void> Function()? beforeSave,
     Future<void> Function()? afterSave,
   }) {
-    final events = List<CalendarEvent>.of(_events);
-    final anniversaries = List<Anniversary>.of(_anniversaries);
     final operation = _saveQueue.then((_) async {
       await beforeSave?.call();
-      await _repository.save(events: events, anniversaries: anniversaries);
+      await save();
       await afterSave?.call();
       onSnapshotPersisted?.call();
     });

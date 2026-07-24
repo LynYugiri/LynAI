@@ -170,10 +170,20 @@ class _TaskRepository implements TaskRepository {
       const TaskLoadResult(tasks: [], lists: [], entries: []);
 
   @override
-  Future<void> save({
+  Future<void> replace({
     required List<Task> tasks,
     required List<TaskList> lists,
     required List<TaskListEntry> entries,
+  }) async {}
+
+  @override
+  Future<void> saveChanges({
+    Iterable<Task> upsertTasks = const [],
+    Iterable<String> deleteTaskIds = const [],
+    Iterable<TaskList> upsertLists = const [],
+    Iterable<String> deleteListIds = const [],
+    Iterable<TaskListEntry> upsertEntries = const [],
+    Iterable<String> deleteEntryTaskIds = const [],
   }) async {}
 }
 
@@ -183,9 +193,17 @@ class _CalendarRepository implements CalendarRepository {
       const CalendarLoadResult(events: [], anniversaries: []);
 
   @override
-  Future<void> save({
+  Future<void> replace({
     required List<CalendarEvent> events,
     required List<Anniversary> anniversaries,
+  }) async {}
+
+  @override
+  Future<void> saveChanges({
+    Iterable<CalendarEvent> upsertEvents = const [],
+    Iterable<String> deleteEventIds = const [],
+    Iterable<Anniversary> upsertAnniversaries = const [],
+    Iterable<String> deleteAnniversaryIds = const [],
   }) async {}
 }
 

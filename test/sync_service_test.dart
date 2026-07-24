@@ -40,11 +40,14 @@ void main() {
     });
 
     test(
-      'signed upload preserves raw bytes and request ID across retries',
+      'signed upload preserves raw bytes and request ID across calls',
       () async {
         final client = _FakeBackendClient(
           postResponses: {
-            '/sync/changes': http.Response('{"latestSeq":1}', 200),
+            '/sync/changes': http.Response(
+              '{"latestSeq":1,"changes":[{"changeId":"change-1","seq":1}]}',
+              200,
+            ),
           },
         );
         final service = _remoteSyncService(client);
@@ -73,6 +76,45 @@ void main() {
       },
     );
 
+    test('signed upload rebuilds claims and signature after refresh', () async {
+      final client = _FakeBackendClient(
+        postResponses: {
+          '/sync/changes': http.Response(
+            '{"latestSeq":1,"changes":['
+            '{"changeId":"change-refresh","seq":1}]}',
+            200,
+          ),
+        },
+      );
+      final service = _remoteSyncService(client);
+      final changes = [
+        SyncChangeRecord(
+          changeId: 'change-refresh',
+          deviceId: 'device-1',
+          clientCreatedAt: DateTime.utc(2026, 7, 16),
+          mutationVersion: 1,
+          table: 'messages',
+          op: 'delete',
+          recordId: 'm1',
+        ),
+      ];
+
+      client.replayHeaderBuildHook = (buildCount) {
+        if (buildCount == 2) client.sessionId = 'session-vector-2';
+      };
+      await service.uploadChanges(changes);
+
+      expect(client.replayBodies[0], client.replayBodies[1]);
+      expect(
+        client.replayHeaders[0]['X-LynAI-Request-ID'],
+        client.replayHeaders[1]['X-LynAI-Request-ID'],
+      );
+      expect(
+        client.replayHeaders[0]['X-LynAI-Signature'],
+        isNot(client.replayHeaders[1]['X-LynAI-Signature']),
+      );
+    });
+
     test(
       'decodes exact legacy upload response as snapshot acknowledgement',
       () async {
@@ -98,8 +140,112 @@ void main() {
 
         expect(result.latestSeq, 1);
         expect(result.acknowledgements, isNull);
+        expect(result.legacyWholeBatchAcknowledgement, isTrue);
       },
     );
+
+    test('rejects mixed modern and legacy upload ACKs', () async {
+      final service = _remoteSyncService(
+        _FakeBackendClient(
+          postResponses: {
+            '/sync/changes': http.Response(
+              '{"latestSeq":2,"changes":['
+              '{"changeId":"change-1","seq":1},{"seq":2}]}',
+              200,
+            ),
+          },
+        ),
+      );
+
+      await expectLater(
+        service.uploadChanges([
+          _changeRecord('change-1', 'm1'),
+          _changeRecord('change-2', 'm2'),
+        ]),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('rejects malformed or non-exact modern upload ACKs', () async {
+      final service = _remoteSyncService(
+        _FakeBackendClient(
+          postResponses: {
+            '/sync/changes': http.Response(
+              '{"latestSeq":2,"changes":['
+              '{"changeId":"change-1","seq":1},'
+              '{"changeId":"change-1","seq":2}]}',
+              200,
+            ),
+          },
+        ),
+      );
+
+      await expectLater(
+        service.uploadChanges([
+          _changeRecord('change-1', 'm1'),
+          _changeRecord('change-2', 'm2'),
+        ]),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('validates remote change fields and page ordering', () async {
+      final service = _remoteSyncService(
+        _FakeBackendClient(
+          getResponses: {
+            '/sync/changes?since=3&limit=500': _jsonResponse(
+              '{"changes":['
+              '{"seq":4,"changeId":"remote-1","deviceId":"device-2",'
+              '"clientCreatedAt":"2026-07-16T00:00:00Z",'
+              '"table":"messages","op":"upsert","recordId":"m1",'
+              '"data":{"id":"m1"}},'
+              '{"seq":4,"changeId":"remote-2","deviceId":"device-2",'
+              '"clientCreatedAt":"2026-07-16T00:00:00Z",'
+              '"table":"messages","op":"delete","recordId":"m2"}],'
+              '"latestSeq":4,"hasMore":false,"nextSince":4}',
+              200,
+            ),
+          },
+        ),
+      );
+
+      await expectLater(
+        service.getChanges(since: 3),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('rejects invalid clientCreatedAt and uncovered nextSince', () async {
+      final invalidDate = _remoteSyncService(
+        _FakeBackendClient(
+          getResponses: {
+            '/sync/changes?since=0&limit=500': _jsonResponse(
+              _changePageJson(clientCreatedAt: 'not-a-date'),
+              200,
+            ),
+          },
+        ),
+      );
+      final uncoveredCursor = _remoteSyncService(
+        _FakeBackendClient(
+          getResponses: {
+            '/sync/changes?since=0&limit=500': _jsonResponse(
+              _changePageJson(nextSince: 0),
+              200,
+            ),
+          },
+        ),
+      );
+
+      await expectLater(
+        invalidDate.getChanges(since: 0),
+        throwsA(isA<FormatException>()),
+      );
+      await expectLater(
+        uncoveredCursor.getChanges(since: 0),
+        throwsA(isA<FormatException>()),
+      );
+    });
 
     test('explicit signature rejection never retries unsigned', () async {
       final client = _FakeBackendClient(
@@ -174,6 +320,65 @@ void main() {
 
       expect(client.rawBodies, hasLength(1));
       expect(client.rawHeaders.single['X-LynAI-Signature'], isNotEmpty);
+    });
+
+    test(
+      'unknown device invalidates enrollment and retries signed once',
+      () async {
+        final client = _FakeBackendClient(
+          replayResponses: {
+            '/sync/changes': [
+              http.Response('{"code":"unknown_device"}', 401),
+              http.Response(
+                '{"latestSeq":1,"changes":[{"changeId":"c1","seq":1}]}',
+                200,
+              ),
+            ],
+          },
+        );
+        final identity = DeviceIdentityService(
+          secretStore: InMemorySecretStore(),
+        );
+        final registration = _TrackingRegistration(client, identity);
+        final service = RemoteSyncService(
+          client,
+          identity: identity,
+          registration: registration,
+        );
+
+        await service.uploadChanges([_changeRecord('c1', 'm1')]);
+
+        expect(registration.invalidations, 1);
+        expect(registration.enrollmentChecks, 2);
+        expect(client.replayBodies, hasLength(2));
+        expect(client.replayBodies[0], client.replayBodies[1]);
+      },
+    );
+
+    test('revoked device invalidates enrollment without retrying', () async {
+      final client = _FakeBackendClient(
+        replayResponses: {
+          '/sync/changes': [http.Response('{"code":"revoked_device"}', 403)],
+        },
+      );
+      final identity = DeviceIdentityService(
+        secretStore: InMemorySecretStore(),
+      );
+      final registration = _TrackingRegistration(client, identity);
+      final service = RemoteSyncService(
+        client,
+        identity: identity,
+        registration: registration,
+      );
+
+      await expectLater(
+        service.uploadChanges([_changeRecord('c1', 'm1')]),
+        throwsException,
+      );
+
+      expect(registration.invalidations, 1);
+      expect(registration.enrollmentChecks, 1);
+      expect(client.replayBodies, hasLength(1));
     });
 
     test('keeps backend error message for status failures', () async {
@@ -311,6 +516,27 @@ void main() {
   });
 }
 
+SyncChangeRecord _changeRecord(String changeId, String recordId) =>
+    SyncChangeRecord(
+      changeId: changeId,
+      deviceId: 'device-1',
+      clientCreatedAt: DateTime.utc(2026, 7, 16),
+      mutationVersion: 1,
+      table: 'messages',
+      op: 'delete',
+      recordId: recordId,
+    );
+
+String _changePageJson({
+  String clientCreatedAt = '2026-07-16T00:00:00Z',
+  int nextSince = 1,
+}) =>
+    '{"changes":[{"seq":1,"changeId":"remote-1",'
+    '"deviceId":"device-2","clientCreatedAt":"$clientCreatedAt",'
+    '"table":"messages","op":"upsert","recordId":"m1",'
+    '"data":{"id":"m1"}}],"latestSeq":1,"hasMore":false,'
+    '"nextSince":$nextSince}';
+
 RemoteSyncService _remoteSyncService(_FakeBackendClient client) {
   final identity = DeviceIdentityService(secretStore: InMemorySecretStore());
   return RemoteSyncService(
@@ -326,6 +552,25 @@ class _EnrolledRegistration extends DeviceRegistrationService {
 
   @override
   Future<bool> ensureEnrolled() async => true;
+}
+
+class _TrackingRegistration extends DeviceRegistrationService {
+  _TrackingRegistration(BackendClient backend, DeviceIdentityService identity)
+    : super(backend: backend, identity: identity);
+
+  int enrollmentChecks = 0;
+  int invalidations = 0;
+
+  @override
+  Future<bool> ensureEnrolled() async {
+    enrollmentChecks++;
+    return true;
+  }
+
+  @override
+  void invalidateCurrentEnrollment() {
+    invalidations++;
+  }
 }
 
 http.Response _jsonResponse(String body, int statusCode) {
@@ -354,22 +599,31 @@ class _FakeBackendClient extends BackendClient {
     this.getResponses = const {},
     this.postResponses = const {},
     this.postRawResponses = const {},
-  });
+    Map<String, List<http.Response>> replayResponses = const {},
+  }) : replayResponses = {
+         for (final entry in replayResponses.entries)
+           entry.key: List<http.Response>.of(entry.value),
+       };
 
   // 按路径返回预设响应，避免单测启动真实后端。
   final Map<String, http.Response> getResponses;
   final Map<String, http.Response> postResponses;
   final Map<String, http.Response> postRawResponses;
+  final Map<String, List<http.Response>> replayResponses;
   Duration? lastPostRawTimeout;
+  String sessionId = 'session-vector-1';
+  void Function(int buildCount)? replayHeaderBuildHook;
   final List<List<int>> jsonBodies = [];
   final List<Map<String, String>?> jsonHeaders = [];
   final List<List<int>> rawBodies = [];
   final List<Map<String, String>> rawHeaders = [];
+  final List<List<int>> replayBodies = [];
+  final List<Map<String, String>> replayHeaders = [];
   final List<String> getPaths = [];
 
   @override
   String? get accessToken =>
-      'header.${base64UrlEncode(utf8.encode(jsonEncode({'uid': '42', 'sid': 'session-vector-1'}))).replaceAll('=', '')}.signature';
+      'header.${base64UrlEncode(utf8.encode(jsonEncode({'uid': '42', 'sid': sessionId}))).replaceAll('=', '')}.signature';
 
   @override
   String get backendUrl => 'https://backend.example';
@@ -411,5 +665,35 @@ class _FakeBackendClient extends BackendClient {
     jsonBodies.add(List<int>.of(bodyBytes));
     jsonHeaders.add(headers == null ? null : Map.of(headers));
     return postResponses[path] ?? http.Response('{}', 404);
+  }
+
+  @override
+  Future<http.Response> postReplayableBytes(
+    String path, {
+    required Future<Map<String, String>> Function() buildHeaders,
+    required List<int> bodyBytes,
+    Duration? timeout,
+  }) async {
+    lastPostRawTimeout = timeout;
+    final attempts = replayHeaderBuildHook == null ? 1 : 2;
+    for (var attempt = 1; attempt <= attempts; attempt++) {
+      replayHeaderBuildHook?.call(attempt);
+      final body = List<int>.of(bodyBytes);
+      final headers = Map<String, String>.of(await buildHeaders());
+      replayBodies.add(body);
+      replayHeaders.add(headers);
+      if (headers['Content-Type'] == 'application/json') {
+        jsonBodies.add(body);
+        jsonHeaders.add(headers);
+      } else {
+        rawBodies.add(body);
+        rawHeaders.add(headers);
+      }
+    }
+    final queued = replayResponses[path];
+    if (queued != null && queued.isNotEmpty) return queued.removeAt(0);
+    return postResponses[path] ??
+        postRawResponses[path] ??
+        http.Response('{}', 404);
   }
 }

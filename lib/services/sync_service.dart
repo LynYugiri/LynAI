@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:http/http.dart' as http;
 
 import '../models/sync_change.dart';
 import 'backend_client.dart';
@@ -104,14 +105,10 @@ class RemoteSyncService implements SyncService {
       'changes': changes.map((c) => c.toJson()).toList(),
     };
     final bodyBytes = utf8.encode(jsonEncode(body));
-    final headers = await _signedHeaders(
+    final resp = await _postSignedBytes(
+      path: '/sync/changes',
       requestId: requestId,
       target: '/sync/changes',
-      bodyBytes: bodyBytes,
-    );
-    final resp = await _client.postJsonBytes(
-      '/sync/changes',
-      headers: headers,
       bodyBytes: bodyBytes,
     );
     if (resp.statusCode != 200) {
@@ -121,37 +118,84 @@ class RemoteSyncService implements SyncService {
       throw Exception(_errorMessage(resp.body, '上传变更失败'));
     }
     final json = Map<String, dynamic>.from(jsonDecode(resp.body) as Map);
+    final latestSeq = json['latestSeq'];
+    if (latestSeq is! int || latestSeq < 0) {
+      throw const FormatException('sync upload latestSeq is invalid');
+    }
     final responseChanges = json['changes'];
-    final acknowledgedChangeIds =
-        responseChanges is List &&
-            responseChanges.every(
-              (item) =>
-                  item is Map &&
-                  item['changeId'] is String &&
-                  (item['changeId'] as String).isNotEmpty,
-            )
-        ? responseChanges
-              .map((item) => (item as Map)['changeId'] as String)
-              .toSet()
-        : null;
-    final acknowledgements = acknowledgedChangeIds == null
-        ? null
-        : changes
-              .where(
-                (change) => acknowledgedChangeIds.contains(change.changeId),
-              )
-              .map(
-                (change) => SyncAcknowledgement(
-                  changeId: change.changeId,
-                  mutationVersion: change.mutationVersion,
-                ),
-              )
-              .toList(growable: false);
+    if (responseChanges is! List || responseChanges.length != changes.length) {
+      throw const FormatException('sync upload ACK count is invalid');
+    }
+    final entries = responseChanges
+        .map(
+          (item) => item is Map
+              ? Map<String, dynamic>.from(item)
+              : throw const FormatException('sync upload ACK entry is invalid'),
+        )
+        .toList(growable: false);
+    final isLegacy =
+        entries.isNotEmpty &&
+        entries.every(
+          (entry) =>
+              !entry.containsKey('changeId') && _isPositiveInt(entry['seq']),
+        );
+    if (isLegacy) {
+      final maxSeq = entries
+          .map((entry) => entry['seq'] as int)
+          .reduce((a, b) => a > b ? a : b);
+      if (latestSeq < maxSeq) {
+        throw const FormatException(
+          'sync upload latestSeq does not cover ACKs',
+        );
+      }
+      return SyncUploadResult(
+        latestSeq: latestSeq,
+        legacyWholeBatchAcknowledgement: true,
+      );
+    }
+    if (entries.any(
+      (entry) =>
+          entry['changeId'] is! String ||
+          (entry['changeId'] as String).isEmpty ||
+          !_isPositiveInt(entry['seq']),
+    )) {
+      throw const FormatException('sync upload ACK entry is malformed');
+    }
+    final acknowledgedChangeIds = entries
+        .map((entry) => entry['changeId'] as String)
+        .toSet();
+    final expectedChangeIds = changes.map((change) => change.changeId).toSet();
+    if (acknowledgedChangeIds.length != entries.length ||
+        expectedChangeIds.length != changes.length ||
+        acknowledgedChangeIds.length != expectedChangeIds.length ||
+        !acknowledgedChangeIds.containsAll(expectedChangeIds)) {
+      throw const FormatException('sync upload ACKs do not match request');
+    }
+    if (entries.isNotEmpty) {
+      final maxSeq = entries
+          .map((entry) => entry['seq'] as int)
+          .reduce((a, b) => a > b ? a : b);
+      if (latestSeq < maxSeq) {
+        throw const FormatException(
+          'sync upload latestSeq does not cover ACKs',
+        );
+      }
+    }
+    final acknowledgements = changes
+        .map(
+          (change) => SyncAcknowledgement(
+            changeId: change.changeId,
+            mutationVersion: change.mutationVersion,
+          ),
+        )
+        .toList(growable: false);
     return SyncUploadResult(
-      latestSeq: (json['latestSeq'] as num?)?.toInt() ?? 0,
+      latestSeq: latestSeq,
       acknowledgements: acknowledgements,
     );
   }
+
+  static bool _isPositiveInt(Object? value) => value is int && value > 0;
 
   static String requestIdForChanges(List<SyncChangeRecord> changes) {
     final identity = changes
@@ -214,10 +258,13 @@ class RemoteSyncService implements SyncService {
   static String _hex(List<int> bytes) =>
       bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
 
-  bool _isExplicitSignatureRejection(String body) {
+  bool _isExplicitSignatureRejection(String body) =>
+      _deviceRejectionCode(body) != null;
+
+  String? _deviceRejectionCode(String body) {
     try {
       final decoded = jsonDecode(body);
-      if (decoded is! Map) return false;
+      if (decoded is! Map) return null;
       final values = <Object?>[
         decoded['code'],
         decoded['errorCode'],
@@ -233,19 +280,25 @@ class RemoteSyncService implements SyncService {
           'revoked_device',
           'replayed_request',
         };
-        if (values.any((value) => codes.contains(value?.toString()))) {
-          return true;
+        for (final value in values) {
+          final code = value?.toString();
+          if (codes.contains(code)) return code;
         }
       }
       final message = BackendClient.extractErrorMessageFromDecoded(
         decoded,
       )?.toLowerCase();
-      return message == 'device signature is required' ||
-          message == 'invalid signed sync request' ||
-          message == 'unknown or revoked device' ||
-          message == 'request id conflicts with an existing request';
+      if (message == 'unknown or revoked device') return 'revoked_device';
+      if (message == 'device signature is required') {
+        return 'signature_required';
+      }
+      if (message == 'invalid signed sync request') return 'invalid_signature';
+      if (message == 'request id conflicts with an existing request') {
+        return 'replayed_request';
+      }
+      return null;
     } catch (_) {
-      return false;
+      return null;
     }
   }
 
@@ -259,18 +312,49 @@ class RemoteSyncService implements SyncService {
       throw Exception(_errorMessage(resp.body, '获取变更失败'));
     }
     final json = Map<String, dynamic>.from(jsonDecode(resp.body) as Map);
-    final changes = (json['changes'] as List? ?? const [])
+    final rawChanges = json['changes'];
+    if (rawChanges is! List) {
+      throw const FormatException('sync download changes is invalid');
+    }
+    final changes = rawChanges
         .map(
-          (item) => SyncChange.fromJson(Map<String, dynamic>.from(item as Map)),
+          (item) => item is Map
+              ? SyncChange.fromJson(Map<String, dynamic>.from(item))
+              : throw const FormatException('sync download change is invalid'),
         )
         .toList(growable: false);
+    var previousSeq = since;
+    final changeIds = <String>{};
+    for (final change in changes) {
+      if (change.seq <= previousSeq) {
+        throw const FormatException(
+          'sync download seq must be strictly increasing after since',
+        );
+      }
+      if (!changeIds.add(change.changeId)) {
+        throw const FormatException('sync download changeId is duplicated');
+      }
+      previousSeq = change.seq;
+    }
+    final nextSince = json['nextSince'];
+    if (nextSince is! int ||
+        nextSince < since ||
+        (changes.isNotEmpty && nextSince < changes.last.seq)) {
+      throw const FormatException('sync download nextSince is invalid');
+    }
+    final latestSeq = json['latestSeq'];
+    if (latestSeq is! int || latestSeq < 0) {
+      throw const FormatException('sync download latestSeq is invalid');
+    }
+    final hasMore = json['hasMore'];
+    if (hasMore is! bool) {
+      throw const FormatException('sync download hasMore is invalid');
+    }
     return SyncDownloadResult(
       changes: changes,
-      latestSeq: (json['latestSeq'] as num?)?.toInt() ?? 0,
-      hasMore: json['hasMore'] as bool? ?? false,
-      nextSince:
-          (json['nextSince'] as num?)?.toInt() ??
-          (changes.isEmpty ? since : changes.last.seq),
+      latestSeq: latestSeq,
+      hasMore: hasMore,
+      nextSince: nextSince,
     );
   }
 
@@ -303,16 +387,12 @@ class RemoteSyncService implements SyncService {
   @override
   Future<void> uploadBlob(String sha256, List<int> bytes) async {
     final requestId = requestIdForBlob(sha256);
-    final headers = await _signedHeaders(
+    final resp = await _postSignedBytes(
+      path: '/sync/blobs/$sha256',
       requestId: requestId,
       target: '/sync/blobs/:sha256',
       bodyBytes: bytes,
       contentType: 'application/octet-stream',
-    );
-    final resp = await _client.postRaw(
-      '/sync/blobs/$sha256',
-      headers: headers,
-      body: bytes,
       timeout: blobUploadTimeout,
     );
     if (resp.statusCode != 200) {
@@ -321,6 +401,35 @@ class RemoteSyncService implements SyncService {
       }
       throw Exception(_errorMessage(resp.body, '上传 blob 失败'));
     }
+  }
+
+  Future<http.Response> _postSignedBytes({
+    required String path,
+    required String requestId,
+    required String target,
+    required List<int> bodyBytes,
+    String contentType = 'application/json',
+    Duration? timeout,
+  }) async {
+    Future<http.Response> send() => _client.postReplayableBytes(
+      path,
+      buildHeaders: () => _signedHeaders(
+        requestId: requestId,
+        target: target,
+        bodyBytes: bodyBytes,
+        contentType: contentType,
+      ),
+      bodyBytes: bodyBytes,
+      timeout: timeout,
+    );
+
+    var response = await send();
+    final rejection = _deviceRejectionCode(response.body);
+    if (response.statusCode != 200 && rejection != null) {
+      _registration.invalidateCurrentEnrollment();
+      if (rejection == 'unknown_device') response = await send();
+    }
+    return response;
   }
 
   Future<Map<String, String>> _signedHeaders({

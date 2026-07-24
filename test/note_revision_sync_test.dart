@@ -441,6 +441,7 @@ Future<void> _syncOutbox(
     reverseApplyOrder ? operations.reversed.toList() : operations,
     0,
   );
+  await target.recoverNoteMaterialization();
   await source.acknowledgeSyncOutbox(scope, entries);
 }
 

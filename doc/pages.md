@@ -224,7 +224,7 @@ HomePage
 
 | 步骤 | 说明 |
 |------|------|
-| 选择导出内容 | 可选择设置、对话、笔记、规范任务/清单、日历事件/纪念日、情景演绎和插件。 |
+| 选择导出内容 | 可选择设置、对话、笔记、规范任务/清单、日历事件/纪念日、情景演绎和插件；任务与清单、事件与纪念日分别显示可勾选子项，分区全选会覆盖该分区当前可用子项。 |
 | 导出文件 | 写入 ZIP 到用户选择的位置。 |
 | 读取备份 | 选择 ZIP 后解析 manifest、分区 JSON 和资源。 |
 | 预览 | 显示分区数量、警告和冲突。 |
@@ -256,7 +256,7 @@ HomePage
 | FeaturePage | Dashboard 跳转、历史搜索、角色切换、笔记未保存确认。 |
 | Roleplay | 情景创建、线程创建、导演/角色生成、玩家消息排队、附件、长图导出。 |
 | ApiModelsPage | 添加/删除模型、拖拽排序、获取模型、清空高级参数、子模型能力开关。 |
-| DataManagementPage | 普通无密钥 ZIP、密码加密含 API Key 备份、canonical `tasks.json`/`calendar.json`、schema 5-8 旧 planning 备份转换、冲突导入、附件恢复。 |
+| DataManagementPage | 普通无密钥 ZIP、密码加密含 API Key 备份、任务/清单和事件/纪念日的单项勾选与分区全选、canonical `tasks.json`/`calendar.json`、schema 5-8 旧 planning 备份转换、冲突导入、附件恢复。 |
 | ThemePage | 预设色、HSV 拖动、深浅色切换、重启恢复。 |
 ## LAN Pairing And Sync
 

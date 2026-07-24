@@ -15,7 +15,11 @@ abstract class SyncStorage {
   Future<void> activateScope(String scope, String deviceId);
   Future<void> deactivateScope(String scope);
   Future<int> since(String scope);
-  Future<List<SyncOutboxEntry>> loadOutbox(String scope);
+  Future<List<SyncOutboxEntry>> loadOutbox(
+    String scope, {
+    int? limit,
+    int offset = 0,
+  });
   Future<List<SyncConflictEntry>> loadConflicts(String scope);
   Future<void> resolveConflict(
     String scope,
@@ -32,11 +36,44 @@ abstract class SyncStorage {
   Future<List<SyncResourceBlob>> resourceBlobsForOutbox(
     List<SyncOutboxEntry> entries,
   );
+  Future<List<SyncBlobDescriptor>> resourceBlobDescriptorsForOutbox(
+    List<SyncOutboxEntry> entries,
+  ) async => [
+    for (final blob in await resourceBlobsForOutbox(entries))
+      SyncBlobDescriptor(
+        sha256: blob.sha256,
+        readBytes: () async => blob.bytes,
+      ),
+  ];
   Future<bool> hasResourceBlob(String sha256);
   Future<void> installResourceBlob(String sha256, List<int> bytes);
   Map<String, dynamic> normalizeRemoteResource(Map<String, dynamic> data);
   Future<bool> hasNoteBlob(String sha256);
   Future<void> installNoteBlob(String sha256, List<int> bytes);
+  Future<void> materializeNotes();
+}
+
+class _PreparedUploadEntry {
+  final SyncOutboxEntry entry;
+  final SyncChangeRecord record;
+  final int recordBytes;
+  final int dataBytes;
+
+  const _PreparedUploadEntry({
+    required this.entry,
+    required this.record,
+    required this.recordBytes,
+    required this.dataBytes,
+  });
+
+  String get rowKey => '${entry.table}\u0000${entry.recordId}';
+}
+
+class SyncApplySummary {
+  const SyncApplySummary({required this.scope, required this.changedTables});
+
+  final String scope;
+  final Set<String> changedTables;
 }
 
 class SyncResourceBlob {
@@ -44,6 +81,13 @@ class SyncResourceBlob {
   final List<int> bytes;
 
   const SyncResourceBlob({required this.sha256, required this.bytes});
+}
+
+class SyncBlobDescriptor {
+  final String sha256;
+  final Future<List<int>> Function() readBytes;
+
+  const SyncBlobDescriptor({required this.sha256, required this.readBytes});
 }
 
 class StorageV2SyncStorage implements SyncStorage {
@@ -63,8 +107,11 @@ class StorageV2SyncStorage implements SyncStorage {
   Future<int> since(String scope) => _storage.syncSince(scope);
 
   @override
-  Future<List<SyncOutboxEntry>> loadOutbox(String scope) =>
-      _storage.loadSyncOutbox(scope);
+  Future<List<SyncOutboxEntry>> loadOutbox(
+    String scope, {
+    int? limit,
+    int offset = 0,
+  }) => _storage.loadSyncOutbox(scope, limit: limit, offset: offset);
 
   @override
   Future<List<SyncConflictEntry>> loadConflicts(String scope) =>
@@ -96,6 +143,23 @@ class StorageV2SyncStorage implements SyncStorage {
   Future<List<SyncResourceBlob>> resourceBlobsForOutbox(
     List<SyncOutboxEntry> entries,
   ) async {
+    final descriptors = await resourceBlobDescriptorsForOutbox(entries);
+    final blobs = <SyncResourceBlob>[];
+    for (final descriptor in descriptors) {
+      blobs.add(
+        SyncResourceBlob(
+          sha256: descriptor.sha256,
+          bytes: await descriptor.readBytes(),
+        ),
+      );
+    }
+    return blobs;
+  }
+
+  @override
+  Future<List<SyncBlobDescriptor>> resourceBlobDescriptorsForOutbox(
+    List<SyncOutboxEntry> entries,
+  ) async {
     final resourceIds = <String>{};
     final snapshotResourceIds = <String>{};
     final hashes = <String>{};
@@ -118,12 +182,10 @@ class StorageV2SyncStorage implements SyncStorage {
       }
     }
     resourceIds.removeAll(snapshotResourceIds);
-    final blobs = <SyncResourceBlob>[];
-    for (final id in resourceIds) {
-      final resource = await _storage.findResourceById(id);
-      final hash = resource?.sha256Hash;
-      if (resource == null ||
-          !_isSyncedResourceRole(resource.role) ||
+    final blobs = <SyncBlobDescriptor>[];
+    for (final resource in await _storage.findResourcesByIds(resourceIds)) {
+      final hash = resource.sha256Hash;
+      if (!_isSyncedResourceRole(resource.role) ||
           resource.missing ||
           hash == null) {
         continue;
@@ -132,17 +194,17 @@ class StorageV2SyncStorage implements SyncStorage {
     }
     for (final hash in hashes) {
       blobs.add(
-        SyncResourceBlob(
+        SyncBlobDescriptor(
           sha256: hash,
-          bytes: await _storage.readResourceBlob(hash),
+          readBytes: () => _storage.readResourceBlob(hash),
         ),
       );
     }
     for (final hash in noteHashes) {
       blobs.add(
-        SyncResourceBlob(
+        SyncBlobDescriptor(
           sha256: hash,
-          bytes: await _storage.readNoteBlob(hash),
+          readBytes: () => _storage.readNoteBlob(hash),
         ),
       );
     }
@@ -168,6 +230,9 @@ class StorageV2SyncStorage implements SyncStorage {
   Future<void> installNoteBlob(String sha256, List<int> bytes) =>
       _storage.installNoteBlob(sha256, bytes);
 
+  @override
+  Future<void> materializeNotes() => _storage.recoverNoteMaterialization();
+
   static bool _isMessageResourceRole(Object? role) =>
       role == 'message_attachment' || role == 'message_image';
 
@@ -176,12 +241,14 @@ class StorageV2SyncStorage implements SyncStorage {
 }
 
 class SyncProvider extends ChangeNotifier {
+  static const _outboxWindowSize = 256;
+
   SyncProvider({
     BackendClient? backend,
     SyncService? service,
     SyncStorage? storage,
-    Future<void> Function()? beforeRemoteApply,
-    Future<void> Function()? onRemoteApplied,
+    Future<void> Function(SyncApplySummary summary)? beforeRemoteApply,
+    Future<void> Function(SyncApplySummary summary)? onRemoteApplied,
     DeviceIdentityService? identity,
     DeviceRegistrationService? registration,
     Future<List<int>> Function(String hash)? readPluginBlob,
@@ -200,13 +267,16 @@ class SyncProvider extends ChangeNotifier {
        _hasPluginBlob = hasPluginBlob,
        _installPluginBlob = installPluginBlob,
        _shouldApplyRemoteChange = shouldApplyRemoteChange,
-       _remoteChangesApplied = remoteChangesApplied;
+       _remoteChangesApplied = remoteChangesApplied,
+       _backendScope = backend?.backendScope ?? '' {
+    _backend?.addListener(_handleBackendChanged);
+  }
 
   final BackendClient? _backend;
   final SyncService? _injectedService;
   final SyncStorage _storage;
-  final Future<void> Function()? _beforeRemoteApply;
-  final Future<void> Function()? _onRemoteApplied;
+  final Future<void> Function(SyncApplySummary summary)? _beforeRemoteApply;
+  final Future<void> Function(SyncApplySummary summary)? _onRemoteApplied;
   final DeviceIdentityService? _identity;
   final DeviceRegistrationService? _registration;
   final Future<List<int>> Function(String hash)? _readPluginBlob;
@@ -218,6 +288,8 @@ class SyncProvider extends ChangeNotifier {
   RemoteSyncService? _remoteService;
   Future<void> _queue = Future.value();
   bool _disposed = false;
+  String _backendScope;
+  int _generation = 0;
 
   String? _scope;
   bool _syncing = false;
@@ -252,7 +324,9 @@ class SyncProvider extends ChangeNotifier {
   }
 
   Future<void> bindScope(String userId) {
+    final generation = ++_generation;
     return _enqueue(() async {
+      if (!_isCurrent(generation)) return;
       final normalizedUserId = userId.trim();
       final backendUrl = DeviceIdentityService.backendOrigin(
         _backend?.backendUrl ?? 'injected',
@@ -270,226 +344,387 @@ class SyncProvider extends ChangeNotifier {
       final deviceId =
           (await _identity?.initialize(scope: identityScope))?.deviceId ??
           'injected';
+      if (!_isCurrent(generation)) return;
       final nextScope = '$effectiveBackend|$normalizedUserId';
       final previous = _scope;
       if (previous == nextScope) return;
-      await _beforeRemoteApply?.call();
+      await _beforeRemoteApply?.call(
+        SyncApplySummary(scope: nextScope, changedTables: const {}),
+      );
+      if (!_isCurrent(generation)) return;
       if (previous != null) await _storage.deactivateScope(previous);
+      if (!_isCurrent(generation)) return;
       await _storage.activateScope(nextScope, deviceId);
+      if (!_isCurrent(generation)) return;
       _scope = nextScope;
       _conflicts = await _storage.loadConflicts(nextScope);
     });
   }
 
   Future<void> unbind() {
+    final generation = ++_generation;
     return _enqueue(() async {
+      if (!_isCurrent(generation)) return;
       final current = _scope;
       if (current == null) return;
-      await _beforeRemoteApply?.call();
+      await _beforeRemoteApply?.call(
+        SyncApplySummary(scope: current, changedTables: const {}),
+      );
+      if (!_isCurrent(generation)) return;
       await _storage.deactivateScope(current);
+      if (!_isCurrent(generation)) return;
       _scope = null;
       _conflicts = const [];
     });
   }
 
-  Future<void> autoDownload() => _enqueue(_syncDownloadThenUpload);
+  Future<void> autoDownload() {
+    final generation = _generation;
+    return _enqueue(() => _syncDownloadThenUpload(generation));
+  }
 
-  Future<void> manualSync() => _enqueue(_syncDownloadThenUpload);
+  Future<void> manualSync() {
+    final generation = _generation;
+    return _enqueue(() => _syncDownloadThenUpload(generation));
+  }
 
-  Future<void> flushUpload() => _enqueue(_uploadOutbox);
+  Future<void> flushUpload() {
+    final generation = _generation;
+    return _enqueue(() => _flushUpload(generation));
+  }
 
-  Future<void> _syncDownloadThenUpload() async {
-    if (!canSync) return;
+  Future<void> _syncDownloadThenUpload(int generation) async {
+    if (!_isCurrent(generation) || !canSync) return;
+    final currentScope = _scope;
+    if (currentScope == null) return;
     final limits = (await _service!.getStatus()).limits;
-    await _downloadPages(limits);
-    final uploaded = await _uploadOutbox(limits);
-    if (uploaded) await _downloadPages(limits);
+    if (!_isCurrentScope(generation, currentScope)) return;
+    final changedTables = <String>{};
+    final flushedTables = <String>{};
+    changedTables.addAll(
+      await _downloadPages(limits, generation, flushedTables),
+    );
+    if (!_isCurrentScope(generation, currentScope)) return;
+    final uploaded = await _uploadOutbox(
+      advertisedLimits: limits,
+      generation: generation,
+      changedTables: changedTables,
+    );
+    if (uploaded && _isCurrentScope(generation, currentScope)) {
+      changedTables.addAll(
+        await _downloadPages(limits, generation, flushedTables),
+      );
+    }
+    if (!_isCurrentScope(generation, currentScope)) return;
+    await _finishRemoteApply(currentScope, changedTables, generation);
+    if (!_isCurrentScope(generation, currentScope)) return;
     _lastSyncAt = DateTime.now();
   }
 
-  Future<void> _downloadPages(SyncLimits limits) async {
+  Future<Set<String>> _downloadPages(
+    SyncLimits limits,
+    int generation,
+    Set<String> flushedTables,
+  ) async {
     final service = _service;
     final currentScope = _scope;
-    if (service == null || currentScope == null || !canSync) return;
+    if (service == null ||
+        currentScope == null ||
+        !_isCurrent(generation) ||
+        !canSync) {
+      return const {};
+    }
     var cursor = await _storage.since(currentScope);
-    var appliedRemote = false;
-    var flushedLocalSaves = false;
+    if (!_isCurrentScope(generation, currentScope)) return const {};
+    final changedTables = <String>{};
     while (true) {
       final page = await service.getChanges(
         since: cursor,
         limit: limits.maxChangesPageSize,
       );
+      if (!_isCurrentScope(generation, currentScope)) return const {};
+      _validateRemotePage(cursor, page);
       final next = page.nextSince;
-      if ((page.hasMore || page.changes.isNotEmpty) && next <= cursor) {
-        throw StateError('同步分页未前进: since=$cursor nextSince=$next');
-      }
       final ops = await _prepareRemoteOperations(service, page.changes);
-      if (ops.isNotEmpty && !flushedLocalSaves) {
-        await _beforeRemoteApply?.call();
-        flushedLocalSaves = true;
+      if (!_isCurrentScope(generation, currentScope)) return const {};
+      final pageTables = ops.map((op) => op.table).toSet();
+      final unflushedTables = pageTables.difference(flushedTables);
+      if (unflushedTables.isNotEmpty) {
+        await _beforeRemoteApply?.call(
+          SyncApplySummary(scope: currentScope, changedTables: unflushedTables),
+        );
+        if (!_isCurrentScope(generation, currentScope)) return const {};
+        flushedTables.addAll(unflushedTables);
       }
       if (ops.isEmpty) {
         await _storage.updateSince(currentScope, next);
       } else {
         await _storage.applyRemoteChanges(currentScope, ops, next);
+        if (!_isCurrentScope(generation, currentScope)) return const {};
         await _remoteChangesApplied?.call(
           ops.map((op) => op.change?.changeId).whereType<String>(),
         );
-        appliedRemote = true;
+        changedTables.addAll(pageTables);
       }
+      if (!_isCurrentScope(generation, currentScope)) return const {};
       cursor = next;
       if (!page.hasMore) break;
     }
-    if (appliedRemote) await _onRemoteApplied?.call();
     _conflicts = await _storage.loadConflicts(currentScope);
+    return changedTables;
+  }
+
+  Future<void> _flushUpload(int generation) async {
+    final currentScope = _scope;
+    if (currentScope == null || !_isCurrent(generation)) return;
+    final changedTables = <String>{};
+    await _uploadOutbox(generation: generation, changedTables: changedTables);
+    if (!_isCurrentScope(generation, currentScope)) return;
+    await _finishRemoteApply(currentScope, changedTables, generation);
+  }
+
+  Future<void> _finishRemoteApply(
+    String scope,
+    Set<String> changedTables,
+    int generation,
+  ) async {
+    if (changedTables.isEmpty) return;
+    if (_noteTables.any(changedTables.contains)) {
+      await _storage.materializeNotes();
+      if (!_isCurrentScope(generation, scope)) return;
+    }
+    await _onRemoteApplied?.call(
+      SyncApplySummary(scope: scope, changedTables: changedTables),
+    );
   }
 
   Future<void> resolveConflict(int seq, SyncConflictResolution resolution) {
+    final generation = _generation;
     return _enqueue(() async {
       final currentScope = _scope;
-      if (currentScope == null) return;
+      if (currentScope == null || !_isCurrent(generation)) return;
+      String? table;
+      for (final conflict in _conflicts) {
+        if (conflict.seq == seq) {
+          table = conflict.table;
+          break;
+        }
+      }
       await _storage.resolveConflict(currentScope, seq, resolution);
+      if (!_isCurrentScope(generation, currentScope)) return;
       _conflicts = await _storage.loadConflicts(currentScope);
-      await _onRemoteApplied?.call();
+      if (table != null) {
+        if (_noteTables.contains(table)) await _storage.materializeNotes();
+        await _onRemoteApplied?.call(
+          SyncApplySummary(scope: currentScope, changedTables: {table}),
+        );
+      }
     });
   }
 
-  Future<bool> _uploadOutbox([SyncLimits? advertisedLimits]) async {
+  Future<bool> _uploadOutbox({
+    SyncLimits? advertisedLimits,
+    required int generation,
+    required Set<String> changedTables,
+  }) async {
     final service = _service;
     final currentScope = _scope;
-    if (service == null || currentScope == null || !canSync) return false;
-    final snapshot = await _storage.loadOutbox(currentScope);
-    if (snapshot.isEmpty) return false;
+    if (service == null ||
+        currentScope == null ||
+        !_isCurrent(generation) ||
+        !canSync) {
+      return false;
+    }
     final limits = advertisedLimits ?? (await service.getStatus()).limits;
-    final uploadable = snapshot
-        .where((entry) {
-          final data = entry.data;
-          if (data != null &&
-              utf8.encode(jsonEncode(data)).length >
-                  limits.maxChangeDataBytes) {
-            return false;
-          }
-          return _uploadBodyBytes([_recordForEntry(entry)]) <=
-              limits.maxChangesRequestBytes;
-        })
-        .toList(growable: false);
-    if (uploadable.isEmpty) {
-      throw StateError(
-        'all pending sync changes exceed advertised per-change limits',
-      );
-    }
-    final blobs = await _storage.resourceBlobsForOutbox(uploadable);
-    final pluginHashes = uploadable
-        .where(
-          (entry) => entry.op == 'upsert' && entry.table.startsWith('plugin_'),
-        )
-        .map((entry) => entry.data?['sha256'] as String?)
-        .whereType<String>()
-        .toSet();
-    final allBlobs = <SyncResourceBlob>[
-      ...blobs,
-      for (final hash in pluginHashes)
-        if (_readPluginBlob != null)
-          SyncResourceBlob(sha256: hash, bytes: await _readPluginBlob(hash)),
-    ];
-    if (allBlobs.isNotEmpty) {
-      final remoteHashes = (await service.listBlobs(
-        limit: limits.maxBlobsPageSize,
-      )).map((blob) => blob.sha256).toSet();
-      for (final blob in allBlobs) {
-        if (blob.bytes.length > limits.maxBlobBytes) {
-          throw StateError(
-            'sync blob ${blob.sha256} exceeds ${limits.maxBlobBytes} bytes',
-          );
-        }
-        if (remoteHashes.add(blob.sha256)) {
-          await service.uploadBlob(blob.sha256, blob.bytes);
-        }
-      }
-    }
-    for (final batch in _uploadBatches(uploadable, limits)) {
-      final result = await service.uploadChanges(
-        batch.map(_recordForEntry).toList(growable: false),
-      );
-      final acknowledgements = result.acknowledgements;
-      if (acknowledgements != null) {
-        final ackKeys = {
-          for (final ack in acknowledgements)
-            '${ack.changeId}:${ack.mutationVersion}',
-        };
-        final expected = {
-          for (final entry in batch)
-            '${entry.changeId}:${entry.mutationVersion}',
-        };
-        if (ackKeys.length != expected.length ||
-            !ackKeys.containsAll(expected)) {
-          throw StateError('sync server did not ACK the exact uploaded batch');
-        }
-      }
-      final appliedConflict = await _storage.acknowledgeOutbox(
+    if (!_isCurrentScope(generation, currentScope)) return false;
+    var uploaded = false;
+    var offset = 0;
+    final oversizedRows = <String>{};
+    while (true) {
+      final snapshot = await _storage.loadOutbox(
         currentScope,
-        batch,
+        limit: _outboxWindowSize,
+        offset: offset,
       );
-      if (appliedConflict) await _onRemoteApplied?.call();
+      if (!_isCurrentScope(generation, currentScope)) return false;
+      if (snapshot.isEmpty) break;
+      final uploadable = <_PreparedUploadEntry>[];
+      for (final entry in snapshot) {
+        final prepared = _prepareUploadEntry(entry);
+        if (prepared.dataBytes > limits.maxChangeDataBytes ||
+            _singleUploadBodyBytes(prepared.recordBytes) >
+                limits.maxChangesRequestBytes) {
+          oversizedRows.add(prepared.rowKey);
+        } else {
+          uploadable.add(prepared);
+          oversizedRows.remove(prepared.rowKey);
+        }
+      }
+      if (uploadable.isEmpty) {
+        offset += snapshot.length;
+        continue;
+      }
+      await _uploadBlobs(service, uploadable, limits, currentScope, generation);
+      if (!_isCurrentScope(generation, currentScope)) return false;
+      for (final batch in _uploadBatches(uploadable, limits)) {
+        final entries = batch.map((item) => item.entry).toList(growable: false);
+        final result = await service.uploadChanges(
+          batch.map((item) => item.record).toList(growable: false),
+        );
+        if (!_isCurrentScope(generation, currentScope)) return false;
+        _validateAcknowledgements(result, entries);
+        final appliedConflict = await _storage.acknowledgeOutbox(
+          currentScope,
+          entries,
+        );
+        if (!_isCurrentScope(generation, currentScope)) return false;
+        if (appliedConflict) {
+          changedTables.addAll(entries.map((entry) => entry.table));
+        }
+        oversizedRows.removeAll(entries.map(_outboxRowKey));
+        uploaded = true;
+      }
+      offset = 0;
     }
-    if (uploadable.length != snapshot.length) {
+    if (oversizedRows.isNotEmpty) {
       throw StateError(
-        '${snapshot.length - uploadable.length} pending sync change(s) exceed '
+        '${oversizedRows.length} pending sync change(s) exceed '
         'advertised per-change limits',
       );
     }
-    return true;
+    return uploaded;
   }
 
-  List<List<SyncOutboxEntry>> _uploadBatches(
-    List<SyncOutboxEntry> entries,
+  Future<void> _uploadBlobs(
+    SyncService service,
+    List<_PreparedUploadEntry> uploadable,
+    SyncLimits limits,
+    String currentScope,
+    int generation,
+  ) async {
+    final entries = uploadable
+        .map((item) => item.entry)
+        .toList(growable: false);
+    final descriptors = await _storage.resourceBlobDescriptorsForOutbox(
+      entries,
+    );
+    final readPluginBlob = _readPluginBlob;
+    if (readPluginBlob != null) {
+      for (final entry in entries) {
+        if (entry.op != 'upsert' || !entry.table.startsWith('plugin_')) {
+          continue;
+        }
+        final hash = entry.data?['sha256'] as String?;
+        if (hash != null) {
+          descriptors.add(
+            SyncBlobDescriptor(
+              sha256: hash,
+              readBytes: () => readPluginBlob(hash),
+            ),
+          );
+        }
+      }
+    }
+    if (descriptors.isEmpty) return;
+    final byHash = <String, SyncBlobDescriptor>{
+      for (final descriptor in descriptors) descriptor.sha256: descriptor,
+    };
+    final wantedHashes = byHash.keys.toSet();
+    final remoteHashes = <String>{};
+    for (final blob in await service.listBlobs(
+      limit: limits.maxBlobsPageSize,
+    )) {
+      if (wantedHashes.contains(blob.sha256)) remoteHashes.add(blob.sha256);
+    }
+    if (!_isCurrentScope(generation, currentScope)) return;
+    for (final descriptor in byHash.values) {
+      if (remoteHashes.contains(descriptor.sha256)) continue;
+      final bytes = await descriptor.readBytes();
+      if (bytes.length > limits.maxBlobBytes) {
+        throw StateError(
+          'sync blob ${descriptor.sha256} exceeds ${limits.maxBlobBytes} bytes',
+        );
+      }
+      await service.uploadBlob(descriptor.sha256, bytes);
+      if (!_isCurrentScope(generation, currentScope)) return;
+    }
+  }
+
+  List<List<_PreparedUploadEntry>> _uploadBatches(
+    List<_PreparedUploadEntry> entries,
     SyncLimits limits,
   ) {
-    final batches = <List<SyncOutboxEntry>>[];
-    var current = <SyncOutboxEntry>[];
-    var currentRecords = <SyncChangeRecord>[];
+    final batches = <List<_PreparedUploadEntry>>[];
+    var current = <_PreparedUploadEntry>[];
+    var currentBytes = _emptyUploadBodyBytes;
     for (final entry in entries) {
-      final record = _recordForEntry(entry);
-      final candidateRecords = [...currentRecords, record];
-      if (_uploadBodyBytes(candidateRecords) > limits.maxChangesRequestBytes) {
-        if (current.isEmpty) {
-          throw StateError(
-            'single sync change exceeds ${limits.maxChangesRequestBytes} UTF-8 body bytes',
-          );
-        }
+      final candidateBytes =
+          currentBytes + entry.recordBytes + (current.isEmpty ? 0 : 1);
+      if (candidateBytes > limits.maxChangesRequestBytes ||
+          current.length == limits.maxChangesPerRequest) {
         batches.add(current);
-        current = [entry];
-        currentRecords = [record];
-        if (_uploadBodyBytes(currentRecords) > limits.maxChangesRequestBytes) {
-          throw StateError(
-            'single sync change exceeds ${limits.maxChangesRequestBytes} UTF-8 body bytes',
-          );
-        }
-      } else {
-        current.add(entry);
-        currentRecords = candidateRecords;
+        current = <_PreparedUploadEntry>[];
+        currentBytes = _emptyUploadBodyBytes;
       }
-      if (current.length == limits.maxChangesPerRequest) {
-        batches.add(current);
-        current = <SyncOutboxEntry>[];
-        currentRecords = <SyncChangeRecord>[];
-      }
+      current.add(entry);
+      currentBytes += entry.recordBytes + (current.length == 1 ? 0 : 1);
     }
     if (current.isNotEmpty) batches.add(current);
     return batches;
   }
 
-  int _uploadBodyBytes(List<SyncChangeRecord> records) {
-    final requestId = RemoteSyncService.requestIdForChanges(records);
-    return utf8
-        .encode(
-          jsonEncode({
-            'requestId': requestId,
-            'changes': records.map((record) => record.toJson()).toList(),
-          }),
-        )
-        .length;
+  int get _emptyUploadBodyBytes => utf8
+      .encode(
+        jsonEncode({
+          'requestId': RemoteSyncService.requestIdForChanges(const []),
+          'changes': const [],
+        }),
+      )
+      .length;
+
+  int _singleUploadBodyBytes(int recordBytes) =>
+      _emptyUploadBodyBytes + recordBytes;
+
+  _PreparedUploadEntry _prepareUploadEntry(SyncOutboxEntry entry) {
+    final record = _recordForEntry(entry);
+    return _PreparedUploadEntry(
+      entry: entry,
+      record: record,
+      recordBytes: utf8.encode(jsonEncode(record.toJson())).length,
+      dataBytes: entry.data == null
+          ? 0
+          : utf8.encode(jsonEncode(entry.data)).length,
+    );
   }
+
+  void _validateAcknowledgements(
+    SyncUploadResult result,
+    List<SyncOutboxEntry> entries,
+  ) {
+    final acknowledgements = result.acknowledgements;
+    if (result.legacyWholeBatchAcknowledgement) {
+      if (acknowledgements != null) {
+        throw StateError('sync server returned mixed legacy and exact ACKs');
+      }
+      return;
+    }
+    if (acknowledgements == null) {
+      throw StateError('sync server returned a malformed ACK');
+    }
+    final ackKeys = {
+      for (final ack in acknowledgements)
+        '${ack.changeId}:${ack.mutationVersion}',
+    };
+    final expected = {
+      for (final entry in entries) '${entry.changeId}:${entry.mutationVersion}',
+    };
+    if (ackKeys.length != expected.length || !ackKeys.containsAll(expected)) {
+      throw StateError('sync server did not ACK the exact uploaded batch');
+    }
+  }
+
+  String _outboxRowKey(SyncOutboxEntry entry) =>
+      '${entry.table}\u0000${entry.recordId}';
 
   SyncChangeRecord _recordForEntry(SyncOutboxEntry entry) => SyncChangeRecord(
     table: entry.table,
@@ -604,6 +839,33 @@ class SyncProvider extends ChangeNotifier {
     return _operations(prepared);
   }
 
+  void _validateRemotePage(int since, SyncDownloadResult page) {
+    if (page.nextSince < since) {
+      throw StateError('同步分页游标倒退: since=$since nextSince=${page.nextSince}');
+    }
+    var previousSeq = since;
+    final changeIds = <String>{};
+    for (final change in page.changes) {
+      if (change.seq <= previousSeq) {
+        throw StateError('远端 change seq 必须大于 since 且页内严格递增: ${change.seq}');
+      }
+      if (!changeIds.add(change.changeId)) {
+        throw StateError('远端 changeId 页内重复: ${change.changeId}');
+      }
+      _validateRemoteChange(change);
+      previousSeq = change.seq;
+    }
+    if (page.nextSince < previousSeq) {
+      throw StateError(
+        '同步分页未前进，nextSince 未覆盖最大 seq: '
+        '${page.nextSince} < $previousSeq',
+      );
+    }
+    if (page.hasMore && page.nextSince <= since) {
+      throw StateError('同步分页未前进: since=$since nextSince=${page.nextSince}');
+    }
+  }
+
   void _validateRemoteChange(SyncChange change) {
     const tables = {
       'resources',
@@ -632,6 +894,15 @@ class SyncProvider extends ChangeNotifier {
     };
     if (!tables.contains(change.table)) {
       throw StateError('unsupported remote sync table: ${change.table}');
+    }
+    if (change.seq <= 0) {
+      throw StateError('remote sync seq must be positive');
+    }
+    if (change.changeId.isEmpty) {
+      throw StateError('remote sync changeId is empty');
+    }
+    if (change.deviceId.isEmpty) {
+      throw StateError('remote sync deviceId is empty');
     }
     if (change.op != 'upsert' && change.op != 'delete') {
       throw StateError('unsupported remote sync operation: ${change.op}');
@@ -675,9 +946,32 @@ class SyncProvider extends ChangeNotifier {
     }
   }
 
+  bool _isCurrent(int generation) => !_disposed && generation == _generation;
+
+  bool _isCurrentScope(int generation, String scope) =>
+      _isCurrent(generation) && _scope == scope;
+
+  void _handleBackendChanged() {
+    final scope = _backend?.backendScope ?? '';
+    if (scope == _backendScope) return;
+    _backendScope = scope;
+    _remoteService = null;
+    _generation++;
+  }
+
+  static const _noteTables = {
+    'note_folders',
+    'notes',
+    'note_pages',
+    'note_revisions',
+    'note_page_heads',
+    'note_page_tombstones',
+  };
+
   @override
   void dispose() {
     _disposed = true;
+    _backend?.removeListener(_handleBackendChanged);
     super.dispose();
   }
 }

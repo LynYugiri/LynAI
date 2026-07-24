@@ -100,6 +100,9 @@ INSERT INTO sync_scope_baselines VALUES (
 INSERT INTO sync_state VALUES (
   'scope', 47, 1, 1, 1, 'device-before', 'before'
 );
+DROP INDEX idx_sync_outbox_scope_updated_table_record;
+DROP INDEX idx_sync_outbox_scope_change_mutation;
+DROP INDEX idx_sync_conflicts_scope_table_record;
 PRAGMA user_version = 14;
 ''');
         } finally {
@@ -131,7 +134,7 @@ PRAGMA user_version = 14;
 
         final migrated = sqlite3.open('${storageRoot.path}/app.db');
         try {
-          expect(migrated.userVersion, 15);
+          expect(migrated.userVersion, 16);
           final tables = migrated
               .select("SELECT name FROM sqlite_master WHERE type = 'table'")
               .map((row) => row['name'])
@@ -144,6 +147,18 @@ PRAGMA user_version = 14;
           expect(tables, isNot(contains('schedules')));
           expect(tables, isNot(contains('todo_lists')));
           expect(tables, isNot(contains('todo_items')));
+          final indexes = migrated
+              .select("SELECT name FROM sqlite_master WHERE type = 'index'")
+              .map((row) => row['name'])
+              .toSet();
+          expect(
+            indexes,
+            containsAll({
+              'idx_sync_outbox_scope_updated_table_record',
+              'idx_sync_outbox_scope_change_mutation',
+              'idx_sync_conflicts_scope_table_record',
+            }),
+          );
           final state = migrated
               .select("SELECT * FROM sync_state WHERE scope = 'scope'")
               .single;

@@ -45,23 +45,57 @@ class SyncChange {
 
   /// 从后端 JSON 构造。
   factory SyncChange.fromJson(Map<String, dynamic> json) {
+    final seq = _positiveInt(json['seq'], 'seq');
+    final changeId = _requiredString(json['changeId'], 'changeId');
+    final deviceId = _requiredString(json['deviceId'], 'deviceId');
+    final table = _requiredString(json['table'], 'table');
+    final op = _requiredString(json['op'], 'op');
+    final recordId = _requiredString(json['recordId'], 'recordId');
+    if (op != 'upsert' && op != 'delete') {
+      throw FormatException('invalid sync change op: $op');
+    }
+    final clientCreatedAtValue = json['clientCreatedAt'];
+    if (clientCreatedAtValue is! String) {
+      throw const FormatException('sync change clientCreatedAt is invalid');
+    }
+    final clientCreatedAt = DateTime.tryParse(clientCreatedAtValue);
+    if (clientCreatedAt == null) {
+      throw const FormatException('sync change clientCreatedAt is invalid');
+    }
+    final rawData = json['data'];
+    final data = rawData is Map ? Map<String, dynamic>.from(rawData) : null;
+    if (op == 'upsert' && data?['id'] != recordId) {
+      throw FormatException(
+        'sync change data.id does not match recordId: $recordId',
+      );
+    }
     return SyncChange(
-      seq: (json['seq'] as num?)?.toInt() ?? 0,
-      changeId: json['changeId'] as String? ?? '',
-      deviceId: json['deviceId'] as String? ?? '',
-      clientCreatedAt:
-          DateTime.tryParse(json['clientCreatedAt']?.toString() ?? '') ??
-          DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
-      table: json['table'] as String? ?? '',
-      op: json['op'] as String? ?? '',
-      recordId: json['recordId'] as String? ?? '',
-      data: json['data'] is Map
-          ? Map<String, dynamic>.from(json['data'] as Map)
-          : null,
+      seq: seq,
+      changeId: changeId,
+      deviceId: deviceId,
+      clientCreatedAt: clientCreatedAt,
+      table: table,
+      op: op,
+      recordId: recordId,
+      data: data,
       createdAt: json['createdAt'] != null
           ? DateTime.tryParse(json['createdAt'].toString())
           : null,
     );
+  }
+
+  static int _positiveInt(Object? value, String field) {
+    if (value is! int || value <= 0) {
+      throw FormatException('sync change $field must be a positive integer');
+    }
+    return value;
+  }
+
+  static String _requiredString(Object? value, String field) {
+    if (value is! String || value.isEmpty) {
+      throw FormatException('sync change $field is empty');
+    }
+    return value;
   }
 }
 
@@ -150,8 +184,13 @@ class BlobInfo {
 class SyncUploadResult {
   final int latestSeq;
   final List<SyncAcknowledgement>? acknowledgements;
+  final bool legacyWholeBatchAcknowledgement;
 
-  const SyncUploadResult({required this.latestSeq, this.acknowledgements});
+  const SyncUploadResult({
+    required this.latestSeq,
+    this.acknowledgements,
+    this.legacyWholeBatchAcknowledgement = false,
+  });
 }
 
 class SyncAcknowledgement {

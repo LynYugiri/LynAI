@@ -16,10 +16,14 @@ void main() {
         pages: [_page(seq: 1, hasMore: true), _page(seq: 2, hasMore: false)],
       );
       var reloads = 0;
+      SyncApplySummary? summary;
       final provider = SyncProvider(
         service: service,
         storage: storage,
-        onRemoteApplied: () async => reloads++,
+        onRemoteApplied: (value) async {
+          reloads++;
+          summary = value;
+        },
       );
 
       await provider.bindScope('user-1');
@@ -29,7 +33,86 @@ void main() {
       expect(storage.appliedSince, [1, 2]);
       expect(storage.sinceByScope[provider.scope], 2);
       expect(reloads, 1);
+      expect(summary?.scope, 'injected|user-1');
+      expect(summary?.changedTables, {'messages'});
       expect(service.requestedLimits, [1000, 1000]);
+    });
+
+    test(
+      'flushes newly encountered tables and materializes notes once',
+      () async {
+        final storage = _FakeSyncStorage();
+        final flushed = <Set<String>>[];
+        final applied = <SyncApplySummary>[];
+        final provider = SyncProvider(
+          service: _FakeSyncService(
+            pages: [
+              _page(seq: 1, hasMore: true),
+              _notePage(seq: 2, hasMore: true),
+              _notePage(seq: 3, hasMore: false),
+            ],
+          ),
+          storage: storage,
+          beforeRemoteApply: (summary) async {
+            flushed.add(summary.changedTables);
+          },
+          onRemoteApplied: (summary) async => applied.add(summary),
+        );
+
+        await provider.bindScope('user-1');
+        flushed.clear();
+        await provider.autoDownload();
+
+        expect(flushed, [
+          {'messages'},
+          {'note_pages'},
+        ]);
+        expect(storage.materializeCalls, 1);
+        expect(applied, hasLength(1));
+        expect(applied.single.changedTables, {'messages', 'note_pages'});
+      },
+    );
+
+    test('materializes notes once across download upload download', () async {
+      final storage = _FakeSyncStorage(
+        outbox: [_entry('local', version: 1)],
+        acknowledgeConflict: true,
+      );
+      final applied = <SyncApplySummary>[];
+      final provider = SyncProvider(
+        service: _FakeSyncService(
+          pages: [
+            _notePage(seq: 1, hasMore: false),
+            _notePage(seq: 2, hasMore: false),
+          ],
+        ),
+        storage: storage,
+        onRemoteApplied: (summary) async => applied.add(summary),
+      );
+
+      await provider.bindScope('user-1');
+      await provider.manualSync();
+
+      expect(storage.materializeCalls, 1);
+      expect(applied, hasLength(1));
+      expect(applied.single.changedTables, {'messages', 'note_pages'});
+    });
+
+    test('unbind invalidates an in-flight download result', () async {
+      final storage = _FakeSyncStorage();
+      final response = Completer<SyncDownloadResult>();
+      final service = _BlockingSyncService(response.future);
+      final provider = SyncProvider(service: service, storage: storage);
+      await provider.bindScope('user-1');
+
+      final sync = provider.autoDownload();
+      await service.requestStarted.future;
+      final unbind = provider.unbind();
+      response.complete(_page(seq: 1, hasMore: false));
+      await Future.wait([sync, unbind]);
+
+      expect(storage.appliedOps, isEmpty);
+      expect(provider.scope, isNull);
     });
 
     test('rejects a non-advancing non-empty download page', () async {
@@ -98,9 +181,10 @@ void main() {
         final service = _FakeSyncService(
           uploadResult: const SyncUploadResult(
             latestSeq: 1,
-            acknowledgements: null,
+            legacyWholeBatchAcknowledgement: true,
           ),
         );
+
         final provider = SyncProvider(service: service, storage: storage);
 
         await provider.bindScope('user-1');
@@ -115,6 +199,27 @@ void main() {
         );
       },
     );
+
+    test('malformed ACK keeps the outbox snapshot', () async {
+      final entry = _entry('m1', version: 2);
+      final storage = _FakeSyncStorage(outbox: [entry]);
+      final provider = SyncProvider(
+        service: _FakeSyncService(
+          uploadResult: const SyncUploadResult(latestSeq: 1),
+        ),
+        storage: storage,
+      );
+      final oldDebugPrint = debugPrint;
+      debugPrint = (String? message, {int? wrapWidth}) {};
+      addTearDown(() => debugPrint = oldDebugPrint);
+
+      await provider.bindScope('user-1');
+      await provider.flushUpload();
+
+      expect(provider.error, contains('malformed ACK'));
+      expect(storage.acknowledged, isEmpty);
+      expect(storage.outbox, [entry]);
+    });
 
     test(
       'does not ACK when server returns a mismatched acknowledgement',
@@ -240,6 +345,57 @@ void main() {
         'uploadChanges',
       ]);
       expect(storage.outbox, isEmpty);
+    });
+
+    test('loads and acknowledges the outbox in bounded windows', () async {
+      final entries = [for (var i = 0; i < 300; i++) _entry('m$i', version: 1)];
+      final storage = _FakeSyncStorage(outbox: entries);
+      final provider = SyncProvider(
+        service: _FakeSyncService(),
+        storage: storage,
+      );
+
+      await provider.bindScope('user-1');
+      await provider.flushUpload();
+
+      expect(storage.loadOutboxLimits, isNotEmpty);
+      expect(storage.loadOutboxLimits, everyElement(256));
+      expect(storage.maxLoadedOutbox, 256);
+      expect(storage.acknowledged, hasLength(300));
+      expect(storage.outbox, isEmpty);
+    });
+
+    test('reads bytes only for missing blobs and one at a time', () async {
+      var activeReads = 0;
+      var maxActiveReads = 0;
+      final storage = _FakeSyncStorage(
+        outbox: [_resourceEntry('r1', _hashA), _resourceEntry('r2', _hashB)],
+        resourceBlobReaders: {
+          _hashA: () async {
+            activeReads++;
+            if (activeReads > maxActiveReads) maxActiveReads = activeReads;
+            await Future<void>.delayed(Duration.zero);
+            activeReads--;
+            return [1];
+          },
+          _hashB: () async {
+            activeReads++;
+            if (activeReads > maxActiveReads) maxActiveReads = activeReads;
+            await Future<void>.delayed(Duration.zero);
+            activeReads--;
+            return [2];
+          },
+        },
+      );
+      final service = _FakeSyncService(remoteBlobs: {_hashB});
+      final provider = SyncProvider(service: service, storage: storage);
+
+      await provider.bindScope('user-1');
+      await provider.flushUpload();
+
+      expect(storage.readBlobHashes, [_hashA]);
+      expect(maxActiveReads, 1);
+      expect(service.uploadedBlobs, [_hashA]);
     });
 
     test('uses advertised request, change, blob, and page limits', () async {
@@ -542,6 +698,93 @@ void main() {
       expect(provider.error, contains('does not match recordId'));
       expect(storage.sinceByScope[provider.scope], 0);
     });
+
+    test('rejects duplicate changeId in a page', () async {
+      final storage = _FakeSyncStorage();
+      final provider = SyncProvider(
+        service: _FakeSyncService(
+          pages: [
+            SyncDownloadResult(
+              changes: [
+                _change(seq: 1, changeId: 'duplicate', recordId: 'm1'),
+                _change(seq: 2, changeId: 'duplicate', recordId: 'm2'),
+              ],
+              latestSeq: 2,
+              hasMore: false,
+              nextSince: 2,
+            ),
+          ],
+        ),
+        storage: storage,
+      );
+      final oldDebugPrint = debugPrint;
+      debugPrint = (String? message, {int? wrapWidth}) {};
+      addTearDown(() => debugPrint = oldDebugPrint);
+
+      await provider.bindScope('user-1');
+      await provider.autoDownload();
+
+      expect(provider.error, contains('页内重复'));
+      expect(storage.appliedOps, isEmpty);
+      expect(storage.sinceByScope[provider.scope], 0);
+    });
+
+    test('rejects non-increasing seq in a page', () async {
+      final storage = _FakeSyncStorage();
+      final provider = SyncProvider(
+        service: _FakeSyncService(
+          pages: [
+            SyncDownloadResult(
+              changes: [
+                _change(seq: 1, changeId: 'remote-1', recordId: 'm1'),
+                _change(seq: 1, changeId: 'remote-2', recordId: 'm2'),
+              ],
+              latestSeq: 1,
+              hasMore: false,
+              nextSince: 1,
+            ),
+          ],
+        ),
+        storage: storage,
+      );
+      final oldDebugPrint = debugPrint;
+      debugPrint = (String? message, {int? wrapWidth}) {};
+      addTearDown(() => debugPrint = oldDebugPrint);
+
+      await provider.bindScope('user-1');
+      await provider.autoDownload();
+
+      expect(provider.error, contains('严格递增'));
+      expect(storage.appliedOps, isEmpty);
+      expect(storage.sinceByScope[provider.scope], 0);
+    });
+
+    test('rejects nextSince below the maximum page seq', () async {
+      final storage = _FakeSyncStorage();
+      final provider = SyncProvider(
+        service: _FakeSyncService(
+          pages: [
+            SyncDownloadResult(
+              changes: [_change(seq: 2, changeId: 'remote-2', recordId: 'm2')],
+              latestSeq: 2,
+              hasMore: false,
+              nextSince: 1,
+            ),
+          ],
+        ),
+        storage: storage,
+      );
+      final oldDebugPrint = debugPrint;
+      debugPrint = (String? message, {int? wrapWidth}) {};
+      addTearDown(() => debugPrint = oldDebugPrint);
+
+      await provider.bindScope('user-1');
+      await provider.autoDownload();
+
+      expect(provider.error, contains('未覆盖最大 seq'));
+      expect(storage.appliedOps, isEmpty);
+      expect(storage.sinceByScope[provider.scope], 0);
+    });
   });
 }
 
@@ -605,6 +848,41 @@ SyncDownloadResult _page({required int seq, required bool hasMore}) {
   );
 }
 
+SyncDownloadResult _notePage({required int seq, required bool hasMore}) {
+  return SyncDownloadResult(
+    changes: [
+      SyncChange(
+        seq: seq,
+        changeId: 'note-$seq',
+        deviceId: 'device-2',
+        clientCreatedAt: DateTime.utc(2026, 7, 16),
+        table: 'note_pages',
+        op: 'upsert',
+        recordId: 'p$seq',
+        data: {'id': 'p$seq'},
+      ),
+    ],
+    latestSeq: 3,
+    hasMore: hasMore,
+    nextSince: seq,
+  );
+}
+
+SyncChange _change({
+  required int seq,
+  required String changeId,
+  required String recordId,
+}) => SyncChange(
+  seq: seq,
+  changeId: changeId,
+  deviceId: 'device-2',
+  clientCreatedAt: DateTime.utc(2026, 7, 16),
+  table: 'messages',
+  op: 'upsert',
+  recordId: recordId,
+  data: {'id': recordId},
+);
+
 SyncDownloadResult _invalidPage({
   String table = 'messages',
   String dataId = 'm1',
@@ -657,7 +935,9 @@ class _FakeSyncStorage implements SyncStorage {
   _FakeSyncStorage({
     List<SyncOutboxEntry> outbox = const [],
     this.resourceBlobs = const [],
+    this.resourceBlobReaders = const {},
     this.hashMismatch = false,
+    this.acknowledgeConflict = false,
   }) : outbox = List.of(outbox);
 
   final Map<String, int> sinceByScope = {};
@@ -667,10 +947,16 @@ class _FakeSyncStorage implements SyncStorage {
   final List<SyncOutboxEntry> acknowledged = [];
   final List<SyncOutboxEntry> outbox;
   final List<SyncResourceBlob> resourceBlobs;
+  final Map<String, Future<List<int>> Function()> resourceBlobReaders;
   final bool hashMismatch;
+  final bool acknowledgeConflict;
   final Set<String> localHashes = {};
   final List<String> installedHashes = [];
   final List<SyncRemoteOperation> appliedOps = [];
+  final List<int?> loadOutboxLimits = [];
+  final List<String> readBlobHashes = [];
+  int maxLoadedOutbox = 0;
+  int materializeCalls = 0;
 
   @override
   Future<void> activateScope(String scope, String deviceId) async {
@@ -685,8 +971,21 @@ class _FakeSyncStorage implements SyncStorage {
   Future<int> since(String scope) async => sinceByScope[scope] ?? 0;
 
   @override
-  Future<List<SyncOutboxEntry>> loadOutbox(String scope) async =>
-      List.of(outbox);
+  Future<List<SyncOutboxEntry>> loadOutbox(
+    String scope, {
+    int? limit,
+    int offset = 0,
+  }) async {
+    loadOutboxLimits.add(limit);
+    final end = limit == null
+        ? outbox.length
+        : (offset + limit).clamp(0, outbox.length);
+    final result = offset >= outbox.length
+        ? <SyncOutboxEntry>[]
+        : outbox.sublist(offset, end);
+    if (result.length > maxLoadedOutbox) maxLoadedOutbox = result.length;
+    return List.of(result);
+  }
 
   @override
   Future<List<SyncConflictEntry>> loadConflicts(String scope) async => const [];
@@ -712,7 +1011,7 @@ class _FakeSyncStorage implements SyncStorage {
             entry.mutationVersion == item.mutationVersion,
       ),
     );
-    return false;
+    return acknowledgeConflict;
   }
 
   @override
@@ -737,6 +1036,31 @@ class _FakeSyncStorage implements SyncStorage {
   ) async => resourceBlobs;
 
   @override
+  Future<List<SyncBlobDescriptor>> resourceBlobDescriptorsForOutbox(
+    List<SyncOutboxEntry> entries,
+  ) async {
+    if (resourceBlobReaders.isEmpty) {
+      return [
+        for (final blob in resourceBlobs)
+          SyncBlobDescriptor(
+            sha256: blob.sha256,
+            readBytes: () async => blob.bytes,
+          ),
+      ];
+    }
+    return [
+      for (final item in resourceBlobReaders.entries)
+        SyncBlobDescriptor(
+          sha256: item.key,
+          readBytes: () async {
+            readBlobHashes.add(item.key);
+            return item.value();
+          },
+        ),
+    ];
+  }
+
+  @override
   Future<bool> hasResourceBlob(String sha256) async =>
       localHashes.contains(sha256);
 
@@ -757,6 +1081,9 @@ class _FakeSyncStorage implements SyncStorage {
   }
 
   @override
+  Future<void> materializeNotes() async => materializeCalls++;
+
+  @override
   Map<String, dynamic> normalizeRemoteResource(Map<String, dynamic> data) {
     final hash = data['sha256'] as String?;
     if (data['missing'] != true && hash == null) {
@@ -769,6 +1096,19 @@ class _FakeSyncStorage implements SyncStorage {
           : 'assets/blobs/${hash.substring(0, 2)}/$hash',
       'missing': hash == null,
     };
+  }
+}
+
+class _BlockingSyncService extends _FakeSyncService {
+  _BlockingSyncService(this.response);
+
+  final Future<SyncDownloadResult> response;
+  final requestStarted = Completer<void>();
+
+  @override
+  Future<SyncDownloadResult> getChanges({required int since, int limit = 500}) {
+    if (!requestStarted.isCompleted) requestStarted.complete();
+    return response;
   }
 }
 
@@ -848,7 +1188,18 @@ class _FakeSyncService implements SyncService {
               .length,
         );
         if (uploadError != null) throw uploadError!;
-        return uploadResult ?? const SyncUploadResult(latestSeq: 0);
+        return uploadResult ??
+            SyncUploadResult(
+              latestSeq: 0,
+              acknowledgements: changes
+                  .map(
+                    (change) => SyncAcknowledgement(
+                      changeId: change.changeId,
+                      mutationVersion: change.mutationVersion,
+                    ),
+                  )
+                  .toList(growable: false),
+            );
       });
 
   @override

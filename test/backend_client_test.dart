@@ -401,6 +401,56 @@ void main() {
         client.dispose();
       },
     );
+
+    test(
+      'replayable bytes POST rebuilds async headers and preserves body',
+      () async {
+        var headerBuilds = 0;
+        final bodies = <List<int>>[];
+        final signedTokens = <String?>[];
+        final transport = _TestClient((request) async {
+          if (request.url.path == '/auth/refresh') {
+            return _response(
+              200,
+              jsonEncode({
+                'token': {
+                  'accessToken': 'new-access',
+                  'refreshToken': 'new-refresh',
+                },
+              }),
+            );
+          }
+          bodies.add(await request.finalize().toBytes());
+          signedTokens.add(request.headers['X-Signed-Token']);
+          return request.headers['Authorization'] == 'Bearer new-access'
+              ? _response(200, 'ok')
+              : _response(401, 'expired');
+        });
+        final client = BackendClient(client: transport)
+          ..configure('http://localhost:8080')
+          ..setTokens('old-access', 'old-refresh');
+        final body = <int>[1, 2, 3];
+
+        final response = await client.postReplayableBytes(
+          '/signed',
+          buildHeaders: () async {
+            headerBuilds++;
+            return {'X-Signed-Token': client.accessToken ?? ''};
+          },
+          bodyBytes: body,
+        );
+        body[0] = 9;
+
+        expect(response.statusCode, 200);
+        expect(headerBuilds, 2);
+        expect(signedTokens, ['old-access', 'new-access']);
+        expect(bodies, [
+          [1, 2, 3],
+          [1, 2, 3],
+        ]);
+        client.dispose();
+      },
+    );
   });
 }
 

@@ -13,7 +13,7 @@ final class CalendarLoadResult {
   final List<Anniversary> anniversaries;
 }
 
-/// 日历分区仓储；只读写 `calendar.json` 的事件和纪念日。
+/// 日历分区仓储；运行时按行保存，备份和恢复可完整替换。
 class CalendarRepository {
   CalendarRepository({StorageV2Service? storageV2})
     : _storageV2 = storageV2 ?? StorageV2Service();
@@ -52,7 +52,7 @@ class CalendarRepository {
     );
   }
 
-  Future<void> save({
+  Future<void> replace({
     required List<CalendarEvent> events,
     required List<Anniversary> anniversaries,
   }) {
@@ -60,6 +60,44 @@ class CalendarRepository {
       'events': events.map(_eventToPartition).toList(),
       'anniversaries': anniversaries.map(_anniversaryToPartition).toList(),
     });
+  }
+
+  Future<void> saveChanges({
+    Iterable<CalendarEvent> upsertEvents = const [],
+    Iterable<String> deleteEventIds = const [],
+    Iterable<Anniversary> upsertAnniversaries = const [],
+    Iterable<String> deleteAnniversaryIds = const [],
+  }) {
+    return _storageV2.applyLocalRowChanges([
+      for (final id in deleteEventIds)
+        (
+          table: 'calendar_events',
+          op: 'delete',
+          data: <String, dynamic>{'id': id},
+          change: null,
+        ),
+      for (final id in deleteAnniversaryIds)
+        (
+          table: 'anniversaries',
+          op: 'delete',
+          data: <String, dynamic>{'id': id},
+          change: null,
+        ),
+      for (final event in upsertEvents)
+        (
+          table: 'calendar_events',
+          op: 'upsert',
+          data: _eventToPartition(event),
+          change: null,
+        ),
+      for (final anniversary in upsertAnniversaries)
+        (
+          table: 'anniversaries',
+          op: 'upsert',
+          data: _anniversaryToPartition(anniversary),
+          change: null,
+        ),
+    ]);
   }
 
   CalendarEvent _eventFromPartition(Map<String, dynamic> json) {

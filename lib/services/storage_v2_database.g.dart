@@ -13549,6 +13549,18 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
       $SyncScopeBaselineRowsTable(this);
   late final $SyncAppliedChangeRowsTable syncAppliedChangeRows =
       $SyncAppliedChangeRowsTable(this);
+  late final Index idxSyncOutboxScopeUpdatedTableRecord = Index(
+    'idx_sync_outbox_scope_updated_table_record',
+    'CREATE INDEX idx_sync_outbox_scope_updated_table_record ON sync_outbox (scope, updated_at, table_name, record_id)',
+  );
+  late final Index idxSyncOutboxScopeChangeMutation = Index(
+    'idx_sync_outbox_scope_change_mutation',
+    'CREATE INDEX idx_sync_outbox_scope_change_mutation ON sync_outbox (scope, change_id, mutation_version)',
+  );
+  late final Index idxSyncConflictsScopeTableRecord = Index(
+    'idx_sync_conflicts_scope_table_record',
+    'CREATE INDEX idx_sync_conflicts_scope_table_record ON sync_conflicts (scope, table_name, record_id)',
+  );
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -13583,6 +13595,9 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
     syncStateRows,
     syncScopeBaselineRows,
     syncAppliedChangeRows,
+    idxSyncOutboxScopeUpdatedTableRecord,
+    idxSyncOutboxScopeChangeMutation,
+    idxSyncConflictsScopeTableRecord,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -17592,10 +17607,7 @@ final class $$TaskRowsTableReferences
   _taskListEntryRowsRefsTable(_$StorageV2DriftDatabase db) =>
       MultiTypedResultKey.fromTable(
         db.taskListEntryRows,
-        aliasName: $_aliasNameGenerator(
-          db.taskRows.id,
-          db.taskListEntryRows.taskId,
-        ),
+        aliasName: 'tasks__id__task_list_entries__task_id',
       );
 
   $$TaskListEntryRowsTableProcessedTableManager get taskListEntryRowsRefs {
@@ -18016,10 +18028,7 @@ final class $$TaskListRowsTableReferences
   _taskListEntryRowsRefsTable(_$StorageV2DriftDatabase db) =>
       MultiTypedResultKey.fromTable(
         db.taskListEntryRows,
-        aliasName: $_aliasNameGenerator(
-          db.taskListRows.id,
-          db.taskListEntryRows.listId,
-        ),
+        aliasName: 'task_lists__id__task_list_entries__list_id',
       );
 
   $$TaskListEntryRowsTableProcessedTableManager get taskListEntryRowsRefs {
@@ -18332,9 +18341,7 @@ final class $$TaskListEntryRowsTableReferences
   );
 
   static $TaskRowsTable _taskIdTable(_$StorageV2DriftDatabase db) =>
-      db.taskRows.createAlias(
-        $_aliasNameGenerator(db.taskListEntryRows.taskId, db.taskRows.id),
-      );
+      db.taskRows.createAlias('task_list_entries__task_id__tasks__id');
 
   $$TaskRowsTableProcessedTableManager get taskId {
     final $_column = $_itemColumn<String>('task_id')!;
@@ -18351,9 +18358,7 @@ final class $$TaskListEntryRowsTableReferences
   }
 
   static $TaskListRowsTable _listIdTable(_$StorageV2DriftDatabase db) =>
-      db.taskListRows.createAlias(
-        $_aliasNameGenerator(db.taskListEntryRows.listId, db.taskListRows.id),
-      );
+      db.taskListRows.createAlias('task_list_entries__list_id__task_lists__id');
 
   $$TaskListRowsTableProcessedTableManager get listId {
     final $_column = $_itemColumn<String>('list_id')!;

@@ -111,12 +111,12 @@ class AccountProvider extends ChangeNotifier {
       if (generation != _operationGeneration) return;
       _user = user;
       notifyListeners();
-      await _onSessionChanged?.call(_user);
-      if (generation != _operationGeneration) return;
       if (_user != null) {
         await _runAfterAuthenticated();
         if (generation != _operationGeneration) return;
       }
+      await _onSessionChanged?.call(_user);
+      if (generation != _operationGeneration) return;
     } catch (e) {
       debugPrint('加载账号会话失败: $e');
     }
@@ -141,9 +141,9 @@ class AccountProvider extends ChangeNotifier {
       _user = session.user;
       _loading = false;
       notifyListeners();
-      await _onSessionChanged?.call(_user);
-      if (generation != _operationGeneration) return false;
       await _runAfterAuthenticated();
+      if (generation != _operationGeneration) return false;
+      await _onSessionChanged?.call(_user);
       if (generation != _operationGeneration) return false;
       return true;
     } catch (e) {
@@ -181,9 +181,9 @@ class AccountProvider extends ChangeNotifier {
       _user = session.user;
       _loading = false;
       notifyListeners();
-      await _onSessionChanged?.call(_user);
-      if (generation != _operationGeneration) return false;
       await _runAfterAuthenticated();
+      if (generation != _operationGeneration) return false;
+      await _onSessionChanged?.call(_user);
       if (generation != _operationGeneration) return false;
       return true;
     } catch (e) {

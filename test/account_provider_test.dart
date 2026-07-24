@@ -47,6 +47,39 @@ void main() {
       expect(notifyCount, greaterThanOrEqualTo(2));
     });
 
+    test('enrollment completes before session sync callback', () async {
+      final calls = <String>[];
+      final provider = AccountProvider(
+        service: _MockAccountService(),
+        afterAuthenticated: () async => calls.add('enroll'),
+        onSessionChanged: (user) async {
+          if (user != null) calls.add('sync');
+        },
+      );
+
+      expect(await provider.login('13800001111', 'password'), isTrue);
+      expect(calls, ['enroll', 'sync']);
+    });
+
+    test(
+      'failed enrollment keeps login and still starts session callback',
+      () async {
+        var sessionCallbacks = 0;
+        final provider = AccountProvider(
+          service: _MockAccountService(),
+          afterAuthenticated: () async => throw StateError('old backend'),
+          onSessionChanged: (user) async {
+            if (user != null) sessionCallbacks++;
+          },
+        );
+
+        expect(await provider.login('13800001111', 'password'), isTrue);
+        expect(provider.isLoggedIn, isTrue);
+        expect(provider.error, isNull);
+        expect(sessionCallbacks, 1);
+      },
+    );
+
     test('logout clears user', () async {
       final provider = AccountProvider(service: _MockAccountService());
       await provider.login('13800001111', '');
@@ -95,33 +128,30 @@ void main() {
       expect(provider.loading, isFalse);
     });
 
-    test(
-      'login invalidated during session callback does not continue',
-      () async {
-        final callbackStarted = Completer<void>();
-        final releaseCallback = Completer<void>();
-        var afterAuthenticatedCalls = 0;
-        late AccountProvider provider;
-        provider = AccountProvider(
-          service: _MockAccountService(),
-          onSessionChanged: (user) async {
-            if (user == null) return;
-            callbackStarted.complete();
-            await releaseCallback.future;
-          },
-          afterAuthenticated: () async => afterAuthenticatedCalls++,
-        );
+    test('login invalidated during session callback reports failure', () async {
+      final callbackStarted = Completer<void>();
+      final releaseCallback = Completer<void>();
+      var afterAuthenticatedCalls = 0;
+      late AccountProvider provider;
+      provider = AccountProvider(
+        service: _MockAccountService(),
+        onSessionChanged: (user) async {
+          if (user == null) return;
+          callbackStarted.complete();
+          await releaseCallback.future;
+        },
+        afterAuthenticated: () async => afterAuthenticatedCalls++,
+      );
 
-        final login = provider.login('13800001111', 'password');
-        await callbackStarted.future;
-        await provider.logout();
-        releaseCallback.complete();
+      final login = provider.login('13800001111', 'password');
+      await callbackStarted.future;
+      await provider.logout();
+      releaseCallback.complete();
 
-        expect(await login, isFalse);
-        expect(afterAuthenticatedCalls, 0);
-        expect(provider.user, isNull);
-      },
-    );
+      expect(await login, isFalse);
+      expect(afterAuthenticatedCalls, 1);
+      expect(provider.user, isNull);
+    });
 
     test(
       'login invalidated during authenticated callback reports failure',

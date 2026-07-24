@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
@@ -76,8 +77,110 @@ void main() {
 
     expect(await service.ensureEnrolled(), isTrue);
     expect(await service.ensureEnrolled(), isTrue);
+    expect(challengeCalls, 1);
+    expect(enrollCalls, 1);
+    backend.dispose();
+  });
+
+  test('deduplicates in-flight enrollment for the same session', () async {
+    var challengeCalls = 0;
+    var enrollCalls = 0;
+    final challenge = Completer<http.StreamedResponse>();
+    final transport = _RegistrationClient((request) async {
+      if (request.url.path == '/devices/challenge') {
+        challengeCalls++;
+        return challenge.future;
+      }
+      enrollCalls++;
+      return _jsonResponse(200, {'device': {}});
+    });
+    final backend = BackendClient(client: transport)
+      ..configure('HTTP://LOCALHOST:80')
+      ..setTokens(_token('42', 'session-1'), 'refresh');
+    final service = DeviceRegistrationService(
+      backend: backend,
+      identity: DeviceIdentityService(secretStore: InMemorySecretStore()),
+    );
+
+    final first = service.ensureEnrolled();
+    final second = service.ensureEnrolled();
+    await Future<void>.delayed(Duration.zero);
+    challenge.complete(
+      _jsonResponse(200, {
+        'challengeId': 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYX',
+        'challenge': base64UrlEncode(
+          List<int>.generate(32, (i) => i),
+        ).replaceAll('=', ''),
+        'userId': '42',
+        'sessionId': 'session-1',
+      }),
+    );
+
+    expect(await Future.wait([first, second]), [isTrue, isTrue]);
+    expect(challengeCalls, 1);
+    expect(enrollCalls, 1);
+    backend.dispose();
+  });
+
+  test('successful cache is isolated by session', () async {
+    var challengeCalls = 0;
+    final transport = _RegistrationClient((request) async {
+      if (request.url.path == '/devices/challenge') {
+        challengeCalls++;
+        return _jsonResponse(200, {
+          'challengeId': 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYX',
+          'challenge': base64UrlEncode(
+            List<int>.generate(32, (i) => i),
+          ).replaceAll('=', ''),
+          'userId': '42',
+          'sessionId': 'session-$challengeCalls',
+        });
+      }
+      return _jsonResponse(200, {'device': {}});
+    });
+    final backend = BackendClient(client: transport)
+      ..configure('http://localhost')
+      ..setTokens(_token('42', 'session-1'), 'refresh');
+    final service = DeviceRegistrationService(
+      backend: backend,
+      identity: DeviceIdentityService(secretStore: InMemorySecretStore()),
+    );
+
+    expect(await service.ensureEnrolled(), isTrue);
+    backend.setTokens(_token('42', 'session-2'), 'refresh');
+    expect(await service.ensureEnrolled(), isTrue);
     expect(challengeCalls, 2);
-    expect(enrollCalls, 2);
+    backend.dispose();
+  });
+
+  test('invalidating the current session performs enrollment again', () async {
+    var challengeCalls = 0;
+    final transport = _RegistrationClient((request) async {
+      if (request.url.path == '/devices/challenge') {
+        challengeCalls++;
+        return _jsonResponse(200, {
+          'challengeId': 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYX',
+          'challenge': base64UrlEncode(
+            List<int>.generate(32, (i) => i),
+          ).replaceAll('=', ''),
+          'userId': '42',
+          'sessionId': 'session-1',
+        });
+      }
+      return _jsonResponse(200, {'device': {}});
+    });
+    final backend = BackendClient(client: transport)
+      ..configure('http://localhost')
+      ..setTokens(_token('42', 'session-1'), 'refresh');
+    final service = DeviceRegistrationService(
+      backend: backend,
+      identity: DeviceIdentityService(secretStore: InMemorySecretStore()),
+    );
+
+    expect(await service.ensureEnrolled(), isTrue);
+    service.invalidateCurrentEnrollment();
+    expect(await service.ensureEnrolled(), isTrue);
+    expect(challengeCalls, 2);
     backend.dispose();
   });
 

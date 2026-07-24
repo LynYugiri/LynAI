@@ -71,7 +71,16 @@ class TaskProvider extends ChangeNotifier {
         )
         .toList();
     notifyListeners();
-    await _queueSave();
+    final replacementTasks = List<Task>.of(_tasks);
+    final replacementLists = List<TaskList>.of(_lists);
+    final replacementEntries = List<TaskListEntry>.of(_entries);
+    await _queueSave(
+      () => _repository.replace(
+        tasks: replacementTasks,
+        lists: replacementLists,
+        entries: replacementEntries,
+      ),
+    );
   }
 
   Task? taskById(String id) => _firstOrNull(_tasks, (task) => task.id == id);
@@ -149,18 +158,21 @@ class TaskProvider extends ChangeNotifier {
       reminders: reminders,
     );
     _tasks.add(task);
+    TaskListEntry? entry;
     if (listId != null) {
-      _entries.add(
-        TaskListEntry(
-          taskListId: listId,
-          taskId: task.id,
-          position: _nextPosition(listId),
-          updatedAt: now,
-        ),
+      entry = TaskListEntry(
+        taskListId: listId,
+        taskId: task.id,
+        position: _nextPosition(listId),
+        updatedAt: now,
       );
+      _entries.add(entry);
     }
     notifyListeners();
-    await _queueSave();
+    await _queueSave(
+      () =>
+          _repository.saveChanges(upsertTasks: [task], upsertEntries: [?entry]),
+    );
     return task.id;
   }
 
@@ -168,12 +180,13 @@ class TaskProvider extends ChangeNotifier {
     final index = _tasks.indexWhere((item) => item.id == task.id);
     if (index == -1) return;
     _mutationGeneration++;
-    _tasks[index] = task.copyWith(
+    final updated = task.copyWith(
       createdAt: _tasks[index].createdAt,
       updatedAt: DateTime.now(),
     );
+    _tasks[index] = updated;
     notifyListeners();
-    await _queueSave();
+    await _queueSave(() => _repository.saveChanges(upsertTasks: [updated]));
   }
 
   Future<void> deleteTask(String id) async {
@@ -197,9 +210,18 @@ class TaskProvider extends ChangeNotifier {
     );
     _tasks.removeWhere((item) => item.id == id);
     _entries.removeWhere((item) => item.taskId == id);
-    if (entry != null) _normalizeEntries(entry.taskListId);
+    if (entry != null) _normalizeEntries(entry.taskListId, touch: true);
+    final reorderedEntries = entry == null
+        ? const <TaskListEntry>[]
+        : _orderedEntries(entry.taskListId);
     notifyListeners();
-    await _queueSave();
+    await _queueSave(
+      () => _repository.saveChanges(
+        deleteTaskIds: [id],
+        deleteEntryTaskIds: [if (entry != null) id],
+        upsertEntries: reorderedEntries,
+      ),
+    );
   }
 
   Future<void> restoreTask(Task task, {TaskListEntry? entry}) async {
@@ -213,10 +235,18 @@ class TaskProvider extends ChangeNotifier {
         entry.position.clamp(0, ordered.length),
         entry.copyWith(updatedAt: DateTime.now()),
       );
-      _replaceEntries(entry.taskListId, ordered);
+      _replaceEntries(entry.taskListId, ordered, touch: true);
     }
+    final restoredEntry = entry == null || listById(entry.taskListId) == null
+        ? const <TaskListEntry>[]
+        : _orderedEntries(entry.taskListId);
     notifyListeners();
-    await _queueSave();
+    await _queueSave(
+      () => _repository.saveChanges(
+        upsertTasks: [task],
+        upsertEntries: restoredEntry,
+      ),
+    );
   }
 
   Future<void> completeTask(String id) => _setCompleted(id, true);
@@ -235,7 +265,7 @@ class TaskProvider extends ChangeNotifier {
     );
     _lists.add(list);
     notifyListeners();
-    await _queueSave();
+    await _queueSave(() => _repository.saveChanges(upsertLists: [list]));
     return list.id;
   }
 
@@ -243,13 +273,14 @@ class TaskProvider extends ChangeNotifier {
     final index = _lists.indexWhere((item) => item.id == list.id);
     if (index == -1) return;
     _mutationGeneration++;
-    _lists[index] = list.copyWith(
+    final updated = list.copyWith(
       sortOrder: _lists[index].sortOrder,
       createdAt: _lists[index].createdAt,
       updatedAt: DateTime.now(),
     );
+    _lists[index] = updated;
     notifyListeners();
-    await _queueSave();
+    await _queueSave(() => _repository.saveChanges(upsertLists: [updated]));
   }
 
   Future<void> deleteList(String id) async {
@@ -274,8 +305,15 @@ class TaskProvider extends ChangeNotifier {
     _lists.removeWhere((item) => item.id == id);
     _entries.removeWhere((entry) => entry.taskListId == id);
     _normalizeLists();
+    final normalizedLists = List<TaskList>.of(_lists);
     notifyListeners();
-    await _queueSave();
+    await _queueSave(
+      () => _repository.saveChanges(
+        deleteListIds: [id],
+        deleteEntryTaskIds: entries.map((entry) => entry.taskId),
+        upsertLists: normalizedLists,
+      ),
+    );
   }
 
   Future<void> restoreList(
@@ -289,16 +327,30 @@ class TaskProvider extends ChangeNotifier {
       list.copyWith(sortOrder: list.sortOrder.clamp(0, _lists.length)),
     );
     _normalizeLists();
+    final affectedListIds = <String>{list.id};
     for (final entry in entries) {
       if (entry.taskListId != list.id || taskById(entry.taskId) == null) {
         continue;
       }
+      final previous = entryForTask(entry.taskId);
+      if (previous != null) affectedListIds.add(previous.taskListId);
       _entries.removeWhere((item) => item.taskId == entry.taskId);
       _entries.add(entry);
     }
-    _normalizeEntries(list.id);
+    for (final listId in affectedListIds) {
+      _normalizeEntries(listId, touch: true);
+    }
+    final normalizedLists = List<TaskList>.of(_lists);
+    final affectedEntries = [
+      for (final listId in affectedListIds) ..._orderedEntries(listId),
+    ];
     notifyListeners();
-    await _queueSave();
+    await _queueSave(
+      () => _repository.saveChanges(
+        upsertLists: normalizedLists,
+        upsertEntries: affectedEntries,
+      ),
+    );
   }
 
   Future<void> moveTask(String taskId, String? listId, {int? position}) async {
@@ -309,7 +361,7 @@ class TaskProvider extends ChangeNotifier {
     _mutationGeneration++;
     final previous = entryForTask(taskId);
     _entries.removeWhere((entry) => entry.taskId == taskId);
-    if (previous != null) _normalizeEntries(previous.taskListId);
+    if (previous != null) _normalizeEntries(previous.taskListId, touch: true);
     if (listId != null) {
       final ordered = _orderedEntries(listId);
       ordered.insert(
@@ -321,10 +373,20 @@ class TaskProvider extends ChangeNotifier {
           updatedAt: DateTime.now(),
         ),
       );
-      _replaceEntries(listId, ordered);
+      _replaceEntries(listId, ordered, touch: true);
     }
+    final affectedListIds = <String>{?previous?.taskListId, ?listId};
+    final affectedEntries = [
+      for (final affectedListId in affectedListIds)
+        ..._orderedEntries(affectedListId),
+    ];
     notifyListeners();
-    await _queueSave();
+    await _queueSave(
+      () => _repository.saveChanges(
+        deleteEntryTaskIds: [if (listId == null && previous != null) taskId],
+        upsertEntries: affectedEntries,
+      ),
+    );
   }
 
   Future<void> reorderTaskEntries(
@@ -339,8 +401,11 @@ class TaskProvider extends ChangeNotifier {
     final entry = ordered.removeAt(oldIndex);
     ordered.insert(newIndex, entry);
     _replaceEntries(listId, ordered, touch: true);
+    final updatedEntries = _orderedEntries(listId);
     notifyListeners();
-    await _queueSave();
+    await _queueSave(
+      () => _repository.saveChanges(upsertEntries: updatedEntries),
+    );
   }
 
   Future<void> reorderLists(int oldIndex, int newIndex) async {
@@ -350,8 +415,9 @@ class TaskProvider extends ChangeNotifier {
     final list = _lists.removeAt(oldIndex);
     _lists.insert(newIndex, list);
     _normalizeLists();
+    final updatedLists = List<TaskList>.of(_lists);
     notifyListeners();
-    await _queueSave();
+    await _queueSave(() => _repository.saveChanges(upsertLists: updatedLists));
   }
 
   Future<void> flushPendingSaves() => _pendingSave;
@@ -366,14 +432,15 @@ class TaskProvider extends ChangeNotifier {
       updatedAt: now,
     );
     notifyListeners();
-    await _queueSave();
+    final updated = _tasks[index];
+    await _queueSave(() => _repository.saveChanges(upsertTasks: [updated]));
   }
 
   int _nextPosition(String listId) =>
       _entries.where((entry) => entry.taskListId == listId).length;
 
-  void _normalizeEntries(String listId) {
-    _replaceEntries(listId, _orderedEntries(listId));
+  void _normalizeEntries(String listId, {bool touch = false}) {
+    _replaceEntries(listId, _orderedEntries(listId), touch: touch);
   }
 
   List<TaskListEntry> _orderedEntries(String listId) {
@@ -405,12 +472,9 @@ class TaskProvider extends ChangeNotifier {
     ];
   }
 
-  Future<void> _queueSave() {
-    final tasks = List<Task>.from(_tasks);
-    final lists = List<TaskList>.from(_lists);
-    final entries = List<TaskListEntry>.from(_entries);
+  Future<void> _queueSave(Future<void> Function() save) {
     final operation = _saveQueue.then((_) async {
-      await _repository.save(tasks: tasks, lists: lists, entries: entries);
+      await save();
       onSnapshotPersisted?.call();
     });
     _pendingSave = operation;

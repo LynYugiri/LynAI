@@ -267,4 +267,54 @@ void main() {
       await root.delete(recursive: true);
     }
   });
+
+  test('resource id lookups use direct and batched database queries', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_resource_lookup_test_',
+    );
+    final storage = StorageV2Service(rootDirectory: root);
+    try {
+      await storage.writeDataFile('resources.json', {
+        'resources': [
+          {
+            'id': 'r1',
+            'kind': 'documents',
+            'role': 'message_attachment',
+            'originalPath': '/tmp/a.txt',
+            'originalName': 'a.txt',
+            'relativePath': 'assets/documents/a.txt',
+            'mimeType': 'text/plain',
+            'size': 1,
+            'missing': false,
+          },
+          {
+            'id': 'r2',
+            'kind': 'images',
+            'role': 'message_image',
+            'originalPath': '/tmp/b.png',
+            'originalName': 'b.png',
+            'relativePath': 'assets/images/b.png',
+            'mimeType': 'image/png',
+            'size': 2,
+            'missing': false,
+          },
+        ],
+      });
+
+      expect((await storage.findResourceById('r2'))?.originalName, 'b.png');
+      expect(await storage.findResourceById('missing'), isNull);
+      expect(
+        (await storage.findResourcesByIds([
+          'r2',
+          'missing',
+          'r1',
+          'r2',
+        ])).map((resource) => resource.id),
+        unorderedEquals(['r1', 'r2']),
+      );
+    } finally {
+      await storage.close();
+      if (await root.exists()) await root.delete(recursive: true);
+    }
+  });
 }

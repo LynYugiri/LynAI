@@ -403,6 +403,13 @@ class _SyncCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(_syncSubtitle(sync)),
+            if (sync.error case final error?) ...[
+              const SizedBox(height: 4),
+              Text(
+                error,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
             const SizedBox(height: 4),
             Text(
               '从服务端拉取增量并上传本地变更。',
@@ -445,6 +452,7 @@ class _SyncCard extends StatelessWidget {
   String _syncSubtitle(SyncProvider sync) {
     if (!sync.canSync) return '未连接服务端';
     if (sync.syncing) return '同步中…';
+    if (sync.error != null) return '同步失败，可稍后重试';
     final last = sync.lastSyncAt;
     if (last == null) return '尚未同步';
     return '上次同步: ${last.month}/${last.day} ${last.hour}:${last.minute.toString().padLeft(2, '0')}';
@@ -765,7 +773,7 @@ class _SelectionTree extends StatelessWidget {
           selection: selection,
           enabled: availableSections.contains(BackupSection.tasks),
           groups: [
-            _PlanningSelectionGroup<Task>(
+            _PlanningSelectionGroup.from<Task>(
               label: '任务',
               items: tasks,
               selectedIds: selection.taskIds,
@@ -774,7 +782,7 @@ class _SelectionTree extends StatelessWidget {
               subtitleFor: (item) => _formatDate(item.updatedAt),
               update: (value, ids) => value.copyWith(taskIds: ids),
             ),
-            _PlanningSelectionGroup<TaskList>(
+            _PlanningSelectionGroup.from<TaskList>(
               label: '清单',
               items: taskLists,
               selectedIds: selection.taskListIds,
@@ -792,7 +800,7 @@ class _SelectionTree extends StatelessWidget {
           selection: selection,
           enabled: availableSections.contains(BackupSection.calendar),
           groups: [
-            _PlanningSelectionGroup<CalendarEvent>(
+            _PlanningSelectionGroup.from<CalendarEvent>(
               label: '事件',
               items: calendarEvents,
               selectedIds: selection.calendarEventIds,
@@ -801,7 +809,7 @@ class _SelectionTree extends StatelessWidget {
               subtitleFor: (item) => _formatDate(item.updatedAt),
               update: (value, ids) => value.copyWith(calendarEventIds: ids),
             ),
-            _PlanningSelectionGroup<Anniversary>(
+            _PlanningSelectionGroup.from<Anniversary>(
               label: '纪念日',
               items: anniversaries,
               selectedIds: selection.anniversaryIds,
@@ -1017,24 +1025,56 @@ class _ItemSelectionTile<T> extends StatelessWidget {
   }
 }
 
-class _PlanningSelectionGroup<T> {
-  const _PlanningSelectionGroup({
+class _PlanningSelectionGroup {
+  const _PlanningSelectionGroup._({
     required this.label,
     required this.items,
     required this.selectedIds,
-    required this.idFor,
-    required this.titleFor,
-    required this.subtitleFor,
     required this.update,
   });
 
+  static _PlanningSelectionGroup from<T>({
+    required String label,
+    required List<T> items,
+    required Set<String> selectedIds,
+    required String Function(T item) idFor,
+    required String Function(T item) titleFor,
+    required String Function(T item) subtitleFor,
+    required BackupSelection Function(BackupSelection value, Set<String> ids)
+    update,
+  }) {
+    return _PlanningSelectionGroup._(
+      label: label,
+      items: items
+          .map(
+            (item) => _PlanningSelectionItem(
+              id: idFor(item),
+              title: titleFor(item),
+              subtitle: subtitleFor(item),
+            ),
+          )
+          .toList(growable: false),
+      selectedIds: selectedIds,
+      update: update,
+    );
+  }
+
   final String label;
-  final List<T> items;
+  final List<_PlanningSelectionItem> items;
   final Set<String> selectedIds;
-  final String Function(T item) idFor;
-  final String Function(T item) titleFor;
-  final String Function(T item) subtitleFor;
   final BackupSelection Function(BackupSelection value, Set<String> ids) update;
+}
+
+class _PlanningSelectionItem {
+  const _PlanningSelectionItem({
+    required this.id,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final String id;
+  final String title;
+  final String subtitle;
 }
 
 class _PlanningSelectionTile extends StatelessWidget {
@@ -1050,7 +1090,7 @@ class _PlanningSelectionTile extends StatelessWidget {
   final BackupSection section;
   final BackupSelection selection;
   final bool enabled;
-  final List<_PlanningSelectionGroup<dynamic>> groups;
+  final List<_PlanningSelectionGroup> groups;
   final bool busy;
   final ValueChanged<BackupSelection> onChanged;
 
@@ -1062,7 +1102,7 @@ class _PlanningSelectionTile extends StatelessWidget {
       (sum, group) =>
           sum +
           group.selectedIds
-              .intersection(group.items.map(group.idFor).toSet())
+              .intersection(group.items.map((item) => item.id).toSet())
               .length,
     );
     return _SectionShell(
@@ -1092,13 +1132,12 @@ class _PlanningSelectionTile extends StatelessWidget {
             ),
             for (final item in group.items)
               _ChildSelectionRow(
-                value: group.selectedIds.contains(group.idFor(item)),
-                title: group.titleFor(item),
-                subtitle: group.subtitleFor(item),
+                value: group.selectedIds.contains(item.id),
+                title: item.title,
+                subtitle: item.subtitle,
                 onChanged: busy
                     ? null
-                    : (value) =>
-                          _toggleItem(group, group.idFor(item), value ?? false),
+                    : (value) => _toggleItem(group, item.id, value ?? false),
               ),
           ],
         ],
@@ -1110,7 +1149,9 @@ class _PlanningSelectionTile extends StatelessWidget {
     var next = selection;
     final selectAll = selected != total;
     for (final group in groups) {
-      final ids = selectAll ? group.items.map(group.idFor).toSet() : <String>{};
+      final ids = selectAll
+          ? group.items.map((item) => item.id).toSet()
+          : <String>{};
       next = group.update(next, ids);
     }
     final sections = Set<BackupSection>.from(next.sections);
@@ -1118,11 +1159,7 @@ class _PlanningSelectionTile extends StatelessWidget {
     onChanged(next.copyWith(sections: sections));
   }
 
-  void _toggleItem(
-    _PlanningSelectionGroup<dynamic> group,
-    String id,
-    bool selected,
-  ) {
+  void _toggleItem(_PlanningSelectionGroup group, String id, bool selected) {
     final ids = Set<String>.from(group.selectedIds);
     selected ? ids.add(id) : ids.remove(id);
     var next = group.update(selection, ids);
@@ -1146,14 +1183,17 @@ class _SectionShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      decoration: BoxDecoration(
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Material(
         color: colorScheme.primaryContainer.withValues(alpha: 0.16),
-        border: Border.all(color: colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(14),
+        shape: RoundedRectangleBorder(
+          side: BorderSide(color: colorScheme.outlineVariant),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: child,
       ),
-      child: child,
     );
   }
 }
@@ -1174,36 +1214,37 @@ class _ChildSelectionRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Container(
-      margin: const EdgeInsets.only(top: 4),
-      decoration: BoxDecoration(
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Material(
         color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
         borderRadius: BorderRadius.circular(10),
-      ),
-      child: CheckboxListTile(
-        value: value,
-        title: Text(
-          title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-        ),
-        subtitle: subtitle == null
-            ? null
-            : Text(
-                subtitle!,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: colorScheme.onSurfaceVariant,
+        clipBehavior: Clip.antiAlias,
+        child: CheckboxListTile(
+          value: value,
+          title: Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+          ),
+          subtitle: subtitle == null
+              ? null
+              : Text(
+                  subtitle!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
                 ),
-              ),
-        dense: true,
-        visualDensity: VisualDensity.compact,
-        controlAffinity: ListTileControlAffinity.leading,
-        contentPadding: const EdgeInsets.only(left: 4, right: 12),
-        onChanged: onChanged,
+          dense: true,
+          visualDensity: VisualDensity.compact,
+          controlAffinity: ListTileControlAffinity.leading,
+          contentPadding: const EdgeInsets.only(left: 4, right: 12),
+          onChanged: onChanged,
+        ),
       ),
     );
   }

@@ -323,6 +323,27 @@ class BackendClient extends ChangeNotifier {
     );
   }
 
+  /// Sends stable in-memory bytes and rebuilds headers for every replay.
+  ///
+  /// [buildHeaders] is invoked before the initial request and again after a
+  /// successful token refresh, allowing token-bound signatures to be rebuilt.
+  Future<http.Response> postReplayableBytes(
+    String path, {
+    required Future<Map<String, String>> Function() buildHeaders,
+    required List<int> bodyBytes,
+    Duration? timeout,
+  }) {
+    final replayableBody = Uint8List.fromList(bodyBytes);
+    return _request(() async {
+      final headers = await buildHeaders();
+      return _httpClient.post(
+        Uri.parse('$_backendUrl$path'),
+        headers: _withAuth(headers),
+        body: replayableBody,
+      );
+    }, timeout: timeout);
+  }
+
   /// 创建 multipart 请求，自动附加鉴权头。
   /// 旧调用方仍可使用；需要 401 刷新重放时使用 [sendAuthenticatedStreamed]。
   http.MultipartRequest multipartRequest(String method, String path) {

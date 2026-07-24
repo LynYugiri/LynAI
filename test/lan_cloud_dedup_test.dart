@@ -38,7 +38,11 @@ class MemorySyncStorage implements SyncStorage {
   @override
   Future<int> since(String scope) async => _since;
   @override
-  Future<List<SyncOutboxEntry>> loadOutbox(String scope) async => const [];
+  Future<List<SyncOutboxEntry>> loadOutbox(
+    String scope, {
+    int? limit,
+    int offset = 0,
+  }) async => const [];
   @override
   Future<List<SyncConflictEntry>> loadConflicts(String scope) async => const [];
   @override
@@ -69,6 +73,10 @@ class MemorySyncStorage implements SyncStorage {
     List<SyncOutboxEntry> entries,
   ) async => const [];
   @override
+  Future<List<SyncBlobDescriptor>> resourceBlobDescriptorsForOutbox(
+    List<SyncOutboxEntry> entries,
+  ) async => const [];
+  @override
   Future<bool> hasResourceBlob(String sha256) async => true;
   @override
   Future<void> installResourceBlob(String sha256, List<int> bytes) async {}
@@ -79,6 +87,8 @@ class MemorySyncStorage implements SyncStorage {
   Future<bool> hasNoteBlob(String sha256) async => true;
   @override
   Future<void> installNoteBlob(String sha256, List<int> bytes) async {}
+  @override
+  Future<void> materializeNotes() async {}
 }
 
 class _OneChangeService implements SyncService {

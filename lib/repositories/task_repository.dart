@@ -16,7 +16,7 @@ final class TaskLoadResult {
   final List<TaskListEntry> entries;
 }
 
-/// Canonical persistence boundary for the `tasks.json` partition.
+/// Canonical persistence boundary for the task planning partition.
 class TaskRepository {
   factory TaskRepository({StorageV2Service? storageV2}) {
     return TaskRepository._(storageV2 ?? StorageV2Service());
@@ -61,7 +61,8 @@ class TaskRepository {
     return TaskLoadResult(tasks: tasks, lists: lists, entries: entries);
   }
 
-  Future<void> save({
+  /// Replaces the complete partition for backup, restore, and remote reloads.
+  Future<void> replace({
     required List<Task> tasks,
     required List<TaskList> lists,
     required List<TaskListEntry> entries,
@@ -82,7 +83,60 @@ class TaskRepository {
           .toList(),
     });
   }
+
+  /// Persists one logical task mutation as a row-level transaction.
+  Future<void> saveChanges({
+    Iterable<Task> upsertTasks = const [],
+    Iterable<String> deleteTaskIds = const [],
+    Iterable<TaskList> upsertLists = const [],
+    Iterable<String> deleteListIds = const [],
+    Iterable<TaskListEntry> upsertEntries = const [],
+    Iterable<String> deleteEntryTaskIds = const [],
+  }) {
+    return _storageV2.applyLocalRowChanges([
+      for (final entry in deleteEntryTaskIds)
+        (
+          table: 'task_list_entries',
+          op: 'delete',
+          data: <String, dynamic>{'id': entry},
+          change: null,
+        ),
+      for (final taskId in deleteTaskIds)
+        (
+          table: 'tasks',
+          op: 'delete',
+          data: <String, dynamic>{'id': taskId},
+          change: null,
+        ),
+      for (final listId in deleteListIds)
+        (
+          table: 'task_lists',
+          op: 'delete',
+          data: <String, dynamic>{'id': listId},
+          change: null,
+        ),
+      for (final task in upsertTasks)
+        (table: 'tasks', op: 'upsert', data: task.toJson(), change: null),
+      for (final list in upsertLists)
+        (table: 'task_lists', op: 'upsert', data: list.toJson(), change: null),
+      for (final entry in upsertEntries)
+        (
+          table: 'task_list_entries',
+          op: 'upsert',
+          data: _entryToPartition(entry),
+          change: null,
+        ),
+    ]);
+  }
 }
+
+Map<String, dynamic> _entryToPartition(TaskListEntry entry) => {
+  'id': entry.taskId,
+  'taskId': entry.taskId,
+  'listId': entry.taskListId,
+  'sortOrder': entry.position,
+  'updatedAt': entry.updatedAt.toIso8601String(),
+};
 
 List<T> _decodeList<T>(
   Object? raw,

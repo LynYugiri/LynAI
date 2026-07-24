@@ -418,6 +418,14 @@ class RecycleBinRows extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+@TableIndex(
+  name: 'idx_sync_outbox_scope_updated_table_record',
+  columns: {#scope, #updatedAt, #table, #recordId},
+)
+@TableIndex(
+  name: 'idx_sync_outbox_scope_change_mutation',
+  columns: {#scope, #changeId, #mutationVersion},
+)
 class SyncOutboxRows extends Table {
   @override
   String get tableName => 'sync_outbox';
@@ -437,6 +445,10 @@ class SyncOutboxRows extends Table {
   Set<Column> get primaryKey => {scope, table, recordId};
 }
 
+@TableIndex(
+  name: 'idx_sync_conflicts_scope_table_record',
+  columns: {#scope, #table, #recordId},
+)
 class SyncConflictRows extends Table {
   @override
   String get tableName => 'sync_conflicts';
@@ -550,7 +562,7 @@ class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
   /// This is separate from [StorageV2Service.currentLayoutVersion], which
   /// describes the storage_v2 directory layout.
   @override
-  int get schemaVersion => 15;
+  int get schemaVersion => 16;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -711,6 +723,27 @@ SET captures_local = active
       }
       if (from < 15) {
         await _migratePlanningSchemaV15(m);
+      }
+      if (from < 16) {
+        if (await _tableExists('sync_outbox')) {
+          await customStatement(
+            'CREATE INDEX IF NOT EXISTS '
+            'idx_sync_outbox_scope_updated_table_record '
+            'ON sync_outbox(scope, updated_at, table_name, record_id)',
+          );
+          await customStatement(
+            'CREATE INDEX IF NOT EXISTS '
+            'idx_sync_outbox_scope_change_mutation '
+            'ON sync_outbox(scope, change_id, mutation_version)',
+          );
+        }
+        if (await _tableExists('sync_conflicts')) {
+          await customStatement(
+            'CREATE INDEX IF NOT EXISTS '
+            'idx_sync_conflicts_scope_table_record '
+            'ON sync_conflicts(scope, table_name, record_id)',
+          );
+        }
       }
     },
   );
@@ -1220,6 +1253,26 @@ class StorageV2Database {
     await (db.delete(db.resourceRows)..where((t) => t.id.equals(id))).go();
   }
 
+  Future<Map<String, dynamic>?> findResourceById(String id) async {
+    final db = await _open();
+    final row = await (db.select(
+      db.resourceRows,
+    )..where((table) => table.id.equals(id))).getSingleOrNull();
+    return row == null ? null : _resourceRow(row);
+  }
+
+  Future<List<Map<String, dynamic>>> findResourcesByIds(
+    Iterable<String> ids,
+  ) async {
+    final uniqueIds = ids.where((id) => id.isNotEmpty).toSet();
+    if (uniqueIds.isEmpty) return const [];
+    final db = await _open();
+    final rows = await (db.select(
+      db.resourceRows,
+    )..where((table) => table.id.isIn(uniqueIds))).get();
+    return rows.map(_resourceRow).toList(growable: false);
+  }
+
   Future<void> upsertTaskRow(
     Map<String, dynamic> json, {
     StorageV2DriftDatabase? transactionDb,
@@ -1569,38 +1622,67 @@ class StorageV2Database {
     return row?.since ?? 0;
   }
 
-  Future<List<SyncOutboxEntry>> loadSyncOutbox(String scope) async {
+  Future<List<SyncOutboxEntry>> loadSyncOutbox(
+    String scope, {
+    int? limit,
+    int offset = 0,
+  }) async {
     final db = await _open();
-    final rows =
-        await (db.select(db.syncOutboxRows)
-              ..where((row) => row.scope.equals(scope))
-              ..orderBy([(row) => OrderingTerm.asc(row.updatedAt)]))
-            .get();
+    if (limit != null && limit <= 0) return const [];
+    if (offset < 0) throw ArgumentError.value(offset, 'offset');
+    final variables = <Variable>[Variable.withString(scope)];
+    final pagination = limit == null ? '' : ' LIMIT ? OFFSET ?';
+    if (limit != null) {
+      variables.add(Variable.withInt(limit));
+      variables.add(Variable.withInt(offset));
+    }
+    final rows = await db
+        .customSelect(
+          '''
+SELECT * FROM sync_outbox
+WHERE scope = ?
+ORDER BY CASE
+  WHEN table_name = 'note_folders' THEN 0
+  WHEN table_name = 'notes' THEN 1
+  WHEN table_name = 'tasks' AND op <> 'delete' THEN 0
+  WHEN table_name = 'tasks' THEN 9
+  WHEN table_name = 'task_lists' AND op <> 'delete' THEN 1
+  WHEN table_name = 'task_lists' THEN 9
+  WHEN table_name = 'task_list_entries' AND op = 'delete' THEN 0
+  WHEN table_name = 'task_list_entries' THEN 2
+  WHEN table_name = 'note_page_tombstones' AND op = 'delete' THEN 2
+  WHEN table_name = 'note_pages' THEN 3
+  WHEN table_name = 'note_revisions' THEN 4
+  WHEN table_name = 'note_page_heads' THEN 5
+  WHEN table_name = 'note_page_tombstones' THEN 6
+  WHEN table_name = 'resources' THEN 7
+  ELSE 10
+END, client_created_at, updated_at, table_name, record_id$pagination
+''',
+          variables: variables,
+          readsFrom: {db.syncOutboxRows},
+        )
+        .get();
     final entries = rows
         .map(
           (row) => SyncOutboxEntry(
-            table: row.table,
-            recordId: row.recordId,
-            op: row.op,
-            data: row.dataJson == null
+            table: row.read<String>('table_name'),
+            recordId: row.read<String>('record_id'),
+            op: row.read<String>('op'),
+            data: row.readNullable<String>('data_json') == null
                 ? null
-                : Map<String, dynamic>.from(jsonDecode(row.dataJson!) as Map),
-            changeId: row.changeId,
-            deviceId: row.deviceId,
-            clientCreatedAt: DateTime.parse(row.clientCreatedAt),
-            mutationVersion: row.mutationVersion,
+                : Map<String, dynamic>.from(
+                    jsonDecode(row.read<String>('data_json')) as Map,
+                  ),
+            changeId: row.read<String>('change_id'),
+            deviceId: row.read<String>('device_id'),
+            clientCreatedAt: DateTime.parse(
+              row.read<String>('client_created_at'),
+            ),
+            mutationVersion: row.read<int>('mutation_version'),
           ),
         )
         .toList(growable: false);
-    entries.sort((a, b) {
-      final byPriority = _syncOperationPriority(
-        a.table,
-        a.op,
-      ).compareTo(_syncOperationPriority(b.table, b.op));
-      return byPriority != 0
-          ? byPriority
-          : a.clientCreatedAt.compareTo(b.clientCreatedAt);
-    });
     return entries;
   }
 
@@ -1827,16 +1909,16 @@ class StorageV2Database {
         if (id == null || id.isEmpty) {
           throw StateError('remote sync operation is missing record id');
         }
-        if (remote &&
-            scope != null &&
-            !_isNoteDagTable(op.table) &&
-            await _hasPendingOutbox(db, scope, op.table, id)) {
+        final remoteScope = remote ? scope : null;
+        final local = remoteScope != null && !_isNoteDagTable(op.table)
+            ? await _pendingOutbox(db, remoteScope, op.table, id)
+            : null;
+        if (local != null) {
+          final conflictScope = remoteScope!;
           final change = op.change;
           if (change == null) {
             throw StateError('remote conflict metadata is missing');
           }
-          final local = await _pendingOutbox(db, scope, op.table, id);
-          if (local == null) continue;
           final automatic = _automaticConflictAction(
             op.table,
             local.dataJson == null
@@ -1848,7 +1930,7 @@ class StorageV2Database {
               automatic == MergeAction.unchanged) {
             await (db.delete(db.syncOutboxRows)..where(
                   (row) =>
-                      row.scope.equals(scope) &
+                      row.scope.equals(conflictScope) &
                       row.table.equals(op.table) &
                       row.recordId.equals(id),
                 ))
@@ -1860,7 +1942,7 @@ class StorageV2Database {
                 .into(db.syncConflictRows)
                 .insertOnConflictUpdate(
                   SyncConflictRowsCompanion.insert(
-                    scope: scope,
+                    scope: conflictScope,
                     seq: change.seq,
                     table: op.table,
                     recordId: id,
@@ -1880,7 +1962,7 @@ class StorageV2Database {
                 );
             await (db.delete(db.syncOutboxRows)..where(
                   (row) =>
-                      row.scope.equals(scope) &
+                      row.scope.equals(conflictScope) &
                       row.table.equals(op.table) &
                       row.recordId.equals(id),
                 ))
@@ -2930,6 +3012,9 @@ CREATE TABLE IF NOT EXISTS sync_conflicts (
   local_mutation_version INTEGER NOT NULL,
   PRIMARY KEY (scope, seq)
 );
+CREATE INDEX IF NOT EXISTS idx_sync_outbox_scope_updated_table_record ON sync_outbox(scope, updated_at, table_name, record_id);
+CREATE INDEX IF NOT EXISTS idx_sync_outbox_scope_change_mutation ON sync_outbox(scope, change_id, mutation_version);
+CREATE INDEX IF NOT EXISTS idx_sync_conflicts_scope_table_record ON sync_conflicts(scope, table_name, record_id);
 CREATE TABLE IF NOT EXISTS sync_state (
   scope TEXT PRIMARY KEY,
   since INTEGER NOT NULL DEFAULT 0,
@@ -4270,23 +4355,6 @@ CREATE TABLE IF NOT EXISTS sync_applied_changes (
 
   bool _sameSyncScopeFamily(String first, String second) =>
       first.startsWith('lan:') == second.startsWith('lan:');
-
-  Future<bool> _hasPendingOutbox(
-    StorageV2DriftDatabase db,
-    String scope,
-    String table,
-    String recordId,
-  ) async {
-    final row =
-        await (db.select(db.syncOutboxRows)..where(
-              (item) =>
-                  item.scope.equals(scope) &
-                  item.table.equals(table) &
-                  item.recordId.equals(recordId),
-            ))
-            .getSingleOrNull();
-    return row != null;
-  }
 
   Future<SyncOutboxRow?> _pendingOutbox(
     StorageV2DriftDatabase db,

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/anniversary.dart';
@@ -9,6 +10,7 @@ import 'package:lynai/models/task.dart';
 import 'package:lynai/providers/calendar_provider.dart';
 import 'package:lynai/repositories/calendar_repository.dart';
 import 'package:lynai/repositories/recycle_bin_repository.dart';
+import 'package:lynai/services/storage_v2_service.dart';
 
 void main() {
   test(
@@ -135,6 +137,58 @@ void main() {
     expect(occurrences.map((value) => value.sourceId), containsAll(['task']));
     expect(occurrences.where((value) => value.title == 'Event'), hasLength(1));
   });
+
+  test('runtime calendar mutations capture row-level outbox changes', () async {
+    final root = await Directory.systemTemp.createTemp('lynai_calendar_rows_');
+    final storage = StorageV2Service(rootDirectory: root);
+    const scope = 'server|calendar-provider';
+    try {
+      await storage.activateSyncScope(scope, deviceId: 'device-calendar');
+      final provider = CalendarProvider(
+        storageV2: storage,
+        recycleBinRepository: _RecycleBinRepository(),
+        now: () => DateTime(2026, 7, 22, 8),
+      );
+      final eventId = await provider.addEvent(
+        title: 'Meeting',
+        spec: TimedCalendarEventSpec(
+          start: DateTime(2026, 8, 1, 10),
+          end: DateTime(2026, 8, 1, 11),
+        ),
+      );
+      var outbox = await storage.loadSyncOutbox(scope);
+      expect(outbox, hasLength(1));
+      expect(outbox.single.table, 'calendar_events');
+      expect(outbox.single.data, containsPair('id', eventId));
+      await storage.acknowledgeSyncOutbox(scope, outbox);
+
+      final anniversaryId = await provider.addAnniversary(
+        title: 'Launch',
+        spec: YearlyAnniversarySpec(month: 8, day: 2),
+      );
+      outbox = await storage.loadSyncOutbox(scope);
+      expect(outbox.single.table, 'anniversaries');
+      expect(outbox.single.data, containsPair('id', anniversaryId));
+      await storage.acknowledgeSyncOutbox(scope, outbox);
+
+      await provider.deleteEvent(eventId);
+      await provider.deleteAnniversary(anniversaryId);
+      outbox = await storage.loadSyncOutbox(scope);
+      expect(
+        outbox.map((entry) => '${entry.table}:${entry.recordId}:${entry.op}'),
+        unorderedEquals([
+          'calendar_events:$eventId:delete',
+          'anniversaries:$anniversaryId:delete',
+        ]),
+      );
+      final loaded = await CalendarRepository(storageV2: storage).load();
+      expect(loaded.events, isEmpty);
+      expect(loaded.anniversaries, isEmpty);
+    } finally {
+      await storage.close();
+      if (await root.exists()) await root.delete(recursive: true);
+    }
+  });
 }
 
 class _CalendarRepository implements CalendarRepository {
@@ -150,7 +204,7 @@ class _CalendarRepository implements CalendarRepository {
       CalendarLoadResult(events: events, anniversaries: anniversaries);
 
   @override
-  Future<void> save({
+  Future<void> replace({
     required List<CalendarEvent> events,
     required List<Anniversary> anniversaries,
   }) async {
@@ -158,6 +212,35 @@ class _CalendarRepository implements CalendarRepository {
     saveCalls++;
     this.events = events;
     this.anniversaries = anniversaries;
+  }
+
+  @override
+  Future<void> saveChanges({
+    Iterable<CalendarEvent> upsertEvents = const [],
+    Iterable<String> deleteEventIds = const [],
+    Iterable<Anniversary> upsertAnniversaries = const [],
+    Iterable<String> deleteAnniversaryIds = const [],
+  }) async {
+    await allowSave.future;
+    saveCalls++;
+    final nextEvents = {for (final event in events) event.id: event};
+    final nextAnniversaries = {
+      for (final anniversary in anniversaries) anniversary.id: anniversary,
+    };
+    for (final id in deleteEventIds) {
+      nextEvents.remove(id);
+    }
+    for (final id in deleteAnniversaryIds) {
+      nextAnniversaries.remove(id);
+    }
+    for (final event in upsertEvents) {
+      nextEvents[event.id] = event;
+    }
+    for (final anniversary in upsertAnniversaries) {
+      nextAnniversaries[anniversary.id] = anniversary;
+    }
+    events = nextEvents.values.toList();
+    anniversaries = nextAnniversaries.values.toList();
   }
 }
 

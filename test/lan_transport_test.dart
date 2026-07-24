@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/services/lan_sync_coordinator.dart';
 import 'package:lynai/services/lan_secure_transport.dart';
@@ -29,6 +32,29 @@ void main() {
       ),
       throwsA(isA<LanFrameException>()),
     );
+  });
+
+  test('frame encoding preserves the existing JSON wire shape', () {
+    final frame = LanSecureTransport.encodeFrame(
+      type: 'blob-chunk',
+      sessionId: 'session',
+      counter: 3,
+      purpose: 'sync',
+      role: 'initiator',
+      body: const {'sha256': 'abc', 'index': 2, 'bytes': 'AQI='},
+    );
+    final length = ByteData.sublistView(frame, 0, 4).getUint32(0);
+    final decoded = jsonDecode(utf8.decode(frame.sublist(4)));
+
+    expect(length, frame.length - 4);
+    expect(decoded, {
+      'type': 'blob-chunk',
+      'sessionId': 'session',
+      'counter': 3,
+      'purpose': 'sync',
+      'role': 'initiator',
+      'body': const {'sha256': 'abc', 'index': 2, 'bytes': 'AQI='},
+    });
   });
 
   test('bad ALPN is rejected before consuming a connection slot', () {

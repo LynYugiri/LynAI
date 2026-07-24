@@ -43,6 +43,30 @@ import 'utils/open_source_licenses.dart';
 import 'widgets/changelog_dialog.dart';
 import 'widgets/login_dialog.dart';
 
+const _conversationSyncTables = {
+  'conversations',
+  'messages',
+  'message_attachments',
+  'resources',
+};
+const _featureSyncTables = {
+  'note_folders',
+  'notes',
+  'note_pages',
+  'note_revisions',
+  'note_page_heads',
+  'note_page_tombstones',
+};
+const _calendarSyncTables = {'calendar_events', 'anniversaries'};
+const _roleplaySyncTables = {'roleplay_scenarios', 'roleplay_threads'};
+const _taskSyncTables = {'tasks', 'task_lists', 'task_list_entries'};
+const _settingsSyncTables = {'shared_settings', 'resources'};
+const _pluginSyncTables = {'plugin_files', 'plugin_settings', 'plugin_config'};
+const _calendarProjectionSyncTables = {
+  ..._calendarSyncTables,
+  ..._taskSyncTables,
+};
+
 /// LynAI 的应用入口。
 ///
 /// 入口只做三件事：注册全局 Provider、启动根组件、把 Flutter 绑定初始化。
@@ -150,7 +174,7 @@ Future<void> main() async {
             installPluginBlob: (hash, bytes) =>
                 ctx.read<PluginProvider>().installSyncBlob(hash, bytes),
             storage: StorageV2SyncStorage(ctx.read<StorageV2Service>()),
-            beforeRemoteApply: () async {
+            beforeRemoteApply: (summary) async {
               final conversations = ctx.read<ConversationProvider>();
               final features = ctx.read<FeatureProvider>();
               final calendar = ctx.read<CalendarProvider>();
@@ -159,18 +183,32 @@ Future<void> main() async {
               final settings = ctx.read<SettingsProvider>();
               final models = ctx.read<ModelConfigProvider>();
               final plugins = ctx.read<PluginProvider>();
+              final tables = summary.changedTables;
+              final all = tables.isEmpty;
               await flushAllTasks([
-                (name: 'conversations', flush: conversations.flushPendingSaves),
-                (name: 'features', flush: features.flushPendingSaves),
-                (name: 'calendar', flush: calendar.flushPendingSaves),
-                (name: 'roleplay', flush: roleplay.flushPendingSaves),
-                (name: 'tasks', flush: tasks.flushPendingSaves),
-                (name: 'settings', flush: settings.flushPendingSaves),
-                (name: 'models', flush: models.flushPendingSaves),
+                if (all || tables.any(_conversationSyncTables.contains))
+                  (
+                    name: 'conversations',
+                    flush: conversations.flushPendingSaves,
+                  ),
+                if (all || tables.any(_featureSyncTables.contains))
+                  (name: 'features', flush: features.flushPendingSaves),
+                if (all || tables.any(_calendarSyncTables.contains))
+                  (name: 'calendar', flush: calendar.flushPendingSaves),
+                if (all || tables.any(_roleplaySyncTables.contains))
+                  (name: 'roleplay', flush: roleplay.flushPendingSaves),
+                if (all || tables.any(_taskSyncTables.contains))
+                  (name: 'tasks', flush: tasks.flushPendingSaves),
+                if (all || tables.any(_settingsSyncTables.contains))
+                  (name: 'settings', flush: settings.flushPendingSaves),
+                if (all || tables.contains('synced_model_configs'))
+                  (name: 'models', flush: models.flushPendingSaves),
               ]);
-              await plugins.syncAllPlugins();
+              if (all || tables.any(_pluginSyncTables.contains)) {
+                await plugins.syncAllPlugins();
+              }
             },
-            onRemoteApplied: () async {
+            onRemoteApplied: (summary) async {
               final projectionCoordinator = ctx
                   .read<CalendarPlatformProjectionCoordinator>();
               final conversations = ctx.read<ConversationProvider>();
@@ -183,27 +221,39 @@ Future<void> main() async {
               final models = ctx.read<ModelConfigProvider>();
               final backend = ctx.read<BackendClient>();
               final plugins = ctx.read<PluginProvider>();
-              final scope = ctx.read<SyncProvider>().scope;
-              if (scope != null) await plugins.applyRemoteSync(scope);
+              final tables = summary.changedTables;
+              if (tables.any(_pluginSyncTables.contains)) {
+                await plugins.applyRemoteSync(summary.scope);
+              }
               await Future.wait([
-                conversations.loadConversations(),
-                features.load(),
-                calendar.load(),
-                roleplay.loadSessions(),
-                tasks.load(),
-                recycleBin.load(),
-                settings.loadSettings(),
-                models.loadModels(),
+                if (tables.any(_conversationSyncTables.contains))
+                  conversations.loadConversations(),
+                if (tables.any(_featureSyncTables.contains)) features.load(),
+                if (tables.any(_calendarSyncTables.contains)) calendar.load(),
+                if (tables.any(_roleplaySyncTables.contains))
+                  roleplay.loadSessions(),
+                if (tables.any(_taskSyncTables.contains)) tasks.load(),
+                if (tables.contains('recycle_bin')) recycleBin.load(),
+                if (tables.any(_settingsSyncTables.contains))
+                  settings.loadSettings(),
+                if (tables.contains('synced_model_configs'))
+                  models.loadModels(),
               ]);
-              await syncManagedModelsAndApplyMigrations(
-                models: models,
-                backend: backend,
-                settings: settings,
-                conversations: conversations,
-                roleplay: roleplay,
-                plugins: plugins,
-              );
-              await projectionCoordinator.syncAfterPersistence();
+              if (tables.contains('synced_model_configs') ||
+                  tables.contains('shared_settings') ||
+                  tables.any(_pluginSyncTables.contains)) {
+                await syncManagedModelsAndApplyMigrations(
+                  models: models,
+                  backend: backend,
+                  settings: settings,
+                  conversations: conversations,
+                  roleplay: roleplay,
+                  plugins: plugins,
+                );
+              }
+              if (tables.any(_calendarProjectionSyncTables.contains)) {
+                await projectionCoordinator.syncAfterPersistence();
+              }
             },
           ),
         ),
@@ -315,25 +365,31 @@ Future<void> main() async {
           },
         ),
         ChangeNotifierProvider(
-          create: (ctx) => AccountProvider(
-            backend: ctx.read<BackendClient>(),
-            secretStore: ctx.read<SecretStore>(),
-            afterAuthenticated: () async {
-              final enrolled = await ctx
-                  .read<DeviceRegistrationService>()
-                  .ensureEnrolled();
-              if (!enrolled) throw StateError('设备注册失败，云同步不可用');
-            },
-            onSessionChanged: (user) async {
-              final sync = ctx.read<SyncProvider>();
-              if (user == null) {
-                await sync.unbind();
-                return;
-              }
-              await sync.bindScope(user.id);
-              await sync.autoDownload();
-            },
-          ),
+          create: (ctx) {
+            var enrollmentReady = false;
+            return AccountProvider(
+              backend: ctx.read<BackendClient>(),
+              secretStore: ctx.read<SecretStore>(),
+              afterAuthenticated: () async {
+                enrollmentReady = await ctx
+                    .read<DeviceRegistrationService>()
+                    .ensureEnrolled();
+                if (!enrollmentReady) {
+                  throw StateError('设备注册失败，云同步不可用');
+                }
+              },
+              onSessionChanged: (user) async {
+                final sync = ctx.read<SyncProvider>();
+                if (user == null) {
+                  enrollmentReady = false;
+                  await sync.unbind();
+                  return;
+                }
+                await sync.bindScope(user.id);
+                if (enrollmentReady) await sync.autoDownload();
+              },
+            );
+          },
         ),
       ],
       child: const LynAIApp(),
@@ -382,6 +438,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   SyncProvider? _syncProvider;
   CalendarPlatformProjectionCoordinator? _calendarProjectionCoordinator;
   AccountProvider? _accountProvider;
+  Future<void>? _criticalSaveFlush;
   final _navigatorKey = GlobalKey<NavigatorState>();
 
   @override
@@ -433,28 +490,38 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _flushCriticalSaves() async {
-    try {
-      await flushAllTasks([
-        if (_conversationProvider case final provider?)
-          (name: 'conversations', flush: provider.flushPendingSaves),
-        if (_featureProvider case final provider?)
-          (name: 'features', flush: provider.flushPendingSaves),
-        if (_calendarProvider case final provider?)
-          (name: 'calendar', flush: provider.flushPendingSaves),
-        if (_roleplayProvider case final provider?)
-          (name: 'roleplay', flush: provider.flushPendingSaves),
-        if (_taskProvider case final provider?)
-          (name: 'tasks', flush: provider.flushPendingSaves),
-        if (_settingsProvider case final provider?)
-          (name: 'settings', flush: provider.flushPendingSaves),
-        if (_modelProvider case final provider?)
-          (name: 'models', flush: provider.flushPendingSaves),
-      ]);
-      await _syncProvider?.flushUpload();
-    } catch (e) {
-      debugPrint('后台保存失败: $e');
-    }
+  Future<void> _flushCriticalSaves() {
+    final active = _criticalSaveFlush;
+    if (active != null) return active;
+
+    late final Future<void> flush;
+    flush =
+        (() async {
+          try {
+            await flushAllTasks([
+              if (_conversationProvider case final provider?)
+                (name: 'conversations', flush: provider.flushPendingSaves),
+              if (_featureProvider case final provider?)
+                (name: 'features', flush: provider.flushPendingSaves),
+              if (_calendarProvider case final provider?)
+                (name: 'calendar', flush: provider.flushPendingSaves),
+              if (_roleplayProvider case final provider?)
+                (name: 'roleplay', flush: provider.flushPendingSaves),
+              if (_taskProvider case final provider?)
+                (name: 'tasks', flush: provider.flushPendingSaves),
+              if (_settingsProvider case final provider?)
+                (name: 'settings', flush: provider.flushPendingSaves),
+              if (_modelProvider case final provider?)
+                (name: 'models', flush: provider.flushPendingSaves),
+            ]);
+            await _syncProvider?.flushUpload();
+          } catch (e) {
+            debugPrint('后台保存失败: $e');
+          }
+        })().whenComplete(() {
+          if (identical(_criticalSaveFlush, flush)) _criticalSaveFlush = null;
+        });
+    return _criticalSaveFlush = flush;
   }
 
   @override

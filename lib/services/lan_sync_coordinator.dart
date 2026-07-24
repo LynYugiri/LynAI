@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 
@@ -896,7 +895,7 @@ class LanSyncCoordinator {
     }
     final totalBytes = blobs.values.fold<int>(
       0,
-      (total, blob) => total + blob.bytes.length,
+      (total, blob) => total + blob.size,
     );
     if (totalBytes > _maxSessionBytes) {
       throw StateError('LAN transfer exceeds byte limit');
@@ -907,7 +906,7 @@ class LanSyncCoordinator {
         for (final entry in blobs.entries)
           {
             'sha256': entry.key,
-            'size': entry.value.bytes.length,
+            'size': entry.value.size,
             'kind': entry.value.kind,
           },
       ],
@@ -926,18 +925,33 @@ class LanSyncCoordinator {
       if (blob == null) throw StateError('LAN requested undeclared blob');
       await transport.send('blob-start', {
         'sha256': hash,
-        'size': blob.bytes.length,
+        'size': blob.size,
         'kind': blob.kind,
       });
       var index = 0;
-      for (final range in LanSecureTransport.blobChunkRanges(
-        blob.bytes.length,
+      var sentBytes = 0;
+      final digestSink = _DigestSink();
+      final digestInput = sha256.startChunkedConversion(digestSink);
+      await for (final chunk in syncStorage.readBlobChunks(
+        hash,
+        blob,
+        LanSecureTransport.blobChunkBytes,
       )) {
+        if (chunk.length > LanSecureTransport.blobChunkBytes ||
+            sentBytes + chunk.length > blob.size) {
+          throw StateError('LAN blob changed while being sent');
+        }
+        digestInput.add(chunk);
+        sentBytes += chunk.length;
         await transport.send('blob-chunk', {
           'sha256': hash,
           'index': index++,
-          'bytes': base64Encode(blob.bytes.sublist(range.$1, range.$2)),
+          'bytes': base64Encode(chunk),
         });
+      }
+      digestInput.close();
+      if (sentBytes != blob.size || digestSink.value.toString() != hash) {
+        throw StateError('LAN blob changed while being sent');
       }
       await transport.send('blob-end', {'sha256': hash, 'chunks': index});
     }
@@ -971,15 +985,15 @@ class LanSyncCoordinator {
       throw StateError('invalid LAN change manifest');
     }
     _validateChanges(changes);
+    final referencedHashes = await syncStorage.expectedBlobHashes(changes);
     final pluginBlobSizes = <String, int>{};
     for (final change in changes) {
-      if (change.op != 'upsert' ||
-          !LanSyncStorage.pluginLanTables.contains(change.table)) {
-        continue;
-      }
+      if (change.op != 'upsert') continue;
       final hash = change.data?['sha256'] as String?;
-      final size = change.data?['size'] as int?;
-      if (hash != null && size != null) pluginBlobSizes[hash] = size;
+      if (LanSyncStorage.pluginLanTables.contains(change.table)) {
+        final size = change.data?['size'] as int?;
+        if (hash != null && size != null) pluginBlobSizes[hash] = size;
+      }
     }
     final requested = <String>[];
     final kinds = <String, String>{};
@@ -999,6 +1013,7 @@ class LanSyncCoordinator {
           size < 0 ||
           size > 64 * 1024 * 1024 ||
           sizes.containsKey(hash) ||
+          !referencedHashes.contains(hash) ||
           (pluginBlobSizes.containsKey(hash) &&
               (kind != 'plugin' || pluginBlobSizes[hash] != size))) {
         throw StateError('invalid LAN blob descriptor');
@@ -1015,84 +1030,114 @@ class LanSyncCoordinator {
       throw StateError('LAN plugin metadata references an undeclared blob');
     }
     await transport.send('blob-request', {'hashes': requested});
-    final staged = <String, List<int>>{};
+    final requestedSet = requested.toSet();
+    final received = <String>{};
+    final stagedFiles = <String, File>{};
+    final temporaryDirectory = requested.isEmpty
+        ? null
+        : await Directory.systemTemp.createTemp('lynai_lan_blob_');
     String? activeHash;
     int? activeSize;
     var activeChunk = 0;
-    BytesBuilder? activeBytes;
-    while (true) {
-      final frame = await transport.receive(
-        expectedTypes: const {
-          'blob-start',
-          'blob-chunk',
-          'blob-end',
-          'changes-end',
-        },
-      );
-      if (frame.type == 'changes-end') {
-        if (activeHash != null) throw StateError('incomplete LAN blob');
-        break;
-      }
-      if (frame.type == 'blob-start') {
-        _requireExactKeys(frame.body, const {'sha256', 'size', 'kind'});
-        final hash = frame.body['sha256'] as String;
-        if (activeHash != null ||
-            !requested.contains(hash) ||
-            staged.containsKey(hash) ||
-            frame.body['kind'] != kinds[hash] ||
-            frame.body['size'] != sizes[hash]) {
-          throw StateError('unsolicited or duplicate LAN blob');
+    var activeBytes = 0;
+    RandomAccessFile? activeFile;
+    File? activeTemporary;
+    _DigestSink? activeDigestSink;
+    ByteConversionSink? activeDigestInput;
+    try {
+      while (true) {
+        final frame = await transport.receive(
+          expectedTypes: const {
+            'blob-start',
+            'blob-chunk',
+            'blob-end',
+            'changes-end',
+          },
+        );
+        if (frame.type == 'changes-end') {
+          if (activeHash != null) throw StateError('incomplete LAN blob');
+          break;
         }
-        activeHash = hash;
-        activeSize = frame.body['size'] as int;
-        activeChunk = 0;
-        activeBytes = BytesBuilder(copy: false);
-        continue;
-      }
-      if (frame.type == 'blob-chunk') {
-        _requireExactKeys(frame.body, const {'sha256', 'index', 'bytes'});
+        if (frame.type == 'blob-start') {
+          _requireExactKeys(frame.body, const {'sha256', 'size', 'kind'});
+          final hash = frame.body['sha256'] as String;
+          if (activeHash != null ||
+              !requestedSet.contains(hash) ||
+              received.contains(hash) ||
+              frame.body['kind'] != kinds[hash] ||
+              frame.body['size'] != sizes[hash]) {
+            throw StateError('unsolicited or duplicate LAN blob');
+          }
+          activeHash = hash;
+          activeSize = frame.body['size'] as int;
+          activeChunk = 0;
+          activeBytes = 0;
+          activeDigestSink = _DigestSink();
+          activeDigestInput = sha256.startChunkedConversion(activeDigestSink);
+          activeTemporary = File('${temporaryDirectory!.path}/$hash');
+          activeFile = await activeTemporary.open(mode: FileMode.write);
+          continue;
+        }
+        if (frame.type == 'blob-chunk') {
+          _requireExactKeys(frame.body, const {'sha256', 'index', 'bytes'});
+          if (frame.body['sha256'] != activeHash ||
+              frame.body['index'] != activeChunk) {
+            throw StateError('invalid LAN blob chunk sequence');
+          }
+          final chunk = base64Decode(frame.body['bytes'] as String);
+          if (chunk.length > LanSecureTransport.blobChunkBytes ||
+              activeBytes + chunk.length > activeSize!) {
+            throw StateError('LAN blob chunk exceeds declared size');
+          }
+          activeDigestInput!.add(chunk);
+          await activeFile!.writeFrom(chunk);
+          activeBytes += chunk.length;
+          activeChunk++;
+          continue;
+        }
+        _requireExactKeys(frame.body, const {'sha256', 'chunks'});
         if (frame.body['sha256'] != activeHash ||
-            frame.body['index'] != activeChunk) {
-          throw StateError('invalid LAN blob chunk sequence');
+            frame.body['chunks'] != activeChunk) {
+          throw StateError('invalid LAN blob terminator');
         }
-        final chunk = base64Decode(frame.body['bytes'] as String);
-        if (chunk.length > LanSecureTransport.blobChunkBytes ||
-            activeBytes!.length + chunk.length > activeSize!) {
-          throw StateError('LAN blob chunk exceeds declared size');
+        activeDigestInput!.close();
+        activeDigestInput = null;
+        await activeFile!.close();
+        activeFile = null;
+        if (activeBytes != activeSize ||
+            activeDigestSink!.value.toString() != activeHash) {
+          throw StateError('LAN blob SHA-256 mismatch');
         }
-        activeBytes.add(chunk);
-        activeChunk++;
-        continue;
+        received.add(activeHash!);
+        stagedFiles[activeHash] = activeTemporary!;
+        activeHash = null;
+        activeSize = null;
+        activeTemporary = null;
+        activeDigestSink = null;
       }
-      _requireExactKeys(frame.body, const {'sha256', 'chunks'});
-      if (frame.body['sha256'] != activeHash ||
-          frame.body['chunks'] != activeChunk) {
-        throw StateError('invalid LAN blob terminator');
-      }
-      final bytes = activeBytes!.takeBytes();
-      if (bytes.length != activeSize ||
-          sha256.convert(bytes).toString() != activeHash) {
-        throw StateError('LAN blob SHA-256 mismatch');
-      }
-      staged[activeHash!] = bytes;
-      activeHash = null;
-      activeSize = null;
-      activeBytes = null;
-    }
-    if (staged.length != requested.length) {
-      throw StateError('LAN transfer ended before all requested blobs arrived');
-    }
-    if (changes.isNotEmpty) {
-      await beforeRemoteApply?.call();
-      for (final entry in staged.entries) {
-        await syncStorage.installBlob(
-          entry.key,
-          kinds[entry.key]!,
-          entry.value,
+      if (received.length != requested.length) {
+        throw StateError(
+          'LAN transfer ended before all requested blobs arrived',
         );
       }
-      await syncStorage.apply(changes);
-      await onRemoteApplied?.call();
+      for (final hash in requested) {
+        await syncStorage.installBlob(
+          hash,
+          kinds[hash]!,
+          await stagedFiles[hash]!.readAsBytes(),
+        );
+      }
+      if (changes.isNotEmpty) {
+        await beforeRemoteApply?.call();
+        await syncStorage.apply(changes);
+        await onRemoteApplied?.call();
+      }
+    } finally {
+      activeDigestInput?.close();
+      await activeFile?.close();
+      if (temporaryDirectory != null && await temporaryDirectory.exists()) {
+        await temporaryDirectory.delete(recursive: true);
+      }
     }
     await transport.send('ack', {
       'changeIds': changes.map((change) => change.changeId).toList(),
@@ -1210,4 +1255,16 @@ class LanSyncCoordinator {
     await stopHost();
     await secretTransferService.close();
   }
+}
+
+class _DigestSink implements Sink<Digest> {
+  Digest? _value;
+
+  Digest get value => _value ?? (throw StateError('digest is not complete'));
+
+  @override
+  void add(Digest data) => _value = data;
+
+  @override
+  void close() {}
 }

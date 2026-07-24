@@ -24,7 +24,14 @@ class DeviceRegistrationService {
   final DeviceIdentityService _identity;
   final String platform;
   final String displayName;
+  final Set<String> _enrolled = {};
   final Map<String, Future<bool>> _inFlight = {};
+
+  /// Clears the cached enrollment for the current authenticated session.
+  void invalidateCurrentEnrollment() {
+    final key = _currentEnrollmentKey();
+    if (key != null) _enrolled.remove(key);
+  }
 
   /// Enrolls after authentication. A successful result is required for sync.
   Future<bool> ensureEnrolled() {
@@ -33,14 +40,31 @@ class DeviceRegistrationService {
     }
     final claims = accessTokenClaims(_backend.accessToken);
     if (claims == null) return Future.value(false);
+    final enrollmentKey = _enrollmentKey(claims.userId, claims.sessionId);
+    if (_enrolled.contains(enrollmentKey)) return Future.value(true);
     final scope = DeviceIdentityService.accountScope(
       _backend.backendUrl,
       claims.userId,
     );
-    return _inFlight[scope] ??= _enroll(scope).whenComplete(() {
-      _inFlight.remove(scope);
-    });
+    return _inFlight[enrollmentKey] ??= _enroll(scope)
+        .then((enrolled) {
+          if (enrolled) _enrolled.add(enrollmentKey);
+          return enrolled;
+        })
+        .whenComplete(() {
+          _inFlight.remove(enrollmentKey);
+        });
   }
+
+  String? _currentEnrollmentKey() {
+    if (!_backend.isConnected) return null;
+    final claims = accessTokenClaims(_backend.accessToken);
+    if (claims == null) return null;
+    return _enrollmentKey(claims.userId, claims.sessionId);
+  }
+
+  String _enrollmentKey(String userId, String sessionId) =>
+      [_backend.backendOrigin, userId, sessionId].join('\x00');
 
   Future<bool> _enroll(String scope) async {
     try {
@@ -108,8 +132,8 @@ class DeviceRegistrationService {
         utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
       );
       if (payload is! Map) return null;
-      final userId = payload['uid']?.toString() ?? '';
-      final sessionId = payload['sid']?.toString() ?? '';
+      final userId = payload['uid']?.toString().trim() ?? '';
+      final sessionId = payload['sid']?.toString().trim() ?? '';
       if (userId.isEmpty || sessionId.isEmpty) return null;
       return (userId: userId, sessionId: sessionId);
     } catch (_) {

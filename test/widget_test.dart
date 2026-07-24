@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -25,6 +27,7 @@ import 'package:lynai/services/secret_store.dart';
 void main() {
   testWidgets('App launches successfully', (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues({});
+    final conversations = _CountingConversationProvider();
 
     await tester.pumpWidget(
       MultiProvider(
@@ -35,7 +38,9 @@ void main() {
                 DeviceIdentityService(secretStore: ctx.read<SecretStore>()),
           ),
           ChangeNotifierProvider(create: (_) => BackendClient()),
-          ChangeNotifierProvider(create: (_) => ConversationProvider()),
+          ChangeNotifierProvider<ConversationProvider>(
+            create: (_) => conversations,
+          ),
           ChangeNotifierProvider(create: (_) => FeatureProvider()),
           ChangeNotifierProvider(create: (_) => CalendarProvider()),
           ChangeNotifierProvider(create: (_) => ModelConfigProvider()),
@@ -84,8 +89,27 @@ void main() {
       contains(GlobalMaterialLocalizations.delegate),
     );
 
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.detached);
     await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    expect(conversations.flushCount, 1);
+    conversations.completeFlush();
     await tester.pump();
     expect(tester.takeException(), isNull);
   });
+}
+
+class _CountingConversationProvider extends ConversationProvider {
+  final Completer<void> _flush = Completer<void>();
+  int flushCount = 0;
+
+  @override
+  Future<void> flushPendingSaves() {
+    flushCount++;
+    return _flush.future;
+  }
+
+  void completeFlush() => _flush.complete();
 }

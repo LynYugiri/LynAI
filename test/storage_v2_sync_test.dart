@@ -47,6 +47,32 @@ void main() {
       expect(otherScope, isEmpty);
     });
 
+    test('loads bounded outbox windows in dependency order', () async {
+      const scope = 'server|user-a';
+      await database.activateSyncScope(scope, deviceId: _deviceId);
+      await database.batchIncremental([
+        (table: 'tasks', op: 'upsert', data: _task('t1', 'task'), change: null),
+        (
+          table: 'task_lists',
+          op: 'upsert',
+          data: _taskList('l1', 'list'),
+          change: null,
+        ),
+        (
+          table: 'task_list_entries',
+          op: 'upsert',
+          data: _taskListEntry('t1', 'l1', updatedAt: '2026-01-01T00:00:00Z'),
+          change: null,
+        ),
+      ]);
+
+      final first = await database.loadSyncOutbox(scope, limit: 2);
+      final second = await database.loadSyncOutbox(scope, limit: 2, offset: 2);
+
+      expect(first.map((entry) => entry.table), ['tasks', 'task_lists']);
+      expect(second.map((entry) => entry.table), ['task_list_entries']);
+    });
+
     test(
       'inactive initialized scope captures upserts across restart',
       () async {

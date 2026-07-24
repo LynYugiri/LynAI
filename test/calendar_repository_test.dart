@@ -41,7 +41,7 @@ void main() {
           ),
         ];
 
-        await repository.save(events: events, anniversaries: anniversaries);
+        await repository.replace(events: events, anniversaries: anniversaries);
 
         final raw = await storage.loadDataFile(CalendarRepository.fileName);
         expect(raw.keys, unorderedEquals(['events', 'anniversaries']));
@@ -65,6 +65,14 @@ void main() {
           loaded.anniversaries.single.toJson(),
           anniversaries.single.toJson(),
         );
+
+        await repository.saveChanges(
+          upsertEvents: [events.single.copyWith(title: 'Updated')],
+          deleteAnniversaryIds: [anniversaries.single.id],
+        );
+        final incrementallyLoaded = await repository.load();
+        expect(incrementallyLoaded.events.single.title, 'Updated');
+        expect(incrementallyLoaded.anniversaries, isEmpty);
       } finally {
         await storage.close();
         if (await root.exists()) await root.delete(recursive: true);

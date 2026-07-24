@@ -125,9 +125,19 @@ final class _MemoryTaskRepository implements TaskRepository {
   }
 
   @override
-  Future<void> save({
+  Future<void> replace({
     required List<Task> tasks,
     required List<TaskList> lists,
     required List<TaskListEntry> entries,
+  }) async {}
+
+  @override
+  Future<void> saveChanges({
+    Iterable<Task> upsertTasks = const [],
+    Iterable<String> deleteTaskIds = const [],
+    Iterable<TaskList> upsertLists = const [],
+    Iterable<String> deleteListIds = const [],
+    Iterable<TaskListEntry> upsertEntries = const [],
+    Iterable<String> deleteEntryTaskIds = const [],
   }) async {}
 }
