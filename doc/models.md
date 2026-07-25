@@ -26,14 +26,15 @@
 |------|------|
 | `id` | 消息 ID。 |
 | `role` | 常用值为 `user` 或 `assistant`。 |
-| `content` | 可渲染、可发送给文本模型的正文。 |
+| `content` | 聊天气泡显示的用户原文或 assistant 正文。 |
+| `modelContextContent` | 可选的隐藏文本上下文，保存 OCR、文件识别和可读文本附件展开结果；后续模型请求和同步优先使用，不直接显示。 |
 | `images` | 历史字段名，实际表示附件列表。 |
 | `thinkingContent` | assistant 的思考内容。 |
 | `timestamp` | 消息创建时间。 |
 
 `MessageImage` 保存附件路径、文件名、大小和 MIME 类型。它可以表示图片、PDF、文本、Office 文件或压缩包。字段名 `images` 为兼容旧数据保留。
 
-附件只保存路径和元数据，不把文件内容写入消息 JSON。页面层负责把用户选择的文件复制到应用私有目录。
+附件只保存路径和元数据，不把文件内容写入消息 JSON。附件路径为空或本地文件丢失时，附件记录仍保留并由页面显示不可用占位。页面层负责把用户选择的文件复制到应用私有目录。
 
 ## Conversation 与设置快照
 
@@ -334,7 +335,9 @@ storage_v2 的数据库行、笔记分页和资源注册表定义在 `lib/servic
 ## LAN Models
 
 - `LanPeer` stores the trusted Ed25519 device identity, pinned TLS SPKI,
-  display metadata, trust time, acknowledgement metadata, and revocation state.
+  display metadata, trust time, acknowledgement metadata, revocation state, and
+  the bilateral `SyncDataSelection`. Legacy records default to the ordinary
+  non-static categories.
 - `LanPairingSession` stores a short-lived, atomically consumed pairing nonce.
 - `LanPairingPayload` is the versioned QR contract containing device ID/public
   key, signed SPKI binding, addresses, port, expiry, and one-time nonce.

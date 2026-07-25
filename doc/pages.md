@@ -261,13 +261,17 @@ HomePage
 | Roleplay | 情景创建、线程创建、导演/角色生成、玩家消息排队、附件、长图导出。 |
 | ApiModelsPage | 添加/删除模型、拖拽排序、获取模型、清空高级参数、子模型能力开关。 |
 | DataManagementPage | 普通无密钥 ZIP、密码加密含 API Key 备份、任务/清单和事件/纪念日的单项勾选与分区全选、canonical `tasks.json`/`calendar.json`、schema 5-8 旧 planning 备份转换、冲突导入、附件恢复。 |
+| DataManagementPage 云端 | 按当前设备、后端和账号选择同步分类；默认全选业务数据但关闭静态资源。关闭不会删除云端已有数据，重新开启后通过 reseed 补齐。 |
 | ThemePage | 预设色、HSV 拖动、深浅色切换、重启恢复。 |
 ## LAN Pairing And Sync
 
 Settings includes a LAN page for discovery, showing a one-time QR code, mobile
 camera scanning, desktop QR image import, trusted peer listing, manual sync,
 revocation, conflict guidance, and explicit secret-transfer rules. Successful
-pairing automatically activates LAN sync and starts the first bidirectional
-exchange; if that exchange fails, the page keeps the trusted pairing and reports
-partial success with a manual retry path. Windows users are reminded to allow
-LynAI through the private-network firewall prompt.
+pairing first lets the requester select a category proposal, lets the responder
+accept its full set or a subset, and then asks whether to start the
+first bidirectional exchange now or later. Trusted peers expose category controls:
+reductions apply immediately, while additions require the discovered peer to
+approve all or a subset. The page also shows and edits the stable local device
+name and provides keep-local/use-peer actions for durable LAN conflicts. Windows users are reminded to allow LynAI through the private-network
+firewall prompt.

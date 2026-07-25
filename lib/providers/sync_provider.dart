@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 import '../models/sync_change.dart';
+import '../models/sync_data_selection.dart';
 import '../services/backend_client.dart';
 import '../services/device_identity_service.dart';
 import '../services/device_registration_service.dart';
@@ -16,6 +17,13 @@ abstract class SyncStorage {
   Future<void> deactivateScope(String scope);
   Future<int> since(String scope);
   Future<SyncScopeState> scopeState(String scope);
+  Future<SyncDataSelection> policy(String scope) async =>
+      SyncDataSelection.defaults;
+  Future<void> savePolicy(
+    String scope,
+    SyncDataSelection selection, {
+    required bool requireReseed,
+  }) async {}
   Future<void> resetCloudScope(String scope, int generation);
   Future<void> prepareFullSnapshot(String scope, int generation);
   Future<List<SyncOutboxEntry>> loadOutbox(
@@ -56,6 +64,14 @@ abstract class SyncStorage {
   Future<void> materializeNotes();
 }
 
+abstract class SyncSelectionDataStorage {
+  Future<Map<String, dynamic>?> selectionDataForChange(
+    String table,
+    String recordId,
+    Map<String, dynamic>? data,
+  );
+}
+
 class _PreparedUploadEntry {
   final SyncOutboxEntry entry;
   final SyncChangeRecord record;
@@ -93,7 +109,7 @@ class SyncBlobDescriptor {
   const SyncBlobDescriptor({required this.sha256, required this.readBytes});
 }
 
-class StorageV2SyncStorage implements SyncStorage {
+class StorageV2SyncStorage implements SyncStorage, SyncSelectionDataStorage {
   StorageV2SyncStorage(this._storage);
 
   final StorageV2Service _storage;
@@ -114,6 +130,16 @@ class StorageV2SyncStorage implements SyncStorage {
       _storage.syncScopeState(scope);
 
   @override
+  Future<SyncDataSelection> policy(String scope) => _storage.syncPolicy(scope);
+
+  @override
+  Future<void> savePolicy(
+    String scope,
+    SyncDataSelection selection, {
+    required bool requireReseed,
+  }) => _storage.saveSyncPolicy(scope, selection, requireReseed: requireReseed);
+
+  @override
   Future<void> resetCloudScope(String scope, int generation) =>
       _storage.resetCloudSyncScope(scope, generation);
 
@@ -127,6 +153,13 @@ class StorageV2SyncStorage implements SyncStorage {
     int? limit,
     int offset = 0,
   }) => _storage.loadSyncOutbox(scope, limit: limit, offset: offset);
+
+  @override
+  Future<Map<String, dynamic>?> selectionDataForChange(
+    String table,
+    String recordId,
+    Map<String, dynamic>? data,
+  ) => _storage.syncSelectionDataForChange(table, recordId, data);
 
   @override
   Future<List<SyncConflictEntry>> loadConflicts(String scope) =>
@@ -314,6 +347,7 @@ class SyncProvider extends ChangeNotifier {
   String? _error;
   DateTime? _lastSyncAt;
   List<SyncConflictEntry> _conflicts = const [];
+  SyncDataSelection _selection = SyncDataSelection.defaults;
 
   SyncService? get _service {
     if (_injectedService != null) return _injectedService;
@@ -334,6 +368,7 @@ class SyncProvider extends ChangeNotifier {
   DateTime? get lastSyncAt => _lastSyncAt;
   String? get scope => _scope;
   List<SyncConflictEntry> get conflicts => _conflicts;
+  SyncDataSelection get selection => _selection;
 
   Future<bool> canAcknowledgeManagement(
     String expectedScope,
@@ -388,6 +423,7 @@ class SyncProvider extends ChangeNotifier {
       await _storage.activateScope(nextScope, deviceId);
       if (!_isCurrent(generation)) return;
       _scope = nextScope;
+      _selection = await _storage.policy(nextScope);
       _conflicts = await _storage.loadConflicts(nextScope);
     });
   }
@@ -405,6 +441,7 @@ class SyncProvider extends ChangeNotifier {
       await _storage.deactivateScope(current);
       if (!_isCurrent(generation)) return;
       _scope = null;
+      _selection = SyncDataSelection.defaults;
       _conflicts = const [];
     });
   }
@@ -417,6 +454,23 @@ class SyncProvider extends ChangeNotifier {
   Future<bool> manualSync() {
     final generation = _generation;
     return _enqueueBool(() => _syncDownloadThenUpload(generation));
+  }
+
+  Future<void> updateSelection(SyncDataSelection selection) {
+    final generation = ++_generation;
+    return _enqueue(() async {
+      final currentScope = _scope;
+      if (currentScope == null || !_isCurrent(generation)) return;
+      final added = selection.categories.difference(_selection.categories);
+      await _storage.savePolicy(
+        currentScope,
+        selection,
+        requireReseed: added.isNotEmpty,
+      );
+      if (!_isCurrentScope(generation, currentScope)) return;
+      _selection = selection;
+      notifyListeners();
+    });
   }
 
   Future<void> flushUpload() {
@@ -504,7 +558,25 @@ class SyncProvider extends ChangeNotifier {
       if (!_isCurrentScope(generation, currentScope)) return const {};
       _validateRemotePage(cursor, page);
       final next = page.nextSince;
-      final ops = await _prepareRemoteOperations(service, page.changes);
+      final selectedChanges = <SyncChange>[];
+      for (final change in page.changes) {
+        final selectionData = _storage is SyncSelectionDataStorage
+            ? await (_storage as SyncSelectionDataStorage)
+                  .selectionDataForChange(
+                    change.table,
+                    change.recordId,
+                    change.data,
+                  )
+            : change.data;
+        if (SyncDataRegistry.allowsChange(
+          _selection,
+          change.table,
+          selectionData,
+        )) {
+          selectedChanges.add(change);
+        }
+      }
+      final ops = await _prepareRemoteOperations(service, selectedChanges);
       if (!_isCurrentScope(generation, currentScope)) return const {};
       final pageTables = ops.map((op) => op.table).toSet();
       final unflushedTables = pageTables.difference(flushedTables);
@@ -631,8 +703,21 @@ class SyncProvider extends ChangeNotifier {
       );
       if (!_isCurrentScope(generation, currentScope)) return false;
       if (snapshot.isEmpty) break;
+      final selectedSnapshot = snapshot
+          .where(
+            (entry) => SyncDataRegistry.allowsChange(
+              _selection,
+              entry.table,
+              SyncDataRegistry.selectionData(entry.data, entry.selectionData),
+            ),
+          )
+          .toList(growable: false);
+      if (selectedSnapshot.isEmpty) {
+        offset += snapshot.length;
+        continue;
+      }
       final uploadable = <_PreparedUploadEntry>[];
-      for (final entry in snapshot) {
+      for (final entry in selectedSnapshot) {
         final prepared = _prepareUploadEntry(entry);
         if (prepared.dataBytes > limits.maxChangeDataBytes ||
             _singleUploadBodyBytes(prepared.recordBytes) >
@@ -690,8 +775,17 @@ class SyncProvider extends ChangeNotifier {
     final entries = uploadable
         .map((item) => item.entry)
         .toList(growable: false);
+    final blobEntries = _selection.contains(SyncDataCategory.staticResources)
+        ? entries
+        : entries
+              .where(
+                (entry) =>
+                    entry.table != 'resources' &&
+                    entry.table != 'message_attachments',
+              )
+              .toList(growable: false);
     final descriptors = await _storage.resourceBlobDescriptorsForOutbox(
-      entries,
+      blobEntries,
     );
     final readPluginBlob = _readPluginBlob;
     if (readPluginBlob != null) {

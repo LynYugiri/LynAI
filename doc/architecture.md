@@ -325,9 +325,15 @@ and storage adaptation remain separate services/repositories. Local mutations ar
 captured into independent cloud and `lan:v1` outboxes; LAN acknowledgements never
 advance the cloud sequence cursor or remove cloud delivery state.
 
-Pairing activates the LAN scope and immediately starts a bidirectional first
-sync. Pairing trust is durable before that sync, so a sync failure is reported as
-partial success rather than undoing the pairing. Cloud identities are separate
+Pairing activates the LAN scope, negotiates a bilateral data-category subset,
+and returns without automatically syncing so the user can choose now or later.
+The agreed selection is stored with each trusted peer in `SecretStore`. Every
+authenticated sync validates the same selection and filters outgoing and incoming
+rows; static resources can be disabled while retaining message-attachment
+metadata. Reductions reconcile on the next authenticated connection, while
+additions require an explicit authenticated proposal accepted by the peer. LAN
+changes are transferred in bounded deterministic pages with exact page ACKs.
+Cloud identities are separate
 from the LAN identity and are keyed by normalized backend origin plus user ID.
 Cloud uploads require enrollment and Ed25519 signing. Signed sync byte requests
 keep replayable body bytes but rebuild authentication and signature headers after
@@ -343,6 +349,14 @@ accumulated for the synchronization run so only affected Provider save queues ar
 flushed and reloaded; note Markdown materialization runs once at the end when a
 note table changed. Outbox reads use 256-row windows, and referenced resource and
 note blobs are loaded only when the remote side still needs an upload.
+
+Cloud and LAN share the versioned `SyncDataSelection` category registry. Cloud
+selection is local to one device/account scope; LAN selection is bilateral per
+trusted peer. Message attachment metadata belongs to conversations, while original
+attachment/background bytes require the additional static-resource category.
+Expanded OCR/file text is persisted as hidden message model context, so a device
+without the original file retains the model-visible conversation semantics and a
+visible unavailable attachment placeholder.
 
 Cloud data management is a separate read/model boundary layered on the same
 account scope: `DataManagementPage -> CloudDataProvider -> CloudDataService` for

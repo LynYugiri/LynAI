@@ -261,6 +261,8 @@ Provider 的更新策略是：先改内存并通知 UI，再把持久化操作�
 
 `SyncProvider` 串行执行自动、手动和生命周期同步。同步游标与待上传变更保存在 Drift 的 `sync_state`、`sync_outbox` 表中，并按“后端地址 + 用户 ID”隔离。`sync_state.captures_local` 持久记录当前本地 mutation 应归属的作用域：账号登出后、下一账号绑定前的编辑仍归原账号；绑定新账号后只转移云账号捕获权，LAN 作用域保持独立并可并行捕获。切换作用域前先 flush Provider 保存队列。每次本地保存立即按这些作用域生成行级 upsert/delete，远端应用永不写入 Outbox。后端或账号作用域变化会推进 generation；已排队或正在等待网络的旧 generation 在写游标、ACK 或刷新 Provider 前退出，避免旧作用域结果落到新作用域。
 
+每个云 scope 在本机 `sync_policies` 中保存用户选择的数据分类。缺失策略默认启用全部业务分类但关闭静态资源。上传在读取 Blob 前过滤 Outbox；下载在准备远端操作和下载 Blob 前过滤 change，同时仍推进全局 cursor。重新开启分类会标记 full reseed，关闭分类不删除本机或云端已有数据。静态资源关闭时仍同步消息附件元数据和 `modelContextContent`，但不传对话附件、图片或背景 Blob。
+
 当前同步覆盖对话、消息、消息附件、附件资源、`tasks`/`task_lists`/`task_list_entries`、`calendar_events`/`anniversaries`、笔记、情景演绎和回收站。下载页会校验 change 必填字段、操作类型、`data.id`、页内严格递增 seq、重复 changeId 和 nextSince；上传只有在 legacy 整批 ACK 或精确匹配当前批次的 changeId/mutation version ACK 通过校验后才删除 Outbox。Outbox 以 256 行窗口读取，Blob 先收集描述符，确认远端缺失后才读取本地字节。资源 Blob 在引用记录之前上传或下载，并校验大小与 SHA-256。
 
 每次同步累积 `changedTables`，远端应用前只 flush 可能冲突的 Provider，完成后只重载受影响 Provider、插件或 Android 规划投影。涉及笔记表时，分页 Markdown materialization 在整次云同步结束时执行一次，而不是每个下载页执行；冲突解决仍按受影响表单独刷新。
@@ -344,14 +346,16 @@ plus user ID. It reads the persistent Outbox in 256-row windows, lazily opens
 referenced blobs, and cuts each upload batch from the final encoded JSON UTF-8
 body without exceeding the server-advertised change-count and byte limits.
 
-`LanSyncProvider` reports pairing and initial synchronization separately. A
-trusted pairing remains successful when the automatic first bidirectional sync
-fails, and the UI presents that outcome as partial success with a retry path.
+`LanSyncProvider` reports pairing separately from synchronization. Pairing
+returns the trusted peer and discovered endpoint so the UI can ask whether to
+sync now or later. It also persists immediate policy reductions and coordinates
+authenticated, peer-approved additions.
 ## LanSyncProvider
 
 Owns LAN page state: discovered devices, trusted/revoked peers, host/discovery
-status, last sync time, and errors. It delegates protocol and storage work to
+status, stable editable local device name, per-peer sync selection, last sync time, and errors. The foreground lifecycle starts trusted-peer hosting and background lifecycle stops it. It delegates protocol and storage work to
 `LanSyncCoordinator` and `LanPeerRepository`. Disposal is ownership-aware:
 subscriptions stop updating disposed state, the provider closes its coordinator,
 the coordinator stops hosting and closes its per-instance secret-transfer stream,
 while the globally provided mDNS service is disposed by Provider registration.
+LAN conflicts are loaded from the `lan:v1` scope and resolved through the same storage conflict engine used by cloud sync.

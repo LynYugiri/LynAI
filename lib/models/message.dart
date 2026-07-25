@@ -2,8 +2,9 @@ import 'agent_trace.dart';
 
 /// 消息数据模型。
 ///
-/// [content] 始终保存可直接发送给文本模型的内容。附件只通过 [images]
-/// 字段保存路径和元数据；字段名保留为 images 是为了兼容已持久化的旧对话。
+/// [content] 保存聊天气泡展示的正文；[modelContextContent] 可保存 OCR 或
+/// 文件识别后实际提供给文本模型的隐藏文本上下文。附件只通过 [images]
+/// 保存路径和元数据；字段名保留为 images 是为了兼容已持久化的旧对话。
 class Message {
   /// 消息唯一标识符。
   final String id;
@@ -13,6 +14,9 @@ class Message {
 
   /// 消息文本内容。
   final String content;
+
+  /// 实际提供给文本模型的持久化文本上下文，不直接显示在消息气泡中。
+  final String? modelContextContent;
 
   /// 消息附带的图片和文件列表。
   final List<MessageImage> images;
@@ -37,6 +41,7 @@ class Message {
     required this.id,
     required this.role,
     required this.content,
+    this.modelContextContent,
     this.images = const [],
     this.thinkingContent,
     this.agentTrace,
@@ -51,10 +56,10 @@ class Message {
       id: json['id'] as String,
       role: json['role'] as String,
       content: json['content'] as String,
+      modelContextContent: json['modelContextContent'] as String?,
       images: (json['images'] as List<dynamic>? ?? [])
           .whereType<Map>()
           .map((e) => MessageImage.fromJson(Map<String, dynamic>.from(e)))
-          .where((e) => e.path.isNotEmpty)
           .toList(),
       thinkingContent: json['thinkingContent'] as String?,
       agentTrace: json['agentTrace'] is Map
@@ -76,6 +81,8 @@ class Message {
       'id': id,
       'role': role,
       'content': content,
+      if (modelContextContent != null && modelContextContent != content)
+        'modelContextContent': modelContextContent,
       if (images.isNotEmpty) 'images': images.map((e) => e.toJson()).toList(),
       if (thinkingContent != null && thinkingContent!.isNotEmpty)
         'thinkingContent': thinkingContent,
@@ -89,6 +96,7 @@ class Message {
 
   Message copyWith({
     String? content,
+    Object? modelContextContent = _messageSentinel,
     List<MessageImage>? images,
     Object? thinkingContent = _messageSentinel,
     AgentTrace? agentTrace,
@@ -99,6 +107,9 @@ class Message {
       id: id,
       role: role,
       content: content ?? this.content,
+      modelContextContent: identical(modelContextContent, _messageSentinel)
+          ? this.modelContextContent
+          : modelContextContent as String?,
       images: images ?? this.images,
       thinkingContent: identical(thinkingContent, _messageSentinel)
           ? this.thinkingContent

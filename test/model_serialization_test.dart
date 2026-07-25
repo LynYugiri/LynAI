@@ -763,6 +763,7 @@ void main() {
         id: 'm1',
         role: 'user',
         content: 'hello',
+        modelContextContent: 'hello\n[图片 OCR 识别结果]\nrecognized',
         images: const [
           MessageImage(path: '/tmp/a.png', name: 'a.png', size: 12),
         ],
@@ -788,6 +789,7 @@ void main() {
       expect(restored.images.single.path, '/tmp/a.png');
       expect(restored.images.single.name, 'a.png');
       expect(restored.images.single.size, 12);
+      expect(restored.modelContextContent, 'hello\n[图片 OCR 识别结果]\nrecognized');
       expect(restored.thinkingContent, 'reasoning trace');
       expect(restored.agentTrace?.events, hasLength(1));
       expect(restored.agentTrace?.events.single.type, AgentTraceEvent.toolCall);
@@ -797,6 +799,27 @@ void main() {
       );
     },
   );
+
+  test('Message keeps attachment placeholders with an empty path', () {
+    final message = Message.fromJson({
+      'id': 'm-placeholder',
+      'role': 'user',
+      'content': 'read it',
+      'images': [
+        {
+          'path': '',
+          'name': 'report.pdf',
+          'size': 42,
+          'mimeType': 'application/pdf',
+        },
+      ],
+      'timestamp': DateTime.utc(2026).toIso8601String(),
+    });
+
+    expect(message.images, hasLength(1));
+    expect(message.images.single.path, isEmpty);
+    expect(message.images.single.name, 'report.pdf');
+  });
 
   test('AgentPlanItem serializes result and error details', () {
     const item = AgentPlanItem(

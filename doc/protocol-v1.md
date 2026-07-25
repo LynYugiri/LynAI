@@ -224,7 +224,7 @@ spkiPin = SHA-256(certificate.SubjectPublicKeyInfoDER)
 
 TLS SPKI 必须由已登记的 Ed25519 device identity 对明确 domain-separated、包含 SPKI hash、设备 ID、有效期和上下文的 canonical 消息签名。验证方先验证 Ed25519 绑定，再按配对策略验证 TLS 1.3 连接和 SPKI。不得用长期 X25519 identity 替代该绑定，也不得把普通证书指纹当作 SPKI pin。
 
-具体 LAN offer、轮换和人工确认 schema 尚未冻结，后续版本必须补充固定向量后实现。
+当前客户端 LAN 帧协议 v2 在 TLS 1.3 与双方 Ed25519 proof 认证后交换数据分类集合；分类包括对话、笔记、任务、日历、情景演绎、设置、模型配置、插件和静态资源。初次配对由发起方提出集合，响应方只能接受其子集；后续增加类别需要新的已认证提议，任一方减少类别时下一次同步取双方集合交集。变更 manifest 使用有界分页和精确逐页 ACK。v1 不包含分类协商和分页结束字段，必须在 mDNS 发现或配对载荷校验阶段拒绝，不得进入同步会话或降级到无限制同步。该 JSON 帧 schema 仍属于客户端内部实现，跨实现固定向量和独立互操作规范后续补充。
 
 ## 7. 加密备份
 

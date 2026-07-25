@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import '../models/lan_peer.dart';
+import '../models/sync_data_selection.dart';
 import '../services/secret_store.dart';
 
 class LanPeerRepository {
@@ -65,6 +66,19 @@ class LanPeerRepository {
       certificateExpiresAt: certificateExpiresAt.toUtc(),
       lastSeenAt: DateTime.now().toUtc(),
     );
+    await _writeList(_peersKey, peers.map((item) => item.toJson()).toList());
+  });
+
+  Future<void> updateSyncSelection(
+    String deviceId,
+    SyncDataSelection selection,
+  ) => _mutate(() async {
+    final peers = await loadPeers();
+    final index = peers.indexWhere((item) => item.deviceId == deviceId);
+    if (index < 0 || peers[index].revoked) {
+      throw StateError('peer is not trusted');
+    }
+    peers[index] = peers[index].copyWith(syncSelection: selection);
     await _writeList(_peersKey, peers.map((item) => item.toJson()).toList());
   });
 

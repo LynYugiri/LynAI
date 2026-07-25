@@ -71,8 +71,8 @@ class LanPeerProof {
 class LanPeerProofService {
   LanPeerProofService(this._identity);
 
-  static const protocolVersion = 1;
-  static const _domain = 'LynAI/LAN/peer-proof/v1\x00';
+  static const protocolVersion = 2;
+  static const _domain = 'LynAI/LAN/peer-proof/v2\x00';
 
   final DeviceIdentityService _identity;
   final Ed25519 _ed25519 = Ed25519();

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../models/sync_change.dart';
+import '../models/sync_data_selection.dart';
 import '../providers/sync_provider.dart';
 import 'plugin_sync_validation.dart';
 import 'storage_v2_database.dart';
@@ -26,19 +27,32 @@ class LanSyncStorage {
   Future<void> activate(String deviceId) =>
       _storage.activateSyncScope(scope, deviceId: deviceId);
 
+  Future<List<SyncConflictEntry>> loadConflicts() =>
+      _storage.loadSyncConflicts(scope);
+
+  Future<void> resolveConflict(int seq, SyncConflictResolution resolution) =>
+      _storage.resolveSyncConflict(scope, seq, resolution);
+
   Future<List<SyncOutboxEntry>> changesForPeer(
-    Set<String> acknowledgedChangeIds,
-  ) async => (await _storage.loadSyncOutbox(scope))
+    Set<String> acknowledgedChangeIds, [
+    SyncDataSelection selection = SyncDataSelection.defaults,
+  ]) async => (await _storage.loadSyncOutbox(scope))
       .where(
         (entry) =>
             ordinaryLanTables.contains(entry.table) &&
+            SyncDataRegistry.allowsChange(
+              selection,
+              entry.table,
+              SyncDataRegistry.selectionData(entry.data, entry.selectionData),
+            ) &&
             !acknowledgedChangeIds.contains(entry.changeId),
       )
       .toList(growable: false);
 
   Future<Map<String, LanSyncBlob>> blobsForChanges(
-    List<SyncOutboxEntry> entries,
-  ) async {
+    List<SyncOutboxEntry> entries, [
+    SyncDataSelection selection = SyncDataSelection.defaults,
+  ]) async {
     final noteHashes = entries
         .where((entry) => entry.table == 'note_revisions')
         .map((entry) => entry.data?['contentHash'] as String?)
@@ -49,10 +63,12 @@ class LanSyncStorage {
     final resourceIds = <String>{};
     for (final entry in entries) {
       if (entry.op != 'upsert') continue;
-      if (entry.table == 'message_attachments') {
+      if (entry.table == 'message_attachments' &&
+          selection.contains(SyncDataCategory.staticResources)) {
         final id = entry.data?['resourceId'] as String?;
         if (id != null && id.isNotEmpty) resourceIds.add(id);
       } else if (entry.table == 'resources' &&
+          selection.contains(SyncDataCategory.staticResources) &&
           _isSyncedResourceRole(entry.data?['role'])) {
         snapshotResourceIds.add(entry.recordId);
         final hash = entry.data?['sha256'] as String?;
@@ -204,6 +220,13 @@ class LanSyncStorage {
     }
   }
 
+  Future<Map<String, dynamic>?> selectionDataForChange(SyncChange change) =>
+      _storage.syncSelectionDataForChange(
+        change.table,
+        change.recordId,
+        change.data,
+      );
+
   static const ordinaryLanTables = <String>{
     'resources',
     'conversations',
@@ -242,6 +265,21 @@ class LanSyncStorage {
     'note_page_heads',
     'note_page_tombstones',
   };
+}
+
+List<List<T>> lanSyncBatches<T>(List<T> values, int maximumSize) {
+  if (maximumSize <= 0) {
+    throw ArgumentError.value(maximumSize, 'maximumSize');
+  }
+  return [
+    for (var offset = 0; offset < values.length; offset += maximumSize)
+      values.sublist(
+        offset,
+        offset + maximumSize < values.length
+            ? offset + maximumSize
+            : values.length,
+      ),
+  ];
 }
 
 class LanSyncBlob {

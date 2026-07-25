@@ -9,6 +9,7 @@ import '../models/lan_pairing_payload.dart';
 import '../models/lan_peer.dart';
 import '../models/model_config.dart';
 import '../models/sync_change.dart';
+import '../models/sync_data_selection.dart';
 import '../repositories/lan_peer_repository.dart';
 import 'device_identity_service.dart';
 import 'lan_mdns_service.dart';
@@ -19,16 +20,48 @@ import 'lan_secure_transport.dart';
 import 'lan_secret_transfer_service.dart';
 import 'lan_sync_storage.dart';
 import 'lan_tls_certificate_service.dart';
+import 'storage_v2_database.dart';
 
 typedef LanPairingConfirmation =
-    Future<bool> Function(String displayName, String fingerprint);
+    Future<LanPairingDecision> Function(LanPairingConfirmationRequest request);
+typedef LanPolicyConfirmation =
+    Future<SyncDataSelection?> Function(
+      String displayName,
+      SyncDataSelection proposedSelection,
+      SyncDataSelection currentSelection,
+    );
 typedef LanModelReader = List<ModelConfig> Function();
 
-class LanPairingResult {
-  const LanPairingResult({required this.synced, this.syncError});
+class LanPairingConfirmationRequest {
+  const LanPairingConfirmationRequest({
+    required this.displayName,
+    required this.fingerprint,
+    required this.proposedSelection,
+    required this.responding,
+  });
 
-  final bool synced;
-  final Object? syncError;
+  final String displayName;
+  final String fingerprint;
+  final SyncDataSelection proposedSelection;
+  final bool responding;
+}
+
+class LanPairingDecision {
+  const LanPairingDecision({required this.approved, required this.selection});
+
+  const LanPairingDecision.rejected()
+    : approved = false,
+      selection = SyncDataSelection.defaults;
+
+  final bool approved;
+  final SyncDataSelection selection;
+}
+
+class LanPairingResult {
+  const LanPairingResult({required this.peer, required this.discoveredPeer});
+
+  final LanPeer peer;
+  final LanDiscoveredPeer discoveredPeer;
 }
 
 class LanSyncCoordinator {
@@ -40,6 +73,7 @@ class LanSyncCoordinator {
     required this.syncStorage,
     required this.secretTransferService,
     required this.confirmPairing,
+    required this.confirmPolicyProposal,
     required this.readModels,
     this.beforeRemoteApply,
     this.onRemoteApplied,
@@ -55,6 +89,7 @@ class LanSyncCoordinator {
   // The coordinator owns this per-instance transfer service and closes it.
   final LanSecretTransferService secretTransferService;
   LanPairingConfirmation confirmPairing;
+  LanPolicyConfirmation confirmPolicyProposal;
   final LanModelReader readModels;
   final Future<void> Function()? beforeRemoteApply;
   final Future<void> Function()? onRemoteApplied;
@@ -103,7 +138,7 @@ class LanSyncCoordinator {
         shared: true,
       );
       subscription = server.listen(
-        (socket) => unawaited(_accept(socket)),
+        (socket) => unawaited(_accept(socket).catchError((_) {})),
         onError: (_) {},
       );
       await mdnsService.advertise(
@@ -146,7 +181,10 @@ class LanSyncCoordinator {
     );
   }
 
-  Future<LanPairingResult> pair(String encodedPayload) async {
+  Future<LanPairingResult> pair(
+    String encodedPayload, {
+    SyncDataSelection proposedSelection = SyncDataSelection.defaults,
+  }) async {
     final payload = await payloadCodec.decodeAndVerify(encodedPayload);
     final identity = await identityService.initialize();
     await syncStorage.activate(identity.deviceId);
@@ -155,7 +193,7 @@ class LanSyncCoordinator {
       connect: (address) async => LanSecureTransport(
         await _connectPinned(address, payload.port, payload),
       ),
-      run: (transport) => _pairAsClient(transport, payload),
+      run: (transport) => _pairAsClient(transport, payload, proposedSelection),
       close: (transport) => transport.close(),
       failureMessage: 'unable to connect to pairing host',
     );
@@ -163,28 +201,16 @@ class LanSyncCoordinator {
     if (peer == null || peer.revoked) {
       throw StateError('paired peer was not persisted');
     }
-    try {
-      await runOutboundAttempts(
-        payload.addresses,
-        connect: (address) async => LanSecureTransport(
-          await _connectPinned(
-            address,
-            payload.port,
-            null,
-            expectedSpki: peer.spkiSha256,
-          ),
-        ),
-        run: (transport) async {
-          await _rememberCurrentCertificate(peer.deviceId, transport.socket);
-          await _serializeSync(() => _syncAsClient(transport, peer));
-        },
-        close: (transport) => transport.close(),
-        failureMessage: 'initial sync after pairing failed',
-      );
-      return const LanPairingResult(synced: true);
-    } catch (error) {
-      return LanPairingResult(synced: false, syncError: error);
-    }
+    return LanPairingResult(
+      peer: peer,
+      discoveredPeer: LanDiscoveredPeer(
+        deviceId: payload.deviceId,
+        displayName: peer.displayName,
+        addresses: payload.addresses,
+        port: payload.port,
+        protocolVersion: payload.version,
+      ),
+    );
   }
 
   Future<void> syncPeer(LanDiscoveredPeer discovered) async {
@@ -207,6 +233,46 @@ class LanSyncCoordinator {
       close: (transport) => transport.close(),
       failureMessage: 'unable to sync trusted peer',
     );
+  }
+
+  Future<List<SyncConflictEntry>> loadConflicts() =>
+      syncStorage.loadConflicts();
+
+  Future<void> resolveConflict(
+    int seq,
+    SyncConflictResolution resolution,
+  ) async {
+    await syncStorage.resolveConflict(seq, resolution);
+    await onRemoteApplied?.call();
+  }
+
+  Future<SyncDataSelection> proposeSyncSelection(
+    LanDiscoveredPeer discovered,
+    SyncDataSelection proposedSelection,
+  ) async {
+    final peer = await _trustedDiscoveredPeer(discovered);
+    if (!peer.syncSelection.isSubsetOf(proposedSelection)) {
+      throw StateError('policy proposal cannot restore locally disabled data');
+    }
+    late SyncDataSelection accepted;
+    await runOutboundAttempts(
+      discovered.addresses,
+      connect: (address) async => LanSecureTransport(
+        await _connectPinned(
+          address,
+          discovered.port,
+          null,
+          expectedSpki: peer.spkiSha256,
+        ),
+      ),
+      run: (transport) async {
+        await _rememberCurrentCertificate(peer.deviceId, transport.socket);
+        accepted = await _policyAsClient(transport, peer, proposedSelection);
+      },
+      close: (transport) => transport.close(),
+      failureMessage: 'unable to update LAN sync policy',
+    );
+    return accepted;
   }
 
   Future<String> requestSecretTransfer(
@@ -343,6 +409,7 @@ class LanSyncCoordinator {
   Future<void> _pairAsClient(
     LanSecureTransport transport,
     LanPairingPayload payload,
+    SyncDataSelection proposedSelection,
   ) async {
     final sessionId = _sessionId();
     transport.bindSession(
@@ -358,6 +425,7 @@ class LanSyncCoordinator {
       'nonce': localNonce,
       'deviceId': identity.deviceId,
       'publicKey': base64UrlEncode(identity.publicKey).replaceAll('=', ''),
+      'displayName': _displayName,
     });
     final challenge = await transport
         .receive(expectedTypes: const {'pair-challenge'})
@@ -382,20 +450,27 @@ class LanSyncCoordinator {
     )) {
       throw StateError('invalid host device proof');
     }
-    final approved = await confirmPairing(
-      challenge.body['displayName'] as String? ?? 'LynAI device',
-      proofService.sas(
-        sessionId: sessionId,
-        purpose: 'pairing',
-        initiatorDeviceId: identity.deviceId,
-        initiatorPublicKey: identity.publicKey,
-        initiatorNonce: localNonce,
-        responderDeviceId: payload.deviceId,
-        responderPublicKey: payload.publicKey,
-        responderNonce: remoteNonce,
+    final decision = await confirmPairing(
+      LanPairingConfirmationRequest(
+        displayName: challenge.body['displayName'] as String? ?? 'LynAI device',
+        fingerprint: proofService.sas(
+          sessionId: sessionId,
+          purpose: 'pairing',
+          initiatorDeviceId: identity.deviceId,
+          initiatorPublicKey: identity.publicKey,
+          initiatorNonce: localNonce,
+          responderDeviceId: payload.deviceId,
+          responderPublicKey: payload.publicKey,
+          responderNonce: remoteNonce,
+        ),
+        proposedSelection: proposedSelection,
+        responding: false,
       ),
     );
-    if (!approved) throw StateError('pairing was not confirmed');
+    if (!decision.approved ||
+        !decision.selection.isSubsetOf(proposedSelection)) {
+      throw StateError('pairing was not confirmed');
+    }
     final proof = await proofService.create(
       sessionId: sessionId,
       localNonce: localNonce,
@@ -411,11 +486,17 @@ class LanSyncCoordinator {
     await transport.send('pair-proof', {
       'proof': proof.toJson(),
       'binding': binding.toJson(),
+      'selection': decision.selection.toJson(),
     });
     final result = await transport
         .receive(expectedTypes: const {'pair-ok'})
         .timeout(_authDeadline);
+    _requireExactKeys(result.body, const {'displayName', 'selection'});
     transport.markAuthenticated();
+    final selection = _selectionFromWire(result.body['selection']);
+    if (!selection.isSubsetOf(decision.selection)) {
+      throw StateError('pairing host returned an invalid sync selection');
+    }
     await peerRepository.trustPeer(
       LanPeer(
         deviceId: payload.deviceId,
@@ -424,6 +505,7 @@ class LanSyncCoordinator {
         displayName: result.body['displayName'] as String? ?? 'LynAI device',
         trustedAt: DateTime.now().toUtc(),
         certificateExpiresAt: payload.certificateExpiresAt,
+        syncSelection: selection,
       ),
     );
   }
@@ -439,19 +521,33 @@ class LanSyncCoordinator {
       transport = LanSecureTransport(socket);
       final first = await transport
           .receive(
-            expectedTypes: const {'pair-hello', 'sync-hello', 'secret-hello'},
-            expectedPurposes: const {'pairing', 'sync', 'secret-transfer'},
+            expectedTypes: const {
+              'pair-hello',
+              'sync-hello',
+              'policy-hello',
+              'secret-hello',
+            },
+            expectedPurposes: const {
+              'pairing',
+              'sync',
+              'policy',
+              'secret-transfer',
+            },
           )
           .timeout(_authDeadline);
       if (first.type == 'pair-hello') {
         await _pairAsHost(transport, first);
       } else if (first.type == 'sync-hello') {
         await _syncAsHost(transport, first);
+      } else if (first.type == 'policy-hello') {
+        await _policyAsHost(transport, first);
       } else if (first.type == 'secret-hello') {
         await _secretAsHost(transport, first);
       } else {
         throw StateError('unsupported LAN session');
       }
+    } catch (_) {
+      // A malformed or interrupted incoming session is isolated to its socket.
     } finally {
       await closeAndReleaseConnection(
         close: () => transport?.close() ?? socket.close(),
@@ -475,6 +571,8 @@ class LanSyncCoordinator {
     final pairingNonce = hello.body['pairingNonce'] as String;
     final remoteNonce = hello.body['nonce'] as String;
     final remoteDeviceId = hello.body['deviceId'] as String;
+    final remoteDisplayName =
+        (hello.body['displayName'] as String? ?? 'LynAI device').trim();
     final remotePublicKey = base64Url.decode(
       base64Url.normalize(hello.body['publicKey'] as String),
     );
@@ -503,12 +601,14 @@ class LanSyncCoordinator {
     final response = await transport
         .receive(expectedTypes: const {'pair-proof'})
         .timeout(_authDeadline);
+    _requireExactKeys(response.body, const {'proof', 'binding', 'selection'});
     final remoteProof = LanPeerProof.fromJson(
       Map<String, dynamic>.from(response.body['proof'] as Map),
     );
     final binding = LanTlsBinding.fromJson(
       Map<String, dynamic>.from(response.body['binding'] as Map),
     );
+    final proposedSelection = _selectionFromWire(response.body['selection']);
     if (!await proofService.verify(
           remoteProof,
           expectedSessionId: hello.sessionId,
@@ -527,20 +627,27 @@ class LanSyncCoordinator {
         !binding.certificateExpiresAt.toUtc().isAfter(DateTime.now().toUtc())) {
       throw StateError('invalid pairing peer proof');
     }
-    final approved = await confirmPairing(
-      'LynAI device',
-      proofService.sas(
-        sessionId: hello.sessionId,
-        purpose: 'pairing',
-        initiatorDeviceId: remoteDeviceId,
-        initiatorPublicKey: remotePublicKey,
-        initiatorNonce: remoteNonce,
-        responderDeviceId: identity.deviceId,
-        responderPublicKey: identity.publicKey,
-        responderNonce: localNonce,
+    final decision = await confirmPairing(
+      LanPairingConfirmationRequest(
+        displayName: remoteDisplayName.isEmpty
+            ? 'LynAI device'
+            : remoteDisplayName,
+        fingerprint: proofService.sas(
+          sessionId: hello.sessionId,
+          purpose: 'pairing',
+          initiatorDeviceId: remoteDeviceId,
+          initiatorPublicKey: remotePublicKey,
+          initiatorNonce: remoteNonce,
+          responderDeviceId: identity.deviceId,
+          responderPublicKey: identity.publicKey,
+          responderNonce: localNonce,
+        ),
+        proposedSelection: proposedSelection,
+        responding: true,
       ),
     );
-    if (!approved ||
+    if (!decision.approved ||
+        !decision.selection.isSubsetOf(proposedSelection) ||
         !await peerRepository.consumePairingNonce(
           pairingNonce,
           remoteProof.deviceId,
@@ -552,13 +659,19 @@ class LanSyncCoordinator {
         deviceId: remoteProof.deviceId,
         publicKey: remoteProof.publicKey,
         spkiSha256: binding.spkiSha256,
-        displayName: 'LynAI device',
+        displayName: remoteDisplayName.isEmpty
+            ? 'LynAI device'
+            : remoteDisplayName,
         trustedAt: DateTime.now().toUtc(),
         certificateExpiresAt: binding.certificateExpiresAt,
+        syncSelection: decision.selection,
       ),
     );
     transport.markAuthenticated();
-    await transport.send('pair-ok', {'displayName': _displayName});
+    await transport.send('pair-ok', {
+      'displayName': _displayName,
+      'selection': decision.selection.toJson(),
+    });
   }
 
   Future<void> _syncAsClient(LanSecureTransport transport, LanPeer peer) async {
@@ -574,14 +687,18 @@ class LanSyncCoordinator {
     await transport.send('sync-hello', {
       'deviceId': identity.deviceId,
       'nonce': localNonce,
+      'selection': peer.syncSelection.toJson(),
     });
     final challenge = await transport
         .receive(expectedTypes: const {'sync-challenge'})
         .timeout(_authDeadline);
+    _requireExactKeys(challenge.body, const {'nonce', 'proof', 'selection'});
     final remoteNonce = challenge.body['nonce'] as String;
     final remoteProof = LanPeerProof.fromJson(
       Map<String, dynamic>.from(challenge.body['proof'] as Map),
     );
+    final remoteSelection = _selectionFromWire(challenge.body['selection']);
+    final effectiveSelection = peer.syncSelection.intersect(remoteSelection);
     if (!await proofService.verify(
       remoteProof,
       expectedSessionId: sessionId,
@@ -614,20 +731,41 @@ class LanSyncCoordinator {
     final ready = await transport
         .receive(expectedTypes: const {'sync-ready'})
         .timeout(_authDeadline);
-    if (ready.body.isNotEmpty) throw StateError('invalid sync-ready frame');
+    _requireExactKeys(ready.body, const {'selection'});
+    if (!_selectionFromWire(
+      ready.body['selection'],
+    ).hasSameCategories(effectiveSelection)) {
+      throw StateError('LAN sync selection changed during authentication');
+    }
     transport.markAuthenticated();
+    if (!effectiveSelection.hasSameCategories(peer.syncSelection)) {
+      await peerRepository.updateSyncSelection(
+        peer.deviceId,
+        effectiveSelection,
+      );
+    }
     await _exchange(
       transport,
       peer.deviceId,
+      effectiveSelection,
       initiator: true,
     ).timeout(_sessionDeadline);
   }
 
   Future<void> _syncAsHost(LanSecureTransport transport, LanFrame hello) async {
+    _requireExactKeys(hello.body, const {'deviceId', 'nonce', 'selection'});
     final deviceId = hello.body['deviceId'] as String;
-    final peer = await peerRepository.peer(deviceId);
+    var peer = await peerRepository.peer(deviceId);
     if (peer == null || peer.revoked) {
       throw StateError('unknown or revoked peer');
+    }
+    var trustedPeer = peer;
+    final remoteSelection = _selectionFromWire(hello.body['selection']);
+    final effectiveSelection = trustedPeer.syncSelection.intersect(
+      remoteSelection,
+    );
+    if (!effectiveSelection.hasSameCategories(trustedPeer.syncSelection)) {
+      trustedPeer = trustedPeer.copyWith(syncSelection: effectiveSelection);
     }
     final remoteNonce = hello.body['nonce'] as String;
     final localNonce = proofService.randomNonce();
@@ -640,11 +778,12 @@ class LanSyncCoordinator {
         remoteNonce: remoteNonce,
         purpose: 'sync',
         signerRole: 'responder',
-        initiatorDeviceId: peer.deviceId,
+        initiatorDeviceId: trustedPeer.deviceId,
         responderDeviceId: identity.deviceId,
-        initiatorPublicKey: peer.publicKey,
+        initiatorPublicKey: trustedPeer.publicKey,
         responderPublicKey: identity.publicKey,
       )).toJson(),
+      'selection': trustedPeer.syncSelection.toJson(),
     });
     final response = await transport
         .receive(expectedTypes: const {'sync-proof'})
@@ -659,6 +798,149 @@ class LanSyncCoordinator {
       expectedRemoteNonce: localNonce,
       expectedPurpose: 'sync',
       expectedSignerRole: 'initiator',
+      initiatorDeviceId: trustedPeer.deviceId,
+      initiatorPublicKey: trustedPeer.publicKey,
+      responderDeviceId: identity.deviceId,
+      responderPublicKey: identity.publicKey,
+      expectedDeviceId: trustedPeer.deviceId,
+      expectedPublicKey: trustedPeer.publicKey,
+    )) {
+      throw StateError('trusted peer proof failed');
+    }
+    if (!effectiveSelection.hasSameCategories(peer.syncSelection)) {
+      await peerRepository.updateSyncSelection(
+        trustedPeer.deviceId,
+        effectiveSelection,
+      );
+    }
+    transport.markAuthenticated();
+    await transport.send('sync-ready', {
+      'selection': trustedPeer.syncSelection.toJson(),
+    });
+    await _serializeSync(
+      () => _exchange(
+        transport,
+        trustedPeer.deviceId,
+        trustedPeer.syncSelection,
+        initiator: false,
+      ).timeout(_sessionDeadline),
+    );
+  }
+
+  Future<SyncDataSelection> _policyAsClient(
+    LanSecureTransport transport,
+    LanPeer peer,
+    SyncDataSelection proposedSelection,
+  ) async {
+    final sessionId = _sessionId();
+    transport.bindSession(
+      sessionId: sessionId,
+      purpose: 'policy',
+      localRole: 'initiator',
+      remoteRole: 'responder',
+    );
+    final identity = await identityService.initialize();
+    final localNonce = proofService.randomNonce();
+    await transport.send('policy-hello', {
+      'deviceId': identity.deviceId,
+      'nonce': localNonce,
+    });
+    final challenge = await transport
+        .receive(expectedTypes: const {'policy-challenge'})
+        .timeout(_authDeadline);
+    _requireExactKeys(challenge.body, const {'nonce', 'proof'});
+    final remoteNonce = challenge.body['nonce'] as String;
+    final remoteProof = LanPeerProof.fromJson(
+      Map<String, dynamic>.from(challenge.body['proof'] as Map),
+    );
+    if (!await proofService.verify(
+      remoteProof,
+      expectedSessionId: sessionId,
+      expectedLocalNonce: remoteNonce,
+      expectedRemoteNonce: localNonce,
+      expectedPurpose: 'policy',
+      expectedSignerRole: 'responder',
+      initiatorDeviceId: identity.deviceId,
+      initiatorPublicKey: identity.publicKey,
+      responderDeviceId: peer.deviceId,
+      responderPublicKey: peer.publicKey,
+      expectedDeviceId: peer.deviceId,
+      expectedPublicKey: peer.publicKey,
+    )) {
+      throw StateError('trusted peer policy proof failed');
+    }
+    await transport.send('policy-proof', {
+      'proof': (await proofService.create(
+        sessionId: sessionId,
+        localNonce: localNonce,
+        remoteNonce: remoteNonce,
+        purpose: 'policy',
+        signerRole: 'initiator',
+        initiatorDeviceId: identity.deviceId,
+        responderDeviceId: peer.deviceId,
+        initiatorPublicKey: identity.publicKey,
+        responderPublicKey: peer.publicKey,
+      )).toJson(),
+    });
+    final ready = await transport
+        .receive(expectedTypes: const {'policy-ready'})
+        .timeout(_authDeadline);
+    if (ready.body.isNotEmpty) throw StateError('invalid policy-ready frame');
+    transport.markAuthenticated();
+    await transport.send('policy-proposal', {
+      'selection': proposedSelection.toJson(),
+    });
+    final result = await transport.receive(
+      expectedTypes: const {'policy-result'},
+    );
+    _requireExactKeys(result.body, const {'selection'});
+    final accepted = _selectionFromWire(result.body['selection']);
+    if (!accepted.isSubsetOf(proposedSelection)) {
+      throw StateError('peer accepted categories outside the proposal');
+    }
+    return accepted;
+  }
+
+  Future<void> _policyAsHost(
+    LanSecureTransport transport,
+    LanFrame hello,
+  ) async {
+    _requireExactKeys(hello.body, const {'deviceId', 'nonce'});
+    final deviceId = hello.body['deviceId'] as String;
+    final peer = await peerRepository.peer(deviceId);
+    if (peer == null || peer.revoked) {
+      throw StateError('unknown or revoked peer');
+    }
+    final remoteNonce = hello.body['nonce'] as String;
+    final localNonce = proofService.randomNonce();
+    final identity = await identityService.initialize();
+    await transport.send('policy-challenge', {
+      'nonce': localNonce,
+      'proof': (await proofService.create(
+        sessionId: hello.sessionId,
+        localNonce: localNonce,
+        remoteNonce: remoteNonce,
+        purpose: 'policy',
+        signerRole: 'responder',
+        initiatorDeviceId: peer.deviceId,
+        responderDeviceId: identity.deviceId,
+        initiatorPublicKey: peer.publicKey,
+        responderPublicKey: identity.publicKey,
+      )).toJson(),
+    });
+    final response = await transport
+        .receive(expectedTypes: const {'policy-proof'})
+        .timeout(_authDeadline);
+    final proof = LanPeerProof.fromJson(
+      Map<String, dynamic>.from(response.body['proof'] as Map),
+    );
+    if (!await proofService.verify(
+      proof,
+      expectedSessionId: hello.sessionId,
+      expectedLocalNonce: remoteNonce,
+      expectedRemoteNonce: localNonce,
+      expectedPurpose: 'policy',
+      expectedSignerRole: 'initiator',
       initiatorDeviceId: peer.deviceId,
       initiatorPublicKey: peer.publicKey,
       responderDeviceId: identity.deviceId,
@@ -666,17 +948,33 @@ class LanSyncCoordinator {
       expectedDeviceId: peer.deviceId,
       expectedPublicKey: peer.publicKey,
     )) {
-      throw StateError('trusted peer proof failed');
+      throw StateError('trusted peer policy proof failed');
     }
     transport.markAuthenticated();
-    await transport.send('sync-ready', const {});
-    await _serializeSync(
-      () => _exchange(
-        transport,
-        peer.deviceId,
-        initiator: false,
-      ).timeout(_sessionDeadline),
+    await transport.send('policy-ready', const {});
+    final proposal = await transport.receive(
+      expectedTypes: const {'policy-proposal'},
     );
+    _requireExactKeys(proposal.body, const {'selection'});
+    final proposed = _selectionFromWire(proposal.body['selection']);
+    final current = peer.syncSelection;
+    SyncDataSelection? accepted;
+    if (proposed.isSubsetOf(current)) {
+      accepted = proposed;
+    } else {
+      accepted = await confirmPolicyProposal(
+        peer.displayName,
+        proposed,
+        current,
+      );
+    }
+    if (accepted == null || !accepted.isSubsetOf(proposed)) {
+      accepted = current.intersect(proposed);
+    } else {
+      accepted = accepted.union(current.intersect(proposed));
+    }
+    await peerRepository.updateSyncSelection(peer.deviceId, accepted);
+    await transport.send('policy-result', {'selection': accepted.toJson()});
   }
 
   Future<void> _secretAsClient(
@@ -869,37 +1167,70 @@ class LanSyncCoordinator {
 
   Future<void> _exchange(
     LanSecureTransport transport,
-    String peerDeviceId, {
+    String peerDeviceId,
+    SyncDataSelection selection, {
     required bool initiator,
   }) async {
     if (initiator) {
-      await _sendChanges(transport, peerDeviceId);
-      await _receiveChanges(transport, peerDeviceId);
+      await _sendChanges(transport, peerDeviceId, selection);
+      await _receiveChanges(transport, peerDeviceId, selection);
     } else {
-      await _receiveChanges(transport, peerDeviceId);
-      await _sendChanges(transport, peerDeviceId);
+      await _receiveChanges(transport, peerDeviceId, selection);
+      await _sendChanges(transport, peerDeviceId, selection);
     }
   }
 
   Future<void> _sendChanges(
     LanSecureTransport transport,
     String peerDeviceId,
+    SyncDataSelection selection,
   ) async {
     final acknowledged = await peerRepository.acknowledgedChangeIds(
       peerDeviceId,
     );
-    final entries = await syncStorage.changesForPeer(acknowledged);
-    final blobs = await syncStorage.blobsForChanges(entries);
-    if (entries.length > _maxChanges || blobs.length > _maxBlobDescriptors) {
-      throw StateError('LAN transfer exceeds descriptor limits');
+    final entries = await syncStorage.changesForPeer(acknowledged, selection);
+    for (final batch in lanSyncBatches(entries, _maxChanges)) {
+      var offset = 0;
+      while (offset < batch.length) {
+        var end = batch.length;
+        late List<dynamic> page;
+        late Map<String, LanSyncBlob> blobs;
+        while (true) {
+          page = batch.sublist(offset, end);
+          blobs = await syncStorage.blobsForChanges(page.cast(), selection);
+          final totalBytes = blobs.values.fold<int>(
+            0,
+            (total, blob) => total + blob.size,
+          );
+          if (blobs.length <= _maxBlobDescriptors &&
+              totalBytes <= _maxSessionBytes) {
+            break;
+          }
+          if (end - offset == 1) {
+            throw StateError('LAN change exceeds page limits');
+          }
+          end = offset + ((end - offset) ~/ 2);
+        }
+        await _sendChangePage(transport, peerDeviceId, page, blobs, more: true);
+        offset = end;
+      }
     }
-    final totalBytes = blobs.values.fold<int>(
-      0,
-      (total, blob) => total + blob.size,
+    await _sendChangePage(
+      transport,
+      peerDeviceId,
+      const [],
+      const {},
+      more: false,
     );
-    if (totalBytes > _maxSessionBytes) {
-      throw StateError('LAN transfer exceeds byte limit');
-    }
+  }
+
+  Future<void> _sendChangePage(
+    LanSecureTransport transport,
+    String peerDeviceId,
+    List<dynamic> entries,
+    Map<String, LanSyncBlob> blobs, {
+    required bool more,
+  }) async {
     await transport.send('manifest', {
       'changes': entries.map(_entryJson).toList(),
       'blobs': [
@@ -910,6 +1241,7 @@ class LanSyncCoordinator {
             'kind': entry.value.kind,
           },
       ],
+      'more': more,
     });
     final request = await transport.receive(
       expectedTypes: const {'blob-request'},
@@ -957,22 +1289,38 @@ class LanSyncCoordinator {
     }
     await transport.send('changes-end', const {});
     final ack = await transport.receive(expectedTypes: const {'ack'});
-    await peerRepository.acknowledgeChanges(
-      peerDeviceId,
-      (ack.body['changeIds'] as List? ?? const []).cast<String>(),
-    );
+    _requireExactKeys(ack.body, const {'changeIds'});
+    final sentIds = entries.map((entry) => entry.changeId as String).toList();
+    final acknowledgedIds = (ack.body['changeIds'] as List? ?? const [])
+        .cast<String>();
+    validateExactAcknowledgement(sentIds, acknowledgedIds);
+    await peerRepository.acknowledgeChanges(peerDeviceId, acknowledgedIds);
   }
 
   Future<void> _receiveChanges(
     LanSecureTransport transport,
     String peerDeviceId,
+    SyncDataSelection selection,
+  ) async {
+    while (true) {
+      final more = await _receiveChangePage(transport, peerDeviceId, selection);
+      if (!more) return;
+    }
+  }
+
+  Future<bool> _receiveChangePage(
+    LanSecureTransport transport,
+    String peerDeviceId,
+    SyncDataSelection selection,
   ) async {
     final manifest = await transport.receive(expectedTypes: const {'manifest'});
-    _requireExactKeys(manifest.body, const {'changes', 'blobs'});
+    _requireExactKeys(manifest.body, const {'changes', 'blobs', 'more'});
     final rawChanges = manifest.body['changes'];
     final rawBlobs = manifest.body['blobs'];
+    final more = manifest.body['more'];
     if (rawChanges is! List ||
         rawBlobs is! List ||
+        more is! bool ||
         rawChanges.length > _maxChanges ||
         rawBlobs.length > _maxBlobDescriptors) {
       throw StateError('LAN manifest exceeds limits');
@@ -985,6 +1333,16 @@ class LanSyncCoordinator {
       throw StateError('invalid LAN change manifest');
     }
     _validateChanges(changes);
+    for (final change in changes) {
+      final selectionData = await syncStorage.selectionDataForChange(change);
+      if (!SyncDataRegistry.allowsChange(
+        selection,
+        change.table,
+        selectionData,
+      )) {
+        throw StateError('LAN peer sent a change outside the agreed policy');
+      }
+    }
     final referencedHashes = await syncStorage.expectedBlobHashes(changes);
     final pluginBlobSizes = <String, int>{};
     for (final change in changes) {
@@ -1142,6 +1500,7 @@ class LanSyncCoordinator {
     await transport.send('ack', {
       'changeIds': changes.map((change) => change.changeId).toList(),
     });
+    return more;
   }
 
   Map<String, dynamic> _entryJson(dynamic entry) => {
@@ -1234,6 +1593,30 @@ class LanSyncCoordinator {
     if (value.length != keys.length || !value.keys.toSet().containsAll(keys)) {
       throw StateError('unexpected LAN payload fields');
     }
+  }
+
+  static void validateExactAcknowledgement(
+    List<String> sentIds,
+    List<String> acknowledgedIds,
+  ) {
+    if (acknowledgedIds.toSet().length != acknowledgedIds.length ||
+        sentIds.length != acknowledgedIds.length ||
+        !sentIds.toSet().containsAll(acknowledgedIds)) {
+      throw StateError('LAN acknowledgement does not match the sent page');
+    }
+  }
+
+  SyncDataSelection _selectionFromWire(Object? value) {
+    if (value is! List ||
+        value.any((item) => item is! String) ||
+        value.toSet().length != value.length) {
+      throw StateError('invalid LAN sync selection');
+    }
+    final names = SyncDataCategory.values.map((item) => item.name).toSet();
+    if (!value.cast<String>().every(names.contains)) {
+      throw StateError('invalid LAN sync selection');
+    }
+    return SyncDataSelection.fromJson(value);
   }
 
   bool _validHash(String value) => RegExp(r'^[a-f0-9]{64}$').hasMatch(value);

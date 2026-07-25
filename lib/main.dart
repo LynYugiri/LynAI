@@ -36,6 +36,7 @@ import 'providers/sync_provider.dart';
 import 'providers/lan_sync_provider.dart';
 import 'repositories/lan_peer_repository.dart';
 import 'services/lan_mdns_service.dart';
+import 'services/lan_device_profile_service.dart';
 import 'services/lan_sync_coordinator.dart';
 import 'services/lan_sync_storage.dart';
 import 'services/lan_tls_certificate_service.dart';
@@ -94,6 +95,12 @@ Future<void> main() async {
         Provider(
           create: (ctx) =>
               LanPeerRepository(secretStore: ctx.read<SecretStore>()),
+        ),
+        Provider(
+          create: (ctx) => LanDeviceProfileService(
+            secretStore: ctx.read<SecretStore>(),
+            identityService: ctx.read<DeviceIdentityService>(),
+          ),
         ),
         Provider(
           create: (_) => LanMdnsService(),
@@ -394,7 +401,8 @@ Future<void> main() async {
                 },
               ),
               readModels: () => ctx.read<ModelConfigProvider>().models,
-              confirmPairing: (_, _) async => false,
+              confirmPairing: (_) async => const LanPairingDecision.rejected(),
+              confirmPolicyProposal: (_, _, _) async => null,
               beforeRemoteApply: beforeRemoteApply,
               onRemoteApplied: onRemoteApplied,
             );
@@ -402,6 +410,7 @@ Future<void> main() async {
               coordinator: coordinator,
               peerRepository: peers,
               mdnsService: mdns,
+              deviceProfileService: ctx.read<LanDeviceProfileService>(),
             );
           },
         ),
@@ -481,6 +490,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   SettingsProvider? _settingsProvider;
   ModelConfigProvider? _modelProvider;
   SyncProvider? _syncProvider;
+  LanSyncProvider? _lanSyncProvider;
   CalendarPlatformProjectionCoordinator? _calendarProjectionCoordinator;
   AccountProvider? _accountProvider;
   Future<void>? _criticalSaveFlush;
@@ -505,6 +515,15 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
     _settingsProvider ??= context.read<SettingsProvider>();
     _modelProvider ??= context.read<ModelConfigProvider>();
     _syncProvider ??= context.read<SyncProvider>();
+    if (_lanSyncProvider == null) {
+      try {
+        _lanSyncProvider = context.read<LanSyncProvider>();
+        unawaited(_lanSyncProvider!.resumeHosting());
+      } on ProviderNotFoundException {
+        // Focused widget tests may intentionally provide only the dependencies
+        // exercised by the root application shell.
+      }
+    }
     _calendarProjectionCoordinator ??= context
         .read<CalendarPlatformProjectionCoordinator>();
     _accountProvider ??= context.read<AccountProvider>();
@@ -526,11 +545,13 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _accountProvider?.retryPendingRevocations();
+      unawaited(_lanSyncProvider?.resumeHosting());
     }
     if (state
         case AppLifecycleState.inactive ||
             AppLifecycleState.paused ||
             AppLifecycleState.detached) {
+      unawaited(_lanSyncProvider?.pauseHosting());
       unawaited(_flushCriticalSaves());
     }
   }

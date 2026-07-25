@@ -11,6 +11,7 @@ import '../models/model_config.dart';
 import '../models/merge_models.dart';
 import '../models/shared_sync_models.dart';
 import '../models/sync_change.dart';
+import '../models/sync_data_selection.dart';
 
 part 'storage_v2_database.g.dart';
 
@@ -96,6 +97,8 @@ class MessageRows extends Table {
   TextColumn get conversationId => text().named('conversation_id')();
   TextColumn get role => text()();
   TextColumn get content => text()();
+  TextColumn get modelContextContent =>
+      text().named('model_context_content').nullable()();
   TextColumn get thinkingContent =>
       text().named('thinking_content').nullable()();
   TextColumn get agentTraceJson =>
@@ -436,6 +439,8 @@ class SyncOutboxRows extends Table {
   TextColumn get recordId => text().named('record_id')();
   TextColumn get op => text()();
   TextColumn get dataJson => text().named('data_json').nullable()();
+  TextColumn get selectionDataJson =>
+      text().named('selection_data_json').nullable()();
   TextColumn get changeId => text().named('change_id')();
   TextColumn get deviceId => text().named('device_id')();
   TextColumn get clientCreatedAt => text().named('client_created_at')();
@@ -490,6 +495,19 @@ class SyncStateRows extends Table {
   BoolColumn get fullReseedRequired => boolean()
       .named('full_reseed_required')
       .withDefault(const Constant(false))();
+  TextColumn get updatedAt => text().named('updated_at')();
+
+  @override
+  Set<Column> get primaryKey => {scope};
+}
+
+class SyncPolicyRows extends Table {
+  @override
+  String get tableName => 'sync_policies';
+
+  TextColumn get scope => text()();
+  IntColumn get version => integer().withDefault(const Constant(1))();
+  TextColumn get categoriesJson => text().named('categories_json')();
   TextColumn get updatedAt => text().named('updated_at')();
 
   @override
@@ -636,6 +654,7 @@ class SyncScopeState {
     SyncOutboxRows,
     SyncConflictRows,
     SyncStateRows,
+    SyncPolicyRows,
     SyncScopeBaselineRows,
     SyncAppliedChangeRows,
     CloudIndexStateRows,
@@ -658,7 +677,7 @@ class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
   /// This is separate from [StorageV2Service.currentLayoutVersion], which
   /// describes the storage_v2 directory layout.
   @override
-  int get schemaVersion => 18;
+  int get schemaVersion => 21;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -846,6 +865,15 @@ SET captures_local = active
       }
       if (from < 18) {
         await m.createTable(cloudRequestRows);
+      }
+      if (from < 19) {
+        await _addColumnIfMissing('messages', 'model_context_content', 'TEXT');
+      }
+      if (from < 20) {
+        await m.createTable(syncPolicyRows);
+      }
+      if (from < 21) {
+        await _addColumnIfMissing('sync_outbox', 'selection_data_json', 'TEXT');
       }
       await _ensureCloudDataColumns();
     },
@@ -1374,6 +1402,7 @@ class StorageV2Database {
             conversationId: json['conversationId'] as String? ?? '',
             role: json['role'] as String? ?? '',
             content: json['content'] as String? ?? '',
+            modelContextContent: Value(json['modelContextContent'] as String?),
             thinkingContent: Value(json['thinkingContent'] as String?),
             agentTraceJson: Value(
               json['agentTrace'] == null
@@ -1407,13 +1436,37 @@ class StorageV2Database {
     final db = transactionDb ?? await _open();
     final id = json['id'] as String?;
     if (id == null || id.isEmpty) return;
+    final resourceId = json['resourceId'] as String?;
+    if (resourceId != null && resourceId.isNotEmpty) {
+      final resource = await (db.select(
+        db.resourceRows,
+      )..where((row) => row.id.equals(resourceId))).getSingleOrNull();
+      if (resource == null) {
+        final mimeType =
+            json['mimeType'] as String? ?? 'application/octet-stream';
+        await upsertResourceRow({
+          'id': resourceId,
+          'kind': mimeType.startsWith('image/') ? 'image' : 'file',
+          'role': mimeType.startsWith('image/')
+              ? 'message_image'
+              : 'message_attachment',
+          'originalName':
+              json['displayName'] as String? ??
+              json['name'] as String? ??
+              'file',
+          'mimeType': mimeType,
+          'size': (json['size'] as num?)?.toInt() ?? 0,
+          'missing': true,
+        }, transactionDb: db);
+      }
+    }
     await db
         .into(db.messageAttachmentRows)
         .insertOnConflictUpdate(
           MessageAttachmentRowsCompanion.insert(
             id: id,
             messageId: json['messageId'] as String? ?? '',
-            resourceId: Value(json['resourceId'] as String?),
+            resourceId: Value(resourceId),
             displayName:
                 (json['displayName'] as String?) ??
                 (json['name'] as String?) ??
@@ -2118,6 +2171,44 @@ class StorageV2Database {
     );
   }
 
+  Future<SyncDataSelection> syncPolicy(String scope) async {
+    final db = await _open();
+    final row = await (db.select(
+      db.syncPolicyRows,
+    )..where((item) => item.scope.equals(scope))).getSingleOrNull();
+    if (row == null) return SyncDataSelection.defaults;
+    return SyncDataSelection.fromJson(jsonDecode(row.categoriesJson));
+  }
+
+  Future<void> saveSyncPolicy(
+    String scope,
+    SyncDataSelection selection, {
+    required bool requireReseed,
+  }) async {
+    final db = await _open();
+    await db.transaction(() async {
+      await db
+          .into(db.syncPolicyRows)
+          .insertOnConflictUpdate(
+            SyncPolicyRowsCompanion.insert(
+              scope: scope,
+              categoriesJson: jsonEncode(selection.toJson()),
+              updatedAt: DateTime.now().toUtc().toIso8601String(),
+            ),
+          );
+      if (requireReseed) {
+        await (db.update(
+          db.syncStateRows,
+        )..where((row) => row.scope.equals(scope))).write(
+          SyncStateRowsCompanion(
+            fullReseedRequired: const Value(true),
+            updatedAt: Value(DateTime.now().toUtc().toIso8601String()),
+          ),
+        );
+      }
+    });
+  }
+
   Future<void> resetCloudSyncScope(String scope, int generation) async {
     if (scope.startsWith('lan:')) {
       throw ArgumentError.value(scope, 'scope', 'cloud scope is required');
@@ -2200,6 +2291,7 @@ class StorageV2Database {
                 recordId: row.recordId,
                 op: row.op,
                 dataJson: Value(row.dataJson),
+                selectionDataJson: Value(row.selectionDataJson),
                 changeId: row.changeId,
                 deviceId: row.deviceId,
                 clientCreatedAt: row.clientCreatedAt,
@@ -2272,6 +2364,12 @@ END, client_created_at, updated_at, table_name, record_id$pagination
                 ? null
                 : Map<String, dynamic>.from(
                     jsonDecode(row.read<String>('data_json')) as Map,
+                  ),
+            selectionData:
+                row.readNullable<String>('selection_data_json') == null
+                ? null
+                : Map<String, dynamic>.from(
+                    jsonDecode(row.read<String>('selection_data_json')) as Map,
                   ),
             changeId: row.read<String>('change_id'),
             deviceId: row.read<String>('device_id'),
@@ -2623,6 +2721,9 @@ END, client_created_at, updated_at, table_name, record_id$pagination
             continue;
           }
         }
+        final selectionData = op.op == 'delete'
+            ? await _selectionDataForRow(db, op.table, id)
+            : op.data;
         switch (op.table) {
           case 'resources':
             if (op.op == 'upsert' && op.data != null) {
@@ -2778,6 +2879,7 @@ END, client_created_at, updated_at, table_name, record_id$pagination
               id,
               op.op,
               op.op == 'upsert' ? op.data : null,
+              selectionData: selectionData,
               deviceId: targetScope.deviceId,
             );
           }
@@ -3425,6 +3527,7 @@ CREATE TABLE IF NOT EXISTS messages (
   conversation_id TEXT NOT NULL,
   role TEXT NOT NULL,
   content TEXT NOT NULL,
+  model_context_content TEXT,
   thinking_content TEXT,
   agent_trace_json TEXT,
   timestamp TEXT NOT NULL,
@@ -3597,6 +3700,7 @@ CREATE TABLE IF NOT EXISTS sync_outbox (
   record_id TEXT NOT NULL,
   op TEXT NOT NULL,
   data_json TEXT,
+  selection_data_json TEXT,
   change_id TEXT NOT NULL,
   device_id TEXT NOT NULL,
   client_created_at TEXT NOT NULL,
@@ -3745,6 +3849,8 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
                 'conversationId': row.conversationId,
                 'role': row.role,
                 'content': row.content,
+                if (row.modelContextContent != null)
+                  'modelContextContent': row.modelContextContent,
                 if (row.thinkingContent != null)
                   'thinkingContent': row.thinkingContent,
                 if (row.agentTraceJson != null)
@@ -4872,6 +4978,7 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
             id,
             'delete',
             null,
+            selectionData: oldRows[id],
             deviceId: scope.deviceId,
           );
         }
@@ -4916,6 +5023,7 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
     String recordId,
     String op,
     Map<String, dynamic>? data, {
+    Map<String, dynamic>? selectionData,
     String? deviceId,
   }) async {
     final current =
@@ -4943,6 +5051,9 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
             recordId: recordId,
             op: op,
             dataJson: Value(data == null ? null : jsonEncode(data)),
+            selectionDataJson: Value(
+              selectionData == null ? null : jsonEncode(selectionData),
+            ),
             changeId: _uuid.v4(),
             deviceId: effectiveDeviceId,
             clientCreatedAt: createdAt.toIso8601String(),
@@ -4950,6 +5061,29 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
             updatedAt: createdAt.toIso8601String(),
           ),
         );
+  }
+
+  Future<Map<String, dynamic>?> selectionDataForChange(
+    String table,
+    String recordId,
+    Map<String, dynamic>? data,
+  ) async {
+    if (data != null) return data;
+    final db = await _open();
+    return _selectionDataForRow(db, table, recordId);
+  }
+
+  Future<Map<String, dynamic>?> _selectionDataForRow(
+    StorageV2DriftDatabase db,
+    String table,
+    String recordId,
+  ) async {
+    if (table != 'recycle_bin') return null;
+    final row = await (db.select(
+      db.recycleBinRows,
+    )..where((item) => item.id.equals(recordId))).getSingleOrNull();
+    if (row == null) return null;
+    return {'owner': row.owner, 'category': row.category, 'type': row.type};
   }
 
   Future<List<SyncStateRow>> _activeSyncStates(StorageV2DriftDatabase db) =>
@@ -5357,6 +5491,7 @@ class SyncOutboxEntry {
   final String recordId;
   final String op;
   final Map<String, dynamic>? data;
+  final Map<String, dynamic>? selectionData;
   final String changeId;
   final String deviceId;
   final DateTime clientCreatedAt;
@@ -5367,6 +5502,7 @@ class SyncOutboxEntry {
     required this.recordId,
     required this.op,
     required this.data,
+    this.selectionData,
     required this.changeId,
     required this.deviceId,
     required this.clientCreatedAt,

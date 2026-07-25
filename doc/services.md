@@ -512,6 +512,9 @@ Downloaded third-party executable content is restored only after the receiver ve
 Configuration keys whose names contain `token`, `key`, `password`, or `secret` (case-insensitive, including nested maps) are omitted from cloud and LAN blobs. Existing local values for those keys survive remote config replacement and remain device-local.
 ## LAN Services
 
+- `LanDeviceProfileService` persists the editable installation display name in
+  secure storage. The first value uses the platform hostname when available and a
+  stable device-ID suffix fallback otherwise.
 - `LanPairingPayloadCodec` signs and verifies canonical versioned QR payloads.
 - `LanTlsCertificateService` generates P-256 TLS material, stores PEM only in
   `SecretStore`, requires TLS 1.3, and calculates certificate SPKI pins.
@@ -528,9 +531,16 @@ Configuration keys whose names contain `token`, `key`, `password`, or `secret` (
 - `LanPeerProofService` exchanges mutual Ed25519 identity proofs over pinned TLS.
 - `LanSyncCoordinator` pairs, confirms fingerprints, consumes nonces, syncs
   installation-local changes/blobs independently of the active cloud account,
-  deduplicates `changeId`, and maintains per-peer acknowledgements. Cloud state
-  remains partitioned by backend origin and user ID; LAN peers are not account-
-  scoped.
+  deduplicates `changeId`, and maintains per-peer acknowledgements. Pairing and
+  every sync session exchange the bilateral category selection. Later reductions
+  apply locally immediately; additions use a separate TLS + Ed25519 authenticated
+  proposal session and become effective only for the subset accepted by the
+  other peer. The agreed value is persisted with the peer in `SecretStore`; this
+  intentionally does not maintain a separate signed policy ledger. Change
+  manifests are filtered in both directions, unauthorized incoming rows fail the
+  session, and deterministic pages continue until an empty/final page with exact
+  per-page ACK validation. Cloud state remains partitioned by backend origin and
+  user ID; LAN peers are not account-scoped.
 - `LanSecretTransferService` permits API-key transfer only after explicit opt-in
   and rejects device identity or account-token secret keys. Its idempotent
   `close()` clears grants/requests, closes the request stream, and suppresses

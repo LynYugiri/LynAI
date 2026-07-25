@@ -126,6 +126,46 @@ void main() {
       },
     );
 
+    test('recycle-bin delete preserves local selection metadata', () async {
+      const scope = 'server|user-a';
+      await database.writeDataFile('recycle_bin.json', {
+        'items': [
+          {
+            'id': 'recycle-1',
+            'owner': 'core',
+            'category': 'conversations',
+            'type': 'conversation',
+            'title': 'deleted chat',
+            'deletedAt': '2026-01-01T00:00:00Z',
+            'payload': const <String, dynamic>{},
+          },
+        ],
+      });
+      await database.activateSyncScope(scope, deviceId: _deviceId);
+      await database.acknowledgeSyncOutbox(
+        scope,
+        await database.loadSyncOutbox(scope),
+      );
+
+      await database.writeDataFile('recycle_bin.json', {'items': const []});
+
+      final outbox = await database.loadSyncOutbox(scope);
+      expect(outbox, hasLength(1));
+      expect(outbox.single.table, 'recycle_bin');
+      expect(outbox.single.op, 'delete');
+      expect(outbox.single.data, isNull);
+      expect(outbox.single.selectionData, {
+        'id': 'recycle-1',
+        'owner': 'core',
+        'category': 'conversations',
+        'type': 'conversation',
+        'title': 'deleted chat',
+        'preview': '',
+        'deletedAt': '2026-01-01T00:00:00Z',
+        'payload': const <String, dynamic>{},
+      });
+    });
+
     test('binding another account transfers local capture ownership', () async {
       const inactiveScope = 'server|user-a';
       const activeScope = 'server|user-b';
@@ -755,7 +795,7 @@ PRAGMA user_version = 16;
       await database.close();
       final migrated = sqlite3.open('${storageRoot.path}/app.db');
       try {
-        expect(migrated.userVersion, 18);
+        expect(migrated.userVersion, 21);
         expect(
           migrated
               .select(

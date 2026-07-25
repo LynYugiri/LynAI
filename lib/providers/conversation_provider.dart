@@ -206,16 +206,18 @@ class ConversationProvider extends ChangeNotifier {
     String roleId = 'default',
     required List<({String role, String content, List<MessageImage> images})>
     messages,
+    Map<int, String>? modelContextByIndex,
   }) {
     try {
       final now = DateTime.now();
-      final initialMessages = messages
+      final initialMessages = messages.indexed
           .map(
-            (item) => Message(
+            (entry) => Message(
               id: _uuid.v4(),
-              role: item.role,
-              content: item.content,
-              images: item.images,
+              role: entry.$2.role,
+              content: entry.$2.content,
+              modelContextContent: modelContextByIndex?[entry.$1],
+              images: entry.$2.images,
               timestamp: now,
             ),
           )
@@ -267,6 +269,7 @@ class ConversationProvider extends ChangeNotifier {
     String conversationId,
     String role,
     String content, {
+    String? modelContextContent,
     List<MessageImage> images = const [],
     String? thinkingContent,
     bool save = true,
@@ -279,6 +282,7 @@ class ConversationProvider extends ChangeNotifier {
         id: _uuid.v4(),
         role: role,
         content: content,
+        modelContextContent: modelContextContent,
         images: images,
         thinkingContent: thinkingContent,
         agentTrace: null,
@@ -420,6 +424,7 @@ class ConversationProvider extends ChangeNotifier {
         id: lastMsg.id,
         role: lastMsg.role,
         content: content,
+        modelContextContent: lastMsg.modelContextContent,
         images: lastMsg.images,
         thinkingContent: identical(thinkingContent, _sentinel)
             ? lastMsg.thinkingContent
@@ -478,6 +483,7 @@ class ConversationProvider extends ChangeNotifier {
         id: message.id,
         role: message.role,
         content: message.content,
+        modelContextContent: message.modelContextContent,
         images: [...message.images, ...images],
         thinkingContent: message.thinkingContent,
         agentTrace: message.agentTrace,
@@ -529,6 +535,7 @@ class ConversationProvider extends ChangeNotifier {
       id: old.id,
       role: old.role,
       content: old.content,
+      modelContextContent: old.modelContextContent,
       images: old.images,
       thinkingContent: old.thinkingContent,
       agentTrace: trace,
@@ -696,6 +703,7 @@ class ConversationProvider extends ChangeNotifier {
     String conversationId,
     String messageId,
     String content, {
+    Object? modelContextContent = _sentinel,
     Object? thinkingContent = _sentinel,
   }) {
     final index = _conversations.indexWhere((c) => c.id == conversationId);
@@ -708,6 +716,9 @@ class ConversationProvider extends ChangeNotifier {
       id: old.id,
       role: old.role,
       content: content,
+      modelContextContent: identical(modelContextContent, _sentinel)
+          ? old.modelContextContent
+          : modelContextContent as String?,
       images: old.images,
       thinkingContent: identical(thinkingContent, _sentinel)
           ? old.thinkingContent
@@ -751,6 +762,7 @@ class ConversationProvider extends ChangeNotifier {
       id: old.id,
       role: old.role,
       content: old.content,
+      modelContextContent: old.modelContextContent,
       images: List<MessageImage>.from(images),
       thinkingContent: old.thinkingContent,
       agentTrace: old.agentTrace,

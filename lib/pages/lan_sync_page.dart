@@ -10,6 +10,11 @@ import 'package:zxing2/qrcode.dart' as zxing;
 
 import '../providers/lan_sync_provider.dart';
 import '../services/lan_pairing_payload_codec.dart';
+import '../models/lan_peer.dart';
+import '../models/sync_data_selection.dart';
+import '../services/lan_sync_coordinator.dart';
+import '../services/storage_v2_database.dart';
+import '../widgets/merge_conflict_card.dart';
 
 class LanSyncPage extends StatefulWidget {
   const LanSyncPage({super.key});
@@ -26,45 +31,43 @@ class _LanSyncPageState extends State<LanSyncPage> {
       if (!mounted) return;
       final provider = context.read<LanSyncProvider>();
       provider.confirmPairing = _confirmPairing;
+      provider.confirmPolicyProposal = _confirmPolicyProposal;
       provider.initialize();
       provider.startDiscovery();
     });
   }
 
-  Future<bool> _confirmPairing(String displayName, String fingerprint) async {
-    if (!mounted) return false;
-    return await showDialog<bool>(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => AlertDialog(
-            title: const Text('确认设备指纹'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('设备: $displayName'),
-                const SizedBox(height: 12),
-                SelectableText(
-                  fingerprint,
-                  style: const TextStyle(fontFamily: 'monospace'),
-                ),
-                const SizedBox(height: 12),
-                const Text('请在另一台设备上核对完全相同的指纹后再确认。'),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('拒绝'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('指纹一致'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
+  Future<LanPairingDecision> _confirmPairing(
+    LanPairingConfirmationRequest request,
+  ) async {
+    if (!mounted) return const LanPairingDecision.rejected();
+    final selection = await _showSelectionDialog(
+      title: '确认设备指纹',
+      selection: request.proposedSelection,
+      available: request.proposedSelection,
+      description: '设备: ${request.displayName}',
+      fingerprint: request.fingerprint,
+      confirmLabel: '指纹一致',
+    );
+    return selection == null
+        ? const LanPairingDecision.rejected()
+        : LanPairingDecision(approved: true, selection: selection);
+  }
+
+  Future<SyncDataSelection?> _confirmPolicyProposal(
+    String displayName,
+    SyncDataSelection proposed,
+    SyncDataSelection current,
+  ) async {
+    if (!mounted) return null;
+    return _showSelectionDialog(
+      title: '确认新增同步类别',
+      selection: current.intersect(proposed),
+      available: proposed,
+      requiredSelection: current.intersect(proposed),
+      description: '$displayName 请求扩大双方的局域网同步范围。',
+      confirmLabel: '接受所选类别',
+    );
   }
 
   @override
@@ -83,8 +86,23 @@ class _LanSyncPageState extends State<LanSyncPage> {
                 children: [
                   Text('点对点连接', style: Theme.of(context).textTheme.titleLarge),
                   const SizedBox(height: 8),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.devices_outlined),
+                    title: Text(
+                      provider.deviceName.isEmpty
+                          ? '正在读取本机名称'
+                          : provider.deviceName,
+                    ),
+                    subtitle: Text(provider.hosting ? '前台托管中' : '托管未启动'),
+                    trailing: IconButton(
+                      onPressed: provider.busy ? null : _editDeviceName,
+                      tooltip: '修改设备名称',
+                      icon: const Icon(Icons.edit_outlined),
+                    ),
+                  ),
                   const Text(
-                    '无需云账户。配对码由设备 Ed25519 身份签名，连接使用 TLS 1.3 和证书 SPKI 固定。双方必须确认设备指纹；配对成功后会自动激活局域网同步并执行首次双向同步。',
+                    '无需云账户。配对码由设备 Ed25519 身份签名，连接使用 TLS 1.3 和证书 SPKI 固定。双方必须确认设备指纹和同步类别；配对成功后可选择立即同步或稍后手动同步。',
                   ),
                   const SizedBox(height: 12),
                   Wrap(
@@ -149,52 +167,69 @@ class _LanSyncPageState extends State<LanSyncPage> {
               subtitle: Text('请确认设备位于同一局域网，并允许本地网络和防火墙访问。'),
             ),
           for (final peer in provider.discoveredPeers)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.devices),
-                      title: Text(peer.displayName),
-                      subtitle: Text(
-                        '${peer.addresses.join(', ')}:${peer.port}',
-                      ),
-                      trailing: FilledButton(
-                        onPressed: provider.busy
-                            ? null
-                            : () => provider.sync(peer),
-                        child: const Text('同步普通数据'),
-                      ),
-                    ),
-                    Wrap(
-                      spacing: 8,
+            Builder(
+              builder: (context) {
+                final trusted = provider.peers
+                    .where((item) => item.deviceId == peer.deviceId)
+                    .firstOrNull;
+                final canUse = trusted != null && !trusted.revoked;
+                return Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        OutlinedButton(
-                          onPressed: provider.busy
-                              ? null
-                              : () => provider.requestSecretTransfer(
-                                  peer,
-                                  direction: 'send',
-                                ),
-                          child: const Text('请求发送模型 API Key'),
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(
+                            canUse ? Icons.verified_outlined : Icons.devices,
+                          ),
+                          title: Text(
+                            canUse ? trusted.displayName : peer.displayName,
+                          ),
+                          subtitle: Text(
+                            '${peer.addresses.join(', ')}:${peer.port}\n'
+                            '${canUse ? '已信任' : '未信任的发现信息'}',
+                          ),
+                          isThreeLine: true,
+                          trailing: canUse
+                              ? FilledButton(
+                                  onPressed: provider.busy
+                                      ? null
+                                      : () => provider.sync(peer),
+                                  child: const Text('同步'),
+                                )
+                              : null,
                         ),
-                        OutlinedButton(
-                          onPressed: provider.busy
-                              ? null
-                              : () => provider.requestSecretTransfer(
-                                  peer,
-                                  direction: 'receive',
-                                ),
-                          child: const Text('请求接收模型 API Key'),
-                        ),
+                        if (canUse)
+                          Wrap(
+                            spacing: 8,
+                            children: [
+                              OutlinedButton(
+                                onPressed: provider.busy
+                                    ? null
+                                    : () => provider.requestSecretTransfer(
+                                        peer,
+                                        direction: 'send',
+                                      ),
+                                child: const Text('发送模型 API Key'),
+                              ),
+                              OutlinedButton(
+                                onPressed: provider.busy
+                                    ? null
+                                    : () => provider.requestSecretTransfer(
+                                        peer,
+                                        direction: 'receive',
+                                      ),
+                                child: const Text('接收模型 API Key'),
+                              ),
+                            ],
+                          ),
                       ],
                     ),
-                  ],
-                ),
-              ),
+                  ),
+                );
+              },
             ),
           if (provider.secretRequests.isNotEmpty) ...[
             const SizedBox(height: 12),
@@ -235,25 +270,69 @@ class _LanSyncPageState extends State<LanSyncPage> {
             ),
           for (final peer in provider.peers)
             Card(
-              child: ListTile(
-                leading: Icon(
-                  peer.revoked ? Icons.block : Icons.verified_user_outlined,
-                ),
-                title: Text(peer.displayName),
-                subtitle: Text(
-                  peer.revoked ? '已撤销\n${peer.fingerprint}' : peer.fingerprint,
-                ),
-                isThreeLine: peer.revoked,
-                trailing: peer.revoked
-                    ? null
-                    : TextButton(
-                        onPressed: provider.busy
-                            ? null
-                            : () => provider.revoke(peer.deviceId),
-                        child: const Text('撤销'),
-                      ),
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: Icon(
+                      peer.revoked ? Icons.block : Icons.verified_user_outlined,
+                    ),
+                    title: Text(peer.displayName),
+                    subtitle: Text(
+                      peer.revoked
+                          ? '已撤销\n${peer.fingerprint}'
+                          : '${peer.fingerprint}\n${_selectionSummary(peer.syncSelection)}',
+                    ),
+                    isThreeLine: true,
+                  ),
+                  if (!peer.revoked)
+                    OverflowBar(
+                      alignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton.icon(
+                          onPressed: provider.busy
+                              ? null
+                              : () => _editSelection(peer),
+                          icon: const Icon(Icons.tune),
+                          label: const Text('同步范围'),
+                        ),
+                        TextButton(
+                          onPressed: provider.busy
+                              ? null
+                              : () => provider.revoke(peer.deviceId),
+                          child: const Text('撤销'),
+                        ),
+                      ],
+                    ),
+                ],
               ),
             ),
+          if (provider.conflicts.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(
+              '待处理同步冲突 (${provider.conflicts.length})',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            for (final conflict in provider.conflicts)
+              MergeConflictCard(
+                conflict: conflict.view,
+                choices: [
+                  MergeConflictChoice(
+                    label: '保留本地',
+                    onSelected: () => provider.resolveConflict(
+                      conflict.seq,
+                      SyncConflictResolution.keepLocal,
+                    ),
+                  ),
+                  MergeConflictChoice(
+                    label: '使用对方',
+                    onSelected: () => provider.resolveConflict(
+                      conflict.seq,
+                      SyncConflictResolution.useRemote,
+                    ),
+                  ),
+                ],
+              ),
+          ],
           const SizedBox(height: 12),
           const Card(
             child: ListTile(
@@ -297,6 +376,38 @@ class _LanSyncPageState extends State<LanSyncPage> {
     );
   }
 
+  Future<void> _editDeviceName() async {
+    final provider = context.read<LanSyncProvider>();
+    final controller = TextEditingController(text: provider.deviceName);
+    try {
+      final value = await showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('设备名称'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            maxLength: 64,
+            decoration: const InputDecoration(hintText: '用于局域网发现和配对确认'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, controller.text),
+              child: const Text('保存'),
+            ),
+          ],
+        ),
+      );
+      if (value != null && mounted) await provider.updateDeviceName(value);
+    } finally {
+      controller.dispose();
+    }
+  }
+
   Future<void> _scanOrImport() async {
     final payload = Platform.isAndroid || Platform.isIOS
         ? await Navigator.push<String>(
@@ -305,8 +416,137 @@ class _LanSyncPageState extends State<LanSyncPage> {
           )
         : await _decodeQrImage();
     if (!mounted || payload == null) return;
-    await context.read<LanSyncProvider>().pair(payload);
+    final proposedSelection = await _showSelectionDialog(
+      title: '选择同步内容',
+      selection: SyncDataSelection.defaults,
+      available: SyncDataSelection.all,
+      description: '先选择希望与该设备双向同步的数据。对方配对后可以接受其中的全部或部分。',
+      confirmLabel: '继续配对',
+    );
+    if (!mounted || proposedSelection == null) return;
+    final provider = context.read<LanSyncProvider>();
+    final result = await provider.pair(
+      payload,
+      proposedSelection: proposedSelection,
+    );
+    if (!mounted || result == null) return;
+    final syncNow = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('配对成功'),
+        content: Text('已与 ${result.peer.displayName} 建立信任。是否立即执行双向同步？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('稍后'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('立即同步'),
+          ),
+        ],
+      ),
+    );
+    if (syncNow == true && mounted) {
+      await provider.sync(result.discoveredPeer);
+    }
   }
+
+  Future<void> _editSelection(LanPeer peer) async {
+    final selection = await _showSelectionDialog(
+      title: '同步范围',
+      selection: peer.syncSelection,
+      available: SyncDataSelection.all,
+      description: '关闭类别会立即在本机生效；新增类别需要对方在线确认。',
+      confirmLabel: '应用',
+    );
+    if (selection == null || !mounted) return;
+    await context.read<LanSyncProvider>().updateSyncSelection(peer, selection);
+  }
+
+  Future<SyncDataSelection?> _showSelectionDialog({
+    required String title,
+    required SyncDataSelection selection,
+    required SyncDataSelection available,
+    required String description,
+    required String confirmLabel,
+    SyncDataSelection requiredSelection = const SyncDataSelection({}),
+    String? fingerprint,
+  }) => showDialog<SyncDataSelection>(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) {
+      var selected = selection;
+      return StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Text(title),
+          content: SizedBox(
+            width: 420,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(description),
+                  if (fingerprint != null) ...[
+                    const SizedBox(height: 12),
+                    SelectableText(
+                      fingerprint,
+                      style: const TextStyle(fontFamily: 'monospace'),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text('请在另一台设备上核对完全相同的指纹。'),
+                  ],
+                  const SizedBox(height: 12),
+                  for (final category in SyncDataCategory.values)
+                    if (available.contains(category))
+                      CheckboxListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        value: selected.contains(category),
+                        title: Text(_categoryLabel(category)),
+                        onChanged: requiredSelection.contains(category)
+                            ? null
+                            : (enabled) => setState(
+                                () => selected = selected.copyWithCategory(
+                                  category,
+                                  enabled: enabled ?? false,
+                                ),
+                              ),
+                      ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, selected),
+              child: Text(confirmLabel),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+
+  String _selectionSummary(SyncDataSelection selection) =>
+      selection.categories.map(_categoryLabel).join('、');
+
+  String _categoryLabel(SyncDataCategory category) => switch (category) {
+    SyncDataCategory.conversations => '对话与附件元数据',
+    SyncDataCategory.notes => '笔记',
+    SyncDataCategory.tasks => '任务',
+    SyncDataCategory.calendar => '日历',
+    SyncDataCategory.roleplay => '角色扮演',
+    SyncDataCategory.settings => '设置',
+    SyncDataCategory.models => '模型配置',
+    SyncDataCategory.plugins => '插件',
+    SyncDataCategory.staticResources => '静态资源与附件文件',
+  };
 
   Future<String?> _decodeQrImage() async {
     final result = await file_picker.FilePicker.pickFiles(

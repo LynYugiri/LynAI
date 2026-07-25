@@ -28,7 +28,7 @@ class LanMdnsService {
         !_validDisplayName(displayName) ||
         port < 1 ||
         port > 65535 ||
-        protocolVersion != LanPairingPayloadCodec.protocolVersion) {
+        !LanPairingPayloadCodec.supportsProtocolVersion(protocolVersion)) {
       throw const FormatException('invalid LAN advertisement');
     }
     await stopAdvertising();
@@ -81,7 +81,7 @@ class LanMdnsService {
         !_validDeviceId(deviceId) ||
         !_validDisplayName(service.name) ||
         version == null ||
-        version != LanPairingPayloadCodec.protocolVersion ||
+        !LanPairingPayloadCodec.supportsProtocolVersion(version) ||
         service.port <= 0 ||
         service.port > 65535 ||
         addresses.isEmpty) {

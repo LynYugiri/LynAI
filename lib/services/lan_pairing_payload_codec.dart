@@ -8,11 +8,14 @@ import '../models/lan_pairing_payload.dart';
 import 'device_identity_service.dart';
 
 class LanPairingPayloadCodec {
-  static const protocolVersion = 1;
+  static const protocolVersion = 2;
   static const uriPrefix = 'lynai://pair/';
   static const maxEncodedBytes = 16 * 1024;
-  static const _pairingDomain = 'LynAI/LAN/pairing/v1\x00';
-  static const _bindingDomain = 'LynAI/LAN/tls-binding/v1\x00';
+  static const _pairingDomain = 'LynAI/LAN/pairing/v2\x00';
+  static const _bindingDomain = 'LynAI/LAN/tls-binding/v2\x00';
+
+  static bool supportsProtocolVersion(int version) =>
+      version == protocolVersion;
 
   final Ed25519 _ed25519 = Ed25519();
 
@@ -81,7 +84,7 @@ class LanPairingPayloadCodec {
     );
     if (json is! Map) throw const FormatException('invalid pairing payload');
     final payload = LanPairingPayload.fromJson(Map<String, dynamic>.from(json));
-    if (payload.version != protocolVersion ||
+    if (!supportsProtocolVersion(payload.version) ||
         payload.publicKey.length != 32 ||
         payload.deviceId.isEmpty ||
         payload.deviceId.length > 128 ||
@@ -153,7 +156,7 @@ class LanPairingPayloadCodec {
   }
 
   Future<bool> verifyBinding(LanTlsBinding binding) async {
-    if (binding.version != protocolVersion ||
+    if (!supportsProtocolVersion(binding.version) ||
         DeviceIdentityService.deviceIdForPublicKey(binding.publicKey) !=
             binding.deviceId) {
       return false;

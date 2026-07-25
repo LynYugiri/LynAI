@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../models/sync_data_selection.dart';
 import '../utils/file_name_utils.dart';
 import 'storage_v2_database.dart';
 
@@ -577,6 +578,22 @@ class StorageV2Service {
     return (await _storageDatabase()).syncScopeState(scope);
   }
 
+  Future<SyncDataSelection> syncPolicy(String scope) async {
+    return (await _storageDatabase()).syncPolicy(scope);
+  }
+
+  Future<void> saveSyncPolicy(
+    String scope,
+    SyncDataSelection selection, {
+    required bool requireReseed,
+  }) async {
+    await (await _storageDatabase()).saveSyncPolicy(
+      scope,
+      selection,
+      requireReseed: requireReseed,
+    );
+  }
+
   Future<void> resetCloudSyncScope(String scope, int generation) async {
     await (await _storageDatabase()).resetCloudSyncScope(scope, generation);
   }
@@ -594,6 +611,18 @@ class StorageV2Service {
       scope,
       limit: limit,
       offset: offset,
+    );
+  }
+
+  Future<Map<String, dynamic>?> syncSelectionDataForChange(
+    String table,
+    String recordId,
+    Map<String, dynamic>? data,
+  ) async {
+    return (await _storageDatabase()).selectionDataForChange(
+      table,
+      recordId,
+      data,
     );
   }
 

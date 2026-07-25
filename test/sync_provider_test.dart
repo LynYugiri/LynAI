@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/sync_change.dart';
+import 'package:lynai/models/sync_data_selection.dart';
 import 'package:lynai/providers/sync_provider.dart';
 import 'package:lynai/services/storage_v2_database.dart';
 import 'package:lynai/services/sync_service.dart';
@@ -37,6 +38,36 @@ void main() {
       expect(summary?.changedTables, {'messages'});
       expect(service.requestedLimits, [1000, 1000]);
     });
+
+    test(
+      'downloads recycle-bin deletes using the local category hint',
+      () async {
+        final storage =
+            _FakeSyncStorage(
+                selectionHints: const {
+                  'recycle_bin\u0000recycle-1': {
+                    'category': 'conversations',
+                    'type': 'conversation',
+                  },
+                },
+              )
+              ..selection = const SyncDataSelection({
+                SyncDataCategory.conversations,
+              });
+        final provider = SyncProvider(
+          service: _FakeSyncService(pages: [_recycleBinDeletePage()]),
+          storage: storage,
+        );
+
+        await provider.bindScope('user-1');
+        await provider.autoDownload();
+
+        expect(storage.appliedOps, hasLength(1));
+        expect(storage.appliedOps.single.table, 'recycle_bin');
+        expect(storage.appliedOps.single.op, 'delete');
+        expect(storage.appliedOps.single.data, {'id': 'recycle-1'});
+      },
+    );
 
     test(
       'flushes newly encountered tables and materializes notes once',
@@ -418,6 +449,23 @@ void main() {
       expect(storage.outbox, isEmpty);
     });
 
+    test('default selection skips resource rows and blobs', () async {
+      final storage = _FakeSyncStorage(
+        outbox: [_resourceEntry('r1', _hashA)],
+        resourceBlobs: const [
+          SyncResourceBlob(sha256: _hashA, bytes: [1]),
+        ],
+      )..selection = SyncDataSelection.defaults;
+      final service = _FakeSyncService();
+      final provider = SyncProvider(service: service, storage: storage);
+
+      await provider.bindScope('user-1');
+      await provider.flushUpload();
+
+      expect(service.uploadedBlobs, isEmpty);
+      expect(service.uploadedRecordIds, isEmpty);
+    });
+
     test('loads and acknowledges the outbox in bounded windows', () async {
       final entries = [for (var i = 0; i < 300; i++) _entry('m$i', version: 1)];
       final storage = _FakeSyncStorage(outbox: entries);
@@ -597,6 +645,46 @@ void main() {
         expect(storage.appliedSince, [1]);
       },
     );
+
+    test(
+      'default selection skips static resources and advances cursor',
+      () async {
+        final storage = _FakeSyncStorage()
+          ..selection = SyncDataSelection.defaults;
+        final service = _FakeSyncService(
+          pages: [_resourcePage(_hashA)],
+          downloadedBlobs: const {
+            _hashA: [1],
+          },
+        );
+        final provider = SyncProvider(service: service, storage: storage);
+
+        await provider.bindScope('user-1');
+        await provider.autoDownload();
+
+        expect(service.downloadedHashes, isEmpty);
+        expect(storage.appliedOps, isEmpty);
+        expect(storage.sinceByScope.values.single, 1);
+      },
+    );
+
+    test('enabling a category marks the scope for reseed', () async {
+      final storage = _FakeSyncStorage()
+        ..selection = SyncDataSelection.defaults;
+      final provider = SyncProvider(
+        service: _FakeSyncService(pages: const []),
+        storage: storage,
+      );
+
+      await provider.bindScope('user-1');
+      await provider.updateSelection(SyncDataSelection.all);
+
+      expect(
+        storage.selection.hasSameCategories(SyncDataSelection.all),
+        isTrue,
+      );
+      expect(storage.fullReseedRequired, isTrue);
+    });
 
     test(
       'hash mismatch does not apply resource row or advance cursor',
@@ -939,6 +1027,23 @@ SyncDownloadResult _notePage({required int seq, required bool hasMore}) {
   );
 }
 
+SyncDownloadResult _recycleBinDeletePage() => SyncDownloadResult(
+  changes: [
+    SyncChange(
+      seq: 1,
+      changeId: 'recycle-delete-1',
+      deviceId: 'device-2',
+      clientCreatedAt: DateTime.utc(2026, 7, 16),
+      table: 'recycle_bin',
+      op: 'delete',
+      recordId: 'recycle-1',
+    ),
+  ],
+  latestSeq: 1,
+  hasMore: false,
+  nextSince: 1,
+);
+
 SyncChange _change({
   required int seq,
   required String changeId,
@@ -1002,9 +1107,10 @@ SyncOutboxEntry _entryWithData(
   mutationVersion: 1,
 );
 
-class _FakeSyncStorage implements SyncStorage {
+class _FakeSyncStorage implements SyncStorage, SyncSelectionDataStorage {
   _FakeSyncStorage({
     List<SyncOutboxEntry> outbox = const [],
+    this.selectionHints = const {},
     this.resourceBlobs = const [],
     this.resourceBlobReaders = const {},
     this.hashMismatch = false,
@@ -1017,6 +1123,7 @@ class _FakeSyncStorage implements SyncStorage {
   final List<int> appliedSince = [];
   final List<SyncOutboxEntry> acknowledged = [];
   final List<SyncOutboxEntry> outbox;
+  final Map<String, Map<String, dynamic>> selectionHints;
   final List<SyncResourceBlob> resourceBlobs;
   final Map<String, Future<List<int>> Function()> resourceBlobReaders;
   final bool hashMismatch;
@@ -1033,6 +1140,7 @@ class _FakeSyncStorage implements SyncStorage {
   int maxLoadedOutbox = 0;
   int materializeCalls = 0;
   int loadOutboxCalls = 0;
+  SyncDataSelection selection = SyncDataSelection.all;
 
   @override
   Future<void> activateScope(String scope, String deviceId) async {
@@ -1052,6 +1160,19 @@ class _FakeSyncStorage implements SyncStorage {
     generation: generation,
     fullReseedRequired: fullReseedRequired,
   );
+
+  @override
+  Future<SyncDataSelection> policy(String scope) async => selection;
+
+  @override
+  Future<void> savePolicy(
+    String scope,
+    SyncDataSelection selection, {
+    required bool requireReseed,
+  }) async {
+    this.selection = selection;
+    if (requireReseed) fullReseedRequired = true;
+  }
 
   @override
   Future<void> resetCloudScope(String scope, int nextGeneration) async {
@@ -1086,6 +1207,13 @@ class _FakeSyncStorage implements SyncStorage {
     if (result.length > maxLoadedOutbox) maxLoadedOutbox = result.length;
     return List.of(result);
   }
+
+  @override
+  Future<Map<String, dynamic>?> selectionDataForChange(
+    String table,
+    String recordId,
+    Map<String, dynamic>? data,
+  ) async => data ?? selectionHints['$table\u0000$recordId'];
 
   @override
   Future<List<SyncConflictEntry>> loadConflicts(String scope) async => const [];

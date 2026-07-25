@@ -4,6 +4,12 @@ import 'package:lynai/services/lan_pairing_payload_codec.dart';
 import 'package:lynai/services/secret_store.dart';
 
 void main() {
+  test('LAN wire protocol uses version 2 for selection-aware frames', () {
+    expect(LanPairingPayloadCodec.protocolVersion, 2);
+    expect(LanPairingPayloadCodec.supportsProtocolVersion(1), isFalse);
+    expect(LanPairingPayloadCodec.supportsProtocolVersion(2), isTrue);
+  });
+
   test(
     'pairing payload round trips and rejects tampering and expiry',
     () async {

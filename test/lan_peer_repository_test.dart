@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/lan_peer.dart';
+import 'package:lynai/models/sync_data_selection.dart';
 import 'package:lynai/repositories/lan_peer_repository.dart';
 import 'package:lynai/services/secret_store.dart';
 
@@ -65,5 +66,34 @@ void main() {
     expect(peer.certificateExpiresAt, newExpiry);
     expect(peer.spkiSha256, 'a' * 64);
     expect(peer.revoked, isFalse);
+  });
+
+  test('per-peer sync selection persists in SecretStore', () async {
+    final store = InMemorySecretStore();
+    final repository = LanPeerRepository(secretStore: store);
+    await repository.trustPeer(
+      LanPeer(
+        deviceId: 'device-a',
+        publicKey: List.filled(32, 1),
+        spkiSha256: 'a' * 64,
+        displayName: 'Device A',
+        trustedAt: DateTime.utc(2030),
+        certificateExpiresAt: DateTime.utc(2031),
+      ),
+    );
+    const selection = SyncDataSelection({
+      SyncDataCategory.conversations,
+      SyncDataCategory.notes,
+    });
+
+    await repository.updateSyncSelection('device-a', selection);
+    final reloaded = LanPeerRepository(secretStore: store);
+
+    expect(
+      (await reloaded.peer(
+        'device-a',
+      ))!.syncSelection.hasSameCategories(selection),
+      isTrue,
+    );
   });
 }

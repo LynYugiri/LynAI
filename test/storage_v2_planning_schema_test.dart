@@ -74,10 +74,16 @@ INSERT INTO schedules VALUES (
   'event-1', 'Meeting', '2026-07-05T12:00:00.000',
   '2026-07-05T13:00:00.000', 'event note', ''
 );
-INSERT INTO sync_outbox VALUES (
+INSERT INTO sync_outbox (
+  scope, table_name, record_id, op, data_json, change_id, device_id,
+  client_created_at, mutation_version, updated_at
+) VALUES (
   'lan:v1', 'schedules', 'event-1', 'upsert', NULL, 'c1', 'd', 'now', 1, 'now'
 );
-INSERT INTO sync_outbox VALUES (
+INSERT INTO sync_outbox (
+  scope, table_name, record_id, op, data_json, change_id, device_id,
+  client_created_at, mutation_version, updated_at
+) VALUES (
   'lan:v1', 'conversations', 'conversation-1', 'delete', NULL,
   'unrelated-change', 'device-before', '2026-07-01T00:00:00Z', 3,
   '2026-07-01T00:00:00Z'
@@ -136,7 +142,7 @@ PRAGMA user_version = 14;
 
         final migrated = sqlite3.open('${storageRoot.path}/app.db');
         try {
-          expect(migrated.userVersion, 18);
+          expect(migrated.userVersion, 21);
           final tables = migrated
               .select("SELECT name FROM sqlite_master WHERE type = 'table'")
               .map((row) => row['name'])

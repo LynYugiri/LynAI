@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/sync_change.dart';
+import 'package:lynai/models/sync_data_selection.dart';
 import 'package:lynai/providers/sync_provider.dart';
 import 'package:lynai/repositories/lan_peer_repository.dart';
 import 'package:lynai/services/secret_store.dart';
@@ -40,6 +41,15 @@ class MemorySyncStorage implements SyncStorage {
   @override
   Future<SyncScopeState> scopeState(String scope) async =>
       SyncScopeState(since: _since, generation: 0, fullReseedRequired: false);
+  @override
+  Future<SyncDataSelection> policy(String scope) async =>
+      SyncDataSelection.defaults;
+  @override
+  Future<void> savePolicy(
+    String scope,
+    SyncDataSelection selection, {
+    required bool requireReseed,
+  }) async {}
   @override
   Future<void> resetCloudScope(String scope, int generation) async {
     _since = 0;

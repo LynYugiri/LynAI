@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'sync_data_selection.dart';
+
 class LanPeer {
   LanPeer({
     required this.deviceId,
@@ -11,6 +13,7 @@ class LanPeer {
     this.lastSeenAt,
     this.revokedAt,
     this.lastAcknowledgedChangeId,
+    this.syncSelection = SyncDataSelection.defaults,
   }) : publicKey = List.unmodifiable(publicKey);
 
   final String deviceId;
@@ -22,6 +25,7 @@ class LanPeer {
   final DateTime? lastSeenAt;
   final DateTime? revokedAt;
   final String? lastAcknowledgedChangeId;
+  final SyncDataSelection syncSelection;
 
   bool get revoked => revokedAt != null;
 
@@ -35,6 +39,7 @@ class LanPeer {
     Object? revokedAt = _unset,
     String? lastAcknowledgedChangeId,
     DateTime? certificateExpiresAt,
+    SyncDataSelection? syncSelection,
   }) => LanPeer(
     deviceId: deviceId,
     publicKey: publicKey,
@@ -48,6 +53,7 @@ class LanPeer {
         : revokedAt as DateTime?,
     lastAcknowledgedChangeId:
         lastAcknowledgedChangeId ?? this.lastAcknowledgedChangeId,
+    syncSelection: syncSelection ?? this.syncSelection,
   );
 
   Map<String, dynamic> toJson() => {
@@ -61,6 +67,7 @@ class LanPeer {
     if (revokedAt != null) 'revokedAt': revokedAt!.toUtc().toIso8601String(),
     if (lastAcknowledgedChangeId != null)
       'lastAcknowledgedChangeId': lastAcknowledgedChangeId,
+    'syncSelection': syncSelection.toJson(),
   };
 
   factory LanPeer.fromJson(Map<String, dynamic> json) => LanPeer(
@@ -77,6 +84,7 @@ class LanPeer {
     lastSeenAt: DateTime.tryParse(json['lastSeenAt']?.toString() ?? ''),
     revokedAt: DateTime.tryParse(json['revokedAt']?.toString() ?? ''),
     lastAcknowledgedChangeId: json['lastAcknowledgedChangeId'] as String?,
+    syncSelection: SyncDataSelection.fromJson(json['syncSelection']),
   );
 
   static const _unset = Object();

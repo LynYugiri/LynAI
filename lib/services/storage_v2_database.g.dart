@@ -2173,6 +2173,17 @@ class $MessageRowsTable extends MessageRows
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _modelContextContentMeta =
+      const VerificationMeta('modelContextContent');
+  @override
+  late final GeneratedColumn<String> modelContextContent =
+      GeneratedColumn<String>(
+        'model_context_content',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
   static const VerificationMeta _thinkingContentMeta = const VerificationMeta(
     'thinkingContent',
   );
@@ -2248,6 +2259,7 @@ class $MessageRowsTable extends MessageRows
     conversationId,
     role,
     content,
+    modelContextContent,
     thinkingContent,
     agentTraceJson,
     timestamp,
@@ -2298,6 +2310,15 @@ class $MessageRowsTable extends MessageRows
       );
     } else if (isInserting) {
       context.missing(_contentMeta);
+    }
+    if (data.containsKey('model_context_content')) {
+      context.handle(
+        _modelContextContentMeta,
+        modelContextContent.isAcceptableOrUnknown(
+          data['model_context_content']!,
+          _modelContextContentMeta,
+        ),
+      );
     }
     if (data.containsKey('thinking_content')) {
       context.handle(
@@ -2368,6 +2389,10 @@ class $MessageRowsTable extends MessageRows
         DriftSqlType.string,
         data['${effectivePrefix}content'],
       )!,
+      modelContextContent: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}model_context_content'],
+      ),
       thinkingContent: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}thinking_content'],
@@ -2406,6 +2431,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
   final String conversationId;
   final String role;
   final String content;
+  final String? modelContextContent;
   final String? thinkingContent;
   final String? agentTraceJson;
   final String timestamp;
@@ -2417,6 +2443,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
     required this.conversationId,
     required this.role,
     required this.content,
+    this.modelContextContent,
     this.thinkingContent,
     this.agentTraceJson,
     required this.timestamp,
@@ -2431,6 +2458,9 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
     map['conversation_id'] = Variable<String>(conversationId);
     map['role'] = Variable<String>(role);
     map['content'] = Variable<String>(content);
+    if (!nullToAbsent || modelContextContent != null) {
+      map['model_context_content'] = Variable<String>(modelContextContent);
+    }
     if (!nullToAbsent || thinkingContent != null) {
       map['thinking_content'] = Variable<String>(thinkingContent);
     }
@@ -2450,6 +2480,9 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
       conversationId: Value(conversationId),
       role: Value(role),
       content: Value(content),
+      modelContextContent: modelContextContent == null && nullToAbsent
+          ? const Value.absent()
+          : Value(modelContextContent),
       thinkingContent: thinkingContent == null && nullToAbsent
           ? const Value.absent()
           : Value(thinkingContent),
@@ -2473,6 +2506,9 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
       conversationId: serializer.fromJson<String>(json['conversationId']),
       role: serializer.fromJson<String>(json['role']),
       content: serializer.fromJson<String>(json['content']),
+      modelContextContent: serializer.fromJson<String?>(
+        json['modelContextContent'],
+      ),
       thinkingContent: serializer.fromJson<String?>(json['thinkingContent']),
       agentTraceJson: serializer.fromJson<String?>(json['agentTraceJson']),
       timestamp: serializer.fromJson<String>(json['timestamp']),
@@ -2489,6 +2525,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
       'conversationId': serializer.toJson<String>(conversationId),
       'role': serializer.toJson<String>(role),
       'content': serializer.toJson<String>(content),
+      'modelContextContent': serializer.toJson<String?>(modelContextContent),
       'thinkingContent': serializer.toJson<String?>(thinkingContent),
       'agentTraceJson': serializer.toJson<String?>(agentTraceJson),
       'timestamp': serializer.toJson<String>(timestamp),
@@ -2503,6 +2540,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
     String? conversationId,
     String? role,
     String? content,
+    Value<String?> modelContextContent = const Value.absent(),
     Value<String?> thinkingContent = const Value.absent(),
     Value<String?> agentTraceJson = const Value.absent(),
     String? timestamp,
@@ -2514,6 +2552,9 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
     conversationId: conversationId ?? this.conversationId,
     role: role ?? this.role,
     content: content ?? this.content,
+    modelContextContent: modelContextContent.present
+        ? modelContextContent.value
+        : this.modelContextContent,
     thinkingContent: thinkingContent.present
         ? thinkingContent.value
         : this.thinkingContent,
@@ -2533,6 +2574,9 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
           : this.conversationId,
       role: data.role.present ? data.role.value : this.role,
       content: data.content.present ? data.content.value : this.content,
+      modelContextContent: data.modelContextContent.present
+          ? data.modelContextContent.value
+          : this.modelContextContent,
       thinkingContent: data.thinkingContent.present
           ? data.thinkingContent.value
           : this.thinkingContent,
@@ -2553,6 +2597,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
           ..write('conversationId: $conversationId, ')
           ..write('role: $role, ')
           ..write('content: $content, ')
+          ..write('modelContextContent: $modelContextContent, ')
           ..write('thinkingContent: $thinkingContent, ')
           ..write('agentTraceJson: $agentTraceJson, ')
           ..write('timestamp: $timestamp, ')
@@ -2569,6 +2614,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
     conversationId,
     role,
     content,
+    modelContextContent,
     thinkingContent,
     agentTraceJson,
     timestamp,
@@ -2584,6 +2630,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
           other.conversationId == this.conversationId &&
           other.role == this.role &&
           other.content == this.content &&
+          other.modelContextContent == this.modelContextContent &&
           other.thinkingContent == this.thinkingContent &&
           other.agentTraceJson == this.agentTraceJson &&
           other.timestamp == this.timestamp &&
@@ -2597,6 +2644,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
   final Value<String> conversationId;
   final Value<String> role;
   final Value<String> content;
+  final Value<String?> modelContextContent;
   final Value<String?> thinkingContent;
   final Value<String?> agentTraceJson;
   final Value<String> timestamp;
@@ -2609,6 +2657,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
     this.conversationId = const Value.absent(),
     this.role = const Value.absent(),
     this.content = const Value.absent(),
+    this.modelContextContent = const Value.absent(),
     this.thinkingContent = const Value.absent(),
     this.agentTraceJson = const Value.absent(),
     this.timestamp = const Value.absent(),
@@ -2622,6 +2671,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
     required String conversationId,
     required String role,
     required String content,
+    this.modelContextContent = const Value.absent(),
     this.thinkingContent = const Value.absent(),
     this.agentTraceJson = const Value.absent(),
     required String timestamp,
@@ -2639,6 +2689,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
     Expression<String>? conversationId,
     Expression<String>? role,
     Expression<String>? content,
+    Expression<String>? modelContextContent,
     Expression<String>? thinkingContent,
     Expression<String>? agentTraceJson,
     Expression<String>? timestamp,
@@ -2652,6 +2703,8 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
       if (conversationId != null) 'conversation_id': conversationId,
       if (role != null) 'role': role,
       if (content != null) 'content': content,
+      if (modelContextContent != null)
+        'model_context_content': modelContextContent,
       if (thinkingContent != null) 'thinking_content': thinkingContent,
       if (agentTraceJson != null) 'agent_trace_json': agentTraceJson,
       if (timestamp != null) 'timestamp': timestamp,
@@ -2667,6 +2720,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
     Value<String>? conversationId,
     Value<String>? role,
     Value<String>? content,
+    Value<String?>? modelContextContent,
     Value<String?>? thinkingContent,
     Value<String?>? agentTraceJson,
     Value<String>? timestamp,
@@ -2680,6 +2734,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
       conversationId: conversationId ?? this.conversationId,
       role: role ?? this.role,
       content: content ?? this.content,
+      modelContextContent: modelContextContent ?? this.modelContextContent,
       thinkingContent: thinkingContent ?? this.thinkingContent,
       agentTraceJson: agentTraceJson ?? this.agentTraceJson,
       timestamp: timestamp ?? this.timestamp,
@@ -2704,6 +2759,11 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
     }
     if (content.present) {
       map['content'] = Variable<String>(content.value);
+    }
+    if (modelContextContent.present) {
+      map['model_context_content'] = Variable<String>(
+        modelContextContent.value,
+      );
     }
     if (thinkingContent.present) {
       map['thinking_content'] = Variable<String>(thinkingContent.value);
@@ -2736,6 +2796,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
           ..write('conversationId: $conversationId, ')
           ..write('role: $role, ')
           ..write('content: $content, ')
+          ..write('modelContextContent: $modelContextContent, ')
           ..write('thinkingContent: $thinkingContent, ')
           ..write('agentTraceJson: $agentTraceJson, ')
           ..write('timestamp: $timestamp, ')
@@ -11056,6 +11117,18 @@ class $SyncOutboxRowsTable extends SyncOutboxRows
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _selectionDataJsonMeta = const VerificationMeta(
+    'selectionDataJson',
+  );
+  @override
+  late final GeneratedColumn<String> selectionDataJson =
+      GeneratedColumn<String>(
+        'selection_data_json',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
   static const VerificationMeta _changeIdMeta = const VerificationMeta(
     'changeId',
   );
@@ -11118,6 +11191,7 @@ class $SyncOutboxRowsTable extends SyncOutboxRows
     recordId,
     op,
     dataJson,
+    selectionDataJson,
     changeId,
     deviceId,
     clientCreatedAt,
@@ -11169,6 +11243,15 @@ class $SyncOutboxRowsTable extends SyncOutboxRows
       context.handle(
         _dataJsonMeta,
         dataJson.isAcceptableOrUnknown(data['data_json']!, _dataJsonMeta),
+      );
+    }
+    if (data.containsKey('selection_data_json')) {
+      context.handle(
+        _selectionDataJsonMeta,
+        selectionDataJson.isAcceptableOrUnknown(
+          data['selection_data_json']!,
+          _selectionDataJsonMeta,
+        ),
       );
     }
     if (data.containsKey('change_id')) {
@@ -11246,6 +11329,10 @@ class $SyncOutboxRowsTable extends SyncOutboxRows
         DriftSqlType.string,
         data['${effectivePrefix}data_json'],
       ),
+      selectionDataJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}selection_data_json'],
+      ),
       changeId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}change_id'],
@@ -11281,6 +11368,7 @@ class SyncOutboxRow extends DataClass implements Insertable<SyncOutboxRow> {
   final String recordId;
   final String op;
   final String? dataJson;
+  final String? selectionDataJson;
   final String changeId;
   final String deviceId;
   final String clientCreatedAt;
@@ -11292,6 +11380,7 @@ class SyncOutboxRow extends DataClass implements Insertable<SyncOutboxRow> {
     required this.recordId,
     required this.op,
     this.dataJson,
+    this.selectionDataJson,
     required this.changeId,
     required this.deviceId,
     required this.clientCreatedAt,
@@ -11307,6 +11396,9 @@ class SyncOutboxRow extends DataClass implements Insertable<SyncOutboxRow> {
     map['op'] = Variable<String>(op);
     if (!nullToAbsent || dataJson != null) {
       map['data_json'] = Variable<String>(dataJson);
+    }
+    if (!nullToAbsent || selectionDataJson != null) {
+      map['selection_data_json'] = Variable<String>(selectionDataJson);
     }
     map['change_id'] = Variable<String>(changeId);
     map['device_id'] = Variable<String>(deviceId);
@@ -11325,6 +11417,9 @@ class SyncOutboxRow extends DataClass implements Insertable<SyncOutboxRow> {
       dataJson: dataJson == null && nullToAbsent
           ? const Value.absent()
           : Value(dataJson),
+      selectionDataJson: selectionDataJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(selectionDataJson),
       changeId: Value(changeId),
       deviceId: Value(deviceId),
       clientCreatedAt: Value(clientCreatedAt),
@@ -11344,6 +11439,9 @@ class SyncOutboxRow extends DataClass implements Insertable<SyncOutboxRow> {
       recordId: serializer.fromJson<String>(json['recordId']),
       op: serializer.fromJson<String>(json['op']),
       dataJson: serializer.fromJson<String?>(json['dataJson']),
+      selectionDataJson: serializer.fromJson<String?>(
+        json['selectionDataJson'],
+      ),
       changeId: serializer.fromJson<String>(json['changeId']),
       deviceId: serializer.fromJson<String>(json['deviceId']),
       clientCreatedAt: serializer.fromJson<String>(json['clientCreatedAt']),
@@ -11360,6 +11458,7 @@ class SyncOutboxRow extends DataClass implements Insertable<SyncOutboxRow> {
       'recordId': serializer.toJson<String>(recordId),
       'op': serializer.toJson<String>(op),
       'dataJson': serializer.toJson<String?>(dataJson),
+      'selectionDataJson': serializer.toJson<String?>(selectionDataJson),
       'changeId': serializer.toJson<String>(changeId),
       'deviceId': serializer.toJson<String>(deviceId),
       'clientCreatedAt': serializer.toJson<String>(clientCreatedAt),
@@ -11374,6 +11473,7 @@ class SyncOutboxRow extends DataClass implements Insertable<SyncOutboxRow> {
     String? recordId,
     String? op,
     Value<String?> dataJson = const Value.absent(),
+    Value<String?> selectionDataJson = const Value.absent(),
     String? changeId,
     String? deviceId,
     String? clientCreatedAt,
@@ -11385,6 +11485,9 @@ class SyncOutboxRow extends DataClass implements Insertable<SyncOutboxRow> {
     recordId: recordId ?? this.recordId,
     op: op ?? this.op,
     dataJson: dataJson.present ? dataJson.value : this.dataJson,
+    selectionDataJson: selectionDataJson.present
+        ? selectionDataJson.value
+        : this.selectionDataJson,
     changeId: changeId ?? this.changeId,
     deviceId: deviceId ?? this.deviceId,
     clientCreatedAt: clientCreatedAt ?? this.clientCreatedAt,
@@ -11398,6 +11501,9 @@ class SyncOutboxRow extends DataClass implements Insertable<SyncOutboxRow> {
       recordId: data.recordId.present ? data.recordId.value : this.recordId,
       op: data.op.present ? data.op.value : this.op,
       dataJson: data.dataJson.present ? data.dataJson.value : this.dataJson,
+      selectionDataJson: data.selectionDataJson.present
+          ? data.selectionDataJson.value
+          : this.selectionDataJson,
       changeId: data.changeId.present ? data.changeId.value : this.changeId,
       deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
       clientCreatedAt: data.clientCreatedAt.present
@@ -11418,6 +11524,7 @@ class SyncOutboxRow extends DataClass implements Insertable<SyncOutboxRow> {
           ..write('recordId: $recordId, ')
           ..write('op: $op, ')
           ..write('dataJson: $dataJson, ')
+          ..write('selectionDataJson: $selectionDataJson, ')
           ..write('changeId: $changeId, ')
           ..write('deviceId: $deviceId, ')
           ..write('clientCreatedAt: $clientCreatedAt, ')
@@ -11434,6 +11541,7 @@ class SyncOutboxRow extends DataClass implements Insertable<SyncOutboxRow> {
     recordId,
     op,
     dataJson,
+    selectionDataJson,
     changeId,
     deviceId,
     clientCreatedAt,
@@ -11449,6 +11557,7 @@ class SyncOutboxRow extends DataClass implements Insertable<SyncOutboxRow> {
           other.recordId == this.recordId &&
           other.op == this.op &&
           other.dataJson == this.dataJson &&
+          other.selectionDataJson == this.selectionDataJson &&
           other.changeId == this.changeId &&
           other.deviceId == this.deviceId &&
           other.clientCreatedAt == this.clientCreatedAt &&
@@ -11462,6 +11571,7 @@ class SyncOutboxRowsCompanion extends UpdateCompanion<SyncOutboxRow> {
   final Value<String> recordId;
   final Value<String> op;
   final Value<String?> dataJson;
+  final Value<String?> selectionDataJson;
   final Value<String> changeId;
   final Value<String> deviceId;
   final Value<String> clientCreatedAt;
@@ -11474,6 +11584,7 @@ class SyncOutboxRowsCompanion extends UpdateCompanion<SyncOutboxRow> {
     this.recordId = const Value.absent(),
     this.op = const Value.absent(),
     this.dataJson = const Value.absent(),
+    this.selectionDataJson = const Value.absent(),
     this.changeId = const Value.absent(),
     this.deviceId = const Value.absent(),
     this.clientCreatedAt = const Value.absent(),
@@ -11487,6 +11598,7 @@ class SyncOutboxRowsCompanion extends UpdateCompanion<SyncOutboxRow> {
     required String recordId,
     required String op,
     this.dataJson = const Value.absent(),
+    this.selectionDataJson = const Value.absent(),
     required String changeId,
     required String deviceId,
     required String clientCreatedAt,
@@ -11508,6 +11620,7 @@ class SyncOutboxRowsCompanion extends UpdateCompanion<SyncOutboxRow> {
     Expression<String>? recordId,
     Expression<String>? op,
     Expression<String>? dataJson,
+    Expression<String>? selectionDataJson,
     Expression<String>? changeId,
     Expression<String>? deviceId,
     Expression<String>? clientCreatedAt,
@@ -11521,6 +11634,7 @@ class SyncOutboxRowsCompanion extends UpdateCompanion<SyncOutboxRow> {
       if (recordId != null) 'record_id': recordId,
       if (op != null) 'op': op,
       if (dataJson != null) 'data_json': dataJson,
+      if (selectionDataJson != null) 'selection_data_json': selectionDataJson,
       if (changeId != null) 'change_id': changeId,
       if (deviceId != null) 'device_id': deviceId,
       if (clientCreatedAt != null) 'client_created_at': clientCreatedAt,
@@ -11536,6 +11650,7 @@ class SyncOutboxRowsCompanion extends UpdateCompanion<SyncOutboxRow> {
     Value<String>? recordId,
     Value<String>? op,
     Value<String?>? dataJson,
+    Value<String?>? selectionDataJson,
     Value<String>? changeId,
     Value<String>? deviceId,
     Value<String>? clientCreatedAt,
@@ -11549,6 +11664,7 @@ class SyncOutboxRowsCompanion extends UpdateCompanion<SyncOutboxRow> {
       recordId: recordId ?? this.recordId,
       op: op ?? this.op,
       dataJson: dataJson ?? this.dataJson,
+      selectionDataJson: selectionDataJson ?? this.selectionDataJson,
       changeId: changeId ?? this.changeId,
       deviceId: deviceId ?? this.deviceId,
       clientCreatedAt: clientCreatedAt ?? this.clientCreatedAt,
@@ -11575,6 +11691,9 @@ class SyncOutboxRowsCompanion extends UpdateCompanion<SyncOutboxRow> {
     }
     if (dataJson.present) {
       map['data_json'] = Variable<String>(dataJson.value);
+    }
+    if (selectionDataJson.present) {
+      map['selection_data_json'] = Variable<String>(selectionDataJson.value);
     }
     if (changeId.present) {
       map['change_id'] = Variable<String>(changeId.value);
@@ -11605,6 +11724,7 @@ class SyncOutboxRowsCompanion extends UpdateCompanion<SyncOutboxRow> {
           ..write('recordId: $recordId, ')
           ..write('op: $op, ')
           ..write('dataJson: $dataJson, ')
+          ..write('selectionDataJson: $selectionDataJson, ')
           ..write('changeId: $changeId, ')
           ..write('deviceId: $deviceId, ')
           ..write('clientCreatedAt: $clientCreatedAt, ')
@@ -13004,6 +13124,327 @@ class SyncStateRowsCompanion extends UpdateCompanion<SyncStateRow> {
           ..write('deviceId: $deviceId, ')
           ..write('generation: $generation, ')
           ..write('fullReseedRequired: $fullReseedRequired, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $SyncPolicyRowsTable extends SyncPolicyRows
+    with TableInfo<$SyncPolicyRowsTable, SyncPolicyRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SyncPolicyRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _scopeMeta = const VerificationMeta('scope');
+  @override
+  late final GeneratedColumn<String> scope = GeneratedColumn<String>(
+    'scope',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _versionMeta = const VerificationMeta(
+    'version',
+  );
+  @override
+  late final GeneratedColumn<int> version = GeneratedColumn<int>(
+    'version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(1),
+  );
+  static const VerificationMeta _categoriesJsonMeta = const VerificationMeta(
+    'categoriesJson',
+  );
+  @override
+  late final GeneratedColumn<String> categoriesJson = GeneratedColumn<String>(
+    'categories_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    scope,
+    version,
+    categoriesJson,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'sync_policies';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SyncPolicyRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('scope')) {
+      context.handle(
+        _scopeMeta,
+        scope.isAcceptableOrUnknown(data['scope']!, _scopeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_scopeMeta);
+    }
+    if (data.containsKey('version')) {
+      context.handle(
+        _versionMeta,
+        version.isAcceptableOrUnknown(data['version']!, _versionMeta),
+      );
+    }
+    if (data.containsKey('categories_json')) {
+      context.handle(
+        _categoriesJsonMeta,
+        categoriesJson.isAcceptableOrUnknown(
+          data['categories_json']!,
+          _categoriesJsonMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_categoriesJsonMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {scope};
+  @override
+  SyncPolicyRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SyncPolicyRow(
+      scope: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}scope'],
+      )!,
+      version: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}version'],
+      )!,
+      categoriesJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}categories_json'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $SyncPolicyRowsTable createAlias(String alias) {
+    return $SyncPolicyRowsTable(attachedDatabase, alias);
+  }
+}
+
+class SyncPolicyRow extends DataClass implements Insertable<SyncPolicyRow> {
+  final String scope;
+  final int version;
+  final String categoriesJson;
+  final String updatedAt;
+  const SyncPolicyRow({
+    required this.scope,
+    required this.version,
+    required this.categoriesJson,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['scope'] = Variable<String>(scope);
+    map['version'] = Variable<int>(version);
+    map['categories_json'] = Variable<String>(categoriesJson);
+    map['updated_at'] = Variable<String>(updatedAt);
+    return map;
+  }
+
+  SyncPolicyRowsCompanion toCompanion(bool nullToAbsent) {
+    return SyncPolicyRowsCompanion(
+      scope: Value(scope),
+      version: Value(version),
+      categoriesJson: Value(categoriesJson),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory SyncPolicyRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SyncPolicyRow(
+      scope: serializer.fromJson<String>(json['scope']),
+      version: serializer.fromJson<int>(json['version']),
+      categoriesJson: serializer.fromJson<String>(json['categoriesJson']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'scope': serializer.toJson<String>(scope),
+      'version': serializer.toJson<int>(version),
+      'categoriesJson': serializer.toJson<String>(categoriesJson),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+    };
+  }
+
+  SyncPolicyRow copyWith({
+    String? scope,
+    int? version,
+    String? categoriesJson,
+    String? updatedAt,
+  }) => SyncPolicyRow(
+    scope: scope ?? this.scope,
+    version: version ?? this.version,
+    categoriesJson: categoriesJson ?? this.categoriesJson,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  SyncPolicyRow copyWithCompanion(SyncPolicyRowsCompanion data) {
+    return SyncPolicyRow(
+      scope: data.scope.present ? data.scope.value : this.scope,
+      version: data.version.present ? data.version.value : this.version,
+      categoriesJson: data.categoriesJson.present
+          ? data.categoriesJson.value
+          : this.categoriesJson,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncPolicyRow(')
+          ..write('scope: $scope, ')
+          ..write('version: $version, ')
+          ..write('categoriesJson: $categoriesJson, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(scope, version, categoriesJson, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SyncPolicyRow &&
+          other.scope == this.scope &&
+          other.version == this.version &&
+          other.categoriesJson == this.categoriesJson &&
+          other.updatedAt == this.updatedAt);
+}
+
+class SyncPolicyRowsCompanion extends UpdateCompanion<SyncPolicyRow> {
+  final Value<String> scope;
+  final Value<int> version;
+  final Value<String> categoriesJson;
+  final Value<String> updatedAt;
+  final Value<int> rowid;
+  const SyncPolicyRowsCompanion({
+    this.scope = const Value.absent(),
+    this.version = const Value.absent(),
+    this.categoriesJson = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SyncPolicyRowsCompanion.insert({
+    required String scope,
+    this.version = const Value.absent(),
+    required String categoriesJson,
+    required String updatedAt,
+    this.rowid = const Value.absent(),
+  }) : scope = Value(scope),
+       categoriesJson = Value(categoriesJson),
+       updatedAt = Value(updatedAt);
+  static Insertable<SyncPolicyRow> custom({
+    Expression<String>? scope,
+    Expression<int>? version,
+    Expression<String>? categoriesJson,
+    Expression<String>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (scope != null) 'scope': scope,
+      if (version != null) 'version': version,
+      if (categoriesJson != null) 'categories_json': categoriesJson,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SyncPolicyRowsCompanion copyWith({
+    Value<String>? scope,
+    Value<int>? version,
+    Value<String>? categoriesJson,
+    Value<String>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return SyncPolicyRowsCompanion(
+      scope: scope ?? this.scope,
+      version: version ?? this.version,
+      categoriesJson: categoriesJson ?? this.categoriesJson,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (scope.present) {
+      map['scope'] = Variable<String>(scope.value);
+    }
+    if (version.present) {
+      map['version'] = Variable<int>(version.value);
+    }
+    if (categoriesJson.present) {
+      map['categories_json'] = Variable<String>(categoriesJson.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncPolicyRowsCompanion(')
+          ..write('scope: $scope, ')
+          ..write('version: $version, ')
+          ..write('categoriesJson: $categoriesJson, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
@@ -15563,6 +16004,7 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
     this,
   );
   late final $SyncStateRowsTable syncStateRows = $SyncStateRowsTable(this);
+  late final $SyncPolicyRowsTable syncPolicyRows = $SyncPolicyRowsTable(this);
   late final $SyncScopeBaselineRowsTable syncScopeBaselineRows =
       $SyncScopeBaselineRowsTable(this);
   late final $SyncAppliedChangeRowsTable syncAppliedChangeRows =
@@ -15622,6 +16064,7 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
     syncOutboxRows,
     syncConflictRows,
     syncStateRows,
+    syncPolicyRows,
     syncScopeBaselineRows,
     syncAppliedChangeRows,
     cloudIndexStateRows,
@@ -16828,6 +17271,7 @@ typedef $$MessageRowsTableCreateCompanionBuilder =
       required String conversationId,
       required String role,
       required String content,
+      Value<String?> modelContextContent,
       Value<String?> thinkingContent,
       Value<String?> agentTraceJson,
       required String timestamp,
@@ -16842,6 +17286,7 @@ typedef $$MessageRowsTableUpdateCompanionBuilder =
       Value<String> conversationId,
       Value<String> role,
       Value<String> content,
+      Value<String?> modelContextContent,
       Value<String?> thinkingContent,
       Value<String?> agentTraceJson,
       Value<String> timestamp,
@@ -16877,6 +17322,11 @@ class $$MessageRowsTableFilterComposer
 
   ColumnFilters<String> get content => $composableBuilder(
     column: $table.content,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get modelContextContent => $composableBuilder(
+    column: $table.modelContextContent,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -16940,6 +17390,11 @@ class $$MessageRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get modelContextContent => $composableBuilder(
+    column: $table.modelContextContent,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get thinkingContent => $composableBuilder(
     column: $table.thinkingContent,
     builder: (column) => ColumnOrderings(column),
@@ -16993,6 +17448,11 @@ class $$MessageRowsTableAnnotationComposer
 
   GeneratedColumn<String> get content =>
       $composableBuilder(column: $table.content, builder: (column) => column);
+
+  GeneratedColumn<String> get modelContextContent => $composableBuilder(
+    column: $table.modelContextContent,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<String> get thinkingContent => $composableBuilder(
     column: $table.thinkingContent,
@@ -17058,6 +17518,7 @@ class $$MessageRowsTableTableManager
                 Value<String> conversationId = const Value.absent(),
                 Value<String> role = const Value.absent(),
                 Value<String> content = const Value.absent(),
+                Value<String?> modelContextContent = const Value.absent(),
                 Value<String?> thinkingContent = const Value.absent(),
                 Value<String?> agentTraceJson = const Value.absent(),
                 Value<String> timestamp = const Value.absent(),
@@ -17070,6 +17531,7 @@ class $$MessageRowsTableTableManager
                 conversationId: conversationId,
                 role: role,
                 content: content,
+                modelContextContent: modelContextContent,
                 thinkingContent: thinkingContent,
                 agentTraceJson: agentTraceJson,
                 timestamp: timestamp,
@@ -17084,6 +17546,7 @@ class $$MessageRowsTableTableManager
                 required String conversationId,
                 required String role,
                 required String content,
+                Value<String?> modelContextContent = const Value.absent(),
                 Value<String?> thinkingContent = const Value.absent(),
                 Value<String?> agentTraceJson = const Value.absent(),
                 required String timestamp,
@@ -17096,6 +17559,7 @@ class $$MessageRowsTableTableManager
                 conversationId: conversationId,
                 role: role,
                 content: content,
+                modelContextContent: modelContextContent,
                 thinkingContent: thinkingContent,
                 agentTraceJson: agentTraceJson,
                 timestamp: timestamp,
@@ -22036,6 +22500,7 @@ typedef $$SyncOutboxRowsTableCreateCompanionBuilder =
       required String recordId,
       required String op,
       Value<String?> dataJson,
+      Value<String?> selectionDataJson,
       required String changeId,
       required String deviceId,
       required String clientCreatedAt,
@@ -22050,6 +22515,7 @@ typedef $$SyncOutboxRowsTableUpdateCompanionBuilder =
       Value<String> recordId,
       Value<String> op,
       Value<String?> dataJson,
+      Value<String?> selectionDataJson,
       Value<String> changeId,
       Value<String> deviceId,
       Value<String> clientCreatedAt,
@@ -22089,6 +22555,11 @@ class $$SyncOutboxRowsTableFilterComposer
 
   ColumnFilters<String> get dataJson => $composableBuilder(
     column: $table.dataJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get selectionDataJson => $composableBuilder(
+    column: $table.selectionDataJson,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -22152,6 +22623,11 @@ class $$SyncOutboxRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get selectionDataJson => $composableBuilder(
+    column: $table.selectionDataJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get changeId => $composableBuilder(
     column: $table.changeId,
     builder: (column) => ColumnOrderings(column),
@@ -22201,6 +22677,11 @@ class $$SyncOutboxRowsTableAnnotationComposer
 
   GeneratedColumn<String> get dataJson =>
       $composableBuilder(column: $table.dataJson, builder: (column) => column);
+
+  GeneratedColumn<String> get selectionDataJson => $composableBuilder(
+    column: $table.selectionDataJson,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<String> get changeId =>
       $composableBuilder(column: $table.changeId, builder: (column) => column);
@@ -22264,6 +22745,7 @@ class $$SyncOutboxRowsTableTableManager
                 Value<String> recordId = const Value.absent(),
                 Value<String> op = const Value.absent(),
                 Value<String?> dataJson = const Value.absent(),
+                Value<String?> selectionDataJson = const Value.absent(),
                 Value<String> changeId = const Value.absent(),
                 Value<String> deviceId = const Value.absent(),
                 Value<String> clientCreatedAt = const Value.absent(),
@@ -22276,6 +22758,7 @@ class $$SyncOutboxRowsTableTableManager
                 recordId: recordId,
                 op: op,
                 dataJson: dataJson,
+                selectionDataJson: selectionDataJson,
                 changeId: changeId,
                 deviceId: deviceId,
                 clientCreatedAt: clientCreatedAt,
@@ -22290,6 +22773,7 @@ class $$SyncOutboxRowsTableTableManager
                 required String recordId,
                 required String op,
                 Value<String?> dataJson = const Value.absent(),
+                Value<String?> selectionDataJson = const Value.absent(),
                 required String changeId,
                 required String deviceId,
                 required String clientCreatedAt,
@@ -22302,6 +22786,7 @@ class $$SyncOutboxRowsTableTableManager
                 recordId: recordId,
                 op: op,
                 dataJson: dataJson,
+                selectionDataJson: selectionDataJson,
                 changeId: changeId,
                 deviceId: deviceId,
                 clientCreatedAt: clientCreatedAt,
@@ -23019,6 +23504,199 @@ typedef $$SyncStateRowsTableProcessedTableManager =
         >,
       ),
       SyncStateRow,
+      PrefetchHooks Function()
+    >;
+typedef $$SyncPolicyRowsTableCreateCompanionBuilder =
+    SyncPolicyRowsCompanion Function({
+      required String scope,
+      Value<int> version,
+      required String categoriesJson,
+      required String updatedAt,
+      Value<int> rowid,
+    });
+typedef $$SyncPolicyRowsTableUpdateCompanionBuilder =
+    SyncPolicyRowsCompanion Function({
+      Value<String> scope,
+      Value<int> version,
+      Value<String> categoriesJson,
+      Value<String> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$SyncPolicyRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $SyncPolicyRowsTable> {
+  $$SyncPolicyRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get categoriesJson => $composableBuilder(
+    column: $table.categoriesJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$SyncPolicyRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $SyncPolicyRowsTable> {
+  $$SyncPolicyRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get categoriesJson => $composableBuilder(
+    column: $table.categoriesJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$SyncPolicyRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $SyncPolicyRowsTable> {
+  $$SyncPolicyRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get scope =>
+      $composableBuilder(column: $table.scope, builder: (column) => column);
+
+  GeneratedColumn<int> get version =>
+      $composableBuilder(column: $table.version, builder: (column) => column);
+
+  GeneratedColumn<String> get categoriesJson => $composableBuilder(
+    column: $table.categoriesJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$SyncPolicyRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $SyncPolicyRowsTable,
+          SyncPolicyRow,
+          $$SyncPolicyRowsTableFilterComposer,
+          $$SyncPolicyRowsTableOrderingComposer,
+          $$SyncPolicyRowsTableAnnotationComposer,
+          $$SyncPolicyRowsTableCreateCompanionBuilder,
+          $$SyncPolicyRowsTableUpdateCompanionBuilder,
+          (
+            SyncPolicyRow,
+            BaseReferences<
+              _$StorageV2DriftDatabase,
+              $SyncPolicyRowsTable,
+              SyncPolicyRow
+            >,
+          ),
+          SyncPolicyRow,
+          PrefetchHooks Function()
+        > {
+  $$SyncPolicyRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $SyncPolicyRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SyncPolicyRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SyncPolicyRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SyncPolicyRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> scope = const Value.absent(),
+                Value<int> version = const Value.absent(),
+                Value<String> categoriesJson = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SyncPolicyRowsCompanion(
+                scope: scope,
+                version: version,
+                categoriesJson: categoriesJson,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String scope,
+                Value<int> version = const Value.absent(),
+                required String categoriesJson,
+                required String updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => SyncPolicyRowsCompanion.insert(
+                scope: scope,
+                version: version,
+                categoriesJson: categoriesJson,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$SyncPolicyRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $SyncPolicyRowsTable,
+      SyncPolicyRow,
+      $$SyncPolicyRowsTableFilterComposer,
+      $$SyncPolicyRowsTableOrderingComposer,
+      $$SyncPolicyRowsTableAnnotationComposer,
+      $$SyncPolicyRowsTableCreateCompanionBuilder,
+      $$SyncPolicyRowsTableUpdateCompanionBuilder,
+      (
+        SyncPolicyRow,
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $SyncPolicyRowsTable,
+          SyncPolicyRow
+        >,
+      ),
+      SyncPolicyRow,
       PrefetchHooks Function()
     >;
 typedef $$SyncScopeBaselineRowsTableCreateCompanionBuilder =
@@ -24577,6 +25255,8 @@ class $StorageV2DriftDatabaseManager {
       $$SyncConflictRowsTableTableManager(_db, _db.syncConflictRows);
   $$SyncStateRowsTableTableManager get syncStateRows =>
       $$SyncStateRowsTableTableManager(_db, _db.syncStateRows);
+  $$SyncPolicyRowsTableTableManager get syncPolicyRows =>
+      $$SyncPolicyRowsTableTableManager(_db, _db.syncPolicyRows);
   $$SyncScopeBaselineRowsTableTableManager get syncScopeBaselineRows =>
       $$SyncScopeBaselineRowsTableTableManager(_db, _db.syncScopeBaselineRows);
   $$SyncAppliedChangeRowsTableTableManager get syncAppliedChangeRows =>

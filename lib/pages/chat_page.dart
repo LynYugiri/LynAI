@@ -1092,13 +1092,13 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final targetConvId = _convId;
     final sendGen = ++_sendGen;
     setState(() => _preparingSend = true);
-    final apiUserContent = await _prepareUserContent(text, images);
+    final preparedUserContent = await _prepareUserContent(text, images);
     if (!mounted) return;
     if (sendGen != _sendGen || _convId != targetConvId) {
       _setBackgroundGenerationActive(false);
       return;
     }
-    if (apiUserContent == null) {
+    if (preparedUserContent == null) {
       setState(() => _preparingSend = false);
       _setBackgroundGenerationActive(false);
       return;
@@ -1113,9 +1113,16 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           (role: 'user', content: text, images: images),
           (role: 'assistant', content: '', images: const <MessageImage>[]),
         ],
+        modelContextByIndex: {0: preparedUserContent.textContext},
       );
     } else {
-      cp.addMessage(_convId!, 'user', text, images: images);
+      cp.addMessage(
+        _convId!,
+        'user',
+        text,
+        modelContextContent: preparedUserContent.textContext,
+        images: images,
+      );
       cp.addMessage(_convId!, 'assistant', '', save: false);
     }
     final cid = _convId!;
@@ -1138,7 +1145,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     }
     _doSend(
       model,
-      lastUserContentOverride: apiUserContent,
+      lastUserContentOverride: preparedUserContent.apiContent,
       createTitle: isNewConversation,
     );
   }
@@ -1176,14 +1183,14 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final conv = cp.getConversation(cid);
     if (conv == null) return;
     final lastUser = conv.messages.where((m) => m.role == 'user').last;
-    Object? apiUserContent;
+    _PreparedUserContent? preparedUserContent;
     final sendGen = ++_sendGen;
     setState(() => _preparingSend = true);
     try {
-      apiUserContent = await _prepareUserContent(text, lastUser.images);
+      preparedUserContent = await _prepareUserContent(text, lastUser.images);
       if (!mounted) return;
       if (sendGen != _sendGen || _convId != cid) return;
-      if (apiUserContent == null) {
+      if (preparedUserContent == null) {
         setState(() => _preparingSend = false);
         return;
       }
@@ -1211,7 +1218,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
     _retryHistory.add(_RetryEntry(text, lastUser.images));
     _retryIdx = _retryHistory.length - 1;
-    cp.updateMessageContent(cid, lastUser.id, text);
+    cp.updateMessageContent(
+      cid,
+      lastUser.id,
+      text,
+      modelContextContent: preparedUserContent.textContext,
+    );
     if (lastAssistant.isNotEmpty) {
       _thinkMap.remove(lastAssistant.last.id);
       cp.deleteMessage(cid, lastAssistant.last.id);
@@ -1229,7 +1241,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       _clearAbortedStreaming('重试准备完成后状态已失效', conversationId: cid);
       return;
     }
-    _doSend(model, lastUserContentOverride: apiUserContent);
+    _doSend(model, lastUserContentOverride: preparedUserContent.apiContent);
   }
 
   List<Map<String, dynamic>> _buildApiMessages(
@@ -1269,7 +1281,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       if (m.role == 'assistant' && m.content.isEmpty) continue;
       msgs.add({
         'role': m.role,
-        'content': i == lastUserIndex ? lastUserContentOverride : m.content,
+        'content': i == lastUserIndex
+            ? lastUserContentOverride
+            : (m.modelContextContent ?? m.content),
         if (m.role == 'assistant') 'reasoning_content': '',
       });
     }
@@ -1644,10 +1658,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final sendGen = ++_sendGen;
     setState(() => _preparingSend = true);
     try {
-      apiUserContent = await _prepareUserContent(
-        lastUser.content,
-        lastUser.images,
-      );
+      apiUserContent = await _retryUserContent(lastUser);
       if (!mounted) return;
       if (sendGen != _sendGen || _convId != cid) return;
       if (apiUserContent == null) {
@@ -1725,10 +1736,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       setState(() => _preparingSend = true);
       if (lastUser != null) {
         try {
-          apiUserContent = await _prepareUserContent(
-            lastUser.content,
-            lastUser.images,
-          );
+          apiUserContent = await _retryUserContent(lastUser);
           if (!mounted) return;
           if (sendGen != _sendGen || _convId != cid) return;
           if (apiUserContent == null) {
@@ -2304,7 +2312,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     }
   }
 
-  Future<Object?> _prepareUserContent(
+  Future<_PreparedUserContent?> _prepareUserContent(
     String text,
     List<MessageImage> files,
   ) async {
@@ -2319,7 +2327,16 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     }
   }
 
-  Future<Object> _buildUserContentWithFiles(
+  Future<Object?> _retryUserContent(Message message) async {
+    return retryUserContent(message, () async {
+      return (await _prepareUserContent(
+        message.content,
+        message.images,
+      ))?.apiContent;
+    });
+  }
+
+  Future<_PreparedUserContent> _buildUserContentWithFiles(
     String text,
     List<MessageImage> files,
   ) async {
@@ -2345,7 +2362,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         : '';
 
     final buffer = StringBuffer(text.trim());
-    if (files.isEmpty) return buffer.toString();
+    if (files.isEmpty) {
+      final content = buffer.toString();
+      return _PreparedUserContent(apiContent: content, textContext: content);
+    }
     if (buffer.isNotEmpty) buffer.writeln('\n');
     // C: only describe files still sent as raw multimodal inputs; recognized
     // images/files are replaced by their extracted text below with a clear
@@ -2371,7 +2391,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       buffer.writeln(recognizedParts.join('\n'));
     }
 
-    return _directModelContent(buffer.toString().trim(), directFiles);
+    final textContext = buffer.toString().trim();
+    return _PreparedUserContent(
+      apiContent: await _directModelContent(textContext, directFiles),
+      textContext: textContext,
+    );
   }
 
   bool _isReadableTextAttachment(MessageImage file) {
@@ -4441,8 +4465,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final origMsgIdx = allMsgs.indexWhere((m) => m.id == origMsg.id);
     if (origMsgIdx == -1) return;
     final sendGen = ++_sendGen;
-    final apiUserContent = await _prepareUserContent(newText, origMsg.images);
-    if (!mounted || apiUserContent == null) return;
+    final preparedUserContent = await _prepareUserContent(
+      newText,
+      origMsg.images,
+    );
+    if (!mounted || preparedUserContent == null) return;
     if (sendGen != _sendGen || _convId != sourceCid) return;
     _clearRetryState();
     _pendingModelId = null;
@@ -4455,11 +4482,18 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         newConvId,
         allMsgs[i].role,
         allMsgs[i].content,
+        modelContextContent: allMsgs[i].modelContextContent,
         images: allMsgs[i].images,
         thinkingContent: allMsgs[i].thinkingContent,
       );
     }
-    cp.addMessage(newConvId, 'user', newText, images: origMsg.images);
+    cp.addMessage(
+      newConvId,
+      'user',
+      newText,
+      modelContextContent: preparedUserContent.textContext,
+      images: origMsg.images,
+    );
     setState(() {
       _convId = newConvId;
       _clearPendingState();
@@ -4473,7 +4507,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       _clearAbortedStreaming('编辑消息新建对话后状态已失效', conversationId: newConvId);
       return;
     }
-    _doSend(editModel, lastUserContentOverride: apiUserContent);
+    _doSend(editModel, lastUserContentOverride: preparedUserContent.apiContent);
   }
 
   Widget _inputArea(ModelConfig? model, ModelConfigProvider mp) {
@@ -5471,6 +5505,27 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       ],
     ),
   );
+}
+
+@visibleForTesting
+Future<Object?> retryUserContent(
+  Message message,
+  Future<Object?> Function() prepareAttachments,
+) {
+  if (message.images.isEmpty) {
+    return Future.value(message.modelContextContent ?? message.content);
+  }
+  return prepareAttachments();
+}
+
+class _PreparedUserContent {
+  const _PreparedUserContent({
+    required this.apiContent,
+    required this.textContext,
+  });
+
+  final Object apiContent;
+  final String textContext;
 }
 
 ModelConfig? _findModelConfigById(List<ModelConfig> models, String id) {

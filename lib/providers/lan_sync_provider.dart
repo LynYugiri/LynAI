@@ -4,19 +4,24 @@ import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../models/lan_peer.dart';
+import '../models/sync_data_selection.dart';
 import '../repositories/lan_peer_repository.dart';
 import '../services/lan_mdns_service.dart';
+import '../services/lan_device_profile_service.dart';
 import '../services/lan_sync_coordinator.dart';
 import '../services/lan_secret_transfer_service.dart';
+import '../services/storage_v2_database.dart';
 
 class LanSyncProvider extends ChangeNotifier {
   LanSyncProvider({
     required LanSyncCoordinator coordinator,
     required LanPeerRepository peerRepository,
     required LanMdnsService mdnsService,
+    required LanDeviceProfileService deviceProfileService,
   }) : _coordinator = coordinator,
        _peerRepository = peerRepository,
-       _mdnsService = mdnsService {
+       _mdnsService = mdnsService,
+       _deviceProfileService = deviceProfileService {
     _discoverySubscription = _mdnsService.peers.listen((peers) {
       if (_disposed) return;
       _discoveredPeers = peers;
@@ -34,6 +39,7 @@ class LanSyncProvider extends ChangeNotifier {
   final LanSyncCoordinator _coordinator;
   final LanPeerRepository _peerRepository;
   final LanMdnsService _mdnsService;
+  final LanDeviceProfileService _deviceProfileService;
   StreamSubscription<List<LanDiscoveredPeer>>? _discoverySubscription;
   StreamSubscription<List<LanSecretTransferRequest>>?
   _secretRequestSubscription;
@@ -47,6 +53,8 @@ class LanSyncProvider extends ChangeNotifier {
   DateTime? _lastSyncAt;
   List<LanSecretTransferRequest> _secretRequests = const [];
   bool _disposed = false;
+  String _deviceName = '';
+  List<SyncConflictEntry> _conflicts = const [];
 
   List<LanPeer> get peers => _peers;
   List<LanDiscoveredPeer> get discoveredPeers => _discoveredPeers;
@@ -56,43 +64,80 @@ class LanSyncProvider extends ChangeNotifier {
   String? get notice => _notice;
   DateTime? get lastSyncAt => _lastSyncAt;
   List<LanSecretTransferRequest> get secretRequests => _secretRequests;
+  String get deviceName => _deviceName;
+  List<SyncConflictEntry> get conflicts => _conflicts;
 
   set confirmPairing(LanPairingConfirmation confirmation) {
     _coordinator.confirmPairing = confirmation;
   }
 
+  set confirmPolicyProposal(LanPolicyConfirmation confirmation) {
+    _coordinator.confirmPolicyProposal = confirmation;
+  }
+
   Future<void> initialize() async {
+    _deviceName = await _deviceProfileService.displayName();
     _peers = await _peerRepository.loadPeers();
+    _conflicts = await _coordinator.loadConflicts();
     if (!_disposed) notifyListeners();
   }
 
   Future<String?> showPairingQr() => _runResult(() async {
-    await _coordinator.startHost();
+    await _coordinator.startHost(displayName: _deviceName);
     _hosting = true;
     return _coordinator.createPairingPayload();
   });
 
-  Future<void> startDiscovery() => _run(() async {
-    if (!await _ensureLanPermission()) return;
-    await _mdnsService.discover();
+  Future<void> resumeHosting() => _run(() async {
+    _deviceName = await _deviceProfileService.displayName();
+    await _coordinator.startHost(displayName: _deviceName);
+    _hosting = true;
   });
 
-  Future<void> pair(String payload) => _run(() async {
-    final result = await _coordinator.pair(payload);
-    await initialize();
-    if (result.synced) {
-      _lastSyncAt = DateTime.now();
-      _notice = '配对成功，已完成首次双向同步。';
-    } else {
-      _notice = '配对成功，但首次同步失败，可稍后在已发现设备中重试：${result.syncError}';
+  Future<void> pauseHosting() => _run(() async {
+    await _coordinator.stopHost();
+    _hosting = false;
+  });
+
+  Future<void> updateDeviceName(String value) => _run(() async {
+    _deviceName = await _deviceProfileService.updateDisplayName(value);
+    if (_hosting) {
+      await _coordinator.stopHost();
+      await _coordinator.startHost(displayName: _deviceName);
     }
+  });
+
+  Future<void> startDiscovery() => _run(() async {
+    if (!await _ensureLanPermission()) return;
+    final identity = await _coordinator.identityService.initialize();
+    await _mdnsService.discover(localDeviceId: identity.deviceId);
+  });
+
+  Future<LanPairingResult?> pair(
+    String payload, {
+    SyncDataSelection proposedSelection = SyncDataSelection.defaults,
+  }) => _runResult(() async {
+    final result = await _coordinator.pair(
+      payload,
+      proposedSelection: proposedSelection,
+    );
+    await initialize();
+    _notice = '配对成功。可立即同步，也可稍后从已发现设备发起。';
+    return result;
   });
 
   Future<void> sync(LanDiscoveredPeer peer) => _run(() async {
     if (!await _ensureLanPermission()) return;
     await _coordinator.syncPeer(peer);
     _lastSyncAt = DateTime.now();
+    _conflicts = await _coordinator.loadConflicts();
   });
+
+  Future<void> resolveConflict(int seq, SyncConflictResolution resolution) =>
+      _run(() async {
+        await _coordinator.resolveConflict(seq, resolution);
+        _conflicts = await _coordinator.loadConflicts();
+      });
 
   Future<void> requestSecretTransfer(
     LanDiscoveredPeer peer, {
@@ -139,6 +184,35 @@ class LanSyncProvider extends ChangeNotifier {
   Future<void> revoke(String deviceId) => _run(() async {
     await _peerRepository.revokePeer(deviceId);
     await initialize();
+  });
+
+  Future<void> updateSyncSelection(
+    LanPeer peer,
+    SyncDataSelection proposedSelection,
+  ) => _run(() async {
+    final reduced = peer.syncSelection.intersect(proposedSelection);
+    await _peerRepository.updateSyncSelection(peer.deviceId, reduced);
+    await initialize();
+    if (proposedSelection.isSubsetOf(peer.syncSelection)) {
+      _notice = '同步范围已缩减。';
+      return;
+    }
+    final discovered = _discoveredPeers
+        .where((item) => item.deviceId == peer.deviceId)
+        .firstOrNull;
+    if (discovered == null) {
+      _notice = '缩减已生效；新增类别可在设备可发现后重试并由对方确认。';
+      return;
+    }
+    final accepted = await _coordinator.proposeSyncSelection(
+      discovered,
+      proposedSelection,
+    );
+    await _peerRepository.updateSyncSelection(peer.deviceId, accepted);
+    await initialize();
+    _notice = accepted.hasSameCategories(proposedSelection)
+        ? '双方已同意新的同步范围。'
+        : '对方仅接受了部分新增类别。';
   });
 
   Future<void> _run(Future<void> Function() action) async {

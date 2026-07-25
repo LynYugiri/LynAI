@@ -92,6 +92,7 @@ class ConversationRepository {
               id: messageId,
               role: raw['role'] as String,
               content: raw['content'] as String? ?? '',
+              modelContextContent: raw['modelContextContent'] as String?,
               images: attachmentsByMessageId[messageId] ?? const [],
               thinkingContent: raw['thinkingContent'] as String?,
               agentTrace: raw['agentTrace'] is Map
@@ -184,6 +185,8 @@ class ConversationRepository {
           'conversationId': conversation.id,
           'role': message.role,
           'content': message.content,
+          if (message.modelContextContent != null)
+            'modelContextContent': message.modelContextContent,
           if (message.thinkingContent != null &&
               message.thinkingContent!.isNotEmpty)
             'thinkingContent': message.thinkingContent,
@@ -197,16 +200,18 @@ class ConversationRepository {
         });
         for (var j = 0; j < message.images.length; j++) {
           final image = message.images[j];
-          final resource = await _storageV2.importResourceFile(
-            image.path,
-            originalName: image.name,
-            mimeType: image.mimeType,
-            role: image.isImage ? 'message_image' : 'message_attachment',
-          );
+          final resource = image.path.isEmpty
+              ? null
+              : await _storageV2.importResourceFile(
+                  image.path,
+                  originalName: image.name,
+                  mimeType: image.mimeType,
+                  role: image.isImage ? 'message_image' : 'message_attachment',
+                );
           attachments.add({
             'id': '${message.id}_attachment_$j',
             'messageId': message.id,
-            'resourceId': resource.id,
+            if (resource != null) 'resourceId': resource.id,
             'displayName': image.name,
             'mimeType': image.mimeType,
             'size': image.size,

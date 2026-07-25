@@ -10,6 +10,7 @@ import '../models/conversation.dart';
 import '../models/note.dart';
 import '../models/plugin.dart';
 import '../models/roleplay.dart';
+import '../models/sync_data_selection.dart';
 import '../models/task.dart';
 import '../models/task_list.dart';
 import '../providers/calendar_provider.dart';
@@ -477,6 +478,7 @@ class _CloudDataView extends StatelessWidget {
   Widget build(BuildContext context) {
     final account = context.watch<AccountProvider>();
     final cloud = context.watch<CloudDataProvider>();
+    final sync = context.watch<SyncProvider>();
     final status = cloud.snapshot.status;
     return ListView(
       key: const ValueKey('cloud-data-management'),
@@ -512,6 +514,8 @@ class _CloudDataView extends StatelessWidget {
               ? null
               : () => onPreviewPurge(const CloudPurgeSelector.all()),
         ),
+        const SizedBox(height: 12),
+        _CloudSyncSelectionCard(sync: sync),
         if (cloud.error case final error?) ...[
           const SizedBox(height: 8),
           Text(
@@ -542,6 +546,56 @@ class _CloudDataView extends StatelessWidget {
       ],
     );
   }
+}
+
+class _CloudSyncSelectionCard extends StatelessWidget {
+  const _CloudSyncSelectionCard({required this.sync});
+
+  final SyncProvider sync;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Text(
+              '本设备同步内容',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Text(
+              '选择仅作用于当前设备和账号。关闭不会删除云端已有数据。',
+              style: TextStyle(color: Theme.of(context).colorScheme.outline),
+            ),
+          ),
+          for (final category in SyncDataCategory.values)
+            SwitchListTile(
+              value: sync.selection.contains(category),
+              onChanged: sync.scope == null || sync.syncing
+                  ? null
+                  : (enabled) => sync.updateSelection(
+                      sync.selection.copyWithCategory(
+                        category,
+                        enabled: enabled,
+                      ),
+                    ),
+              title: Text(_syncDataCategoryLabel(category)),
+              subtitle: category == SyncDataCategory.staticResources
+                  ? const Text('对话附件和背景等原始文件。关闭时仍同步附件占位和已识别的隐藏文本上下文。')
+                  : category == SyncDataCategory.models
+                  ? const Text('还需在各 Provider 中单独开启非秘密配置同步。')
+                  : null,
+            ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _CloudStatusCard extends StatelessWidget {
@@ -889,6 +943,18 @@ String _categoryLabel(String category) => switch (category) {
   'models' => '模型配置',
   'plugins' => '插件',
   _ => category,
+};
+
+String _syncDataCategoryLabel(SyncDataCategory category) => switch (category) {
+  SyncDataCategory.conversations => '对话',
+  SyncDataCategory.notes => '笔记',
+  SyncDataCategory.tasks => '任务',
+  SyncDataCategory.calendar => '日历',
+  SyncDataCategory.roleplay => '情景演绎',
+  SyncDataCategory.settings => '设置',
+  SyncDataCategory.models => '模型配置',
+  SyncDataCategory.plugins => '插件',
+  SyncDataCategory.staticResources => '静态资源',
 };
 
 String _formatBytes(int bytes) {
