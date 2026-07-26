@@ -16,6 +16,7 @@ class SettingsProvider extends ChangeNotifier {
   AppSettings _settings = AppSettings.defaults();
   Future<void> _saveQueue = Future.value();
   Future<void> _pendingSave = Future.value();
+  int _mutationGeneration = 0;
   final SettingsRepository _repository;
   bool _usingStorageV2 = false;
 
@@ -94,7 +95,10 @@ class SettingsProvider extends ChangeNotifier {
   /// 角色和提示词的单条坏数据由 [AppSettings.fromJson] 跳过；分区加载失败
   /// 会保留当前内存状态并向启动流程传播。
   Future<void> loadSettings() async {
+    final generation = _mutationGeneration;
+    await flushPendingSaves();
     final result = await _repository.load(_settings);
+    if (generation != _mutationGeneration) return;
     _settings = result.settings;
     _usingStorageV2 = result.usingStorageV2;
     notifyListeners();
@@ -176,6 +180,7 @@ class SettingsProvider extends ChangeNotifier {
 
   /// 将设置快照排入保存队列。
   Future<void> _queueSaveSettings() {
+    _mutationGeneration++;
     final snapshot = _settings;
     final operation = _saveQueue.then(
       (_) => _repository.save(snapshot, usingStorageV2: _usingStorageV2),

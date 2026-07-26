@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/sync_change.dart';
 import 'package:lynai/models/sync_data_selection.dart';
 import 'package:lynai/providers/sync_provider.dart';
+import 'package:lynai/services/remote_apply_coordinator.dart';
 import 'package:lynai/services/storage_v2_database.dart';
 import 'package:lynai/services/sync_service.dart';
 
@@ -378,6 +379,93 @@ void main() {
       ]);
 
       expect(service.maxActiveCalls, 1);
+    });
+
+    test(
+      'cloud network download does not wait for the local commit gate',
+      () async {
+        final coordinator = RemoteApplyCoordinator();
+        final releaseGate = Completer<void>();
+        final gateHeld = Completer<void>();
+        final blocker = coordinator.run(() async {
+          gateHeld.complete();
+          await releaseGate.future;
+        });
+        await gateHeld.future;
+        final downloadResult = Completer<SyncDownloadResult>();
+        final service = _BlockingSyncService(downloadResult.future);
+        final provider = SyncProvider(
+          service: service,
+          storage: _FakeSyncStorage(),
+          remoteApplyCoordinator: coordinator,
+        );
+        releaseGate.complete();
+        await blocker;
+        await provider.bindScope('user-1');
+
+        final secondRelease = Completer<void>();
+        final secondHeld = Completer<void>();
+        final secondBlocker = coordinator.run(() async {
+          secondHeld.complete();
+          await secondRelease.future;
+        });
+        await secondHeld.future;
+        final sync = provider.manualSync();
+
+        await service.requestStarted.future;
+        downloadResult.complete(
+          const SyncDownloadResult(
+            changes: [],
+            latestSeq: 0,
+            hasMore: false,
+            nextSince: 0,
+          ),
+        );
+        secondRelease.complete();
+        await secondBlocker;
+        expect(await sync, isTrue);
+      },
+    );
+
+    test('conflict resolution waits for the local commit gate', () async {
+      final coordinator = RemoteApplyCoordinator();
+      final storage = _FakeSyncStorage(
+        conflicts: const [
+          SyncConflictEntry(
+            seq: 1,
+            table: 'conversations',
+            recordId: 'c1',
+            localOp: 'upsert',
+            localData: {'id': 'c1'},
+            remoteOp: 'delete',
+            remoteData: null,
+          ),
+        ],
+      );
+      final provider = SyncProvider(
+        service: _FakeSyncService(),
+        storage: storage,
+        remoteApplyCoordinator: coordinator,
+      );
+      await provider.bindScope('user-1');
+      final releaseGate = Completer<void>();
+      final gateHeld = Completer<void>();
+      final blocker = coordinator.run(() async {
+        gateHeld.complete();
+        await releaseGate.future;
+      });
+      await gateHeld.future;
+
+      final resolution = provider.resolveConflict(
+        1,
+        SyncConflictResolution.keepLocal,
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(storage.resolvedConflicts, isEmpty);
+      releaseGate.complete();
+      await blocker;
+      await resolution;
+      expect(storage.resolvedConflicts, [1]);
     });
 
     test('does not run queued work or notify after dispose', () async {
@@ -1115,6 +1203,7 @@ class _FakeSyncStorage implements SyncStorage, SyncSelectionDataStorage {
     this.resourceBlobReaders = const {},
     this.hashMismatch = false,
     this.acknowledgeConflict = false,
+    this.conflicts = const [],
   }) : outbox = List.of(outbox);
 
   final Map<String, int> sinceByScope = {};
@@ -1128,6 +1217,7 @@ class _FakeSyncStorage implements SyncStorage, SyncSelectionDataStorage {
   final Map<String, Future<List<int>> Function()> resourceBlobReaders;
   final bool hashMismatch;
   final bool acknowledgeConflict;
+  final List<SyncConflictEntry> conflicts;
   final Set<String> localHashes = {};
   final List<String> installedHashes = [];
   final List<SyncRemoteOperation> appliedOps = [];
@@ -1140,6 +1230,7 @@ class _FakeSyncStorage implements SyncStorage, SyncSelectionDataStorage {
   int maxLoadedOutbox = 0;
   int materializeCalls = 0;
   int loadOutboxCalls = 0;
+  final List<int> resolvedConflicts = [];
   SyncDataSelection selection = SyncDataSelection.all;
 
   @override
@@ -1216,14 +1307,17 @@ class _FakeSyncStorage implements SyncStorage, SyncSelectionDataStorage {
   ) async => data ?? selectionHints['$table\u0000$recordId'];
 
   @override
-  Future<List<SyncConflictEntry>> loadConflicts(String scope) async => const [];
+  Future<List<SyncConflictEntry>> loadConflicts(String scope) async =>
+      conflicts;
 
   @override
   Future<void> resolveConflict(
     String scope,
     int seq,
     SyncConflictResolution resolution,
-  ) async {}
+  ) async {
+    resolvedConflicts.add(seq);
+  }
 
   @override
   Future<bool> acknowledgeOutbox(

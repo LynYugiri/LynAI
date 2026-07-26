@@ -37,3 +37,12 @@ abstract class AccountService {
   /// 页面据此决定显示真实登录表单还是「未连接后端」提示。
   bool get isBackendConnected;
 }
+
+/// 支持将本地会话恢复与远端用户刷新拆分执行的账号服务。
+abstract interface class AccountSessionRecovery {
+  /// 仅从本地持久化恢复会话，不请求后端。
+  Future<AuthSession?> restoreLocalSession();
+
+  /// 刷新当前会话的远端用户信息。
+  Future<AccountUser?> refreshCurrentSession();
+}

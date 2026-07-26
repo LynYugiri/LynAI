@@ -40,6 +40,7 @@ class RoleplayProvider extends ChangeNotifier {
   final _uuid = const Uuid();
   Future<void> _saveQueue = Future.value();
   Future<void> _pendingSave = Future.value();
+  int _mutationGeneration = 0;
   List<RoleplayScenario> _scenarios = [];
   List<RoleplayThread> _threads = [];
   bool _usingStorageV2 = false;
@@ -68,7 +69,10 @@ class RoleplayProvider extends ChangeNotifier {
       );
 
   Future<void> loadSessions() async {
+    final generation = _mutationGeneration;
+    await flushPendingSaves();
     final result = await _repository.load();
+    if (generation != _mutationGeneration) return;
     _scenarios = List<RoleplayScenario>.from(result.scenarios);
     _threads = List<RoleplayThread>.from(result.threads);
     _usingStorageV2 = result.usingStorageV2;
@@ -729,6 +733,7 @@ class RoleplayProvider extends ChangeNotifier {
   }
 
   Future<void> _queueSave() {
+    _mutationGeneration++;
     final scenarios = List<RoleplayScenario>.from(_scenarios);
     final threads = List<RoleplayThread>.from(_threads);
     final operation = _saveQueue.then(

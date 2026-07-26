@@ -47,18 +47,22 @@ void main() {
       expect(notifyCount, greaterThanOrEqualTo(2));
     });
 
-    test('enrollment completes before session sync callback', () async {
+    test('login binds local session before background activation', () async {
       final calls = <String>[];
+      final activated = Completer<void>();
       final provider = AccountProvider(
         service: _MockAccountService(),
         afterAuthenticated: () async => calls.add('enroll'),
         onSessionChanged: (user) async {
-          if (user != null) calls.add('sync');
+          if (user != null) calls.add('bind');
         },
+        onRemoteActivation: (_) async => activated.complete(),
       );
 
       expect(await provider.login('13800001111', 'password'), isTrue);
-      expect(calls, ['enroll', 'sync']);
+      expect(calls.first, 'bind');
+      await activated.future;
+      expect(calls, ['bind', 'enroll']);
     });
 
     test(
@@ -89,6 +93,73 @@ void main() {
 
       expect(provider.isLoggedIn, isFalse);
       expect(provider.user, isNull);
+    });
+
+    test('local session restore does not wait for remote refresh', () async {
+      final service = _SplitRecoveryAccountService();
+      final provider = AccountProvider(service: service);
+
+      await provider.restoreLocalSession();
+
+      expect(provider.user?.displayName, 'Cached');
+      expect(service.refreshCalls, 0);
+    });
+
+    test('refresh updates the restored user', () async {
+      final service = _SplitRecoveryAccountService();
+      final provider = AccountProvider(service: service);
+      await provider.restoreLocalSession();
+
+      service.refreshResult.complete(
+        const AccountUser(
+          id: '1',
+          phone: '13800001111',
+          displayName: 'Current',
+          isAdmin: true,
+        ),
+      );
+      await provider.refreshCurrentSession();
+
+      expect(provider.user?.displayName, 'Current');
+      expect(provider.user?.isAdmin, isTrue);
+      expect(service.refreshCalls, 1);
+    });
+
+    test('stale refresh cannot overwrite a new login session', () async {
+      final service = _SplitRecoveryAccountService();
+      final provider = AccountProvider(service: service);
+      await provider.restoreLocalSession();
+
+      final refresh = provider.refreshCurrentSession();
+      await service.refreshStarted.future;
+      expect(await provider.login('13900002222', 'password'), isTrue);
+      service.refreshResult.complete(
+        const AccountUser(id: '1', phone: '13800001111', displayName: 'Stale'),
+      );
+      await refresh;
+
+      expect(provider.user?.phone, '13900002222');
+      expect(provider.user?.displayName, 'Logged In');
+    });
+
+    test('dispose prevents an in-flight restore from publishing', () async {
+      final service = _DelayedRestoreAccountService();
+      var sessionCallbacks = 0;
+      final provider = AccountProvider(
+        service: service,
+        onSessionChanged: (_) async => sessionCallbacks++,
+      );
+      var notifyCount = 0;
+      provider.addListener(() => notifyCount++);
+
+      final restore = provider.restoreLocalSession();
+      await service.restoreStarted.future;
+      provider.dispose();
+      service.restoreResult.complete(_cachedSession());
+
+      await restore;
+      expect(notifyCount, 0);
+      expect(sessionCallbacks, 0);
     });
 
     test('register sets user', () async {
@@ -149,32 +220,48 @@ void main() {
       releaseCallback.complete();
 
       expect(await login, isFalse);
-      expect(afterAuthenticatedCalls, 1);
+      expect(afterAuthenticatedCalls, 0);
       expect(provider.user, isNull);
     });
 
-    test(
-      'login invalidated during authenticated callback reports failure',
-      () async {
-        final callbackStarted = Completer<void>();
-        final releaseCallback = Completer<void>();
-        final provider = AccountProvider(
-          service: _MockAccountService(),
-          afterAuthenticated: () async {
-            callbackStarted.complete();
-            await releaseCallback.future;
-          },
-        );
+    test('login does not wait for remote activation', () async {
+      final activationStarted = Completer<void>();
+      final releaseActivation = Completer<void>();
+      final provider = AccountProvider(
+        service: _MockAccountService(),
+        afterAuthenticated: () async {
+          activationStarted.complete();
+          await releaseActivation.future;
+        },
+      );
 
-        final login = provider.login('13800001111', 'password');
-        await callbackStarted.future;
-        await provider.logout();
-        releaseCallback.complete();
+      expect(await provider.login('13800001111', 'password'), isTrue);
+      await activationStarted.future;
+      expect(provider.isLoggedIn, isTrue);
+      releaseActivation.complete();
+    });
 
-        expect(await login, isFalse);
-        expect(provider.user, isNull);
-      },
-    );
+    test('current session activation is single-flight', () async {
+      final activationStarted = Completer<void>();
+      final releaseActivation = Completer<void>();
+      var activationCalls = 0;
+      final provider = AccountProvider(
+        service: _MockAccountService(),
+        afterAuthenticated: () async {
+          activationCalls++;
+          activationStarted.complete();
+          await releaseActivation.future;
+        },
+      );
+      expect(await provider.login('13800001111', 'password'), isTrue);
+      await activationStarted.future;
+
+      final duplicate = provider.activateCurrentSession();
+      expect(activationCalls, 1);
+      releaseActivation.complete();
+      await duplicate;
+      expect(activationCalls, 1);
+    });
 
     test('clearError clears error and notifies', () async {
       final provider = AccountProvider(service: _ThrowingAccountService());
@@ -549,6 +636,49 @@ void main() {
       client.dispose();
     });
 
+    test('provider logout awaits one session changed callback', () async {
+      final client = BackendClient(
+        client: _AccountClient((request) async {
+          if (request.url.path.endsWith('/auth/login')) {
+            return _jsonResponse(200, _sessionJson());
+          }
+          if (request.url.path.endsWith('/auth/revoke')) {
+            return _jsonResponse(200, const {});
+          }
+          return _jsonResponse(404, {'error': 'not found'});
+        }),
+      )..configure('https://example.com');
+      final callbackStarted = Completer<void>();
+      final releaseCallback = Completer<void>();
+      var logoutCallbacks = 0;
+      final provider = AccountProvider(
+        backend: client,
+        secretStore: InMemorySecretStore(),
+        onSessionChanged: (user) async {
+          if (user != null) return;
+          logoutCallbacks++;
+          callbackStarted.complete();
+          await releaseCallback.future;
+        },
+      );
+      expect(await provider.login('13800001111', 'password'), isTrue);
+
+      var completed = false;
+      final logout = provider.logout().whenComplete(() => completed = true);
+      await callbackStarted.future;
+
+      expect(logoutCallbacks, 1);
+      expect(completed, isFalse);
+      expect(provider.user, isNull);
+      expect(provider.loading, isFalse);
+
+      releaseCallback.complete();
+      await logout;
+      expect(logoutCallbacks, 1);
+      expect(completed, isTrue);
+      client.dispose();
+    });
+
     test('same origin path prefixes do not share stored sessions', () async {
       final client = BackendClient(
         client: _AccountClient((request) async {
@@ -820,6 +950,14 @@ Map<String, dynamic> _sessionJson() => {
   'token': {'accessToken': 'initial-access', 'refreshToken': 'initial-refresh'},
 };
 
+AuthSession _cachedSession() => const AuthSession(
+  user: AccountUser(id: '1', phone: '13800001111', displayName: 'Cached'),
+  token: AuthToken(
+    accessToken: 'cached-access',
+    refreshToken: 'cached-refresh',
+  ),
+);
+
 http.StreamedResponse _jsonResponse(int statusCode, Map<String, dynamic> body) {
   final encoded = utf8.encode(jsonEncode(body));
   return http.StreamedResponse(
@@ -951,4 +1089,89 @@ class _DelayedAccountService implements AccountService {
 
   @override
   Future<AuthSession?> loadStoredSession() async => null;
+}
+
+class _SplitRecoveryAccountService
+    implements AccountService, AccountSessionRecovery {
+  final refreshStarted = Completer<void>();
+  final refreshResult = Completer<AccountUser?>();
+  int refreshCalls = 0;
+
+  @override
+  bool get isBackendConnected => true;
+
+  @override
+  Future<AuthSession?> loadStoredSession() async => _cachedSession();
+
+  @override
+  Future<AuthSession?> restoreLocalSession() => loadStoredSession();
+
+  @override
+  Future<AccountUser?> getCurrentUser() => refreshCurrentSession();
+
+  @override
+  Future<AccountUser?> refreshCurrentSession() {
+    refreshCalls++;
+    if (!refreshStarted.isCompleted) refreshStarted.complete();
+    return refreshResult.future;
+  }
+
+  @override
+  Future<AuthSession> login({
+    required String username,
+    required String password,
+  }) async => AuthSession(
+    user: AccountUser(id: '2', phone: username, displayName: 'Logged In'),
+    token: const AuthToken(accessToken: 'new-access'),
+  );
+
+  @override
+  Future<AuthSession> register({
+    required String username,
+    required String password,
+    String? displayName,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<void> logout() async {}
+}
+
+class _DelayedRestoreAccountService
+    implements AccountService, AccountSessionRecovery {
+  final restoreStarted = Completer<void>();
+  final restoreResult = Completer<AuthSession?>();
+
+  @override
+  bool get isBackendConnected => true;
+
+  @override
+  Future<AuthSession?> loadStoredSession() {
+    restoreStarted.complete();
+    return restoreResult.future;
+  }
+
+  @override
+  Future<AccountUser?> getCurrentUser() async => null;
+
+  @override
+  Future<AuthSession?> restoreLocalSession() => loadStoredSession();
+
+  @override
+  Future<AccountUser?> refreshCurrentSession() async => null;
+
+  @override
+  Future<AuthSession> login({
+    required String username,
+    required String password,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<AuthSession> register({
+    required String username,
+    required String password,
+    String? displayName,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<void> logout() async {}
 }

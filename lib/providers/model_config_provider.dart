@@ -19,6 +19,7 @@ class ModelConfigProvider extends ChangeNotifier {
   final _uuid = const Uuid();
   Future<void> _saveQueue = Future.value();
   Future<void> _pendingSave = Future.value();
+  int _mutationGeneration = 0;
   final ModelConfigRepository _repository;
   bool _usingStorageV2 = false;
   final Map<String, String> _pendingManagedModelIdMigrations = {};
@@ -96,13 +97,16 @@ class ModelConfigProvider extends ChangeNotifier {
 
   /// 从本地 repository 加载模型配置，单条坏配置会被跳过。
   Future<void> loadModels() async {
+    final generation = _mutationGeneration;
+    await flushPendingSaves();
     final result = await _repository.load();
+    if (generation != _mutationGeneration) return;
     _models = List<ModelConfig>.from(result.models)..sort(_compareModels);
     _usingStorageV2 = result.usingStorageV2;
     _pendingManagedModelIdMigrations.addAll(
       result.pendingManagedModelIdMigrations,
     );
-    if (_normalizeManagedIds()) await _queueSaveModels();
+    if (_normalizeManagedIds()) await _queueSaveModels(mutation: false);
     notifyListeners();
   }
 
@@ -133,7 +137,11 @@ class ModelConfigProvider extends ChangeNotifier {
   }
 
   /// 把当前模型配置快照排入保存队列。
-  Future<void> _queueSaveModels({Map<String, String>? pendingMigrations}) {
+  Future<void> _queueSaveModels({
+    Map<String, String>? pendingMigrations,
+    bool mutation = true,
+  }) {
+    if (mutation) _mutationGeneration++;
     final snapshot = List<ModelConfig>.from(_models);
     final migrationSnapshot = Map<String, String>.from(
       pendingMigrations ?? _pendingManagedModelIdMigrations,

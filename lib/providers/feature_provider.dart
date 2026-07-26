@@ -15,6 +15,7 @@ class FeatureProvider extends ChangeNotifier {
   final _uuid = const Uuid();
   Future<void> _notesDataSaveQueue = Future.value();
   Future<void> _pendingNotesDataSave = Future.value();
+  int _mutationGeneration = 0;
 
   List<Note> _notes = [];
   List<NoteRevision> _noteRevisions = [];
@@ -149,6 +150,7 @@ class FeatureProvider extends ChangeNotifier {
     required List<NoteRevision> noteRevisions,
     required List<NoteEditProposal> noteEditProposals,
   }) async {
+    _mutationGeneration++;
     if (!_usingStorageV2) {
       await replaceFeatureData(
         noteFolders: noteFolders,
@@ -234,6 +236,9 @@ class FeatureProvider extends ChangeNotifier {
     List<Note>? notes,
     List<NoteRevision>? noteRevisions,
   }) async {
+    if (noteFolders != null || notes != null || noteRevisions != null) {
+      _mutationGeneration++;
+    }
     final storageV2Active = await _storageV2ActiveForSave();
     final saveTasks = <Future<void>>[];
     if (noteFolders != null) {
@@ -263,7 +268,10 @@ class FeatureProvider extends ChangeNotifier {
   }
 
   Future<void> load() async {
+    final generation = _mutationGeneration;
+    await flushPendingSaves();
     final result = await _repository.load();
+    if (generation != _mutationGeneration) return;
     _notes = List<Note>.from(result.notes);
     _noteFolders = List<NoteFolder>.from(result.noteFolders);
     _notePageTombstones = result.pageTombstones
@@ -352,12 +360,14 @@ class FeatureProvider extends ChangeNotifier {
           break;
         }
       }
-      if (page != null) await reconcileNotePageHeads(page.noteId, page.id);
+      if (page != null) {
+        await reconcileNotePageHeads(page.noteId, page.id, mutation: false);
+      }
     }
     final normalizedRevisions = _normalizeNoteRevisionState();
     final cleanedFolderRefs = _removeMissingNoteFolderReferences();
     if (normalizedRevisions || cleanedFolderRefs) {
-      await _persistStorageV2NotesData();
+      await _persistStorageV2NotesData(mutation: false);
     }
     notifyListeners();
   }
@@ -402,6 +412,7 @@ class FeatureProvider extends ChangeNotifier {
     final page = pages[pageIndex];
     final index = _notes.indexWhere((note) => note.id == noteId);
     if (index == -1) return;
+    _mutationGeneration++;
     final content = await _repository.readNotePage(page);
     _activeStorageV2PageIds[noteId] = page.id;
     _notes[index] = _notes[index].copyWith(
@@ -418,6 +429,7 @@ class FeatureProvider extends ChangeNotifier {
     if (!_usingStorageV2) return null;
     final note = getNote(noteId);
     if (note == null) return null;
+    _mutationGeneration++;
     final pages = _storageV2PagesByNoteId[noteId] ??= [];
     final usedFileNames = pages.map((page) => page.fileName).toSet();
     final base = safeExportFileName(title, fallback: 'page');
@@ -467,6 +479,7 @@ class FeatureProvider extends ChangeNotifier {
     if (pages == null) return;
     final index = pages.indexWhere((page) => page.id == pageId);
     if (index == -1) return;
+    _mutationGeneration++;
     final page = pages[index];
     pages[index] = StorageV2NotePage(
       id: page.id,
@@ -491,6 +504,7 @@ class FeatureProvider extends ChangeNotifier {
     if (index == -1) return false;
     final target = (index + delta).clamp(0, pages.length - 1);
     if (target == index) return false;
+    _mutationGeneration++;
     final page = pages.removeAt(index);
     pages.insert(target, page);
     _renumberNotePages(pages);
@@ -505,6 +519,7 @@ class FeatureProvider extends ChangeNotifier {
     if (pages == null || pages.length <= 1) return false;
     final index = pages.indexWhere((page) => page.id == pageId);
     if (index == -1) return false;
+    _mutationGeneration++;
     final removed = pages.removeAt(index);
     final pageContent = await _repository.readNotePage(removed);
     await _recycleBinRepository.add(
@@ -717,8 +732,9 @@ class FeatureProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> _persistStorageV2NotesData() async {
+  Future<void> _persistStorageV2NotesData({bool mutation = true}) async {
     if (!_usingStorageV2) return;
+    if (mutation) _mutationGeneration++;
     final proposalRows = <Map<String, dynamic>>[];
     final proposalBlockRows = <Map<String, dynamic>>[];
     for (final proposal in _noteEditProposals.values) {
@@ -830,6 +846,7 @@ class FeatureProvider extends ChangeNotifier {
     String content, {
     String? folderId,
   }) async {
+    _mutationGeneration++;
     final now = DateTime.now();
     final initialRevision = content.isEmpty
         ? null
@@ -1109,6 +1126,7 @@ class FeatureProvider extends ChangeNotifier {
     if (activePageId != null && _notePageConflicts.containsKey(activePageId)) {
       throw StateError('当前分页存在未解决冲突，请先完成合并');
     }
+    _mutationGeneration++;
     final currentParentRevision = note.currentRevisionId == null
         ? null
         : getNoteRevision(note.currentRevisionId!);
@@ -1246,10 +1264,12 @@ class FeatureProvider extends ChangeNotifier {
 
   Future<NoteRevision?> reconcileNotePageHeads(
     String noteId,
-    String pageId,
-  ) async {
+    String pageId, {
+    bool mutation = true,
+  }) async {
     final state = _notePageHeads[pageId];
     if (state == null || state.headIds.length < 2) return null;
+    if (mutation) _mutationGeneration++;
     final heads = state.headIds.toList()..sort();
     final existingConflict = _notePageConflicts[pageId];
     final oursId =
@@ -1266,7 +1286,14 @@ class FeatureProvider extends ChangeNotifier {
         : heads.firstWhere((id) => id != oursId);
     final ancestorId = _commonAncestor(oursId, theirsId);
     if (ancestorId == null) {
-      return await _recordPageConflict(pageId, heads, oursId, theirsId, null);
+      return await _recordPageConflict(
+        pageId,
+        heads,
+        oursId,
+        theirsId,
+        null,
+        mutation: mutation,
+      );
     }
     NoteMergeResult result;
     try {
@@ -1282,6 +1309,7 @@ class FeatureProvider extends ChangeNotifier {
         oursId,
         theirsId,
         ancestorId,
+        mutation: mutation,
       );
     }
     if (result.conflicted) {
@@ -1291,6 +1319,7 @@ class FeatureProvider extends ChangeNotifier {
         oursId,
         theirsId,
         ancestorId,
+        mutation: mutation,
       );
     }
     final content = result.content!;
@@ -1317,9 +1346,9 @@ class FeatureProvider extends ChangeNotifier {
       await _persistStorageV2CurrentPageContent(noteId, content, revision.id);
     }
     if ((_notePageHeads[pageId]?.headIds.length ?? 0) > 1) {
-      await reconcileNotePageHeads(noteId, pageId);
+      await reconcileNotePageHeads(noteId, pageId, mutation: mutation);
     }
-    await _persistStorageV2NotesData();
+    await _persistStorageV2NotesData(mutation: mutation);
     notifyListeners();
     return revision;
   }
@@ -1329,8 +1358,9 @@ class FeatureProvider extends ChangeNotifier {
     List<String> heads,
     String localHeadId,
     String incomingHeadId,
-    String? ancestorId,
-  ) async {
+    String? ancestorId, {
+    required bool mutation,
+  }) async {
     _notePageConflicts[pageId] = NotePageConflict(
       pageId: pageId,
       headIds: heads,
@@ -1339,7 +1369,7 @@ class FeatureProvider extends ChangeNotifier {
       commonAncestorId: ancestorId,
       createdAt: DateTime.now(),
     );
-    await _persistStorageV2NotesData();
+    await _persistStorageV2NotesData(mutation: mutation);
     notifyListeners();
     return null;
   }
@@ -1385,6 +1415,7 @@ class FeatureProvider extends ChangeNotifier {
         !state.headIds.contains(session.incomingHeadId)) {
       return const NotePageMergeCommitResult.staleHeads();
     }
+    _mutationGeneration++;
     final revision = NoteRevision(
       id: _uuid.v4(),
       noteId: session.noteId,
@@ -1463,6 +1494,7 @@ class FeatureProvider extends ChangeNotifier {
         _notePageConflicts.containsKey(activePageId)) {
       throw StateError('当前分页存在未解决冲突，请先完成合并');
     }
+    _mutationGeneration++;
     if (contentChanged) {
       _noteEditProposals.remove(_noteEditProposalKey(note.id));
     }
@@ -1489,6 +1521,7 @@ class FeatureProvider extends ChangeNotifier {
     }
     if (oldIndex < 0 || oldIndex >= indexes.length) return;
     if (newIndex < 0 || newIndex >= indexes.length) return;
+    _mutationGeneration++;
     final folderNotes = indexes.map((i) => _notes[i]).toList();
     final note = folderNotes.removeAt(oldIndex);
     folderNotes.insert(newIndex, note);
@@ -1502,6 +1535,7 @@ class FeatureProvider extends ChangeNotifier {
   Future<void> deleteNote(String id) async {
     final note = getNote(id);
     if (note == null) return;
+    _mutationGeneration++;
     final pages = List<StorageV2NotePage>.from(
       _storageV2PagesByNoteId[id] ?? const [],
     );
@@ -1657,6 +1691,7 @@ class FeatureProvider extends ChangeNotifier {
     if (revisionIds.any(currentPath.contains)) return false;
     final descendants = _collectRevisionDescendants(noteId, revisionIds);
     if (descendants.any(currentPath.contains)) return false;
+    _mutationGeneration++;
     final deletedRevisions = _noteRevisions
         .where((item) => item.noteId == noteId && descendants.contains(item.id))
         .toList(growable: false);
@@ -1670,6 +1705,7 @@ class FeatureProvider extends ChangeNotifier {
   }
 
   Future<void> setNoteEditProposal(NoteEditProposal proposal) async {
+    _mutationGeneration++;
     _noteEditProposals[_noteEditProposalKey(proposal.noteId, proposal.pageId)] =
         proposal;
     await _persistStorageV2NotesData();
@@ -1678,11 +1714,13 @@ class FeatureProvider extends ChangeNotifier {
 
   Future<void> removeNoteEditProposal(String noteId) async {
     if (_noteEditProposals.remove(_noteEditProposalKey(noteId)) == null) return;
+    _mutationGeneration++;
     await _persistStorageV2NotesData();
     notifyListeners();
   }
 
   Future<String> addNoteFolder(String title) async {
+    _mutationGeneration++;
     final now = DateTime.now();
     final folder = NoteFolder(
       id: _uuid.v4(),
@@ -1707,6 +1745,7 @@ class FeatureProvider extends ChangeNotifier {
   Future<void> updateNoteFolder(NoteFolder folder) async {
     final index = _noteFolders.indexWhere((f) => f.id == folder.id);
     if (index == -1) return;
+    _mutationGeneration++;
     _noteFolders[index] = folder;
     await _persistStorageV2NotesData();
     notifyListeners();
@@ -1715,6 +1754,7 @@ class FeatureProvider extends ChangeNotifier {
   Future<void> reorderNoteFolders(int oldIndex, int newIndex) async {
     if (oldIndex < 0 || oldIndex >= _noteFolders.length) return;
     if (newIndex < 0 || newIndex >= _noteFolders.length) return;
+    _mutationGeneration++;
     final folder = _noteFolders.removeAt(oldIndex);
     _noteFolders.insert(newIndex, folder);
     await _persistStorageV2NotesData();
@@ -1725,6 +1765,7 @@ class FeatureProvider extends ChangeNotifier {
     final before = _noteFolders.length;
     _noteFolders.removeWhere((f) => f.id == id);
     if (_noteFolders.length == before) return;
+    _mutationGeneration++;
     _notes = _notes
         .map(
           (note) => note.folderId == id ? note.copyWith(folderId: null) : note,
@@ -1739,6 +1780,7 @@ class FeatureProvider extends ChangeNotifier {
     if (noteRaw is! Map) return;
     final note = Note.fromJson(Map<String, dynamic>.from(noteRaw));
     if (_notes.any((item) => item.id == note.id)) return;
+    _mutationGeneration++;
     _notes.insert(0, note);
     final revisions = (payload['revisions'] as List<dynamic>? ?? const [])
         .whereType<Map>()
@@ -1798,6 +1840,7 @@ class FeatureProvider extends ChangeNotifier {
     if (!_notes.any((note) => note.id == page.noteId)) return;
     final pages = _storageV2PagesByNoteId[page.noteId] ??= [];
     if (pages.any((item) => item.id == page.id)) return;
+    _mutationGeneration++;
     pages.add(page);
     _notePageTombstones.removeWhere((item) => item['pageId'] == page.id);
     _renumberNotePages(pages);

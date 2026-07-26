@@ -13,6 +13,7 @@ class RecycleBinProvider extends ChangeNotifier {
   final RecycleBinRepository _repository;
   List<RecycleBinItem> _items = const [];
   bool _loading = false;
+  int _mutationGeneration = 0;
 
   List<RecycleBinItem> get items => List.unmodifiable(_items);
   bool get loading => _loading;
@@ -42,10 +43,13 @@ class RecycleBinProvider extends ChangeNotifier {
   }
 
   Future<void> load() async {
+    final generation = _mutationGeneration;
     _loading = true;
     notifyListeners();
     try {
-      _items = await _repository.load();
+      final items = await _repository.load();
+      if (generation != _mutationGeneration) return;
+      _items = items;
     } finally {
       _loading = false;
       notifyListeners();
@@ -53,17 +57,20 @@ class RecycleBinProvider extends ChangeNotifier {
   }
 
   Future<void> addItem(RecycleBinItem item) async {
+    _mutationGeneration++;
     await _repository.add(item);
     await load();
   }
 
   Future<void> deleteForever(String id) async {
+    _mutationGeneration++;
     await _repository.remove(id);
     _items = _items.where((item) => item.id != id).toList();
     notifyListeners();
   }
 
   Future<void> clear() async {
+    _mutationGeneration++;
     await _repository.save(const []);
     _items = const [];
     notifyListeners();

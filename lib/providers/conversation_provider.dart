@@ -41,6 +41,7 @@ class ConversationProvider extends ChangeNotifier {
   final _uuid = const Uuid();
   Future<void> _saveQueue = Future.value();
   Future<void> _pendingSave = Future.value();
+  int _mutationGeneration = 0;
   Timer? _saveDebounce;
   List<Conversation>? _pendingSaveSnapshot;
   static const _sentinel = Object();
@@ -78,7 +79,10 @@ class ConversationProvider extends ChangeNotifier {
   ///
   /// 单条损坏对话会被跳过；单条损坏消息由 [Conversation.fromJson] 跳过。
   Future<void> loadConversations() async {
+    final generation = _mutationGeneration;
+    await flushPendingSaves();
     final result = await _repository.load();
+    if (generation != _mutationGeneration) return;
     _conversations = List<Conversation>.from(result.conversations);
     _usingStorageV2 = result.usingStorageV2;
     notifyListeners();
@@ -86,6 +90,7 @@ class ConversationProvider extends ChangeNotifier {
 
   /// 把当前对话快照排入保存队列。
   void _queueSaveConversations({bool immediate = false}) {
+    _mutationGeneration++;
     _pendingSaveSnapshot = List<Conversation>.from(_conversations);
     if (immediate) {
       _enqueuePendingSave();

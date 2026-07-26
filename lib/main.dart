@@ -41,6 +41,7 @@ import 'services/lan_sync_coordinator.dart';
 import 'services/lan_sync_storage.dart';
 import 'services/lan_tls_certificate_service.dart';
 import 'services/lan_secret_transfer_service.dart';
+import 'services/remote_apply_coordinator.dart';
 import 'utils/changelog_parser.dart';
 import 'utils/flush_tasks.dart';
 import 'utils/managed_model_id_migration.dart';
@@ -113,6 +114,7 @@ Future<void> main() async {
           ),
         ),
         ChangeNotifierProvider(create: (_) => BackendClient()),
+        Provider(create: (_) => RemoteApplyCoordinator()),
         Provider(
           create: (ctx) => DeviceRegistrationService(
             backend: ctx.read<BackendClient>(),
@@ -185,6 +187,7 @@ Future<void> main() async {
             installPluginBlob: (hash, bytes) =>
                 ctx.read<PluginProvider>().installSyncBlob(hash, bytes),
             storage: StorageV2SyncStorage(ctx.read<StorageV2Service>()),
+            remoteApplyCoordinator: ctx.read<RemoteApplyCoordinator>(),
             beforeLocalSnapshot: () async {
               final conversations = ctx.read<ConversationProvider>();
               final features = ctx.read<FeatureProvider>();
@@ -405,6 +408,7 @@ Future<void> main() async {
               confirmPolicyProposal: (_, _, _) async => null,
               beforeRemoteApply: beforeRemoteApply,
               onRemoteApplied: onRemoteApplied,
+              remoteApplyCoordinator: ctx.read<RemoteApplyCoordinator>(),
             );
             return LanSyncProvider(
               coordinator: coordinator,
@@ -416,31 +420,39 @@ Future<void> main() async {
         ),
         ChangeNotifierProvider(
           create: (ctx) {
-            var enrollmentReady = false;
+            final registration = ctx.read<DeviceRegistrationService>();
+            final sync = ctx.read<SyncProvider>();
+            final cloud = ctx.read<CloudDataProvider>();
+            final models = ctx.read<ModelConfigProvider>();
+            final backend = ctx.read<BackendClient>();
+            final settings = ctx.read<SettingsProvider>();
+            final conversations = ctx.read<ConversationProvider>();
+            final roleplay = ctx.read<RoleplayProvider>();
+            final plugins = ctx.read<PluginProvider>();
             return AccountProvider(
-              backend: ctx.read<BackendClient>(),
+              backend: backend,
               secretStore: ctx.read<SecretStore>(),
-              afterAuthenticated: () async {
-                enrollmentReady = await ctx
-                    .read<DeviceRegistrationService>()
-                    .ensureEnrolled();
-                if (!enrollmentReady) {
-                  throw StateError('设备注册失败，云同步不可用');
-                }
-              },
               onSessionChanged: (user) async {
-                final sync = ctx.read<SyncProvider>();
-                final cloud = ctx.read<CloudDataProvider>();
                 final cloudBind = cloud.bind(user);
                 if (user == null) {
-                  enrollmentReady = false;
                   await sync.unbind();
                   await cloudBind;
                   return;
                 }
                 await sync.bindScope(user.id);
                 await cloudBind;
-                if (enrollmentReady) await sync.autoDownload();
+              },
+              onRemoteActivation: (user) async {
+                final enrolled = await registration.ensureEnrolled();
+                if (enrolled) await sync.autoDownload();
+                await syncManagedModelsAndApplyMigrations(
+                  models: models,
+                  backend: backend,
+                  settings: settings,
+                  conversations: conversations,
+                  roleplay: roleplay,
+                  plugins: plugins,
+                );
               },
             );
           },
@@ -494,6 +506,11 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   CalendarPlatformProjectionCoordinator? _calendarProjectionCoordinator;
   AccountProvider? _accountProvider;
   Future<void>? _criticalSaveFlush;
+  Future<void>? _loadDataFuture;
+  Future<void>? _backgroundStartupFuture;
+  Future<void>? _startupDialogsFuture;
+  Future<void>? _accountRestoreFuture;
+  bool _isForeground = true;
   final _navigatorKey = GlobalKey<NavigatorState>();
 
   @override
@@ -518,7 +535,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
     if (_lanSyncProvider == null) {
       try {
         _lanSyncProvider = context.read<LanSyncProvider>();
-        unawaited(_lanSyncProvider!.resumeHosting());
+        unawaited(_lanSyncProvider!.setHostingDesired(_isForeground));
       } on ProviderNotFoundException {
         // Focused widget tests may intentionally provide only the dependencies
         // exercised by the root application shell.
@@ -527,31 +544,21 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
     _calendarProjectionCoordinator ??= context
         .read<CalendarPlatformProjectionCoordinator>();
     _accountProvider ??= context.read<AccountProvider>();
-    if (_settingsProvider != null) {
-      FloatingAssistantService.instance.start(
-        settings: _settingsProvider!,
-        conversations: context.read<ConversationProvider>(),
-        models: context.read<ModelConfigProvider>(),
-        features: context.read<FeatureProvider>(),
-        tasks: context.read<TaskProvider>(),
-        calendar: context.read<CalendarProvider>(),
-        plugins: context.read<PluginProvider>(),
-        backend: context.read<BackendClient>(),
-      );
-    }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _isForeground = true;
       _accountProvider?.retryPendingRevocations();
-      unawaited(_lanSyncProvider?.resumeHosting());
+      unawaited(_lanSyncProvider?.setHostingDesired(true));
     }
     if (state
         case AppLifecycleState.inactive ||
             AppLifecycleState.paused ||
             AppLifecycleState.detached) {
-      unawaited(_lanSyncProvider?.pauseHosting());
+      _isForeground = false;
+      unawaited(_lanSyncProvider?.setHostingDesired(false));
       unawaited(_flushCriticalSaves());
     }
   }
@@ -602,7 +609,17 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   ///
   /// Provider 会自行处理单条坏数据；这里关心的是启动阶段是否完成，以及
   /// 模型配置变更后设置中的模型 ID 是否仍然有效。
-  Future<void> _loadData() async {
+  Future<void> _loadData() {
+    final active = _loadDataFuture;
+    if (active != null) return active;
+    late final Future<void> operation;
+    operation = _performLoadData().whenComplete(() {
+      if (identical(_loadDataFuture, operation)) _loadDataFuture = null;
+    });
+    return _loadDataFuture = operation;
+  }
+
+  Future<void> _performLoadData() async {
     if (!mounted) return;
     setState(() {
       _isLoading = true;
@@ -634,8 +651,6 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         modelProvider.loadModels(),
         settingsProvider.loadSettings(),
       ]);
-      await _calendarProjectionCoordinator?.syncAfterPersistence();
-
       await settingsProvider.initializeDefaultBackend(
         BackendClient.defaultBackendUrl,
       );
@@ -645,17 +660,25 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       backendClient.configure(settingsProvider.settings.backendUrl ?? '');
 
       await deviceIdentityService.initialize();
-      await accountProvider.load();
-      await syncManagedModelsAndApplyMigrations(
+      _accountRestoreFuture = accountProvider.restoreLocalSession();
+      await _accountRestoreFuture;
+      await applyPendingManagedModelIdMigrations(
         models: modelProvider,
-        backend: backendClient,
         settings: settingsProvider,
         conversations: conversationProvider,
         roleplay: roleplayProvider,
         plugins: pluginProvider,
       );
-
-      await _importBuiltInPlugins(pluginProvider);
+      FloatingAssistantService.instance.start(
+        settings: settingsProvider,
+        conversations: conversationProvider,
+        models: modelProvider,
+        features: featureProvider,
+        tasks: taskProvider,
+        calendar: calendarProvider,
+        plugins: pluginProvider,
+        backend: backendClient,
+      );
 
       if (mounted) {
         setState(() {
@@ -664,9 +687,11 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         });
       }
 
+      unawaited(_startBackgroundStartup());
+
       if (mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) unawaited(_runStartupDialogs());
+          if (mounted) _startupDialogsFuture ??= _runStartupDialogs();
         });
       }
     } catch (e) {
@@ -678,6 +703,24 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         });
       }
     }
+  }
+
+  Future<void> _startBackgroundStartup() {
+    return _backgroundStartupFuture ??= (() async {
+      try {
+        final plugins = context.read<PluginProvider>();
+        final account = context.read<AccountProvider>();
+        await _importBuiltInPlugins(plugins);
+        await _calendarProjectionCoordinator?.syncAfterPersistence();
+        await _lanSyncProvider?.markRuntimeReady();
+
+        await account.refreshCurrentSession();
+        if (!mounted) return;
+        await account.activateCurrentSession();
+      } catch (e) {
+        debugPrint('后台启动任务失败: $e');
+      }
+    })();
   }
 
   Future<void> _checkNewChangelog() async {
@@ -713,6 +756,8 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   }
 
   Future<void> _runStartupDialogs() async {
+    await _accountRestoreFuture;
+    if (!mounted) return;
     await _showInitialLoginDialogIfNeeded();
     if (!mounted) return;
     await _checkNewChangelog();

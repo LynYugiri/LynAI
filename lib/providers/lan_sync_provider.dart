@@ -12,6 +12,99 @@ import '../services/lan_sync_coordinator.dart';
 import '../services/lan_secret_transfer_service.dart';
 import '../services/storage_v2_database.dart';
 
+typedef LanHostingOperation = Future<void> Function();
+
+class LanHostingLifecycle {
+  LanHostingLifecycle({
+    required LanHostingOperation start,
+    required LanHostingOperation stop,
+    required LanHostingOperation close,
+    void Function(bool hosting)? onHostingChanged,
+  }) : _start = start,
+       _stop = stop,
+       _close = close,
+       _onHostingChanged = onHostingChanged;
+
+  final LanHostingOperation _start;
+  final LanHostingOperation _stop;
+  final LanHostingOperation _close;
+  final void Function(bool hosting)? _onHostingChanged;
+
+  Future<void> _queue = Future.value();
+  Future<void>? _closeFuture;
+  bool _ready = false;
+  bool _desired = false;
+  bool _hosting = false;
+  bool _closed = false;
+
+  bool get ready => _ready;
+  bool get desired => _desired;
+  bool get hosting => _hosting;
+
+  Future<void> markReady() {
+    if (_closed) return Future.value();
+    _ready = true;
+    return _scheduleReconcile();
+  }
+
+  Future<void> setDesired(bool desired) {
+    if (_closed) return Future.value();
+    _desired = desired;
+    return _scheduleReconcile();
+  }
+
+  Future<void> restart() {
+    if (_closed) return Future.value();
+    final operation = _queue.then((_) async {
+      if (_hosting) {
+        await _stop();
+        _setHosting(false);
+      }
+      await _reconcile();
+    });
+    _queue = operation.catchError((Object _) {});
+    return operation;
+  }
+
+  Future<void> _scheduleReconcile() {
+    final operation = _queue.then((_) => _reconcile());
+    _queue = operation.catchError((Object _) {});
+    return operation;
+  }
+
+  Future<void> _reconcile() async {
+    while (true) {
+      final shouldHost = _ready && _desired && !_closed;
+      if (_hosting == shouldHost) return;
+      if (shouldHost) {
+        await _start();
+        _setHosting(true);
+      } else {
+        await _stop();
+        _setHosting(false);
+      }
+    }
+  }
+
+  void _setHosting(bool value) {
+    _hosting = value;
+    _onHostingChanged?.call(value);
+  }
+
+  Future<void> close() => _closeFuture ??= _closeLifecycle();
+
+  Future<void> _closeLifecycle() async {
+    _desired = false;
+    _closed = true;
+    try {
+      await _queue;
+      await _reconcile();
+    } finally {
+      await _close();
+    }
+  }
+}
+
 class LanSyncProvider extends ChangeNotifier {
   LanSyncProvider({
     required LanSyncCoordinator coordinator,
@@ -22,6 +115,17 @@ class LanSyncProvider extends ChangeNotifier {
        _peerRepository = peerRepository,
        _mdnsService = mdnsService,
        _deviceProfileService = deviceProfileService {
+    _hostingLifecycle = LanHostingLifecycle(
+      start: () async {
+        _deviceName = await _deviceProfileService.displayName();
+        await _coordinator.startHost(displayName: _deviceName);
+      },
+      stop: _coordinator.stopHost,
+      close: _coordinator.close,
+      onHostingChanged: (_) {
+        if (!_disposed) notifyListeners();
+      },
+    );
     _discoverySubscription = _mdnsService.peers.listen((peers) {
       if (_disposed) return;
       _discoveredPeers = peers;
@@ -40,6 +144,7 @@ class LanSyncProvider extends ChangeNotifier {
   final LanPeerRepository _peerRepository;
   final LanMdnsService _mdnsService;
   final LanDeviceProfileService _deviceProfileService;
+  late final LanHostingLifecycle _hostingLifecycle;
   StreamSubscription<List<LanDiscoveredPeer>>? _discoverySubscription;
   StreamSubscription<List<LanSecretTransferRequest>>?
   _secretRequestSubscription;
@@ -47,7 +152,6 @@ class LanSyncProvider extends ChangeNotifier {
   List<LanPeer> _peers = const [];
   List<LanDiscoveredPeer> _discoveredPeers = const [];
   bool _busy = false;
-  bool _hosting = false;
   String? _error;
   String? _notice;
   DateTime? _lastSyncAt;
@@ -59,7 +163,9 @@ class LanSyncProvider extends ChangeNotifier {
   List<LanPeer> get peers => _peers;
   List<LanDiscoveredPeer> get discoveredPeers => _discoveredPeers;
   bool get busy => _busy;
-  bool get hosting => _hosting;
+  bool get hosting => _hostingLifecycle.hosting;
+  bool get hostingDesired => _hostingLifecycle.desired;
+  bool get runtimeReady => _hostingLifecycle.ready;
   String? get error => _error;
   String? get notice => _notice;
   DateTime? get lastSyncAt => _lastSyncAt;
@@ -83,28 +189,23 @@ class LanSyncProvider extends ChangeNotifier {
   }
 
   Future<String?> showPairingQr() => _runResult(() async {
-    await _coordinator.startHost(displayName: _deviceName);
-    _hosting = true;
+    await resumeHosting();
+    if (!hosting) throw StateError('LAN runtime is not ready');
     return _coordinator.createPairingPayload();
   });
 
-  Future<void> resumeHosting() => _run(() async {
-    _deviceName = await _deviceProfileService.displayName();
-    await _coordinator.startHost(displayName: _deviceName);
-    _hosting = true;
-  });
+  Future<void> markRuntimeReady() => _runHosting(_hostingLifecycle.markReady);
 
-  Future<void> pauseHosting() => _run(() async {
-    await _coordinator.stopHost();
-    _hosting = false;
-  });
+  Future<void> setHostingDesired(bool desired) =>
+      _runHosting(() => _hostingLifecycle.setDesired(desired));
+
+  Future<void> resumeHosting() => setHostingDesired(true);
+
+  Future<void> pauseHosting() => setHostingDesired(false);
 
   Future<void> updateDeviceName(String value) => _run(() async {
     _deviceName = await _deviceProfileService.updateDisplayName(value);
-    if (_hosting) {
-      await _coordinator.stopHost();
-      await _coordinator.startHost(displayName: _deviceName);
-    }
+    if (hosting) await _hostingLifecycle.restart();
   });
 
   Future<void> startDiscovery() => _run(() async {
@@ -231,6 +332,18 @@ class LanSyncProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> _runHosting(Future<void> Function() action) async {
+    if (_disposed) return;
+    _error = null;
+    try {
+      await action();
+    } catch (error) {
+      _error = '$error';
+    } finally {
+      if (!_disposed) notifyListeners();
+    }
+  }
+
   Future<T?> _runResult<T>(Future<T> Function() action) async {
     T? result;
     await _run(() async => result = await action());
@@ -243,7 +356,7 @@ class LanSyncProvider extends ChangeNotifier {
     _disposed = true;
     unawaited(_discoverySubscription?.cancel());
     unawaited(_secretRequestSubscription?.cancel());
-    unawaited(_coordinator.close());
+    unawaited(_hostingLifecycle.close());
     super.dispose();
   }
 }

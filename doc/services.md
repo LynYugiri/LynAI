@@ -271,9 +271,13 @@ Subagent 适合 QQ/消息应用这类流程：主 Agent 只描述目标，Subage
 | `logout()` | 登出当前用户，清理本地凭证。 |
 | `getCurrentUser()` | 获取当前登录用户，未登录返回 null。 |
 | `loadStoredSession()` | 从本地持久化加载会话状态（启动时调用）。 |
+| `AccountSessionRecovery.restoreLocalSession()` | 只恢复本地 token 和缓存用户，不访问网络。 |
+| `AccountSessionRecovery.refreshCurrentSession()` | 单独刷新 `/auth/me`，临时失败保留缓存会话。 |
 | `isBackendConnected` | 当前服务是否已连接到真实后端。 |
 
-账号服务通过 `RemoteAccountService` 访问配置的后端 `/auth/*` 端点；未配置后端地址时 `AccountProvider` 不创建账号服务，登录/注册返回「未连接后端」。`RemoteAccountService` 在启动时先恢复本地 user/token，再通过 `GET /auth/me` 更新用户资料和 `isAdmin`；access token 过期时复用 `BackendClient` 的 401-refresh-retry。网络错误、5xx 和 refresh 403 保留缓存会话，只有 refresh 明确返回 401 或刷新后 `/auth/me` 仍返回 401 时清除会话。后端轮换 refresh token 后，新 token pair 会立即覆盖安全存储。登出撤销队列记录规范化完整 Base URL，并向原 path prefix 下的 `/auth/revoke` 重试。
+账号服务通过 `RemoteAccountService` 访问配置的后端 `/auth/*` 端点；未配置后端地址时 `AccountProvider` 不创建账号服务，登录/注册返回「未连接后端」。启动时先用 `restoreLocalSession()` 恢复本地 user/token，完成本地同步 scope 绑定后即可进入 Home；`GET /auth/me` 由后台 `refreshCurrentSession()` 更新用户资料和 `isAdmin`。access token 过期时复用 `BackendClient` 的 401-refresh-retry。网络错误、5xx 和 refresh 403 保留缓存会话，只有 refresh 明确返回 401 或刷新后 `/auth/me` 仍返回 401 时清除会话。后端轮换 refresh token 后，新 token pair 会立即覆盖安全存储。显式登出只触发一次可等待的本地 session 解绑；撤销队列记录规范化完整 Base URL，并向原 path prefix 下的 `/auth/revoke` 后台重试。
+
+`RemoteApplyCoordinator` 是云同步和 LAN 同步共享的进程内本地提交门。它不串行网络认证和传输，只保证会修改 storage_v2、插件文件、Provider 内存、模型迁移和平台投影的提交阶段不会交错；前一操作失败后尾链仍可继续执行。
 
 数据模型定义在 `lib/models/account.dart`：`AccountUser` 承载用户可见的展示信息，`AuthToken` 承载后端返回的访问令牌，`AuthSession` 组合两者。
 

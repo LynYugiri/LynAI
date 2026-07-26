@@ -39,18 +39,21 @@ main()
   -> 注册 SettingsProvider
   -> StorageV2UpgradeService.ensureReady()
   -> 并行加载对话、笔记、规范任务、规范日历、插件、回收站、情景演绎、模型、设置
-  -> 同步托管模型并精确迁移旧模型 ID
   -> 根据设置配置 BackendClient
   -> 初始化并校验设备 Ed25519 身份
-  -> 从安全存储恢复账号令牌并绑定账号同步作用域
-  -> 若已登录则拉取业务增量并同步 LynAI 托管 Provider
-  -> 同步内置插件
-  -> 合并任务与日历快照并同步 Android 平台投影
+  -> 从安全存储恢复本地账号令牌、缓存用户并绑定本地同步作用域
+  -> 应用待处理的本地托管模型 ID 迁移
   -> 构建 MaterialApp / HomePage
+  -> 后台刷新账号、注册设备并执行云端双向同步
+  -> 后台同步托管模型和内置插件
+  -> 后台合并任务与日历快照并同步 Android 平台投影
+  -> 本地维护完成后开放 LAN hosting
   -> 检查更新日志
 ```
 
-启动加载由 `LynAIApp` 控制。加载中显示启动页；分区级加载失败会保留 Provider 原有内存状态、向上抛出并显示可重试错误页，不再把失败误写成空列表或默认设置。可独立解析的单条损坏数据仍会被跳过。`DeviceIdentityService.initialize()` 在账号加载前创建或校验安装级 Ed25519 身份。`AccountProvider.load()` 在 `BackendClient` 按保存的后端地址配置完成后恢复登录会话；账号令牌按规范化完整 Base URL（含 path prefix）保存在 `SecretStore`，SharedPreferences 只保留同作用域的用户元数据。恢复后通过 `/auth/me` 刷新用户和管理员状态，临时网络或服务端错误不清除缓存会话。若恢复出 access token，`DeviceRegistrationService` 会尝试幂等设备注册；同一后端、用户和 session 的成功结果在进程内复用，并合并并发注册请求，离线或旧后端失败不会阻塞启动。业务增量同步与托管模型同步随后执行。
+启动加载由 `LynAIApp` 控制。启动页只等待 storage_v2、本地 Provider、后端配置、本地缓存会话和同步作用域准备完成；分区级加载失败会保留 Provider 原有内存状态、向上抛出并显示可重试错误页，不再把失败误写成空列表或默认设置。可独立解析的单条损坏数据仍会被跳过。账号令牌按规范化完整 Base URL（含 path prefix）保存在 `SecretStore`，SharedPreferences 只保留同作用域的用户元数据。缓存 user/token 和本地云作用域恢复完成后即可进入 Home，避免把 `/auth/me`、设备注册、Blob 传输或完整双向同步放在启动关键路径。进入 Home 后后台刷新用户和管理员状态；临时网络或服务端错误不清除缓存会话，明确 401 才解绑当前会话。设备注册、自动云同步、托管模型、内置插件和 Android 平台投影均为后台维护，失败通过各 Provider 状态或日志暴露，不会退回启动错误页。LAN hosting 先记录生命周期期望，只有本地维护完成后才开放，避免入站写入与首次加载交错。
+
+云同步与 LAN 同步使用共享的远端提交协调器串行修改本地权威数据。协调区覆盖受影响 Provider flush、storage_v2 apply、插件和笔记 materialization、Provider reload、模型 ID 迁移及平台投影；网络传输仍使用各自队列。会被远端重载的 Provider 使用 mutation generation 丢弃晚到的旧 repository 读取，防止用户在后台同步期间的本地编辑被陈旧 load 覆盖。
 
 共享设置和用户 Provider 配置使用独立逻辑同步域：`shared_settings/app-settings` 保存 `SharedSettingsV1` 投影，`synced_model_configs/<providerId>` 保存用户明确选择同步的 `SyncedModelConfigV1`。本地保存先生成投影 diff，再写持久化 Outbox；远端应用仍经过同一按记录 conflict 队列。应用完成后重新加载各 Provider、刷新服务端托管 Relay 配置，并按同步产生的一次性 `oldId -> newId` 映射依次迁移 Settings、Conversation 和 Roleplay 后持久化。该迁移只替换精确命中的 ID，不选择 fallback，也不改写历史快照的模型名、提示词、消息或其他字段。背景图只同步 storage_v2 resource ID 与 content-addressed blob，不同步设备路径。
 

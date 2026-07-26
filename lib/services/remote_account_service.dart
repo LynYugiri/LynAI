@@ -10,7 +10,7 @@ import 'backend_uri.dart';
 import 'secret_store.dart';
 
 /// Connects account operations and protected session storage to the backend.
-class RemoteAccountService implements AccountService {
+class RemoteAccountService implements AccountService, AccountSessionRecovery {
   static const _sessionKey = 'lynai_account_session';
   static const accessTokenSecretKey = 'account.access_token';
   static const refreshTokenSecretKey = 'account.refresh_token';
@@ -19,7 +19,7 @@ class RemoteAccountService implements AccountService {
   RemoteAccountService(
     this._client, {
     required SecretStore secretStore,
-    void Function()? onSessionInvalidated,
+    Future<void> Function()? onSessionInvalidated,
   }) : _secretStore = secretStore,
        _onSessionInvalidated = onSessionInvalidated {
     _client.onTokensRefreshed = _saveRefreshedTokens;
@@ -28,7 +28,7 @@ class RemoteAccountService implements AccountService {
 
   final BackendClient _client;
   final SecretStore _secretStore;
-  final void Function()? _onSessionInvalidated;
+  final Future<void> Function()? _onSessionInvalidated;
   Future<void> _credentialStoreTail = Future.value();
   Future<void> _revocationStoreTail = Future.value();
   Future<void>? _revocationRetry;
@@ -117,13 +117,22 @@ class RemoteAccountService implements AccountService {
   }
 
   @override
-  Future<AccountUser?> getCurrentUser() async {
+  Future<AuthSession?> restoreLocalSession() => loadStoredSession();
+
+  @override
+  Future<AccountUser?> getCurrentUser() => refreshCurrentSession();
+
+  @override
+  Future<AccountUser?> refreshCurrentSession() async {
     final session = await loadStoredSession();
     if (session == null) return null;
+    final generation = _authGeneration;
     final scope = _client.backendScope;
-    final accessToken = _client.accessToken;
     try {
       final response = await _client.get('/auth/me');
+      if (generation != _authGeneration || _client.backendScope != scope) {
+        return null;
+      }
       if (response.statusCode == 200) {
         final decoded = Map<String, dynamic>.from(
           jsonDecode(response.body) as Map,
@@ -141,13 +150,15 @@ class RemoteAccountService implements AccountService {
             expiresAt: session.token.expiresAt,
           ),
         );
-        await _saveSession(refreshedSession, scope: scope);
+        final saved = await _saveSession(
+          refreshedSession,
+          scope: scope,
+          generation: generation,
+        );
+        if (!saved || generation != _authGeneration) return null;
         return user;
       }
-      if (response.statusCode == 401 &&
-          (_client.accessToken == null ||
-              _client.refreshToken == null ||
-              _client.accessToken != accessToken)) {
+      if (response.statusCode == 401) {
         await _invalidateSession(scope);
         return null;
       }
@@ -248,12 +259,12 @@ class RemoteAccountService implements AccountService {
     final scope = _client.backendScope;
     final refreshToken = _client.refreshToken;
     _client.clearTokens();
-    _onSessionInvalidated?.call();
     await _clearStoredSession(scope: scope, notify: false);
     if (scope.isNotEmpty && refreshToken != null && refreshToken.isNotEmpty) {
       await _enqueueRevocation(scope, refreshToken);
       unawaited(retryPendingRevocations());
     }
+    await _onSessionInvalidated?.call();
   }
 
   Future<bool> _saveSession(
@@ -310,10 +321,12 @@ class RemoteAccountService implements AccountService {
   });
 
   Future<void> _clearSession(String scope) async {
+    _authGeneration++;
     await _clearStoredSession(scope: scope, notify: true);
   }
 
   Future<void> _invalidateSession(String scope) async {
+    _authGeneration++;
     _client.clearTokens();
     await _clearStoredSession(scope: scope, notify: true);
   }
@@ -321,14 +334,16 @@ class RemoteAccountService implements AccountService {
   Future<void> _clearStoredSession({
     required String scope,
     required bool notify,
-  }) => _serializeCredentialStore(() async {
-    if (notify) _onSessionInvalidated?.call();
-    if (scope.isEmpty) return;
-    await _secretStore.delete(accessTokenKeyForScope(scope));
-    await _secretStore.delete(refreshTokenKeyForScope(scope));
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_sessionKeyForScope(scope));
-  });
+  }) async {
+    await _serializeCredentialStore(() async {
+      if (scope.isEmpty) return;
+      await _secretStore.delete(accessTokenKeyForScope(scope));
+      await _secretStore.delete(refreshTokenKeyForScope(scope));
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_sessionKeyForScope(scope));
+    });
+    if (notify) await _onSessionInvalidated?.call();
+  }
 
   /// Retries revocations retained exclusively in protected storage.
   Future<void> retryPendingRevocations() {

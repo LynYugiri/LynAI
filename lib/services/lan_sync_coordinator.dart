@@ -19,6 +19,7 @@ import 'plugin_sync_validation.dart';
 import 'lan_secure_transport.dart';
 import 'lan_secret_transfer_service.dart';
 import 'lan_sync_storage.dart';
+import 'remote_apply_coordinator.dart';
 import 'lan_tls_certificate_service.dart';
 import 'storage_v2_database.dart';
 
@@ -77,8 +78,11 @@ class LanSyncCoordinator {
     required this.readModels,
     this.beforeRemoteApply,
     this.onRemoteApplied,
+    RemoteApplyCoordinator? remoteApplyCoordinator,
     LanPairingPayloadCodec? payloadCodec,
-  }) : payloadCodec = payloadCodec ?? LanPairingPayloadCodec(),
+  }) : remoteApplyCoordinator =
+           remoteApplyCoordinator ?? RemoteApplyCoordinator(),
+       payloadCodec = payloadCodec ?? LanPairingPayloadCodec(),
        proofService = LanPeerProofService(identityService);
 
   final DeviceIdentityService identityService;
@@ -93,6 +97,7 @@ class LanSyncCoordinator {
   final LanModelReader readModels;
   final Future<void> Function()? beforeRemoteApply;
   final Future<void> Function()? onRemoteApplied;
+  final RemoteApplyCoordinator remoteApplyCoordinator;
   final LanPairingPayloadCodec payloadCodec;
   final LanPeerProofService proofService;
 
@@ -238,13 +243,11 @@ class LanSyncCoordinator {
   Future<List<SyncConflictEntry>> loadConflicts() =>
       syncStorage.loadConflicts();
 
-  Future<void> resolveConflict(
-    int seq,
-    SyncConflictResolution resolution,
-  ) async {
-    await syncStorage.resolveConflict(seq, resolution);
-    await onRemoteApplied?.call();
-  }
+  Future<void> resolveConflict(int seq, SyncConflictResolution resolution) =>
+      remoteApplyCoordinator.run(() async {
+        await syncStorage.resolveConflict(seq, resolution);
+        await onRemoteApplied?.call();
+      });
 
   Future<SyncDataSelection> proposeSyncSelection(
     LanDiscoveredPeer discovered,
@@ -1478,18 +1481,20 @@ class LanSyncCoordinator {
           'LAN transfer ended before all requested blobs arrived',
         );
       }
-      for (final hash in requested) {
-        await syncStorage.installBlob(
-          hash,
-          kinds[hash]!,
-          await stagedFiles[hash]!.readAsBytes(),
-        );
-      }
-      if (changes.isNotEmpty) {
-        await beforeRemoteApply?.call();
-        await syncStorage.apply(changes);
-        await onRemoteApplied?.call();
-      }
+      await remoteApplyCoordinator.run(() async {
+        for (final hash in requested) {
+          await syncStorage.installBlob(
+            hash,
+            kinds[hash]!,
+            await stagedFiles[hash]!.readAsBytes(),
+          );
+        }
+        if (changes.isNotEmpty) {
+          await beforeRemoteApply?.call();
+          await syncStorage.apply(changes);
+          await onRemoteApplied?.call();
+        }
+      });
     } finally {
       activeDigestInput?.close();
       await activeFile?.close();

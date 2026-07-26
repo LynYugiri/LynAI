@@ -5,20 +5,126 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/app_settings.dart';
 import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/model_config.dart';
+import 'package:lynai/models/recycle_bin_item.dart';
 import 'package:lynai/models/roleplay.dart';
 import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
+import 'package:lynai/providers/recycle_bin_provider.dart';
 import 'package:lynai/providers/roleplay_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/repositories/conversation_repository.dart';
 import 'package:lynai/repositories/feature_repository.dart';
 import 'package:lynai/repositories/model_config_repository.dart';
+import 'package:lynai/repositories/recycle_bin_repository.dart';
 import 'package:lynai/repositories/roleplay_repository.dart';
 import 'package:lynai/repositories/settings_repository.dart';
 import 'package:lynai/services/storage_v2_service.dart';
 
 void main() {
+  test('conversation mutation wins over an older blocked load', () async {
+    final repository = _BlockedConversationRepository();
+    final provider = ConversationProvider(repository: repository);
+
+    final load = provider.loadConversations();
+    await repository.loadStarted.future;
+    provider.createConversation(ConversationSettings(modelId: 'model'));
+    await provider.flushPendingSaves();
+    repository.allowLoad.complete();
+    await load;
+
+    expect(provider.conversations, hasLength(1));
+  });
+
+  test('settings mutation wins over an older blocked load', () async {
+    final repository = _BlockedSettingsRepository();
+    final provider = SettingsProvider(repository: repository);
+
+    final load = provider.loadSettings();
+    await repository.loadStarted.future;
+    provider.setLastFeature('notes');
+    await provider.flushPendingSaves();
+    repository.allowLoad.complete();
+    await load;
+
+    expect(provider.settings.lastFeature, 'notes');
+  });
+
+  test('model mutation wins over an older blocked load', () async {
+    final repository = _BlockedModelRepository();
+    final provider = ModelConfigProvider(repository: repository);
+
+    final load = provider.loadModels();
+    await repository.loadStarted.future;
+    provider.addModel(_model('local'));
+    await provider.flushPendingSaves();
+    repository.allowLoad.complete();
+    await load;
+
+    expect(provider.models.single.id, 'local');
+  });
+
+  test('roleplay mutation wins over an older blocked load', () async {
+    final repository = _BlockedRoleplayRepository();
+    final provider = RoleplayProvider(repository: repository);
+
+    final load = provider.loadSessions();
+    await repository.loadStarted.future;
+    provider.createScenario(
+      title: 'local',
+      scenario: 'body',
+      director: const RoleplayDirector(),
+      defaultPlayer: const RoleplayParticipant(
+        id: 'player',
+        name: 'Player',
+        systemPrompt: '',
+      ),
+      defaultParticipants: const [],
+    );
+    await provider.flushPendingSaves();
+    repository.allowLoad.complete();
+    await load;
+
+    expect(provider.scenarios.single.title, 'local');
+  });
+
+  test('feature mutation wins over an older blocked load', () async {
+    final repository = _BlockedFeatureRepository();
+    final provider = FeatureProvider(repository: repository);
+    await provider.load();
+    repository.blockNextLoad = true;
+
+    final load = provider.load();
+    await repository.loadStarted.future;
+    await provider.addNoteWithContent('local', 'body');
+    repository.allowLoad.complete();
+    await load;
+
+    expect(provider.notes.single.title, 'local');
+  });
+
+  test('recycle bin mutation wins over an older blocked load', () async {
+    final item = RecycleBinItem(
+      id: 'item',
+      owner: RecycleBinOwners.core,
+      category: RecycleBinCategories.notes,
+      type: RecycleBinItemTypes.note,
+      title: 'stale',
+    );
+    final repository = _BlockedRecycleBinRepository(item);
+    final provider = RecycleBinProvider(repository: repository);
+    await provider.load();
+    repository.blockNextLoad = true;
+
+    final load = provider.load();
+    await repository.loadStarted.future;
+    await provider.deleteForever(item.id);
+    repository.allowLoad.complete();
+    await load;
+
+    expect(provider.items, isEmpty);
+  });
+
   test(
     'top-level load failures preserve provider memory and propagate',
     () async {
@@ -374,6 +480,156 @@ class _FeatureRepository implements FeatureRepository {
   Future<void> saveStorageV2NotesData(Map<String, dynamic> data) async {
     if (!saveStarted.isCompleted) saveStarted.complete();
     await allowSave.future;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _BlockedConversationRepository implements ConversationRepository {
+  final loadStarted = Completer<void>();
+  final allowLoad = Completer<void>();
+
+  @override
+  Future<ConversationLoadResult> load() async {
+    loadStarted.complete();
+    await allowLoad.future;
+    return const ConversationLoadResult(
+      conversations: [],
+      usingStorageV2: true,
+    );
+  }
+
+  @override
+  Future<void> save(
+    List<Conversation> conversations, {
+    required bool usingStorageV2,
+  }) async {}
+}
+
+class _BlockedSettingsRepository implements SettingsRepository {
+  final loadStarted = Completer<void>();
+  final allowLoad = Completer<void>();
+
+  @override
+  Future<SettingsLoadResult> load(AppSettings fallback) async {
+    loadStarted.complete();
+    await allowLoad.future;
+    return SettingsLoadResult(
+      settings: AppSettings.defaults(),
+      usingStorageV2: true,
+    );
+  }
+
+  @override
+  Future<void> save(
+    AppSettings settings, {
+    required bool usingStorageV2,
+  }) async {}
+}
+
+class _BlockedModelRepository implements ModelConfigRepository {
+  final loadStarted = Completer<void>();
+  final allowLoad = Completer<void>();
+
+  @override
+  Future<ModelConfigLoadResult> load() async {
+    loadStarted.complete();
+    await allowLoad.future;
+    return const ModelConfigLoadResult(models: [], usingStorageV2: true);
+  }
+
+  @override
+  Future<void> save(
+    List<ModelConfig> models, {
+    required bool usingStorageV2,
+    Map<String, String> pendingManagedModelIdMigrations = const {},
+  }) async {}
+}
+
+class _BlockedRoleplayRepository implements RoleplayRepository {
+  final loadStarted = Completer<void>();
+  final allowLoad = Completer<void>();
+
+  @override
+  Future<RoleplayLoadResult> load() async {
+    loadStarted.complete();
+    await allowLoad.future;
+    return const RoleplayLoadResult(
+      scenarios: [],
+      threads: [],
+      usingStorageV2: true,
+    );
+  }
+
+  @override
+  Future<void> save({
+    required List<RoleplayScenario> scenarios,
+    required List<RoleplayThread> threads,
+    required bool usingStorageV2,
+  }) async {}
+}
+
+class _BlockedFeatureRepository implements FeatureRepository {
+  bool blockNextLoad = false;
+  final loadStarted = Completer<void>();
+  final allowLoad = Completer<void>();
+
+  @override
+  Future<FeatureLoadResult> load() async {
+    if (blockNextLoad) {
+      loadStarted.complete();
+      await allowLoad.future;
+    }
+    return const FeatureLoadResult(
+      notes: [],
+      noteFolders: [],
+      noteRevisions: [],
+      noteEditProposals: [],
+      pagesByNoteId: {},
+      activePageIds: {},
+      revisionContents: {},
+      pageHeads: {},
+      pageTombstones: [],
+      pageConflicts: {},
+      usingStorageV2: true,
+    );
+  }
+
+  @override
+  Future<String> storeNoteBlob(String content) async => 'hash';
+
+  @override
+  Future<void> writeNotePage(StorageV2NotePage page, String content) async {}
+
+  @override
+  Future<void> saveStorageV2NotesData(Map<String, dynamic> data) async {}
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _BlockedRecycleBinRepository implements RecycleBinRepository {
+  _BlockedRecycleBinRepository(RecycleBinItem item) : _items = [item];
+
+  List<RecycleBinItem> _items;
+  bool blockNextLoad = false;
+  final loadStarted = Completer<void>();
+  final allowLoad = Completer<void>();
+
+  @override
+  Future<List<RecycleBinItem>> load() async {
+    final snapshot = List<RecycleBinItem>.from(_items);
+    if (blockNextLoad) {
+      loadStarted.complete();
+      await allowLoad.future;
+    }
+    return snapshot;
+  }
+
+  @override
+  Future<void> remove(String id) async {
+    _items = _items.where((item) => item.id != id).toList();
   }
 
   @override

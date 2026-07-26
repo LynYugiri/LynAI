@@ -8,6 +8,7 @@ import '../services/backend_client.dart';
 import '../services/device_identity_service.dart';
 import '../services/device_registration_service.dart';
 import '../services/plugin_sync_validation.dart';
+import '../services/remote_apply_coordinator.dart';
 import '../services/storage_v2_database.dart';
 import '../services/storage_v2_service.dart';
 import '../services/sync_service.dart';
@@ -305,6 +306,7 @@ class SyncProvider extends ChangeNotifier {
     Future<void> Function(String hash, List<int> bytes)? installPluginBlob,
     Future<bool> Function(String changeId)? shouldApplyRemoteChange,
     Future<void> Function(Iterable<String> changeIds)? remoteChangesApplied,
+    RemoteApplyCoordinator? remoteApplyCoordinator,
   }) : _backend = backend,
        _injectedService = service,
        _storage = storage ?? StorageV2SyncStorage(StorageV2Service()),
@@ -318,6 +320,7 @@ class SyncProvider extends ChangeNotifier {
        _installPluginBlob = installPluginBlob,
        _shouldApplyRemoteChange = shouldApplyRemoteChange,
        _remoteChangesApplied = remoteChangesApplied,
+       _remoteApplyCoordinator = remoteApplyCoordinator,
        _backendScope = backend?.backendScope ?? '' {
     _backend?.addListener(_handleBackendChanged);
   }
@@ -336,6 +339,7 @@ class SyncProvider extends ChangeNotifier {
   final Future<bool> Function(String changeId)? _shouldApplyRemoteChange;
   final Future<void> Function(Iterable<String> changeIds)?
   _remoteChangesApplied;
+  final RemoteApplyCoordinator? _remoteApplyCoordinator;
   RemoteSyncService? _remoteService;
   Future<void> _queue = Future.value();
   bool _disposed = false;
@@ -391,59 +395,63 @@ class SyncProvider extends ChangeNotifier {
 
   Future<void> bindScope(String userId) {
     final generation = ++_generation;
-    return _enqueue(() async {
-      if (!_isCurrent(generation)) return;
-      final normalizedUserId = userId.trim();
-      final backendUrl = DeviceIdentityService.backendOrigin(
-        _backend?.backendUrl ?? 'injected',
-      );
-      final effectiveBackend = backendUrl.isEmpty && _injectedService != null
-          ? 'injected'
-          : backendUrl;
-      if (normalizedUserId.isEmpty || effectiveBackend.isEmpty) return;
-      final identityScope = effectiveBackend == 'injected'
-          ? DeviceIdentityService.lanScope
-          : DeviceIdentityService.accountScope(
-              effectiveBackend,
-              normalizedUserId,
-            );
-      final deviceId =
-          (await _identity?.initialize(scope: identityScope))?.deviceId ??
-          'injected';
-      if (!_isCurrent(generation)) return;
-      final nextScope = '$effectiveBackend|$normalizedUserId';
-      final previous = _scope;
-      if (previous == nextScope) return;
-      await _beforeRemoteApply?.call(
-        SyncApplySummary(scope: nextScope, changedTables: const {}),
-      );
-      if (!_isCurrent(generation)) return;
-      if (previous != null) await _storage.deactivateScope(previous);
-      if (!_isCurrent(generation)) return;
-      await _storage.activateScope(nextScope, deviceId);
-      if (!_isCurrent(generation)) return;
-      _scope = nextScope;
-      _selection = await _storage.policy(nextScope);
-      _conflicts = await _storage.loadConflicts(nextScope);
-    });
+    return _enqueue(
+      () => _runRemoteCommit(() async {
+        if (!_isCurrent(generation)) return;
+        final normalizedUserId = userId.trim();
+        final backendUrl = DeviceIdentityService.backendOrigin(
+          _backend?.backendUrl ?? 'injected',
+        );
+        final effectiveBackend = backendUrl.isEmpty && _injectedService != null
+            ? 'injected'
+            : backendUrl;
+        if (normalizedUserId.isEmpty || effectiveBackend.isEmpty) return;
+        final identityScope = effectiveBackend == 'injected'
+            ? DeviceIdentityService.lanScope
+            : DeviceIdentityService.accountScope(
+                effectiveBackend,
+                normalizedUserId,
+              );
+        final deviceId =
+            (await _identity?.initialize(scope: identityScope))?.deviceId ??
+            'injected';
+        if (!_isCurrent(generation)) return;
+        final nextScope = '$effectiveBackend|$normalizedUserId';
+        final previous = _scope;
+        if (previous == nextScope) return;
+        await _beforeRemoteApply?.call(
+          SyncApplySummary(scope: nextScope, changedTables: const {}),
+        );
+        if (!_isCurrent(generation)) return;
+        if (previous != null) await _storage.deactivateScope(previous);
+        if (!_isCurrent(generation)) return;
+        await _storage.activateScope(nextScope, deviceId);
+        if (!_isCurrent(generation)) return;
+        _scope = nextScope;
+        _selection = await _storage.policy(nextScope);
+        _conflicts = await _storage.loadConflicts(nextScope);
+      }),
+    );
   }
 
   Future<void> unbind() {
     final generation = ++_generation;
-    return _enqueue(() async {
-      if (!_isCurrent(generation)) return;
-      final current = _scope;
-      if (current == null) return;
-      await _beforeRemoteApply?.call(
-        SyncApplySummary(scope: current, changedTables: const {}),
-      );
-      if (!_isCurrent(generation)) return;
-      await _storage.deactivateScope(current);
-      if (!_isCurrent(generation)) return;
-      _scope = null;
-      _selection = SyncDataSelection.defaults;
-      _conflicts = const [];
-    });
+    return _enqueue(
+      () => _runRemoteCommit(() async {
+        if (!_isCurrent(generation)) return;
+        final current = _scope;
+        if (current == null) return;
+        await _beforeRemoteApply?.call(
+          SyncApplySummary(scope: current, changedTables: const {}),
+        );
+        if (!_isCurrent(generation)) return;
+        await _storage.deactivateScope(current);
+        if (!_isCurrent(generation)) return;
+        _scope = null;
+        _selection = SyncDataSelection.defaults;
+        _conflicts = const [];
+      }),
+    );
   }
 
   Future<bool> autoDownload() {
@@ -478,6 +486,11 @@ class SyncProvider extends ChangeNotifier {
     return _enqueue(() => _flushUpload(generation));
   }
 
+  Future<T> _runRemoteCommit<T>(Future<T> Function() action) {
+    final coordinator = _remoteApplyCoordinator;
+    return coordinator == null ? action() : coordinator.run(action);
+  }
+
   Future<bool> _syncDownloadThenUpload(int generation) async {
     if (!_isCurrent(generation) || !canSync) return false;
     final currentScope = _scope;
@@ -494,14 +507,16 @@ class SyncProvider extends ChangeNotifier {
     if (state.fullReseedRequired ||
         serverGenerationChanged ||
         cursorUnavailable) {
-      await _beforeLocalSnapshot?.call();
-      localSnapshotFlushed = true;
-      if (!_isCurrentScope(generation, currentScope)) return false;
-      await _storage.resetCloudScope(currentScope, status.generation);
-      if (!_isCurrentScope(generation, currentScope)) return false;
-      await _storage.prepareFullSnapshot(currentScope, status.generation);
-      if (!_isCurrentScope(generation, currentScope)) return false;
-      _conflicts = const [];
+      await _runRemoteCommit(() async {
+        await _beforeLocalSnapshot?.call();
+        localSnapshotFlushed = true;
+        if (!_isCurrentScope(generation, currentScope)) return;
+        await _storage.resetCloudScope(currentScope, status.generation);
+        if (!_isCurrentScope(generation, currentScope)) return;
+        await _storage.prepareFullSnapshot(currentScope, status.generation);
+        if (!_isCurrentScope(generation, currentScope)) return;
+        _conflicts = const [];
+      });
     }
     final changedTables = <String>{};
     final flushedTables = <String>{};
@@ -579,24 +594,29 @@ class SyncProvider extends ChangeNotifier {
       final ops = await _prepareRemoteOperations(service, selectedChanges);
       if (!_isCurrentScope(generation, currentScope)) return const {};
       final pageTables = ops.map((op) => op.table).toSet();
-      final unflushedTables = pageTables.difference(flushedTables);
-      if (unflushedTables.isNotEmpty) {
-        await _beforeRemoteApply?.call(
-          SyncApplySummary(scope: currentScope, changedTables: unflushedTables),
-        );
-        if (!_isCurrentScope(generation, currentScope)) return const {};
-        flushedTables.addAll(unflushedTables);
-      }
-      if (ops.isEmpty) {
-        await _storage.updateSince(currentScope, next);
-      } else {
-        await _storage.applyRemoteChanges(currentScope, ops, next);
-        if (!_isCurrentScope(generation, currentScope)) return const {};
-        await _remoteChangesApplied?.call(
-          ops.map((op) => op.change?.changeId).whereType<String>(),
-        );
-        changedTables.addAll(pageTables);
-      }
+      await _runRemoteCommit(() async {
+        final unflushedTables = pageTables.difference(flushedTables);
+        if (unflushedTables.isNotEmpty) {
+          await _beforeRemoteApply?.call(
+            SyncApplySummary(
+              scope: currentScope,
+              changedTables: unflushedTables,
+            ),
+          );
+          if (!_isCurrentScope(generation, currentScope)) return;
+          flushedTables.addAll(unflushedTables);
+        }
+        if (ops.isEmpty) {
+          await _storage.updateSince(currentScope, next);
+        } else {
+          await _storage.applyRemoteChanges(currentScope, ops, next);
+          if (!_isCurrentScope(generation, currentScope)) return;
+          await _remoteChangesApplied?.call(
+            ops.map((op) => op.change?.changeId).whereType<String>(),
+          );
+          changedTables.addAll(pageTables);
+        }
+      });
       if (!_isCurrentScope(generation, currentScope)) return const {};
       cursor = next;
       if (!page.hasMore) break;
@@ -618,12 +638,14 @@ class SyncProvider extends ChangeNotifier {
         (status.generation > 0 && state.generation != status.generation) ||
         state.since > status.lastSeq ||
         state.since < status.minAvailableSeq) {
-      await _beforeLocalSnapshot?.call();
-      if (!_isCurrentScope(generation, currentScope)) return;
-      await _storage.resetCloudScope(currentScope, status.generation);
-      await _storage.prepareFullSnapshot(currentScope, status.generation);
-      if (!_isCurrentScope(generation, currentScope)) return;
-      _conflicts = const [];
+      await _runRemoteCommit(() async {
+        await _beforeLocalSnapshot?.call();
+        if (!_isCurrentScope(generation, currentScope)) return;
+        await _storage.resetCloudScope(currentScope, status.generation);
+        await _storage.prepareFullSnapshot(currentScope, status.generation);
+        if (!_isCurrentScope(generation, currentScope)) return;
+        _conflicts = const [];
+      });
     } else {
       await _beforeLocalSnapshot?.call();
       if (!_isCurrentScope(generation, currentScope)) return;
@@ -644,37 +666,41 @@ class SyncProvider extends ChangeNotifier {
     int generation,
   ) async {
     if (changedTables.isEmpty) return;
-    if (_noteTables.any(changedTables.contains)) {
-      await _storage.materializeNotes();
-      if (!_isCurrentScope(generation, scope)) return;
-    }
-    await _onRemoteApplied?.call(
-      SyncApplySummary(scope: scope, changedTables: changedTables),
-    );
+    await _runRemoteCommit(() async {
+      if (_noteTables.any(changedTables.contains)) {
+        await _storage.materializeNotes();
+        if (!_isCurrentScope(generation, scope)) return;
+      }
+      await _onRemoteApplied?.call(
+        SyncApplySummary(scope: scope, changedTables: changedTables),
+      );
+    });
   }
 
   Future<void> resolveConflict(int seq, SyncConflictResolution resolution) {
     final generation = _generation;
-    return _enqueue(() async {
-      final currentScope = _scope;
-      if (currentScope == null || !_isCurrent(generation)) return;
-      String? table;
-      for (final conflict in _conflicts) {
-        if (conflict.seq == seq) {
-          table = conflict.table;
-          break;
+    return _enqueue(
+      () => _runRemoteCommit(() async {
+        final currentScope = _scope;
+        if (currentScope == null || !_isCurrent(generation)) return;
+        String? table;
+        for (final conflict in _conflicts) {
+          if (conflict.seq == seq) {
+            table = conflict.table;
+            break;
+          }
         }
-      }
-      await _storage.resolveConflict(currentScope, seq, resolution);
-      if (!_isCurrentScope(generation, currentScope)) return;
-      _conflicts = await _storage.loadConflicts(currentScope);
-      if (table != null) {
-        if (_noteTables.contains(table)) await _storage.materializeNotes();
-        await _onRemoteApplied?.call(
-          SyncApplySummary(scope: currentScope, changedTables: {table}),
-        );
-      }
-    });
+        await _storage.resolveConflict(currentScope, seq, resolution);
+        if (!_isCurrentScope(generation, currentScope)) return;
+        _conflicts = await _storage.loadConflicts(currentScope);
+        if (table != null) {
+          if (_noteTables.contains(table)) await _storage.materializeNotes();
+          await _onRemoteApplied?.call(
+            SyncApplySummary(scope: currentScope, changedTables: {table}),
+          );
+        }
+      }),
+    );
   }
 
   Future<bool> _uploadOutbox({

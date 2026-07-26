@@ -237,7 +237,10 @@ Provider 的更新策略是：先改内存并通知 UI，再把持久化操作�
 
 | 方法 | 说明 |
 |------|------|
-| `load()` | 启动时在 `BackendClient` 配置完成后从本地持久化恢复会话，未登录时不阻塞。 |
+| `restoreLocalSession()` | 只从本地持久化恢复 token 和缓存用户，并等待本地同步作用域绑定，不请求后端。 |
+| `refreshCurrentSession()` | 在后台通过 `/auth/me` 刷新当前缓存用户；临时错误保留缓存会话。 |
+| `activateCurrentSession()` | 在后台执行设备注册和当前 session 的远端激活任务。 |
+| `load()` | 兼容入口，依次执行本地恢复、远端刷新和激活。启动组合根不使用它阻塞首屏。 |
 | `login(username, password)` | 手机号和密码登录，成功返回 true 并设置 `user`。 |
 | `register(username, password, {displayName})` | 手机号和密码注册新用户，成功后自动登录。 |
 | `logout()` | 登出并清除本地凭证。 |
@@ -253,13 +256,13 @@ Provider 的更新策略是：先改内存并通知 UI，再把持久化操作�
 
 账号登录通过 `RemoteAccountService` 访问配置的后端；未配置后端地址时登录/注册不可用，`error` 会提示用户先配置后端。
 
-账号恢复、登录、注册和登出会通知 `SyncProvider` 切换作用域。登出请求发送前会先尝试上传持久化 Outbox；失败的记录仍保留在对应账号作用域中，重新登录后可继续同步。
+账号本地恢复、登录、注册和登出会等待 `SyncProvider`/`CloudDataProvider` 完成本地作用域切换，保证进入可编辑 UI 或关闭登录框前数据归属已经确定。设备注册、自动云同步和托管模型网络刷新不属于登录成功条件，在本地作用域绑定后后台执行。显式登出本地优先，等待作用域解绑但不等待网络撤销或 Outbox 上传；失败的 Outbox 仍保留在对应账号作用域中，重新登录后可继续同步。
 
 ## SyncProvider
 
 文件：`lib/providers/sync_provider.dart`
 
-`SyncProvider` 串行执行自动、手动和生命周期同步。同步游标与待上传变更保存在 Drift 的 `sync_state`、`sync_outbox` 表中，并按“后端地址 + 用户 ID”隔离。`sync_state.captures_local` 持久记录当前本地 mutation 应归属的作用域：账号登出后、下一账号绑定前的编辑仍归原账号；绑定新账号后只转移云账号捕获权，LAN 作用域保持独立并可并行捕获。切换作用域前先 flush Provider 保存队列。每次本地保存立即按这些作用域生成行级 upsert/delete，远端应用永不写入 Outbox。后端或账号作用域变化会推进 generation；已排队或正在等待网络的旧 generation 在写游标、ACK 或刷新 Provider 前退出，避免旧作用域结果落到新作用域。
+`SyncProvider` 串行执行自动、手动和生命周期同步，并与 LAN 共用 `RemoteApplyCoordinator` 串行本地提交阶段。同步游标与待上传变更保存在 Drift 的 `sync_state`、`sync_outbox` 表中，并按“后端地址 + 用户 ID”隔离。`sync_state.captures_local` 持久记录当前本地 mutation 应归属的作用域：账号登出后、下一账号绑定前的编辑仍归原账号；绑定新账号后只转移云账号捕获权，LAN 作用域保持独立并可并行捕获。切换作用域前先 flush Provider 保存队列。每次本地保存立即按这些作用域生成行级 upsert/delete，远端应用永不写入 Outbox。后端或账号作用域变化会推进 generation；已排队或正在等待网络的旧 generation 在写游标、ACK 或刷新 Provider 前退出，避免旧作用域结果落到新作用域。
 
 每个云 scope 在本机 `sync_policies` 中保存用户选择的数据分类。缺失策略默认启用全部业务分类但关闭静态资源。上传在读取 Blob 前过滤 Outbox；下载在准备远端操作和下载 Blob 前过滤 change，同时仍推进全局 cursor。重新开启分类会标记 full reseed，关闭分类不删除本机或云端已有数据。静态资源关闭时仍同步消息附件元数据和 `modelContextContent`，但不传对话附件、图片或背景 Blob。
 

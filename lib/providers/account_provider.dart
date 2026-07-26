@@ -24,11 +24,13 @@ class AccountProvider extends ChangeNotifier {
     SecretStore? secretStore,
     Future<void> Function(AccountUser? user)? onSessionChanged,
     Future<void> Function()? afterAuthenticated,
+    Future<void> Function(AccountUser user)? onRemoteActivation,
   }) : _backend = backend,
        _injectedService = service,
        _secretStore = secretStore,
        _onSessionChanged = onSessionChanged,
        _afterAuthenticated = afterAuthenticated,
+       _onRemoteActivation = onRemoteActivation,
        _backendScope = backend?.backendScope ?? '' {
     _backend?.addListener(_handleBackendChanged);
   }
@@ -38,9 +40,13 @@ class AccountProvider extends ChangeNotifier {
   final SecretStore? _secretStore;
   final Future<void> Function(AccountUser? user)? _onSessionChanged;
   final Future<void> Function()? _afterAuthenticated;
+  final Future<void> Function(AccountUser user)? _onRemoteActivation;
   RemoteAccountService? _remoteService;
   String _backendScope;
   int _operationGeneration = 0;
+  bool _disposed = false;
+  Future<void>? _activationFuture;
+  int? _activationGeneration;
 
   AccountService? get _service {
     if (_injectedService != null) return _injectedService;
@@ -62,16 +68,18 @@ class AccountProvider extends ChangeNotifier {
   bool _loading = false;
   String? _error;
 
-  void _handleSessionInvalidated() {
+  Future<void> _handleSessionInvalidated() async {
+    if (_disposed) return;
     _operationGeneration++;
     _user = null;
     _loading = false;
     _error = null;
-    notifyListeners();
-    _notifySessionChanged();
+    _notifyListeners();
+    await _onSessionChanged?.call(null);
   }
 
   void _handleBackendChanged() {
+    if (_disposed) return;
     final scope = _backend?.backendScope ?? '';
     if (scope == _backendScope) return;
     _operationGeneration++;
@@ -80,7 +88,7 @@ class AccountProvider extends ChangeNotifier {
     _error = null;
     final hadUser = _user != null;
     _user = null;
-    notifyListeners();
+    _notifyListeners();
     if (hadUser) _notifySessionChanged();
   }
 
@@ -103,22 +111,85 @@ class AccountProvider extends ChangeNotifier {
   /// 启动时从本地持久化恢复会话。
   Future<void> load() async {
     final generation = ++_operationGeneration;
+    await _restoreLocalSession(generation);
+    if (!_isCurrent(generation)) return;
+    await _refreshCurrentSession(generation);
+    if (!_isCurrent(generation)) return;
+    await activateCurrentSession();
+  }
+
+  /// 仅恢复本地缓存的用户和令牌，不请求 `/auth/me`。
+  Future<void> restoreLocalSession() async {
+    final generation = ++_operationGeneration;
+    await _restoreLocalSession(generation);
+  }
+
+  Future<void> _restoreLocalSession(int generation) async {
     retryPendingRevocations();
     final svc = _service;
     if (svc == null) return;
     try {
-      final user = await svc.getCurrentUser();
-      if (generation != _operationGeneration) return;
-      _user = user;
-      notifyListeners();
-      if (_user != null) {
-        await _runAfterAuthenticated();
-        if (generation != _operationGeneration) return;
-      }
+      final session = await switch (svc) {
+        AccountSessionRecovery recovery => recovery.restoreLocalSession(),
+        _ => svc.loadStoredSession(),
+      };
+      if (!_isCurrent(generation)) return;
+      _user = session?.user;
+      _notifyListeners();
       await _onSessionChanged?.call(_user);
-      if (generation != _operationGeneration) return;
     } catch (e) {
       debugPrint('加载账号会话失败: $e');
+    }
+  }
+
+  /// 使用 `/auth/me` 刷新当前缓存用户；临时失败时保留现有用户。
+  Future<void> refreshCurrentSession() async {
+    final generation = ++_operationGeneration;
+    await _refreshCurrentSession(generation);
+  }
+
+  Future<void> _refreshCurrentSession(int generation) async {
+    final svc = _service;
+    if (svc == null) return;
+    try {
+      final user = await switch (svc) {
+        AccountSessionRecovery recovery => recovery.refreshCurrentSession(),
+        _ => svc.getCurrentUser(),
+      };
+      if (!_isCurrent(generation)) return;
+      _user = user;
+      _notifyListeners();
+    } catch (e) {
+      debugPrint('刷新账号会话失败: $e');
+    }
+  }
+
+  /// Starts best-effort network work for the current locally bound session.
+  Future<void> activateCurrentSession() {
+    final generation = _operationGeneration;
+    final user = _user;
+    if (user == null || !_isCurrent(generation)) return Future.value();
+    final active = _activationFuture;
+    if (active != null && _activationGeneration == generation) return active;
+
+    late final Future<void> operation;
+    operation = _activateCurrentSession(generation, user).whenComplete(() {
+      if (identical(_activationFuture, operation)) {
+        _activationFuture = null;
+        _activationGeneration = null;
+      }
+    });
+    _activationGeneration = generation;
+    return _activationFuture = operation;
+  }
+
+  Future<void> _activateCurrentSession(int generation, AccountUser user) async {
+    await _runAfterAuthenticated();
+    if (!_isCurrent(generation) || _user?.id != user.id) return;
+    try {
+      await _onRemoteActivation?.call(user);
+    } catch (e) {
+      debugPrint('激活远端账号会话失败: $e');
     }
   }
 
@@ -129,28 +200,27 @@ class AccountProvider extends ChangeNotifier {
     final svc = _service;
     if (svc == null) {
       _error = '未连接后端，请在设置中配置后端地址';
-      notifyListeners();
+      _notifyListeners();
       return false;
     }
     _loading = true;
     _error = null;
-    notifyListeners();
+    _notifyListeners();
     try {
       final session = await svc.login(username: phone, password: password);
-      if (generation != _operationGeneration) return false;
+      if (!_isCurrent(generation)) return false;
       _user = session.user;
       _loading = false;
-      notifyListeners();
-      await _runAfterAuthenticated();
-      if (generation != _operationGeneration) return false;
+      _notifyListeners();
       await _onSessionChanged?.call(_user);
-      if (generation != _operationGeneration) return false;
+      if (!_isCurrent(generation)) return false;
+      unawaited(activateCurrentSession());
       return true;
     } catch (e) {
-      if (generation != _operationGeneration) return false;
+      if (!_isCurrent(generation)) return false;
       _loading = false;
       _error = e.toString();
-      notifyListeners();
+      _notifyListeners();
       return false;
     }
   }
@@ -165,32 +235,31 @@ class AccountProvider extends ChangeNotifier {
     final svc = _service;
     if (svc == null) {
       _error = '未连接后端，请在设置中配置后端地址';
-      notifyListeners();
+      _notifyListeners();
       return false;
     }
     _loading = true;
     _error = null;
-    notifyListeners();
+    _notifyListeners();
     try {
       final session = await svc.register(
         username: phone,
         password: password,
         displayName: displayName,
       );
-      if (generation != _operationGeneration) return false;
+      if (!_isCurrent(generation)) return false;
       _user = session.user;
       _loading = false;
-      notifyListeners();
-      await _runAfterAuthenticated();
-      if (generation != _operationGeneration) return false;
+      _notifyListeners();
       await _onSessionChanged?.call(_user);
-      if (generation != _operationGeneration) return false;
+      if (!_isCurrent(generation)) return false;
+      unawaited(activateCurrentSession());
       return true;
     } catch (e) {
-      if (generation != _operationGeneration) return false;
+      if (!_isCurrent(generation)) return false;
       _loading = false;
       _error = e.toString();
-      notifyListeners();
+      _notifyListeners();
       return false;
     }
   }
@@ -201,33 +270,40 @@ class AccountProvider extends ChangeNotifier {
     final svc = _service;
     if (svc == null) {
       _user = null;
-      notifyListeners();
+      _notifyListeners();
       await _onSessionChanged?.call(null);
-      if (generation != _operationGeneration) return;
+      if (!_isCurrent(generation)) return;
       return;
     }
     _loading = true;
     _error = null;
-    notifyListeners();
+    _notifyListeners();
     try {
       await svc.logout();
-      if (generation != _operationGeneration) return;
+      if (!_isCurrent(generation)) return;
       _user = null;
       _loading = false;
-      notifyListeners();
+      _notifyListeners();
       await _onSessionChanged?.call(null);
-      if (generation != _operationGeneration) return;
+      if (!_isCurrent(generation)) return;
     } catch (e) {
-      if (generation != _operationGeneration) return;
+      if (!_isCurrent(generation)) return;
       _loading = false;
       _error = e.toString();
-      notifyListeners();
+      _notifyListeners();
     }
   }
 
   void _notifySessionChanged() {
     final callback = _onSessionChanged;
-    if (callback != null) callback(_user);
+    if (!_disposed && callback != null) unawaited(callback(_user));
+  }
+
+  bool _isCurrent(int generation) =>
+      !_disposed && generation == _operationGeneration;
+
+  void _notifyListeners() {
+    if (!_disposed) notifyListeners();
   }
 
   Future<void> _runAfterAuthenticated() async {
@@ -250,11 +326,13 @@ class AccountProvider extends ChangeNotifier {
   void clearError() {
     if (_error == null) return;
     _error = null;
-    notifyListeners();
+    _notifyListeners();
   }
 
   @override
   void dispose() {
+    _disposed = true;
+    _operationGeneration++;
     _backend?.removeListener(_handleBackendChanged);
     super.dispose();
   }
