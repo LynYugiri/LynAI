@@ -134,6 +134,7 @@ signature = Ed25519-Sign(identityPrivateKey, enrollmentMessage)
 | `X-LynAI-Timestamp` | Unix epoch milliseconds 的十进制文本。 |
 | `X-LynAI-Request-ID` | 24 个随机 bytes 的 canonical base64url，固定 32 字符。 |
 | `X-LynAI-Body-SHA256` | HTTP 实际 body bytes 的 SHA-256 小写 64 字符 hex。 |
+| `X-LynAI-Expected-Generation` | 当前云端 generation 的十进制正整数。 |
 | `X-LynAI-Signature` | 64-byte Ed25519 signature 的 canonical base64url。 |
 
 Domain：`LynAI/v1/sync-request\x00`
@@ -149,9 +150,10 @@ Domain：`LynAI/v1/sync-request\x00`
 | 7 | `method` | ASCII，精确为 `POST`。 |
 | 8 | `canonicalTarget` | ASCII，路由模板。 |
 | 9 | `bodySha256` | raw bytes，32 bytes。 |
+| 10 | `expectedGeneration` | `u64` big-endian，值至少为 1。 |
 
 ```text
-syncRequestMessage = "LynAI/v1/sync-request\x00" || CBE1(fields 1..9)
+syncRequestMessage = "LynAI/v1/sync-request\x00" || CBE1(fields 1..10)
 signature = Ed25519-Sign(identityPrivateKey, syncRequestMessage)
 ```
 
@@ -160,6 +162,7 @@ body schema：
 ```json
 {
   "requestId": "<same value as X-LynAI-Request-ID>",
+  "expectedGeneration": 1,
   "changes": [{
     "changeId": "<stable client-generated ID, 1..128 bytes>",
     "table": "messages",
@@ -170,6 +173,8 @@ body schema：
   }]
 }
 ```
+
+JSON 签名写请求的 body `expectedGeneration`、`X-LynAI-Expected-Generation` 和 tag 10 MUST 完全一致。blob 上传没有 JSON generation 字段，只在 header 与 tag 10 中携带同一个值。
 
 服务端 MUST 在一个数据库事务中分配 seq、插入新 change、更新用户 latest seq、维护当前记录投影及其 blob 引用，并保存精确 HTTP response bytes。`(userId, changeId)` 全局唯一于该用户：table/op/recordId/data/clientCreatedAt 相同的 change 可跨请求或设备返回原 seq ACK，不同内容冲突；首次接受该 change 的签名设备记入 `deviceId` 审计字段。`(userId, requestId)` 是 durable request key：相同 operation 和 body hash 必须返回精确原始 status、content type 和 body；不同 operation 或 body hash 必须返回 HTTP 409。响应包含每个 change 的 `changeId` 和已分配 `seq`。所有 upsert 的 `data` 必须是 JSON object，且 `data.id` 必须严格等于 `recordId`。
 
@@ -204,14 +209,15 @@ requestId: AAECAwQFBgcICQoLDA0ODxAREhMUFRYX
 method: POST
 canonicalTarget: /sync/changes
 bodySha256: 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+expectedGeneration: 1
 ```
 
 ```text
 sync request message hex:
-4c796e41492f76312f73796e632d72657175657374000001000000020001000200000002343200030000001073657373696f6e2d766563746f722d310004000000346b7a6476766a32756d6e64757961756633356f33366b366b773436326d756a7672613436746e337571677a6f766d69686f6367610005000000080000018bcfe5687b00060000002041414543417751464267634943516f4c4441304f4478415245684d5546525958000700000004504f535400080000000d2f73796e632f6368616e676573000900000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+4c796e41492f76312f73796e632d72657175657374000001000000020001000200000002343200030000001073657373696f6e2d766563746f722d310004000000346b7a6476766a32756d6e64757961756633356f33366b366b773436326d756a7672613436746e337571677a6f766d69686f6367610005000000080000018bcfe5687b00060000002041414543417751464267634943516f4c4441304f4478415245684d5546525958000700000004504f535400080000000d2f73796e632f6368616e676573000900000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000a000000080000000000000001
 
 Ed25519 signature base64url:
-ijPzt7fLykodsX18MwAXhwlvPUMMdtWqraTQUUwREshEkGTXxu09x8Ziz8a3dqkU2dCL6GVLgRoBKxzcGXSaCw
+-Q019gyA3ngLx2w19PfpFX7FqV6X04RJrECgf2x5NJMaKj5A4h_JOcqk3ga52-EPwZFsHJas15Osk8w4ygQ-Dg
 ```
 
 ## 6. 后续 LAN TLS 1.3 绑定

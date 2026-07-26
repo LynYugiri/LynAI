@@ -23,6 +23,7 @@ void main() {
         method: 'POST',
         target: '/sync/changes',
         bodySha256: List<int>.generate(32, (index) => index),
+        expectedGeneration: 1,
       );
       final keyPair = await Ed25519().newKeyPairFromSeed(
         List<int>.generate(32, (index) => index),
@@ -31,11 +32,11 @@ void main() {
 
       expect(
         message.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join(),
-        '4c796e41492f76312f73796e632d72657175657374000001000000020001000200000002343200030000001073657373696f6e2d766563746f722d310004000000346b7a6476766a32756d6e64757961756633356f33366b366b773436326d756a7672613436746e337571677a6f766d69686f6367610005000000080000018bcfe5687b00060000002041414543417751464267634943516f4c4441304f4478415245684d5546525958000700000004504f535400080000000d2f73796e632f6368616e676573000900000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000a000000080000000000000000',
+        '4c796e41492f76312f73796e632d72657175657374000001000000020001000200000002343200030000001073657373696f6e2d766563746f722d310004000000346b7a6476766a32756d6e64757961756633356f33366b366b773436326d756a7672613436746e337571677a6f766d69686f6367610005000000080000018bcfe5687b00060000002041414543417751464267634943516f4c4441304f4478415245684d5546525958000700000004504f535400080000000d2f73796e632f6368616e676573000900000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000a000000080000000000000001',
       );
       expect(
         base64UrlEncode(signature.bytes).replaceAll('=', ''),
-        'FT5HcRYQxD7mcUoZCUEJZJ2AvqBsdHELp3zmXdS1p7JqpZhKG3j3zY6CbA6-WPclbx1j7b1KydgUZEOm7UBtAw',
+        '-Q019gyA3ngLx2w19PfpFX7FqV6X04RJrECgf2x5NJMaKj5A4h_JOcqk3ga52-EPwZFsHJas15Osk8w4ygQ-Dg',
       );
     });
 
@@ -64,10 +65,15 @@ void main() {
           ),
         ];
 
-        await service.uploadChanges(changes);
-        await service.uploadChanges(changes);
+        await service.uploadChanges(changes, generation: 1);
+        await service.uploadChanges(changes, generation: 1);
 
         expect(client.jsonBodies[0], client.jsonBodies[1]);
+        expect(
+          jsonDecode(utf8.decode(client.jsonBodies[0]))['expectedGeneration'],
+          1,
+        );
+        expect(client.jsonHeaders[0]?['X-LynAI-Expected-Generation'], '1');
         expect(
           client.jsonHeaders[0]?['X-LynAI-Request-ID'],
           client.jsonHeaders[1]?['X-LynAI-Request-ID'],
@@ -102,7 +108,7 @@ void main() {
       client.replayHeaderBuildHook = (buildCount) {
         if (buildCount == 2) client.sessionId = 'session-vector-2';
       };
-      await service.uploadChanges(changes);
+      await service.uploadChanges(changes, generation: 1);
 
       expect(client.replayBodies[0], client.replayBodies[1]);
       expect(
@@ -136,7 +142,7 @@ void main() {
             op: 'delete',
             recordId: 'm1',
           ),
-        ]);
+        ], generation: 1);
 
         expect(result.latestSeq, 1);
         expect(result.acknowledgements, isNull);
@@ -161,7 +167,7 @@ void main() {
         service.uploadChanges([
           _changeRecord('change-1', 'm1'),
           _changeRecord('change-2', 'm2'),
-        ]),
+        ], generation: 1),
         throwsA(isA<FormatException>()),
       );
     });
@@ -184,7 +190,7 @@ void main() {
         service.uploadChanges([
           _changeRecord('change-1', 'm1'),
           _changeRecord('change-2', 'm2'),
-        ]),
+        ], generation: 1),
         throwsA(isA<FormatException>()),
       );
     });
@@ -269,7 +275,7 @@ void main() {
             op: 'delete',
             recordId: 'm1',
           ),
-        ]),
+        ], generation: 1),
         throwsException,
       );
 
@@ -287,8 +293,8 @@ void main() {
         );
         final service = _remoteSyncService(client);
 
-        await service.uploadBlob(hash, bytes);
-        await service.uploadBlob(hash, bytes);
+        await service.uploadBlob(hash, bytes, generation: 1);
+        await service.uploadBlob(hash, bytes, generation: 1);
 
         expect(client.rawBodies, [bytes, bytes]);
         expect(
@@ -300,6 +306,7 @@ void main() {
           client.rawHeaders[1]['X-LynAI-Request-ID'],
         );
         expect(client.rawHeaders[0]['X-LynAI-Signature'], isNotEmpty);
+        expect(client.rawHeaders[0]['X-LynAI-Expected-Generation'], '1');
       },
     );
 
@@ -316,7 +323,10 @@ void main() {
       );
       final service = _remoteSyncService(client);
 
-      await expectLater(service.uploadBlob(hash, bytes), throwsException);
+      await expectLater(
+        service.uploadBlob(hash, bytes, generation: 1),
+        throwsException,
+      );
 
       expect(client.rawBodies, hasLength(1));
       expect(client.rawHeaders.single['X-LynAI-Signature'], isNotEmpty);
@@ -346,7 +356,7 @@ void main() {
           registration: registration,
         );
 
-        await service.uploadChanges([_changeRecord('c1', 'm1')]);
+        await service.uploadChanges([_changeRecord('c1', 'm1')], generation: 1);
 
         expect(registration.invalidations, 1);
         expect(registration.enrollmentChecks, 2);
@@ -372,7 +382,7 @@ void main() {
       );
 
       await expectLater(
-        service.uploadChanges([_changeRecord('c1', 'm1')]),
+        service.uploadChanges([_changeRecord('c1', 'm1')], generation: 1),
         throwsException,
       );
 
@@ -523,7 +533,7 @@ void main() {
       );
 
       await _expectExceptionContains(
-        service.uploadChanges(const []),
+        service.uploadChanges(const [], generation: 1),
         'changes is required',
       );
     });
@@ -540,11 +550,30 @@ void main() {
       final service = _remoteSyncService(client);
 
       await _expectExceptionContains(
-        service.uploadBlob('abc123', const [1, 2, 3]),
+        service.uploadBlob('abc123', const [1, 2, 3], generation: 1),
         'blob too large or unreadable',
       );
       expect(client.lastPostRawTimeout, RemoteSyncService.blobUploadTimeout);
     });
+
+    test(
+      'signed writes reject non-positive generation before sending',
+      () async {
+        final client = _FakeBackendClient();
+        final service = _remoteSyncService(client);
+
+        await expectLater(
+          service.uploadChanges(const []),
+          throwsA(isA<ArgumentError>()),
+        );
+        await expectLater(
+          service.uploadBlob('abc123', const [1, 2, 3]),
+          throwsA(isA<ArgumentError>()),
+        );
+
+        expect(client.replayBodies, isEmpty);
+      },
+    );
 
     test(
       'falls back when download failure body is not structured JSON',

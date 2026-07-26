@@ -105,6 +105,7 @@ class RemoteSyncService implements SyncService {
     List<SyncChangeRecord> changes, {
     int generation = 0,
   }) async {
+    _requireSignedGeneration(generation);
     final requestId = requestIdForChanges(changes);
     final body = {
       'requestId': requestId,
@@ -117,6 +118,7 @@ class RemoteSyncService implements SyncService {
       requestId: requestId,
       target: '/sync/changes',
       bodyBytes: bodyBytes,
+      generation: generation,
     );
     if (resp.statusCode != 200) {
       if (_isExplicitSignatureRejection(resp.body)) {
@@ -227,13 +229,17 @@ class RemoteSyncService implements SyncService {
     required String target,
     required String requestId,
     required Map<String, dynamic> body,
-  }) => _postSignedBytes(
-    path: path,
-    requestId: requestId,
-    target: target,
-    bodyBytes: utf8.encode(jsonEncode(body)),
-    generation: (body['expectedGeneration'] as num?)?.toInt(),
-  );
+  }) {
+    final generation = (body['expectedGeneration'] as num?)?.toInt() ?? 0;
+    _requireSignedGeneration(generation);
+    return _postSignedBytes(
+      path: path,
+      requestId: requestId,
+      target: target,
+      bodyBytes: utf8.encode(jsonEncode(body)),
+      generation: generation,
+    );
+  }
 
   /// Builds the domain-separated CBE1 request signature input.
   static List<int> buildSyncRequestMessage({
@@ -246,7 +252,7 @@ class RemoteSyncService implements SyncService {
     required String method,
     required String target,
     required List<int> bodySha256,
-    int expectedGeneration = 0,
+    required int expectedGeneration,
   }) {
     final version = ByteData(2)..setUint16(0, protocolVersion);
     final timestampBytes = ByteData(8)..setUint64(0, timestamp);
@@ -439,6 +445,7 @@ class RemoteSyncService implements SyncService {
     List<int> bytes, {
     int generation = 0,
   }) async {
+    _requireSignedGeneration(generation);
     final requestId = requestIdForBlob(sha256);
     final resp = await _postSignedBytes(
       path: '/sync/blobs/$sha256',
@@ -464,7 +471,7 @@ class RemoteSyncService implements SyncService {
     required List<int> bodyBytes,
     String contentType = 'application/json',
     Duration? timeout,
-    int? generation,
+    required int generation,
   }) async {
     Future<http.Response> send() => _client.postReplayableBytes(
       path,
@@ -495,8 +502,9 @@ class RemoteSyncService implements SyncService {
     required String target,
     required List<int> bodyBytes,
     String contentType = 'application/json',
-    int? generation,
+    required int generation,
   }) async {
+    _requireSignedGeneration(generation);
     final claims = DeviceRegistrationService.accessTokenClaims(
       _client.accessToken,
     );
@@ -523,7 +531,7 @@ class RemoteSyncService implements SyncService {
       method: 'POST',
       target: target,
       bodySha256: bodyDigest,
-      expectedGeneration: generation ?? 0,
+      expectedGeneration: generation,
     );
     return {
       'Content-Type': contentType,
@@ -535,8 +543,18 @@ class RemoteSyncService implements SyncService {
       'X-LynAI-Signature': _base64Url(
         await _identity.sign(message, scope: scope),
       ),
-      if (generation != null) 'X-LynAI-Expected-Generation': '$generation',
+      'X-LynAI-Expected-Generation': '$generation',
     };
+  }
+
+  static void _requireSignedGeneration(int generation) {
+    if (generation < 1) {
+      throw ArgumentError.value(
+        generation,
+        'generation',
+        'signed sync writes require a positive generation',
+      );
+    }
   }
 
   @override
