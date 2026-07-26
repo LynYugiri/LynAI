@@ -1,6 +1,5 @@
 {
   "request": {
-    "providerId": "provider-1",
     "model": "model-1",
     "messages": [
       {"role": "user", "content": [{"type": "text", "text": "weather?"}]}

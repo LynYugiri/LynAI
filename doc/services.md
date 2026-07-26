@@ -34,7 +34,7 @@
 
 OpenAI 兼容和 Anthropic 流使用共享 `SseDecoder`，按空行分隔完整事件，支持任意网络 chunk 边界、LF/CRLF/CR、注释行、`event:` 字段和多行 `data:` 拼接。解析器只把完整 event 的 data 交给协议层，不再假设一行就是一个网络 chunk；OpenAI、Anthropic、Ollama 的 JSON 顶层都必须是 object。
 
-`managed=true` 的 LynAI 托管 Provider 走独立 canonical 中转契约：endpoint 为 `BackendClient.backendUrl + '/relay'`，Chat 请求发送到 `/relay/chat`，OCR、语音转文字和图片生成分别使用无版本的 `/relay/ocr`、`/relay/transcribe`、`/relay/images/generations`。鉴权使用用户 JWT，路由字段统一为 `providerId + model`，不发送 `api_type`。普通 OpenAI/Anthropic/Ollama Provider 仍使用各自 direct 路径和用户填写的凭据。
+`managed=true` 的 LynAI 托管模型走独立 canonical 中转契约：endpoint 为 `BackendClient.backendUrl + '/relay'`，Chat 请求发送到 `/relay/chat`，OCR、语音转文字和图片生成分别使用无版本的 `/relay/ocr`、`/relay/transcribe`、`/relay/images/generations`。鉴权使用用户 JWT，路由字段只发送 `model`，不发送 `providerId` 或 `api_type`。普通 OpenAI/Anthropic/Ollama Provider 仍使用各自 direct 路径和用户填写的凭据；direct Vivo AppID 行为不变。
 
 ### 支持协议
 
@@ -54,7 +54,7 @@ OpenAI 兼容和 Anthropic 流使用共享 `SseDecoder`，按空行分隔完整�
 | OpenAI 兼容 | 发送 `model`、`messages`、`stream`、`thinking`、采样参数；工具开启时发送 `tools` 和 `tool_choice`。 |
 | Ollama | 发送 `model`、`messages`、`stream`、`think`；采样参数进入 `options`。 |
 | Anthropic | system 消息提升到顶层 `system`，其余消息写入 `messages`，内容转 Anthropic block。 |
-| Managed canonical | 发送 `providerId`、`model`、canonical `messages`、`stream`、`thinking`、采样参数和可选工具；响应统一为 `content`、`reasoning`、`toolCalls`，SSE 增量使用同名字段和 `done`。 |
+| Managed canonical | 发送 `model`、canonical `messages`、`stream`、`thinking`、采样参数和可选工具；响应统一为 `content`、`reasoning`、`toolCalls`，SSE 增量使用同名字段和 `done`。 |
 
 OpenAI 兼容请求会显式发送 thinking 开关。部分已配置后端依赖 disabled 标记，不要随意删除。
 

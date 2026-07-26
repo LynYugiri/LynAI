@@ -184,9 +184,6 @@ class ModelConfig {
   /// 是否由 LynAI 托管同步。托管配置不可被用户改写 endpoint/API key。
   final bool managed;
 
-  /// LynAI 后端中的真实 Relay Provider ID，用于精确选择同名模型的上游。
-  final String? relayProviderId;
-
   /// 用户是否在本机关闭了该托管配置。
   final bool disabledByUser;
 
@@ -211,7 +208,6 @@ class ModelConfig {
     this.temperature,
     this.topP,
     this.managed = false,
-    this.relayProviderId,
     this.disabledByUser = false,
     Map<String, dynamic>? extraParams,
     Map<String, dynamic>? userOverrides,
@@ -296,7 +292,6 @@ class ModelConfig {
     Object? temperature = _sentinel,
     Object? topP = _sentinel,
     bool? managed,
-    Object? relayProviderId = _sentinel,
     bool? disabledByUser,
     Map<String, dynamic>? extraParams,
     Map<String, dynamic>? userOverrides,
@@ -325,9 +320,6 @@ class ModelConfig {
           : temperature as double?,
       topP: identical(topP, _sentinel) ? this.topP : topP as double?,
       managed: managed ?? this.managed,
-      relayProviderId: identical(relayProviderId, _sentinel)
-          ? this.relayProviderId
-          : relayProviderId as String?,
       disabledByUser: disabledByUser ?? this.disabledByUser,
       extraParams: extraParams ?? this.extraParams,
       userOverrides: userOverrides ?? this.userOverrides,
@@ -389,7 +381,6 @@ class ModelConfig {
       temperature: temperature,
       topP: topP,
       managed: json['managed'] == true,
-      relayProviderId: json['relayProviderId'] as String?,
       disabledByUser: json['disabledByUser'] == true,
       extraParams: json['extraParams'] is Map
           ? Map<String, dynamic>.from(json['extraParams'])
@@ -418,7 +409,6 @@ class ModelConfig {
       if (temperature != null) 'temperature': temperature,
       if (topP != null) 'topP': topP,
       if (managed) 'managed': managed,
-      if (relayProviderId != null) 'relayProviderId': relayProviderId,
       if (disabledByUser) 'disabledByUser': disabledByUser,
       if (extraParams.isNotEmpty) 'extraParams': extraParams,
       if (userOverrides.isNotEmpty) 'userOverrides': userOverrides,

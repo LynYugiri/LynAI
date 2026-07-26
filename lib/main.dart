@@ -651,6 +651,13 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         modelProvider.loadModels(),
         settingsProvider.loadSettings(),
       ]);
+      await applyPendingManagedModelIdMigrations(
+        models: modelProvider,
+        settings: settingsProvider,
+        conversations: conversationProvider,
+        roleplay: roleplayProvider,
+        plugins: pluginProvider,
+      );
       await settingsProvider.initializeDefaultBackend(
         BackendClient.defaultBackendUrl,
       );
@@ -662,13 +669,6 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       await deviceIdentityService.initialize();
       _accountRestoreFuture = accountProvider.restoreLocalSession();
       await _accountRestoreFuture;
-      await applyPendingManagedModelIdMigrations(
-        models: modelProvider,
-        settings: settingsProvider,
-        conversations: conversationProvider,
-        roleplay: roleplayProvider,
-        plugins: pluginProvider,
-      );
       FloatingAssistantService.instance.start(
         settings: settingsProvider,
         conversations: conversationProvider,

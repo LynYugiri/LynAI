@@ -3801,7 +3801,15 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
               (table) => OrderingTerm.asc(table.priority),
             ]))
             .get();
-    return {'models': rows.map((row) => jsonDecode(row.configJson)).toList()};
+    final pending = await _meta(
+      db,
+      'data.model_configs.pendingManagedModelIdMigrations',
+    );
+    return {
+      'models': rows.map((row) => jsonDecode(row.configJson)).toList(),
+      if (pending != null)
+        'pendingManagedModelIdMigrations': jsonDecode(pending),
+    };
   }
 
   Future<Map<String, dynamic>> _loadResources(StorageV2DriftDatabase db) async {
@@ -4259,6 +4267,19 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
               updatedAt: DateTime.now().toIso8601String(),
             ),
           );
+    }
+    final pending = data['pendingManagedModelIdMigrations'];
+    if (pending is Map && pending.isNotEmpty) {
+      await _setMeta(
+        db,
+        'data.model_configs.pendingManagedModelIdMigrations',
+        jsonEncode(pending),
+      );
+    } else {
+      await _deleteMeta(
+        db,
+        'data.model_configs.pendingManagedModelIdMigrations',
+      );
     }
   }
 

@@ -4116,7 +4116,6 @@ PRAGMA user_version = 2;
           apiType: '',
           priority: 0,
           managed: true,
-          relayProviderId: 'provider-1',
           extraParams: {
             'presencePenalty': 0.7,
             'frequencyPenalty': 0.4,
@@ -4131,7 +4130,7 @@ PRAGMA user_version = 2;
         ],
       );
 
-      expect(requestBody?['providerId'], 'provider-1');
+      expect(requestBody?.containsKey('providerId'), isFalse);
       expect(requestBody?['model'], 'model-a');
       expect(requestBody?['reasoning'], {'enabled': false});
       expect(requestBody?.containsKey('api_type'), isFalse);

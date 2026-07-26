@@ -112,17 +112,19 @@ Provider 的更新策略是：先改内存并通知 UI，再把持久化操作�
 | `modelsByCategory()` | 获取某个分类的配置。 |
 | `enabledModelsByCategory()` | 获取某个分类中至少有一个启用子模型、且未被本机关闭的可调用配置。 |
 | `nextPriorityForCategory()` | 新增配置时计算分类内优先级。 |
-| `syncLynaiManagedProvider()` | 登录后只从后端 `/relay/config` 同步 `schemaVersion: 3` 的托管 Provider；按 `providerId + category` 分组创建或更新配置。 |
-| `takeManagedModelIdMigrations()` | 一次性返回并清空最近同步精确匹配到的旧托管模型 ID 到新 ID 映射。 |
-| `removeLynaiManagedProviders()` | 登出或断开后端时移除托管 LynAI Provider。 |
+| `peekManagedModelIdMigrations()` / `ackManagedModelIdMigrations()` | 读取并在所有引用持久化成功后确认旧托管模型 ID 到 category ID 的持久迁移。 |
+| `syncLynaiManagedModels()` | 登录后从后端 `/relay/config` 同步 `schemaVersion: 4` 平铺模型，并按规范化 category 创建或更新一个 LynAI 配置。 |
+| `removeLynaiManagedModels()` | 登出或断开后端时移除托管 LynAI 模型配置。 |
 | `setManagedDisabled()` | 在本机启用或关闭托管配置，不改写服务端基线。 |
 | `setManagedUserOverride()` / `clearManagedUserOverride()` | 设置或清除托管配置的本机覆盖项。 |
 | `addModel()` / `updateModel()` / `deleteModel()` | 增删改配置。 |
 | `reorderModelsInCategory()` | 调整分类内排序。 |
 
-模型排序先按 `category`，再按 `priority`。`managed=true` 的托管 Provider 由同步流程维护，普通编辑和删除入口不会改写它们；托管 ID 形如 `__lynai_relay_<providerId>_<category>__`。从旧 ID 迁移时保留本地排序、当前模型、禁用状态和用户覆盖，并用持久化的 peek/ack pending 映射精确更新 Settings、Conversation、Roleplay 和插件 model 字段。所有分区保存成功后才 ack；未登录、401 或任一保存失败都保留映射供重试。插件递归迁移只遍历 config schema 明确声明的 `type=model` 字段。
+加载本地模型或导入 API 配置时，Provider 会把同一规范化 category 下的旧 Provider-scoped 托管配置原子合并为 `__lynai_relay_<category>__`，合并去重后的离线模型列表并保存 pending 映射。迁移协调器串行更新 Settings、Conversation、Roleplay 与 Plugin 引用，全部持久化成功后才 ACK；启动、远端应用、密钥导入、手动刷新、后端变更和备份导入都会执行该流程。网络同步仍只接受 relay schema v4。
 
-普通 Provider 编辑页提供逐 Provider 的“同步非秘密配置”开关，默认关闭。同步只传 `SyncedModelConfigV1`；安全存储引用和 API key 不会进入 Outbox。远端应用后重新加载模型、再次拉取托管 Relay 基线，并按 Settings、Conversation、Roleplay 的固定顺序应用和持久化精确 ID 映射。
+模型排序先按 `category`，再按 `priority`。`managed=true` 的托管配置由同步流程维护，普通编辑和删除入口不会改写它们；托管 ID 形如 `__lynai_relay_<category>__`。同步先构建完整下一集合，再一次性替换当前托管数据；离线、请求失败和无效响应不会清空现有数据。相同 ID 更新时保留本地排序、当前模型、禁用状态和用户覆盖。
+
+普通 Provider 编辑页提供逐 Provider 的“同步非秘密配置”开关，默认关闭。同步只传 `SyncedModelConfigV1`；安全存储引用和 API key 不会进入 Outbox。远端应用后重新加载模型并再次拉取托管 Relay 基线。
 
 ## SettingsProvider
 

@@ -22,7 +22,7 @@ Future<bool> syncManagedModelsAndApplyMigrations({
     roleplay: roleplay,
     plugins: plugins,
   );
-  final synced = await models.syncLynaiManagedProvider(backend);
+  final synced = await models.syncLynaiManagedModels(backend);
   await _applyPendingManagedModelIdMigrations(
     models: models,
     settings: settings,

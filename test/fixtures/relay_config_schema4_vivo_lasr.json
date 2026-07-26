@@ -1,0 +1,31 @@
+{
+  "object": "relay_config",
+  "schemaVersion": 4,
+  "data": [
+    {
+      "id": "vivo-lasr",
+      "category": "speech",
+      "displayName": "Vivo LASR",
+      "description": "Vivo long audio speech recognition",
+      "workflow": "vivo_lasr",
+      "enabled": true,
+      "capabilities": {},
+      "advancedParams": {
+        "maxTokens": 4096,
+        "presencePenalty": 0.5,
+        "seed": 42
+      }
+    },
+    {
+      "id": "generic-asr",
+      "category": "speech",
+      "displayName": "Generic ASR",
+      "description": "Generic transcription",
+      "enabled": true,
+      "capabilities": {},
+      "advancedParams": {
+        "temperature": 0.2
+      }
+    }
+  ]
+}

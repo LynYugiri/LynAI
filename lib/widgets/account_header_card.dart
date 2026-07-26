@@ -118,7 +118,7 @@ class _LoggedInCard extends StatelessWidget {
                   if (context.mounted) {
                     await context
                         .read<ModelConfigProvider>()
-                        .removeLynaiManagedProviders();
+                        .removeLynaiManagedModels();
                   }
                 },
                 child: const Text('退出登录'),

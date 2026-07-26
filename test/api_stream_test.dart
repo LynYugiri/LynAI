@@ -164,7 +164,6 @@ void main() {
               apiType: '',
               priority: 0,
               managed: true,
-              relayProviderId: 'provider-1',
             ),
             const [
               {'role': 'user', 'content': 'hello'},
@@ -184,7 +183,7 @@ void main() {
           )
           .toList();
 
-      expect(requestBody?['providerId'], 'provider-1');
+      expect(requestBody?.containsKey('providerId'), isFalse);
       expect(requestBody?['model'], 'test-model');
       expect(requestBody?['reasoning'], {'enabled': true});
       expect(requestBody?['tools'], [
@@ -209,10 +208,13 @@ void main() {
   test('managed speech uses active model Vivo LASR workflow', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     String? requestPath;
+    Map<String, dynamic>? requestBody;
     unawaited(
       server.first.then((request) async {
         requestPath = request.uri.path;
-        await utf8.decoder.bind(request).join();
+        requestBody =
+            jsonDecode(await utf8.decoder.bind(request).join())
+                as Map<String, dynamic>;
         request.response.statusCode = 500;
         await request.response.close();
       }),
@@ -230,7 +232,6 @@ void main() {
       apiType: '',
       priority: 0,
       managed: true,
-      relayProviderId: 'vivo-provider',
       models: [
         ModelEntry(name: 'vivo-lasr', enabled: true, workflow: 'vivo_lasr'),
         ModelEntry(name: 'generic-asr', enabled: true),
@@ -245,7 +246,87 @@ void main() {
         throwsException,
       );
       expect(requestPath, '/relay/speech/create');
+      expect(requestBody?['model'], 'vivo-lasr');
+      expect(requestBody?.containsKey('providerId'), isFalse);
     } finally {
+      backend.dispose();
+      await server.close(force: true);
+    }
+  });
+
+  test('managed media requests send model without providerId', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final requests = <String, String>{};
+    unawaited(() async {
+      await for (final request in server) {
+        final body = await utf8.decoder.bind(request).join();
+        requests[request.uri.path] = body;
+        request.response.headers.contentType = ContentType.json;
+        switch (request.uri.path) {
+          case '/relay/ocr':
+            request.response.write(jsonEncode({'text': 'ocr'}));
+          case '/relay/transcribe':
+            request.response.write(jsonEncode({'text': 'speech'}));
+          case '/relay/images/generations':
+            request.response.write(
+              jsonEncode({
+                'data': [
+                  {'url': 'https://example.com/image.png'},
+                ],
+              }),
+            );
+        }
+        await request.response.close();
+      }
+    }());
+    final backend = BackendClient()
+      ..configure('http://${server.address.host}:${server.port}')
+      ..setTokens('token', 'refresh-token');
+    final api = ApiService(backend: backend);
+
+    try {
+      final ocrModel = _managedModel(
+        server,
+        modelName: 'ocr-model',
+      ).copyWith(category: ModelConfig.categoryOcr);
+      final speechModel = _managedModel(
+        server,
+        modelName: 'speech-model',
+      ).copyWith(category: ModelConfig.categorySpeech);
+      final imageModel = _managedModel(
+        server,
+        modelName: 'image-model',
+      ).copyWith(category: ModelConfig.categoryImageGeneration);
+
+      expect(
+        await api.recognizeImageText(ocrModel, Uint8List.fromList([1, 2, 3])),
+        'ocr',
+      );
+      expect(
+        await api.transcribeAudio(speechModel, Uint8List.fromList([1, 2, 3])),
+        'speech',
+      );
+      expect(await api.generateImages(imageModel, 'cat'), [
+        'https://example.com/image.png',
+      ]);
+
+      final ocrBody = requests['/relay/ocr']!;
+      expect(ocrBody, contains('name="model"'));
+      expect(ocrBody, contains('ocr-model'));
+      expect(ocrBody, isNot(contains('providerId')));
+
+      final transcriptionBody = requests['/relay/transcribe']!;
+      expect(transcriptionBody, contains('name="model"'));
+      expect(transcriptionBody, contains('speech-model'));
+      expect(transcriptionBody, isNot(contains('providerId')));
+
+      final imageBody =
+          jsonDecode(requests['/relay/images/generations']!)
+              as Map<String, dynamic>;
+      expect(imageBody['model'], 'image-model');
+      expect(imageBody.containsKey('providerId'), isFalse);
+    } finally {
+      api.dispose();
       backend.dispose();
       await server.close(force: true);
     }
@@ -442,6 +523,5 @@ ModelConfig _managedModel(
   apiType: '',
   priority: 0,
   managed: true,
-  relayProviderId: 'provider-1',
   extraParams: extraParams,
 );

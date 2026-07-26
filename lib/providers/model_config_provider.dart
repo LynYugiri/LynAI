@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import '../models/model_config.dart';
 import '../repositories/model_config_repository.dart';
@@ -20,6 +21,7 @@ class ModelConfigProvider extends ChangeNotifier {
   Future<void> _saveQueue = Future.value();
   Future<void> _pendingSave = Future.value();
   int _mutationGeneration = 0;
+  int _managedSyncGeneration = 0;
   final ModelConfigRepository _repository;
   bool _usingStorageV2 = false;
   final Map<String, String> _pendingManagedModelIdMigrations = {};
@@ -41,7 +43,6 @@ class ModelConfigProvider extends ChangeNotifier {
 
   Future<void> flushPendingSaves() => _pendingSave;
 
-  /// 返回待处理的 managed ID 迁移。所有引用持久化成功后再确认。
   Map<String, String> peekManagedModelIdMigrations() {
     if (_pendingManagedModelIdMigrations.isEmpty) return const {};
     return Map<String, String>.unmodifiable(_pendingManagedModelIdMigrations);
@@ -54,9 +55,7 @@ class ModelConfigProvider extends ChangeNotifier {
       _pendingManagedModelIdMigrations,
     );
     for (final entry in migrations.entries) {
-      if (remaining[entry.key] == entry.value) {
-        remaining.remove(entry.key);
-      }
+      if (remaining[entry.key] == entry.value) remaining.remove(entry.key);
     }
     await _queueSaveModels(pendingMigrations: remaining);
     _pendingManagedModelIdMigrations
@@ -65,7 +64,9 @@ class ModelConfigProvider extends ChangeNotifier {
   }
 
   Future<void> replaceModels(List<ModelConfig> models) async {
-    _models = List<ModelConfig>.from(models)..sort(_compareModels);
+    _models = List<ModelConfig>.from(models);
+    _normalizeManagedIds();
+    _models.sort(_compareModels);
     await _queueSaveModels();
     notifyListeners();
   }
@@ -101,39 +102,120 @@ class ModelConfigProvider extends ChangeNotifier {
     await flushPendingSaves();
     final result = await _repository.load();
     if (generation != _mutationGeneration) return;
-    _models = List<ModelConfig>.from(result.models)..sort(_compareModels);
+    _models = List<ModelConfig>.from(result.models);
     _usingStorageV2 = result.usingStorageV2;
-    _pendingManagedModelIdMigrations.addAll(
-      result.pendingManagedModelIdMigrations,
-    );
-    if (_normalizeManagedIds()) await _queueSaveModels(mutation: false);
+    _pendingManagedModelIdMigrations
+      ..clear()
+      ..addAll(result.pendingManagedModelIdMigrations);
+    final normalized = _normalizeManagedIds();
+    _models.sort(_compareModels);
+    if (normalized) await _queueSaveModels(mutation: false);
     notifyListeners();
   }
 
   bool _normalizeManagedIds() {
-    var changed = false;
-    final normalized = <String, ModelConfig>{};
-    for (final model in _models) {
+    for (final entry in _pendingManagedModelIdMigrations.entries.toList()) {
+      final category = _categoryFromManagedId(entry.value);
+      if (category != null) {
+        _pendingManagedModelIdMigrations[entry.key] =
+            '$lynaiManagedIdPrefix${category}__';
+      }
+    }
+    final unmanaged = <ModelConfig>[];
+    final groups = <String, List<({ModelConfig model, int order})>>{};
+    for (var i = 0; i < _models.length; i++) {
+      final model = _models[i];
       if (!model.managed) {
-        normalized[model.id] = model;
+        unmanaged.add(model);
         continue;
       }
-      final providerId = model.relayProviderId?.trim();
-      if (providerId == null || providerId.isEmpty) {
-        normalized[model.id] = model;
-        continue;
+      final category = _normalizeCategory(model.category);
+      groups.putIfAbsent(category, () => []).add((model: model, order: i));
+    }
+
+    var changed = false;
+    final normalizedManaged = <ModelConfig>[];
+    for (final entry in groups.entries) {
+      final category = entry.key;
+      final targetId = '$lynaiManagedIdPrefix${category}__';
+      final configs = entry.value;
+      var base = configs.first;
+      for (final candidate in configs.skip(1)) {
+        final candidateExact = candidate.model.id == targetId;
+        final baseExact = base.model.id == targetId;
+        if (candidateExact && !baseExact ||
+            candidateExact == baseExact &&
+                candidate.model.priority < base.model.priority) {
+          base = candidate;
+        }
       }
-      final target = '$lynaiManagedIdPrefix${providerId}_${model.category}__';
-      if (model.id != target) {
-        _pendingManagedModelIdMigrations[model.id] = target;
+
+      final ordered = [base, ...configs.where((item) => item != base)];
+      final mergedEntries = <ModelEntry>[];
+      final names = <String>{};
+      for (final item in ordered) {
+        for (final modelEntry in item.model.models) {
+          if (names.add(modelEntry.name)) mergedEntries.add(modelEntry);
+        }
+        if (item.model.id != targetId) {
+          _pendingManagedModelIdMigrations[item.model.id] = targetId;
+          changed = true;
+        }
+      }
+      final selected =
+          mergedEntries.any(
+            (modelEntry) => modelEntry.name == base.model.modelName,
+          )
+          ? base.model.modelName
+          : _firstAvailableModelName(mergedEntries);
+      final normalized = base.model.copyWith(
+        id: targetId,
+        name: 'LynAI',
+        category: category,
+        modelName: selected,
+        apiType: '',
+        managed: true,
+        models: mergedEntries,
+      );
+      normalizedManaged.add(normalized);
+      if (configs.length != 1 ||
+          base.model.id != targetId ||
+          base.model.name != 'LynAI' ||
+          base.model.category != category ||
+          base.model.modelName != selected ||
+          !_sameModelEntries(base.model.models, mergedEntries)) {
         changed = true;
       }
-      normalized[target] = model.id == target
-          ? model
-          : model.copyWith(id: target);
     }
-    if (changed) _models = normalized.values.toList()..sort(_compareModels);
+    if (changed) _models = [...unmanaged, ...normalizedManaged];
     return changed;
+  }
+
+  String _firstAvailableModelName(List<ModelEntry> entries) {
+    for (final entry in entries) {
+      if (entry.enabled) return entry.name;
+    }
+    return entries.isEmpty ? '' : entries.first.name;
+  }
+
+  String? _categoryFromManagedId(String id) {
+    if (!id.startsWith(lynaiManagedIdPrefix) || !id.endsWith('__')) {
+      return null;
+    }
+    for (final category in ModelConfig.supportedCategories) {
+      if (id.endsWith('_${category}__')) return category;
+    }
+    return null;
+  }
+
+  bool _sameModelEntries(List<ModelEntry> left, List<ModelEntry> right) {
+    if (left.length != right.length) return false;
+    for (var i = 0; i < left.length; i++) {
+      if (jsonEncode(left[i].toJson()) != jsonEncode(right[i].toJson())) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /// 把当前模型配置快照排入保存队列。
@@ -221,87 +303,136 @@ class ModelConfigProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> syncLynaiManagedProvider(BackendClient backend) async {
-    if (!backend.isConnected || (backend.accessToken ?? '').isEmpty) {
+  Future<bool> syncLynaiManagedModels(BackendClient backend) async {
+    final generation = ++_managedSyncGeneration;
+    final backendUrl = backend.backendUrl;
+    final backendOrigin = backend.backendOrigin;
+    final backendScope = backend.backendScope;
+    final accessToken = backend.accessToken;
+    if (!backend.isConnected || (accessToken ?? '').isEmpty) {
       return true;
     }
 
-    final response = await backend.get('/relay/config');
+    late final http.Response response;
+    try {
+      response = await backend.get('/relay/config');
+    } catch (error) {
+      debugPrint('同步 LynAI 模型失败: $error');
+      return false;
+    }
+    if (generation != _managedSyncGeneration ||
+        !backend.isConnected ||
+        backend.backendUrl != backendUrl ||
+        backend.backendOrigin != backendOrigin ||
+        backend.backendScope != backendScope ||
+        backend.accessToken != accessToken) {
+      return false;
+    }
     if (response.statusCode != 200) {
       debugPrint('同步 LynAI 模型失败: HTTP ${response.statusCode}');
       return response.statusCode == 401;
     }
 
-    final decoded = jsonDecode(response.body);
+    late final dynamic decoded;
+    try {
+      decoded = jsonDecode(response.body);
+    } catch (error) {
+      debugPrint('同步 LynAI 模型失败: $error');
+      return false;
+    }
     if (decoded is! Map ||
-        decoded['schemaVersion'] != 3 ||
+        decoded['object'] != 'relay_config' ||
+        decoded['schemaVersion'] != 4 ||
         decoded['data'] is! List) {
       debugPrint('同步 LynAI 模型失败: 响应格式错误');
       return false;
     }
 
     final grouped = _parseManagedGroups(decoded['data'] as List);
-    final managedIds = grouped.map((group) => group.id).toSet();
-    final previousManaged = List<ModelConfig>.from(
-      _models.where((model) => model.managed),
-    );
-    _models.removeWhere(
-      (model) => model.managed && !managedIds.contains(model.id),
-    );
-    final endpoint =
-        '${backend.backendUrl.replaceAll(RegExp(r'/+$'), '')}/relay';
-
+    if (grouped == null) {
+      debugPrint('同步 LynAI 模型失败: 模型数据格式错误');
+      return false;
+    }
+    final endpoint = '${backendUrl.replaceAll(RegExp(r'/+$'), '')}/relay';
+    final previousManaged = _models
+        .where((model) => model.managed)
+        .toList(growable: false);
+    for (final model in previousManaged) {
+      final category = _normalizeCategory(model.category);
+      final targetId = '$lynaiManagedIdPrefix${category}__';
+      if (model.id != targetId) {
+        _pendingManagedModelIdMigrations[model.id] = targetId;
+      }
+    }
+    final nextManaged = <ModelConfig>[];
     for (final group in grouped) {
       if (group.entries.isEmpty) continue;
       final id = group.id;
-      final existingIndex = _models.indexWhere((model) => model.id == id);
-      final legacyConfigs = _legacyManagedConfigs(previousManaged, group);
-      final existing = existingIndex == -1
-          ? (legacyConfigs.isEmpty ? null : legacyConfigs.first)
-          : _models[existingIndex];
-      for (final legacy in legacyConfigs) {
-        if (legacy.id != id) {
-          _pendingManagedModelIdMigrations[legacy.id] = id;
-        }
-      }
       final modelEntries = group.entries;
+      final candidates = <({ModelConfig model, int order})>[];
+      for (var i = 0; i < previousManaged.length; i++) {
+        final model = previousManaged[i];
+        if (_normalizeCategory(model.category) != group.category) continue;
+        candidates.add((model: model, order: i));
+      }
+      final existing = _selectManagedState(candidates, id, modelEntries);
       final existingModelName = existing?.modelName;
       final activeModel =
           existingModelName != null &&
               modelEntries.any((entry) => entry.name == existingModelName)
           ? existingModelName
           : modelEntries.first.name;
-      final config = ModelConfig(
-        id: id,
-        name: group.name,
-        category: group.category,
-        endpoint: endpoint,
-        apiKey: '',
-        modelName: activeModel,
-        apiType: '',
-        priority: existing?.priority ?? nextPriorityForCategory(group.category),
-        extraParams: group.extraParams,
-        models: modelEntries,
-        managed: true,
-        relayProviderId: group.providerId,
-        disabledByUser: existing?.disabledByUser ?? false,
-        userOverrides: existing?.userOverrides,
+      nextManaged.add(
+        ModelConfig(
+          id: id,
+          name: 'LynAI',
+          category: group.category,
+          endpoint: endpoint,
+          apiKey: '',
+          modelName: activeModel,
+          apiType: '',
+          priority:
+              existing?.priority ?? nextPriorityForCategory(group.category),
+          extraParams: group.extraParams,
+          models: modelEntries,
+          managed: true,
+          disabledByUser: existing?.disabledByUser ?? false,
+          userOverrides: existing?.userOverrides,
+        ),
       );
-      if (existingIndex == -1) {
-        _models.add(config);
-      } else {
-        _models[existingIndex] = config;
-      }
     }
-
-    _models.sort(_compareModels);
-    _queueSaveModels();
-    await _saveQueue;
+    final nextModels = [
+      ..._models.where((model) => !model.managed),
+      ...nextManaged,
+    ]..sort(_compareModels);
+    _models = nextModels;
+    await _queueSaveModels();
     notifyListeners();
     return true;
   }
 
-  Future<void> removeLynaiManagedProviders() async {
+  ModelConfig? _selectManagedState(
+    List<({ModelConfig model, int order})> candidates,
+    String targetId,
+    List<ModelEntry> entries,
+  ) {
+    if (candidates.isEmpty) return null;
+    for (final candidate in candidates) {
+      if (candidate.model.id == targetId) return candidate.model;
+    }
+    final names = entries.map((entry) => entry.name).toSet();
+    candidates.sort((a, b) {
+      final aSelectedExists = names.contains(a.model.modelName);
+      final bSelectedExists = names.contains(b.model.modelName);
+      if (aSelectedExists != bSelectedExists) return aSelectedExists ? -1 : 1;
+      final priority = a.model.priority.compareTo(b.model.priority);
+      return priority != 0 ? priority : a.order.compareTo(b.order);
+    });
+    return candidates.first.model;
+  }
+
+  Future<void> removeLynaiManagedModels() async {
+    _managedSyncGeneration++;
     final before = _models.length;
     _models.removeWhere((model) => model.managed);
     if (_models.length == before) return;
@@ -336,57 +467,54 @@ class ModelConfigProvider extends ChangeNotifier {
   /// 生成新的唯一ID
   String generateId() => _uuid.v4();
 
-  List<ModelConfig> _legacyManagedConfigs(
-    List<ModelConfig> previousManaged,
-    _ManagedModelGroup group,
-  ) {
-    return previousManaged
-        .where(
-          (model) =>
-              model.id != group.id &&
-              model.relayProviderId == group.providerId &&
-              model.category == group.category,
-        )
-        .toList(growable: false);
-  }
-
-  List<_ManagedModelGroup> _parseManagedGroups(List data) {
+  List<_ManagedModelGroup>? _parseManagedGroups(List data) {
     final groups = <String, _ManagedModelGroup>{};
-    void addItem(
-      Map item, {
-      required String providerId,
-      required String providerName,
-      required String providerCategory,
-      String? providerWorkflow,
-    }) {
-      final modelId = item['id']?.toString().trim() ?? '';
-      final category = _normalizeCategory(
-        item['category']?.toString() ?? providerCategory,
-      );
-      if (modelId.isEmpty || providerId.isEmpty) return;
-      final key = '$providerId\x00$category';
+    bool addItem(Map item) {
+      final id = item['id'];
+      final categoryValue = item['category'];
+      final displayName = item['displayName'];
+      final description = item['description'];
+      final capabilitiesValue = item['capabilities'];
+      final paramsValue = item['advancedParams'];
+      final enabled = item['enabled'];
+      final workflowValue = item['workflow'];
+      if (id is! String ||
+          id.trim().isEmpty ||
+          categoryValue is! String ||
+          displayName is! String ||
+          description is! String ||
+          capabilitiesValue is! Map ||
+          paramsValue is! Map ||
+          enabled is! bool ||
+          (workflowValue != null && workflowValue is! String)) {
+        return false;
+      }
+      final capabilities = Map<String, dynamic>.from(capabilitiesValue);
+      final params = Map<String, dynamic>.from(paramsValue);
+      if (!_validOptionalBool(capabilities['vision']) ||
+          !_validOptionalBool(capabilities['thinking']) ||
+          !_validOptionalBool(capabilities['tools']) ||
+          !_validOptionalNum(params['maxTokens']) ||
+          !_validOptionalNum(params['temperature']) ||
+          !_validOptionalNum(params['topP'])) {
+        return false;
+      }
+      final modelId = id.trim();
+      final category = _normalizeCategory(categoryValue);
       final group = groups.putIfAbsent(
-        key,
+        category,
         () => _ManagedModelGroup(
-          id: '$lynaiManagedIdPrefix${providerId}_${category}__',
-          providerId: providerId,
-          name: providerName.isNotEmpty ? 'LynAI $providerName' : 'LynAI',
+          id: '$lynaiManagedIdPrefix${category}__',
           category: category,
         ),
       );
-      final capabilities = item['capabilities'] is Map
-          ? Map<String, dynamic>.from(item['capabilities'] as Map)
-          : const <String, dynamic>{};
-      final params = item['advancedParams'] is Map
-          ? Map<String, dynamic>.from(item['advancedParams'] as Map)
-          : const <String, dynamic>{};
-      final workflow = item['workflow']?.toString().trim().isNotEmpty == true
-          ? item['workflow'].toString().trim()
-          : providerWorkflow?.trim() ?? '';
+      final workflow = workflowValue?.trim().isNotEmpty == true
+          ? workflowValue!.trim()
+          : '';
       group.entries.add(
         ModelEntry(
           name: modelId,
-          enabled: item['enabled'] != false,
+          enabled: enabled,
           supportsVision: capabilities['vision'] as bool? ?? false,
           supportsThinking: capabilities['thinking'] as bool? ?? false,
           supportsTools: capabilities['tools'] as bool? ?? false,
@@ -396,29 +524,18 @@ class ModelConfigProvider extends ChangeNotifier {
           workflow: workflow.isEmpty ? null : workflow,
         ),
       );
+      return true;
     }
 
-    for (final provider in data) {
-      if (provider is! Map || provider['models'] is! List) continue;
-      final providerId = provider['providerId']?.toString().trim() ?? '';
-      if (providerId.isEmpty) continue;
-      final providerName = provider['name']?.toString().trim() ?? '';
-      final providerCategory = provider['category']?.toString() ?? '';
-      final providerWorkflow = provider['workflow']?.toString();
-      for (final model in provider['models'] as List) {
-        if (model is Map) {
-          addItem(
-            model,
-            providerId: providerId,
-            providerName: providerName,
-            providerCategory: providerCategory,
-            providerWorkflow: providerWorkflow,
-          );
-        }
-      }
+    for (final model in data) {
+      if (model is! Map || !addItem(model)) return null;
     }
     return groups.values.where((group) => group.entries.isNotEmpty).toList();
   }
+
+  bool _validOptionalBool(Object? value) => value == null || value is bool;
+
+  bool _validOptionalNum(Object? value) => value == null || value is num;
 
   String _normalizeCategory(String? value) {
     switch ((value ?? '').trim()) {
@@ -441,16 +558,9 @@ class ModelConfigProvider extends ChangeNotifier {
 }
 
 class _ManagedModelGroup {
-  _ManagedModelGroup({
-    required this.id,
-    required this.providerId,
-    required this.name,
-    required this.category,
-  });
+  _ManagedModelGroup({required this.id, required this.category});
 
   final String id;
-  final String providerId;
-  final String name;
   final String category;
   final List<ModelEntry> entries = [];
   final Map<String, dynamic> extraParams = {};

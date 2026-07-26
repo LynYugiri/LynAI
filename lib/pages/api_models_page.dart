@@ -4,13 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import '../models/model_config.dart';
-import '../providers/model_config_provider.dart';
 import '../providers/conversation_provider.dart';
+import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
-import '../utils/managed_model_id_migration.dart';
 import '../services/backend_client.dart';
+import '../utils/managed_model_id_migration.dart';
 import '../widgets/text_editing_controller_host.dart';
 
 const _endpointPresets = [
@@ -1069,8 +1069,6 @@ class _EditModelPageState extends State<EditModelPage> {
         ),
         const SizedBox(height: 16),
         _managedInfoRow('名称', model.name),
-        const SizedBox(height: 12),
-        _managedInfoRow('Provider ID', model.relayProviderId ?? '-'),
         const SizedBox(height: 12),
         _managedInfoRow('分类', _categoryTitle(model.category)),
         const SizedBox(height: 16),

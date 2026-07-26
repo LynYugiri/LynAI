@@ -35,14 +35,26 @@ class MemoryConversationRepository implements ConversationRepository {
 
 class MemoryModelConfigRepository implements ModelConfigRepository {
   List<ModelConfig> _models = const [];
-  Map<String, String> _pendingMigrations = const {};
+  Map<String, String> _pendingManagedModelIdMigrations = const {};
+
+  void seed(
+    List<ModelConfig> models, {
+    Map<String, String> pendingManagedModelIdMigrations = const {},
+  }) {
+    _models = List<ModelConfig>.from(models);
+    _pendingManagedModelIdMigrations = Map<String, String>.from(
+      pendingManagedModelIdMigrations,
+    );
+  }
 
   @override
   Future<ModelConfigLoadResult> load() async {
     return ModelConfigLoadResult(
       models: List<ModelConfig>.from(_models),
       usingStorageV2: false,
-      pendingManagedModelIdMigrations: Map.of(_pendingMigrations),
+      pendingManagedModelIdMigrations: Map<String, String>.from(
+        _pendingManagedModelIdMigrations,
+      ),
     );
   }
 
@@ -53,7 +65,9 @@ class MemoryModelConfigRepository implements ModelConfigRepository {
     Map<String, String> pendingManagedModelIdMigrations = const {},
   }) async {
     _models = List<ModelConfig>.from(models);
-    _pendingMigrations = Map.of(pendingManagedModelIdMigrations);
+    _pendingManagedModelIdMigrations = Map<String, String>.from(
+      pendingManagedModelIdMigrations,
+    );
   }
 }
 

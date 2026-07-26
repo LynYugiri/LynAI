@@ -141,21 +141,6 @@ class ApiService {
     headers['Authorization'] = 'Bearer ${backend.accessToken}';
   }
 
-  String _managedProviderId(ModelConfig config) {
-    final providerId = config.relayProviderId?.trim() ?? '';
-    if (providerId.isEmpty) {
-      throw Exception('LynAI 中转配置缺少 providerId');
-    }
-    return providerId;
-  }
-
-  void _applyManagedProviderField(
-    ModelConfig config,
-    Map<String, String> fields,
-  ) {
-    fields['providerId'] = _managedProviderId(config);
-  }
-
   bool _shouldLogSseDiagnostics(ModelConfig config) {
     return config.extraParams['debugSse'] == true;
   }
@@ -305,7 +290,6 @@ class ApiService {
     final endpoint = config.endpoint.replaceAll(RegExp(r'/+$'), '');
     final request = http.MultipartRequest('POST', Uri.parse('$endpoint/ocr'));
     request.fields['model'] = config.modelName;
-    _applyManagedProviderField(config, request.fields);
     request.files.add(
       http.MultipartFile.fromBytes('file', imageBytes, filename: 'ocr.png'),
     );
@@ -780,7 +764,6 @@ class ApiService {
       Uri.parse('$endpoint/transcribe'),
     );
     request.fields['model'] = config.modelName;
-    _applyManagedProviderField(config, request.fields);
     request.fields['response_format'] = 'json';
     request.files.add(
       http.MultipartFile.fromBytes(
@@ -831,7 +814,6 @@ class ApiService {
       request.headers['Content-Type'] = 'application/json';
       request.body = jsonEncode({
         'model': config.modelName,
-        'providerId': _managedProviderId(config),
         'audio_type': audioType,
         'slice_num': sliceCount,
       });
@@ -940,7 +922,6 @@ class ApiService {
     final headers = <String, String>{'Content-Type': 'application/json'};
     if (config.managed) {
       _applyManagedRelayAuth(headers);
-      body['providerId'] = _managedProviderId(config);
     } else if (config.apiKey.isNotEmpty) {
       headers['Authorization'] = 'Bearer ${config.apiKey}';
     }
@@ -1183,7 +1164,6 @@ class ApiService {
     final budgetTokens = (config.extraParams['thinkingBudgetTokens'] as num?)
         ?.toInt();
     final body = <String, dynamic>{
-      'providerId': _managedProviderId(config),
       'model': config.modelName,
       'messages': messages.map(_managedChatMessage).toList(growable: false),
       'stream': stream,

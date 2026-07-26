@@ -2352,6 +2352,7 @@ class BackupService {
         }
         await modelConfigProvider.replaceModels(models);
       }
+      idMap.modelIds.addAll(modelConfigProvider.peekManagedModelIdMigrations());
     }
 
     final appSettings = importingAppSettings ? data.appSettings : null;

@@ -289,16 +289,12 @@ class _DataManagementPageState extends State<DataManagementPage> {
       if (_importSelection!.settingsParts.contains(
         BackupSettingsPart.apiConfigs,
       )) {
-        final modelProvider = context.read<ModelConfigProvider>();
-        final settingsProvider = context.read<SettingsProvider>();
-        final conversationProvider = context.read<ConversationProvider>();
-        final roleplayProvider = context.read<RoleplayProvider>();
         await syncManagedModelsAndApplyMigrations(
-          models: modelProvider,
+          models: context.read<ModelConfigProvider>(),
           backend: context.read<BackendClient>(),
-          settings: settingsProvider,
-          conversations: conversationProvider,
-          roleplay: roleplayProvider,
+          settings: context.read<SettingsProvider>(),
+          conversations: context.read<ConversationProvider>(),
+          roleplay: context.read<RoleplayProvider>(),
           plugins: context.read<PluginProvider>(),
         );
       }

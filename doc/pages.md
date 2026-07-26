@@ -212,7 +212,7 @@ HomePage
 
 文件：`lib/pages/api_models_page.dart`
 
-模型配置按用途分类：Chat、OCR、Speech、Image Generation。Chat 配置可以有多个子模型，每个子模型都可以单独设置启用状态、视觉能力、思考能力、工具能力和采样参数。托管 LynAI 配置不可手动修改 endpoint/API key，但可以在本机关闭，或为 `maxTokens`、`temperature`、`topP`、视觉、思考和工具能力设置本机覆盖项。
+模型配置按用途分类：Chat、OCR、Speech、Image Generation。Chat 配置可以有多个子模型，每个子模型都可以单独设置启用状态、视觉能力、思考能力、工具能力和采样参数。每个分类最多显示一个名为 LynAI 的托管配置，不展示上游 Provider ID；该配置不可手动修改 endpoint/API key，但可以在本机关闭，或为 `maxTokens`、`temperature`、`topP`、视觉、思考和工具能力设置本机覆盖项。刷新操作表示同步 LynAI 模型，而不是同步 Provider。
 
 高级参数支持显式清空。实现上通过 sentinel 区分“不更新”和“清空为 null”。
 
