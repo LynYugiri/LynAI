@@ -11,6 +11,7 @@ import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
 import '../utils/plugin_path_utils.dart';
+import 'agent_json_schema.dart';
 import 'lynai_call_identity.dart';
 import 'lua_sandbox_utils.dart';
 import 'lynai_function_service.dart';
@@ -22,6 +23,7 @@ import 'lynai_function_service.dart';
 /// the Lua handler finishes.
 class PluginLuaRuntimeService {
   static const _maxContinuationDepth = 8;
+  static const _schemaValidator = AgentJsonSchemaValidator();
 
   /// 在 Lua 沙箱中执行插件定义的工具 handler。
   ///
@@ -46,6 +48,8 @@ class PluginLuaRuntimeService {
     PluginProvider? plugins,
     SettingsProvider? settings,
   }) {
+    final invalid = _validateArguments(arguments, tool.parameters);
+    if (invalid != null) return Future.value(invalid);
     return _executeHandler(
       plugin: plugin,
       handler: tool.handler,
@@ -70,6 +74,8 @@ class PluginLuaRuntimeService {
     PluginProvider? plugins,
     SettingsProvider? settings,
   }) {
+    final invalid = _validateArguments(arguments, function.parameters);
+    if (invalid != null) return Future.value(invalid);
     return _executeHandler(
       plugin: plugin,
       handler: function.handler,
@@ -81,6 +87,19 @@ class PluginLuaRuntimeService {
       plugins: plugins,
       settings: settings,
     );
+  }
+
+  static Map<String, dynamic>? _validateArguments(
+    Map<String, dynamic> arguments,
+    Map<String, dynamic> schema,
+  ) {
+    final validation = _schemaValidator.validate(arguments, schema);
+    if (validation.isValid) return null;
+    return {
+      'ok': false,
+      'error': '参数无效: ${validation.issues.join('; ')}',
+      'errorCode': 'invalid_arguments',
+    };
   }
 
   Future<Map<String, dynamic>> _executeHandler({

@@ -20,11 +20,30 @@ MultiProvider(
     ChangeNotifierProvider(create: (_) => PluginProvider()),
     ChangeNotifierProvider(create: (_) => AccountProvider()),
     ChangeNotifierProvider(create: (_) => CloudDataProvider()),
+    ChangeNotifierProvider(create: (_) => McpProvider()),
   ],
 )
 ```
 
 启动时，应用先确保 storage_v2 已创建或升级，再并行加载各分区数据。
+
+## McpProvider
+
+文件：`lib/providers/mcp_provider.dart`
+
+`McpProvider` 是 MCP 设置页和动态工具注册的内存入口。它加载公开 server rows 与 `SecretStore` preferences，维护 `disconnected`、`connecting`、`connected`、`failed` 状态；启用的 server 在启动加载后异步连接，不阻塞其他 Provider 加载完成。
+
+| 能力 | 行为 |
+|------|------|
+| `load()` | 断开旧连接，加载 server 与 preferences，并后台连接 enabled server。 |
+| `saveServer()` | 先断开旧连接，再分别保存公开配置、preferences 和 credential values；启用时重新连接。 |
+| `connect()` / `disconnect()` | 创建或释放 client、订阅状态/工具变化，并注册或移除当前连接持有的工具。 |
+| `setToolEnabled()` | 把逐工具开关写入 `SecretStore` preferences，并同步共享 registry。 |
+| `testConnection()` | 断开后重新连接，以最终连接状态作为结果。 |
+
+MCP 工具注册名为 `mcp_<encodedServerId>_<encodedToolName>`，来源标为 `mcp`、副作用标为 `external`、当前并发策略为 `parallelSafe`。server 通知 `notifications/tools/list_changed` 时 Provider 重新拉取工具；名称冲突会记录错误而不覆盖非本连接持有的 registration。断开连接只移除 registration ID 仍与本连接一致的项，避免删除后来替换的工具。
+
+公开 server row 在 Drift；credential value、credential target、HTTP/私网许可和 enabled tool map 在 `SecretStore`。当前实现没有删除 server 的 Repository/API，也没有 MCP resources、prompts 或 sampling 状态。
 
 ## 共同策略
 

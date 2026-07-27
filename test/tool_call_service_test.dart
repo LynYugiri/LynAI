@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lynai/models/agent_runtime.dart';
 import 'package:lynai/models/agent_trace.dart';
 import 'package:lynai/models/app_settings.dart';
 import 'package:lynai/models/conversation.dart';
@@ -18,6 +19,10 @@ import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/providers/task_provider.dart';
 import 'package:lynai/repositories/plugin_repository.dart';
 import 'package:lynai/services/device_control_service.dart';
+import 'package:lynai/services/agent_cancellation.dart';
+import 'package:lynai/services/agent_loop_runtime.dart';
+import 'package:lynai/services/agent_protocol_codec.dart';
+import 'package:lynai/services/agent_tool_registry.dart';
 import 'package:lynai/services/floating_chat_session_controller.dart';
 import 'package:lynai/services/lynai_call_identity.dart';
 import 'package:lynai/services/lynai_function_service.dart';
@@ -389,6 +394,203 @@ void main() {
 
       expect(deniedTask['error'], contains(LynAIPermissions.todosRead));
       expect(deniedCalendar['error'], contains(LynAIPermissions.schedulesRead));
+    },
+  );
+
+  test('call identity children preserve Agent correlation', () {
+    const identity = LynAICallIdentity(
+      type: LynAICallerType.agent,
+      conversationId: 'conversation',
+      runId: 'run',
+      turnId: 'turn',
+      toolCallId: 'outer-call',
+    );
+
+    final child = identity.child(
+      type: LynAICallerType.agentLua,
+      toolCallId: 'inner-call',
+      toolName: 'notes.list',
+    );
+
+    expect(child.conversationId, 'conversation');
+    expect(child.runId, 'run');
+    expect(child.turnId, 'turn');
+    expect(child.toolCallId, 'inner-call');
+    expect(child.toolName, 'notes.list');
+    expect(child.parent, same(identity));
+  });
+
+  test(
+    'Agent tool dispatch uses Agent permissions while ordinary chat stays system',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final settings = memorySettingsProvider();
+      await settings.replaceSettings(
+        AppSettings.defaults().copyWith(agentGrantedPermissions: const []),
+      );
+      final conversations = memoryConversationProvider();
+      final cid = conversations.createConversation(
+        ConversationSettings(modelId: 'm1', agentEnabled: true),
+      );
+      final features = FeatureProvider();
+      const call = ChatToolCall(
+        id: 'list-notes',
+        name: 'list_notes',
+        arguments: {},
+      );
+
+      final agentResult = await ToolCallService(
+        features,
+        settings: settings,
+        conversations: conversations,
+        conversationId: cid,
+        agentIdentity: const LynAICallIdentity(
+          type: LynAICallerType.agent,
+          conversationId: 'correlated-conversation',
+          runId: 'run-1',
+          turnId: 'turn-1',
+        ),
+      ).execute(call, const []);
+      final ordinaryResult = await ToolCallService(
+        features,
+        settings: settings,
+      ).execute(call, const []);
+      final agentOpenApp =
+          await ToolCallService(
+            features,
+            settings: settings,
+            conversations: conversations,
+            conversationId: cid,
+          ).execute(
+            const ChatToolCall(
+              id: 'open-app',
+              name: 'open_app',
+              arguments: {'packageName': 'com.example.app'},
+            ),
+            const [],
+          );
+
+      expect(agentResult['ok'], isFalse);
+      expect(
+        agentResult['error'].toString(),
+        contains(LynAIPermissions.notesRead),
+      );
+      expect(ordinaryResult['ok'], isTrue);
+      expect(agentOpenApp['ok'], isFalse);
+      expect(
+        agentOpenApp['error'].toString(),
+        contains(LynAIPermissions.deviceControl),
+      );
+    },
+  );
+
+  test('invalid core tool arguments are blocked before dispatch', () async {
+    final result = await ToolCallService(FeatureProvider()).execute(
+      const ChatToolCall(
+        id: 'bad-open-app',
+        name: 'open_app',
+        arguments: {'packageName': 42},
+      ),
+      const [],
+    );
+
+    expect(result['ok'], isFalse);
+    expect(result['error'].toString(), contains(r'$.packageName'));
+    expect(result['error'].toString(), contains('expected string'));
+  });
+
+  test('compatibility execution maps structured external failures', () async {
+    final registry = AgentToolRegistry();
+    registry.register(
+      AgentToolDescriptor(
+        name: 'external_failure',
+        description: 'fails',
+        source: AgentToolSource.mcp,
+        sideEffect: AgentToolSideEffect.external,
+        concurrency: AgentToolConcurrency.parallelSafe,
+      ),
+      (invocation, token) async => throw StateError('remote detail'),
+    );
+
+    final results =
+        await ToolCallService(
+          FeatureProvider(),
+          externalToolRegistry: registry,
+        ).executeSequentialCompatibility(
+          [AgentToolInvocation(id: 'failure', name: 'external_failure')],
+          const [],
+          identity: const AgentTurnIdentity(
+            runId: 'run',
+            turnId: 'turn',
+            turnIndex: 0,
+          ),
+          cancellationToken: AgentCancellationSource().token,
+        );
+
+    expect(results.single.status, AgentToolResultStatus.failure);
+    expect(results.single.errorCode, 'tool_execution_failed');
+    expect(results.single.errorMessage, contains('remote detail'));
+    expect(results.single.value.toString(), contains('remote detail'));
+    final payload = jsonDecode(
+      const AgentProtocolCodec().toolResultMessage(results.single)['content']
+          as String,
+    );
+    expect(payload['error'], contains('remote detail'));
+  });
+
+  test(
+    'compatibility cancellation reaches external handler and ignores late result',
+    () async {
+      final registry = AgentToolRegistry();
+      final started = Completer<void>();
+      final release = Completer<Object?>();
+      AgentCancellationToken? receivedToken;
+      registry.register(
+        AgentToolDescriptor(
+          name: 'slow_external',
+          description: 'slow',
+          source: AgentToolSource.mcp,
+          sideEffect: AgentToolSideEffect.external,
+          concurrency: AgentToolConcurrency.parallelSafe,
+        ),
+        (invocation, token) {
+          receivedToken = token;
+          started.complete();
+          return release.future;
+        },
+      );
+      final service = ToolCallService(
+        FeatureProvider(),
+        externalToolRegistry: registry,
+      );
+      var modelTurns = 0;
+      final handle = const AgentLoopRuntime().start(
+        messages: const [],
+        maxToolRounds: 2,
+        model: (request) async* {
+          modelTurns++;
+          yield AgentModelToolCalls([
+            AgentToolInvocation(id: 'slow', name: 'slow_external'),
+          ]);
+          yield const AgentModelStreamCompleted();
+        },
+        executeTools: (calls, identity, cancellationToken) =>
+            service.executeSequentialCompatibility(
+              calls,
+              const [],
+              identity: identity,
+              cancellationToken: cancellationToken,
+            ),
+      );
+
+      await started.future;
+      handle.cancel();
+      final result = await handle.result.timeout(const Duration(seconds: 1));
+      expect(receivedToken?.isCancellationRequested, isTrue);
+      expect(result.status, AgentRunStatus.cancelled);
+      release.complete({'late': true});
+      await Future<void>.delayed(Duration.zero);
+      expect(modelTurns, 1);
     },
   );
 

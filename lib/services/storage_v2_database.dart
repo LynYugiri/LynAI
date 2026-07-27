@@ -7,6 +7,7 @@ import 'package:drift/native.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/cloud_data.dart';
+import '../models/agent_persistence.dart';
 import '../models/model_config.dart';
 import '../models/merge_models.dart';
 import '../models/shared_sync_models.dart';
@@ -613,6 +614,149 @@ class CloudRequestRows extends Table {
   Set<Column> get primaryKey => {scope, requestKey};
 }
 
+class RunRows extends Table {
+  @override
+  String get tableName => 'runs';
+
+  TextColumn get id => text()();
+  TextColumn get conversationId => text().named('conversation_id').nullable()();
+  TextColumn get status => text().customConstraint(
+    "NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled'))",
+  )();
+  TextColumn get errorCode => text().named('error_code').nullable()();
+  TextColumn get errorMessage => text().named('error_message').nullable()();
+  TextColumn get createdAt => text().named('created_at')();
+  TextColumn get updatedAt => text().named('updated_at')();
+  TextColumn get completedAt => text().named('completed_at').nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+@TableIndex(
+  name: 'idx_turns_run_index',
+  columns: {#runId, #turnIndex},
+  unique: true,
+)
+class TurnRows extends Table {
+  @override
+  String get tableName => 'turns';
+
+  TextColumn get id => text()();
+  TextColumn get runId => text()
+      .named('run_id')
+      .customConstraint('NOT NULL REFERENCES runs(id) ON DELETE CASCADE')();
+  IntColumn get turnIndex => integer().named('turn_index')();
+  TextColumn get status => text().customConstraint(
+    "NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled'))",
+  )();
+  TextColumn get errorCode => text().named('error_code').nullable()();
+  TextColumn get errorMessage => text().named('error_message').nullable()();
+  TextColumn get createdAt => text().named('created_at')();
+  TextColumn get updatedAt => text().named('updated_at')();
+  TextColumn get completedAt => text().named('completed_at').nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+@TableIndex(
+  name: 'idx_items_turn_index',
+  columns: {#turnId, #itemIndex},
+  unique: true,
+)
+class ItemRows extends Table {
+  @override
+  String get tableName => 'items';
+
+  TextColumn get id => text()();
+  TextColumn get turnId => text()
+      .named('turn_id')
+      .customConstraint('NOT NULL REFERENCES turns(id) ON DELETE CASCADE')();
+  IntColumn get itemIndex => integer().named('item_index')();
+  TextColumn get kind => text().customConstraint(
+    "NOT NULL CHECK (kind IN ('message', 'reasoning', 'toolCall', 'toolResult'))",
+  )();
+  TextColumn get status => text().customConstraint(
+    "NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled'))",
+  )();
+  TextColumn get payloadJson => text().named('payload_json')();
+  TextColumn get errorCode => text().named('error_code').nullable()();
+  TextColumn get errorMessage => text().named('error_message').nullable()();
+  TextColumn get createdAt => text().named('created_at')();
+  TextColumn get updatedAt => text().named('updated_at')();
+  TextColumn get completedAt => text().named('completed_at').nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+@TableIndex(name: 'idx_tool_calls_item', columns: {#itemId})
+class ToolCallRows extends Table {
+  @override
+  String get tableName => 'tool_calls';
+
+  TextColumn get id => text()();
+  TextColumn get itemId => text()
+      .named('item_id')
+      .customConstraint('NOT NULL REFERENCES items(id) ON DELETE CASCADE')();
+  TextColumn get toolName => text().named('tool_name')();
+  TextColumn get argumentsJson => text().named('arguments_json')();
+  TextColumn get status => text().customConstraint(
+    "NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled'))",
+  )();
+  TextColumn get resultJson => text().named('result_json').nullable()();
+  TextColumn get errorCode => text().named('error_code').nullable()();
+  TextColumn get errorMessage => text().named('error_message').nullable()();
+  TextColumn get createdAt => text().named('created_at')();
+  TextColumn get updatedAt => text().named('updated_at')();
+  TextColumn get completedAt => text().named('completed_at').nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+@TableIndex(name: 'idx_snapshots_run_created', columns: {#runId, #createdAt})
+class SnapshotRows extends Table {
+  @override
+  String get tableName => 'snapshots';
+
+  TextColumn get id => text()();
+  TextColumn get runId => text()
+      .named('run_id')
+      .customConstraint('NOT NULL REFERENCES runs(id) ON DELETE CASCADE')();
+  TextColumn get turnId => text()
+      .named('turn_id')
+      .customConstraint('NULL REFERENCES turns(id) ON DELETE CASCADE')
+      .nullable()();
+  TextColumn get kind => text()();
+  TextColumn get dataJson => text().named('data_json')();
+  TextColumn get createdAt => text().named('created_at')();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+class McpServerRows extends Table {
+  @override
+  String get tableName => 'mcp_servers';
+
+  TextColumn get id => text()();
+  TextColumn get name => text()();
+  TextColumn get transport => text()();
+  TextColumn get command => text().nullable()();
+  TextColumn get url => text().nullable()();
+  TextColumn get argumentsJson => text().named('arguments_json')();
+  TextColumn get environmentNamesJson =>
+      text().named('environment_names_json')();
+  BoolColumn get enabled => boolean()();
+  TextColumn get createdAt => text().named('created_at')();
+  TextColumn get updatedAt => text().named('updated_at')();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
 class SyncScopeState {
   final int since;
   final int generation;
@@ -662,6 +806,12 @@ class SyncScopeState {
     CloudIndexCategoryStatRows,
     CloudReseedTaskRows,
     CloudRequestRows,
+    RunRows,
+    TurnRows,
+    ItemRows,
+    ToolCallRows,
+    SnapshotRows,
+    McpServerRows,
   ],
 )
 class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
@@ -677,7 +827,7 @@ class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
   /// This is separate from [StorageV2Service.currentLayoutVersion], which
   /// describes the storage_v2 directory layout.
   @override
-  int get schemaVersion => 21;
+  int get schemaVersion => 22;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -874,6 +1024,14 @@ SET captures_local = active
       }
       if (from < 21) {
         await _addColumnIfMissing('sync_outbox', 'selection_data_json', 'TEXT');
+      }
+      if (from < 22) {
+        await m.createTable(runRows);
+        await m.createTable(turnRows);
+        await m.createTable(itemRows);
+        await m.createTable(toolCallRows);
+        await m.createTable(snapshotRows);
+        await m.createTable(mcpServerRows);
       }
       await _ensureCloudDataColumns();
     },
@@ -1283,6 +1441,313 @@ class StorageV2Database {
       }
     }
     _db = null;
+  }
+
+  Future<void> insertAgentRun(AgentRunRecord run) async {
+    final db = await _open();
+    await db
+        .into(db.runRows)
+        .insert(
+          RunRowsCompanion.insert(
+            id: run.id,
+            conversationId: Value(run.conversationId),
+            status: run.status.name,
+            errorCode: Value(run.errorCode),
+            errorMessage: Value(run.errorMessage),
+            createdAt: run.createdAt.toIso8601String(),
+            updatedAt: run.updatedAt.toIso8601String(),
+            completedAt: Value(run.completedAt?.toIso8601String()),
+          ),
+        );
+  }
+
+  Future<void> insertAgentTurn(AgentTurnRecord turn) async {
+    final db = await _open();
+    await db
+        .into(db.turnRows)
+        .insert(
+          TurnRowsCompanion.insert(
+            id: turn.id,
+            runId: turn.runId,
+            turnIndex: turn.index,
+            status: turn.status.name,
+            errorCode: Value(turn.errorCode),
+            errorMessage: Value(turn.errorMessage),
+            createdAt: turn.createdAt.toIso8601String(),
+            updatedAt: turn.updatedAt.toIso8601String(),
+            completedAt: Value(turn.completedAt?.toIso8601String()),
+          ),
+        );
+  }
+
+  Future<void> insertAgentItem(AgentItemRecord item) async {
+    final db = await _open();
+    await db
+        .into(db.itemRows)
+        .insert(
+          ItemRowsCompanion.insert(
+            id: item.id,
+            turnId: item.turnId,
+            itemIndex: item.index,
+            kind: item.kind.name,
+            status: item.status.name,
+            payloadJson: jsonEncode(item.payload),
+            errorCode: Value(item.errorCode),
+            errorMessage: Value(item.errorMessage),
+            createdAt: item.createdAt.toIso8601String(),
+            updatedAt: item.updatedAt.toIso8601String(),
+            completedAt: Value(item.completedAt?.toIso8601String()),
+          ),
+        );
+  }
+
+  Future<void> insertAgentToolCall(AgentToolCallRecord call) async {
+    final db = await _open();
+    await db
+        .into(db.toolCallRows)
+        .insert(
+          ToolCallRowsCompanion.insert(
+            id: call.id,
+            itemId: call.itemId,
+            toolName: call.toolName,
+            argumentsJson: jsonEncode(call.arguments),
+            status: call.status.name,
+            resultJson: Value(
+              call.result == null ? null : jsonEncode(call.result),
+            ),
+            errorCode: Value(call.errorCode),
+            errorMessage: Value(call.errorMessage),
+            createdAt: call.createdAt.toIso8601String(),
+            updatedAt: call.updatedAt.toIso8601String(),
+            completedAt: Value(call.completedAt?.toIso8601String()),
+          ),
+        );
+  }
+
+  Future<void> insertAgentSnapshot(AgentSnapshotRecord snapshot) async {
+    final db = await _open();
+    await db
+        .into(db.snapshotRows)
+        .insert(
+          SnapshotRowsCompanion.insert(
+            id: snapshot.id,
+            runId: snapshot.runId,
+            turnId: Value(snapshot.turnId),
+            kind: snapshot.kind,
+            dataJson: jsonEncode(snapshot.data),
+            createdAt: snapshot.createdAt.toIso8601String(),
+          ),
+        );
+  }
+
+  Future<void> upsertAgentMcpServer(AgentMcpServerRecord server) async {
+    final db = await _open();
+    await db
+        .into(db.mcpServerRows)
+        .insertOnConflictUpdate(
+          McpServerRowsCompanion.insert(
+            id: server.id,
+            name: server.name,
+            transport: server.transport,
+            command: Value(server.command),
+            url: Value(server.url),
+            argumentsJson: jsonEncode(server.arguments),
+            environmentNamesJson: jsonEncode(server.environmentNames),
+            enabled: server.enabled,
+            createdAt: server.createdAt.toIso8601String(),
+            updatedAt: server.updatedAt.toIso8601String(),
+          ),
+        );
+  }
+
+  Future<List<AgentMcpServerRecord>> loadAgentMcpServers() async {
+    final db = await _open();
+    final rows =
+        await (db.select(db.mcpServerRows)..orderBy([
+              (row) => OrderingTerm.asc(row.name),
+              (row) => OrderingTerm.asc(row.id),
+            ]))
+            .get();
+    return rows
+        .map(
+          (row) => AgentMcpServerRecord(
+            id: row.id,
+            name: row.name,
+            transport: row.transport,
+            command: row.command,
+            url: row.url,
+            arguments: (jsonDecode(row.argumentsJson) as List).cast<String>(),
+            environmentNames: (jsonDecode(row.environmentNamesJson) as List)
+                .cast<String>(),
+            enabled: row.enabled,
+            createdAt: DateTime.parse(row.createdAt),
+            updatedAt: DateTime.parse(row.updatedAt),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  Future<bool> compareAndSetAgentStatus({
+    required String table,
+    required String id,
+    required String expectedStatus,
+    required String nextStatus,
+    required DateTime updatedAt,
+    String? errorCode,
+    String? errorMessage,
+    Object? result,
+  }) async {
+    const allowedTables = {'runs', 'turns', 'items', 'tool_calls'};
+    if (!allowedTables.contains(table)) {
+      throw ArgumentError.value(table, 'table', 'unsupported Agent table');
+    }
+    final db = await _open();
+    final terminal = const {
+      'completed',
+      'failed',
+      'cancelled',
+    }.contains(nextStatus);
+    final assignments = <String>[
+      'status = ?',
+      'updated_at = ?',
+      'completed_at = ?',
+      'error_code = ?',
+      'error_message = ?',
+    ];
+    final variables = <Variable<Object>>[
+      Variable.withString(nextStatus),
+      Variable.withString(updatedAt.toIso8601String()),
+      Variable<String>(terminal ? updatedAt.toIso8601String() : null),
+      Variable<String>(errorCode),
+      Variable<String>(errorMessage),
+    ];
+    if (table == 'tool_calls' && result != null) {
+      assignments.add('result_json = ?');
+      variables.add(Variable.withString(jsonEncode(result)));
+    }
+    variables.addAll([
+      Variable.withString(id),
+      Variable.withString(expectedStatus),
+    ]);
+    final changed = await db.customUpdate(
+      'UPDATE $table SET ${assignments.join(', ')} '
+      'WHERE id = ? AND status = ?',
+      variables: variables,
+      updates: switch (table) {
+        'runs' => {db.runRows},
+        'turns' => {db.turnRows},
+        'items' => {db.itemRows},
+        _ => {db.toolCallRows},
+      },
+    );
+    return changed == 1;
+  }
+
+  Future<AgentRestartReconciliation> reconcileAgentRestart(
+    DateTime reconciledAt,
+  ) async {
+    final db = await _open();
+    return db.transaction(() async {
+      final activeRunRows = await db.customSelect('''
+SELECT DISTINCT runs.id
+FROM runs
+LEFT JOIN turns ON turns.run_id = runs.id
+LEFT JOIN items ON items.turn_id = turns.id
+LEFT JOIN tool_calls ON tool_calls.item_id = items.id
+WHERE runs.status IN ('queued', 'running')
+   OR turns.status IN ('pending', 'running')
+   OR items.status IN ('pending', 'running')
+   OR tool_calls.status IN ('pending', 'running')
+ORDER BY runs.created_at, runs.id
+''').get();
+      if (activeRunRows.isEmpty) {
+        return const AgentRestartReconciliation(
+          runIds: [],
+          turnCount: 0,
+          itemCount: 0,
+          toolCallCount: 0,
+        );
+      }
+      final runIds = activeRunRows
+          .map((row) => row.read<String>('id'))
+          .toList(growable: false);
+      final timestamp = reconciledAt.toIso8601String();
+      final toolCalls = await db.customUpdate(
+        '''
+UPDATE tool_calls
+SET status = 'failed', error_code = 'interrupted',
+    error_message = 'Interrupted by application restart',
+    updated_at = ?, completed_at = ?
+WHERE status IN ('pending', 'running') AND item_id IN (
+  SELECT items.id FROM items
+  JOIN turns ON turns.id = items.turn_id
+  WHERE turns.run_id IN (${List.filled(runIds.length, '?').join(', ')})
+)
+''',
+        variables: [
+          Variable.withString(timestamp),
+          Variable.withString(timestamp),
+          ...runIds.map(Variable.withString),
+        ],
+        updates: {db.toolCallRows},
+      );
+      final items = await db.customUpdate(
+        '''
+UPDATE items
+SET status = 'failed', error_code = 'interrupted',
+    error_message = 'Interrupted by application restart',
+    updated_at = ?, completed_at = ?
+WHERE status IN ('pending', 'running') AND turn_id IN (
+  SELECT id FROM turns
+  WHERE run_id IN (${List.filled(runIds.length, '?').join(', ')})
+)
+''',
+        variables: [
+          Variable.withString(timestamp),
+          Variable.withString(timestamp),
+          ...runIds.map(Variable.withString),
+        ],
+        updates: {db.itemRows},
+      );
+      final turns = await db.customUpdate(
+        '''
+UPDATE turns
+SET status = 'failed', error_code = 'interrupted',
+    error_message = 'Interrupted by application restart',
+    updated_at = ?, completed_at = ?
+WHERE status IN ('pending', 'running')
+  AND run_id IN (${List.filled(runIds.length, '?').join(', ')})
+''',
+        variables: [
+          Variable.withString(timestamp),
+          Variable.withString(timestamp),
+          ...runIds.map(Variable.withString),
+        ],
+        updates: {db.turnRows},
+      );
+      await db.customUpdate(
+        '''
+UPDATE runs
+SET status = 'failed', error_code = 'interrupted',
+    error_message = 'Interrupted by application restart; automatic replay is disabled',
+    updated_at = ?, completed_at = ?
+WHERE id IN (${List.filled(runIds.length, '?').join(', ')})
+  AND status IN ('queued', 'running')
+''',
+        variables: [
+          Variable.withString(timestamp),
+          Variable.withString(timestamp),
+          ...runIds.map(Variable.withString),
+        ],
+        updates: {db.runRows},
+      );
+      return AgentRestartReconciliation(
+        runIds: runIds,
+        turnCount: turns,
+        itemCount: items,
+        toolCallCount: toolCalls,
+      );
+    });
   }
 
   Future<Map<String, dynamic>?> loadDataFile(String fileName) async {
@@ -3683,6 +4148,77 @@ CREATE TABLE IF NOT EXISTS anniversaries (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS runs (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT,
+  status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled')),
+  error_code TEXT,
+  error_message TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS turns (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  turn_index INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled')),
+  error_code TEXT,
+  error_message TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS items (
+  id TEXT PRIMARY KEY,
+  turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,
+  item_index INTEGER NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('message', 'reasoning', 'toolCall', 'toolResult')),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled')),
+  payload_json TEXT NOT NULL,
+  error_code TEXT,
+  error_message TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS tool_calls (
+  id TEXT PRIMARY KEY,
+  item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  tool_name TEXT NOT NULL,
+  arguments_json TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled')),
+  result_json TEXT,
+  error_code TEXT,
+  error_message TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS snapshots (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  turn_id TEXT REFERENCES turns(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  data_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mcp_servers (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  transport TEXT NOT NULL,
+  command TEXT,
+  url TEXT,
+  arguments_json TEXT NOT NULL,
+  environment_names_json TEXT NOT NULL,
+  enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_turns_run_index ON turns(run_id, turn_index);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_items_turn_index ON items(turn_id, item_index);
+CREATE INDEX IF NOT EXISTS idx_tool_calls_item ON tool_calls(item_id);
+CREATE INDEX IF NOT EXISTS idx_snapshots_run_created ON snapshots(run_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_attachments_message ON message_attachments(message_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_note_pages_note ON note_pages(note_id, sort_order);
@@ -4371,6 +4907,9 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
               conversationId: conversationId,
               role: json['role'] as String? ?? '',
               content: json['content'] as String? ?? '',
+              modelContextContent: Value(
+                json['modelContextContent'] as String?,
+              ),
               thinkingContent: Value(json['thinkingContent'] as String?),
               agentTraceJson: Value(
                 json['agentTrace'] == null

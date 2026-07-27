@@ -207,6 +207,13 @@ class AgentLuaScriptService {
     LynAICallIdentity? identity,
     BackendClient? backend,
   }) {
+    final callIdentity =
+        (identity ??
+                LynAICallIdentity(
+                  type: LynAICallerType.agentLua,
+                  conversationId: conversationId,
+                ))
+            .child(type: LynAICallerType.agentLua, toolName: method);
     if (method == 'plugins.functions.list') {
       return _listPluginFunctions(plugins?.plugins ?? const []);
     }
@@ -230,12 +237,7 @@ class AgentLuaScriptService {
         return _error('agent_disabled', '当前对话未启用 Agent 模式');
       }
       final permitted = const LynAIPermissionService().canUseCapability(
-        identity:
-            identity ??
-            LynAICallIdentity(
-              type: LynAICallerType.agentLua,
-              conversationId: conversationId,
-            ),
+        identity: callIdentity,
         capability: LynAICapabilities.pluginCallFunction,
         appSettings: settings?.settings,
       );
@@ -251,13 +253,7 @@ class AgentLuaScriptService {
     }
     final functions = LynAIFunctionService();
     final context = LynAIFunctionContext(
-      identity:
-          identity ??
-          LynAICallIdentity(
-            type: LynAICallerType.agentLua,
-            conversationId: conversationId,
-            toolName: method,
-          ),
+      identity: callIdentity,
       features: features,
       tasks: tasks,
       calendar: calendar,
@@ -487,17 +483,18 @@ class AgentLuaScriptService {
     LynAICallIdentity? identity,
     BackendClient? backend,
   }) async {
+    final callIdentity =
+        (identity ??
+                LynAICallIdentity(
+                  type: LynAICallerType.agentLua,
+                  conversationId: conversationId,
+                ))
+            .child(type: LynAICallerType.agentLua, toolName: name);
     if (name != 'plugins.callFunction') {
       final result = await LynAIFunctionService().execute(
         LynAIFunctionCall(name: name, arguments: args),
         LynAIFunctionContext(
-          identity:
-              identity ??
-              LynAICallIdentity(
-                type: LynAICallerType.agentLua,
-                conversationId: conversationId,
-                toolName: name,
-              ),
+          identity: callIdentity,
           features: features,
           tasks: tasks,
           calendar: calendar,
@@ -519,12 +516,7 @@ class AgentLuaScriptService {
       return _error('agent_disabled', '当前对话未启用 Agent 模式');
     }
     final permitted = const LynAIPermissionService().canUseCapability(
-      identity:
-          identity ??
-          LynAICallIdentity(
-            type: LynAICallerType.agentLua,
-            conversationId: conversationId,
-          ),
+      identity: callIdentity,
       capability: LynAICapabilities.pluginCallFunction,
       appSettings: settings?.settings,
     );

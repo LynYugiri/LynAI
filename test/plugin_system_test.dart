@@ -845,6 +845,73 @@ return lynai.call("plugins.callFunction", {
   });
 
   test(
+    'plugin Lua rejects invalid arguments before loading the handler',
+    () async {
+      final manifest = PluginManifest.fromJson({
+        'id': 'schema_guard_plugin',
+        'name': 'Schema Guard Plugin',
+        'entry': 'missing.lua',
+        'tools': [
+          {
+            'name': 'guarded_tool',
+            'handler': 'guarded_tool',
+            'parameters': {
+              'type': 'object',
+              'properties': {
+                'count': {'type': 'integer'},
+              },
+              'required': ['count'],
+              'additionalProperties': false,
+            },
+          },
+        ],
+        'functions': [
+          {
+            'name': 'guarded_function',
+            'title': 'Guarded Function',
+            'handler': 'guarded_function',
+            'parameters': {
+              'type': 'object',
+              'properties': {
+                'query': {'type': 'string'},
+              },
+              'required': ['query'],
+            },
+          },
+        ],
+      });
+      final plugin = InstalledPlugin(
+        manifest: manifest,
+        path: '/path/that/does/not/exist',
+        enabled: true,
+        grantedPermissions: const [],
+        enabledFeaturePages: const [],
+        enabledTools: const ['guarded_tool'],
+        enabledFunctions: const ['guarded_function'],
+      );
+      final runtime = PluginLuaRuntimeService();
+
+      final toolResult = await runtime.executeTool(
+        plugin: plugin,
+        tool: manifest.tools.single,
+        arguments: const {'count': 'not-an-integer'},
+      );
+      final functionResult = await runtime.executeFunction(
+        plugin: plugin,
+        function: manifest.functions.single,
+        arguments: const {},
+      );
+
+      expect(toolResult['errorCode'], 'invalid_arguments');
+      expect(toolResult['error'].toString(), contains(r'$.count'));
+      expect(functionResult['errorCode'], 'invalid_arguments');
+      expect(functionResult['error'].toString(), contains(r'$.query'));
+      expect(toolResult['error'].toString(), isNot(contains('入口文件不存在')));
+      expect(functionResult['error'].toString(), isNot(contains('入口文件不存在')));
+    },
+  );
+
+  test(
     'Agent Lua returns structured error without plugin permission',
     () async {
       SharedPreferences.setMockInitialValues({});

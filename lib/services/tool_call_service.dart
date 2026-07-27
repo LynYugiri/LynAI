@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/agent_trace.dart';
+import '../models/agent_runtime.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
 import '../models/note.dart';
@@ -22,6 +23,12 @@ import '../providers/task_provider.dart';
 import 'backend_client.dart';
 import '../providers/conversation_provider.dart';
 import 'api_service.dart';
+import 'agent_cancellation.dart';
+import 'agent_json_schema.dart';
+import 'agent_loop_runtime.dart';
+import 'agent_persistence_lifecycle.dart';
+import 'agent_tool_registry.dart';
+import 'agent_tool_scheduler.dart';
 import 'agent_lua_script_service.dart';
 import 'agent_runtime_service.dart';
 import 'device_control_service.dart';
@@ -211,6 +218,10 @@ class ToolCallService {
     ConversationProvider? conversations,
     BackendClient? backend,
     String? conversationId,
+    LynAICallIdentity? agentIdentity,
+    AgentToolRegistry? externalToolRegistry,
+    AgentToolSnapshot? externalToolSnapshot,
+    AgentRunPersistenceLifecycle? persistence,
     bool allowScreenContextTool = false,
     bool allowSubagents = true,
   }) : _tasks = tasks,
@@ -221,6 +232,10 @@ class ToolCallService {
        _conversations = conversations,
        _backend = backend,
        _conversationId = conversationId,
+       _providedAgentIdentity = agentIdentity,
+       _externalToolRegistry = externalToolRegistry,
+       _externalToolSnapshot = externalToolSnapshot,
+       _persistence = persistence,
        _allowScreenContextTool = allowScreenContextTool,
        _allowSubagents = allowSubagents;
 
@@ -246,10 +261,15 @@ class ToolCallService {
   final ConversationProvider? _conversations;
   final BackendClient? _backend;
   final String? _conversationId;
+  final LynAICallIdentity? _providedAgentIdentity;
+  final AgentToolRegistry? _externalToolRegistry;
+  final AgentToolSnapshot? _externalToolSnapshot;
+  final AgentRunPersistenceLifecycle? _persistence;
   final bool _allowScreenContextTool;
   final bool _allowSubagents;
   final _lynaiFunctions = LynAIFunctionService();
   final _permissionService = const LynAIPermissionService();
+  final _schemaValidator = const AgentJsonSchemaValidator();
   final _agentRuntime = const AgentRuntimeService();
 
   /// 非原生 tool_calls 接口使用的系统提示词。
@@ -584,6 +604,7 @@ ${lines.join('\n')}$more''';
     Iterable<String> agentGrantedPermissions = const [],
     bool imageGenerationEnabled = false,
     bool screenContextEnabled = false,
+    AgentToolSnapshot? externalTools,
   ]) {
     final tools = <Map<String, dynamic>>[
       {
@@ -1020,6 +1041,20 @@ ${lines.join('\n')}$more''';
       }
     }
     if (imageGenerationEnabled) _appendImageGenerationTool(tools, names);
+    if (externalTools != null) {
+      for (final registration in externalTools.registrations) {
+        final descriptor = registration.descriptor;
+        if (!names.add(descriptor.name)) continue;
+        tools.add({
+          'type': 'function',
+          'function': {
+            'name': descriptor.name,
+            'description': descriptor.description,
+            'parameters': descriptor.parameters,
+          },
+        });
+      }
+    }
     return tools;
   }
 
@@ -1469,6 +1504,71 @@ ${lines.join('\n')}$more''';
     return results;
   }
 
+  Future<List<AgentToolResult>> executeSequentialCompatibility(
+    List<AgentToolInvocation> calls,
+    List<Message> conversationMessages, {
+    required AgentTurnIdentity identity,
+    required AgentRunCancellation cancellationToken,
+    void Function(AgentToolInvocation call)? onToolStart,
+  }) async {
+    final correlated = ToolCallService(
+      _features,
+      tasks: _tasks,
+      calendar: _calendar,
+      plugins: _plugins,
+      modelConfigs: _modelConfigs,
+      settings: _settings,
+      conversations: _conversations,
+      backend: _backend,
+      conversationId: _conversationId,
+      agentIdentity: _agentIdentity.child(
+        type: _agentEnabled ? LynAICallerType.agent : LynAICallerType.assistant,
+        runId: identity.runId,
+        turnId: identity.turnId,
+      ),
+      externalToolRegistry: _externalToolRegistry,
+      externalToolSnapshot: _externalToolSnapshot,
+      persistence: _persistence,
+      allowScreenContextTool: _allowScreenContextTool,
+      allowSubagents: _allowSubagents,
+    );
+    final results = <AgentToolResult>[];
+    for (final call in calls) {
+      cancellationToken.throwIfCancellationRequested();
+      onToolStart?.call(call);
+      final result = await correlated.execute(
+        ChatToolCall(id: call.id, name: call.name, arguments: call.arguments),
+        conversationMessages,
+        cancellationToken: cancellationToken is AgentCancellationToken
+            ? cancellationToken
+            : null,
+      );
+      cancellationToken.throwIfCancellationRequested();
+      final visibleResult = modelVisibleToolResult(result);
+      if (result['ok'] == false) {
+        final failure = _structuredFailure(result);
+        results.add(
+          AgentToolResult.failure(
+            invocationId: call.id,
+            toolName: call.name,
+            code: failure.$1,
+            message: failure.$2,
+            value: visibleResult,
+          ),
+        );
+      } else {
+        results.add(
+          AgentToolResult.success(
+            invocationId: call.id,
+            toolName: call.name,
+            value: visibleResult,
+          ),
+        );
+      }
+    }
+    return results;
+  }
+
   /// 执行单个工具调用并返回结构化结果。
   ///
   /// 工具分发顺序：
@@ -1480,9 +1580,13 @@ ${lines.join('\n')}$more''';
   /// 确保模型能区分成功和失败并据此生成合适的用户回复。
   Future<Map<String, dynamic>> execute(
     ChatToolCall call,
-    List<Message> conversationMessages,
-  ) async {
+    List<Message> conversationMessages, {
+    AgentCancellationToken? cancellationToken,
+  }) async {
     try {
+      cancellationToken?.throwIfCancellationRequested();
+      final invalidArguments = _validateToolArguments(call);
+      if (invalidArguments != null) return invalidArguments;
       switch (call.name) {
         case 'get_current_time':
           final now = DateTime.now();
@@ -1494,13 +1598,18 @@ ${lines.join('\n')}$more''';
             'timezoneOffsetMinutes': now.timeZoneOffset.inMinutes,
           };
         case 'web_fetch':
-          return _webFetch(call.arguments);
+          return _webFetch(call);
         case 'get_location':
           final result = await _invokeNative('getLocation');
           return {'ok': true, ...result};
         case 'open_app':
           final packageName = _stringArg(call, 'packageName');
           if (packageName.isEmpty) return _error('缺少 packageName');
+          if (_agentEnabled) {
+            return _executeLynAIFunction(call, 'device.app.open', {
+              'packageName': packageName,
+            });
+          }
           final result = await _invokeNative('openApp', {
             'packageName': packageName,
           });
@@ -1508,6 +1617,13 @@ ${lines.join('\n')}$more''';
         case 'get_current_screen':
           if (!_allowScreenContextTool) {
             return _error('当前对话未允许模型读取当前页面');
+          }
+          if (_agentEnabled) {
+            return _executeLynAIFunction(
+              call,
+              'device.screen.context',
+              const {},
+            );
           }
           return DeviceControlService.instance.execute(
             'device.screen.context',
@@ -1537,9 +1653,9 @@ ${lines.join('\n')}$more''';
         case 'call_plugin_function':
           return _callPluginFunction(call.arguments);
         case 'run_subagent':
-          return _runSubagent(call.arguments);
+          return _runSubagent(call);
         case 'execute_lua':
-          final result = await _executeAgentLua(call.arguments);
+          final result = await _executeAgentLua(call);
           _appendGeneratedImagesToConversation(result);
           return result;
         default:
@@ -1553,22 +1669,10 @@ ${lines.join('\n')}$more''';
                 metadata: _imageGenerationCallMetadata(call.arguments),
               );
             }
-            final result = await _lynaiFunctions.execute(
-              LynAIFunctionCall(name: functionName, arguments: call.arguments),
-              LynAIFunctionContext(
-                identity: LynAICallIdentity(
-                  type: LynAICallerType.system,
-                  conversationId: _conversationId,
-                ),
-                features: _features,
-                tasks: _tasks,
-                calendar: _calendar,
-                modelConfigs: _modelConfigs,
-                settings: _settings,
-                plugins: _plugins,
-                conversations: _conversations,
-                backend: _backend,
-              ),
+            final result = await _executeLynAIFunction(
+              call,
+              functionName,
+              call.arguments,
             );
             if (functionName == 'model.generateImage') {
               _appendGeneratedImagesToConversation(result);
@@ -1578,12 +1682,43 @@ ${lines.join('\n')}$more''';
           }
           final pluginResult = await _executePluginTool(call);
           if (pluginResult != null) return pluginResult;
+          final externalResult = await _executeExternalTool(
+            call,
+            cancellationToken,
+          );
+          if (externalResult != null) return externalResult;
           return _error('未知工具: ${call.name}');
       }
     } on Exception catch (e, st) {
       debugPrint('工具调用失败 ${call.name}: $e\n$st');
       return _error(e.toString());
     }
+  }
+
+  Future<Map<String, dynamic>?> _executeExternalTool(
+    ChatToolCall call,
+    AgentCancellationToken? cancellationToken,
+  ) async {
+    final snapshot = _externalToolSnapshot ?? _externalToolRegistry?.snapshot();
+    if (snapshot?[call.name] == null) return null;
+    final results = await AgentToolScheduler(maxConcurrency: 1).execute(
+      snapshot!,
+      [
+        AgentToolInvocation(
+          id: call.id,
+          name: call.name,
+          arguments: call.arguments,
+        ),
+      ],
+      cancellationToken: cancellationToken,
+    );
+    final result = results.single;
+    if (result.isSuccess) return {'ok': true, 'result': result.value};
+    return {
+      'ok': false,
+      'errorCode': result.errorCode ?? 'tool_execution_failed',
+      'error': result.errorMessage ?? '外部工具执行失败',
+    };
   }
 
   static Object? modelVisibleToolResult(Object? value) {
@@ -1622,7 +1757,22 @@ ${lines.join('\n')}$more''';
     return {...result, 'binaryContentOmitted': true};
   }
 
-  Future<Map<String, dynamic>> _runSubagent(Map<String, dynamic> args) async {
+  static (String, String) _structuredFailure(Map<String, dynamic> result) {
+    final error = result['error'];
+    if (error is Map) {
+      return (
+        error['code']?.toString() ?? 'tool_execution_failed',
+        error['message']?.toString() ?? 'Tool execution failed',
+      );
+    }
+    return (
+      result['errorCode']?.toString() ?? 'tool_execution_failed',
+      error?.toString() ?? 'Tool execution failed',
+    );
+  }
+
+  Future<Map<String, dynamic>> _runSubagent(ChatToolCall call) async {
+    final args = call.arguments;
     if (!_allowSubagents) {
       return _agentError(
         'subagent_recursion_blocked',
@@ -1674,6 +1824,10 @@ ${lines.join('\n')}$more''';
       conversations: _conversations,
       backend: _backend,
       conversationId: _conversationId,
+      agentIdentity: _identityForToolCall(call),
+      persistence: _persistence,
+      externalToolRegistry: _externalToolRegistry,
+      externalToolSnapshot: _externalToolSnapshot,
       allowSubagents: false,
     );
     final working = <Map<String, dynamic>>[
@@ -1710,55 +1864,93 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
             .toList(growable: false);
 
     try {
-      var toolRounds = 0;
-      while (true) {
-        final response = await api.sendChatRequest(
-          model,
-          working,
-          thinking: false,
-          tools: tools,
-          toolChoice: 'auto',
+      final handle = const AgentLoopRuntime().start(
+        messages: working,
+        maxToolRounds: maxToolRounds,
+        persistence: _persistence,
+        persistenceMetadata: AgentRunPersistenceMetadata(
+          conversationId: _conversationId,
+          parentRunId: _providedAgentIdentity?.runId,
+          parentTurnId: _providedAgentIdentity?.turnId,
+          parentToolCallId: call.id,
+        ),
+        finalTurnInstruction: '工具调用已达到上限。不要再调用工具，请基于已有文本和工具结果直接返回最终 JSON。',
+        model: (request) async* {
+          final response = await api.sendChatRequest(
+            model,
+            request.messages,
+            thinking: false,
+            tools: request.forceFinalResponse ? const [] : tools,
+            toolChoice: request.forceFinalResponse ? null : 'auto',
+          );
+          if (response.content.isNotEmpty) {
+            yield AgentModelTextDelta(response.content);
+          }
+          if (response.reasoning?.isNotEmpty == true) {
+            yield AgentModelReasoningDelta(response.reasoning!);
+          }
+          if (response.toolCalls.isNotEmpty) {
+            yield AgentModelToolCalls(
+              response.toolCalls.map(
+                (call) => AgentToolInvocation(
+                  id: call.id,
+                  name: call.name,
+                  arguments: call.arguments,
+                ),
+              ),
+            );
+          }
+          yield const AgentModelStreamCompleted();
+        },
+        executeTools: (calls, identity, cancellationToken) {
+          return subTools.executeSequentialCompatibility(
+            calls,
+            const [],
+            identity: identity,
+            cancellationToken: cancellationToken,
+          );
+        },
+      );
+      final runtimeResult = await handle.result;
+      if (runtimeResult.toolRoundLimitReached) {
+        final result = _agentError(
+          'tool_round_limit_reached',
+          toolRoundLimitMessage(runtimeResult.content),
         );
-        if (response.toolCalls.isEmpty) {
-          final result = _subagentFinalResult(response.content);
-          _mergeSubagentMemory(purpose, result);
-          _appendAgentTrace(
-            result['ok'] == false
-                ? AgentTraceEvent.error
-                : AgentTraceEvent.toolResult,
-            result['ok'] == false ? 'Agent Subagent 失败' : 'Agent Subagent 完成',
-            content: purpose,
-          );
-          return result;
-        }
-        if (toolRounds >= maxToolRounds) {
-          final result = _agentError(
-            'tool_round_limit_reached',
-            toolRoundLimitMessage(response.content),
-          );
-          _mergeSubagentMemory(purpose, result);
-          _appendAgentTrace(
-            AgentTraceEvent.error,
-            'Agent Subagent 已停止',
-            content: purpose,
-          );
-          return result;
-        }
-        working.add(
-          _subagentAssistantToolCall(response.content, response.toolCalls),
+        _mergeSubagentMemory(purpose, result);
+        _appendAgentTrace(
+          AgentTraceEvent.error,
+          'Agent Subagent 已停止',
+          content: purpose,
+          metadata: {'runId': runtimeResult.runId},
         );
-        final results = await subTools.executeAll(response.toolCalls, const []);
-        toolRounds++;
-        if (toolRounds == maxToolRounds) {
-          working.add({
-            'role': 'system',
-            'content': '工具调用已达到上限。不要再调用工具，请基于已有文本和工具结果直接返回最终 JSON。',
-          });
-        }
-        for (final result in results) {
-          working.add(_subagentToolResult(result));
-        }
+        return result;
       }
+      if (!runtimeResult.isSuccess) {
+        final result = _agentError(
+          runtimeResult.isCancelled ? 'cancelled' : 'subagent_failed',
+          runtimeResult.error?.toString() ?? 'Subagent 执行失败',
+        );
+        _mergeSubagentMemory(purpose, result);
+        _appendAgentTrace(
+          AgentTraceEvent.error,
+          'Agent Subagent 已停止',
+          content: purpose,
+          metadata: {'runId': runtimeResult.runId},
+        );
+        return result;
+      }
+      final result = _subagentFinalResult(runtimeResult.content);
+      _mergeSubagentMemory(purpose, result);
+      _appendAgentTrace(
+        result['ok'] == false
+            ? AgentTraceEvent.error
+            : AgentTraceEvent.toolResult,
+        result['ok'] == false ? 'Agent Subagent 失败' : 'Agent Subagent 完成',
+        content: purpose,
+        metadata: {'runId': runtimeResult.runId},
+      );
+      return result;
     } finally {
       api.dispose();
     }
@@ -1830,37 +2022,6 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
       } catch (_) {}
     }
     return _agentOk({'content': content});
-  }
-
-  Map<String, dynamic> _subagentAssistantToolCall(
-    String content,
-    List<ChatToolCall> calls,
-  ) {
-    return {
-      'role': 'assistant',
-      'content': content,
-      'reasoning_content': '',
-      'tool_calls': calls
-          .map(
-            (call) => {
-              'id': call.id,
-              'type': 'function',
-              'function': {
-                'name': call.name,
-                'arguments': jsonEncode(call.arguments),
-              },
-            },
-          )
-          .toList(growable: false),
-    };
-  }
-
-  Map<String, dynamic> _subagentToolResult(ToolExecutionResult result) {
-    return {
-      'role': 'tool',
-      'tool_call_id': result.toolCallId,
-      'content': jsonEncode(modelVisibleToolResult(result.result)),
-    };
   }
 
   static String _toolName(Map<String, dynamic> tool) {
@@ -2217,10 +2378,104 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     return conversations.getConversation(cid)?.settings.agentEnabled == true;
   }
 
-  LynAICallIdentity get _agentIdentity => LynAICallIdentity(
-    type: LynAICallerType.agent,
-    conversationId: _conversationId,
-  );
+  LynAICallIdentity get _agentIdentity =>
+      _providedAgentIdentity ??
+      LynAICallIdentity(
+        type: LynAICallerType.agent,
+        conversationId: _conversationId,
+      );
+
+  LynAICallIdentity _identityForToolCall(ChatToolCall call) {
+    if (!_agentEnabled) {
+      return LynAICallIdentity(
+        type: LynAICallerType.system,
+        conversationId: _conversationId,
+        toolCallId: call.id,
+        toolName: call.name,
+      );
+    }
+    return _agentIdentity.child(
+      type: LynAICallerType.agent,
+      toolCallId: call.id,
+      toolName: call.name,
+    );
+  }
+
+  Future<Map<String, dynamic>> _executeLynAIFunction(
+    ChatToolCall call,
+    String functionName,
+    Map<String, dynamic> arguments,
+  ) {
+    return _lynaiFunctions.execute(
+      LynAIFunctionCall(name: functionName, arguments: arguments),
+      LynAIFunctionContext(
+        identity: _identityForToolCall(call),
+        features: _features,
+        tasks: _tasks,
+        calendar: _calendar,
+        modelConfigs: _modelConfigs,
+        settings: _settings,
+        plugins: _plugins,
+        conversations: _conversations,
+        backend: _backend,
+      ),
+    );
+  }
+
+  Map<String, dynamic>? _validateToolArguments(ChatToolCall call) {
+    final validatesAtDispatch =
+        (_agentEnabled &&
+            LynAIFunctionService.aiToolAliases.containsKey(call.name)) ||
+        const {
+          'web_fetch',
+          'get_location',
+          'open_app',
+          'get_current_screen',
+          'call_plugin_function',
+          'execute_lua',
+        }.contains(call.name) ||
+        (_plugins?.plugins.any(
+              (plugin) =>
+                  plugin.manifest.tools.any((tool) => tool.name == call.name),
+            ) ??
+            false);
+    if (!validatesAtDispatch) return null;
+    Map<String, dynamic>? schema;
+    for (final tool in openAITools(
+      _plugins?.plugins ?? const [],
+      true,
+      const [
+        LynAICapabilities.pluginCallFunction,
+        LynAICapabilities.luaExecute,
+      ],
+      true,
+      true,
+    )) {
+      final function = tool['function'];
+      if (function is! Map || function['name'] != call.name) continue;
+      final parameters = function['parameters'];
+      if (parameters is Map) schema = Map<String, dynamic>.from(parameters);
+      break;
+    }
+    if (schema == null) return null;
+    final validation = _schemaValidator.validate(call.arguments, schema);
+    if (validation.isValid) return null;
+    final message = validation.issues.join('; ');
+    if (_agentEnabled) {
+      return _agentError(
+        'invalid_arguments',
+        '工具 ${call.name} 参数无效: $message',
+        details: {
+          'toolName': call.name,
+          'toolCallId': call.id,
+          'issues': validation.issues
+              .map((issue) => {'path': issue.path, 'message': issue.message})
+              .toList(growable: false),
+        },
+      );
+    }
+    return _error('工具 ${call.name} 参数无效: $message');
+  }
 
   bool _hasAgentCapability(String capability) {
     final cid = _conversationId;
@@ -2404,9 +2659,8 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     };
   }
 
-  Future<Map<String, dynamic>> _executeAgentLua(
-    Map<String, dynamic> args,
-  ) async {
+  Future<Map<String, dynamic>> _executeAgentLua(ChatToolCall call) async {
+    final args = call.arguments;
     final cid = _conversationId;
     final conversations = _conversations;
     if (cid == null || conversations == null) {
@@ -2446,6 +2700,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
       conversationId: _conversationId,
       identity: _agentIdentity.child(
         type: LynAICallerType.agentLua,
+        toolCallId: call.id,
         toolName: 'execute_lua',
       ),
       backend: _backend,
@@ -2492,7 +2747,8 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     return null;
   }
 
-  Future<Map<String, dynamic>> _webFetch(Map<String, dynamic> args) async {
+  Future<Map<String, dynamic>> _webFetch(ChatToolCall call) async {
+    final args = call.arguments;
     final url = (args['url'] as String? ?? '').trim();
     if (url.isEmpty) return _error('web_fetch 缺少 url');
     final uri = Uri.tryParse(url);
@@ -2511,11 +2767,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
             arguments: {'url': uri.toString(), 'method': 'GET'},
           ),
           LynAIFunctionContext(
-            identity: LynAICallIdentity(
-              type: LynAICallerType.system,
-              conversationId: _conversationId,
-              toolName: 'web_fetch',
-            ),
+            identity: _identityForToolCall(call),
             features: _features,
             tasks: _tasks,
             calendar: _calendar,
@@ -3241,7 +3493,8 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
   }
 
   static String _stringArg(ChatToolCall call, String key) {
-    return (call.arguments[key] as String? ?? '').trim();
+    final value = call.arguments[key];
+    return value is String ? value.trim() : '';
   }
 
   static Map<String, dynamic> _error(String message) => {

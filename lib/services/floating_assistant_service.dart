@@ -14,6 +14,8 @@ import '../providers/task_provider.dart';
 import 'backend_client.dart';
 import 'device_control_service.dart';
 import 'device_run_controller.dart';
+import 'agent_tool_registry.dart';
+import 'agent_persistence_lifecycle.dart';
 import 'floating_assistant_bridge.dart';
 import 'floating_chat_session_controller.dart';
 import 'floating_translation_controller.dart';
@@ -42,6 +44,8 @@ class FloatingAssistantService with WidgetsBindingObserver {
     required TaskProvider tasks,
     required CalendarProvider calendar,
     required PluginProvider plugins,
+    AgentToolRegistry? externalToolRegistry,
+    AgentRunPersistenceLifecycle? persistence,
     BackendClient? backend,
   }) {
     if (_started || !Platform.isAndroid) return;
@@ -56,6 +60,8 @@ class FloatingAssistantService with WidgetsBindingObserver {
       tasks: tasks,
       calendar: calendar,
       plugins: plugins,
+      externalToolRegistry: externalToolRegistry,
+      persistence: persistence,
       backend: backend,
     );
     _translation = FloatingTranslationController(

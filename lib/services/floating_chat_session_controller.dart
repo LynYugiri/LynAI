@@ -1,10 +1,10 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
 import '../models/chat_role.dart';
+import '../models/agent_runtime.dart';
 import '../models/app_settings.dart';
 import '../models/conversation.dart';
 import '../models/message.dart';
@@ -17,7 +17,11 @@ import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
 import 'api_service.dart';
+import 'agent_loop_runtime.dart';
+import 'agent_persistence_lifecycle.dart';
+import 'agent_tool_registry.dart';
 import 'backend_client.dart';
+import 'stream_chunk_agent_adapter.dart';
 import 'tool_call_service.dart';
 
 class FloatingChatSessionController extends ChangeNotifier {
@@ -29,7 +33,10 @@ class FloatingChatSessionController extends ChangeNotifier {
     required TaskProvider tasks,
     required CalendarProvider calendar,
     required PluginProvider plugins,
+    AgentToolRegistry? externalToolRegistry,
+    AgentRunPersistenceLifecycle? persistence,
     BackendClient? backend,
+    ApiService? api,
   }) : _settings = settings,
        _conversations = conversations,
        _models = models,
@@ -37,7 +44,10 @@ class FloatingChatSessionController extends ChangeNotifier {
        _tasks = tasks,
        _calendar = calendar,
        _plugins = plugins,
-       _api = ApiService(backend: backend),
+       _externalToolRegistry = externalToolRegistry,
+       _persistence = persistence,
+       _api = api ?? ApiService(backend: backend),
+       _ownsApi = api == null,
        _backend = backend;
 
   static const _emptyAssistantReply = '模型没有返回内容，请稍后重试或检查模型配置。';
@@ -50,10 +60,14 @@ class FloatingChatSessionController extends ChangeNotifier {
   final TaskProvider _tasks;
   final CalendarProvider _calendar;
   final PluginProvider _plugins;
+  final AgentToolRegistry? _externalToolRegistry;
+  final AgentRunPersistenceLifecycle? _persistence;
   final ApiService _api;
+  final bool _ownsApi;
   final BackendClient? _backend;
 
-  StreamSubscription<StreamChunk>? _subscription;
+  StreamSubscription<AgentRunEvent>? _subscription;
+  AgentRunHandle? _run;
   String? _conversationId;
   String _draftContent = '';
   String _draftThinking = '';
@@ -150,14 +164,14 @@ class FloatingChatSessionController extends ChangeNotifier {
       messages,
       createTitle: isNewConversation,
       allowTools: _supportsNativeTools(model),
-      depth: 0,
-      priorThinking: null,
     );
   }
 
   void stop() {
     if (!_streaming) return;
     _generation++;
+    _run?.cancel();
+    _run = null;
     unawaited(_subscription?.cancel());
     _subscription = null;
     final conversationId = _conversationId;
@@ -218,7 +232,8 @@ class FloatingChatSessionController extends ChangeNotifier {
   Future<void> dispose() async {
     await _subscription?.cancel();
     _subscription = null;
-    _api.dispose();
+    _run?.cancel();
+    if (_ownsApi) _api.dispose();
     super.dispose();
   }
 
@@ -358,127 +373,127 @@ class FloatingChatSessionController extends ChangeNotifier {
     List<Map<String, dynamic>> working, {
     required bool createTitle,
     required bool allowTools,
-    required int depth,
-    required String? priorThinking,
   }) {
     final generation = ++_generation;
     final screenContextEnabled = _screenContextToolAllowed;
     final conversationSettings = _conversations
         .getConversation(conversationId)
         ?.settings;
-    final stream = _api.sendStreamRequest(
-      model,
-      working,
-      thinking: model.supportsThinking,
-      tools: allowTools
-          ? ToolCallService.openAITools(
-              _plugins.plugins,
-              conversationSettings?.agentEnabled == true,
-              _settings.settings.agentGrantedPermissions,
-              conversationSettings?.imageGenerationEnabled == true,
-              screenContextEnabled,
-            )
-          : const [],
-      toolChoice: 'auto',
-    );
     var buffer = '';
     var thinkingBuffer = '';
-    var finalized = false;
-
-    Future<void> finalize(List<ChatToolCall> toolCalls) async {
-      if (finalized || generation != _generation) return;
-      finalized = true;
-      final thinking = _joinThinking(
-        priorThinking,
-        thinkingBuffer.isEmpty ? null : thinkingBuffer,
-      );
-      if (toolCalls.isNotEmpty && allowTools && depth < _maxToolDepth) {
-        _status = '正在调用工具...';
-        notifyListeners();
-        final service = ToolCallService(
-          _features,
-          tasks: _tasks,
-          calendar: _calendar,
-          plugins: _plugins,
-          modelConfigs: _models,
-          settings: _settings,
-          conversations: _conversations,
-          backend: _backend,
-          conversationId: conversationId,
-          allowScreenContextTool: screenContextEnabled,
-        );
-        final conversation = _conversations.getConversation(conversationId);
-        final results = await service.executeAll(
-          toolCalls,
-          conversation?.messages ?? const [],
-        );
-        if (generation != _generation) return;
-        working.add(_assistantToolCallMessage(buffer, toolCalls));
-        for (final result in results) {
-          working.add(_toolResultMessage(result));
-        }
-        _streamTurn(
+    final externalToolSnapshot = _externalToolRegistry?.snapshot();
+    final tools = allowTools
+        ? ToolCallService.openAITools(
+            _plugins.plugins,
+            conversationSettings?.agentEnabled == true,
+            _settings.settings.agentGrantedPermissions,
+            conversationSettings?.imageGenerationEnabled == true,
+            screenContextEnabled,
+            externalToolSnapshot,
+          )
+        : const <Map<String, dynamic>>[];
+    final toolService = ToolCallService(
+      _features,
+      tasks: _tasks,
+      calendar: _calendar,
+      plugins: _plugins,
+      modelConfigs: _models,
+      settings: _settings,
+      conversations: _conversations,
+      backend: _backend,
+      conversationId: conversationId,
+      persistence: _persistence,
+      allowScreenContextTool: screenContextEnabled,
+      externalToolRegistry: _externalToolRegistry,
+      externalToolSnapshot: externalToolSnapshot,
+    );
+    final run = const AgentLoopRuntime().start(
+      messages: working,
+      maxToolRounds: _maxToolDepth,
+      persistence: _persistence,
+      persistenceMetadata: AgentRunPersistenceMetadata(
+        conversationId: conversationId,
+      ),
+      model: (request) => const StreamChunkAgentAdapter().adapt(
+        _api.sendStreamRequest(
           model,
-          conversationId,
-          working,
-          createTitle: createTitle,
-          allowTools: allowTools,
-          depth: depth + 1,
-          priorThinking: thinking,
-        );
-        return;
-      }
-      final content = buffer.trim().isEmpty ? _emptyAssistantReply : buffer;
-      _streaming = false;
-      _status = '';
-      _draftContent = '';
-      _draftThinking = '';
-      _conversations.updateLastMessage(
-        conversationId,
-        content,
-        thinkingContent: thinking,
-      );
-      if (createTitle) {
-        unawaited(_maybeCreateConversationTitle(model, conversationId));
-      }
-      notifyListeners();
-    }
-
-    unawaited(_subscription?.cancel());
-    _subscription = stream.listen(
-      (chunk) {
-        if (generation != _generation) return;
-        if (chunk.content != null) buffer += chunk.content!;
-        if (chunk.reasoningContent != null) {
-          thinkingBuffer += chunk.reasoningContent!;
-        }
-        if (chunk.isDone) {
-          unawaited(finalize(chunk.toolCalls));
-          return;
-        }
-        _draftContent = buffer;
-        _draftThinking = thinkingBuffer;
-        _status = buffer.isEmpty ? '正在等待模型...' : '正在生成...';
-        notifyListeners();
-      },
-      onError: (Object error) {
-        if (generation != _generation) return;
-        _streaming = false;
-        _draftContent = '';
-        _draftThinking = '';
-        _setError(error.toString().replaceFirst('Exception: ', ''));
+          request.messages,
+          thinking: model.supportsThinking,
+          tools: request.forceFinalResponse ? const [] : tools,
+          toolChoice: request.forceFinalResponse ? null : 'auto',
+        ),
+      ),
+      executeTools: (calls, identity, cancellationToken) {
         final conversation = _conversations.getConversation(conversationId);
-        if (conversation != null && conversation.messages.isNotEmpty) {
+        return toolService.executeSequentialCompatibility(
+          calls,
+          conversation?.messages ?? const [],
+          identity: identity,
+          cancellationToken: cancellationToken,
+        );
+      },
+    );
+    _run = run;
+    unawaited(_subscription?.cancel());
+    _subscription = run.events.listen((event) {
+      if (generation != _generation || event.runId != run.id) return;
+      switch (event.kind) {
+        case AgentRunEventKind.turnStarted:
+          buffer = '';
+          thinkingBuffer = '';
+        case AgentRunEventKind.textDelta:
+          buffer += event.text ?? '';
+          _draftContent = buffer;
+          _status = '正在生成...';
+          notifyListeners();
+        case AgentRunEventKind.reasoningDelta:
+          thinkingBuffer += event.text ?? '';
+          _draftThinking = thinkingBuffer;
+          _status = buffer.isEmpty ? '正在等待模型...' : '正在生成...';
+          notifyListeners();
+        case AgentRunEventKind.toolCalls:
+          _status = '正在调用工具...';
+          notifyListeners();
+        default:
+          break;
+      }
+    });
+    unawaited(
+      run.result.then((result) {
+        if (generation != _generation || result.runId != run.id) return;
+        _run = null;
+        if (result.isCancelled) return;
+        if (!result.isSuccess) {
+          _streaming = false;
+          _draftContent = '';
+          _draftThinking = '';
+          final error = result.error.toString().replaceFirst('Exception: ', '');
+          _setError(error);
           _conversations.updateLastMessage(
             conversationId,
             buffer.isEmpty ? '请求失败: $error' : '$buffer\n\n---\n请求失败: $error',
           );
+          return;
         }
-      },
-      onDone: () {
-        if (generation != _generation || !_streaming) return;
-        unawaited(finalize(const []));
-      },
+        final content = result.toolRoundLimitReached
+            ? ToolCallService.toolRoundLimitMessage(result.content)
+            : result.content.trim().isEmpty
+            ? _emptyAssistantReply
+            : result.content;
+        _streaming = false;
+        _status = '';
+        _draftContent = '';
+        _draftThinking = '';
+        _conversations.updateLastMessage(
+          conversationId,
+          content,
+          thinkingContent: result.reasoning,
+        );
+        if (createTitle) {
+          unawaited(_maybeCreateConversationTitle(model, conversationId));
+        }
+        notifyListeners();
+      }),
     );
   }
 
@@ -518,39 +533,6 @@ class FloatingChatSessionController extends ChangeNotifier {
     } catch (_) {}
   }
 
-  Map<String, dynamic> _assistantToolCallMessage(
-    String content,
-    List<ChatToolCall> calls,
-  ) {
-    return {
-      'role': 'assistant',
-      'content': content,
-      'reasoning_content': '',
-      'tool_calls': calls
-          .map(
-            (call) => {
-              'id': call.id,
-              'type': 'function',
-              'function': {
-                'name': call.name,
-                'arguments': const JsonEncoder().convert(call.arguments),
-              },
-            },
-          )
-          .toList(growable: false),
-    };
-  }
-
-  Map<String, dynamic> _toolResultMessage(ToolExecutionResult result) {
-    return {
-      'role': 'tool',
-      'tool_call_id': result.toolCallId,
-      'content': const JsonEncoder().convert(
-        ToolCallService.modelVisibleToolResult(result.result),
-      ),
-    };
-  }
-
   bool _supportsNativeTools(ModelConfig model) => model.supportsNativeTools;
 
   bool get _screenContextToolAllowed {
@@ -565,15 +547,6 @@ class FloatingChatSessionController extends ChangeNotifier {
       if (model.id == id) return model;
     }
     return null;
-  }
-
-  String? _joinThinking(String? first, String? second) {
-    final parts = [
-      first,
-      second,
-    ].where((part) => part != null && part.trim().isNotEmpty).toList();
-    if (parts.isEmpty) return null;
-    return parts.join('\n\n');
   }
 
   void _clearTransientStatus() {

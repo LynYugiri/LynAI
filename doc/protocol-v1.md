@@ -1,6 +1,6 @@
 # LynAI 安全设备协议 v1
 
-本文定义 LynAI v1 的 canonical 编码、设备身份和设备注册，并记录后续 LAN TLS 绑定与加密备份的算法决策。关键字 **MUST**、**MUST NOT**、**SHOULD**、**MAY** 按 RFC 2119 / RFC 8174 理解。
+本文定义 LynAI v1 的 canonical 编码、设备身份和设备注册，并记录 LAN TLS 绑定、加密备份和客户端 Agent 所依赖的 canonical relay 边界。关键字 **MUST**、**MUST NOT**、**SHOULD**、**MAY** 按 RFC 2119 / RFC 8174 理解。
 
 > 实现状态：设备 Ed25519 身份、账号认证后的 enrollment、变更与 blob 请求签名、后端验证和幂等提交、LAN TLS/SPKI/设备证明，以及加密备份信封已实现。
 
@@ -309,3 +309,19 @@ Ed25519 signature base64url:
 ## 9. 版本与拒绝策略
 
 v1 解析器必须 fail closed：未知协议版本、未知字段、非 canonical 编码、错误长度、无效 UTF-8、`deviceId` 派生不匹配、无效签名或 challenge 绑定不匹配均不得降级为未签名注册。未来不兼容变更必须使用新协议版本和 domain separator。
+
+## 10. Canonical Relay 与 Agent 工具轮次
+
+本节记录客户端 `AgentLoopRuntime` 依赖的 `/relay/chat` wire 边界，不把 Agent 本机 run graph 暴露为后端协议。`runs`、`turns`、`items`、`tool_calls`、`snapshots` 和 MCP 配置均是客户端本机数据，不属于同步 table allowlist，也没有后端 Agent run API。
+
+canonical chat message 支持 `system`、`user`、`assistant`、`tool`。assistant 可携带 `toolCalls`，每项必须有非空 `id`、`name` 和 JSON object `arguments`；tool message 必须携带匹配的 `toolCallId`。工具 schema 使用 `tools[].parameters` JSON object，`toolChoice` 只接受支持的字符串或指定名称对象。服务端严格拒绝未知顶层字段、尾随 JSON、非法角色和畸形 tool call。`extraParams` 是可选 JSON object，仅向 OpenAI-compatible 上游传递供应商扩展字段，且不得覆盖 relay 生成的 `model`、`messages`、`stream` 等核心字段；OpenAI 流式请求强制合并 `stream_options.include_usage=true`，保留该 object 中其他扩展成员。
+
+非流式响应返回 assistant `content`、可选 `reasoning` 和 `toolCalls`。流式响应使用 SSE `event: chunk`；兼容字段为 `content`、`reasoning`、`toolCalls`、`finishReason`、`done`、`error`，新增元数据包括从 1 单调递增的 `sequence`、单流稳定 `responseId`、`type`、终止 `usage` 和结构化 `errorInfo`。`type` 按 `error`、`tool_calls`、`completed`、内容类型的顺序判定，所以携带工具调用的终止 delta 为 `type=tool_calls` 且同时 `done=true`；`done` 才是终止状态的权威字段。Anthropic `usage.inputTokens` 与 `totalTokens` 包含常规 input、cache creation input 和 cache read input。客户端当前 `StreamChunkAgentAdapter` 只把正文、思考、tool calls、完成和失败映射进 Agent runtime；`sequence`、`responseId`、`type` 和 `usage` 仍属于 relay 可观测元数据，不是本机 run identity 或 token budget 的权威输入。
+
+每个 Agent turn 使用独立 `turnId`，但该 ID 不通过 relay wire 发送。客户端达到工具轮数上限后必须发起一次不暴露 tools 的强制最终 turn；若模型仍返回 tool calls，客户端不得执行，并以本机 `toolRoundLimitReached` 标记结束。取消是客户端控制语义：客户端停止等待模型或工具，并可忽略晚到结果；relay 不提供 durable Agent cancellation 或 run resume API。
+
+## 11. MCP 协议边界
+
+MCP 是客户端到用户配置 server 的独立协议，不经过 LynAI 后端，也不是本 v1 同步协议的扩展。当前客户端声明协议版本 `2025-06-18`，实现范围仅为 JSON-RPC 2.0 initialize/initialized、分页 `tools/list`、`tools/call`、`notifications/tools/list_changed` 和 `notifications/cancelled`。
+
+远程 transport 是 Streamable HTTP，默认 HTTPS 且拒绝私网；用户可分别显式允许 HTTP 和私网。桌面 Linux/macOS/Windows 另支持逐行 JSON stdio。当前实现不支持 resources、prompts、sampling、roots、elicitation、OAuth discovery/flow、server-initiated request handling 或完整 capability negotiation，因此这些能力不得进入 LynAI wire compatibility 承诺。

@@ -13,6 +13,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:super_clipboard/super_clipboard.dart';
 import '../models/agent_plan.dart';
+import '../models/agent_runtime.dart';
 import '../models/agent_trace.dart';
 import '../models/agent_working_memory.dart';
 import '../models/conversation.dart';
@@ -25,15 +26,20 @@ import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/calendar_provider.dart';
 import '../providers/model_config_provider.dart';
+import '../providers/mcp_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
 import '../services/attachment_storage_service.dart';
 import '../services/api_service.dart';
+import '../services/agent_loop_runtime.dart';
+import '../services/agent_persistence_lifecycle.dart';
+import '../services/agent_tool_registry.dart';
 import '../services/backend_client.dart';
 import '../services/model_recognition_service.dart';
 import '../services/system_scroll_capture_service.dart';
 import '../services/tool_call_service.dart';
+import '../services/stream_chunk_agent_adapter.dart';
 import '../services/lynai_permission_definitions.dart';
 import '../utils/file_picker_io_utils.dart';
 import '../utils/chat_search_matcher.dart';
@@ -234,7 +240,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   static const _shareMessageChunkLength = 2800;
 
   late stt.SpeechToText _speech;
-  StreamSubscription<StreamChunk>? _sub;
+  StreamSubscription<AgentRunEvent>? _sub;
+  AgentRunHandle? _agentRun;
+  AgentToolRegistry? _externalToolRegistry;
+  AgentRunPersistenceLifecycle? _agentPersistence;
   String? _recordPath;
   int _recordingRequestGen = 0;
   bool _recordingStartCancelled = false;
@@ -243,6 +252,16 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     final backend = context.read<BackendClient>();
+    try {
+      _externalToolRegistry = context.read<McpProvider>().toolRegistry;
+    } on ProviderNotFoundException {
+      // Focused provider graphs may intentionally omit optional MCP tools.
+    }
+    try {
+      _agentPersistence = context.read<AgentRunPersistenceLifecycle>();
+    } on ProviderNotFoundException {
+      // Focused provider graphs may intentionally omit durable run recording.
+    }
     _ownsApi = widget.api == null;
     _api = widget.api ?? ApiService(backend: backend);
     _recognition = ModelRecognitionService(api: _api);
@@ -350,6 +369,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     widget.onBackHandlerChanged?.call(() => false);
     widget.onBackAvailabilityChanged?.call(false);
     widget.onNewConversationHandlerChanged?.call(() {});
+    _agentRun?.cancel();
     _sub?.cancel();
     _setBackgroundGenerationActive(false);
     _inputActionCollapseTimer?.cancel();
@@ -441,6 +461,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _streamWaitTimer = null;
     unawaited(_sub?.cancel());
     _sub = null;
+    _agentRun?.cancel();
+    _agentRun = null;
     setState(() => _setStreaming(false));
   }
 
@@ -913,6 +935,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _streamWaitTimer = null;
     final cid = _streamingConvId ?? _convId;
     _streamGen++;
+    _agentRun?.cancel();
+    _agentRun = null;
     unawaited(_sub?.cancel());
     _sub = null;
     if (!mounted) return;
@@ -1294,51 +1318,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
   bool _supportsThinking(ModelConfig model) => model.supportsThinking;
 
-  Map<String, dynamic> _assistantToolCallMessage(
-    String content,
-    List<ChatToolCall> calls,
-  ) {
-    return {
-      'role': 'assistant',
-      'content': content,
-      'reasoning_content': '',
-      'tool_calls': calls
-          .map(
-            (call) => {
-              'id': call.id,
-              'type': 'function',
-              'function': {
-                'name': call.name,
-                'arguments': _jsonEncode(call.arguments),
-              },
-            },
-          )
-          .toList(),
-    };
-  }
-
-  Map<String, dynamic> _toolResultMessage(
-    ToolExecutionResult result, {
-    required bool nativeTool,
-  }) {
-    final content = _jsonEncode(
-      ToolCallService.modelVisibleToolResult(result.result),
-    );
-    if (nativeTool) {
-      return {
-        'role': 'tool',
-        'tool_call_id': result.toolCallId,
-        'content': content,
-      };
-    }
-    return {
-      'role': 'user',
-      'content': '工具 ${result.name} 返回：$content\n请根据工具结果给用户最终回复。',
-    };
-  }
-
-  String _jsonEncode(Object? value) => const JsonEncoder().convert(value);
-
   Future<void> _maybeCreateConversationTitle(
     ModelConfig model,
     String cid,
@@ -1377,53 +1356,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     List<Map<String, dynamic>> msgs, {
     bool createTitle = false,
   }) {
-    _doStreamTurn(
-      model,
-      cid,
-      List<Map<String, dynamic>>.from(msgs),
-      createTitle: createTitle,
-      allowTools: _supportsNativeTools(model),
-      depth: 0,
-      priorThink: null,
-    );
-  }
-
-  void _doStreamTurn(
-    ModelConfig model,
-    String cid,
-    List<Map<String, dynamic>> working, {
-    required bool createTitle,
-    required bool allowTools,
-    required int depth,
-    required String? priorThink,
-  }) {
     if (!mounted) return;
-    if (depth == ToolCallService.maxToolRounds) {
-      working.add({
-        'role': 'system',
-        'content': '工具调用已达到上限。不要再调用工具，请基于已有文本和工具结果直接给出最终回复。',
-      });
-    }
+    final allowTools = _supportsNativeTools(model);
     final cp = context.read<ConversationProvider>();
     final streamSettings = cp.getConversation(cid)?.settings;
     final gen = ++_streamGen;
-    final stream = _api.sendStreamRequest(
-      model,
-      working,
-      thinking: _thinking && _supportsThinking(model),
-      tools: allowTools
-          ? ToolCallService.openAITools(
-              context.read<PluginProvider>().plugins,
-              streamSettings?.agentEnabled == true,
-              context.read<SettingsProvider>().settings.agentGrantedPermissions,
-              streamSettings?.imageGenerationEnabled == true &&
-                  _imageGenerationModel(streamSettings) != null,
-            )
-          : const [],
-      toolChoice: 'auto',
-    );
     String buf = '', thinkBuf = '';
-    var finalized = false;
     var timeoutDisplayed = false;
 
     void emitDraft({String? status}) {
@@ -1440,7 +1378,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     void armWaitTimeout() {
       _streamWaitTimer?.cancel();
       _streamWaitTimer = Timer(_streamWaitTimeout, () {
-        if (!mounted || gen != _streamGen || finalized || !_streaming) return;
+        if (!mounted || gen != _streamGen || !_streaming) return;
         timeoutDisplayed = true;
         emitDraft(status: '请求等待已超过 5 分钟，仍在继续接收模型返回。');
       });
@@ -1451,44 +1389,54 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       _streamWaitTimer = null;
     }
 
-    Future<void> finalizeStream(List<ChatToolCall> toolCalls) async {
-      if (finalized || !mounted) return;
-      finalized = true;
-      clearWaitTimeout();
-      final currentThink = thinkBuf.isNotEmpty ? thinkBuf : null;
-      final think = _joinThinking(priorThink, currentThink);
-      if (toolCalls.isNotEmpty && allowTools) {
-        if (depth >= ToolCallService.maxToolRounds) {
-          final content = ToolCallService.toolRoundLimitMessage(buf);
-          _shouldUpdateStreamUi(force: true);
-          setState(() {
-            _setStreaming(false);
-            _thinkingTxt = think;
-          });
-          cp.updateLastMessage(
-            cid,
-            content,
-            thinkingContent: think,
-            save: true,
-          );
-          _scrollEnd();
-          return;
-        }
-        final toolService = ToolCallService(
-          context.read<FeatureProvider>(),
-          tasks: context.read<TaskProvider>(),
-          calendar: context.read<CalendarProvider>(),
-          plugins: context.read<PluginProvider>(),
-          modelConfigs: context.read<ModelConfigProvider>(),
-          settings: context.read<SettingsProvider>(),
-          conversations: context.read<ConversationProvider>(),
-          backend: context.read<BackendClient>(),
-          conversationId: cid,
-        );
+    final externalToolRegistry = _externalToolRegistry;
+    final externalToolSnapshot = _externalToolRegistry?.snapshot();
+    final tools = allowTools
+        ? ToolCallService.openAITools(
+            context.read<PluginProvider>().plugins,
+            streamSettings?.agentEnabled == true,
+            context.read<SettingsProvider>().settings.agentGrantedPermissions,
+            streamSettings?.imageGenerationEnabled == true &&
+                _imageGenerationModel(streamSettings) != null,
+            false,
+            externalToolSnapshot,
+          )
+        : const <Map<String, dynamic>>[];
+    final toolService = ToolCallService(
+      context.read<FeatureProvider>(),
+      tasks: context.read<TaskProvider>(),
+      calendar: context.read<CalendarProvider>(),
+      plugins: context.read<PluginProvider>(),
+      modelConfigs: context.read<ModelConfigProvider>(),
+      settings: context.read<SettingsProvider>(),
+      conversations: context.read<ConversationProvider>(),
+      backend: context.read<BackendClient>(),
+      conversationId: cid,
+      persistence: _agentPersistence,
+      externalToolRegistry: externalToolRegistry,
+      externalToolSnapshot: externalToolSnapshot,
+    );
+    final run = const AgentLoopRuntime().start(
+      messages: msgs,
+      maxToolRounds: ToolCallService.maxToolRounds,
+      persistence: _agentPersistence,
+      persistenceMetadata: AgentRunPersistenceMetadata(conversationId: cid),
+      model: (request) => const StreamChunkAgentAdapter().adapt(
+        _api.sendStreamRequest(
+          model,
+          request.messages,
+          thinking: _thinking && _supportsThinking(model),
+          tools: request.forceFinalResponse ? const [] : tools,
+          toolChoice: request.forceFinalResponse ? null : 'auto',
+        ),
+      ),
+      executeTools: (calls, identity, cancellationToken) {
         final conv = cp.getConversation(cid);
-        final results = await toolService.executeAll(
-          toolCalls,
+        return toolService.executeSequentialCompatibility(
+          calls,
           conv?.messages ?? const [],
+          identity: identity,
+          cancellationToken: cancellationToken,
           onToolStart: (call) {
             if (!mounted || gen != _streamGen) return;
             final skillDisplayName = call.name == 'load_plugin_skill'
@@ -1508,109 +1456,87 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
             );
           },
         );
-        if (!mounted || gen != _streamGen) return;
-        _updateStreamDraft(
-          _StreamDraft(
-            content: buf,
-            thinking: thinkBuf.isEmpty ? null : thinkBuf,
-          ),
-        );
-        working.add(_assistantToolCallMessage(buf, toolCalls));
-        for (final result in results) {
-          working.add(_toolResultMessage(result, nativeTool: true));
-        }
-        if (think != null) {
-          setState(() => _thinkingTxt = think);
-        }
-        _doStreamTurn(
-          model,
-          cid,
-          working,
-          createTitle: createTitle,
-          allowTools: allowTools,
-          depth: depth + 1,
-          priorThink: think,
-        );
-        return;
-      }
-      final content = buf.trim().isEmpty ? _emptyAssistantReply : buf;
-      _shouldUpdateStreamUi(force: true);
-      setState(() {
-        _setStreaming(false);
-        _thinkingTxt = think;
-      });
-      cp.updateLastMessage(cid, content, thinkingContent: think, save: true);
-      final conv = cp.getConversation(cid);
-      if (conv != null && conv.messages.isNotEmpty) {
-        final lastMsg = conv.messages.last;
-        if (think != null) _thinkMap[lastMsg.id] = think;
-        if (_retryHistory.isNotEmpty && _retryIdx < _retryHistory.length) {
-          _retryHistory[_retryIdx].assistantId = lastMsg.id;
-          _retryHistory[_retryIdx].assistantContent = content;
-          _retryHistory[_retryIdx].assistantImages = List<MessageImage>.from(
-            lastMsg.images,
-          );
-          _retryHistory[_retryIdx].thinkingContent = think;
-        }
-      }
-      if (createTitle) unawaited(_maybeCreateConversationTitle(model, cid));
-      _scrollEnd();
-    }
-
-    _sub?.cancel();
-    armWaitTimeout();
-    _sub = stream.listen(
-      (chunk) {
-        if (!mounted || gen != _streamGen) return;
-        armWaitTimeout();
-        if (chunk.content != null) buf += chunk.content!;
-        if (chunk.reasoningContent != null) thinkBuf += chunk.reasoningContent!;
-        if (chunk.isDone) {
-          unawaited(finalizeStream(chunk.toolCalls));
-        } else {
-          if (timeoutDisplayed && (buf.isNotEmpty || thinkBuf.isNotEmpty)) {
-            timeoutDisplayed = false;
-            emitDraft();
-          } else if (_shouldUpdateStreamUi()) {
-            emitDraft();
-          }
-        }
-      },
-      onError: (e) {
-        if (!mounted || gen != _streamGen) return;
-        clearWaitTimeout();
-        setState(() => _setStreaming(false));
-        String msg = e.toString();
-        if (msg.startsWith('Exception: ')) msg = msg.substring(11);
-        final display = buf.isNotEmpty
-            ? '$buf\n\n---\n请求失败: $msg'
-            : '请求失败: $msg';
-        cp.updateLastMessage(
-          cid,
-          display,
-          thinkingContent: thinkBuf.isEmpty ? null : thinkBuf,
-          save: true,
-        );
-      },
-      onDone: () {
-        if (!mounted || gen != _streamGen) return;
-        clearWaitTimeout();
-        if (_streaming) {
-          unawaited(finalizeStream(const []));
-        } else {
-          setState(() => _setStreaming(false));
-        }
       },
     );
-  }
-
-  String? _joinThinking(String? first, String? second) {
-    final parts = [
-      first,
-      second,
-    ].where((part) => part != null && part.trim().isNotEmpty).toList();
-    if (parts.isEmpty) return null;
-    return parts.join('\n\n');
+    _agentRun = run;
+    unawaited(_sub?.cancel());
+    armWaitTimeout();
+    _sub = run.events.listen((event) {
+      if (!mounted || gen != _streamGen || event.runId != run.id) return;
+      armWaitTimeout();
+      switch (event.kind) {
+        case AgentRunEventKind.turnStarted:
+          buf = '';
+          thinkBuf = '';
+        case AgentRunEventKind.textDelta:
+          buf += event.text ?? '';
+        case AgentRunEventKind.reasoningDelta:
+          thinkBuf += event.text ?? '';
+        case AgentRunEventKind.toolCalls:
+          _shouldUpdateStreamUi(force: true);
+          emitDraft(status: '正在调用工具...');
+        default:
+          break;
+      }
+      if (event.kind == AgentRunEventKind.textDelta ||
+          event.kind == AgentRunEventKind.reasoningDelta) {
+        if (timeoutDisplayed && (buf.isNotEmpty || thinkBuf.isNotEmpty)) {
+          timeoutDisplayed = false;
+          emitDraft();
+        } else if (_shouldUpdateStreamUi()) {
+          emitDraft();
+        }
+      }
+    });
+    unawaited(
+      run.result.then((result) {
+        if (!mounted || gen != _streamGen || result.runId != run.id) return;
+        _agentRun = null;
+        clearWaitTimeout();
+        if (result.isCancelled) return;
+        if (!result.isSuccess) {
+          setState(() => _setStreaming(false));
+          final msg = result.error.toString().replaceFirst('Exception: ', '');
+          final display = buf.isNotEmpty
+              ? '$buf\n\n---\n请求失败: $msg'
+              : '请求失败: $msg';
+          cp.updateLastMessage(
+            cid,
+            display,
+            thinkingContent: result.reasoning,
+            save: true,
+          );
+          return;
+        }
+        final content = result.toolRoundLimitReached
+            ? ToolCallService.toolRoundLimitMessage(result.content)
+            : result.content.trim().isEmpty
+            ? _emptyAssistantReply
+            : result.content;
+        final think = result.reasoning;
+        _shouldUpdateStreamUi(force: true);
+        setState(() {
+          _setStreaming(false);
+          _thinkingTxt = think;
+        });
+        cp.updateLastMessage(cid, content, thinkingContent: think, save: true);
+        final conv = cp.getConversation(cid);
+        if (conv != null && conv.messages.isNotEmpty) {
+          final lastMsg = conv.messages.last;
+          if (think != null) _thinkMap[lastMsg.id] = think;
+          if (_retryHistory.isNotEmpty && _retryIdx < _retryHistory.length) {
+            _retryHistory[_retryIdx].assistantId = lastMsg.id;
+            _retryHistory[_retryIdx].assistantContent = content;
+            _retryHistory[_retryIdx].assistantImages = List<MessageImage>.from(
+              lastMsg.images,
+            );
+            _retryHistory[_retryIdx].thinkingContent = think;
+          }
+        }
+        if (createTitle) unawaited(_maybeCreateConversationTitle(model, cid));
+        _scrollEnd();
+      }),
+    );
   }
 
   void _switchModel(ModelConfig model) {

@@ -11,6 +11,8 @@
 | 模型字段、JSON 契约和兼容旧数据 | [数据模型](models.md) |
 | Provider 如何加载、通知、保存和容错 | [状态管理](providers.md) |
 | API、工具调用、备份、存储升级和平台能力 | [服务层](services.md) |
+| Agent 多轮循环、取消、上下文、工具注册和本机 run graph | [Agent Runtime](agent-runtime.md) |
+| MCP transport、工具桥接、凭据和平台边界 | [MCP](mcp.md) |
 | 安全同步、设备身份、配对和加密备份的 v1 wire contract | [安全同步与备份协议 v1](protocol-v1.md) |
 
 ## 一句话架构
@@ -70,6 +72,8 @@ lib/
 | 数据管理 | `lib/pages/data_management_page.dart` | ZIP 备份、预览、导入和冲突处理。 |
 | API 服务 | `lib/services/api_service.dart` | Chat/OCR/Speech/Image 请求、流式解析、附件转换。 |
 | 工具调用 | `lib/services/tool_call_service.dart` | 工具 schema、fallback JSON、规范任务/日历、旧别名、笔记和平台工具执行。 |
+| Agent 循环 | `lib/services/agent_loop_runtime.dart` | 统一模型 turn、tool continuation、轮数上限、取消和生命周期事件。 |
+| MCP | `lib/providers/mcp_provider.dart`, `lib/services/mcp/` | 连接远程 HTTP 或桌面 stdio MCP server，并把 tools 投影到 Agent 工具注册表。 |
 | 备份服务 | `lib/services/backup_service.dart` | manifest、分区 JSON、私有附件归档和恢复。 |
 | 存储服务 | `lib/services/storage_v2_service.dart` | storage_v2 根目录、数据库、数据文件、资源文件和安全路径。 |
 | 插件运行时 | `lib/services/plugin_lua_runtime_service.dart` | Lua 沙箱执行、工具/函数注册、延续链、权限注入。 |
@@ -89,6 +93,7 @@ lib/
 | 情景演绎 | `RoleplayProvider` | `RoleplayRepository` |
 | 插件 | `PluginProvider` | `PluginRepository` |
 | storage_v2 | 多个 Repository 共用 | `StorageV2Service`、`StorageV2Database` |
+| Agent 运行图与 MCP 公开配置 | 无业务 Provider；MCP 连接状态由 `McpProvider` 管理 | `AgentPersistenceRepository`、`PersistentMcpRepository` |
 | 备份 | 多个 Provider 协作 | `BackupService` |
 
 ## 文档维护规则
@@ -99,6 +104,8 @@ lib/
 | 新增模型字段、旧字段 fallback 或存储分区 | `models.md`、`providers.md`、`services.md` |
 | 修改 Provider 行为、保存队列或容错策略 | `providers.md` |
 | 修改 API 协议、工具调用、备份或存储升级 | `services.md`、`architecture.md` |
+| 修改 Agent 循环、取消、上下文、hook、工具快照或 run graph | `agent-runtime.md` 及对应分层文档 |
+| 修改 MCP transport、协议范围、凭据或平台支持 | `mcp.md`、`pages.md`、`services.md` |
 | 修改整体分层、启动流程或存储权威源 | `architecture.md`、本文件 |
 
 文档不要复制 `pubspec.yaml` 中的应用版本号，也不要把发布号写进 `doc/`。如果必须提到 schema，优先引用代码常量名称，例如 `BackupService.currentSchemaVersion`。

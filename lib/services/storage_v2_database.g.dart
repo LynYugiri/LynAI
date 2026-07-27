@@ -15950,6 +15950,3485 @@ class CloudRequestRowsCompanion extends UpdateCompanion<CloudRequestRow> {
   }
 }
 
+class $RunRowsTable extends RunRows with TableInfo<$RunRowsTable, RunRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $RunRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _conversationIdMeta = const VerificationMeta(
+    'conversationId',
+  );
+  @override
+  late final GeneratedColumn<String> conversationId = GeneratedColumn<String>(
+    'conversation_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints:
+        'NOT NULL CHECK (status IN (\'queued\', \'running\', \'completed\', \'failed\', \'cancelled\'))',
+  );
+  static const VerificationMeta _errorCodeMeta = const VerificationMeta(
+    'errorCode',
+  );
+  @override
+  late final GeneratedColumn<String> errorCode = GeneratedColumn<String>(
+    'error_code',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _errorMessageMeta = const VerificationMeta(
+    'errorMessage',
+  );
+  @override
+  late final GeneratedColumn<String> errorMessage = GeneratedColumn<String>(
+    'error_message',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<String> createdAt = GeneratedColumn<String>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _completedAtMeta = const VerificationMeta(
+    'completedAt',
+  );
+  @override
+  late final GeneratedColumn<String> completedAt = GeneratedColumn<String>(
+    'completed_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    conversationId,
+    status,
+    errorCode,
+    errorMessage,
+    createdAt,
+    updatedAt,
+    completedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'runs';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<RunRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('conversation_id')) {
+      context.handle(
+        _conversationIdMeta,
+        conversationId.isAcceptableOrUnknown(
+          data['conversation_id']!,
+          _conversationIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_statusMeta);
+    }
+    if (data.containsKey('error_code')) {
+      context.handle(
+        _errorCodeMeta,
+        errorCode.isAcceptableOrUnknown(data['error_code']!, _errorCodeMeta),
+      );
+    }
+    if (data.containsKey('error_message')) {
+      context.handle(
+        _errorMessageMeta,
+        errorMessage.isAcceptableOrUnknown(
+          data['error_message']!,
+          _errorMessageMeta,
+        ),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    if (data.containsKey('completed_at')) {
+      context.handle(
+        _completedAtMeta,
+        completedAt.isAcceptableOrUnknown(
+          data['completed_at']!,
+          _completedAtMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  RunRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return RunRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      conversationId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}conversation_id'],
+      ),
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      errorCode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}error_code'],
+      ),
+      errorMessage: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}error_message'],
+      ),
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+      completedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}completed_at'],
+      ),
+    );
+  }
+
+  @override
+  $RunRowsTable createAlias(String alias) {
+    return $RunRowsTable(attachedDatabase, alias);
+  }
+}
+
+class RunRow extends DataClass implements Insertable<RunRow> {
+  final String id;
+  final String? conversationId;
+  final String status;
+  final String? errorCode;
+  final String? errorMessage;
+  final String createdAt;
+  final String updatedAt;
+  final String? completedAt;
+  const RunRow({
+    required this.id,
+    this.conversationId,
+    required this.status,
+    this.errorCode,
+    this.errorMessage,
+    required this.createdAt,
+    required this.updatedAt,
+    this.completedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    if (!nullToAbsent || conversationId != null) {
+      map['conversation_id'] = Variable<String>(conversationId);
+    }
+    map['status'] = Variable<String>(status);
+    if (!nullToAbsent || errorCode != null) {
+      map['error_code'] = Variable<String>(errorCode);
+    }
+    if (!nullToAbsent || errorMessage != null) {
+      map['error_message'] = Variable<String>(errorMessage);
+    }
+    map['created_at'] = Variable<String>(createdAt);
+    map['updated_at'] = Variable<String>(updatedAt);
+    if (!nullToAbsent || completedAt != null) {
+      map['completed_at'] = Variable<String>(completedAt);
+    }
+    return map;
+  }
+
+  RunRowsCompanion toCompanion(bool nullToAbsent) {
+    return RunRowsCompanion(
+      id: Value(id),
+      conversationId: conversationId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(conversationId),
+      status: Value(status),
+      errorCode: errorCode == null && nullToAbsent
+          ? const Value.absent()
+          : Value(errorCode),
+      errorMessage: errorMessage == null && nullToAbsent
+          ? const Value.absent()
+          : Value(errorMessage),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+      completedAt: completedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(completedAt),
+    );
+  }
+
+  factory RunRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return RunRow(
+      id: serializer.fromJson<String>(json['id']),
+      conversationId: serializer.fromJson<String?>(json['conversationId']),
+      status: serializer.fromJson<String>(json['status']),
+      errorCode: serializer.fromJson<String?>(json['errorCode']),
+      errorMessage: serializer.fromJson<String?>(json['errorMessage']),
+      createdAt: serializer.fromJson<String>(json['createdAt']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+      completedAt: serializer.fromJson<String?>(json['completedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'conversationId': serializer.toJson<String?>(conversationId),
+      'status': serializer.toJson<String>(status),
+      'errorCode': serializer.toJson<String?>(errorCode),
+      'errorMessage': serializer.toJson<String?>(errorMessage),
+      'createdAt': serializer.toJson<String>(createdAt),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+      'completedAt': serializer.toJson<String?>(completedAt),
+    };
+  }
+
+  RunRow copyWith({
+    String? id,
+    Value<String?> conversationId = const Value.absent(),
+    String? status,
+    Value<String?> errorCode = const Value.absent(),
+    Value<String?> errorMessage = const Value.absent(),
+    String? createdAt,
+    String? updatedAt,
+    Value<String?> completedAt = const Value.absent(),
+  }) => RunRow(
+    id: id ?? this.id,
+    conversationId: conversationId.present
+        ? conversationId.value
+        : this.conversationId,
+    status: status ?? this.status,
+    errorCode: errorCode.present ? errorCode.value : this.errorCode,
+    errorMessage: errorMessage.present ? errorMessage.value : this.errorMessage,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+    completedAt: completedAt.present ? completedAt.value : this.completedAt,
+  );
+  RunRow copyWithCompanion(RunRowsCompanion data) {
+    return RunRow(
+      id: data.id.present ? data.id.value : this.id,
+      conversationId: data.conversationId.present
+          ? data.conversationId.value
+          : this.conversationId,
+      status: data.status.present ? data.status.value : this.status,
+      errorCode: data.errorCode.present ? data.errorCode.value : this.errorCode,
+      errorMessage: data.errorMessage.present
+          ? data.errorMessage.value
+          : this.errorMessage,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      completedAt: data.completedAt.present
+          ? data.completedAt.value
+          : this.completedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RunRow(')
+          ..write('id: $id, ')
+          ..write('conversationId: $conversationId, ')
+          ..write('status: $status, ')
+          ..write('errorCode: $errorCode, ')
+          ..write('errorMessage: $errorMessage, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('completedAt: $completedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    conversationId,
+    status,
+    errorCode,
+    errorMessage,
+    createdAt,
+    updatedAt,
+    completedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is RunRow &&
+          other.id == this.id &&
+          other.conversationId == this.conversationId &&
+          other.status == this.status &&
+          other.errorCode == this.errorCode &&
+          other.errorMessage == this.errorMessage &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt &&
+          other.completedAt == this.completedAt);
+}
+
+class RunRowsCompanion extends UpdateCompanion<RunRow> {
+  final Value<String> id;
+  final Value<String?> conversationId;
+  final Value<String> status;
+  final Value<String?> errorCode;
+  final Value<String?> errorMessage;
+  final Value<String> createdAt;
+  final Value<String> updatedAt;
+  final Value<String?> completedAt;
+  final Value<int> rowid;
+  const RunRowsCompanion({
+    this.id = const Value.absent(),
+    this.conversationId = const Value.absent(),
+    this.status = const Value.absent(),
+    this.errorCode = const Value.absent(),
+    this.errorMessage = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.completedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  RunRowsCompanion.insert({
+    required String id,
+    this.conversationId = const Value.absent(),
+    required String status,
+    this.errorCode = const Value.absent(),
+    this.errorMessage = const Value.absent(),
+    required String createdAt,
+    required String updatedAt,
+    this.completedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       status = Value(status),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<RunRow> custom({
+    Expression<String>? id,
+    Expression<String>? conversationId,
+    Expression<String>? status,
+    Expression<String>? errorCode,
+    Expression<String>? errorMessage,
+    Expression<String>? createdAt,
+    Expression<String>? updatedAt,
+    Expression<String>? completedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (conversationId != null) 'conversation_id': conversationId,
+      if (status != null) 'status': status,
+      if (errorCode != null) 'error_code': errorCode,
+      if (errorMessage != null) 'error_message': errorMessage,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (completedAt != null) 'completed_at': completedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  RunRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String?>? conversationId,
+    Value<String>? status,
+    Value<String?>? errorCode,
+    Value<String?>? errorMessage,
+    Value<String>? createdAt,
+    Value<String>? updatedAt,
+    Value<String?>? completedAt,
+    Value<int>? rowid,
+  }) {
+    return RunRowsCompanion(
+      id: id ?? this.id,
+      conversationId: conversationId ?? this.conversationId,
+      status: status ?? this.status,
+      errorCode: errorCode ?? this.errorCode,
+      errorMessage: errorMessage ?? this.errorMessage,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      completedAt: completedAt ?? this.completedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (conversationId.present) {
+      map['conversation_id'] = Variable<String>(conversationId.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (errorCode.present) {
+      map['error_code'] = Variable<String>(errorCode.value);
+    }
+    if (errorMessage.present) {
+      map['error_message'] = Variable<String>(errorMessage.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<String>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (completedAt.present) {
+      map['completed_at'] = Variable<String>(completedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RunRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('conversationId: $conversationId, ')
+          ..write('status: $status, ')
+          ..write('errorCode: $errorCode, ')
+          ..write('errorMessage: $errorMessage, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('completedAt: $completedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $TurnRowsTable extends TurnRows with TableInfo<$TurnRowsTable, TurnRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $TurnRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _runIdMeta = const VerificationMeta('runId');
+  @override
+  late final GeneratedColumn<String> runId = GeneratedColumn<String>(
+    'run_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL REFERENCES runs(id) ON DELETE CASCADE',
+  );
+  static const VerificationMeta _turnIndexMeta = const VerificationMeta(
+    'turnIndex',
+  );
+  @override
+  late final GeneratedColumn<int> turnIndex = GeneratedColumn<int>(
+    'turn_index',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints:
+        'NOT NULL CHECK (status IN (\'pending\', \'running\', \'completed\', \'failed\', \'cancelled\'))',
+  );
+  static const VerificationMeta _errorCodeMeta = const VerificationMeta(
+    'errorCode',
+  );
+  @override
+  late final GeneratedColumn<String> errorCode = GeneratedColumn<String>(
+    'error_code',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _errorMessageMeta = const VerificationMeta(
+    'errorMessage',
+  );
+  @override
+  late final GeneratedColumn<String> errorMessage = GeneratedColumn<String>(
+    'error_message',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<String> createdAt = GeneratedColumn<String>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _completedAtMeta = const VerificationMeta(
+    'completedAt',
+  );
+  @override
+  late final GeneratedColumn<String> completedAt = GeneratedColumn<String>(
+    'completed_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    runId,
+    turnIndex,
+    status,
+    errorCode,
+    errorMessage,
+    createdAt,
+    updatedAt,
+    completedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'turns';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<TurnRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('run_id')) {
+      context.handle(
+        _runIdMeta,
+        runId.isAcceptableOrUnknown(data['run_id']!, _runIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_runIdMeta);
+    }
+    if (data.containsKey('turn_index')) {
+      context.handle(
+        _turnIndexMeta,
+        turnIndex.isAcceptableOrUnknown(data['turn_index']!, _turnIndexMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_turnIndexMeta);
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_statusMeta);
+    }
+    if (data.containsKey('error_code')) {
+      context.handle(
+        _errorCodeMeta,
+        errorCode.isAcceptableOrUnknown(data['error_code']!, _errorCodeMeta),
+      );
+    }
+    if (data.containsKey('error_message')) {
+      context.handle(
+        _errorMessageMeta,
+        errorMessage.isAcceptableOrUnknown(
+          data['error_message']!,
+          _errorMessageMeta,
+        ),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    if (data.containsKey('completed_at')) {
+      context.handle(
+        _completedAtMeta,
+        completedAt.isAcceptableOrUnknown(
+          data['completed_at']!,
+          _completedAtMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  TurnRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return TurnRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      runId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}run_id'],
+      )!,
+      turnIndex: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}turn_index'],
+      )!,
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      errorCode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}error_code'],
+      ),
+      errorMessage: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}error_message'],
+      ),
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+      completedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}completed_at'],
+      ),
+    );
+  }
+
+  @override
+  $TurnRowsTable createAlias(String alias) {
+    return $TurnRowsTable(attachedDatabase, alias);
+  }
+}
+
+class TurnRow extends DataClass implements Insertable<TurnRow> {
+  final String id;
+  final String runId;
+  final int turnIndex;
+  final String status;
+  final String? errorCode;
+  final String? errorMessage;
+  final String createdAt;
+  final String updatedAt;
+  final String? completedAt;
+  const TurnRow({
+    required this.id,
+    required this.runId,
+    required this.turnIndex,
+    required this.status,
+    this.errorCode,
+    this.errorMessage,
+    required this.createdAt,
+    required this.updatedAt,
+    this.completedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['run_id'] = Variable<String>(runId);
+    map['turn_index'] = Variable<int>(turnIndex);
+    map['status'] = Variable<String>(status);
+    if (!nullToAbsent || errorCode != null) {
+      map['error_code'] = Variable<String>(errorCode);
+    }
+    if (!nullToAbsent || errorMessage != null) {
+      map['error_message'] = Variable<String>(errorMessage);
+    }
+    map['created_at'] = Variable<String>(createdAt);
+    map['updated_at'] = Variable<String>(updatedAt);
+    if (!nullToAbsent || completedAt != null) {
+      map['completed_at'] = Variable<String>(completedAt);
+    }
+    return map;
+  }
+
+  TurnRowsCompanion toCompanion(bool nullToAbsent) {
+    return TurnRowsCompanion(
+      id: Value(id),
+      runId: Value(runId),
+      turnIndex: Value(turnIndex),
+      status: Value(status),
+      errorCode: errorCode == null && nullToAbsent
+          ? const Value.absent()
+          : Value(errorCode),
+      errorMessage: errorMessage == null && nullToAbsent
+          ? const Value.absent()
+          : Value(errorMessage),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+      completedAt: completedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(completedAt),
+    );
+  }
+
+  factory TurnRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return TurnRow(
+      id: serializer.fromJson<String>(json['id']),
+      runId: serializer.fromJson<String>(json['runId']),
+      turnIndex: serializer.fromJson<int>(json['turnIndex']),
+      status: serializer.fromJson<String>(json['status']),
+      errorCode: serializer.fromJson<String?>(json['errorCode']),
+      errorMessage: serializer.fromJson<String?>(json['errorMessage']),
+      createdAt: serializer.fromJson<String>(json['createdAt']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+      completedAt: serializer.fromJson<String?>(json['completedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'runId': serializer.toJson<String>(runId),
+      'turnIndex': serializer.toJson<int>(turnIndex),
+      'status': serializer.toJson<String>(status),
+      'errorCode': serializer.toJson<String?>(errorCode),
+      'errorMessage': serializer.toJson<String?>(errorMessage),
+      'createdAt': serializer.toJson<String>(createdAt),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+      'completedAt': serializer.toJson<String?>(completedAt),
+    };
+  }
+
+  TurnRow copyWith({
+    String? id,
+    String? runId,
+    int? turnIndex,
+    String? status,
+    Value<String?> errorCode = const Value.absent(),
+    Value<String?> errorMessage = const Value.absent(),
+    String? createdAt,
+    String? updatedAt,
+    Value<String?> completedAt = const Value.absent(),
+  }) => TurnRow(
+    id: id ?? this.id,
+    runId: runId ?? this.runId,
+    turnIndex: turnIndex ?? this.turnIndex,
+    status: status ?? this.status,
+    errorCode: errorCode.present ? errorCode.value : this.errorCode,
+    errorMessage: errorMessage.present ? errorMessage.value : this.errorMessage,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+    completedAt: completedAt.present ? completedAt.value : this.completedAt,
+  );
+  TurnRow copyWithCompanion(TurnRowsCompanion data) {
+    return TurnRow(
+      id: data.id.present ? data.id.value : this.id,
+      runId: data.runId.present ? data.runId.value : this.runId,
+      turnIndex: data.turnIndex.present ? data.turnIndex.value : this.turnIndex,
+      status: data.status.present ? data.status.value : this.status,
+      errorCode: data.errorCode.present ? data.errorCode.value : this.errorCode,
+      errorMessage: data.errorMessage.present
+          ? data.errorMessage.value
+          : this.errorMessage,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      completedAt: data.completedAt.present
+          ? data.completedAt.value
+          : this.completedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TurnRow(')
+          ..write('id: $id, ')
+          ..write('runId: $runId, ')
+          ..write('turnIndex: $turnIndex, ')
+          ..write('status: $status, ')
+          ..write('errorCode: $errorCode, ')
+          ..write('errorMessage: $errorMessage, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('completedAt: $completedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    runId,
+    turnIndex,
+    status,
+    errorCode,
+    errorMessage,
+    createdAt,
+    updatedAt,
+    completedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is TurnRow &&
+          other.id == this.id &&
+          other.runId == this.runId &&
+          other.turnIndex == this.turnIndex &&
+          other.status == this.status &&
+          other.errorCode == this.errorCode &&
+          other.errorMessage == this.errorMessage &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt &&
+          other.completedAt == this.completedAt);
+}
+
+class TurnRowsCompanion extends UpdateCompanion<TurnRow> {
+  final Value<String> id;
+  final Value<String> runId;
+  final Value<int> turnIndex;
+  final Value<String> status;
+  final Value<String?> errorCode;
+  final Value<String?> errorMessage;
+  final Value<String> createdAt;
+  final Value<String> updatedAt;
+  final Value<String?> completedAt;
+  final Value<int> rowid;
+  const TurnRowsCompanion({
+    this.id = const Value.absent(),
+    this.runId = const Value.absent(),
+    this.turnIndex = const Value.absent(),
+    this.status = const Value.absent(),
+    this.errorCode = const Value.absent(),
+    this.errorMessage = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.completedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  TurnRowsCompanion.insert({
+    required String id,
+    required String runId,
+    required int turnIndex,
+    required String status,
+    this.errorCode = const Value.absent(),
+    this.errorMessage = const Value.absent(),
+    required String createdAt,
+    required String updatedAt,
+    this.completedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       runId = Value(runId),
+       turnIndex = Value(turnIndex),
+       status = Value(status),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<TurnRow> custom({
+    Expression<String>? id,
+    Expression<String>? runId,
+    Expression<int>? turnIndex,
+    Expression<String>? status,
+    Expression<String>? errorCode,
+    Expression<String>? errorMessage,
+    Expression<String>? createdAt,
+    Expression<String>? updatedAt,
+    Expression<String>? completedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (runId != null) 'run_id': runId,
+      if (turnIndex != null) 'turn_index': turnIndex,
+      if (status != null) 'status': status,
+      if (errorCode != null) 'error_code': errorCode,
+      if (errorMessage != null) 'error_message': errorMessage,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (completedAt != null) 'completed_at': completedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  TurnRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? runId,
+    Value<int>? turnIndex,
+    Value<String>? status,
+    Value<String?>? errorCode,
+    Value<String?>? errorMessage,
+    Value<String>? createdAt,
+    Value<String>? updatedAt,
+    Value<String?>? completedAt,
+    Value<int>? rowid,
+  }) {
+    return TurnRowsCompanion(
+      id: id ?? this.id,
+      runId: runId ?? this.runId,
+      turnIndex: turnIndex ?? this.turnIndex,
+      status: status ?? this.status,
+      errorCode: errorCode ?? this.errorCode,
+      errorMessage: errorMessage ?? this.errorMessage,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      completedAt: completedAt ?? this.completedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (runId.present) {
+      map['run_id'] = Variable<String>(runId.value);
+    }
+    if (turnIndex.present) {
+      map['turn_index'] = Variable<int>(turnIndex.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (errorCode.present) {
+      map['error_code'] = Variable<String>(errorCode.value);
+    }
+    if (errorMessage.present) {
+      map['error_message'] = Variable<String>(errorMessage.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<String>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (completedAt.present) {
+      map['completed_at'] = Variable<String>(completedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TurnRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('runId: $runId, ')
+          ..write('turnIndex: $turnIndex, ')
+          ..write('status: $status, ')
+          ..write('errorCode: $errorCode, ')
+          ..write('errorMessage: $errorMessage, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('completedAt: $completedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $ItemRowsTable extends ItemRows with TableInfo<$ItemRowsTable, ItemRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ItemRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _turnIdMeta = const VerificationMeta('turnId');
+  @override
+  late final GeneratedColumn<String> turnId = GeneratedColumn<String>(
+    'turn_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL REFERENCES turns(id) ON DELETE CASCADE',
+  );
+  static const VerificationMeta _itemIndexMeta = const VerificationMeta(
+    'itemIndex',
+  );
+  @override
+  late final GeneratedColumn<int> itemIndex = GeneratedColumn<int>(
+    'item_index',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _kindMeta = const VerificationMeta('kind');
+  @override
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+    'kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints:
+        'NOT NULL CHECK (kind IN (\'message\', \'reasoning\', \'toolCall\', \'toolResult\'))',
+  );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints:
+        'NOT NULL CHECK (status IN (\'pending\', \'running\', \'completed\', \'failed\', \'cancelled\'))',
+  );
+  static const VerificationMeta _payloadJsonMeta = const VerificationMeta(
+    'payloadJson',
+  );
+  @override
+  late final GeneratedColumn<String> payloadJson = GeneratedColumn<String>(
+    'payload_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _errorCodeMeta = const VerificationMeta(
+    'errorCode',
+  );
+  @override
+  late final GeneratedColumn<String> errorCode = GeneratedColumn<String>(
+    'error_code',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _errorMessageMeta = const VerificationMeta(
+    'errorMessage',
+  );
+  @override
+  late final GeneratedColumn<String> errorMessage = GeneratedColumn<String>(
+    'error_message',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<String> createdAt = GeneratedColumn<String>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _completedAtMeta = const VerificationMeta(
+    'completedAt',
+  );
+  @override
+  late final GeneratedColumn<String> completedAt = GeneratedColumn<String>(
+    'completed_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    turnId,
+    itemIndex,
+    kind,
+    status,
+    payloadJson,
+    errorCode,
+    errorMessage,
+    createdAt,
+    updatedAt,
+    completedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'items';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ItemRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('turn_id')) {
+      context.handle(
+        _turnIdMeta,
+        turnId.isAcceptableOrUnknown(data['turn_id']!, _turnIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_turnIdMeta);
+    }
+    if (data.containsKey('item_index')) {
+      context.handle(
+        _itemIndexMeta,
+        itemIndex.isAcceptableOrUnknown(data['item_index']!, _itemIndexMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_itemIndexMeta);
+    }
+    if (data.containsKey('kind')) {
+      context.handle(
+        _kindMeta,
+        kind.isAcceptableOrUnknown(data['kind']!, _kindMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_kindMeta);
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_statusMeta);
+    }
+    if (data.containsKey('payload_json')) {
+      context.handle(
+        _payloadJsonMeta,
+        payloadJson.isAcceptableOrUnknown(
+          data['payload_json']!,
+          _payloadJsonMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_payloadJsonMeta);
+    }
+    if (data.containsKey('error_code')) {
+      context.handle(
+        _errorCodeMeta,
+        errorCode.isAcceptableOrUnknown(data['error_code']!, _errorCodeMeta),
+      );
+    }
+    if (data.containsKey('error_message')) {
+      context.handle(
+        _errorMessageMeta,
+        errorMessage.isAcceptableOrUnknown(
+          data['error_message']!,
+          _errorMessageMeta,
+        ),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    if (data.containsKey('completed_at')) {
+      context.handle(
+        _completedAtMeta,
+        completedAt.isAcceptableOrUnknown(
+          data['completed_at']!,
+          _completedAtMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  ItemRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ItemRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      turnId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}turn_id'],
+      )!,
+      itemIndex: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}item_index'],
+      )!,
+      kind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}kind'],
+      )!,
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      payloadJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}payload_json'],
+      )!,
+      errorCode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}error_code'],
+      ),
+      errorMessage: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}error_message'],
+      ),
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+      completedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}completed_at'],
+      ),
+    );
+  }
+
+  @override
+  $ItemRowsTable createAlias(String alias) {
+    return $ItemRowsTable(attachedDatabase, alias);
+  }
+}
+
+class ItemRow extends DataClass implements Insertable<ItemRow> {
+  final String id;
+  final String turnId;
+  final int itemIndex;
+  final String kind;
+  final String status;
+  final String payloadJson;
+  final String? errorCode;
+  final String? errorMessage;
+  final String createdAt;
+  final String updatedAt;
+  final String? completedAt;
+  const ItemRow({
+    required this.id,
+    required this.turnId,
+    required this.itemIndex,
+    required this.kind,
+    required this.status,
+    required this.payloadJson,
+    this.errorCode,
+    this.errorMessage,
+    required this.createdAt,
+    required this.updatedAt,
+    this.completedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['turn_id'] = Variable<String>(turnId);
+    map['item_index'] = Variable<int>(itemIndex);
+    map['kind'] = Variable<String>(kind);
+    map['status'] = Variable<String>(status);
+    map['payload_json'] = Variable<String>(payloadJson);
+    if (!nullToAbsent || errorCode != null) {
+      map['error_code'] = Variable<String>(errorCode);
+    }
+    if (!nullToAbsent || errorMessage != null) {
+      map['error_message'] = Variable<String>(errorMessage);
+    }
+    map['created_at'] = Variable<String>(createdAt);
+    map['updated_at'] = Variable<String>(updatedAt);
+    if (!nullToAbsent || completedAt != null) {
+      map['completed_at'] = Variable<String>(completedAt);
+    }
+    return map;
+  }
+
+  ItemRowsCompanion toCompanion(bool nullToAbsent) {
+    return ItemRowsCompanion(
+      id: Value(id),
+      turnId: Value(turnId),
+      itemIndex: Value(itemIndex),
+      kind: Value(kind),
+      status: Value(status),
+      payloadJson: Value(payloadJson),
+      errorCode: errorCode == null && nullToAbsent
+          ? const Value.absent()
+          : Value(errorCode),
+      errorMessage: errorMessage == null && nullToAbsent
+          ? const Value.absent()
+          : Value(errorMessage),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+      completedAt: completedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(completedAt),
+    );
+  }
+
+  factory ItemRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ItemRow(
+      id: serializer.fromJson<String>(json['id']),
+      turnId: serializer.fromJson<String>(json['turnId']),
+      itemIndex: serializer.fromJson<int>(json['itemIndex']),
+      kind: serializer.fromJson<String>(json['kind']),
+      status: serializer.fromJson<String>(json['status']),
+      payloadJson: serializer.fromJson<String>(json['payloadJson']),
+      errorCode: serializer.fromJson<String?>(json['errorCode']),
+      errorMessage: serializer.fromJson<String?>(json['errorMessage']),
+      createdAt: serializer.fromJson<String>(json['createdAt']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+      completedAt: serializer.fromJson<String?>(json['completedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'turnId': serializer.toJson<String>(turnId),
+      'itemIndex': serializer.toJson<int>(itemIndex),
+      'kind': serializer.toJson<String>(kind),
+      'status': serializer.toJson<String>(status),
+      'payloadJson': serializer.toJson<String>(payloadJson),
+      'errorCode': serializer.toJson<String?>(errorCode),
+      'errorMessage': serializer.toJson<String?>(errorMessage),
+      'createdAt': serializer.toJson<String>(createdAt),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+      'completedAt': serializer.toJson<String?>(completedAt),
+    };
+  }
+
+  ItemRow copyWith({
+    String? id,
+    String? turnId,
+    int? itemIndex,
+    String? kind,
+    String? status,
+    String? payloadJson,
+    Value<String?> errorCode = const Value.absent(),
+    Value<String?> errorMessage = const Value.absent(),
+    String? createdAt,
+    String? updatedAt,
+    Value<String?> completedAt = const Value.absent(),
+  }) => ItemRow(
+    id: id ?? this.id,
+    turnId: turnId ?? this.turnId,
+    itemIndex: itemIndex ?? this.itemIndex,
+    kind: kind ?? this.kind,
+    status: status ?? this.status,
+    payloadJson: payloadJson ?? this.payloadJson,
+    errorCode: errorCode.present ? errorCode.value : this.errorCode,
+    errorMessage: errorMessage.present ? errorMessage.value : this.errorMessage,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+    completedAt: completedAt.present ? completedAt.value : this.completedAt,
+  );
+  ItemRow copyWithCompanion(ItemRowsCompanion data) {
+    return ItemRow(
+      id: data.id.present ? data.id.value : this.id,
+      turnId: data.turnId.present ? data.turnId.value : this.turnId,
+      itemIndex: data.itemIndex.present ? data.itemIndex.value : this.itemIndex,
+      kind: data.kind.present ? data.kind.value : this.kind,
+      status: data.status.present ? data.status.value : this.status,
+      payloadJson: data.payloadJson.present
+          ? data.payloadJson.value
+          : this.payloadJson,
+      errorCode: data.errorCode.present ? data.errorCode.value : this.errorCode,
+      errorMessage: data.errorMessage.present
+          ? data.errorMessage.value
+          : this.errorMessage,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      completedAt: data.completedAt.present
+          ? data.completedAt.value
+          : this.completedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ItemRow(')
+          ..write('id: $id, ')
+          ..write('turnId: $turnId, ')
+          ..write('itemIndex: $itemIndex, ')
+          ..write('kind: $kind, ')
+          ..write('status: $status, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('errorCode: $errorCode, ')
+          ..write('errorMessage: $errorMessage, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('completedAt: $completedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    turnId,
+    itemIndex,
+    kind,
+    status,
+    payloadJson,
+    errorCode,
+    errorMessage,
+    createdAt,
+    updatedAt,
+    completedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ItemRow &&
+          other.id == this.id &&
+          other.turnId == this.turnId &&
+          other.itemIndex == this.itemIndex &&
+          other.kind == this.kind &&
+          other.status == this.status &&
+          other.payloadJson == this.payloadJson &&
+          other.errorCode == this.errorCode &&
+          other.errorMessage == this.errorMessage &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt &&
+          other.completedAt == this.completedAt);
+}
+
+class ItemRowsCompanion extends UpdateCompanion<ItemRow> {
+  final Value<String> id;
+  final Value<String> turnId;
+  final Value<int> itemIndex;
+  final Value<String> kind;
+  final Value<String> status;
+  final Value<String> payloadJson;
+  final Value<String?> errorCode;
+  final Value<String?> errorMessage;
+  final Value<String> createdAt;
+  final Value<String> updatedAt;
+  final Value<String?> completedAt;
+  final Value<int> rowid;
+  const ItemRowsCompanion({
+    this.id = const Value.absent(),
+    this.turnId = const Value.absent(),
+    this.itemIndex = const Value.absent(),
+    this.kind = const Value.absent(),
+    this.status = const Value.absent(),
+    this.payloadJson = const Value.absent(),
+    this.errorCode = const Value.absent(),
+    this.errorMessage = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.completedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ItemRowsCompanion.insert({
+    required String id,
+    required String turnId,
+    required int itemIndex,
+    required String kind,
+    required String status,
+    required String payloadJson,
+    this.errorCode = const Value.absent(),
+    this.errorMessage = const Value.absent(),
+    required String createdAt,
+    required String updatedAt,
+    this.completedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       turnId = Value(turnId),
+       itemIndex = Value(itemIndex),
+       kind = Value(kind),
+       status = Value(status),
+       payloadJson = Value(payloadJson),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<ItemRow> custom({
+    Expression<String>? id,
+    Expression<String>? turnId,
+    Expression<int>? itemIndex,
+    Expression<String>? kind,
+    Expression<String>? status,
+    Expression<String>? payloadJson,
+    Expression<String>? errorCode,
+    Expression<String>? errorMessage,
+    Expression<String>? createdAt,
+    Expression<String>? updatedAt,
+    Expression<String>? completedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (turnId != null) 'turn_id': turnId,
+      if (itemIndex != null) 'item_index': itemIndex,
+      if (kind != null) 'kind': kind,
+      if (status != null) 'status': status,
+      if (payloadJson != null) 'payload_json': payloadJson,
+      if (errorCode != null) 'error_code': errorCode,
+      if (errorMessage != null) 'error_message': errorMessage,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (completedAt != null) 'completed_at': completedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ItemRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? turnId,
+    Value<int>? itemIndex,
+    Value<String>? kind,
+    Value<String>? status,
+    Value<String>? payloadJson,
+    Value<String?>? errorCode,
+    Value<String?>? errorMessage,
+    Value<String>? createdAt,
+    Value<String>? updatedAt,
+    Value<String?>? completedAt,
+    Value<int>? rowid,
+  }) {
+    return ItemRowsCompanion(
+      id: id ?? this.id,
+      turnId: turnId ?? this.turnId,
+      itemIndex: itemIndex ?? this.itemIndex,
+      kind: kind ?? this.kind,
+      status: status ?? this.status,
+      payloadJson: payloadJson ?? this.payloadJson,
+      errorCode: errorCode ?? this.errorCode,
+      errorMessage: errorMessage ?? this.errorMessage,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      completedAt: completedAt ?? this.completedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (turnId.present) {
+      map['turn_id'] = Variable<String>(turnId.value);
+    }
+    if (itemIndex.present) {
+      map['item_index'] = Variable<int>(itemIndex.value);
+    }
+    if (kind.present) {
+      map['kind'] = Variable<String>(kind.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (payloadJson.present) {
+      map['payload_json'] = Variable<String>(payloadJson.value);
+    }
+    if (errorCode.present) {
+      map['error_code'] = Variable<String>(errorCode.value);
+    }
+    if (errorMessage.present) {
+      map['error_message'] = Variable<String>(errorMessage.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<String>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (completedAt.present) {
+      map['completed_at'] = Variable<String>(completedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ItemRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('turnId: $turnId, ')
+          ..write('itemIndex: $itemIndex, ')
+          ..write('kind: $kind, ')
+          ..write('status: $status, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('errorCode: $errorCode, ')
+          ..write('errorMessage: $errorMessage, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('completedAt: $completedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $ToolCallRowsTable extends ToolCallRows
+    with TableInfo<$ToolCallRowsTable, ToolCallRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ToolCallRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _itemIdMeta = const VerificationMeta('itemId');
+  @override
+  late final GeneratedColumn<String> itemId = GeneratedColumn<String>(
+    'item_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL REFERENCES items(id) ON DELETE CASCADE',
+  );
+  static const VerificationMeta _toolNameMeta = const VerificationMeta(
+    'toolName',
+  );
+  @override
+  late final GeneratedColumn<String> toolName = GeneratedColumn<String>(
+    'tool_name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _argumentsJsonMeta = const VerificationMeta(
+    'argumentsJson',
+  );
+  @override
+  late final GeneratedColumn<String> argumentsJson = GeneratedColumn<String>(
+    'arguments_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints:
+        'NOT NULL CHECK (status IN (\'pending\', \'running\', \'completed\', \'failed\', \'cancelled\'))',
+  );
+  static const VerificationMeta _resultJsonMeta = const VerificationMeta(
+    'resultJson',
+  );
+  @override
+  late final GeneratedColumn<String> resultJson = GeneratedColumn<String>(
+    'result_json',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _errorCodeMeta = const VerificationMeta(
+    'errorCode',
+  );
+  @override
+  late final GeneratedColumn<String> errorCode = GeneratedColumn<String>(
+    'error_code',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _errorMessageMeta = const VerificationMeta(
+    'errorMessage',
+  );
+  @override
+  late final GeneratedColumn<String> errorMessage = GeneratedColumn<String>(
+    'error_message',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<String> createdAt = GeneratedColumn<String>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _completedAtMeta = const VerificationMeta(
+    'completedAt',
+  );
+  @override
+  late final GeneratedColumn<String> completedAt = GeneratedColumn<String>(
+    'completed_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    itemId,
+    toolName,
+    argumentsJson,
+    status,
+    resultJson,
+    errorCode,
+    errorMessage,
+    createdAt,
+    updatedAt,
+    completedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'tool_calls';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ToolCallRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('item_id')) {
+      context.handle(
+        _itemIdMeta,
+        itemId.isAcceptableOrUnknown(data['item_id']!, _itemIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_itemIdMeta);
+    }
+    if (data.containsKey('tool_name')) {
+      context.handle(
+        _toolNameMeta,
+        toolName.isAcceptableOrUnknown(data['tool_name']!, _toolNameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_toolNameMeta);
+    }
+    if (data.containsKey('arguments_json')) {
+      context.handle(
+        _argumentsJsonMeta,
+        argumentsJson.isAcceptableOrUnknown(
+          data['arguments_json']!,
+          _argumentsJsonMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_argumentsJsonMeta);
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_statusMeta);
+    }
+    if (data.containsKey('result_json')) {
+      context.handle(
+        _resultJsonMeta,
+        resultJson.isAcceptableOrUnknown(data['result_json']!, _resultJsonMeta),
+      );
+    }
+    if (data.containsKey('error_code')) {
+      context.handle(
+        _errorCodeMeta,
+        errorCode.isAcceptableOrUnknown(data['error_code']!, _errorCodeMeta),
+      );
+    }
+    if (data.containsKey('error_message')) {
+      context.handle(
+        _errorMessageMeta,
+        errorMessage.isAcceptableOrUnknown(
+          data['error_message']!,
+          _errorMessageMeta,
+        ),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    if (data.containsKey('completed_at')) {
+      context.handle(
+        _completedAtMeta,
+        completedAt.isAcceptableOrUnknown(
+          data['completed_at']!,
+          _completedAtMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  ToolCallRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ToolCallRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      itemId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}item_id'],
+      )!,
+      toolName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}tool_name'],
+      )!,
+      argumentsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}arguments_json'],
+      )!,
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      resultJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}result_json'],
+      ),
+      errorCode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}error_code'],
+      ),
+      errorMessage: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}error_message'],
+      ),
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+      completedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}completed_at'],
+      ),
+    );
+  }
+
+  @override
+  $ToolCallRowsTable createAlias(String alias) {
+    return $ToolCallRowsTable(attachedDatabase, alias);
+  }
+}
+
+class ToolCallRow extends DataClass implements Insertable<ToolCallRow> {
+  final String id;
+  final String itemId;
+  final String toolName;
+  final String argumentsJson;
+  final String status;
+  final String? resultJson;
+  final String? errorCode;
+  final String? errorMessage;
+  final String createdAt;
+  final String updatedAt;
+  final String? completedAt;
+  const ToolCallRow({
+    required this.id,
+    required this.itemId,
+    required this.toolName,
+    required this.argumentsJson,
+    required this.status,
+    this.resultJson,
+    this.errorCode,
+    this.errorMessage,
+    required this.createdAt,
+    required this.updatedAt,
+    this.completedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['item_id'] = Variable<String>(itemId);
+    map['tool_name'] = Variable<String>(toolName);
+    map['arguments_json'] = Variable<String>(argumentsJson);
+    map['status'] = Variable<String>(status);
+    if (!nullToAbsent || resultJson != null) {
+      map['result_json'] = Variable<String>(resultJson);
+    }
+    if (!nullToAbsent || errorCode != null) {
+      map['error_code'] = Variable<String>(errorCode);
+    }
+    if (!nullToAbsent || errorMessage != null) {
+      map['error_message'] = Variable<String>(errorMessage);
+    }
+    map['created_at'] = Variable<String>(createdAt);
+    map['updated_at'] = Variable<String>(updatedAt);
+    if (!nullToAbsent || completedAt != null) {
+      map['completed_at'] = Variable<String>(completedAt);
+    }
+    return map;
+  }
+
+  ToolCallRowsCompanion toCompanion(bool nullToAbsent) {
+    return ToolCallRowsCompanion(
+      id: Value(id),
+      itemId: Value(itemId),
+      toolName: Value(toolName),
+      argumentsJson: Value(argumentsJson),
+      status: Value(status),
+      resultJson: resultJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(resultJson),
+      errorCode: errorCode == null && nullToAbsent
+          ? const Value.absent()
+          : Value(errorCode),
+      errorMessage: errorMessage == null && nullToAbsent
+          ? const Value.absent()
+          : Value(errorMessage),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+      completedAt: completedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(completedAt),
+    );
+  }
+
+  factory ToolCallRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ToolCallRow(
+      id: serializer.fromJson<String>(json['id']),
+      itemId: serializer.fromJson<String>(json['itemId']),
+      toolName: serializer.fromJson<String>(json['toolName']),
+      argumentsJson: serializer.fromJson<String>(json['argumentsJson']),
+      status: serializer.fromJson<String>(json['status']),
+      resultJson: serializer.fromJson<String?>(json['resultJson']),
+      errorCode: serializer.fromJson<String?>(json['errorCode']),
+      errorMessage: serializer.fromJson<String?>(json['errorMessage']),
+      createdAt: serializer.fromJson<String>(json['createdAt']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+      completedAt: serializer.fromJson<String?>(json['completedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'itemId': serializer.toJson<String>(itemId),
+      'toolName': serializer.toJson<String>(toolName),
+      'argumentsJson': serializer.toJson<String>(argumentsJson),
+      'status': serializer.toJson<String>(status),
+      'resultJson': serializer.toJson<String?>(resultJson),
+      'errorCode': serializer.toJson<String?>(errorCode),
+      'errorMessage': serializer.toJson<String?>(errorMessage),
+      'createdAt': serializer.toJson<String>(createdAt),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+      'completedAt': serializer.toJson<String?>(completedAt),
+    };
+  }
+
+  ToolCallRow copyWith({
+    String? id,
+    String? itemId,
+    String? toolName,
+    String? argumentsJson,
+    String? status,
+    Value<String?> resultJson = const Value.absent(),
+    Value<String?> errorCode = const Value.absent(),
+    Value<String?> errorMessage = const Value.absent(),
+    String? createdAt,
+    String? updatedAt,
+    Value<String?> completedAt = const Value.absent(),
+  }) => ToolCallRow(
+    id: id ?? this.id,
+    itemId: itemId ?? this.itemId,
+    toolName: toolName ?? this.toolName,
+    argumentsJson: argumentsJson ?? this.argumentsJson,
+    status: status ?? this.status,
+    resultJson: resultJson.present ? resultJson.value : this.resultJson,
+    errorCode: errorCode.present ? errorCode.value : this.errorCode,
+    errorMessage: errorMessage.present ? errorMessage.value : this.errorMessage,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+    completedAt: completedAt.present ? completedAt.value : this.completedAt,
+  );
+  ToolCallRow copyWithCompanion(ToolCallRowsCompanion data) {
+    return ToolCallRow(
+      id: data.id.present ? data.id.value : this.id,
+      itemId: data.itemId.present ? data.itemId.value : this.itemId,
+      toolName: data.toolName.present ? data.toolName.value : this.toolName,
+      argumentsJson: data.argumentsJson.present
+          ? data.argumentsJson.value
+          : this.argumentsJson,
+      status: data.status.present ? data.status.value : this.status,
+      resultJson: data.resultJson.present
+          ? data.resultJson.value
+          : this.resultJson,
+      errorCode: data.errorCode.present ? data.errorCode.value : this.errorCode,
+      errorMessage: data.errorMessage.present
+          ? data.errorMessage.value
+          : this.errorMessage,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      completedAt: data.completedAt.present
+          ? data.completedAt.value
+          : this.completedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ToolCallRow(')
+          ..write('id: $id, ')
+          ..write('itemId: $itemId, ')
+          ..write('toolName: $toolName, ')
+          ..write('argumentsJson: $argumentsJson, ')
+          ..write('status: $status, ')
+          ..write('resultJson: $resultJson, ')
+          ..write('errorCode: $errorCode, ')
+          ..write('errorMessage: $errorMessage, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('completedAt: $completedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    itemId,
+    toolName,
+    argumentsJson,
+    status,
+    resultJson,
+    errorCode,
+    errorMessage,
+    createdAt,
+    updatedAt,
+    completedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ToolCallRow &&
+          other.id == this.id &&
+          other.itemId == this.itemId &&
+          other.toolName == this.toolName &&
+          other.argumentsJson == this.argumentsJson &&
+          other.status == this.status &&
+          other.resultJson == this.resultJson &&
+          other.errorCode == this.errorCode &&
+          other.errorMessage == this.errorMessage &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt &&
+          other.completedAt == this.completedAt);
+}
+
+class ToolCallRowsCompanion extends UpdateCompanion<ToolCallRow> {
+  final Value<String> id;
+  final Value<String> itemId;
+  final Value<String> toolName;
+  final Value<String> argumentsJson;
+  final Value<String> status;
+  final Value<String?> resultJson;
+  final Value<String?> errorCode;
+  final Value<String?> errorMessage;
+  final Value<String> createdAt;
+  final Value<String> updatedAt;
+  final Value<String?> completedAt;
+  final Value<int> rowid;
+  const ToolCallRowsCompanion({
+    this.id = const Value.absent(),
+    this.itemId = const Value.absent(),
+    this.toolName = const Value.absent(),
+    this.argumentsJson = const Value.absent(),
+    this.status = const Value.absent(),
+    this.resultJson = const Value.absent(),
+    this.errorCode = const Value.absent(),
+    this.errorMessage = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.completedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ToolCallRowsCompanion.insert({
+    required String id,
+    required String itemId,
+    required String toolName,
+    required String argumentsJson,
+    required String status,
+    this.resultJson = const Value.absent(),
+    this.errorCode = const Value.absent(),
+    this.errorMessage = const Value.absent(),
+    required String createdAt,
+    required String updatedAt,
+    this.completedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       itemId = Value(itemId),
+       toolName = Value(toolName),
+       argumentsJson = Value(argumentsJson),
+       status = Value(status),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<ToolCallRow> custom({
+    Expression<String>? id,
+    Expression<String>? itemId,
+    Expression<String>? toolName,
+    Expression<String>? argumentsJson,
+    Expression<String>? status,
+    Expression<String>? resultJson,
+    Expression<String>? errorCode,
+    Expression<String>? errorMessage,
+    Expression<String>? createdAt,
+    Expression<String>? updatedAt,
+    Expression<String>? completedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (itemId != null) 'item_id': itemId,
+      if (toolName != null) 'tool_name': toolName,
+      if (argumentsJson != null) 'arguments_json': argumentsJson,
+      if (status != null) 'status': status,
+      if (resultJson != null) 'result_json': resultJson,
+      if (errorCode != null) 'error_code': errorCode,
+      if (errorMessage != null) 'error_message': errorMessage,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (completedAt != null) 'completed_at': completedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ToolCallRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? itemId,
+    Value<String>? toolName,
+    Value<String>? argumentsJson,
+    Value<String>? status,
+    Value<String?>? resultJson,
+    Value<String?>? errorCode,
+    Value<String?>? errorMessage,
+    Value<String>? createdAt,
+    Value<String>? updatedAt,
+    Value<String?>? completedAt,
+    Value<int>? rowid,
+  }) {
+    return ToolCallRowsCompanion(
+      id: id ?? this.id,
+      itemId: itemId ?? this.itemId,
+      toolName: toolName ?? this.toolName,
+      argumentsJson: argumentsJson ?? this.argumentsJson,
+      status: status ?? this.status,
+      resultJson: resultJson ?? this.resultJson,
+      errorCode: errorCode ?? this.errorCode,
+      errorMessage: errorMessage ?? this.errorMessage,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      completedAt: completedAt ?? this.completedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (itemId.present) {
+      map['item_id'] = Variable<String>(itemId.value);
+    }
+    if (toolName.present) {
+      map['tool_name'] = Variable<String>(toolName.value);
+    }
+    if (argumentsJson.present) {
+      map['arguments_json'] = Variable<String>(argumentsJson.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (resultJson.present) {
+      map['result_json'] = Variable<String>(resultJson.value);
+    }
+    if (errorCode.present) {
+      map['error_code'] = Variable<String>(errorCode.value);
+    }
+    if (errorMessage.present) {
+      map['error_message'] = Variable<String>(errorMessage.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<String>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (completedAt.present) {
+      map['completed_at'] = Variable<String>(completedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ToolCallRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('itemId: $itemId, ')
+          ..write('toolName: $toolName, ')
+          ..write('argumentsJson: $argumentsJson, ')
+          ..write('status: $status, ')
+          ..write('resultJson: $resultJson, ')
+          ..write('errorCode: $errorCode, ')
+          ..write('errorMessage: $errorMessage, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('completedAt: $completedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $SnapshotRowsTable extends SnapshotRows
+    with TableInfo<$SnapshotRowsTable, SnapshotRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SnapshotRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _runIdMeta = const VerificationMeta('runId');
+  @override
+  late final GeneratedColumn<String> runId = GeneratedColumn<String>(
+    'run_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL REFERENCES runs(id) ON DELETE CASCADE',
+  );
+  static const VerificationMeta _turnIdMeta = const VerificationMeta('turnId');
+  @override
+  late final GeneratedColumn<String> turnId = GeneratedColumn<String>(
+    'turn_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints: 'NULL REFERENCES turns(id) ON DELETE CASCADE',
+  );
+  static const VerificationMeta _kindMeta = const VerificationMeta('kind');
+  @override
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+    'kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _dataJsonMeta = const VerificationMeta(
+    'dataJson',
+  );
+  @override
+  late final GeneratedColumn<String> dataJson = GeneratedColumn<String>(
+    'data_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<String> createdAt = GeneratedColumn<String>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    runId,
+    turnId,
+    kind,
+    dataJson,
+    createdAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'snapshots';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SnapshotRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('run_id')) {
+      context.handle(
+        _runIdMeta,
+        runId.isAcceptableOrUnknown(data['run_id']!, _runIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_runIdMeta);
+    }
+    if (data.containsKey('turn_id')) {
+      context.handle(
+        _turnIdMeta,
+        turnId.isAcceptableOrUnknown(data['turn_id']!, _turnIdMeta),
+      );
+    }
+    if (data.containsKey('kind')) {
+      context.handle(
+        _kindMeta,
+        kind.isAcceptableOrUnknown(data['kind']!, _kindMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_kindMeta);
+    }
+    if (data.containsKey('data_json')) {
+      context.handle(
+        _dataJsonMeta,
+        dataJson.isAcceptableOrUnknown(data['data_json']!, _dataJsonMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_dataJsonMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  SnapshotRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SnapshotRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      runId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}run_id'],
+      )!,
+      turnId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}turn_id'],
+      ),
+      kind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}kind'],
+      )!,
+      dataJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}data_json'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}created_at'],
+      )!,
+    );
+  }
+
+  @override
+  $SnapshotRowsTable createAlias(String alias) {
+    return $SnapshotRowsTable(attachedDatabase, alias);
+  }
+}
+
+class SnapshotRow extends DataClass implements Insertable<SnapshotRow> {
+  final String id;
+  final String runId;
+  final String? turnId;
+  final String kind;
+  final String dataJson;
+  final String createdAt;
+  const SnapshotRow({
+    required this.id,
+    required this.runId,
+    this.turnId,
+    required this.kind,
+    required this.dataJson,
+    required this.createdAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['run_id'] = Variable<String>(runId);
+    if (!nullToAbsent || turnId != null) {
+      map['turn_id'] = Variable<String>(turnId);
+    }
+    map['kind'] = Variable<String>(kind);
+    map['data_json'] = Variable<String>(dataJson);
+    map['created_at'] = Variable<String>(createdAt);
+    return map;
+  }
+
+  SnapshotRowsCompanion toCompanion(bool nullToAbsent) {
+    return SnapshotRowsCompanion(
+      id: Value(id),
+      runId: Value(runId),
+      turnId: turnId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(turnId),
+      kind: Value(kind),
+      dataJson: Value(dataJson),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory SnapshotRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SnapshotRow(
+      id: serializer.fromJson<String>(json['id']),
+      runId: serializer.fromJson<String>(json['runId']),
+      turnId: serializer.fromJson<String?>(json['turnId']),
+      kind: serializer.fromJson<String>(json['kind']),
+      dataJson: serializer.fromJson<String>(json['dataJson']),
+      createdAt: serializer.fromJson<String>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'runId': serializer.toJson<String>(runId),
+      'turnId': serializer.toJson<String?>(turnId),
+      'kind': serializer.toJson<String>(kind),
+      'dataJson': serializer.toJson<String>(dataJson),
+      'createdAt': serializer.toJson<String>(createdAt),
+    };
+  }
+
+  SnapshotRow copyWith({
+    String? id,
+    String? runId,
+    Value<String?> turnId = const Value.absent(),
+    String? kind,
+    String? dataJson,
+    String? createdAt,
+  }) => SnapshotRow(
+    id: id ?? this.id,
+    runId: runId ?? this.runId,
+    turnId: turnId.present ? turnId.value : this.turnId,
+    kind: kind ?? this.kind,
+    dataJson: dataJson ?? this.dataJson,
+    createdAt: createdAt ?? this.createdAt,
+  );
+  SnapshotRow copyWithCompanion(SnapshotRowsCompanion data) {
+    return SnapshotRow(
+      id: data.id.present ? data.id.value : this.id,
+      runId: data.runId.present ? data.runId.value : this.runId,
+      turnId: data.turnId.present ? data.turnId.value : this.turnId,
+      kind: data.kind.present ? data.kind.value : this.kind,
+      dataJson: data.dataJson.present ? data.dataJson.value : this.dataJson,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SnapshotRow(')
+          ..write('id: $id, ')
+          ..write('runId: $runId, ')
+          ..write('turnId: $turnId, ')
+          ..write('kind: $kind, ')
+          ..write('dataJson: $dataJson, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, runId, turnId, kind, dataJson, createdAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SnapshotRow &&
+          other.id == this.id &&
+          other.runId == this.runId &&
+          other.turnId == this.turnId &&
+          other.kind == this.kind &&
+          other.dataJson == this.dataJson &&
+          other.createdAt == this.createdAt);
+}
+
+class SnapshotRowsCompanion extends UpdateCompanion<SnapshotRow> {
+  final Value<String> id;
+  final Value<String> runId;
+  final Value<String?> turnId;
+  final Value<String> kind;
+  final Value<String> dataJson;
+  final Value<String> createdAt;
+  final Value<int> rowid;
+  const SnapshotRowsCompanion({
+    this.id = const Value.absent(),
+    this.runId = const Value.absent(),
+    this.turnId = const Value.absent(),
+    this.kind = const Value.absent(),
+    this.dataJson = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SnapshotRowsCompanion.insert({
+    required String id,
+    required String runId,
+    this.turnId = const Value.absent(),
+    required String kind,
+    required String dataJson,
+    required String createdAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       runId = Value(runId),
+       kind = Value(kind),
+       dataJson = Value(dataJson),
+       createdAt = Value(createdAt);
+  static Insertable<SnapshotRow> custom({
+    Expression<String>? id,
+    Expression<String>? runId,
+    Expression<String>? turnId,
+    Expression<String>? kind,
+    Expression<String>? dataJson,
+    Expression<String>? createdAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (runId != null) 'run_id': runId,
+      if (turnId != null) 'turn_id': turnId,
+      if (kind != null) 'kind': kind,
+      if (dataJson != null) 'data_json': dataJson,
+      if (createdAt != null) 'created_at': createdAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SnapshotRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? runId,
+    Value<String?>? turnId,
+    Value<String>? kind,
+    Value<String>? dataJson,
+    Value<String>? createdAt,
+    Value<int>? rowid,
+  }) {
+    return SnapshotRowsCompanion(
+      id: id ?? this.id,
+      runId: runId ?? this.runId,
+      turnId: turnId ?? this.turnId,
+      kind: kind ?? this.kind,
+      dataJson: dataJson ?? this.dataJson,
+      createdAt: createdAt ?? this.createdAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (runId.present) {
+      map['run_id'] = Variable<String>(runId.value);
+    }
+    if (turnId.present) {
+      map['turn_id'] = Variable<String>(turnId.value);
+    }
+    if (kind.present) {
+      map['kind'] = Variable<String>(kind.value);
+    }
+    if (dataJson.present) {
+      map['data_json'] = Variable<String>(dataJson.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<String>(createdAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SnapshotRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('runId: $runId, ')
+          ..write('turnId: $turnId, ')
+          ..write('kind: $kind, ')
+          ..write('dataJson: $dataJson, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $McpServerRowsTable extends McpServerRows
+    with TableInfo<$McpServerRowsTable, McpServerRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $McpServerRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _transportMeta = const VerificationMeta(
+    'transport',
+  );
+  @override
+  late final GeneratedColumn<String> transport = GeneratedColumn<String>(
+    'transport',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _commandMeta = const VerificationMeta(
+    'command',
+  );
+  @override
+  late final GeneratedColumn<String> command = GeneratedColumn<String>(
+    'command',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _urlMeta = const VerificationMeta('url');
+  @override
+  late final GeneratedColumn<String> url = GeneratedColumn<String>(
+    'url',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _argumentsJsonMeta = const VerificationMeta(
+    'argumentsJson',
+  );
+  @override
+  late final GeneratedColumn<String> argumentsJson = GeneratedColumn<String>(
+    'arguments_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _environmentNamesJsonMeta =
+      const VerificationMeta('environmentNamesJson');
+  @override
+  late final GeneratedColumn<String> environmentNamesJson =
+      GeneratedColumn<String>(
+        'environment_names_json',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+      );
+  static const VerificationMeta _enabledMeta = const VerificationMeta(
+    'enabled',
+  );
+  @override
+  late final GeneratedColumn<bool> enabled = GeneratedColumn<bool>(
+    'enabled',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("enabled" IN (0, 1))',
+    ),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<String> createdAt = GeneratedColumn<String>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    name,
+    transport,
+    command,
+    url,
+    argumentsJson,
+    environmentNamesJson,
+    enabled,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'mcp_servers';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<McpServerRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('transport')) {
+      context.handle(
+        _transportMeta,
+        transport.isAcceptableOrUnknown(data['transport']!, _transportMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_transportMeta);
+    }
+    if (data.containsKey('command')) {
+      context.handle(
+        _commandMeta,
+        command.isAcceptableOrUnknown(data['command']!, _commandMeta),
+      );
+    }
+    if (data.containsKey('url')) {
+      context.handle(
+        _urlMeta,
+        url.isAcceptableOrUnknown(data['url']!, _urlMeta),
+      );
+    }
+    if (data.containsKey('arguments_json')) {
+      context.handle(
+        _argumentsJsonMeta,
+        argumentsJson.isAcceptableOrUnknown(
+          data['arguments_json']!,
+          _argumentsJsonMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_argumentsJsonMeta);
+    }
+    if (data.containsKey('environment_names_json')) {
+      context.handle(
+        _environmentNamesJsonMeta,
+        environmentNamesJson.isAcceptableOrUnknown(
+          data['environment_names_json']!,
+          _environmentNamesJsonMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_environmentNamesJsonMeta);
+    }
+    if (data.containsKey('enabled')) {
+      context.handle(
+        _enabledMeta,
+        enabled.isAcceptableOrUnknown(data['enabled']!, _enabledMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_enabledMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  McpServerRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return McpServerRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      transport: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}transport'],
+      )!,
+      command: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}command'],
+      ),
+      url: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}url'],
+      ),
+      argumentsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}arguments_json'],
+      )!,
+      environmentNamesJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}environment_names_json'],
+      )!,
+      enabled: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}enabled'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $McpServerRowsTable createAlias(String alias) {
+    return $McpServerRowsTable(attachedDatabase, alias);
+  }
+}
+
+class McpServerRow extends DataClass implements Insertable<McpServerRow> {
+  final String id;
+  final String name;
+  final String transport;
+  final String? command;
+  final String? url;
+  final String argumentsJson;
+  final String environmentNamesJson;
+  final bool enabled;
+  final String createdAt;
+  final String updatedAt;
+  const McpServerRow({
+    required this.id,
+    required this.name,
+    required this.transport,
+    this.command,
+    this.url,
+    required this.argumentsJson,
+    required this.environmentNamesJson,
+    required this.enabled,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['name'] = Variable<String>(name);
+    map['transport'] = Variable<String>(transport);
+    if (!nullToAbsent || command != null) {
+      map['command'] = Variable<String>(command);
+    }
+    if (!nullToAbsent || url != null) {
+      map['url'] = Variable<String>(url);
+    }
+    map['arguments_json'] = Variable<String>(argumentsJson);
+    map['environment_names_json'] = Variable<String>(environmentNamesJson);
+    map['enabled'] = Variable<bool>(enabled);
+    map['created_at'] = Variable<String>(createdAt);
+    map['updated_at'] = Variable<String>(updatedAt);
+    return map;
+  }
+
+  McpServerRowsCompanion toCompanion(bool nullToAbsent) {
+    return McpServerRowsCompanion(
+      id: Value(id),
+      name: Value(name),
+      transport: Value(transport),
+      command: command == null && nullToAbsent
+          ? const Value.absent()
+          : Value(command),
+      url: url == null && nullToAbsent ? const Value.absent() : Value(url),
+      argumentsJson: Value(argumentsJson),
+      environmentNamesJson: Value(environmentNamesJson),
+      enabled: Value(enabled),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory McpServerRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return McpServerRow(
+      id: serializer.fromJson<String>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      transport: serializer.fromJson<String>(json['transport']),
+      command: serializer.fromJson<String?>(json['command']),
+      url: serializer.fromJson<String?>(json['url']),
+      argumentsJson: serializer.fromJson<String>(json['argumentsJson']),
+      environmentNamesJson: serializer.fromJson<String>(
+        json['environmentNamesJson'],
+      ),
+      enabled: serializer.fromJson<bool>(json['enabled']),
+      createdAt: serializer.fromJson<String>(json['createdAt']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'name': serializer.toJson<String>(name),
+      'transport': serializer.toJson<String>(transport),
+      'command': serializer.toJson<String?>(command),
+      'url': serializer.toJson<String?>(url),
+      'argumentsJson': serializer.toJson<String>(argumentsJson),
+      'environmentNamesJson': serializer.toJson<String>(environmentNamesJson),
+      'enabled': serializer.toJson<bool>(enabled),
+      'createdAt': serializer.toJson<String>(createdAt),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+    };
+  }
+
+  McpServerRow copyWith({
+    String? id,
+    String? name,
+    String? transport,
+    Value<String?> command = const Value.absent(),
+    Value<String?> url = const Value.absent(),
+    String? argumentsJson,
+    String? environmentNamesJson,
+    bool? enabled,
+    String? createdAt,
+    String? updatedAt,
+  }) => McpServerRow(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    transport: transport ?? this.transport,
+    command: command.present ? command.value : this.command,
+    url: url.present ? url.value : this.url,
+    argumentsJson: argumentsJson ?? this.argumentsJson,
+    environmentNamesJson: environmentNamesJson ?? this.environmentNamesJson,
+    enabled: enabled ?? this.enabled,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  McpServerRow copyWithCompanion(McpServerRowsCompanion data) {
+    return McpServerRow(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      transport: data.transport.present ? data.transport.value : this.transport,
+      command: data.command.present ? data.command.value : this.command,
+      url: data.url.present ? data.url.value : this.url,
+      argumentsJson: data.argumentsJson.present
+          ? data.argumentsJson.value
+          : this.argumentsJson,
+      environmentNamesJson: data.environmentNamesJson.present
+          ? data.environmentNamesJson.value
+          : this.environmentNamesJson,
+      enabled: data.enabled.present ? data.enabled.value : this.enabled,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('McpServerRow(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('transport: $transport, ')
+          ..write('command: $command, ')
+          ..write('url: $url, ')
+          ..write('argumentsJson: $argumentsJson, ')
+          ..write('environmentNamesJson: $environmentNamesJson, ')
+          ..write('enabled: $enabled, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    name,
+    transport,
+    command,
+    url,
+    argumentsJson,
+    environmentNamesJson,
+    enabled,
+    createdAt,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is McpServerRow &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.transport == this.transport &&
+          other.command == this.command &&
+          other.url == this.url &&
+          other.argumentsJson == this.argumentsJson &&
+          other.environmentNamesJson == this.environmentNamesJson &&
+          other.enabled == this.enabled &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class McpServerRowsCompanion extends UpdateCompanion<McpServerRow> {
+  final Value<String> id;
+  final Value<String> name;
+  final Value<String> transport;
+  final Value<String?> command;
+  final Value<String?> url;
+  final Value<String> argumentsJson;
+  final Value<String> environmentNamesJson;
+  final Value<bool> enabled;
+  final Value<String> createdAt;
+  final Value<String> updatedAt;
+  final Value<int> rowid;
+  const McpServerRowsCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.transport = const Value.absent(),
+    this.command = const Value.absent(),
+    this.url = const Value.absent(),
+    this.argumentsJson = const Value.absent(),
+    this.environmentNamesJson = const Value.absent(),
+    this.enabled = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  McpServerRowsCompanion.insert({
+    required String id,
+    required String name,
+    required String transport,
+    this.command = const Value.absent(),
+    this.url = const Value.absent(),
+    required String argumentsJson,
+    required String environmentNamesJson,
+    required bool enabled,
+    required String createdAt,
+    required String updatedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       name = Value(name),
+       transport = Value(transport),
+       argumentsJson = Value(argumentsJson),
+       environmentNamesJson = Value(environmentNamesJson),
+       enabled = Value(enabled),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<McpServerRow> custom({
+    Expression<String>? id,
+    Expression<String>? name,
+    Expression<String>? transport,
+    Expression<String>? command,
+    Expression<String>? url,
+    Expression<String>? argumentsJson,
+    Expression<String>? environmentNamesJson,
+    Expression<bool>? enabled,
+    Expression<String>? createdAt,
+    Expression<String>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (transport != null) 'transport': transport,
+      if (command != null) 'command': command,
+      if (url != null) 'url': url,
+      if (argumentsJson != null) 'arguments_json': argumentsJson,
+      if (environmentNamesJson != null)
+        'environment_names_json': environmentNamesJson,
+      if (enabled != null) 'enabled': enabled,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  McpServerRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? name,
+    Value<String>? transport,
+    Value<String?>? command,
+    Value<String?>? url,
+    Value<String>? argumentsJson,
+    Value<String>? environmentNamesJson,
+    Value<bool>? enabled,
+    Value<String>? createdAt,
+    Value<String>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return McpServerRowsCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      transport: transport ?? this.transport,
+      command: command ?? this.command,
+      url: url ?? this.url,
+      argumentsJson: argumentsJson ?? this.argumentsJson,
+      environmentNamesJson: environmentNamesJson ?? this.environmentNamesJson,
+      enabled: enabled ?? this.enabled,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (transport.present) {
+      map['transport'] = Variable<String>(transport.value);
+    }
+    if (command.present) {
+      map['command'] = Variable<String>(command.value);
+    }
+    if (url.present) {
+      map['url'] = Variable<String>(url.value);
+    }
+    if (argumentsJson.present) {
+      map['arguments_json'] = Variable<String>(argumentsJson.value);
+    }
+    if (environmentNamesJson.present) {
+      map['environment_names_json'] = Variable<String>(
+        environmentNamesJson.value,
+      );
+    }
+    if (enabled.present) {
+      map['enabled'] = Variable<bool>(enabled.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<String>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('McpServerRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('transport: $transport, ')
+          ..write('command: $command, ')
+          ..write('url: $url, ')
+          ..write('argumentsJson: $argumentsJson, ')
+          ..write('environmentNamesJson: $environmentNamesJson, ')
+          ..write('enabled: $enabled, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
   _$StorageV2DriftDatabase(QueryExecutor e) : super(e);
   $StorageV2DriftDatabaseManager get managers =>
@@ -16020,6 +19499,12 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
   late final $CloudRequestRowsTable cloudRequestRows = $CloudRequestRowsTable(
     this,
   );
+  late final $RunRowsTable runRows = $RunRowsTable(this);
+  late final $TurnRowsTable turnRows = $TurnRowsTable(this);
+  late final $ItemRowsTable itemRows = $ItemRowsTable(this);
+  late final $ToolCallRowsTable toolCallRows = $ToolCallRowsTable(this);
+  late final $SnapshotRowsTable snapshotRows = $SnapshotRowsTable(this);
+  late final $McpServerRowsTable mcpServerRows = $McpServerRowsTable(this);
   late final Index idxSyncOutboxScopeUpdatedTableRecord = Index(
     'idx_sync_outbox_scope_updated_table_record',
     'CREATE INDEX idx_sync_outbox_scope_updated_table_record ON sync_outbox (scope, updated_at, table_name, record_id)',
@@ -16031,6 +19516,22 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
   late final Index idxSyncConflictsScopeTableRecord = Index(
     'idx_sync_conflicts_scope_table_record',
     'CREATE INDEX idx_sync_conflicts_scope_table_record ON sync_conflicts (scope, table_name, record_id)',
+  );
+  late final Index idxTurnsRunIndex = Index(
+    'idx_turns_run_index',
+    'CREATE UNIQUE INDEX idx_turns_run_index ON turns (run_id, turn_index)',
+  );
+  late final Index idxItemsTurnIndex = Index(
+    'idx_items_turn_index',
+    'CREATE UNIQUE INDEX idx_items_turn_index ON items (turn_id, item_index)',
+  );
+  late final Index idxToolCallsItem = Index(
+    'idx_tool_calls_item',
+    'CREATE INDEX idx_tool_calls_item ON tool_calls (item_id)',
+  );
+  late final Index idxSnapshotsRunCreated = Index(
+    'idx_snapshots_run_created',
+    'CREATE INDEX idx_snapshots_run_created ON snapshots (run_id, created_at)',
   );
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
@@ -16072,9 +19573,19 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
     cloudIndexCategoryStatRows,
     cloudReseedTaskRows,
     cloudRequestRows,
+    runRows,
+    turnRows,
+    itemRows,
+    toolCallRows,
+    snapshotRows,
+    mcpServerRows,
     idxSyncOutboxScopeUpdatedTableRecord,
     idxSyncOutboxScopeChangeMutation,
     idxSyncConflictsScopeTableRecord,
+    idxTurnsRunIndex,
+    idxItemsTurnIndex,
+    idxToolCallsItem,
+    idxSnapshotsRunCreated,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -16091,6 +19602,41 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
         limitUpdateKind: UpdateKind.delete,
       ),
       result: [TableUpdate('task_list_entries', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'runs',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('turns', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'turns',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('items', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'items',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('tool_calls', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'runs',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('snapshots', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'turns',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('snapshots', kind: UpdateKind.delete)],
     ),
   ]);
 }
@@ -25197,6 +28743,2770 @@ typedef $$CloudRequestRowsTableProcessedTableManager =
       CloudRequestRow,
       PrefetchHooks Function()
     >;
+typedef $$RunRowsTableCreateCompanionBuilder =
+    RunRowsCompanion Function({
+      required String id,
+      Value<String?> conversationId,
+      required String status,
+      Value<String?> errorCode,
+      Value<String?> errorMessage,
+      required String createdAt,
+      required String updatedAt,
+      Value<String?> completedAt,
+      Value<int> rowid,
+    });
+typedef $$RunRowsTableUpdateCompanionBuilder =
+    RunRowsCompanion Function({
+      Value<String> id,
+      Value<String?> conversationId,
+      Value<String> status,
+      Value<String?> errorCode,
+      Value<String?> errorMessage,
+      Value<String> createdAt,
+      Value<String> updatedAt,
+      Value<String?> completedAt,
+      Value<int> rowid,
+    });
+
+final class $$RunRowsTableReferences
+    extends BaseReferences<_$StorageV2DriftDatabase, $RunRowsTable, RunRow> {
+  $$RunRowsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static MultiTypedResultKey<$TurnRowsTable, List<TurnRow>> _turnRowsRefsTable(
+    _$StorageV2DriftDatabase db,
+  ) => MultiTypedResultKey.fromTable(
+    db.turnRows,
+    aliasName: 'runs__id__turns__run_id',
+  );
+
+  $$TurnRowsTableProcessedTableManager get turnRowsRefs {
+    final manager = $$TurnRowsTableTableManager(
+      $_db,
+      $_db.turnRows,
+    ).filter((f) => f.runId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_turnRowsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<$SnapshotRowsTable, List<SnapshotRow>>
+  _snapshotRowsRefsTable(_$StorageV2DriftDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.snapshotRows,
+        aliasName: 'runs__id__snapshots__run_id',
+      );
+
+  $$SnapshotRowsTableProcessedTableManager get snapshotRowsRefs {
+    final manager = $$SnapshotRowsTableTableManager(
+      $_db,
+      $_db.snapshotRows,
+    ).filter((f) => f.runId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_snapshotRowsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+}
+
+class $$RunRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $RunRowsTable> {
+  $$RunRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get conversationId => $composableBuilder(
+    column: $table.conversationId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get errorCode => $composableBuilder(
+    column: $table.errorCode,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get errorMessage => $composableBuilder(
+    column: $table.errorMessage,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get completedAt => $composableBuilder(
+    column: $table.completedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  Expression<bool> turnRowsRefs(
+    Expression<bool> Function($$TurnRowsTableFilterComposer f) f,
+  ) {
+    final $$TurnRowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.turnRows,
+      getReferencedColumn: (t) => t.runId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TurnRowsTableFilterComposer(
+            $db: $db,
+            $table: $db.turnRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> snapshotRowsRefs(
+    Expression<bool> Function($$SnapshotRowsTableFilterComposer f) f,
+  ) {
+    final $$SnapshotRowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.snapshotRows,
+      getReferencedColumn: (t) => t.runId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$SnapshotRowsTableFilterComposer(
+            $db: $db,
+            $table: $db.snapshotRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$RunRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $RunRowsTable> {
+  $$RunRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get conversationId => $composableBuilder(
+    column: $table.conversationId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get errorCode => $composableBuilder(
+    column: $table.errorCode,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get errorMessage => $composableBuilder(
+    column: $table.errorMessage,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get completedAt => $composableBuilder(
+    column: $table.completedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$RunRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $RunRowsTable> {
+  $$RunRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get conversationId => $composableBuilder(
+    column: $table.conversationId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<String> get errorCode =>
+      $composableBuilder(column: $table.errorCode, builder: (column) => column);
+
+  GeneratedColumn<String> get errorMessage => $composableBuilder(
+    column: $table.errorMessage,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get completedAt => $composableBuilder(
+    column: $table.completedAt,
+    builder: (column) => column,
+  );
+
+  Expression<T> turnRowsRefs<T extends Object>(
+    Expression<T> Function($$TurnRowsTableAnnotationComposer a) f,
+  ) {
+    final $$TurnRowsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.turnRows,
+      getReferencedColumn: (t) => t.runId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TurnRowsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.turnRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<T> snapshotRowsRefs<T extends Object>(
+    Expression<T> Function($$SnapshotRowsTableAnnotationComposer a) f,
+  ) {
+    final $$SnapshotRowsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.snapshotRows,
+      getReferencedColumn: (t) => t.runId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$SnapshotRowsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.snapshotRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$RunRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $RunRowsTable,
+          RunRow,
+          $$RunRowsTableFilterComposer,
+          $$RunRowsTableOrderingComposer,
+          $$RunRowsTableAnnotationComposer,
+          $$RunRowsTableCreateCompanionBuilder,
+          $$RunRowsTableUpdateCompanionBuilder,
+          (RunRow, $$RunRowsTableReferences),
+          RunRow,
+          PrefetchHooks Function({bool turnRowsRefs, bool snapshotRowsRefs})
+        > {
+  $$RunRowsTableTableManager(_$StorageV2DriftDatabase db, $RunRowsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$RunRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$RunRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$RunRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String?> conversationId = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<String?> errorCode = const Value.absent(),
+                Value<String?> errorMessage = const Value.absent(),
+                Value<String> createdAt = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<String?> completedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => RunRowsCompanion(
+                id: id,
+                conversationId: conversationId,
+                status: status,
+                errorCode: errorCode,
+                errorMessage: errorMessage,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                completedAt: completedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                Value<String?> conversationId = const Value.absent(),
+                required String status,
+                Value<String?> errorCode = const Value.absent(),
+                Value<String?> errorMessage = const Value.absent(),
+                required String createdAt,
+                required String updatedAt,
+                Value<String?> completedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => RunRowsCompanion.insert(
+                id: id,
+                conversationId: conversationId,
+                status: status,
+                errorCode: errorCode,
+                errorMessage: errorMessage,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                completedAt: completedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$RunRowsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback:
+              ({turnRowsRefs = false, snapshotRowsRefs = false}) {
+                return PrefetchHooks(
+                  db: db,
+                  explicitlyWatchedTables: [
+                    if (turnRowsRefs) db.turnRows,
+                    if (snapshotRowsRefs) db.snapshotRows,
+                  ],
+                  addJoins: null,
+                  getPrefetchedDataCallback: (items) async {
+                    return [
+                      if (turnRowsRefs)
+                        await $_getPrefetchedData<
+                          RunRow,
+                          $RunRowsTable,
+                          TurnRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$RunRowsTableReferences
+                              ._turnRowsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$RunRowsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).turnRowsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.runId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                      if (snapshotRowsRefs)
+                        await $_getPrefetchedData<
+                          RunRow,
+                          $RunRowsTable,
+                          SnapshotRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$RunRowsTableReferences
+                              ._snapshotRowsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$RunRowsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).snapshotRowsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.runId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                    ];
+                  },
+                );
+              },
+        ),
+      );
+}
+
+typedef $$RunRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $RunRowsTable,
+      RunRow,
+      $$RunRowsTableFilterComposer,
+      $$RunRowsTableOrderingComposer,
+      $$RunRowsTableAnnotationComposer,
+      $$RunRowsTableCreateCompanionBuilder,
+      $$RunRowsTableUpdateCompanionBuilder,
+      (RunRow, $$RunRowsTableReferences),
+      RunRow,
+      PrefetchHooks Function({bool turnRowsRefs, bool snapshotRowsRefs})
+    >;
+typedef $$TurnRowsTableCreateCompanionBuilder =
+    TurnRowsCompanion Function({
+      required String id,
+      required String runId,
+      required int turnIndex,
+      required String status,
+      Value<String?> errorCode,
+      Value<String?> errorMessage,
+      required String createdAt,
+      required String updatedAt,
+      Value<String?> completedAt,
+      Value<int> rowid,
+    });
+typedef $$TurnRowsTableUpdateCompanionBuilder =
+    TurnRowsCompanion Function({
+      Value<String> id,
+      Value<String> runId,
+      Value<int> turnIndex,
+      Value<String> status,
+      Value<String?> errorCode,
+      Value<String?> errorMessage,
+      Value<String> createdAt,
+      Value<String> updatedAt,
+      Value<String?> completedAt,
+      Value<int> rowid,
+    });
+
+final class $$TurnRowsTableReferences
+    extends BaseReferences<_$StorageV2DriftDatabase, $TurnRowsTable, TurnRow> {
+  $$TurnRowsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $RunRowsTable _runIdTable(_$StorageV2DriftDatabase db) =>
+      db.runRows.createAlias('turns__run_id__runs__id');
+
+  $$RunRowsTableProcessedTableManager get runId {
+    final $_column = $_itemColumn<String>('run_id')!;
+
+    final manager = $$RunRowsTableTableManager(
+      $_db,
+      $_db.runRows,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_runIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static MultiTypedResultKey<$ItemRowsTable, List<ItemRow>> _itemRowsRefsTable(
+    _$StorageV2DriftDatabase db,
+  ) => MultiTypedResultKey.fromTable(
+    db.itemRows,
+    aliasName: 'turns__id__items__turn_id',
+  );
+
+  $$ItemRowsTableProcessedTableManager get itemRowsRefs {
+    final manager = $$ItemRowsTableTableManager(
+      $_db,
+      $_db.itemRows,
+    ).filter((f) => f.turnId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_itemRowsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<$SnapshotRowsTable, List<SnapshotRow>>
+  _snapshotRowsRefsTable(_$StorageV2DriftDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.snapshotRows,
+        aliasName: 'turns__id__snapshots__turn_id',
+      );
+
+  $$SnapshotRowsTableProcessedTableManager get snapshotRowsRefs {
+    final manager = $$SnapshotRowsTableTableManager(
+      $_db,
+      $_db.snapshotRows,
+    ).filter((f) => f.turnId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_snapshotRowsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+}
+
+class $$TurnRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $TurnRowsTable> {
+  $$TurnRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get turnIndex => $composableBuilder(
+    column: $table.turnIndex,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get errorCode => $composableBuilder(
+    column: $table.errorCode,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get errorMessage => $composableBuilder(
+    column: $table.errorMessage,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get completedAt => $composableBuilder(
+    column: $table.completedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$RunRowsTableFilterComposer get runId {
+    final $$RunRowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.runId,
+      referencedTable: $db.runRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$RunRowsTableFilterComposer(
+            $db: $db,
+            $table: $db.runRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  Expression<bool> itemRowsRefs(
+    Expression<bool> Function($$ItemRowsTableFilterComposer f) f,
+  ) {
+    final $$ItemRowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.itemRows,
+      getReferencedColumn: (t) => t.turnId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ItemRowsTableFilterComposer(
+            $db: $db,
+            $table: $db.itemRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> snapshotRowsRefs(
+    Expression<bool> Function($$SnapshotRowsTableFilterComposer f) f,
+  ) {
+    final $$SnapshotRowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.snapshotRows,
+      getReferencedColumn: (t) => t.turnId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$SnapshotRowsTableFilterComposer(
+            $db: $db,
+            $table: $db.snapshotRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$TurnRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $TurnRowsTable> {
+  $$TurnRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get turnIndex => $composableBuilder(
+    column: $table.turnIndex,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get errorCode => $composableBuilder(
+    column: $table.errorCode,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get errorMessage => $composableBuilder(
+    column: $table.errorMessage,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get completedAt => $composableBuilder(
+    column: $table.completedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$RunRowsTableOrderingComposer get runId {
+    final $$RunRowsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.runId,
+      referencedTable: $db.runRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$RunRowsTableOrderingComposer(
+            $db: $db,
+            $table: $db.runRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$TurnRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $TurnRowsTable> {
+  $$TurnRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<int> get turnIndex =>
+      $composableBuilder(column: $table.turnIndex, builder: (column) => column);
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<String> get errorCode =>
+      $composableBuilder(column: $table.errorCode, builder: (column) => column);
+
+  GeneratedColumn<String> get errorMessage => $composableBuilder(
+    column: $table.errorMessage,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get completedAt => $composableBuilder(
+    column: $table.completedAt,
+    builder: (column) => column,
+  );
+
+  $$RunRowsTableAnnotationComposer get runId {
+    final $$RunRowsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.runId,
+      referencedTable: $db.runRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$RunRowsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.runRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  Expression<T> itemRowsRefs<T extends Object>(
+    Expression<T> Function($$ItemRowsTableAnnotationComposer a) f,
+  ) {
+    final $$ItemRowsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.itemRows,
+      getReferencedColumn: (t) => t.turnId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ItemRowsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.itemRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<T> snapshotRowsRefs<T extends Object>(
+    Expression<T> Function($$SnapshotRowsTableAnnotationComposer a) f,
+  ) {
+    final $$SnapshotRowsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.snapshotRows,
+      getReferencedColumn: (t) => t.turnId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$SnapshotRowsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.snapshotRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$TurnRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $TurnRowsTable,
+          TurnRow,
+          $$TurnRowsTableFilterComposer,
+          $$TurnRowsTableOrderingComposer,
+          $$TurnRowsTableAnnotationComposer,
+          $$TurnRowsTableCreateCompanionBuilder,
+          $$TurnRowsTableUpdateCompanionBuilder,
+          (TurnRow, $$TurnRowsTableReferences),
+          TurnRow,
+          PrefetchHooks Function({
+            bool runId,
+            bool itemRowsRefs,
+            bool snapshotRowsRefs,
+          })
+        > {
+  $$TurnRowsTableTableManager(_$StorageV2DriftDatabase db, $TurnRowsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$TurnRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$TurnRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$TurnRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> runId = const Value.absent(),
+                Value<int> turnIndex = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<String?> errorCode = const Value.absent(),
+                Value<String?> errorMessage = const Value.absent(),
+                Value<String> createdAt = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<String?> completedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => TurnRowsCompanion(
+                id: id,
+                runId: runId,
+                turnIndex: turnIndex,
+                status: status,
+                errorCode: errorCode,
+                errorMessage: errorMessage,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                completedAt: completedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String runId,
+                required int turnIndex,
+                required String status,
+                Value<String?> errorCode = const Value.absent(),
+                Value<String?> errorMessage = const Value.absent(),
+                required String createdAt,
+                required String updatedAt,
+                Value<String?> completedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => TurnRowsCompanion.insert(
+                id: id,
+                runId: runId,
+                turnIndex: turnIndex,
+                status: status,
+                errorCode: errorCode,
+                errorMessage: errorMessage,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                completedAt: completedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$TurnRowsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback:
+              ({
+                runId = false,
+                itemRowsRefs = false,
+                snapshotRowsRefs = false,
+              }) {
+                return PrefetchHooks(
+                  db: db,
+                  explicitlyWatchedTables: [
+                    if (itemRowsRefs) db.itemRows,
+                    if (snapshotRowsRefs) db.snapshotRows,
+                  ],
+                  addJoins:
+                      <
+                        T extends TableManagerState<
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic
+                        >
+                      >(state) {
+                        if (runId) {
+                          state =
+                              state.withJoin(
+                                    currentTable: table,
+                                    currentColumn: table.runId,
+                                    referencedTable: $$TurnRowsTableReferences
+                                        ._runIdTable(db),
+                                    referencedColumn: $$TurnRowsTableReferences
+                                        ._runIdTable(db)
+                                        .id,
+                                  )
+                                  as T;
+                        }
+
+                        return state;
+                      },
+                  getPrefetchedDataCallback: (items) async {
+                    return [
+                      if (itemRowsRefs)
+                        await $_getPrefetchedData<
+                          TurnRow,
+                          $TurnRowsTable,
+                          ItemRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$TurnRowsTableReferences
+                              ._itemRowsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$TurnRowsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).itemRowsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.turnId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                      if (snapshotRowsRefs)
+                        await $_getPrefetchedData<
+                          TurnRow,
+                          $TurnRowsTable,
+                          SnapshotRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$TurnRowsTableReferences
+                              ._snapshotRowsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$TurnRowsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).snapshotRowsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.turnId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                    ];
+                  },
+                );
+              },
+        ),
+      );
+}
+
+typedef $$TurnRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $TurnRowsTable,
+      TurnRow,
+      $$TurnRowsTableFilterComposer,
+      $$TurnRowsTableOrderingComposer,
+      $$TurnRowsTableAnnotationComposer,
+      $$TurnRowsTableCreateCompanionBuilder,
+      $$TurnRowsTableUpdateCompanionBuilder,
+      (TurnRow, $$TurnRowsTableReferences),
+      TurnRow,
+      PrefetchHooks Function({
+        bool runId,
+        bool itemRowsRefs,
+        bool snapshotRowsRefs,
+      })
+    >;
+typedef $$ItemRowsTableCreateCompanionBuilder =
+    ItemRowsCompanion Function({
+      required String id,
+      required String turnId,
+      required int itemIndex,
+      required String kind,
+      required String status,
+      required String payloadJson,
+      Value<String?> errorCode,
+      Value<String?> errorMessage,
+      required String createdAt,
+      required String updatedAt,
+      Value<String?> completedAt,
+      Value<int> rowid,
+    });
+typedef $$ItemRowsTableUpdateCompanionBuilder =
+    ItemRowsCompanion Function({
+      Value<String> id,
+      Value<String> turnId,
+      Value<int> itemIndex,
+      Value<String> kind,
+      Value<String> status,
+      Value<String> payloadJson,
+      Value<String?> errorCode,
+      Value<String?> errorMessage,
+      Value<String> createdAt,
+      Value<String> updatedAt,
+      Value<String?> completedAt,
+      Value<int> rowid,
+    });
+
+final class $$ItemRowsTableReferences
+    extends BaseReferences<_$StorageV2DriftDatabase, $ItemRowsTable, ItemRow> {
+  $$ItemRowsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $TurnRowsTable _turnIdTable(_$StorageV2DriftDatabase db) =>
+      db.turnRows.createAlias('items__turn_id__turns__id');
+
+  $$TurnRowsTableProcessedTableManager get turnId {
+    final $_column = $_itemColumn<String>('turn_id')!;
+
+    final manager = $$TurnRowsTableTableManager(
+      $_db,
+      $_db.turnRows,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_turnIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static MultiTypedResultKey<$ToolCallRowsTable, List<ToolCallRow>>
+  _toolCallRowsRefsTable(_$StorageV2DriftDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.toolCallRows,
+        aliasName: 'items__id__tool_calls__item_id',
+      );
+
+  $$ToolCallRowsTableProcessedTableManager get toolCallRowsRefs {
+    final manager = $$ToolCallRowsTableTableManager(
+      $_db,
+      $_db.toolCallRows,
+    ).filter((f) => f.itemId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_toolCallRowsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+}
+
+class $$ItemRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $ItemRowsTable> {
+  $$ItemRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get itemIndex => $composableBuilder(
+    column: $table.itemIndex,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get payloadJson => $composableBuilder(
+    column: $table.payloadJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get errorCode => $composableBuilder(
+    column: $table.errorCode,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get errorMessage => $composableBuilder(
+    column: $table.errorMessage,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get completedAt => $composableBuilder(
+    column: $table.completedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$TurnRowsTableFilterComposer get turnId {
+    final $$TurnRowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.turnId,
+      referencedTable: $db.turnRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TurnRowsTableFilterComposer(
+            $db: $db,
+            $table: $db.turnRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  Expression<bool> toolCallRowsRefs(
+    Expression<bool> Function($$ToolCallRowsTableFilterComposer f) f,
+  ) {
+    final $$ToolCallRowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.toolCallRows,
+      getReferencedColumn: (t) => t.itemId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ToolCallRowsTableFilterComposer(
+            $db: $db,
+            $table: $db.toolCallRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$ItemRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $ItemRowsTable> {
+  $$ItemRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get itemIndex => $composableBuilder(
+    column: $table.itemIndex,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get payloadJson => $composableBuilder(
+    column: $table.payloadJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get errorCode => $composableBuilder(
+    column: $table.errorCode,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get errorMessage => $composableBuilder(
+    column: $table.errorMessage,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get completedAt => $composableBuilder(
+    column: $table.completedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$TurnRowsTableOrderingComposer get turnId {
+    final $$TurnRowsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.turnId,
+      referencedTable: $db.turnRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TurnRowsTableOrderingComposer(
+            $db: $db,
+            $table: $db.turnRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$ItemRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $ItemRowsTable> {
+  $$ItemRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<int> get itemIndex =>
+      $composableBuilder(column: $table.itemIndex, builder: (column) => column);
+
+  GeneratedColumn<String> get kind =>
+      $composableBuilder(column: $table.kind, builder: (column) => column);
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<String> get payloadJson => $composableBuilder(
+    column: $table.payloadJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get errorCode =>
+      $composableBuilder(column: $table.errorCode, builder: (column) => column);
+
+  GeneratedColumn<String> get errorMessage => $composableBuilder(
+    column: $table.errorMessage,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get completedAt => $composableBuilder(
+    column: $table.completedAt,
+    builder: (column) => column,
+  );
+
+  $$TurnRowsTableAnnotationComposer get turnId {
+    final $$TurnRowsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.turnId,
+      referencedTable: $db.turnRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TurnRowsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.turnRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  Expression<T> toolCallRowsRefs<T extends Object>(
+    Expression<T> Function($$ToolCallRowsTableAnnotationComposer a) f,
+  ) {
+    final $$ToolCallRowsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.toolCallRows,
+      getReferencedColumn: (t) => t.itemId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ToolCallRowsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.toolCallRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$ItemRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $ItemRowsTable,
+          ItemRow,
+          $$ItemRowsTableFilterComposer,
+          $$ItemRowsTableOrderingComposer,
+          $$ItemRowsTableAnnotationComposer,
+          $$ItemRowsTableCreateCompanionBuilder,
+          $$ItemRowsTableUpdateCompanionBuilder,
+          (ItemRow, $$ItemRowsTableReferences),
+          ItemRow,
+          PrefetchHooks Function({bool turnId, bool toolCallRowsRefs})
+        > {
+  $$ItemRowsTableTableManager(_$StorageV2DriftDatabase db, $ItemRowsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ItemRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ItemRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ItemRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> turnId = const Value.absent(),
+                Value<int> itemIndex = const Value.absent(),
+                Value<String> kind = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<String> payloadJson = const Value.absent(),
+                Value<String?> errorCode = const Value.absent(),
+                Value<String?> errorMessage = const Value.absent(),
+                Value<String> createdAt = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<String?> completedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ItemRowsCompanion(
+                id: id,
+                turnId: turnId,
+                itemIndex: itemIndex,
+                kind: kind,
+                status: status,
+                payloadJson: payloadJson,
+                errorCode: errorCode,
+                errorMessage: errorMessage,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                completedAt: completedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String turnId,
+                required int itemIndex,
+                required String kind,
+                required String status,
+                required String payloadJson,
+                Value<String?> errorCode = const Value.absent(),
+                Value<String?> errorMessage = const Value.absent(),
+                required String createdAt,
+                required String updatedAt,
+                Value<String?> completedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ItemRowsCompanion.insert(
+                id: id,
+                turnId: turnId,
+                itemIndex: itemIndex,
+                kind: kind,
+                status: status,
+                payloadJson: payloadJson,
+                errorCode: errorCode,
+                errorMessage: errorMessage,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                completedAt: completedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$ItemRowsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({turnId = false, toolCallRowsRefs = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [if (toolCallRowsRefs) db.toolCallRows],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (turnId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.turnId,
+                                referencedTable: $$ItemRowsTableReferences
+                                    ._turnIdTable(db),
+                                referencedColumn: $$ItemRowsTableReferences
+                                    ._turnIdTable(db)
+                                    .id,
+                              )
+                              as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [
+                  if (toolCallRowsRefs)
+                    await $_getPrefetchedData<
+                      ItemRow,
+                      $ItemRowsTable,
+                      ToolCallRow
+                    >(
+                      currentTable: table,
+                      referencedTable: $$ItemRowsTableReferences
+                          ._toolCallRowsRefsTable(db),
+                      managerFromTypedResult: (p0) => $$ItemRowsTableReferences(
+                        db,
+                        table,
+                        p0,
+                      ).toolCallRowsRefs,
+                      referencedItemsForCurrentItem: (item, referencedItems) =>
+                          referencedItems.where((e) => e.itemId == item.id),
+                      typedResults: items,
+                    ),
+                ];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$ItemRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $ItemRowsTable,
+      ItemRow,
+      $$ItemRowsTableFilterComposer,
+      $$ItemRowsTableOrderingComposer,
+      $$ItemRowsTableAnnotationComposer,
+      $$ItemRowsTableCreateCompanionBuilder,
+      $$ItemRowsTableUpdateCompanionBuilder,
+      (ItemRow, $$ItemRowsTableReferences),
+      ItemRow,
+      PrefetchHooks Function({bool turnId, bool toolCallRowsRefs})
+    >;
+typedef $$ToolCallRowsTableCreateCompanionBuilder =
+    ToolCallRowsCompanion Function({
+      required String id,
+      required String itemId,
+      required String toolName,
+      required String argumentsJson,
+      required String status,
+      Value<String?> resultJson,
+      Value<String?> errorCode,
+      Value<String?> errorMessage,
+      required String createdAt,
+      required String updatedAt,
+      Value<String?> completedAt,
+      Value<int> rowid,
+    });
+typedef $$ToolCallRowsTableUpdateCompanionBuilder =
+    ToolCallRowsCompanion Function({
+      Value<String> id,
+      Value<String> itemId,
+      Value<String> toolName,
+      Value<String> argumentsJson,
+      Value<String> status,
+      Value<String?> resultJson,
+      Value<String?> errorCode,
+      Value<String?> errorMessage,
+      Value<String> createdAt,
+      Value<String> updatedAt,
+      Value<String?> completedAt,
+      Value<int> rowid,
+    });
+
+final class $$ToolCallRowsTableReferences
+    extends
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $ToolCallRowsTable,
+          ToolCallRow
+        > {
+  $$ToolCallRowsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $ItemRowsTable _itemIdTable(_$StorageV2DriftDatabase db) =>
+      db.itemRows.createAlias('tool_calls__item_id__items__id');
+
+  $$ItemRowsTableProcessedTableManager get itemId {
+    final $_column = $_itemColumn<String>('item_id')!;
+
+    final manager = $$ItemRowsTableTableManager(
+      $_db,
+      $_db.itemRows,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_itemIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$ToolCallRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $ToolCallRowsTable> {
+  $$ToolCallRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get toolName => $composableBuilder(
+    column: $table.toolName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get argumentsJson => $composableBuilder(
+    column: $table.argumentsJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get resultJson => $composableBuilder(
+    column: $table.resultJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get errorCode => $composableBuilder(
+    column: $table.errorCode,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get errorMessage => $composableBuilder(
+    column: $table.errorMessage,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get completedAt => $composableBuilder(
+    column: $table.completedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$ItemRowsTableFilterComposer get itemId {
+    final $$ItemRowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.itemId,
+      referencedTable: $db.itemRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ItemRowsTableFilterComposer(
+            $db: $db,
+            $table: $db.itemRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$ToolCallRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $ToolCallRowsTable> {
+  $$ToolCallRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get toolName => $composableBuilder(
+    column: $table.toolName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get argumentsJson => $composableBuilder(
+    column: $table.argumentsJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get resultJson => $composableBuilder(
+    column: $table.resultJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get errorCode => $composableBuilder(
+    column: $table.errorCode,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get errorMessage => $composableBuilder(
+    column: $table.errorMessage,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get completedAt => $composableBuilder(
+    column: $table.completedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$ItemRowsTableOrderingComposer get itemId {
+    final $$ItemRowsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.itemId,
+      referencedTable: $db.itemRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ItemRowsTableOrderingComposer(
+            $db: $db,
+            $table: $db.itemRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$ToolCallRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $ToolCallRowsTable> {
+  $$ToolCallRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get toolName =>
+      $composableBuilder(column: $table.toolName, builder: (column) => column);
+
+  GeneratedColumn<String> get argumentsJson => $composableBuilder(
+    column: $table.argumentsJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<String> get resultJson => $composableBuilder(
+    column: $table.resultJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get errorCode =>
+      $composableBuilder(column: $table.errorCode, builder: (column) => column);
+
+  GeneratedColumn<String> get errorMessage => $composableBuilder(
+    column: $table.errorMessage,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get completedAt => $composableBuilder(
+    column: $table.completedAt,
+    builder: (column) => column,
+  );
+
+  $$ItemRowsTableAnnotationComposer get itemId {
+    final $$ItemRowsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.itemId,
+      referencedTable: $db.itemRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$ItemRowsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.itemRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$ToolCallRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $ToolCallRowsTable,
+          ToolCallRow,
+          $$ToolCallRowsTableFilterComposer,
+          $$ToolCallRowsTableOrderingComposer,
+          $$ToolCallRowsTableAnnotationComposer,
+          $$ToolCallRowsTableCreateCompanionBuilder,
+          $$ToolCallRowsTableUpdateCompanionBuilder,
+          (ToolCallRow, $$ToolCallRowsTableReferences),
+          ToolCallRow,
+          PrefetchHooks Function({bool itemId})
+        > {
+  $$ToolCallRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $ToolCallRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ToolCallRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ToolCallRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ToolCallRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> itemId = const Value.absent(),
+                Value<String> toolName = const Value.absent(),
+                Value<String> argumentsJson = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<String?> resultJson = const Value.absent(),
+                Value<String?> errorCode = const Value.absent(),
+                Value<String?> errorMessage = const Value.absent(),
+                Value<String> createdAt = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<String?> completedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ToolCallRowsCompanion(
+                id: id,
+                itemId: itemId,
+                toolName: toolName,
+                argumentsJson: argumentsJson,
+                status: status,
+                resultJson: resultJson,
+                errorCode: errorCode,
+                errorMessage: errorMessage,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                completedAt: completedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String itemId,
+                required String toolName,
+                required String argumentsJson,
+                required String status,
+                Value<String?> resultJson = const Value.absent(),
+                Value<String?> errorCode = const Value.absent(),
+                Value<String?> errorMessage = const Value.absent(),
+                required String createdAt,
+                required String updatedAt,
+                Value<String?> completedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ToolCallRowsCompanion.insert(
+                id: id,
+                itemId: itemId,
+                toolName: toolName,
+                argumentsJson: argumentsJson,
+                status: status,
+                resultJson: resultJson,
+                errorCode: errorCode,
+                errorMessage: errorMessage,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                completedAt: completedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$ToolCallRowsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({itemId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (itemId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.itemId,
+                                referencedTable: $$ToolCallRowsTableReferences
+                                    ._itemIdTable(db),
+                                referencedColumn: $$ToolCallRowsTableReferences
+                                    ._itemIdTable(db)
+                                    .id,
+                              )
+                              as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$ToolCallRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $ToolCallRowsTable,
+      ToolCallRow,
+      $$ToolCallRowsTableFilterComposer,
+      $$ToolCallRowsTableOrderingComposer,
+      $$ToolCallRowsTableAnnotationComposer,
+      $$ToolCallRowsTableCreateCompanionBuilder,
+      $$ToolCallRowsTableUpdateCompanionBuilder,
+      (ToolCallRow, $$ToolCallRowsTableReferences),
+      ToolCallRow,
+      PrefetchHooks Function({bool itemId})
+    >;
+typedef $$SnapshotRowsTableCreateCompanionBuilder =
+    SnapshotRowsCompanion Function({
+      required String id,
+      required String runId,
+      Value<String?> turnId,
+      required String kind,
+      required String dataJson,
+      required String createdAt,
+      Value<int> rowid,
+    });
+typedef $$SnapshotRowsTableUpdateCompanionBuilder =
+    SnapshotRowsCompanion Function({
+      Value<String> id,
+      Value<String> runId,
+      Value<String?> turnId,
+      Value<String> kind,
+      Value<String> dataJson,
+      Value<String> createdAt,
+      Value<int> rowid,
+    });
+
+final class $$SnapshotRowsTableReferences
+    extends
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $SnapshotRowsTable,
+          SnapshotRow
+        > {
+  $$SnapshotRowsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $RunRowsTable _runIdTable(_$StorageV2DriftDatabase db) =>
+      db.runRows.createAlias('snapshots__run_id__runs__id');
+
+  $$RunRowsTableProcessedTableManager get runId {
+    final $_column = $_itemColumn<String>('run_id')!;
+
+    final manager = $$RunRowsTableTableManager(
+      $_db,
+      $_db.runRows,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_runIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static $TurnRowsTable _turnIdTable(_$StorageV2DriftDatabase db) =>
+      db.turnRows.createAlias('snapshots__turn_id__turns__id');
+
+  $$TurnRowsTableProcessedTableManager? get turnId {
+    final $_column = $_itemColumn<String>('turn_id');
+    if ($_column == null) return null;
+    final manager = $$TurnRowsTableTableManager(
+      $_db,
+      $_db.turnRows,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_turnIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$SnapshotRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $SnapshotRowsTable> {
+  $$SnapshotRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get dataJson => $composableBuilder(
+    column: $table.dataJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$RunRowsTableFilterComposer get runId {
+    final $$RunRowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.runId,
+      referencedTable: $db.runRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$RunRowsTableFilterComposer(
+            $db: $db,
+            $table: $db.runRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$TurnRowsTableFilterComposer get turnId {
+    final $$TurnRowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.turnId,
+      referencedTable: $db.turnRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TurnRowsTableFilterComposer(
+            $db: $db,
+            $table: $db.turnRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$SnapshotRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $SnapshotRowsTable> {
+  $$SnapshotRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get dataJson => $composableBuilder(
+    column: $table.dataJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$RunRowsTableOrderingComposer get runId {
+    final $$RunRowsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.runId,
+      referencedTable: $db.runRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$RunRowsTableOrderingComposer(
+            $db: $db,
+            $table: $db.runRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$TurnRowsTableOrderingComposer get turnId {
+    final $$TurnRowsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.turnId,
+      referencedTable: $db.turnRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TurnRowsTableOrderingComposer(
+            $db: $db,
+            $table: $db.turnRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$SnapshotRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $SnapshotRowsTable> {
+  $$SnapshotRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get kind =>
+      $composableBuilder(column: $table.kind, builder: (column) => column);
+
+  GeneratedColumn<String> get dataJson =>
+      $composableBuilder(column: $table.dataJson, builder: (column) => column);
+
+  GeneratedColumn<String> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  $$RunRowsTableAnnotationComposer get runId {
+    final $$RunRowsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.runId,
+      referencedTable: $db.runRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$RunRowsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.runRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$TurnRowsTableAnnotationComposer get turnId {
+    final $$TurnRowsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.turnId,
+      referencedTable: $db.turnRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$TurnRowsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.turnRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$SnapshotRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $SnapshotRowsTable,
+          SnapshotRow,
+          $$SnapshotRowsTableFilterComposer,
+          $$SnapshotRowsTableOrderingComposer,
+          $$SnapshotRowsTableAnnotationComposer,
+          $$SnapshotRowsTableCreateCompanionBuilder,
+          $$SnapshotRowsTableUpdateCompanionBuilder,
+          (SnapshotRow, $$SnapshotRowsTableReferences),
+          SnapshotRow,
+          PrefetchHooks Function({bool runId, bool turnId})
+        > {
+  $$SnapshotRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $SnapshotRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SnapshotRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SnapshotRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SnapshotRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> runId = const Value.absent(),
+                Value<String?> turnId = const Value.absent(),
+                Value<String> kind = const Value.absent(),
+                Value<String> dataJson = const Value.absent(),
+                Value<String> createdAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SnapshotRowsCompanion(
+                id: id,
+                runId: runId,
+                turnId: turnId,
+                kind: kind,
+                dataJson: dataJson,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String runId,
+                Value<String?> turnId = const Value.absent(),
+                required String kind,
+                required String dataJson,
+                required String createdAt,
+                Value<int> rowid = const Value.absent(),
+              }) => SnapshotRowsCompanion.insert(
+                id: id,
+                runId: runId,
+                turnId: turnId,
+                kind: kind,
+                dataJson: dataJson,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$SnapshotRowsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({runId = false, turnId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (runId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.runId,
+                                referencedTable: $$SnapshotRowsTableReferences
+                                    ._runIdTable(db),
+                                referencedColumn: $$SnapshotRowsTableReferences
+                                    ._runIdTable(db)
+                                    .id,
+                              )
+                              as T;
+                    }
+                    if (turnId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.turnId,
+                                referencedTable: $$SnapshotRowsTableReferences
+                                    ._turnIdTable(db),
+                                referencedColumn: $$SnapshotRowsTableReferences
+                                    ._turnIdTable(db)
+                                    .id,
+                              )
+                              as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$SnapshotRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $SnapshotRowsTable,
+      SnapshotRow,
+      $$SnapshotRowsTableFilterComposer,
+      $$SnapshotRowsTableOrderingComposer,
+      $$SnapshotRowsTableAnnotationComposer,
+      $$SnapshotRowsTableCreateCompanionBuilder,
+      $$SnapshotRowsTableUpdateCompanionBuilder,
+      (SnapshotRow, $$SnapshotRowsTableReferences),
+      SnapshotRow,
+      PrefetchHooks Function({bool runId, bool turnId})
+    >;
+typedef $$McpServerRowsTableCreateCompanionBuilder =
+    McpServerRowsCompanion Function({
+      required String id,
+      required String name,
+      required String transport,
+      Value<String?> command,
+      Value<String?> url,
+      required String argumentsJson,
+      required String environmentNamesJson,
+      required bool enabled,
+      required String createdAt,
+      required String updatedAt,
+      Value<int> rowid,
+    });
+typedef $$McpServerRowsTableUpdateCompanionBuilder =
+    McpServerRowsCompanion Function({
+      Value<String> id,
+      Value<String> name,
+      Value<String> transport,
+      Value<String?> command,
+      Value<String?> url,
+      Value<String> argumentsJson,
+      Value<String> environmentNamesJson,
+      Value<bool> enabled,
+      Value<String> createdAt,
+      Value<String> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$McpServerRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $McpServerRowsTable> {
+  $$McpServerRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get transport => $composableBuilder(
+    column: $table.transport,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get command => $composableBuilder(
+    column: $table.command,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get url => $composableBuilder(
+    column: $table.url,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get argumentsJson => $composableBuilder(
+    column: $table.argumentsJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get environmentNamesJson => $composableBuilder(
+    column: $table.environmentNamesJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$McpServerRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $McpServerRowsTable> {
+  $$McpServerRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get transport => $composableBuilder(
+    column: $table.transport,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get command => $composableBuilder(
+    column: $table.command,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get url => $composableBuilder(
+    column: $table.url,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get argumentsJson => $composableBuilder(
+    column: $table.argumentsJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get environmentNamesJson => $composableBuilder(
+    column: $table.environmentNamesJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$McpServerRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $McpServerRowsTable> {
+  $$McpServerRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get transport =>
+      $composableBuilder(column: $table.transport, builder: (column) => column);
+
+  GeneratedColumn<String> get command =>
+      $composableBuilder(column: $table.command, builder: (column) => column);
+
+  GeneratedColumn<String> get url =>
+      $composableBuilder(column: $table.url, builder: (column) => column);
+
+  GeneratedColumn<String> get argumentsJson => $composableBuilder(
+    column: $table.argumentsJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get environmentNamesJson => $composableBuilder(
+    column: $table.environmentNamesJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get enabled =>
+      $composableBuilder(column: $table.enabled, builder: (column) => column);
+
+  GeneratedColumn<String> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$McpServerRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $McpServerRowsTable,
+          McpServerRow,
+          $$McpServerRowsTableFilterComposer,
+          $$McpServerRowsTableOrderingComposer,
+          $$McpServerRowsTableAnnotationComposer,
+          $$McpServerRowsTableCreateCompanionBuilder,
+          $$McpServerRowsTableUpdateCompanionBuilder,
+          (
+            McpServerRow,
+            BaseReferences<
+              _$StorageV2DriftDatabase,
+              $McpServerRowsTable,
+              McpServerRow
+            >,
+          ),
+          McpServerRow,
+          PrefetchHooks Function()
+        > {
+  $$McpServerRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $McpServerRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$McpServerRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$McpServerRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$McpServerRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<String> transport = const Value.absent(),
+                Value<String?> command = const Value.absent(),
+                Value<String?> url = const Value.absent(),
+                Value<String> argumentsJson = const Value.absent(),
+                Value<String> environmentNamesJson = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                Value<String> createdAt = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => McpServerRowsCompanion(
+                id: id,
+                name: name,
+                transport: transport,
+                command: command,
+                url: url,
+                argumentsJson: argumentsJson,
+                environmentNamesJson: environmentNamesJson,
+                enabled: enabled,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String name,
+                required String transport,
+                Value<String?> command = const Value.absent(),
+                Value<String?> url = const Value.absent(),
+                required String argumentsJson,
+                required String environmentNamesJson,
+                required bool enabled,
+                required String createdAt,
+                required String updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => McpServerRowsCompanion.insert(
+                id: id,
+                name: name,
+                transport: transport,
+                command: command,
+                url: url,
+                argumentsJson: argumentsJson,
+                environmentNamesJson: environmentNamesJson,
+                enabled: enabled,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$McpServerRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $McpServerRowsTable,
+      McpServerRow,
+      $$McpServerRowsTableFilterComposer,
+      $$McpServerRowsTableOrderingComposer,
+      $$McpServerRowsTableAnnotationComposer,
+      $$McpServerRowsTableCreateCompanionBuilder,
+      $$McpServerRowsTableUpdateCompanionBuilder,
+      (
+        McpServerRow,
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $McpServerRowsTable,
+          McpServerRow
+        >,
+      ),
+      McpServerRow,
+      PrefetchHooks Function()
+    >;
 
 class $StorageV2DriftDatabaseManager {
   final _$StorageV2DriftDatabase _db;
@@ -25275,4 +31585,16 @@ class $StorageV2DriftDatabaseManager {
       $$CloudReseedTaskRowsTableTableManager(_db, _db.cloudReseedTaskRows);
   $$CloudRequestRowsTableTableManager get cloudRequestRows =>
       $$CloudRequestRowsTableTableManager(_db, _db.cloudRequestRows);
+  $$RunRowsTableTableManager get runRows =>
+      $$RunRowsTableTableManager(_db, _db.runRows);
+  $$TurnRowsTableTableManager get turnRows =>
+      $$TurnRowsTableTableManager(_db, _db.turnRows);
+  $$ItemRowsTableTableManager get itemRows =>
+      $$ItemRowsTableTableManager(_db, _db.itemRows);
+  $$ToolCallRowsTableTableManager get toolCallRows =>
+      $$ToolCallRowsTableTableManager(_db, _db.toolCallRows);
+  $$SnapshotRowsTableTableManager get snapshotRows =>
+      $$SnapshotRowsTableTableManager(_db, _db.snapshotRows);
+  $$McpServerRowsTableTableManager get mcpServerRows =>
+      $$McpServerRowsTableTableManager(_db, _db.mcpServerRows);
 }

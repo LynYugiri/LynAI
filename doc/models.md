@@ -60,6 +60,18 @@
 
 `AgentWorkingMemory` 位于 `lib/models/agent_working_memory.dart`。记忆条目使用 `kind` 区分 `fact`、`decision`、`subagent_result`、`skill_loaded`、`blocker`、`artifact` 和普通 `note`，并限制为短文本，避免把长屏幕快照或二进制内容写入对话上下文。
 
+## Agent Runtime 与持久化记录
+
+文件：`lib/models/agent_runtime.dart`、`lib/models/agent_persistence.dart`、`lib/models/mcp_config.dart`
+
+`AgentRunStatus`、`AgentTurnStatus`、`AgentItemStatus` 和 `AgentToolCallStatus` 描述 run graph 状态。新记录只能从 `queued` 或 `pending` 开始，终态为 `completed`、`failed` 或 `cancelled`；合法迁移由 Repository 校验，数据库更新使用 compare-and-set 防止陈旧写入覆盖终态。
+
+`AgentToolDescriptor` 描述名称、来源、副作用、并发策略和 JSON Schema 参数；`AgentToolInvocation` 携带稳定 call ID、名称、不可变参数和可选 concurrency key；`AgentToolResult` 明确区分 success、failure、cancelled。`AgentModelStreamEvent` 把正文、思考、tool calls、完成和失败标准化，供 direct、managed、流式和非流式 adapter 共用。
+
+`AgentRunRecord`、`AgentTurnRecord`、`AgentItemRecord`、`AgentToolCallRecord` 和 `AgentSnapshotRecord` 是本机 durable run graph 的存储契约。它们不等于 Conversation 中的 `AgentPlan`、`AgentWorkingMemory` 或 trace，也不是备份、云同步、LAN 同步或后端 wire contract。注入 persistence lifecycle 的 `AgentLoopRuntime` 会写入这些记录；未注入时仍可用于聚焦测试。Subagent 的 parent run/turn/tool call 因当前 schema 没有专用关系列而保存在 `parent_run` snapshot metadata。
+
+`AgentMcpServerRecord` 只包含公开连接配置：ID、名称、transport、command 或 URL、stdio 参数、凭据名称引用、启用状态和时间戳。它不包含环境变量值、HTTP header value、credential target、HTTP/私网许可或逐工具开关；这些值由 `SecretStore` 保存。`McpServerConfig` 是连接时构造的运行时配置，包含超时、消息/响应字节上限以及 HTTP 安全开关。
+
 ## ModelConfig 与 ModelEntry
 
 文件：`lib/models/model_config.dart`

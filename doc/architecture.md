@@ -37,8 +37,10 @@ main()
   -> 注册 RecycleBinProvider
   -> 注册 RoleplayProvider
   -> 注册 SettingsProvider
+  -> 注册 AgentToolRegistry / PersistentMcpRepository / McpProvider
   -> StorageV2UpgradeService.ensureReady()
-  -> 并行加载对话、笔记、规范任务、规范日历、插件、回收站、情景演绎、模型、设置
+  -> AgentPersistenceRepository.reconcileAfterRestart()
+  -> 并行加载对话、笔记、规范任务、规范日历、插件、回收站、情景演绎、模型、设置和 MCP 配置
   -> 根据设置配置 BackendClient
   -> 初始化并校验设备 Ed25519 身份
   -> 从安全存储恢复本地账号令牌、缓存用户并绑定本地同步作用域
@@ -77,6 +79,7 @@ HomePage (NavigationBar, 5 tabs)
     ├── ApiModelsPage
     ├── ThemePage
     ├── DataManagementPage
+    ├── McpSettingsPage
     └── PluginManagementPage
 ```
 
@@ -92,9 +95,9 @@ HomePage (NavigationBar, 5 tabs)
 2. 附件复制到应用私有目录，形成 `MessageImage` 元数据。
 3. 如果没有当前对话，`ConversationProvider.createConversation()` 创建对话并保存设置快照。
 4. 添加 user 消息，再添加空 assistant 消息作为流式占位。
-5. `ApiService.sendStreamRequest()` 发起请求。
-6. 每个 `StreamChunk` 到达时刷新最后一条 assistant 消息。
-7. 如有工具调用，进入 `ToolCallService` 循环；插件工具由 `PluginLuaRuntimeService` 执行。
+5. `ApiService.sendStreamRequest()` 由 `StreamChunkAgentAdapter` 转成统一 Agent 流事件。
+6. `AgentLoopRuntime` 消费模型 turn；每个正文/思考 delta 刷新最后一条 assistant 消息。
+7. 如有工具调用，runtime 把执行交给 `ToolCallService`；插件工具由 `PluginLuaRuntimeService` 执行，MCP 工具由共享 `AgentToolRegistry` 转发。
 8. Agent 可通过 `read_agent_memory` / `update_agent_memory` 维护对话级工作记忆，并通过 `run_subagent` 把高噪声子任务放入独立上下文，主对话只接收最终结构化结果。
 9. 保存最终正文、思考内容、工具结果或失败状态。
 
@@ -103,6 +106,8 @@ Input + Attachments
   -> ChatPage
   -> ConversationProvider
   -> ApiService Stream<StreamChunk>
+  -> StreamChunkAgentAdapter
+  -> AgentLoopRuntime
   -> ConversationProvider.updateLastMessage()
   -> ToolCallService（可选）
   -> 保存最终消息
@@ -111,6 +116,8 @@ Input + Attachments
 历史对话保存自己的 `ConversationSettings`，其中系统提示词保存选中当时的正文，而不只保存模板 ID。打开历史对话或继续发送时不会把该快照写回全局设置，也不会按当前同 ID 模板重新解析；全局模型、提示词或文件识别设置变化不会悄悄改变旧对话上下文。
 
 当选中的模型配置是 LynAI 托管模型时，`ApiService` 使用独立的 canonical request/response/SSE 编解码，请求目标固定为后端 `/relay/chat`，并由 `BackendClient` 当前 JWT 做鉴权。服务端按 body 中的 `model` 路由；客户端不读取任何上游 Provider 标识或 API 类型，也不选择 OpenAI/Anthropic/Ollama parser。ChatPage、浮窗和 Subagent 仍共享 `ApiService` 标准化输出，managed 工具能力只看模型 capability，direct 工具限制保持原行为。
+
+主对话、Android 悬浮聊天和 `run_subagent` 已统一使用 `AgentLoopRuntime`，共享 turn identity、tool round、强制最终回复、取消和 durable lifecycle。当前对话级 `AgentPlan`、`AgentWorkingMemory` 与 trace 继续随 Conversation 保存；本机 durable run graph 独立记录 run、turn、assistant item、tool call 和终态 tool result，工具记录失败时不会开始副作用。聚焦测试可省略持久化注入，重启只清算未完成图而不重放。详细边界见 [Agent Runtime](agent-runtime.md)。
 
 ## 情景演绎链路
 
@@ -160,6 +167,8 @@ storage_v2 中的资源注册表使用 content-addressed blob 路径。对话附
 ```
 
 规范工具使用 `tasks.*`、`calendar.*` 和 `anniversaries.*` 读取或修改 `TaskProvider`/`CalendarProvider`；`todos.*` 和 `schedules.*` 只是已发布兼容别名，仍写入规范 Provider。权限 ID 继续复用 `todos:*` 和 `schedules:*`，避免破坏插件授权。工具也可修改笔记或调用 Android 平台能力，应只在可信模型和可信对话中启用。
+
+动态工具统一注册到 `AgentToolRegistry`。MCP 连接会把远端工具命名为 `mcp_<server>_<tool>`；主对话与悬浮聊天在模型请求开始前取得 schema snapshot。该 snapshot 不受后续注册表变化影响，但当前兼容执行器仍从实时 registry 查找 handler，因此服务断开或工具刷新后，已暴露名称可能在执行时返回未知工具；不能把当前行为描述为整次 run 的完全 handler pinning。MCP 细节见 [MCP](mcp.md)。
 
 ## 任务与日历链路
 
@@ -226,7 +235,7 @@ storage_v2/
 
 Repository 只读写 storage_v2。启动阶段由 `StorageV2UpgradeService` 创建或升级 storage_v2，运行时不再从旧 JSON 恢复业务数据。
 
-Drift 数据库 schema v16 延续 v15 的规划数据规范化，并为 Outbox 的作用域分页/精确 ACK 查询和 conflict 的作用域记录查询增加索引。v15 升级将旧 `todo_lists`/`todo_items` 拆分为 `tasks`、`task_lists`、`task_list_entries`，将旧 `schedules.kind=task` 转成任务、其余 schedule 转成 `calendar_events`，并建立 `anniversaries` 后删除旧表和旧规划同步记录。这个数据库版本仅描述 `app.db` 内部 schema，不得与目录布局常量 `StorageV2Service.currentLayoutVersion` 混用。
+当前 Drift schema 包含本机 Agent 运行时表 `runs`、`turns`、`items`、`tool_calls`、`snapshots`、`mcp_servers`。这些表不属于逻辑数据分区、备份、云同步或 LAN 同步；启动时会把未完成运行图原子标记为 `interrupted` 失败，不自动重放。MCP 表只保存公开连接配置和环境变量名，不保存 header、环境变量值或其他凭据。后续同步索引和规范任务/日历迁移沿用各自版本历史；数据库 schema 版本仅描述 `app.db` 内部结构，不得与目录布局常量 `StorageV2Service.currentLayoutVersion` 混用。
 
 `tasks.json`/`calendar.json` 是 Repository、备份和同步的逻辑分区名称，不是在 `storage_v2/data/` 下维护的镜像。结构化唯一权威仍是 `app.db`。
 

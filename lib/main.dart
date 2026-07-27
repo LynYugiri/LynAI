@@ -10,6 +10,7 @@ import 'providers/conversation_provider.dart';
 import 'providers/calendar_provider.dart';
 import 'providers/feature_provider.dart';
 import 'providers/model_config_provider.dart';
+import 'providers/mcp_provider.dart';
 import 'providers/plugin_provider.dart';
 import 'providers/account_provider.dart';
 import 'providers/cloud_data_provider.dart';
@@ -19,6 +20,8 @@ import 'providers/settings_provider.dart';
 import 'providers/task_provider.dart';
 import 'repositories/plugin_repository.dart';
 import 'repositories/cloud_data_repository.dart';
+import 'repositories/agent_persistence_repository.dart';
+import 'repositories/mcp_repository.dart';
 import 'pages/home_page.dart';
 import 'pages/changelog_page.dart';
 import 'services/floating_assistant_service.dart';
@@ -29,6 +32,9 @@ import 'services/calendar_platform_projection_coordinator.dart';
 import 'services/device_identity_service.dart';
 import 'services/device_registration_service.dart';
 import 'services/secret_store.dart';
+import 'services/agent_tool_registry.dart';
+import 'services/agent_persistence_lifecycle.dart';
+import 'services/mcp/mcp_connection_factory.dart';
 import 'services/storage_v2_service.dart';
 import 'services/cloud_data_service.dart';
 import 'services/sync_service.dart';
@@ -89,6 +95,32 @@ Future<void> main() async {
           dispose: (_, storage) => unawaited(storage.close()),
         ),
         Provider<SecretStore>(create: (_) => FlutterSecureSecretStore()),
+        Provider(create: (_) => AgentToolRegistry()),
+        Provider(
+          create: (ctx) =>
+              AgentPersistenceRepository(ctx.read<StorageV2Service>()),
+        ),
+        Provider<AgentRunPersistenceLifecycle>(
+          create: (ctx) => RepositoryAgentRunPersistenceLifecycle(
+            ctx.read<AgentPersistenceRepository>(),
+          ),
+        ),
+        Provider(
+          create: (ctx) => PersistentMcpRepository(
+            persistence: ctx.read<AgentPersistenceRepository>(),
+            secretStore: ctx.read<SecretStore>(),
+          ),
+        ),
+        Provider<McpConnectionFactory>(
+          create: (_) => const DefaultMcpConnectionFactory(),
+        ),
+        ChangeNotifierProvider(
+          create: (ctx) => McpProvider(
+            repository: ctx.read<PersistentMcpRepository>(),
+            connectionFactory: ctx.read<McpConnectionFactory>(),
+            toolRegistry: ctx.read<AgentToolRegistry>(),
+          ),
+        ),
         Provider(
           create: (ctx) =>
               DeviceIdentityService(secretStore: ctx.read<SecretStore>()),
@@ -638,7 +670,27 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       final taskProvider = context.read<TaskProvider>();
       final backendClient = context.read<BackendClient>();
       final deviceIdentityService = context.read<DeviceIdentityService>();
-      await StorageV2UpgradeService().ensureReady();
+      final storageV2 = context.read<StorageV2Service>();
+      AgentRunPersistenceLifecycle? agentPersistence;
+      try {
+        agentPersistence = context.read<AgentRunPersistenceLifecycle>();
+      } on ProviderNotFoundException {
+        // Focused root widget tests may omit optional Agent persistence.
+      }
+      AgentToolRegistry? agentToolRegistry;
+      try {
+        agentToolRegistry = context.read<AgentToolRegistry>();
+      } on ProviderNotFoundException {
+        // Focused root widget tests may omit optional Agent tool composition.
+      }
+      McpProvider? mcpProvider;
+      try {
+        mcpProvider = context.read<McpProvider>();
+      } on ProviderNotFoundException {
+        // Focused root widget tests may omit optional MCP composition.
+      }
+      await StorageV2UpgradeService(storageV2: storageV2).ensureReady();
+      await AgentPersistenceRepository(storageV2).reconcileAfterRestart();
 
       await Future.wait([
         conversationProvider.loadConversations(),
@@ -650,6 +702,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         taskProvider.load(),
         modelProvider.loadModels(),
         settingsProvider.loadSettings(),
+        if (mcpProvider != null) mcpProvider.load(),
       ]);
       await applyPendingManagedModelIdMigrations(
         models: modelProvider,
@@ -677,6 +730,8 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         tasks: taskProvider,
         calendar: calendarProvider,
         plugins: pluginProvider,
+        externalToolRegistry: agentToolRegistry,
+        persistence: agentPersistence,
         backend: backendClient,
       );
 

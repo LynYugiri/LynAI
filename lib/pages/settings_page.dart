@@ -19,6 +19,7 @@ import 'api_models_page.dart';
 import 'data_management_page.dart';
 import 'floating_assistant_settings_page.dart';
 import 'lan_sync_page.dart';
+import 'mcp_settings_page.dart';
 import 'plugin_capability_management_page.dart';
 import 'plugin_management_page.dart';
 import 'recycle_bin_page.dart';
@@ -205,6 +206,17 @@ class _SettingsPageState extends State<SettingsPage> {
               MaterialPageRoute(
                 builder: (_) => const PluginCapabilityManagementPage(),
               ),
+            ),
+          ),
+          _buildItem(
+            context,
+            Icons.hub_outlined,
+            'MCP 服务',
+            '连接远程或桌面工具服务',
+            Colors.blueGrey,
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const McpSettingsPage()),
             ),
           ),
           ...pluginItems,

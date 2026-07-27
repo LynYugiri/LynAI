@@ -88,6 +88,8 @@ OCR 和文件识别是发送前处理。处理结果会替换历史附件并标�
 
 `ToolCallService` 把模型请求转成本地动作。它定义工具 schema，解析 fallback JSON，校验参数，并调用 Provider 或平台通道。插件的自定义工具由 `ToolCallService` 识别后转交给 `PluginLuaRuntimeService` 在 Lua 沙箱中执行。
 
+模型多轮控制不再由页面或 `ToolCallService` 自己维护。主对话、悬浮聊天和 Subagent 都由 `AgentLoopRuntime` 驱动；`ToolCallService.executeSequentialCompatibility()` 是具体工具执行适配器，并通过 `AgentToolScheduler(maxConcurrency: 1)` 调用 MCP 等外部 registry 工具。统一运行时、上下文和取消边界见 [Agent Runtime](agent-runtime.md)。
+
 ### 工具清单
 
 | 工具 | 副作用 |
@@ -363,7 +365,19 @@ storage_v2/
 
 Drift 内的 `sync_outbox` 保存尚未确认上传的行级变化，`sync_state` 保存各作用域的服务端游标、激活状态和持久化本地 mutation 捕获权。当前数据库布局不再通过停用时快照做账号 catch-up，而是在 mutation 发生时直接写入其目标云端/LAN Outbox；因此重启可保留归属，远端 apply 也不会被后续快照误判为本地编辑。Outbox 支持稳定排序的 limit/offset 窗口读取，资源可按 ID 集合查询，以便同步先处理记录描述符、需要上传时再读取 Blob。消息附件资源通过 `resources` 行和 SHA Blob 同步；下载文件只写入标准内容寻址路径，不采用远端提供的本地路径。
 
-Drift 数据库 schema v17 在 v16 同步索引基础上增加 generation/full-reseed 状态和按 scope 隔离的 `cloud_index_states`、`cloud_index_objects`、`cloud_index_category_stats`、`cloud_reseed_tasks`。云端状态与对象以 JSON 载荷缓存完整接口字段，分类表保存对象数量；刷新成功后事务替换，失败保留旧值。reseed task 以 operation ID 幂等持久化，full reseed 不删除 task，只有服务端 ACK 成功后移除。v16 增加 Outbox/conflict 查询索引，v15 引入规范任务和日历表。数据库 schema 版本与 `StorageV2Service.currentLayoutVersion` 是不同概念。
+当前 Drift schema 增加六张仅本机使用的 Agent/MCP 表。`AgentPersistenceRepository` 创建运行图和快照，并通过带预期旧状态的 compare-and-set 完成状态迁移；`RepositoryAgentRunPersistenceLifecycle` 将主对话、悬浮聊天和 Subagent runtime 接到该图，确保工具调用记录在副作用前落库，取消/失败会终结仍活动的子项。启动协调会在 Provider 加载前把 `queued`/`running` 运行及其未完成子项原子标记为 `interrupted`，失败会中止启动，且不会自动重放工具。`mcp_servers` 仅接受公开 transport/command/URL、参数和环境变量名，拒绝凭据 URL、query/fragment 和 secret 参数。后续 generation/full-reseed、云索引缓存、Outbox/conflict 索引及规范任务/日历表沿用各自迁移历史。数据库 schema 版本与 `StorageV2Service.currentLayoutVersion` 是不同概念。
+
+## MCP 服务
+
+文件：`lib/services/mcp/`、`lib/repositories/mcp_repository.dart`
+
+MCP 当前实现是客户端工具桥，不是 LynAI 后端 API。`McpClient` 使用 JSON-RPC 2.0 完成 `initialize`/`notifications/initialized`、分页 `tools/list`、`tools/call`、`notifications/tools/list_changed` 和请求取消通知。请求有超时，取消会先结束本地 pending future，再 best-effort 发送 `notifications/cancelled`；迟到响应找不到 pending ID 时被忽略。
+
+`McpHttpTransport` 实现 Streamable HTTP：POST 可接收 JSON 或 SSE，取得 session ID 后可用 GET SSE 接收通知，dispose 时 best-effort DELETE session。endpoint 默认必须是 HTTPS 和非私网；HTTP 与私网访问分别显式允许。最多跟随三次重定向，POST 只接受 307/308 保持方法，任何重定向后的请求不携带 credential/session header。消息、单个 SSE event 和总响应均有字节上限。
+
+stdio transport 使用逐行 JSON，仅在 Linux、macOS、Windows 可创建；启动进程只收到显式 credential environment。Android、iOS、Web 只支持 HTTP transport UI。
+
+MCP server 公开配置保存在 `mcp_servers`，preferences 与 credentials 保存在 `SecretStore`。远端 tool schema 会递归删除本地 validator 不支持的 keyword，再补默认 object/properties；这提供的是兼容子集，不是完整 JSON Schema 或完整 MCP schema 保真。协议和平台范围详见 [MCP](mcp.md)。
 
 运行时的 `tasks.json` 和 `calendar.json` 是 Repository/备份/同步使用的逻辑分区门面，不是 `storage_v2/data/*.json` 镜像文件；结构化权威仍是 `app.db`。任务与日历日常 mutation 通过 `applyLocalRowChanges()` 在一个事务中按行 upsert/delete 并捕获 Outbox，完整 replace 留给备份恢复和远端重载。`tasks.json` 包含 `tasks`、`lists`、`entries`，其中 entry 使用 `listId`、`taskId`、`sortOrder`；`calendar.json` 包含 `events` 和 `anniversaries`，事件使用扁平 `timeKind` 字段，全天结束日期始终为 exclusive。
 

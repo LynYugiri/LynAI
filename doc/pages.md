@@ -23,6 +23,7 @@ HomePage
     ├── API
     ├── 主题
     ├── 数据管理
+    ├── MCP 服务
     └── 回收站
 ```
 
@@ -49,7 +50,7 @@ HomePage
 
 文件：`lib/pages/chat_page.dart`
 
-`ChatPage` 协调模型选择、附件、语音、文件识别、OCR、工具调用、Agent/Subagent、Agent 工作记忆、流式响应、失败恢复和分享。
+`ChatPage` 协调模型选择、附件、语音、文件识别、OCR、工具调用、Agent/Subagent、Agent 工作记忆、流式响应、失败恢复和分享。模型 turn 与工具 continuation 统一交给 `AgentLoopRuntime`，页面只订阅 run event 更新草稿并在停止、重试或销毁时取消 handle。
 
 打开历史对话只加载该对话自己的设置快照，不把模型、提示词或识别设置写回全局设置。历史请求直接使用快照中的系统提示词正文；即使全局同 ID 提示词后来被编辑，旧会话上下文也保持不变。连续工具调用达到 `ToolCallService.maxToolRounds` 后，页面要求模型基于已有结果结束，并拒绝继续执行工具。
 
@@ -207,6 +208,17 @@ HomePage
 | 主题 | `theme_page.dart` | 预设色、HSV 调色板、浅色/深色/跟随系统。 |
 | 回收站 | `recycle_bin_page.dart` | 按功能分类查看已删除项目，支持恢复、永久删除和清空。 |
 | 数据管理 | `data_management_page.dart` | 本地备份导入导出，以及云端索引、容量、对象详情、双向同步和 purge 管理。 |
+| MCP 服务 | `mcp_settings_page.dart` | 添加/编辑 HTTP 或桌面 stdio server，启用连接、测试状态、配置凭据引用与逐工具开关。 |
+
+## McpSettingsPage
+
+文件：`lib/pages/mcp_settings_page.dart`
+
+MCP 设置页展示 server 名称、transport、连接状态、错误和发现的工具。启用 server 后可连接或测试；每个工具可单独开关，开关会立即影响共享 Agent 工具注册表。
+
+HTTP server 录入 endpoint，并可显式允许 HTTP 或私网；默认要求 HTTPS 公网地址。凭据以“本地 secret 名称 -> 实际 header 名称”配置，value 只进入 `SecretStore`。stdio 录入 command、arguments 和环境变量 secret；该选项只在 Linux、macOS、Windows 启用，Android、iOS、Web 页面明确禁用。
+
+当前页面与协议只覆盖 tools。不要在用户说明中承诺 MCP resources、prompts、sampling、roots、OAuth 自动登录或后台常驻可靠重连。
 
 ## ApiModelsPage
 
@@ -252,7 +264,8 @@ HomePage
 
 | 页面 | 重点路径 |
 |------|----------|
-| ChatPage | 普通发送、停止、失败重试、编辑重发、附件重试、语音快速松手、工具调用、Agent Lua、Subagent、移动端自动化。 |
+| ChatPage | 普通发送、停止、失败重试、编辑重发、附件重试、语音快速松手、工具调用、Agent Lua、Subagent、移动端自动化；取消后不接收晚到模型/tool result，达到轮数上限只执行强制最终 turn。 |
+| MCP 服务 | HTTP/私网许可、credential header 映射、连接测试、tool list change、逐工具开关；桌面 stdio 可用，移动/Web stdio 禁用；断连后 registry 清理。 |
 | 悬浮窗 | Android 悬浮权限、无障碍权限、后台气泡；Chat 模式输入/发送/停止/新建对话和语音；Translation 模式手动翻译、自动翻译、停止自动后保留当前译文、清除译文、滚动跟随、停止 600ms 后刷新、横排/CJK 竖排、屏蔽应用和历史；Agent 模式默认切换、完整 Plan、暂停/继续/停止；节点树排除 LynAI 窗口，Agent 手势期间悬浮窗不可触摸。 |
 | 日历页 | 月/日/年切换；定时和全天跨日事件；任务计划/截止同日合并；一次性/年度纪念日、来源年份、周年数和 2 月 29 日；编辑/删除后回收站；提醒偏移和日期型 09:00。 |
 | 任务页 | 今日逾期/计划/截止去重；收件箱；清单创建、重命名、移动和删除后任务保留；任务排序、移动、完成/恢复；计划/截止提醒；搜索、Markdown 导入导出和长图。 |
