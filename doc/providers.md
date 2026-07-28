@@ -277,13 +277,13 @@ Provider 的更新策略是：先改内存并通知 UI，再把持久化操作�
 
 账号登录通过 `RemoteAccountService` 访问配置的后端；未配置后端地址时登录/注册不可用，`error` 会提示用户先配置后端。
 
-账号本地恢复、登录、注册和登出会等待 `SyncProvider`/`CloudDataProvider` 完成本地作用域切换，保证进入可编辑 UI 或关闭登录框前数据归属已经确定。设备注册、自动云同步和托管模型网络刷新不属于登录成功条件，在本地作用域绑定后后台执行。显式登出本地优先，等待作用域解绑但不等待网络撤销或 Outbox 上传；失败的 Outbox 仍保留在对应账号作用域中，重新登录后可继续同步。
+账号本地恢复、登录、注册和登出会等待物理 dataset 与 `SyncProvider`/`CloudDataProvider` 本地作用域切换，保证进入可编辑 UI 或关闭登录框前数据归属已经确定。登出、明确会话失效或后端切换只有在本地 dataset 激活成功后才发布未登录状态；激活失败时保留原认证 publication 并展示阻塞错误，绝不让未登录 UI 继续读取上一账号 dataset。设备注册、自动云同步和托管模型网络刷新不属于登录成功条件，在本地作用域绑定后后台执行。显式登出本地优先，等待作用域解绑但不等待网络撤销或 Outbox 上传；失败的 Outbox 仍保留在对应账号作用域中，重新登录后可继续同步。
 
 ## SyncProvider
 
 文件：`lib/providers/sync_provider.dart`
 
-`SyncProvider` 串行执行自动、手动和生命周期同步，并与 LAN 共用 `RemoteApplyCoordinator` 串行本地提交阶段。同步游标与待上传变更保存在 Drift 的 `sync_state`、`sync_outbox` 表中，并按“后端地址 + 用户 ID”隔离。`sync_state.captures_local` 持久记录当前本地 mutation 应归属的作用域：账号登出后、下一账号绑定前的编辑仍归原账号；绑定新账号后只转移云账号捕获权，LAN 作用域保持独立并可并行捕获。切换作用域前先 flush Provider 保存队列。每次本地保存立即按这些作用域生成行级 upsert/delete，远端应用永不写入 Outbox。后端或账号作用域变化会推进 generation；已排队或正在等待网络的旧 generation 在写游标、ACK 或刷新 Provider 前退出，避免旧作用域结果落到新作用域。
+`SyncProvider` 串行执行自动、手动和生命周期同步，并与 LAN 共用 `RemoteApplyCoordinator` 串行本地提交阶段。每次普通自动或手动同步先通过共享 `CloudManagementCoordinator` 发现 pending management operation；发现后持久化并强制 reseed，完整同步成功且 scope/generation 仍匹配时才 ACK。支持 index 时 reseed 不再把全部本地行重建成 Outbox，而是在固定 `indexRevision` 下读取 current projection：远端缺失且没有本地 pending mutation 的行按 absent-record 语义删除，真实 pending upsert/delete 保留原 mutation identity；随后原子写入最新 generation 和 `minAvailableSeq` cursor，再恢复增量同步。多个 operation 以最高 generation 为完成条件，旧 operation 不会阻塞最新 generation。类型化 generation/stale/future cursor 冲突或 index revision 竞态只允许重新 status/reseed 一次。同步游标与待上传变更保存在 Drift 的 `sync_state`、`sync_outbox` 表中，并按“后端地址 + 用户 ID”隔离。`sync_state.captures_local` 持久记录当前本地 mutation 应归属的作用域：账号登出后、下一账号绑定前的编辑仍归原账号；绑定新账号后只转移云账号捕获权，LAN 作用域保持独立并可并行捕获。切换作用域前先 flush Provider 保存队列。每次本地保存立即按这些作用域生成行级 upsert/delete，远端应用永不写入 Outbox。后端或账号作用域变化会推进 generation；已排队或正在等待网络的旧 generation 在写游标、ACK 或刷新 Provider 前退出，避免旧作用域结果落到新作用域。
 
 每个云 scope 在本机 `sync_policies` 中保存用户选择的数据分类。缺失策略默认启用全部业务分类但关闭静态资源。上传在读取 Blob 前过滤 Outbox；下载在准备远端操作和下载 Blob 前过滤 change，同时仍推进全局 cursor。重新开启分类会标记 full reseed，关闭分类不删除本机或云端已有数据。静态资源关闭时仍同步消息附件元数据和 `modelContextContent`，但不传对话附件、图片或背景 Blob。
 
@@ -295,9 +295,9 @@ Provider 的更新策略是：先改内存并通知 UI，再把持久化操作�
 
 文件：`lib/providers/cloud_data_provider.dart`
 
-`CloudDataProvider` 是数据管理页的云端管理状态入口。它按规范化后端 origin 和用户 ID 绑定 scope，从 `CloudDataRepository` 先恢复索引状态、分类统计、对象列表和 pending management operation 缓存，再通过 `CloudDataService` 刷新真实后端。刷新只有在 status 和全部分类对象页都成功后才原子替换缓存；网络或 revision 冲突不会清空旧缓存。
+`CloudDataProvider` 是数据管理页的云端管理状态入口。它按规范化后端 origin 和用户 ID 绑定 scope，从 `CloudDataRepository` 先恢复索引状态、分类统计、对象列表和 pending management operation 缓存，再通过 `CloudDataService` 刷新真实后端。刷新只有在 status 和全部分类对象页都成功后才原子替换缓存；网络或 revision 冲突不会清空旧缓存。Provider 分别暴露 index 浏览、selective purge、full purge 和 operation ACK 能力，页面和调用入口都执行独立门控；ACK capability 缺失时不会发 ACK，也不会从持久化状态清除 operation。
 
-purge 先由页面请求 preview 并确认，Provider 提交签名写后立即持久化返回的 operation，再刷新索引。手动双向同步前会拉取 `/sync/manage/operations`、持久化 `cloud_reseed_tasks` 并把现有云 scope 标为 full reseed；`SyncProvider` 完成 reseed 和上传后才逐个签名 ACK。同步或 ACK 中途失败时 task 保留，下次手动同步继续处理。
+purge 先由页面请求 preview 并确认，Provider 提交签名写后立即持久化返回的 operation，再刷新索引。UI 手动同步与普通自动/手动同步复用 `CloudManagementCoordinator`，不互相读取 Provider，避免循环依赖。ACK ID 由 scope、operation 和 generation 确定性生成；同步或 ACK 中途失败时 task 保留，下次同步继续处理。重新绑定账号会立即清除旧操作的 loading 状态，旧异步结果不能让页面永久停留在加载中。
 
 ## PluginProvider
 
@@ -305,7 +305,7 @@ purge 先由页面请求 preview 并确认，Provider 提交签名写后立即�
 
 负责插件的加载、安装、卸载、启用/禁用、权限管理和配置。
 
-同一插件 ID 的安装、删除、权限/能力切换、配置、设置和文件写入都进入该 ID 的串行 mutation 队列。远端 materialization 批次全局串行，不同插件可在批次内部并行，但仍与各自本地 mutation 互斥；已安装插件列表的持久化另有全局保存尾链，避免并发快照后写覆盖。队列即使某次操作失败也会恢复，后续操作仍可执行。
+同一插件 ID 的安装、删除、权限/能力切换、配置、设置和文件写入都进入该 ID 的串行 mutation 队列。所有插件文件系统导入、安装、卸载、快照和远端 materialization 还必须持有 `DatasetRuntimeBarrier` 捕获的 generation；物理 dataset 切换会等待已接纳 mutation 完成并拒绝跨 generation 发布。远端 materialization 批次全局串行，不同插件可在批次内部并行，但仍与各自本地 mutation 互斥；已安装插件列表的持久化另有全局保存尾链，避免并发快照后写覆盖。队列即使某次操作失败也会恢复，后续操作仍可执行。
 
 | 方法 | 说明 |
 |------|------|
@@ -389,3 +389,13 @@ Startup loads `SettingsProvider` before `ConversationProvider`, then calls the
 idempotent conversation permission migration. Only settings with a missing
 snapshot version are updated, and the full conversation replacement is written
 in the existing storage transaction before normal startup continues.
+## Account dataset binding
+
+`AccountProvider` invokes dataset activation before publishing a restored,
+logged-in, or newly registered user. Logout, refresh invalidation, and backend
+scope changes activate the permanent local dataset before clearing the published
+user. The runtime coordinator flushes conversations, features, calendar,
+roleplay, tasks, settings, models, then plugins, and reloads providers in the
+same deterministic sequence after a successful switch. Failed target activation
+rolls back to the previous dataset and leaves the target user unpublished.
+`AccountProvider.reconfigureBackend` is the coordinated backend configuration entry point. It awaits device/settings persistence, activates the local dataset and unbinds session-scoped sync state, then changes `BackendClient`; callers must await it before running backend-dependent model synchronization. Session invalidation callbacks are generation-checked so an older refresh rejection cannot clear a newer login.

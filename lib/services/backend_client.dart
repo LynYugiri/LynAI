@@ -70,6 +70,8 @@ class BackendClient extends ChangeNotifier {
   /// 当前 refresh 令牌。
   String? get refreshToken => _refreshToken;
 
+  int get credentialGeneration => _credentialGeneration;
+
   /// 是否已连接后端。
   bool get isConnected => _backendUrl.isNotEmpty;
 

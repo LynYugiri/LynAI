@@ -17,11 +17,16 @@ import 'package:lynai/providers/sync_provider.dart';
 import 'package:lynai/providers/task_provider.dart';
 import 'package:lynai/services/backend_client.dart';
 import 'package:lynai/services/secret_store.dart';
+import 'package:lynai/services/storage_v2_service.dart';
 
 void main() {
   Widget buildHome({AppTab initialTab = AppTab.chat}) {
     return MultiProvider(
       providers: [
+        Provider(
+          create: (_) => StorageV2Service(),
+          dispose: (_, storage) => storage.close(),
+        ),
         Provider<SecretStore>(create: (_) => InMemorySecretStore()),
         ChangeNotifierProvider(create: (_) => BackendClient()),
         ChangeNotifierProvider(create: (_) => ConversationProvider()),

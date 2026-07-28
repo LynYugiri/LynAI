@@ -6,20 +6,33 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../models/sync_data_selection.dart';
+import '../models/physical_dataset.dart';
 import '../utils/file_name_utils.dart';
 import 'storage_v2_database.dart';
+import 'dataset_runtime_barrier.dart';
 
 /// Reader/writer facade for the `storage_v2` filesystem layout.
 ///
 /// This keeps UI code away from raw storage paths. Structured data is backed by
 /// `app.db`; long-lived binary resources are stored as SHA-addressed blobs.
 class StorageV2Service {
-  StorageV2Service({Directory? rootDirectory}) : _rootDirectory = rootDirectory;
+  StorageV2Service({
+    Directory? rootDirectory,
+    DatasetRuntimeBarrier? runtimeBarrier,
+  }) : _rootDirectory = rootDirectory,
+       runtimeBarrier = runtimeBarrier ?? DatasetRuntimeBarrier();
 
   static const currentLayoutVersion = 3;
 
   final Directory? _rootDirectory;
+  final DatasetRuntimeBarrier runtimeBarrier;
   StorageV2Database? _database;
+  Directory? _activeStorageRoot;
+  PhysicalDatasetIdentity _activeDataset =
+      const PhysicalDatasetIdentity.local();
+  int _bindingGeneration = 0;
+  Future<void> _activationTail = Future.value();
+  final List<StorageV2Database> _retiredDatabases = [];
   Future<void> _resourceMutationQueue = Future.value();
 
   Future<bool> exists() async {
@@ -70,6 +83,227 @@ class StorageV2Service {
 
   Future<Directory> storageRoot() {
     return _storageRoot();
+  }
+
+  String get activeDatasetId => _activeDataset.id;
+
+  PhysicalDatasetIdentity get activeDataset => _activeDataset;
+
+  int get bindingGeneration => _bindingGeneration;
+
+  Future<void> initializeDatasets() => activateDataset(
+    const PhysicalDatasetIdentity.local(),
+    migrateLegacy: true,
+  );
+
+  Future<void> activateAccountDataset({
+    required String backendUrl,
+    required String userId,
+  }) => activateDataset(
+    PhysicalDatasetIdentity.account(backendUrl: backendUrl, userId: userId),
+  );
+
+  Future<void> activateLocalDataset() =>
+      activateDataset(const PhysicalDatasetIdentity.local());
+
+  Future<void> activateDataset(
+    PhysicalDatasetIdentity identity, {
+    bool migrateLegacy = false,
+  }) {
+    final operation = _activationTail.then(
+      (_) => _activateDataset(identity, migrateLegacy: migrateLegacy),
+    );
+    _activationTail = operation.catchError((Object _) {});
+    return operation;
+  }
+
+  Future<void> _activateDataset(
+    PhysicalDatasetIdentity identity, {
+    required bool migrateLegacy,
+  }) async {
+    final base = _rootDirectory ?? await defaultBaseDirectory();
+    final datasetsRoot = Directory('${base.path}/datasets');
+    await _validateOwnedDirectory(base, datasetsRoot, allowMissing: true);
+    if (!await datasetsRoot.exists()) {
+      await datasetsRoot.create(recursive: true);
+    }
+    final registry = File('${datasetsRoot.path}/registry.json');
+    final entries = await _loadRegistry(registry);
+    final datasetRoot = Directory('${datasetsRoot.path}/${identity.id}');
+    await _validateOwnedDirectory(
+      datasetsRoot,
+      datasetRoot,
+      allowMissing: true,
+    );
+    if (!await datasetRoot.exists()) await datasetRoot.create(recursive: true);
+    final storageRoot = Directory('${datasetRoot.path}/storage_v2');
+
+    if (migrateLegacy) {
+      final journal = File('${datasetRoot.path}/migration.json');
+      var migrationComplete = false;
+      if (await journal.exists()) {
+        try {
+          final value = jsonDecode(await journal.readAsString());
+          migrationComplete = value is Map && value['state'] == 'complete';
+        } catch (_) {}
+      }
+      if (!migrationComplete && await _hasLegacyDatasetPayload(base)) {
+        await _copyLegacyDataset(base, storageRoot, datasetRoot);
+      }
+    }
+    if (!await storageRoot.exists()) await storageRoot.create(recursive: true);
+    await _validateOwnedDirectory(
+      datasetRoot,
+      storageRoot,
+      allowMissing: false,
+    );
+    await _writeDatasetMetadata(datasetRoot, identity);
+    await _validateDatasetMetadata(datasetRoot, identity);
+
+    entries[identity.id] = identity.toJson();
+    await _writeJsonAtomically(registry, {
+      'type': 'lynai.dataset_registry',
+      'version': 1,
+      'datasets': entries.values.toList(),
+    });
+
+    if (_activeStorageRoot?.absolute.path == storageRoot.absolute.path) return;
+    final previous = _database;
+    if (previous != null) _retiredDatabases.add(previous);
+    _database = null;
+    _activeStorageRoot = storageRoot;
+    _activeDataset = identity;
+    _bindingGeneration++;
+  }
+
+  Future<Map<String, Map<String, dynamic>>> _loadRegistry(File file) async {
+    if (!await file.exists()) return {};
+    final decoded = jsonDecode(await file.readAsString());
+    if (decoded is! Map || decoded['type'] != 'lynai.dataset_registry') {
+      throw const FormatException('Dataset registry is invalid');
+    }
+    final result = <String, Map<String, dynamic>>{};
+    for (final value in decoded['datasets'] as List? ?? const []) {
+      if (value is! Map) {
+        throw const FormatException('Dataset entry is invalid');
+      }
+      final json = Map<String, dynamic>.from(value);
+      final identity = PhysicalDatasetIdentity.fromJson(json);
+      result[identity.id] = json;
+    }
+    return result;
+  }
+
+  Future<bool> _hasLegacyDatasetPayload(Directory base) async {
+    for (final name in const [
+      'storage_v2',
+      'plugins',
+      'message_images',
+      'message_attachments',
+      'roleplay_attachments',
+    ]) {
+      if (await Directory('${base.path}/$name').exists()) return true;
+    }
+    return false;
+  }
+
+  Future<void> _copyLegacyDataset(
+    Directory base,
+    Directory target,
+    Directory datasetRoot,
+  ) async {
+    final source = Directory('${base.path}/storage_v2');
+    final journal = File('${datasetRoot.path}/migration.json');
+    await _writeJsonAtomically(journal, {
+      'type': 'lynai.dataset_migration',
+      'version': 1,
+      'source': source.absolute.path,
+      'target': target.absolute.path,
+      'state': 'copying',
+    });
+    if (await source.exists()) await _copyDirectory(source, target);
+    for (final name in const [
+      'plugins',
+      'message_images',
+      'message_attachments',
+      'roleplay_attachments',
+    ]) {
+      final legacy = Directory('${base.path}/$name');
+      if (await legacy.exists()) {
+        await _copyDirectory(legacy, Directory('${datasetRoot.path}/$name'));
+      }
+    }
+    await _writeJsonAtomically(journal, {
+      'type': 'lynai.dataset_migration',
+      'version': 1,
+      'source': source.absolute.path,
+      'target': target.absolute.path,
+      'state': 'complete',
+      'completedAt': DateTime.now().toUtc().toIso8601String(),
+    });
+  }
+
+  Future<void> _writeDatasetMetadata(
+    Directory root,
+    PhysicalDatasetIdentity identity,
+  ) async {
+    final file = File('${root.path}/dataset.json');
+    if (await file.exists()) return;
+    await _writeJsonAtomically(file, {
+      'type': 'lynai.dataset',
+      'version': 1,
+      ...identity.toJson(),
+      'createdAt': DateTime.now().toUtc().toIso8601String(),
+    });
+  }
+
+  Future<void> _validateDatasetMetadata(
+    Directory root,
+    PhysicalDatasetIdentity expected,
+  ) async {
+    final decoded = jsonDecode(
+      await File('${root.path}/dataset.json').readAsString(),
+    );
+    if (decoded is! Map || decoded['type'] != 'lynai.dataset') {
+      throw const FormatException('Dataset metadata is invalid');
+    }
+    final actual = PhysicalDatasetIdentity.fromJson(
+      Map<String, dynamic>.from(decoded),
+    );
+    if (actual.id != expected.id) {
+      throw StateError('Dataset ownership does not match its directory');
+    }
+  }
+
+  Future<void> _validateOwnedDirectory(
+    Directory parent,
+    Directory child, {
+    required bool allowMissing,
+  }) async {
+    final parentPath = _normalizePath(parent.absolute.path);
+    final childPath = _normalizePath(child.absolute.path);
+    if (childPath == parentPath || !childPath.startsWith('$parentPath/')) {
+      throw StateError('Dataset path escapes its owned root');
+    }
+    if (!await child.exists()) {
+      if (allowMissing) return;
+      throw StateError('Dataset directory is missing');
+    }
+    final resolvedParent = _normalizePath(await parent.resolveSymbolicLinks());
+    final resolvedChild = _normalizePath(await child.resolveSymbolicLinks());
+    if (!resolvedChild.startsWith('$resolvedParent/')) {
+      throw StateError('Dataset path escapes through a symbolic link');
+    }
+  }
+
+  Future<void> _writeJsonAtomically(
+    File file,
+    Map<String, dynamic> value,
+  ) async {
+    await file.parent.create(recursive: true);
+    final temporary = File('${file.path}.tmp');
+    await temporary.writeAsString(jsonEncode(value), flush: true);
+    await temporary.rename(file.path);
   }
 
   Future<StorageV2NotesSnapshot> loadNotes() async {
@@ -279,12 +513,27 @@ class StorageV2Service {
     // Resource imports append to a read-modify-write snapshot, so keep one
     // mutation active per service instance to avoid dropping concurrent rows.
     late T result;
-    final run = _resourceMutationQueue
-        .catchError((_) {})
-        .then((_) async => result = await action());
+    if (!runtimeBarrier.isOpen) {
+      return Future.error(
+        StateError('Resource mutation rejected during a dataset switch'),
+      );
+    }
+    final generation = _bindingGeneration;
+    final run = _resourceMutationQueue.catchError((_) {}).then((_) async {
+      if (generation != _bindingGeneration) {
+        throw StateError('Resource mutation belongs to a retired dataset');
+      }
+      result = await action();
+      if (generation != _bindingGeneration) {
+        throw StateError('Resource mutation crossed a dataset switch');
+      }
+    });
     _resourceMutationQueue = run.then<void>((_) {});
     return run.then((_) => result);
   }
+
+  Future<void> quiesceResourceMutations() =>
+      _resourceMutationQueue.catchError((Object _) {});
 
   Future<File?> resourceFile(StorageV2Resource resource) async {
     final path = resource.relativePath;
@@ -381,7 +630,11 @@ class StorageV2Service {
   }
 
   Future<File> _file(String relativePath) async {
+    final generation = _bindingGeneration;
     final root = await _storageRoot();
+    if (generation != _bindingGeneration) {
+      throw StateError('Storage dataset changed while resolving a file lease');
+    }
     final normalized = relativePath.replaceAll('\\', '/');
     final parts = normalized.split('/');
     if (normalized.startsWith('/') ||
@@ -479,6 +732,8 @@ class StorageV2Service {
   }
 
   Future<Directory> _storageRoot() async {
+    final active = _activeStorageRoot;
+    if (active != null) return active;
     final injectedRoot = _rootDirectory;
     if (injectedRoot != null) {
       return Directory('${injectedRoot.path}/storage_v2');
@@ -533,7 +788,8 @@ class StorageV2Service {
   Future<void> _copyDirectory(Directory from, Directory to) async {
     if (!await to.exists()) await to.create(recursive: true);
     await for (final entity in from.list(recursive: false)) {
-      final name = entity.uri.pathSegments.last;
+      final segments = entity.uri.pathSegments.where((part) => part.isNotEmpty);
+      final name = segments.last;
       if (entity is Directory) {
         await _copyDirectory(entity, Directory('${to.path}/$name'));
       } else if (entity is File) {
@@ -543,9 +799,19 @@ class StorageV2Service {
   }
 
   Future<StorageV2Database> _storageDatabase() async {
+    final generation = _bindingGeneration;
+    final root = await _storageRoot();
+    if (generation != _bindingGeneration) {
+      throw StateError(
+        'Storage dataset changed while resolving a database lease',
+      );
+    }
     final existing = _database;
     if (existing != null) return existing;
-    final database = StorageV2Database(await _storageRoot());
+    final database = StorageV2Database(
+      root,
+      isLeaseCurrent: () => generation == _bindingGeneration,
+    );
     _database = database;
     return database;
   }
@@ -554,9 +820,19 @@ class StorageV2Service {
   /// 必须在 [ensureReady] 之后调用。
   Future<StorageV2Database> storageDatabase() async => _storageDatabase();
 
+  Future<void> validateDatabaseOwnership() async {
+    await (await _storageDatabase()).ensureDatasetOwnership(activeDatasetId);
+  }
+
   /// 释放当前 facade 持有的数据库引用。
   Future<void> close() async {
+    await _activationTail.catchError((Object _) {});
+    await _resourceMutationQueue.catchError((Object _) {});
     await _database?.close();
+    for (final database in _retiredDatabases) {
+      await database.close();
+    }
+    _retiredDatabases.clear();
     _database = null;
   }
 
@@ -601,6 +877,20 @@ class StorageV2Service {
   Future<void> prepareFullSyncSnapshot(String scope, int generation) async {
     await (await _storageDatabase()).prepareFullSyncSnapshot(scope, generation);
   }
+
+  Future<Set<String>> reconcileCurrentCloudProjection(
+    String scope,
+    int generation,
+    int minAvailableSeq,
+    List<Map<String, dynamic>> records,
+    Set<String> authoritativeTables,
+  ) async => (await _storageDatabase()).reconcileCurrentCloudProjection(
+    scope,
+    generation,
+    minAvailableSeq,
+    records,
+    authoritativeTables,
+  );
 
   Future<List<SyncOutboxEntry>> loadSyncOutbox(
     String scope, {
@@ -665,6 +955,7 @@ class StorageV2Service {
     List<SyncRemoteOperation> ops,
     int nextSince, {
     String appliedSource = 'cloud',
+    String? appliedSourcePeer,
   }) async {
     await (await _storageDatabase()).batchIncremental(
       ops,
@@ -672,8 +963,29 @@ class StorageV2Service {
       scope: scope,
       nextSince: nextSince,
       appliedSource: appliedSource,
+      appliedSourcePeer: appliedSourcePeer,
     );
   }
+
+  Future<List<SyncOutboxEntry>> loadTransportHeadsForPeer(
+    String peerDeviceId,
+  ) async => (await _storageDatabase()).loadTransportHeadsForPeer(peerDeviceId);
+
+  Future<void> acknowledgeTransportHeads(
+    String peerDeviceId,
+    List<SyncOutboxEntry> entries,
+  ) async => (await _storageDatabase()).acknowledgeTransportHeads(
+    peerDeviceId,
+    entries,
+  );
+
+  Future<void> importLegacyLanTransportState(
+    Iterable<String> appliedChangeIds,
+    Map<String, Iterable<String>> peerAcknowledgements,
+  ) async => (await _storageDatabase()).importLegacyLanTransportState(
+    appliedChangeIds,
+    peerAcknowledgements,
+  );
 
   Future<void> recoverNoteMaterialization() async {
     final data = await loadNotesData();

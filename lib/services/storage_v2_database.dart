@@ -476,6 +476,11 @@ class SyncConflictRows extends Table {
   TextColumn get localChangeId => text().named('local_change_id')();
   IntColumn get localMutationVersion =>
       integer().named('local_mutation_version')();
+  TextColumn get source => text().withDefault(const Constant('cloud'))();
+  TextColumn get sourceScope => text().named('source_scope').nullable()();
+  TextColumn get lineage => text().nullable()();
+  TextColumn get payloadHash =>
+      text().named('payload_hash').withDefault(const Constant(''))();
 
   @override
   Set<Column> get primaryKey => {scope, seq};
@@ -540,6 +545,64 @@ class SyncAppliedChangeRows extends Table {
 
   @override
   Set<Column> get primaryKey => {scope, changeId};
+}
+
+@TableIndex(
+  name: 'idx_transport_change_heads_change',
+  columns: {#changeId},
+  unique: true,
+)
+class TransportChangeHeadRows extends Table {
+  @override
+  String get tableName => 'transport_change_heads';
+
+  TextColumn get table => text().named('table_name')();
+  TextColumn get recordId => text().named('record_id')();
+  TextColumn get op => text()();
+  TextColumn get dataJson => text().named('data_json').nullable()();
+  TextColumn get selectionDataJson =>
+      text().named('selection_data_json').nullable()();
+  TextColumn get changeId => text().named('change_id')();
+  TextColumn get deviceId => text().named('device_id')();
+  TextColumn get clientCreatedAt => text().named('client_created_at')();
+  IntColumn get mutationVersion => integer().named('mutation_version')();
+  TextColumn get source => text()();
+  TextColumn get sourceScope => text().named('source_scope').nullable()();
+  TextColumn get lineage => text().nullable()();
+  TextColumn get routeScope => text().named('route_scope').nullable()();
+  TextColumn get updatedAt => text().named('updated_at')();
+
+  @override
+  Set<Column> get primaryKey => {table, recordId};
+}
+
+class TransportChangeReceiptRows extends Table {
+  @override
+  String get tableName => 'transport_change_receipts';
+
+  TextColumn get changeId => text().named('change_id')();
+  TextColumn get payloadHash => text().named('payload_hash')();
+  TextColumn get source => text()();
+  TextColumn get sourceScope => text().named('source_scope').nullable()();
+  TextColumn get lineage => text().nullable()();
+  TextColumn get receivedAt => text().named('received_at')();
+
+  @override
+  Set<Column> get primaryKey => {changeId};
+}
+
+@TableIndex(name: 'idx_transport_peer_acks_change', columns: {#changeId})
+class TransportPeerAckRows extends Table {
+  @override
+  String get tableName => 'transport_peer_acks';
+
+  TextColumn get peerDeviceId => text().named('peer_device_id')();
+  TextColumn get changeId => text().named('change_id')();
+  IntColumn get mutationVersion => integer().named('mutation_version')();
+  TextColumn get acknowledgedAt => text().named('acknowledged_at')();
+
+  @override
+  Set<Column> get primaryKey => {peerDeviceId, changeId};
 }
 
 class CloudIndexStateRows extends Table {
@@ -802,6 +865,9 @@ class SyncScopeState {
     SyncPolicyRows,
     SyncScopeBaselineRows,
     SyncAppliedChangeRows,
+    TransportChangeHeadRows,
+    TransportChangeReceiptRows,
+    TransportPeerAckRows,
     CloudIndexStateRows,
     CloudIndexObjectRows,
     CloudIndexCategoryStatRows,
@@ -818,6 +884,8 @@ class SyncScopeState {
 class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
   StorageV2DriftDatabase(File file) : super(_open(file));
 
+  bool needsTransportHeadBackfill = false;
+
   static QueryExecutor _open(File file) {
     driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
     return NativeDatabase.createInBackground(file);
@@ -828,7 +896,7 @@ class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
   /// This is separate from [StorageV2Service.currentLayoutVersion], which
   /// describes the storage_v2 directory layout.
   @override
-  int get schemaVersion => 23;
+  int get schemaVersion => 24;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -1041,6 +1109,23 @@ SET captures_local = active
       if (from < 23) {
         await _createPermissionPolicyIndex();
       }
+      if (from < 24) {
+        needsTransportHeadBackfill = from == 23;
+        await _createTransportLedgerTablesV24(m);
+        await _addColumnIfMissing(
+          'sync_conflicts',
+          'source',
+          "TEXT NOT NULL DEFAULT 'cloud'",
+        );
+        await _addColumnIfMissing('sync_conflicts', 'source_scope', 'TEXT');
+        await _addColumnIfMissing('sync_conflicts', 'lineage', 'TEXT');
+        await _addColumnIfMissing(
+          'sync_conflicts',
+          'payload_hash',
+          "TEXT NOT NULL DEFAULT ''",
+        );
+        await _migrateTransportLedgerV24();
+      }
       await _ensureCloudDataColumns();
     },
   );
@@ -1049,6 +1134,51 @@ SET captures_local = active
     return customStatement(
       'CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshots_permission_policy_run '
       "ON snapshots(run_id) WHERE kind = 'permission_policy'",
+    );
+  }
+
+  Future<void> _migrateTransportLedgerV24() async {
+    if (!await _tableExists('sync_outbox')) return;
+    await customStatement('''
+INSERT OR IGNORE INTO transport_change_heads(
+  table_name, record_id, op, data_json, selection_data_json, change_id,
+  device_id, client_created_at, mutation_version, source, source_scope,
+  lineage, route_scope, updated_at
+)
+SELECT table_name, record_id, op, data_json, selection_data_json, change_id,
+       device_id, client_created_at, mutation_version, 'local', 'lan:v1',
+       NULL, NULL, updated_at
+FROM sync_outbox
+WHERE scope = 'lan:v1' AND change_id <> ''
+''');
+    await customStatement('''
+INSERT OR IGNORE INTO transport_change_receipts(
+  change_id, payload_hash, source, source_scope, lineage, received_at
+)
+SELECT change_id, '', source, scope, NULL, applied_at
+FROM sync_applied_changes
+WHERE change_id <> ''
+''');
+    await customStatement("DELETE FROM sync_outbox WHERE scope = 'lan:v1'");
+  }
+
+  Future<void> _createTransportLedgerTablesV24(Migrator m) async {
+    if (!await _tableExists('transport_change_heads')) {
+      await m.createTable(transportChangeHeadRows);
+    }
+    if (!await _tableExists('transport_change_receipts')) {
+      await m.createTable(transportChangeReceiptRows);
+    }
+    if (!await _tableExists('transport_peer_acks')) {
+      await m.createTable(transportPeerAckRows);
+    }
+    await customStatement(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_transport_change_heads_change '
+      'ON transport_change_heads(change_id)',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_transport_peer_acks_change '
+      'ON transport_peer_acks(change_id)',
     );
   }
 
@@ -1426,7 +1556,8 @@ CREATE TABLE note_page_conflicts (
 }
 
 class StorageV2Database {
-  StorageV2Database(this.storageRoot);
+  StorageV2Database(this.storageRoot, {bool Function()? isLeaseCurrent})
+    : _isLeaseCurrent = isLeaseCurrent;
 
   static final Map<String, StorageV2DriftDatabase> _openDatabases = {};
   // Multiple repository facades can point at the same app.db during startup.
@@ -1436,11 +1567,24 @@ class StorageV2Database {
   static const _uuid = Uuid();
 
   final Directory storageRoot;
+  final bool Function()? _isLeaseCurrent;
   StorageV2DriftDatabase? _db;
 
   File get file => File('${storageRoot.path}/app.db');
 
   Future<bool> exists() async => file.exists();
+
+  Future<void> ensureDatasetOwnership(String datasetId) async {
+    final db = await _open();
+    final current = await _meta(db, 'physical_dataset_id');
+    if (current == null) {
+      await _setMeta(db, 'physical_dataset_id', datasetId);
+      return;
+    }
+    if (current != datasetId) {
+      throw StateError('Database belongs to a different physical dataset');
+    }
+  }
 
   Future<void> close() async {
     final existing = _db;
@@ -2322,6 +2466,7 @@ WHERE id IN (${List.filled(runIds.length, '?').join(', ')})
     await db.transaction(() async {
       await _migrateLegacySyncTables(db);
       await _repairOutboxIdentity(db, scope, deviceId);
+      await _ensureTransportHeads(db, deviceId);
       final sameFamilyExists = await _hasInitializedScopeInFamily(db, scope);
       await _claimLocalCapture(db, scope);
       final state = await (db.select(
@@ -2825,6 +2970,103 @@ WHERE id IN (${List.filled(runIds.length, '?').join(', ')})
     });
   }
 
+  Future<Set<String>> reconcileCurrentCloudProjection(
+    String scope,
+    int generation,
+    int minAvailableSeq,
+    List<Map<String, dynamic>> records,
+    Set<String> authoritativeTables,
+  ) async {
+    if (scope.startsWith('lan:') || generation < 1 || minAvailableSeq < 0) {
+      throw ArgumentError('invalid cloud projection reseed metadata');
+    }
+    if (!authoritativeTables.every(_syncTableNames.contains)) {
+      throw ArgumentError('cloud projection contains unsupported tables');
+    }
+    final remote = <String, Map<String, Map<String, dynamic>>>{
+      for (final table in authoritativeTables) table: {},
+    };
+    for (final record in records) {
+      final table = record['table'];
+      final op = record['op'];
+      final recordId = record['recordId'];
+      final data = record['data'];
+      if (table is! String ||
+          !authoritativeTables.contains(table) ||
+          op != 'upsert' ||
+          recordId is! String ||
+          recordId.isEmpty ||
+          data is! Map) {
+        throw const FormatException('invalid cloud projection record');
+      }
+      final parsed = Map<String, dynamic>.from(data);
+      if (parsed['id'] != recordId ||
+          remote[table]!.putIfAbsent(recordId, () => parsed) != parsed) {
+        throw const FormatException('duplicate cloud projection record');
+      }
+    }
+    final db = await _open();
+    final changedTables = <String>{};
+    await db.transaction(() async {
+      final state = await (db.select(
+        db.syncStateRows,
+      )..where((row) => row.scope.equals(scope))).getSingleOrNull();
+      if (state == null || state.deviceId.isEmpty) {
+        throw StateError('sync scope is not active');
+      }
+      final local = await _syncSnapshot(db, authoritativeTables);
+      final pending = await (db.select(
+        db.syncOutboxRows,
+      )..where((row) => row.scope.equals(scope))).get();
+      final pendingKeys = {
+        for (final row in pending) '${row.table}\u0000${row.recordId}',
+      };
+      for (final table in authoritativeTables) {
+        final localRows = local[table] ?? const {};
+        final remoteRows = remote[table] ?? const {};
+        for (final entry in remoteRows.entries) {
+          if (pendingKeys.contains('$table\u0000${entry.key}')) continue;
+          if (jsonEncode(localRows[entry.key]) == jsonEncode(entry.value)) {
+            continue;
+          }
+          await _applySyncOperation(db, table, 'upsert', entry.value);
+          changedTables.add(table);
+        }
+        for (final entry in localRows.entries) {
+          if (remoteRows.containsKey(entry.key) ||
+              pendingKeys.contains('$table\u0000${entry.key}')) {
+            continue;
+          }
+          await _applySyncOperation(db, table, 'delete', {
+            'id': entry.key,
+            ...entry.value,
+          });
+          changedTables.add(table);
+        }
+      }
+      await (db.delete(
+        db.syncConflictRows,
+      )..where((row) => row.scope.equals(scope))).go();
+      await (db.delete(
+        db.syncAppliedChangeRows,
+      )..where((row) => row.scope.equals(scope))).go();
+      await (db.delete(
+        db.syncScopeBaselineRows,
+      )..where((row) => row.scope.equals(scope))).go();
+      await (db.update(
+        db.syncStateRows,
+      )..where((row) => row.scope.equals(scope))).write(
+        SyncStateRowsCompanion(
+          since: Value(minAvailableSeq),
+          generation: Value(generation),
+          fullReseedRequired: const Value(false),
+          updatedAt: Value(DateTime.now().toUtc().toIso8601String()),
+        ),
+      );
+    });
+    return changedTables;
+  }
+
   Future<List<SyncOutboxEntry>> loadSyncOutbox(
     String scope, {
     int? limit,
@@ -2894,6 +3136,136 @@ END, client_created_at, updated_at, table_name, record_id$pagination
         .toList(growable: false);
     return entries;
   }
+
+  Future<List<SyncOutboxEntry>> loadTransportHeadsForPeer(
+    String peerDeviceId,
+  ) async {
+    final db = await _open();
+    final rows = await db
+        .customSelect(
+          '''
+SELECT h.*
+FROM transport_change_heads h
+LEFT JOIN transport_peer_acks a
+  ON a.peer_device_id = ? AND a.change_id = h.change_id
+WHERE a.change_id IS NULL OR a.mutation_version <> h.mutation_version
+ORDER BY CASE
+  WHEN h.table_name = 'note_folders' THEN 0
+  WHEN h.table_name = 'notes' THEN 1
+  WHEN h.table_name = 'tasks' AND h.op <> 'delete' THEN 0
+  WHEN h.table_name = 'tasks' THEN 9
+  WHEN h.table_name = 'task_lists' AND h.op <> 'delete' THEN 1
+  WHEN h.table_name = 'task_lists' THEN 9
+  WHEN h.table_name = 'task_list_entries' AND h.op = 'delete' THEN 0
+  WHEN h.table_name = 'task_list_entries' THEN 2
+  WHEN h.table_name = 'note_page_tombstones' AND h.op = 'delete' THEN 2
+  WHEN h.table_name = 'note_pages' THEN 3
+  WHEN h.table_name = 'note_revisions' THEN 4
+  WHEN h.table_name = 'note_page_heads' THEN 5
+  WHEN h.table_name = 'note_page_tombstones' THEN 6
+  WHEN h.table_name = 'resources' THEN 7
+  ELSE 10
+END, h.client_created_at, h.updated_at, h.table_name, h.record_id
+''',
+          variables: [Variable.withString(peerDeviceId)],
+          readsFrom: {db.transportChangeHeadRows, db.transportPeerAckRows},
+        )
+        .get();
+    return rows.map(_transportEntryFromRow).toList(growable: false);
+  }
+
+  Future<void> acknowledgeTransportHeads(
+    String peerDeviceId,
+    List<SyncOutboxEntry> entries,
+  ) async {
+    if (entries.isEmpty) return;
+    final db = await _open();
+    await db.transaction(() async {
+      final now = DateTime.now().toUtc().toIso8601String();
+      for (final entry in entries) {
+        final head =
+            await (db.select(db.transportChangeHeadRows)..where(
+                  (row) =>
+                      row.changeId.equals(entry.changeId) &
+                      row.mutationVersion.equals(entry.mutationVersion),
+                ))
+                .getSingleOrNull();
+        if (head == null) continue;
+        await db
+            .into(db.transportPeerAckRows)
+            .insertOnConflictUpdate(
+              TransportPeerAckRowsCompanion.insert(
+                peerDeviceId: peerDeviceId,
+                changeId: entry.changeId,
+                mutationVersion: entry.mutationVersion,
+                acknowledgedAt: now,
+              ),
+            );
+      }
+    });
+  }
+
+  Future<void> importLegacyLanTransportState(
+    Iterable<String> appliedChangeIds,
+    Map<String, Iterable<String>> peerAcknowledgements,
+  ) async {
+    final db = await _open();
+    await db.transaction(() async {
+      final now = DateTime.now().toUtc().toIso8601String();
+      for (final changeId in appliedChangeIds.where((id) => id.isNotEmpty)) {
+        await db
+            .into(db.transportChangeReceiptRows)
+            .insert(
+              TransportChangeReceiptRowsCompanion.insert(
+                changeId: changeId,
+                payloadHash: '',
+                source: 'lan',
+                sourceScope: const Value('legacy-secret-store'),
+                receivedAt: now,
+              ),
+              mode: InsertMode.insertOrIgnore,
+            );
+      }
+      for (final peer in peerAcknowledgements.entries) {
+        for (final changeId in peer.value.where((id) => id.isNotEmpty)) {
+          final head = await (db.select(
+            db.transportChangeHeadRows,
+          )..where((row) => row.changeId.equals(changeId))).getSingleOrNull();
+          await db
+              .into(db.transportPeerAckRows)
+              .insertOnConflictUpdate(
+                TransportPeerAckRowsCompanion.insert(
+                  peerDeviceId: peer.key,
+                  changeId: changeId,
+                  mutationVersion: head?.mutationVersion ?? 0,
+                  acknowledgedAt: now,
+                ),
+              );
+        }
+      }
+    });
+  }
+
+  SyncOutboxEntry _transportEntryFromRow(QueryRow row) => SyncOutboxEntry(
+    table: row.read<String>('table_name'),
+    recordId: row.read<String>('record_id'),
+    op: row.read<String>('op'),
+    data: row.readNullable<String>('data_json') == null
+        ? null
+        : Map<String, dynamic>.from(
+            jsonDecode(row.read<String>('data_json')) as Map,
+          ),
+    selectionData: row.readNullable<String>('selection_data_json') == null
+        ? null
+        : Map<String, dynamic>.from(
+            jsonDecode(row.read<String>('selection_data_json')) as Map,
+          ),
+    changeId: row.read<String>('change_id'),
+    deviceId: row.read<String>('device_id'),
+    clientCreatedAt: DateTime.parse(row.read<String>('client_created_at')),
+    mutationVersion: row.read<int>('mutation_version'),
+    lineage: row.readNullable<String>('lineage'),
+  );
 
   Future<void> replacePluginSyncRows(
     String pluginId,
@@ -3048,6 +3420,45 @@ END, client_created_at, updated_at, table_name, record_id$pagination
           : Map<String, dynamic>.from(jsonDecode(conflict.dataJson!) as Map);
       if (resolution == SyncConflictResolution.useRemote) {
         await _applySyncOperation(db, conflict.table, conflict.op, remoteData);
+        final routeScope = conflict.source == 'lan'
+            ? await _eligibleCloudRoute(db, conflict.lineage)
+            : null;
+        final routeState = routeScope == null
+            ? null
+            : await (db.select(db.syncStateRows)
+                    ..where((row) => row.scope.equals(routeScope)))
+                  .getSingleOrNull();
+        await _putOutbox(
+          db,
+          routeScope ?? 'lan:v1',
+          conflict.table,
+          conflict.recordId,
+          conflict.op,
+          conflict.op == 'upsert' ? remoteData : null,
+          deviceId: routeState?.deviceId ?? conflict.deviceId,
+          changeId: conflict.changeId,
+          clientCreatedAt: DateTime.parse(conflict.clientCreatedAt),
+          source: conflict.source,
+          sourceScope: conflict.sourceScope,
+          lineage: conflict.lineage,
+          routeScope: routeScope,
+        );
+        if (conflict.source == 'lan' && conflict.sourceScope != null) {
+          final head =
+              await (db.select(db.transportChangeHeadRows)
+                    ..where((row) => row.changeId.equals(conflict.changeId)))
+                  .getSingle();
+          await db
+              .into(db.transportPeerAckRows)
+              .insertOnConflictUpdate(
+                TransportPeerAckRowsCompanion.insert(
+                  peerDeviceId: conflict.sourceScope!,
+                  changeId: conflict.changeId,
+                  mutationVersion: head.mutationVersion,
+                  acknowledgedAt: DateTime.now().toUtc().toIso8601String(),
+                ),
+              );
+        }
       } else {
         await _applySyncOperation(
           db,
@@ -3080,6 +3491,7 @@ END, client_created_at, updated_at, table_name, record_id$pagination
     String? scope,
     int? nextSince,
     String appliedSource = 'cloud',
+    String? appliedSourcePeer,
   }) async {
     if (remote && (scope == null || scope.isEmpty)) {
       throw ArgumentError.value(scope, 'scope', 'remote scope is required');
@@ -3107,14 +3519,17 @@ END, client_created_at, updated_at, table_name, record_id$pagination
         final changeId = op.change?.changeId;
         final remoteScope = remote ? scope : null;
         if (remoteScope != null && changeId != null) {
-          final existing =
-              await (db.select(db.syncAppliedChangeRows)..where(
-                    (row) =>
-                        row.scope.equals(remoteScope) &
-                        row.changeId.equals(changeId),
-                  ))
-                  .getSingleOrNull();
-          if (existing != null) continue;
+          final payloadHash = _changePayloadHash(op);
+          final receipt = await (db.select(
+            db.transportChangeReceiptRows,
+          )..where((row) => row.changeId.equals(changeId))).getSingleOrNull();
+          if (receipt != null) {
+            if (receipt.payloadHash.isNotEmpty &&
+                receipt.payloadHash != payloadHash) {
+              throw StateError('sync changeId was reused with another payload');
+            }
+            continue;
+          }
         }
         final id = op.data?['id'] as String?;
         if (!_syncTableNames.contains(op.table)) {
@@ -3126,8 +3541,11 @@ END, client_created_at, updated_at, table_name, record_id$pagination
         if (id == null || id.isEmpty) {
           throw StateError('remote sync operation is missing record id');
         }
-        final local = remoteScope != null && !_isNoteDagTable(op.table)
-            ? await _pendingOutbox(db, remoteScope, op.table, id)
+        final pendingScope = remoteScope == 'lan:v1'
+            ? await _eligibleCloudRoute(db, op.change?.lineage)
+            : remoteScope;
+        final local = pendingScope != null && !_isNoteDagTable(op.table)
+            ? await _pendingOutbox(db, pendingScope, op.table, id)
             : null;
         if (local != null) {
           final conflictScope = remoteScope!;
@@ -3175,8 +3593,19 @@ END, client_created_at, updated_at, table_name, record_id$pagination
                     localDataJson: Value(local.dataJson),
                     localChangeId: local.changeId,
                     localMutationVersion: local.mutationVersion,
+                    source: Value(appliedSource),
+                    sourceScope: Value(appliedSourcePeer ?? remoteScope),
+                    lineage: Value(op.change?.lineage),
+                    payloadHash: Value(_changePayloadHash(op)),
                   ),
                 );
+            await _recordTransportReceipt(
+              db,
+              op,
+              source: appliedSource,
+              sourceScope: appliedSourcePeer ?? remoteScope,
+            );
+            await _recordSourcePeerAck(db, appliedSourcePeer, change.changeId);
             await (db.delete(db.syncOutboxRows)..where(
                   (row) =>
                       row.scope.equals(conflictScope) &
@@ -3228,8 +3657,19 @@ END, client_created_at, updated_at, table_name, record_id$pagination
                     localDataJson: Value(existingConflict.localDataJson),
                     localChangeId: existingConflict.localChangeId,
                     localMutationVersion: existingConflict.localMutationVersion,
+                    source: Value(appliedSource),
+                    sourceScope: Value(appliedSourcePeer ?? remoteScope),
+                    lineage: Value(op.change?.lineage),
+                    payloadHash: Value(_changePayloadHash(op)),
                   ),
                 );
+            await _recordTransportReceipt(
+              db,
+              op,
+              source: appliedSource,
+              sourceScope: appliedSourcePeer ?? remoteScope,
+            );
+            await _recordSourcePeerAck(db, appliedSourcePeer, change.changeId);
             continue;
           }
         }
@@ -3397,6 +3837,53 @@ END, client_created_at, updated_at, table_name, record_id$pagination
           }
         }
         if (remoteScope != null && changeId != null) {
+          final routeScope = appliedSource == 'lan'
+              ? await _eligibleCloudRoute(db, op.change?.lineage)
+              : null;
+          final targetDeviceId = routeScope == null
+              ? null
+              : (await (db.select(db.syncStateRows)
+                          ..where((row) => row.scope.equals(routeScope)))
+                        .getSingle())
+                    .deviceId;
+          await _putOutbox(
+            db,
+            routeScope ?? 'lan:v1',
+            op.table,
+            id,
+            op.op,
+            op.op == 'upsert' ? op.data : null,
+            selectionData: selectionData,
+            deviceId: targetDeviceId ?? op.change?.deviceId,
+            changeId: changeId,
+            clientCreatedAt: op.change?.clientCreatedAt,
+            source: appliedSource,
+            sourceScope: appliedSourcePeer ?? remoteScope,
+            lineage:
+                op.change?.lineage ?? await _meta(db, 'physical_dataset_id'),
+            routeScope: routeScope,
+          );
+          await _recordTransportReceipt(
+            db,
+            op,
+            source: appliedSource,
+            sourceScope: appliedSourcePeer ?? remoteScope,
+          );
+          if (appliedSourcePeer != null) {
+            final head = await (db.select(
+              db.transportChangeHeadRows,
+            )..where((row) => row.changeId.equals(changeId))).getSingle();
+            await db
+                .into(db.transportPeerAckRows)
+                .insertOnConflictUpdate(
+                  TransportPeerAckRowsCompanion.insert(
+                    peerDeviceId: appliedSourcePeer,
+                    changeId: changeId,
+                    mutationVersion: head.mutationVersion,
+                    acknowledgedAt: DateTime.now().toUtc().toIso8601String(),
+                  ),
+                );
+          }
           await db
               .into(db.syncAppliedChangeRows)
               .insert(
@@ -3414,6 +3901,88 @@ END, client_created_at, updated_at, table_name, record_id$pagination
         await _setSyncSince(db, scope, nextSince);
       }
     });
+  }
+
+  Future<void> _recordTransportReceipt(
+    StorageV2DriftDatabase db,
+    SyncRemoteOperation op, {
+    required String source,
+    required String? sourceScope,
+  }) async {
+    final change = op.change;
+    if (change == null) return;
+    await db
+        .into(db.transportChangeReceiptRows)
+        .insert(
+          TransportChangeReceiptRowsCompanion.insert(
+            changeId: change.changeId,
+            payloadHash: _changePayloadHash(op),
+            source: source,
+            sourceScope: Value(sourceScope),
+            lineage: Value(change.lineage),
+            receivedAt: DateTime.now().toUtc().toIso8601String(),
+          ),
+        );
+  }
+
+  Future<void> _recordSourcePeerAck(
+    StorageV2DriftDatabase db,
+    String? peerDeviceId,
+    String changeId,
+  ) async {
+    if (peerDeviceId == null || peerDeviceId.isEmpty) return;
+    await db
+        .into(db.transportPeerAckRows)
+        .insertOnConflictUpdate(
+          TransportPeerAckRowsCompanion.insert(
+            peerDeviceId: peerDeviceId,
+            changeId: changeId,
+            mutationVersion: 0,
+            acknowledgedAt: DateTime.now().toUtc().toIso8601String(),
+          ),
+        );
+  }
+
+  Future<String?> _eligibleCloudRoute(
+    StorageV2DriftDatabase db,
+    String? incomingLineage,
+  ) async {
+    final datasetLineage = await _meta(db, 'physical_dataset_id');
+    if (incomingLineage == null || incomingLineage != datasetLineage) {
+      return null;
+    }
+    final states =
+        await (db.select(db.syncStateRows)..where(
+              (row) =>
+                  row.initialized.equals(true) & row.capturesLocal.equals(true),
+            ))
+            .get();
+    for (final state in states) {
+      if (!state.scope.startsWith('lan:')) return state.scope;
+    }
+    return null;
+  }
+
+  String _changePayloadHash(SyncRemoteOperation op) => sha256
+      .convert(
+        utf8.encode(
+          jsonEncode({
+            'table': op.table,
+            'op': op.op,
+            'recordId': op.data?['id'],
+            if (op.op == 'upsert') 'data': _canonicalJson(op.data),
+          }),
+        ),
+      )
+      .toString();
+
+  Object? _canonicalJson(Object? value) {
+    if (value is Map) {
+      final keys = value.keys.map((key) => key.toString()).toList()..sort();
+      return {for (final key in keys) key: _canonicalJson(value[key])};
+    }
+    if (value is List) return value.map(_canonicalJson).toList();
+    return value;
   }
 
   bool _isNoteDagTable(String table) => const {
@@ -3822,6 +4391,9 @@ END, client_created_at, updated_at, table_name, record_id$pagination
   }
 
   Future<StorageV2DriftDatabase> _open() async {
+    if (_isLeaseCurrent?.call() == false) {
+      throw StateError('Storage database lease belongs to a retired dataset');
+    }
     final existing = _db;
     if (existing != null) return existing;
     if (!await storageRoot.exists()) await storageRoot.create(recursive: true);
@@ -3843,6 +4415,12 @@ END, client_created_at, updated_at, table_name, record_id$pagination
       final db = StorageV2DriftDatabase(file);
       await db.customStatement('PRAGMA foreign_keys = ON');
       await _createSchema(db);
+      if (db.needsTransportHeadBackfill) {
+        final lanState = await (db.select(
+          db.syncStateRows,
+        )..where((row) => row.scope.equals('lan:v1'))).getSingleOrNull();
+        await _ensureTransportHeads(db, lanState?.deviceId ?? '');
+      }
       await db._ensureCloudDataColumns();
       await db._addColumnIfMissing('note_pages', 'current_revision_id', 'TEXT');
       await _finishLegacyNoteRevisionMigration(db);
@@ -5633,7 +6211,63 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
     Map<String, dynamic>? data, {
     Map<String, dynamic>? selectionData,
     String? deviceId,
+    String? changeId,
+    DateTime? clientCreatedAt,
+    int? mutationVersion,
+    String source = 'local',
+    String? sourceScope,
+    String? lineage,
+    String? routeScope,
   }) async {
+    final dataJson = data == null ? null : jsonEncode(data);
+    final selectionJson = selectionData == null
+        ? null
+        : jsonEncode(selectionData);
+    final existingHead =
+        await (db.select(db.transportChangeHeadRows)..where(
+              (row) => row.table.equals(table) & row.recordId.equals(recordId),
+            ))
+            .getSingleOrNull();
+    final sameLogicalMutation =
+        changeId == null &&
+        existingHead != null &&
+        existingHead.op == op &&
+        existingHead.dataJson == dataJson &&
+        existingHead.selectionDataJson == selectionJson;
+    final effectiveChangeId =
+        changeId ?? (sameLogicalMutation ? existingHead.changeId : _uuid.v4());
+    final createdAt =
+        clientCreatedAt ??
+        (sameLogicalMutation
+            ? DateTime.parse(existingHead.clientCreatedAt)
+            : DateTime.now().toUtc());
+    final effectiveMutationVersion =
+        mutationVersion ??
+        (sameLogicalMutation
+            ? existingHead.mutationVersion
+            : (existingHead?.mutationVersion ?? 0) + 1);
+    final effectiveLineage = lineage ?? await _meta(db, 'physical_dataset_id');
+    await db
+        .into(db.transportChangeHeadRows)
+        .insertOnConflictUpdate(
+          TransportChangeHeadRowsCompanion.insert(
+            table: table,
+            recordId: recordId,
+            op: op,
+            dataJson: Value(dataJson),
+            selectionDataJson: Value(selectionJson),
+            changeId: effectiveChangeId,
+            deviceId: deviceId ?? existingHead?.deviceId ?? '',
+            clientCreatedAt: createdAt.toUtc().toIso8601String(),
+            mutationVersion: effectiveMutationVersion,
+            source: source,
+            sourceScope: Value(sourceScope),
+            lineage: Value(effectiveLineage),
+            routeScope: Value(routeScope),
+            updatedAt: DateTime.now().toUtc().toIso8601String(),
+          ),
+        );
+    if (scope.startsWith('lan:')) return;
     final current =
         await (db.select(db.syncOutboxRows)..where(
               (row) =>
@@ -5649,7 +6283,6 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
             )..where((row) => row.scope.equals(scope))).getSingleOrNull())
             ?.deviceId ??
         '';
-    final createdAt = DateTime.now().toUtc();
     await db
         .into(db.syncOutboxRows)
         .insertOnConflictUpdate(
@@ -5658,17 +6291,41 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
             table: table,
             recordId: recordId,
             op: op,
-            dataJson: Value(data == null ? null : jsonEncode(data)),
-            selectionDataJson: Value(
-              selectionData == null ? null : jsonEncode(selectionData),
-            ),
-            changeId: _uuid.v4(),
+            dataJson: Value(dataJson),
+            selectionDataJson: Value(selectionJson),
+            changeId: effectiveChangeId,
             deviceId: effectiveDeviceId,
             clientCreatedAt: createdAt.toIso8601String(),
-            mutationVersion: (current?.mutationVersion ?? 0) + 1,
+            mutationVersion:
+                mutationVersion ?? (current?.mutationVersion ?? 0) + 1,
             updatedAt: createdAt.toIso8601String(),
           ),
         );
+  }
+
+  Future<void> _ensureTransportHeads(
+    StorageV2DriftDatabase db,
+    String deviceId,
+  ) async {
+    final existing = await db.select(db.transportChangeHeadRows).get();
+    final existingRows = {
+      for (final row in existing) (row.table, row.recordId),
+    };
+    final snapshot = await _syncSnapshot(db, _syncTableNames);
+    for (final table in snapshot.entries) {
+      for (final row in table.value.entries) {
+        if (existingRows.contains((table.key, row.key))) continue;
+        await _putOutbox(
+          db,
+          'lan:v1',
+          table.key,
+          row.key,
+          'upsert',
+          row.value,
+          deviceId: deviceId,
+        );
+      }
+    }
   }
 
   Future<Map<String, dynamic>?> selectionDataForChange(
@@ -6104,6 +6761,7 @@ class SyncOutboxEntry {
   final String deviceId;
   final DateTime clientCreatedAt;
   final int mutationVersion;
+  final String? lineage;
 
   const SyncOutboxEntry({
     required this.table,
@@ -6115,6 +6773,7 @@ class SyncOutboxEntry {
     required this.deviceId,
     required this.clientCreatedAt,
     required this.mutationVersion,
+    this.lineage,
   });
 }
 

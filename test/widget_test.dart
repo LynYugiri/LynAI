@@ -22,7 +22,9 @@ import 'package:lynai/services/backend_client.dart';
 import 'package:lynai/services/calendar_platform_bridge.dart';
 import 'package:lynai/services/calendar_platform_projection_coordinator.dart';
 import 'package:lynai/services/device_identity_service.dart';
+import 'package:lynai/services/device_settings_service.dart';
 import 'package:lynai/services/secret_store.dart';
+import 'package:lynai/services/storage_v2_service.dart';
 
 void main() {
   testWidgets('App launches successfully', (WidgetTester tester) async {
@@ -33,6 +35,8 @@ void main() {
       MultiProvider(
         providers: [
           Provider<SecretStore>(create: (_) => InMemorySecretStore()),
+          Provider(create: (_) => StorageV2Service()),
+          Provider(create: (_) => DeviceSettingsService()),
           Provider(
             create: (ctx) =>
                 DeviceIdentityService(secretStore: ctx.read<SecretStore>()),

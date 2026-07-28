@@ -303,14 +303,22 @@ final class _MemoryCloudRepository implements CloudDataRepository {
 
 final class _MemoryCloudService implements CloudDataService {
   @override
+  Future<CloudCurrentProjection> getCurrentProjection() =>
+      throw UnimplementedError();
+
+  @override
   Future<void> acknowledgeOperation(
     String operationId,
     int generation,
-    String requestId,
-  ) async {}
+    String requestId, {
+    required bool includeOperationId,
+  }) async {}
   @override
-  Future<CloudObjectDetail> getObject(String category, String objectId) =>
-      throw UnimplementedError();
+  Future<CloudObjectDetail> getObject(
+    String category,
+    String objectId,
+    int revision,
+  ) => throw UnimplementedError();
   @override
   Future<List<CloudManagementOperation>> getOperations() async => const [];
   @override

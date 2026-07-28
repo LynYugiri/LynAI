@@ -32,13 +32,19 @@ import 'services/calendar_platform_projection_coordinator.dart';
 import 'services/device_identity_service.dart';
 import 'services/device_registration_service.dart';
 import 'services/secret_store.dart';
+import 'services/dataset_secret_store.dart';
+import 'services/dataset_runtime_coordinator.dart';
+import 'services/dataset_runtime_barrier.dart';
+import 'services/device_settings_service.dart';
 import 'services/agent_tool_registry.dart';
 import 'services/agent_persistence_lifecycle.dart';
 import 'services/agent_tool_result_sanitizer.dart';
+import 'services/agent_tool_execution_service.dart';
 import 'services/web_search_service.dart';
 import 'services/mcp/mcp_connection_factory.dart';
 import 'services/storage_v2_service.dart';
 import 'services/cloud_data_service.dart';
+import 'services/cloud_management_coordinator.dart';
 import 'services/sync_service.dart';
 import 'providers/sync_provider.dart';
 import 'providers/lan_sync_provider.dart';
@@ -92,12 +98,27 @@ Future<void> main() async {
   runApp(
     MultiProvider(
       providers: [
+        Provider(create: (_) => DatasetRuntimeBarrier()),
         Provider(
-          create: (_) => StorageV2Service(),
+          create: (ctx) => StorageV2Service(
+            runtimeBarrier: ctx.read<DatasetRuntimeBarrier>(),
+          ),
           dispose: (_, storage) => unawaited(storage.close()),
         ),
         Provider<SecretStore>(create: (_) => FlutterSecureSecretStore()),
+        Provider(
+          create: (ctx) => DatasetSecretStore(
+            ctx.read<StorageV2Service>(),
+            ctx.read<SecretStore>(),
+          ),
+        ),
+        Provider(create: (_) => DeviceSettingsService()),
         Provider(create: (_) => AgentToolRegistry()),
+        Provider<AgentToolResultProcessor>(
+          create: (ctx) => SanitizingAgentToolResultProcessor(
+            AgentToolResultSanitizer.storageV2(ctx.read<StorageV2Service>()),
+          ),
+        ),
         Provider(
           create: (ctx) =>
               AgentPersistenceRepository(ctx.read<StorageV2Service>()),
@@ -105,15 +126,12 @@ Future<void> main() async {
         Provider<AgentRunPersistenceLifecycle>(
           create: (ctx) => RepositoryAgentRunPersistenceLifecycle(
             ctx.read<AgentPersistenceRepository>(),
-            toolResultProcessor: SanitizingAgentToolResultProcessor(
-              AgentToolResultSanitizer.storageV2(ctx.read<StorageV2Service>()),
-            ),
           ),
         ),
         Provider(
           create: (ctx) => PersistentMcpRepository(
             persistence: ctx.read<AgentPersistenceRepository>(),
-            secretStore: ctx.read<SecretStore>(),
+            secretStore: ctx.read<DatasetSecretStore>(),
           ),
         ),
         Provider<McpConnectionFactory>(
@@ -124,6 +142,7 @@ Future<void> main() async {
             repository: ctx.read<PersistentMcpRepository>(),
             connectionFactory: ctx.read<McpConnectionFactory>(),
             toolRegistry: ctx.read<AgentToolRegistry>(),
+            datasetBarrier: ctx.read<DatasetRuntimeBarrier>(),
           ),
         ),
         Provider(
@@ -131,12 +150,14 @@ Future<void> main() async {
               DeviceIdentityService(secretStore: ctx.read<SecretStore>()),
         ),
         Provider(
-          create: (ctx) =>
-              LanPeerRepository(secretStore: ctx.read<SecretStore>()),
+          create: (ctx) => LanPeerRepository(
+            secretStore: ctx.read<SecretStore>(),
+            storage: ctx.read<StorageV2Service>(),
+          ),
         ),
         Provider(
           create: (ctx) => LanDeviceProfileService(
-            secretStore: ctx.read<SecretStore>(),
+            secretStore: ctx.read<DatasetSecretStore>(),
             identityService: ctx.read<DeviceIdentityService>(),
           ),
         ),
@@ -176,12 +197,14 @@ Future<void> main() async {
         ChangeNotifierProvider(
           create: (ctx) => ModelConfigProvider(
             storageV2: ctx.read<StorageV2Service>(),
-            secretStore: ctx.read<SecretStore>(),
+            secretStore: ctx.read<DatasetSecretStore>(),
           ),
         ),
         ChangeNotifierProvider(
-          create: (ctx) =>
-              PluginProvider(storageV2: ctx.read<StorageV2Service>()),
+          create: (ctx) => PluginProvider(
+            storageV2: ctx.read<StorageV2Service>(),
+            datasetBarrier: ctx.read<DatasetRuntimeBarrier>(),
+          ),
         ),
         ChangeNotifierProvider(
           create: (ctx) =>
@@ -226,120 +249,139 @@ Future<void> main() async {
               ),
         ),
         ChangeNotifierProvider(
-          create: (ctx) => SyncProvider(
-            backend: ctx.read<BackendClient>(),
-            identity: ctx.read<DeviceIdentityService>(),
-            registration: ctx.read<DeviceRegistrationService>(),
-            readPluginBlob: (hash) =>
-                ctx.read<PluginProvider>().readSyncBlob(hash),
-            hasPluginBlob: (hash) =>
-                ctx.read<PluginProvider>().hasSyncBlob(hash),
-            installPluginBlob: (hash, bytes) =>
-                ctx.read<PluginProvider>().installSyncBlob(hash, bytes),
-            storage: StorageV2SyncStorage(ctx.read<StorageV2Service>()),
-            remoteApplyCoordinator: ctx.read<RemoteApplyCoordinator>(),
-            beforeLocalSnapshot: () async {
-              final conversations = ctx.read<ConversationProvider>();
-              final features = ctx.read<FeatureProvider>();
-              final calendar = ctx.read<CalendarProvider>();
-              final roleplay = ctx.read<RoleplayProvider>();
-              final tasks = ctx.read<TaskProvider>();
-              final settings = ctx.read<SettingsProvider>();
-              final models = ctx.read<ModelConfigProvider>();
-              final plugins = ctx.read<PluginProvider>();
-              await flushAllTasks([
-                (name: 'conversations', flush: conversations.flushPendingSaves),
-                (name: 'features', flush: features.flushPendingSaves),
-                (name: 'calendar', flush: calendar.flushPendingSaves),
-                (name: 'roleplay', flush: roleplay.flushPendingSaves),
-                (name: 'tasks', flush: tasks.flushPendingSaves),
-                (name: 'settings', flush: settings.flushPendingSaves),
-                (name: 'models', flush: models.flushPendingSaves),
-              ]);
-              await plugins.syncAllPlugins();
-            },
-            beforeRemoteApply: (summary) async {
-              final conversations = ctx.read<ConversationProvider>();
-              final features = ctx.read<FeatureProvider>();
-              final calendar = ctx.read<CalendarProvider>();
-              final roleplay = ctx.read<RoleplayProvider>();
-              final tasks = ctx.read<TaskProvider>();
-              final settings = ctx.read<SettingsProvider>();
-              final models = ctx.read<ModelConfigProvider>();
-              final plugins = ctx.read<PluginProvider>();
-              final tables = summary.changedTables;
-              final all = tables.isEmpty;
-              await flushAllTasks([
-                if (all || tables.any(_conversationSyncTables.contains))
+          create: (ctx) {
+            final backend = ctx.read<BackendClient>();
+            final remoteSync = RemoteSyncService(
+              backend,
+              identity: ctx.read<DeviceIdentityService>(),
+              registration: ctx.read<DeviceRegistrationService>(),
+            );
+            final cloudRepository = StorageV2CloudDataRepository(
+              ctx.read<StorageV2Service>(),
+            );
+            return SyncProvider(
+              backend: backend,
+              identity: ctx.read<DeviceIdentityService>(),
+              registration: ctx.read<DeviceRegistrationService>(),
+              readPluginBlob: (hash) =>
+                  ctx.read<PluginProvider>().readSyncBlob(hash),
+              hasPluginBlob: (hash) =>
+                  ctx.read<PluginProvider>().hasSyncBlob(hash),
+              installPluginBlob: (hash, bytes) =>
+                  ctx.read<PluginProvider>().installSyncBlob(hash, bytes),
+              storage: StorageV2SyncStorage(ctx.read<StorageV2Service>()),
+              remoteApplyCoordinator: ctx.read<RemoteApplyCoordinator>(),
+              cloudManagement: CloudManagementCoordinator(
+                repository: cloudRepository,
+                service: RemoteCloudDataService(backend, remoteSync),
+              ),
+              datasetBarrier: ctx.read<DatasetRuntimeBarrier>(),
+              beforeLocalSnapshot: () async {
+                final conversations = ctx.read<ConversationProvider>();
+                final features = ctx.read<FeatureProvider>();
+                final calendar = ctx.read<CalendarProvider>();
+                final roleplay = ctx.read<RoleplayProvider>();
+                final tasks = ctx.read<TaskProvider>();
+                final settings = ctx.read<SettingsProvider>();
+                final models = ctx.read<ModelConfigProvider>();
+                final plugins = ctx.read<PluginProvider>();
+                await flushAllTasks([
                   (
                     name: 'conversations',
                     flush: conversations.flushPendingSaves,
                   ),
-                if (all || tables.any(_featureSyncTables.contains))
                   (name: 'features', flush: features.flushPendingSaves),
-                if (all || tables.any(_calendarSyncTables.contains))
                   (name: 'calendar', flush: calendar.flushPendingSaves),
-                if (all || tables.any(_roleplaySyncTables.contains))
                   (name: 'roleplay', flush: roleplay.flushPendingSaves),
-                if (all || tables.any(_taskSyncTables.contains))
                   (name: 'tasks', flush: tasks.flushPendingSaves),
-                if (all || tables.any(_settingsSyncTables.contains))
                   (name: 'settings', flush: settings.flushPendingSaves),
-                if (all || tables.contains('synced_model_configs'))
                   (name: 'models', flush: models.flushPendingSaves),
-              ]);
-              if (all || tables.any(_pluginSyncTables.contains)) {
+                ]);
                 await plugins.syncAllPlugins();
-              }
-            },
-            onRemoteApplied: (summary) async {
-              final projectionCoordinator = ctx
-                  .read<CalendarPlatformProjectionCoordinator>();
-              final conversations = ctx.read<ConversationProvider>();
-              final features = ctx.read<FeatureProvider>();
-              final calendar = ctx.read<CalendarProvider>();
-              final roleplay = ctx.read<RoleplayProvider>();
-              final tasks = ctx.read<TaskProvider>();
-              final recycleBin = ctx.read<RecycleBinProvider>();
-              final settings = ctx.read<SettingsProvider>();
-              final models = ctx.read<ModelConfigProvider>();
-              final backend = ctx.read<BackendClient>();
-              final plugins = ctx.read<PluginProvider>();
-              final tables = summary.changedTables;
-              if (tables.any(_pluginSyncTables.contains)) {
-                await plugins.applyRemoteSync(summary.scope);
-              }
-              await Future.wait([
-                if (tables.any(_conversationSyncTables.contains))
-                  conversations.loadConversations(),
-                if (tables.any(_featureSyncTables.contains)) features.load(),
-                if (tables.any(_calendarSyncTables.contains)) calendar.load(),
-                if (tables.any(_roleplaySyncTables.contains))
-                  roleplay.loadSessions(),
-                if (tables.any(_taskSyncTables.contains)) tasks.load(),
-                if (tables.contains('recycle_bin')) recycleBin.load(),
-                if (tables.any(_settingsSyncTables.contains))
-                  settings.loadSettings(),
-                if (tables.contains('synced_model_configs'))
-                  models.loadModels(),
-              ]);
-              if (tables.contains('synced_model_configs') ||
-                  tables.contains('shared_settings') ||
-                  tables.any(_pluginSyncTables.contains)) {
-                await syncManagedModelsAndApplyMigrations(
-                  models: models,
-                  backend: backend,
-                  settings: settings,
-                  conversations: conversations,
-                  roleplay: roleplay,
-                  plugins: plugins,
-                );
-              }
-              if (tables.any(_calendarProjectionSyncTables.contains)) {
-                await projectionCoordinator.syncAfterPersistence();
-              }
-            },
-          ),
+              },
+              beforeRemoteApply: (summary) async {
+                final conversations = ctx.read<ConversationProvider>();
+                final features = ctx.read<FeatureProvider>();
+                final calendar = ctx.read<CalendarProvider>();
+                final roleplay = ctx.read<RoleplayProvider>();
+                final tasks = ctx.read<TaskProvider>();
+                final settings = ctx.read<SettingsProvider>();
+                final models = ctx.read<ModelConfigProvider>();
+                final plugins = ctx.read<PluginProvider>();
+                final tables = summary.changedTables;
+                final all = tables.isEmpty;
+                await flushAllTasks([
+                  if (all || tables.any(_conversationSyncTables.contains))
+                    (
+                      name: 'conversations',
+                      flush: conversations.flushPendingSaves,
+                    ),
+                  if (all || tables.any(_featureSyncTables.contains))
+                    (name: 'features', flush: features.flushPendingSaves),
+                  if (all || tables.any(_calendarSyncTables.contains))
+                    (name: 'calendar', flush: calendar.flushPendingSaves),
+                  if (all || tables.any(_roleplaySyncTables.contains))
+                    (name: 'roleplay', flush: roleplay.flushPendingSaves),
+                  if (all || tables.any(_taskSyncTables.contains))
+                    (name: 'tasks', flush: tasks.flushPendingSaves),
+                  if (all || tables.any(_settingsSyncTables.contains))
+                    (name: 'settings', flush: settings.flushPendingSaves),
+                  if (all || tables.contains('synced_model_configs'))
+                    (name: 'models', flush: models.flushPendingSaves),
+                ]);
+                if (all || tables.any(_pluginSyncTables.contains)) {
+                  await plugins.syncAllPlugins();
+                }
+              },
+              onRemoteApplied: (summary) async {
+                final projectionCoordinator = ctx
+                    .read<CalendarPlatformProjectionCoordinator>();
+                final conversations = ctx.read<ConversationProvider>();
+                final features = ctx.read<FeatureProvider>();
+                final calendar = ctx.read<CalendarProvider>();
+                final roleplay = ctx.read<RoleplayProvider>();
+                final tasks = ctx.read<TaskProvider>();
+                final recycleBin = ctx.read<RecycleBinProvider>();
+                final settings = ctx.read<SettingsProvider>();
+                final models = ctx.read<ModelConfigProvider>();
+                final backend = ctx.read<BackendClient>();
+                final plugins = ctx.read<PluginProvider>();
+                final tables = summary.changedTables;
+                if (tables.any(_pluginSyncTables.contains)) {
+                  await plugins.applyRemoteSync(summary.scope);
+                }
+                await Future.wait([
+                  if (tables.any(_conversationSyncTables.contains))
+                    conversations.loadConversations(),
+                  if (tables.any(_featureSyncTables.contains)) features.load(),
+                  if (tables.any(_calendarSyncTables.contains)) calendar.load(),
+                  if (tables.any(_roleplaySyncTables.contains))
+                    roleplay.loadSessions(),
+                  if (tables.any(_taskSyncTables.contains)) tasks.load(),
+                  if (tables.contains('recycle_bin')) recycleBin.load(),
+                  if (tables.any(_settingsSyncTables.contains))
+                    settings.loadSettings(),
+                  if (tables.contains('synced_model_configs'))
+                    models.loadModels(),
+                ]);
+                if (tables.contains('synced_model_configs') ||
+                    tables.contains('shared_settings') ||
+                    tables.any(_pluginSyncTables.contains)) {
+                  await syncManagedModelsAndApplyMigrations(
+                    models: models,
+                    backend: backend,
+                    settings: settings,
+                    conversations: conversations,
+                    roleplay: roleplay,
+                    plugins: plugins,
+                  );
+                }
+                if (tables.any(_calendarProjectionSyncTables.contains)) {
+                  await projectionCoordinator.syncAfterPersistence();
+                }
+              },
+            );
+          },
         ),
         ChangeNotifierProvider(
           create: (ctx) {
@@ -355,6 +397,7 @@ Future<void> main() async {
                 ctx.read<StorageV2Service>(),
               ),
               service: RemoteCloudDataService(backend, remoteSync),
+              datasetBarrier: ctx.read<DatasetRuntimeBarrier>(),
             );
           },
         ),
@@ -465,6 +508,7 @@ Future<void> main() async {
               peerRepository: peers,
               mdnsService: mdns,
               deviceProfileService: ctx.read<LanDeviceProfileService>(),
+              datasetBarrier: ctx.read<DatasetRuntimeBarrier>(),
             );
           },
         ),
@@ -479,9 +523,41 @@ Future<void> main() async {
             final conversations = ctx.read<ConversationProvider>();
             final roleplay = ctx.read<RoleplayProvider>();
             final plugins = ctx.read<PluginProvider>();
+            McpProvider? mcp;
+            try {
+              mcp = ctx.read<McpProvider>();
+            } on ProviderNotFoundException {
+              mcp = null;
+            }
+            final datasets = DatasetRuntimeCoordinator(
+              storage: ctx.read<StorageV2Service>(),
+              backend: backend,
+              conversations: conversations,
+              features: ctx.read<FeatureProvider>(),
+              calendar: ctx.read<CalendarProvider>(),
+              roleplay: roleplay,
+              tasks: ctx.read<TaskProvider>(),
+              recycleBin: ctx.read<RecycleBinProvider>(),
+              settings: settings,
+              models: models,
+              plugins: plugins,
+              mcp: mcp,
+              calendarProjection: ctx
+                  .read<CalendarPlatformProjectionCoordinator>(),
+              quiesceOperations: () async {
+                await Future.wait([
+                  sync.quiesceForDatasetSwitch(),
+                  cloud.quiesceForDatasetSwitch(),
+                  ctx.read<LanSyncProvider>().quiesceForDatasetSwitch(),
+                ]);
+              },
+              resumeOperations: () =>
+                  ctx.read<LanSyncProvider>().resumeAfterDatasetSwitch(),
+            );
             return AccountProvider(
               backend: backend,
               secretStore: ctx.read<SecretStore>(),
+              onDatasetActivation: datasets.activate,
               onSessionChanged: (user) async {
                 final cloudBind = cloud.bind(user);
                 if (user == null) {
@@ -689,10 +765,13 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       final backendClient = context.read<BackendClient>();
       final deviceIdentityService = context.read<DeviceIdentityService>();
       final storageV2 = context.read<StorageV2Service>();
+      final deviceSettings = context.read<DeviceSettingsService>();
       final webSearch = context.read<WebSearchService>();
       AgentRunPersistenceLifecycle? agentPersistence;
+      AgentToolResultProcessor? agentToolResultProcessor;
       try {
         agentPersistence = context.read<AgentRunPersistenceLifecycle>();
+        agentToolResultProcessor = context.read<AgentToolResultProcessor>();
       } on ProviderNotFoundException {
         // Focused root widget tests may omit optional Agent persistence.
       }
@@ -708,7 +787,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       } on ProviderNotFoundException {
         // Focused root widget tests may omit optional MCP composition.
       }
-      await StorageV2UpgradeService(storageV2: storageV2).ensureReady();
+      await StorageV2UpgradeService(storageV2: storageV2).ensureDatasetsReady();
       await AgentPersistenceRepository(storageV2).reconcileAfterRestart();
 
       await settingsProvider.loadSettings();
@@ -733,13 +812,12 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         roleplay: roleplayProvider,
         plugins: pluginProvider,
       );
-      await settingsProvider.initializeDefaultBackend(
-        BackendClient.defaultBackendUrl,
+      final bootstrapBackend = await deviceSettings.loadBackendUrl(
+        defaultUrl:
+            settingsProvider.settings.backendUrl ??
+            BackendClient.defaultBackendUrl,
       );
-
-      // Configure backend client from settings. A null URL means the user
-      // explicitly disconnected the backend.
-      backendClient.configure(settingsProvider.settings.backendUrl ?? '');
+      backendClient.configure(bootstrapBackend ?? '');
 
       await deviceIdentityService.initialize();
       _accountRestoreFuture = accountProvider.restoreLocalSession();
@@ -754,6 +832,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         plugins: pluginProvider,
         externalToolRegistry: agentToolRegistry,
         persistence: agentPersistence,
+        toolResultProcessor: agentToolResultProcessor,
         backend: backendClient,
         storage: storageV2,
         webSearch: webSearch,

@@ -156,7 +156,7 @@ storage_v2 中的资源注册表使用 content-addressed blob 路径。对话附
 
 ## 工具调用链路
 
-工具调用让模型访问受控的本地能力。OpenAI 兼容协议可以走原生 `tools`，其他协议可走 JSON fallback。
+工具调用让模型访问受控的本地能力。生产聊天和 Agent 只通过模型接口的原生 `tools` / `tool_calls` 暴露与接收调用，不解析正文 JSON fallback。
 
 ```text
 模型返回 tool calls
@@ -168,7 +168,7 @@ storage_v2 中的资源注册表使用 content-addressed blob 路径。对话附
 
 规范工具使用 `tasks.*`、`calendar.*` 和 `anniversaries.*` 读取或修改 `TaskProvider`/`CalendarProvider`；`todos.*` 和 `schedules.*` 只是已发布兼容别名，仍写入规范 Provider。权限 ID 继续复用 `todos:*` 和 `schedules:*`，避免破坏插件授权。工具也可修改笔记或调用 Android 平台能力，应只在可信模型和可信对话中启用。
 
-动态工具统一注册到 `AgentToolRegistry`。MCP Provider、插件工具与 tool source 共用 `AgentToolNameCodec`，按 source、server/plugin ID 和远端工具名生成长度有界的 `tool_v1_*` canonical name。`ToolCallService.createRunSnapshot()` 在 Run 开始时捕获 descriptor、handler、并发语义和权限快照；模型暴露与后续执行都使用这份不可变 Run snapshot，注册表刷新、断连或插件更新不会把已捕获调用重新绑定到新实现。MCP 细节见 [MCP](mcp.md)。
+动态工具统一注册到 `AgentToolRegistry`。MCP Provider、插件工具与 tool source 共用 `AgentToolNameCodec`，按 source、server/plugin ID 和远端工具名生成长度有界的 `tool_v1_*` canonical name。`ToolCallService.createRunSnapshot()` 在 Run 开始时捕获 descriptor、并发语义和权限快照。内置与插件 handler 固定在 snapshot；MCP 只固定模型 schema，执行时查询实时 registry，断连或禁用后 fail closed，避免调用已释放连接。MCP 细节见 [MCP](mcp.md)。
 
 模型来源的终态工具结果统一经过 `AgentToolExecutionService` 的 runtime-level sanitizer，再进入持久化和模型上下文。sanitizer 负责 bounded JSON、安全元数据和 Resource/Blob offload；页面、插件和 MCP handler 不各自承担最终结果清洗，也不得绕过该运行时边界传递原始二进制或本地路径。
 
@@ -237,7 +237,7 @@ storage_v2/
 
 Repository 只读写 storage_v2。启动阶段由 `StorageV2UpgradeService` 创建或升级 storage_v2，运行时不再从旧 JSON 恢复业务数据。
 
-当前 Drift schema 包含本机 Agent 运行时表 `runs`、`turns`、`items`、`tool_calls`、`snapshots`、`mcp_servers`。这些表不属于逻辑数据分区、备份、云同步或 LAN 同步；启动时会把未完成运行图原子标记为 `interrupted` 失败，不自动重放。MCP 表只保存公开连接配置和环境变量名，不保存 header、环境变量值或其他凭据。后续同步索引和规范任务/日历迁移沿用各自版本历史；数据库 schema 版本仅描述 `app.db` 内部结构，不得与目录布局常量 `StorageV2Service.currentLayoutVersion` 混用。
+当前 Drift schema 包含本机 Agent 运行时表 `runs`、`turns`、`items`、`tool_calls`、`snapshots`、`mcp_servers`，以及 dataset-local transport ledger 表 `transport_change_heads`、`transport_change_receipts`、`transport_peer_acks`。这些表不属于逻辑数据分区、备份、云同步或 LAN 同步；启动时会把未完成运行图原子标记为 `interrupted` 失败，不自动重放。transport ledger 持久化当前行 head、全局 change receipt 和逐 LAN peer ACK，使云/LAN 桥接、去重与重启恢复不依赖有界 SecretStore 列表。MCP 表只保存公开连接配置和环境变量名，不保存 header、环境变量值或其他凭据。后续同步索引和规范任务/日历迁移沿用各自版本历史；数据库 schema 版本仅描述 `app.db` 内部结构，不得与目录布局常量 `StorageV2Service.currentLayoutVersion` 混用。
 
 `tasks.json`/`calendar.json` 是 Repository、备份和同步的逻辑分区名称，不是在 `storage_v2/data/` 下维护的镜像。结构化唯一权威仍是 `app.db`。
 
@@ -335,9 +335,11 @@ isolated. Cloud cursors and outboxes remain isolated by normalized backend
 origin plus stable user ID. `LanSyncCoordinator`
 owns the TLS session lifecycle, while pairing payloads, Ed25519 identity proofs,
 certificate/SPKI binding, mDNS discovery, framed transport, peer persistence,
-and storage adaptation remain separate services/repositories. Local mutations are
-captured into independent cloud and `lan:v1` outboxes; LAN acknowledgements never
-advance the cloud sequence cursor or remove cloud delivery state.
+and storage adaptation remain separate services/repositories. Each local mutation
+creates one stable head in the dataset-local transport ledger and reuses its
+`changeId` in the active cloud Outbox. LAN peers read unacknowledged ledger heads;
+their acknowledgements never advance the cloud sequence cursor or remove cloud
+delivery state.
 
 Pairing activates the LAN scope, negotiates a bilateral data-category subset,
 and returns without automatically syncing so the user can choose now or later.
@@ -392,3 +394,22 @@ their editable overlays. Package-content changes reset local execution trust,
 while settings/config-only and unrelated sync preserve it. `plugin_storage` and
 other private plugin storage are device-local and are never copied through cloud
 or LAN sync.
+## Physical datasets
+
+`StorageV2Service` is a stable process-wide facade over one active physical
+dataset. The application-support root contains `datasets/registry.json`; each
+dataset has immutable `dataset.json` ownership metadata and its own
+`storage_v2/app.db`, blobs, notes, plugin tree, attachment staging, Agent run
+graph, and MCP rows. `local` is permanent. Account datasets are selected by the
+full SHA-256 of normalized backend origin plus the opaque user ID.
+
+Startup copy-migrates the retained legacy `storage_v2/` tree into `datasets/local`
+using `migration.json`. Account changes flush providers in a fixed order,
+activate and validate the target, then reload the same provider instances before
+the account user is published. Activation failure restores and reloads the
+previous dataset. Old dataset database handles remain valid until service close,
+so in-flight operations cannot be rebound to a new path.
+
+The backend bootstrap URL is device-level SharedPreferences state, not account
+data, allowing session lookup and dataset selection before account data loads.
+Physical dataset activation is protected by a shared runtime barrier. It stops admitting dataset-bound Agent work, cancels and awaits main/floating/Subagent runs, quiesces cloud/LAN synchronization, plugin filesystem mutations and resource mutations, disconnects MCP publication, flushes providers, then changes the storage binding. Reload and Android calendar projection complete before the barrier reopens; rollback follows the same reload and projection path. LAN hosting is suspended without changing its lifecycle preference and resumes to the prior desired state after either success or rollback. Database handles and admitted plugin mutations are generation-bound and fail closed after retirement.

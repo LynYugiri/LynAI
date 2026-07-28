@@ -55,6 +55,38 @@ void main() {
     expect(lifecycle.hosting, isTrue);
   });
 
+  test('dataset suspension restores the prior desired hosting state', () async {
+    final host = _TestHost();
+    final lifecycle = host.lifecycle();
+    await lifecycle.markReady();
+    await lifecycle.setDesired(true);
+
+    await lifecycle.suspend();
+
+    expect(lifecycle.desired, isTrue);
+    expect(lifecycle.hosting, isFalse);
+    expect(host.stops, 1);
+
+    await lifecycle.resume();
+
+    expect(lifecycle.desired, isTrue);
+    expect(lifecycle.hosting, isTrue);
+    expect(host.starts, 2);
+  });
+
+  test('dataset suspension preserves a paused hosting preference', () async {
+    final host = _TestHost();
+    final lifecycle = host.lifecycle();
+    await lifecycle.markReady();
+
+    await lifecycle.suspend();
+    await lifecycle.resume();
+
+    expect(lifecycle.desired, isFalse);
+    expect(lifecycle.hosting, isFalse);
+    expect(host.starts, 0);
+  });
+
   test('dispose close during start stops and prevents later restart', () async {
     final host = _TestHost(blockStart: true);
     final lifecycle = host.lifecycle();

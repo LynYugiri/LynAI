@@ -11887,6 +11887,50 @@ class $SyncConflictRowsTable extends SyncConflictRows
     type: DriftSqlType.int,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _sourceMeta = const VerificationMeta('source');
+  @override
+  late final GeneratedColumn<String> source = GeneratedColumn<String>(
+    'source',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('cloud'),
+  );
+  static const VerificationMeta _sourceScopeMeta = const VerificationMeta(
+    'sourceScope',
+  );
+  @override
+  late final GeneratedColumn<String> sourceScope = GeneratedColumn<String>(
+    'source_scope',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _lineageMeta = const VerificationMeta(
+    'lineage',
+  );
+  @override
+  late final GeneratedColumn<String> lineage = GeneratedColumn<String>(
+    'lineage',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _payloadHashMeta = const VerificationMeta(
+    'payloadHash',
+  );
+  @override
+  late final GeneratedColumn<String> payloadHash = GeneratedColumn<String>(
+    'payload_hash',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     scope,
@@ -11903,6 +11947,10 @@ class $SyncConflictRowsTable extends SyncConflictRows
     localDataJson,
     localChangeId,
     localMutationVersion,
+    source,
+    sourceScope,
+    lineage,
+    payloadHash,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -12031,6 +12079,36 @@ class $SyncConflictRowsTable extends SyncConflictRows
     } else if (isInserting) {
       context.missing(_localMutationVersionMeta);
     }
+    if (data.containsKey('source')) {
+      context.handle(
+        _sourceMeta,
+        source.isAcceptableOrUnknown(data['source']!, _sourceMeta),
+      );
+    }
+    if (data.containsKey('source_scope')) {
+      context.handle(
+        _sourceScopeMeta,
+        sourceScope.isAcceptableOrUnknown(
+          data['source_scope']!,
+          _sourceScopeMeta,
+        ),
+      );
+    }
+    if (data.containsKey('lineage')) {
+      context.handle(
+        _lineageMeta,
+        lineage.isAcceptableOrUnknown(data['lineage']!, _lineageMeta),
+      );
+    }
+    if (data.containsKey('payload_hash')) {
+      context.handle(
+        _payloadHashMeta,
+        payloadHash.isAcceptableOrUnknown(
+          data['payload_hash']!,
+          _payloadHashMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -12096,6 +12174,22 @@ class $SyncConflictRowsTable extends SyncConflictRows
         DriftSqlType.int,
         data['${effectivePrefix}local_mutation_version'],
       )!,
+      source: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source'],
+      )!,
+      sourceScope: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_scope'],
+      ),
+      lineage: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}lineage'],
+      ),
+      payloadHash: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}payload_hash'],
+      )!,
     );
   }
 
@@ -12120,6 +12214,10 @@ class SyncConflictRow extends DataClass implements Insertable<SyncConflictRow> {
   final String? localDataJson;
   final String localChangeId;
   final int localMutationVersion;
+  final String source;
+  final String? sourceScope;
+  final String? lineage;
+  final String payloadHash;
   const SyncConflictRow({
     required this.scope,
     required this.seq,
@@ -12135,6 +12233,10 @@ class SyncConflictRow extends DataClass implements Insertable<SyncConflictRow> {
     this.localDataJson,
     required this.localChangeId,
     required this.localMutationVersion,
+    required this.source,
+    this.sourceScope,
+    this.lineage,
+    required this.payloadHash,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -12159,6 +12261,14 @@ class SyncConflictRow extends DataClass implements Insertable<SyncConflictRow> {
     }
     map['local_change_id'] = Variable<String>(localChangeId);
     map['local_mutation_version'] = Variable<int>(localMutationVersion);
+    map['source'] = Variable<String>(source);
+    if (!nullToAbsent || sourceScope != null) {
+      map['source_scope'] = Variable<String>(sourceScope);
+    }
+    if (!nullToAbsent || lineage != null) {
+      map['lineage'] = Variable<String>(lineage);
+    }
+    map['payload_hash'] = Variable<String>(payloadHash);
     return map;
   }
 
@@ -12184,6 +12294,14 @@ class SyncConflictRow extends DataClass implements Insertable<SyncConflictRow> {
           : Value(localDataJson),
       localChangeId: Value(localChangeId),
       localMutationVersion: Value(localMutationVersion),
+      source: Value(source),
+      sourceScope: sourceScope == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sourceScope),
+      lineage: lineage == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lineage),
+      payloadHash: Value(payloadHash),
     );
   }
 
@@ -12209,6 +12327,10 @@ class SyncConflictRow extends DataClass implements Insertable<SyncConflictRow> {
       localMutationVersion: serializer.fromJson<int>(
         json['localMutationVersion'],
       ),
+      source: serializer.fromJson<String>(json['source']),
+      sourceScope: serializer.fromJson<String?>(json['sourceScope']),
+      lineage: serializer.fromJson<String?>(json['lineage']),
+      payloadHash: serializer.fromJson<String>(json['payloadHash']),
     );
   }
   @override
@@ -12229,6 +12351,10 @@ class SyncConflictRow extends DataClass implements Insertable<SyncConflictRow> {
       'localDataJson': serializer.toJson<String?>(localDataJson),
       'localChangeId': serializer.toJson<String>(localChangeId),
       'localMutationVersion': serializer.toJson<int>(localMutationVersion),
+      'source': serializer.toJson<String>(source),
+      'sourceScope': serializer.toJson<String?>(sourceScope),
+      'lineage': serializer.toJson<String?>(lineage),
+      'payloadHash': serializer.toJson<String>(payloadHash),
     };
   }
 
@@ -12247,6 +12373,10 @@ class SyncConflictRow extends DataClass implements Insertable<SyncConflictRow> {
     Value<String?> localDataJson = const Value.absent(),
     String? localChangeId,
     int? localMutationVersion,
+    String? source,
+    Value<String?> sourceScope = const Value.absent(),
+    Value<String?> lineage = const Value.absent(),
+    String? payloadHash,
   }) => SyncConflictRow(
     scope: scope ?? this.scope,
     seq: seq ?? this.seq,
@@ -12264,6 +12394,10 @@ class SyncConflictRow extends DataClass implements Insertable<SyncConflictRow> {
         : this.localDataJson,
     localChangeId: localChangeId ?? this.localChangeId,
     localMutationVersion: localMutationVersion ?? this.localMutationVersion,
+    source: source ?? this.source,
+    sourceScope: sourceScope.present ? sourceScope.value : this.sourceScope,
+    lineage: lineage.present ? lineage.value : this.lineage,
+    payloadHash: payloadHash ?? this.payloadHash,
   );
   SyncConflictRow copyWithCompanion(SyncConflictRowsCompanion data) {
     return SyncConflictRow(
@@ -12289,6 +12423,14 @@ class SyncConflictRow extends DataClass implements Insertable<SyncConflictRow> {
       localMutationVersion: data.localMutationVersion.present
           ? data.localMutationVersion.value
           : this.localMutationVersion,
+      source: data.source.present ? data.source.value : this.source,
+      sourceScope: data.sourceScope.present
+          ? data.sourceScope.value
+          : this.sourceScope,
+      lineage: data.lineage.present ? data.lineage.value : this.lineage,
+      payloadHash: data.payloadHash.present
+          ? data.payloadHash.value
+          : this.payloadHash,
     );
   }
 
@@ -12308,7 +12450,11 @@ class SyncConflictRow extends DataClass implements Insertable<SyncConflictRow> {
           ..write('localOp: $localOp, ')
           ..write('localDataJson: $localDataJson, ')
           ..write('localChangeId: $localChangeId, ')
-          ..write('localMutationVersion: $localMutationVersion')
+          ..write('localMutationVersion: $localMutationVersion, ')
+          ..write('source: $source, ')
+          ..write('sourceScope: $sourceScope, ')
+          ..write('lineage: $lineage, ')
+          ..write('payloadHash: $payloadHash')
           ..write(')'))
         .toString();
   }
@@ -12329,6 +12475,10 @@ class SyncConflictRow extends DataClass implements Insertable<SyncConflictRow> {
     localDataJson,
     localChangeId,
     localMutationVersion,
+    source,
+    sourceScope,
+    lineage,
+    payloadHash,
   );
   @override
   bool operator ==(Object other) =>
@@ -12347,7 +12497,11 @@ class SyncConflictRow extends DataClass implements Insertable<SyncConflictRow> {
           other.localOp == this.localOp &&
           other.localDataJson == this.localDataJson &&
           other.localChangeId == this.localChangeId &&
-          other.localMutationVersion == this.localMutationVersion);
+          other.localMutationVersion == this.localMutationVersion &&
+          other.source == this.source &&
+          other.sourceScope == this.sourceScope &&
+          other.lineage == this.lineage &&
+          other.payloadHash == this.payloadHash);
 }
 
 class SyncConflictRowsCompanion extends UpdateCompanion<SyncConflictRow> {
@@ -12365,6 +12519,10 @@ class SyncConflictRowsCompanion extends UpdateCompanion<SyncConflictRow> {
   final Value<String?> localDataJson;
   final Value<String> localChangeId;
   final Value<int> localMutationVersion;
+  final Value<String> source;
+  final Value<String?> sourceScope;
+  final Value<String?> lineage;
+  final Value<String> payloadHash;
   final Value<int> rowid;
   const SyncConflictRowsCompanion({
     this.scope = const Value.absent(),
@@ -12381,6 +12539,10 @@ class SyncConflictRowsCompanion extends UpdateCompanion<SyncConflictRow> {
     this.localDataJson = const Value.absent(),
     this.localChangeId = const Value.absent(),
     this.localMutationVersion = const Value.absent(),
+    this.source = const Value.absent(),
+    this.sourceScope = const Value.absent(),
+    this.lineage = const Value.absent(),
+    this.payloadHash = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   SyncConflictRowsCompanion.insert({
@@ -12398,6 +12560,10 @@ class SyncConflictRowsCompanion extends UpdateCompanion<SyncConflictRow> {
     this.localDataJson = const Value.absent(),
     required String localChangeId,
     required int localMutationVersion,
+    this.source = const Value.absent(),
+    this.sourceScope = const Value.absent(),
+    this.lineage = const Value.absent(),
+    this.payloadHash = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : scope = Value(scope),
        seq = Value(seq),
@@ -12425,6 +12591,10 @@ class SyncConflictRowsCompanion extends UpdateCompanion<SyncConflictRow> {
     Expression<String>? localDataJson,
     Expression<String>? localChangeId,
     Expression<int>? localMutationVersion,
+    Expression<String>? source,
+    Expression<String>? sourceScope,
+    Expression<String>? lineage,
+    Expression<String>? payloadHash,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -12443,6 +12613,10 @@ class SyncConflictRowsCompanion extends UpdateCompanion<SyncConflictRow> {
       if (localChangeId != null) 'local_change_id': localChangeId,
       if (localMutationVersion != null)
         'local_mutation_version': localMutationVersion,
+      if (source != null) 'source': source,
+      if (sourceScope != null) 'source_scope': sourceScope,
+      if (lineage != null) 'lineage': lineage,
+      if (payloadHash != null) 'payload_hash': payloadHash,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -12462,6 +12636,10 @@ class SyncConflictRowsCompanion extends UpdateCompanion<SyncConflictRow> {
     Value<String?>? localDataJson,
     Value<String>? localChangeId,
     Value<int>? localMutationVersion,
+    Value<String>? source,
+    Value<String?>? sourceScope,
+    Value<String?>? lineage,
+    Value<String>? payloadHash,
     Value<int>? rowid,
   }) {
     return SyncConflictRowsCompanion(
@@ -12479,6 +12657,10 @@ class SyncConflictRowsCompanion extends UpdateCompanion<SyncConflictRow> {
       localDataJson: localDataJson ?? this.localDataJson,
       localChangeId: localChangeId ?? this.localChangeId,
       localMutationVersion: localMutationVersion ?? this.localMutationVersion,
+      source: source ?? this.source,
+      sourceScope: sourceScope ?? this.sourceScope,
+      lineage: lineage ?? this.lineage,
+      payloadHash: payloadHash ?? this.payloadHash,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -12528,6 +12710,18 @@ class SyncConflictRowsCompanion extends UpdateCompanion<SyncConflictRow> {
     if (localMutationVersion.present) {
       map['local_mutation_version'] = Variable<int>(localMutationVersion.value);
     }
+    if (source.present) {
+      map['source'] = Variable<String>(source.value);
+    }
+    if (sourceScope.present) {
+      map['source_scope'] = Variable<String>(sourceScope.value);
+    }
+    if (lineage.present) {
+      map['lineage'] = Variable<String>(lineage.value);
+    }
+    if (payloadHash.present) {
+      map['payload_hash'] = Variable<String>(payloadHash.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -12551,6 +12745,10 @@ class SyncConflictRowsCompanion extends UpdateCompanion<SyncConflictRow> {
           ..write('localDataJson: $localDataJson, ')
           ..write('localChangeId: $localChangeId, ')
           ..write('localMutationVersion: $localMutationVersion, ')
+          ..write('source: $source, ')
+          ..write('sourceScope: $sourceScope, ')
+          ..write('lineage: $lineage, ')
+          ..write('payloadHash: $payloadHash, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -14072,6 +14270,1617 @@ class SyncAppliedChangeRowsCompanion
           ..write('changeId: $changeId, ')
           ..write('source: $source, ')
           ..write('appliedAt: $appliedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $TransportChangeHeadRowsTable extends TransportChangeHeadRows
+    with TableInfo<$TransportChangeHeadRowsTable, TransportChangeHeadRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $TransportChangeHeadRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _tableMeta = const VerificationMeta('table');
+  @override
+  late final GeneratedColumn<String> table = GeneratedColumn<String>(
+    'table_name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _recordIdMeta = const VerificationMeta(
+    'recordId',
+  );
+  @override
+  late final GeneratedColumn<String> recordId = GeneratedColumn<String>(
+    'record_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _opMeta = const VerificationMeta('op');
+  @override
+  late final GeneratedColumn<String> op = GeneratedColumn<String>(
+    'op',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _dataJsonMeta = const VerificationMeta(
+    'dataJson',
+  );
+  @override
+  late final GeneratedColumn<String> dataJson = GeneratedColumn<String>(
+    'data_json',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _selectionDataJsonMeta = const VerificationMeta(
+    'selectionDataJson',
+  );
+  @override
+  late final GeneratedColumn<String> selectionDataJson =
+      GeneratedColumn<String>(
+        'selection_data_json',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _changeIdMeta = const VerificationMeta(
+    'changeId',
+  );
+  @override
+  late final GeneratedColumn<String> changeId = GeneratedColumn<String>(
+    'change_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _deviceIdMeta = const VerificationMeta(
+    'deviceId',
+  );
+  @override
+  late final GeneratedColumn<String> deviceId = GeneratedColumn<String>(
+    'device_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _clientCreatedAtMeta = const VerificationMeta(
+    'clientCreatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> clientCreatedAt = GeneratedColumn<String>(
+    'client_created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _mutationVersionMeta = const VerificationMeta(
+    'mutationVersion',
+  );
+  @override
+  late final GeneratedColumn<int> mutationVersion = GeneratedColumn<int>(
+    'mutation_version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sourceMeta = const VerificationMeta('source');
+  @override
+  late final GeneratedColumn<String> source = GeneratedColumn<String>(
+    'source',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sourceScopeMeta = const VerificationMeta(
+    'sourceScope',
+  );
+  @override
+  late final GeneratedColumn<String> sourceScope = GeneratedColumn<String>(
+    'source_scope',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _lineageMeta = const VerificationMeta(
+    'lineage',
+  );
+  @override
+  late final GeneratedColumn<String> lineage = GeneratedColumn<String>(
+    'lineage',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _routeScopeMeta = const VerificationMeta(
+    'routeScope',
+  );
+  @override
+  late final GeneratedColumn<String> routeScope = GeneratedColumn<String>(
+    'route_scope',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    table,
+    recordId,
+    op,
+    dataJson,
+    selectionDataJson,
+    changeId,
+    deviceId,
+    clientCreatedAt,
+    mutationVersion,
+    source,
+    sourceScope,
+    lineage,
+    routeScope,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'transport_change_heads';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<TransportChangeHeadRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('table_name')) {
+      context.handle(
+        _tableMeta,
+        table.isAcceptableOrUnknown(data['table_name']!, _tableMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_tableMeta);
+    }
+    if (data.containsKey('record_id')) {
+      context.handle(
+        _recordIdMeta,
+        recordId.isAcceptableOrUnknown(data['record_id']!, _recordIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_recordIdMeta);
+    }
+    if (data.containsKey('op')) {
+      context.handle(_opMeta, op.isAcceptableOrUnknown(data['op']!, _opMeta));
+    } else if (isInserting) {
+      context.missing(_opMeta);
+    }
+    if (data.containsKey('data_json')) {
+      context.handle(
+        _dataJsonMeta,
+        dataJson.isAcceptableOrUnknown(data['data_json']!, _dataJsonMeta),
+      );
+    }
+    if (data.containsKey('selection_data_json')) {
+      context.handle(
+        _selectionDataJsonMeta,
+        selectionDataJson.isAcceptableOrUnknown(
+          data['selection_data_json']!,
+          _selectionDataJsonMeta,
+        ),
+      );
+    }
+    if (data.containsKey('change_id')) {
+      context.handle(
+        _changeIdMeta,
+        changeId.isAcceptableOrUnknown(data['change_id']!, _changeIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_changeIdMeta);
+    }
+    if (data.containsKey('device_id')) {
+      context.handle(
+        _deviceIdMeta,
+        deviceId.isAcceptableOrUnknown(data['device_id']!, _deviceIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_deviceIdMeta);
+    }
+    if (data.containsKey('client_created_at')) {
+      context.handle(
+        _clientCreatedAtMeta,
+        clientCreatedAt.isAcceptableOrUnknown(
+          data['client_created_at']!,
+          _clientCreatedAtMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_clientCreatedAtMeta);
+    }
+    if (data.containsKey('mutation_version')) {
+      context.handle(
+        _mutationVersionMeta,
+        mutationVersion.isAcceptableOrUnknown(
+          data['mutation_version']!,
+          _mutationVersionMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_mutationVersionMeta);
+    }
+    if (data.containsKey('source')) {
+      context.handle(
+        _sourceMeta,
+        source.isAcceptableOrUnknown(data['source']!, _sourceMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sourceMeta);
+    }
+    if (data.containsKey('source_scope')) {
+      context.handle(
+        _sourceScopeMeta,
+        sourceScope.isAcceptableOrUnknown(
+          data['source_scope']!,
+          _sourceScopeMeta,
+        ),
+      );
+    }
+    if (data.containsKey('lineage')) {
+      context.handle(
+        _lineageMeta,
+        lineage.isAcceptableOrUnknown(data['lineage']!, _lineageMeta),
+      );
+    }
+    if (data.containsKey('route_scope')) {
+      context.handle(
+        _routeScopeMeta,
+        routeScope.isAcceptableOrUnknown(data['route_scope']!, _routeScopeMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {table, recordId};
+  @override
+  TransportChangeHeadRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return TransportChangeHeadRow(
+      table: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}table_name'],
+      )!,
+      recordId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}record_id'],
+      )!,
+      op: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}op'],
+      )!,
+      dataJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}data_json'],
+      ),
+      selectionDataJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}selection_data_json'],
+      ),
+      changeId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}change_id'],
+      )!,
+      deviceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}device_id'],
+      )!,
+      clientCreatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}client_created_at'],
+      )!,
+      mutationVersion: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}mutation_version'],
+      )!,
+      source: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source'],
+      )!,
+      sourceScope: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_scope'],
+      ),
+      lineage: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}lineage'],
+      ),
+      routeScope: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}route_scope'],
+      ),
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $TransportChangeHeadRowsTable createAlias(String alias) {
+    return $TransportChangeHeadRowsTable(attachedDatabase, alias);
+  }
+}
+
+class TransportChangeHeadRow extends DataClass
+    implements Insertable<TransportChangeHeadRow> {
+  final String table;
+  final String recordId;
+  final String op;
+  final String? dataJson;
+  final String? selectionDataJson;
+  final String changeId;
+  final String deviceId;
+  final String clientCreatedAt;
+  final int mutationVersion;
+  final String source;
+  final String? sourceScope;
+  final String? lineage;
+  final String? routeScope;
+  final String updatedAt;
+  const TransportChangeHeadRow({
+    required this.table,
+    required this.recordId,
+    required this.op,
+    this.dataJson,
+    this.selectionDataJson,
+    required this.changeId,
+    required this.deviceId,
+    required this.clientCreatedAt,
+    required this.mutationVersion,
+    required this.source,
+    this.sourceScope,
+    this.lineage,
+    this.routeScope,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['table_name'] = Variable<String>(table);
+    map['record_id'] = Variable<String>(recordId);
+    map['op'] = Variable<String>(op);
+    if (!nullToAbsent || dataJson != null) {
+      map['data_json'] = Variable<String>(dataJson);
+    }
+    if (!nullToAbsent || selectionDataJson != null) {
+      map['selection_data_json'] = Variable<String>(selectionDataJson);
+    }
+    map['change_id'] = Variable<String>(changeId);
+    map['device_id'] = Variable<String>(deviceId);
+    map['client_created_at'] = Variable<String>(clientCreatedAt);
+    map['mutation_version'] = Variable<int>(mutationVersion);
+    map['source'] = Variable<String>(source);
+    if (!nullToAbsent || sourceScope != null) {
+      map['source_scope'] = Variable<String>(sourceScope);
+    }
+    if (!nullToAbsent || lineage != null) {
+      map['lineage'] = Variable<String>(lineage);
+    }
+    if (!nullToAbsent || routeScope != null) {
+      map['route_scope'] = Variable<String>(routeScope);
+    }
+    map['updated_at'] = Variable<String>(updatedAt);
+    return map;
+  }
+
+  TransportChangeHeadRowsCompanion toCompanion(bool nullToAbsent) {
+    return TransportChangeHeadRowsCompanion(
+      table: Value(table),
+      recordId: Value(recordId),
+      op: Value(op),
+      dataJson: dataJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(dataJson),
+      selectionDataJson: selectionDataJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(selectionDataJson),
+      changeId: Value(changeId),
+      deviceId: Value(deviceId),
+      clientCreatedAt: Value(clientCreatedAt),
+      mutationVersion: Value(mutationVersion),
+      source: Value(source),
+      sourceScope: sourceScope == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sourceScope),
+      lineage: lineage == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lineage),
+      routeScope: routeScope == null && nullToAbsent
+          ? const Value.absent()
+          : Value(routeScope),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory TransportChangeHeadRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return TransportChangeHeadRow(
+      table: serializer.fromJson<String>(json['table']),
+      recordId: serializer.fromJson<String>(json['recordId']),
+      op: serializer.fromJson<String>(json['op']),
+      dataJson: serializer.fromJson<String?>(json['dataJson']),
+      selectionDataJson: serializer.fromJson<String?>(
+        json['selectionDataJson'],
+      ),
+      changeId: serializer.fromJson<String>(json['changeId']),
+      deviceId: serializer.fromJson<String>(json['deviceId']),
+      clientCreatedAt: serializer.fromJson<String>(json['clientCreatedAt']),
+      mutationVersion: serializer.fromJson<int>(json['mutationVersion']),
+      source: serializer.fromJson<String>(json['source']),
+      sourceScope: serializer.fromJson<String?>(json['sourceScope']),
+      lineage: serializer.fromJson<String?>(json['lineage']),
+      routeScope: serializer.fromJson<String?>(json['routeScope']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'table': serializer.toJson<String>(table),
+      'recordId': serializer.toJson<String>(recordId),
+      'op': serializer.toJson<String>(op),
+      'dataJson': serializer.toJson<String?>(dataJson),
+      'selectionDataJson': serializer.toJson<String?>(selectionDataJson),
+      'changeId': serializer.toJson<String>(changeId),
+      'deviceId': serializer.toJson<String>(deviceId),
+      'clientCreatedAt': serializer.toJson<String>(clientCreatedAt),
+      'mutationVersion': serializer.toJson<int>(mutationVersion),
+      'source': serializer.toJson<String>(source),
+      'sourceScope': serializer.toJson<String?>(sourceScope),
+      'lineage': serializer.toJson<String?>(lineage),
+      'routeScope': serializer.toJson<String?>(routeScope),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+    };
+  }
+
+  TransportChangeHeadRow copyWith({
+    String? table,
+    String? recordId,
+    String? op,
+    Value<String?> dataJson = const Value.absent(),
+    Value<String?> selectionDataJson = const Value.absent(),
+    String? changeId,
+    String? deviceId,
+    String? clientCreatedAt,
+    int? mutationVersion,
+    String? source,
+    Value<String?> sourceScope = const Value.absent(),
+    Value<String?> lineage = const Value.absent(),
+    Value<String?> routeScope = const Value.absent(),
+    String? updatedAt,
+  }) => TransportChangeHeadRow(
+    table: table ?? this.table,
+    recordId: recordId ?? this.recordId,
+    op: op ?? this.op,
+    dataJson: dataJson.present ? dataJson.value : this.dataJson,
+    selectionDataJson: selectionDataJson.present
+        ? selectionDataJson.value
+        : this.selectionDataJson,
+    changeId: changeId ?? this.changeId,
+    deviceId: deviceId ?? this.deviceId,
+    clientCreatedAt: clientCreatedAt ?? this.clientCreatedAt,
+    mutationVersion: mutationVersion ?? this.mutationVersion,
+    source: source ?? this.source,
+    sourceScope: sourceScope.present ? sourceScope.value : this.sourceScope,
+    lineage: lineage.present ? lineage.value : this.lineage,
+    routeScope: routeScope.present ? routeScope.value : this.routeScope,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  TransportChangeHeadRow copyWithCompanion(
+    TransportChangeHeadRowsCompanion data,
+  ) {
+    return TransportChangeHeadRow(
+      table: data.table.present ? data.table.value : this.table,
+      recordId: data.recordId.present ? data.recordId.value : this.recordId,
+      op: data.op.present ? data.op.value : this.op,
+      dataJson: data.dataJson.present ? data.dataJson.value : this.dataJson,
+      selectionDataJson: data.selectionDataJson.present
+          ? data.selectionDataJson.value
+          : this.selectionDataJson,
+      changeId: data.changeId.present ? data.changeId.value : this.changeId,
+      deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
+      clientCreatedAt: data.clientCreatedAt.present
+          ? data.clientCreatedAt.value
+          : this.clientCreatedAt,
+      mutationVersion: data.mutationVersion.present
+          ? data.mutationVersion.value
+          : this.mutationVersion,
+      source: data.source.present ? data.source.value : this.source,
+      sourceScope: data.sourceScope.present
+          ? data.sourceScope.value
+          : this.sourceScope,
+      lineage: data.lineage.present ? data.lineage.value : this.lineage,
+      routeScope: data.routeScope.present
+          ? data.routeScope.value
+          : this.routeScope,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TransportChangeHeadRow(')
+          ..write('table: $table, ')
+          ..write('recordId: $recordId, ')
+          ..write('op: $op, ')
+          ..write('dataJson: $dataJson, ')
+          ..write('selectionDataJson: $selectionDataJson, ')
+          ..write('changeId: $changeId, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('clientCreatedAt: $clientCreatedAt, ')
+          ..write('mutationVersion: $mutationVersion, ')
+          ..write('source: $source, ')
+          ..write('sourceScope: $sourceScope, ')
+          ..write('lineage: $lineage, ')
+          ..write('routeScope: $routeScope, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    table,
+    recordId,
+    op,
+    dataJson,
+    selectionDataJson,
+    changeId,
+    deviceId,
+    clientCreatedAt,
+    mutationVersion,
+    source,
+    sourceScope,
+    lineage,
+    routeScope,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is TransportChangeHeadRow &&
+          other.table == this.table &&
+          other.recordId == this.recordId &&
+          other.op == this.op &&
+          other.dataJson == this.dataJson &&
+          other.selectionDataJson == this.selectionDataJson &&
+          other.changeId == this.changeId &&
+          other.deviceId == this.deviceId &&
+          other.clientCreatedAt == this.clientCreatedAt &&
+          other.mutationVersion == this.mutationVersion &&
+          other.source == this.source &&
+          other.sourceScope == this.sourceScope &&
+          other.lineage == this.lineage &&
+          other.routeScope == this.routeScope &&
+          other.updatedAt == this.updatedAt);
+}
+
+class TransportChangeHeadRowsCompanion
+    extends UpdateCompanion<TransportChangeHeadRow> {
+  final Value<String> table;
+  final Value<String> recordId;
+  final Value<String> op;
+  final Value<String?> dataJson;
+  final Value<String?> selectionDataJson;
+  final Value<String> changeId;
+  final Value<String> deviceId;
+  final Value<String> clientCreatedAt;
+  final Value<int> mutationVersion;
+  final Value<String> source;
+  final Value<String?> sourceScope;
+  final Value<String?> lineage;
+  final Value<String?> routeScope;
+  final Value<String> updatedAt;
+  final Value<int> rowid;
+  const TransportChangeHeadRowsCompanion({
+    this.table = const Value.absent(),
+    this.recordId = const Value.absent(),
+    this.op = const Value.absent(),
+    this.dataJson = const Value.absent(),
+    this.selectionDataJson = const Value.absent(),
+    this.changeId = const Value.absent(),
+    this.deviceId = const Value.absent(),
+    this.clientCreatedAt = const Value.absent(),
+    this.mutationVersion = const Value.absent(),
+    this.source = const Value.absent(),
+    this.sourceScope = const Value.absent(),
+    this.lineage = const Value.absent(),
+    this.routeScope = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  TransportChangeHeadRowsCompanion.insert({
+    required String table,
+    required String recordId,
+    required String op,
+    this.dataJson = const Value.absent(),
+    this.selectionDataJson = const Value.absent(),
+    required String changeId,
+    required String deviceId,
+    required String clientCreatedAt,
+    required int mutationVersion,
+    required String source,
+    this.sourceScope = const Value.absent(),
+    this.lineage = const Value.absent(),
+    this.routeScope = const Value.absent(),
+    required String updatedAt,
+    this.rowid = const Value.absent(),
+  }) : table = Value(table),
+       recordId = Value(recordId),
+       op = Value(op),
+       changeId = Value(changeId),
+       deviceId = Value(deviceId),
+       clientCreatedAt = Value(clientCreatedAt),
+       mutationVersion = Value(mutationVersion),
+       source = Value(source),
+       updatedAt = Value(updatedAt);
+  static Insertable<TransportChangeHeadRow> custom({
+    Expression<String>? table,
+    Expression<String>? recordId,
+    Expression<String>? op,
+    Expression<String>? dataJson,
+    Expression<String>? selectionDataJson,
+    Expression<String>? changeId,
+    Expression<String>? deviceId,
+    Expression<String>? clientCreatedAt,
+    Expression<int>? mutationVersion,
+    Expression<String>? source,
+    Expression<String>? sourceScope,
+    Expression<String>? lineage,
+    Expression<String>? routeScope,
+    Expression<String>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (table != null) 'table_name': table,
+      if (recordId != null) 'record_id': recordId,
+      if (op != null) 'op': op,
+      if (dataJson != null) 'data_json': dataJson,
+      if (selectionDataJson != null) 'selection_data_json': selectionDataJson,
+      if (changeId != null) 'change_id': changeId,
+      if (deviceId != null) 'device_id': deviceId,
+      if (clientCreatedAt != null) 'client_created_at': clientCreatedAt,
+      if (mutationVersion != null) 'mutation_version': mutationVersion,
+      if (source != null) 'source': source,
+      if (sourceScope != null) 'source_scope': sourceScope,
+      if (lineage != null) 'lineage': lineage,
+      if (routeScope != null) 'route_scope': routeScope,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  TransportChangeHeadRowsCompanion copyWith({
+    Value<String>? table,
+    Value<String>? recordId,
+    Value<String>? op,
+    Value<String?>? dataJson,
+    Value<String?>? selectionDataJson,
+    Value<String>? changeId,
+    Value<String>? deviceId,
+    Value<String>? clientCreatedAt,
+    Value<int>? mutationVersion,
+    Value<String>? source,
+    Value<String?>? sourceScope,
+    Value<String?>? lineage,
+    Value<String?>? routeScope,
+    Value<String>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return TransportChangeHeadRowsCompanion(
+      table: table ?? this.table,
+      recordId: recordId ?? this.recordId,
+      op: op ?? this.op,
+      dataJson: dataJson ?? this.dataJson,
+      selectionDataJson: selectionDataJson ?? this.selectionDataJson,
+      changeId: changeId ?? this.changeId,
+      deviceId: deviceId ?? this.deviceId,
+      clientCreatedAt: clientCreatedAt ?? this.clientCreatedAt,
+      mutationVersion: mutationVersion ?? this.mutationVersion,
+      source: source ?? this.source,
+      sourceScope: sourceScope ?? this.sourceScope,
+      lineage: lineage ?? this.lineage,
+      routeScope: routeScope ?? this.routeScope,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (table.present) {
+      map['table_name'] = Variable<String>(table.value);
+    }
+    if (recordId.present) {
+      map['record_id'] = Variable<String>(recordId.value);
+    }
+    if (op.present) {
+      map['op'] = Variable<String>(op.value);
+    }
+    if (dataJson.present) {
+      map['data_json'] = Variable<String>(dataJson.value);
+    }
+    if (selectionDataJson.present) {
+      map['selection_data_json'] = Variable<String>(selectionDataJson.value);
+    }
+    if (changeId.present) {
+      map['change_id'] = Variable<String>(changeId.value);
+    }
+    if (deviceId.present) {
+      map['device_id'] = Variable<String>(deviceId.value);
+    }
+    if (clientCreatedAt.present) {
+      map['client_created_at'] = Variable<String>(clientCreatedAt.value);
+    }
+    if (mutationVersion.present) {
+      map['mutation_version'] = Variable<int>(mutationVersion.value);
+    }
+    if (source.present) {
+      map['source'] = Variable<String>(source.value);
+    }
+    if (sourceScope.present) {
+      map['source_scope'] = Variable<String>(sourceScope.value);
+    }
+    if (lineage.present) {
+      map['lineage'] = Variable<String>(lineage.value);
+    }
+    if (routeScope.present) {
+      map['route_scope'] = Variable<String>(routeScope.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TransportChangeHeadRowsCompanion(')
+          ..write('table: $table, ')
+          ..write('recordId: $recordId, ')
+          ..write('op: $op, ')
+          ..write('dataJson: $dataJson, ')
+          ..write('selectionDataJson: $selectionDataJson, ')
+          ..write('changeId: $changeId, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('clientCreatedAt: $clientCreatedAt, ')
+          ..write('mutationVersion: $mutationVersion, ')
+          ..write('source: $source, ')
+          ..write('sourceScope: $sourceScope, ')
+          ..write('lineage: $lineage, ')
+          ..write('routeScope: $routeScope, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $TransportChangeReceiptRowsTable extends TransportChangeReceiptRows
+    with
+        TableInfo<$TransportChangeReceiptRowsTable, TransportChangeReceiptRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $TransportChangeReceiptRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _changeIdMeta = const VerificationMeta(
+    'changeId',
+  );
+  @override
+  late final GeneratedColumn<String> changeId = GeneratedColumn<String>(
+    'change_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _payloadHashMeta = const VerificationMeta(
+    'payloadHash',
+  );
+  @override
+  late final GeneratedColumn<String> payloadHash = GeneratedColumn<String>(
+    'payload_hash',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sourceMeta = const VerificationMeta('source');
+  @override
+  late final GeneratedColumn<String> source = GeneratedColumn<String>(
+    'source',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sourceScopeMeta = const VerificationMeta(
+    'sourceScope',
+  );
+  @override
+  late final GeneratedColumn<String> sourceScope = GeneratedColumn<String>(
+    'source_scope',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _lineageMeta = const VerificationMeta(
+    'lineage',
+  );
+  @override
+  late final GeneratedColumn<String> lineage = GeneratedColumn<String>(
+    'lineage',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _receivedAtMeta = const VerificationMeta(
+    'receivedAt',
+  );
+  @override
+  late final GeneratedColumn<String> receivedAt = GeneratedColumn<String>(
+    'received_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    changeId,
+    payloadHash,
+    source,
+    sourceScope,
+    lineage,
+    receivedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'transport_change_receipts';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<TransportChangeReceiptRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('change_id')) {
+      context.handle(
+        _changeIdMeta,
+        changeId.isAcceptableOrUnknown(data['change_id']!, _changeIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_changeIdMeta);
+    }
+    if (data.containsKey('payload_hash')) {
+      context.handle(
+        _payloadHashMeta,
+        payloadHash.isAcceptableOrUnknown(
+          data['payload_hash']!,
+          _payloadHashMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_payloadHashMeta);
+    }
+    if (data.containsKey('source')) {
+      context.handle(
+        _sourceMeta,
+        source.isAcceptableOrUnknown(data['source']!, _sourceMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sourceMeta);
+    }
+    if (data.containsKey('source_scope')) {
+      context.handle(
+        _sourceScopeMeta,
+        sourceScope.isAcceptableOrUnknown(
+          data['source_scope']!,
+          _sourceScopeMeta,
+        ),
+      );
+    }
+    if (data.containsKey('lineage')) {
+      context.handle(
+        _lineageMeta,
+        lineage.isAcceptableOrUnknown(data['lineage']!, _lineageMeta),
+      );
+    }
+    if (data.containsKey('received_at')) {
+      context.handle(
+        _receivedAtMeta,
+        receivedAt.isAcceptableOrUnknown(data['received_at']!, _receivedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_receivedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {changeId};
+  @override
+  TransportChangeReceiptRow map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return TransportChangeReceiptRow(
+      changeId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}change_id'],
+      )!,
+      payloadHash: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}payload_hash'],
+      )!,
+      source: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source'],
+      )!,
+      sourceScope: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_scope'],
+      ),
+      lineage: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}lineage'],
+      ),
+      receivedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}received_at'],
+      )!,
+    );
+  }
+
+  @override
+  $TransportChangeReceiptRowsTable createAlias(String alias) {
+    return $TransportChangeReceiptRowsTable(attachedDatabase, alias);
+  }
+}
+
+class TransportChangeReceiptRow extends DataClass
+    implements Insertable<TransportChangeReceiptRow> {
+  final String changeId;
+  final String payloadHash;
+  final String source;
+  final String? sourceScope;
+  final String? lineage;
+  final String receivedAt;
+  const TransportChangeReceiptRow({
+    required this.changeId,
+    required this.payloadHash,
+    required this.source,
+    this.sourceScope,
+    this.lineage,
+    required this.receivedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['change_id'] = Variable<String>(changeId);
+    map['payload_hash'] = Variable<String>(payloadHash);
+    map['source'] = Variable<String>(source);
+    if (!nullToAbsent || sourceScope != null) {
+      map['source_scope'] = Variable<String>(sourceScope);
+    }
+    if (!nullToAbsent || lineage != null) {
+      map['lineage'] = Variable<String>(lineage);
+    }
+    map['received_at'] = Variable<String>(receivedAt);
+    return map;
+  }
+
+  TransportChangeReceiptRowsCompanion toCompanion(bool nullToAbsent) {
+    return TransportChangeReceiptRowsCompanion(
+      changeId: Value(changeId),
+      payloadHash: Value(payloadHash),
+      source: Value(source),
+      sourceScope: sourceScope == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sourceScope),
+      lineage: lineage == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lineage),
+      receivedAt: Value(receivedAt),
+    );
+  }
+
+  factory TransportChangeReceiptRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return TransportChangeReceiptRow(
+      changeId: serializer.fromJson<String>(json['changeId']),
+      payloadHash: serializer.fromJson<String>(json['payloadHash']),
+      source: serializer.fromJson<String>(json['source']),
+      sourceScope: serializer.fromJson<String?>(json['sourceScope']),
+      lineage: serializer.fromJson<String?>(json['lineage']),
+      receivedAt: serializer.fromJson<String>(json['receivedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'changeId': serializer.toJson<String>(changeId),
+      'payloadHash': serializer.toJson<String>(payloadHash),
+      'source': serializer.toJson<String>(source),
+      'sourceScope': serializer.toJson<String?>(sourceScope),
+      'lineage': serializer.toJson<String?>(lineage),
+      'receivedAt': serializer.toJson<String>(receivedAt),
+    };
+  }
+
+  TransportChangeReceiptRow copyWith({
+    String? changeId,
+    String? payloadHash,
+    String? source,
+    Value<String?> sourceScope = const Value.absent(),
+    Value<String?> lineage = const Value.absent(),
+    String? receivedAt,
+  }) => TransportChangeReceiptRow(
+    changeId: changeId ?? this.changeId,
+    payloadHash: payloadHash ?? this.payloadHash,
+    source: source ?? this.source,
+    sourceScope: sourceScope.present ? sourceScope.value : this.sourceScope,
+    lineage: lineage.present ? lineage.value : this.lineage,
+    receivedAt: receivedAt ?? this.receivedAt,
+  );
+  TransportChangeReceiptRow copyWithCompanion(
+    TransportChangeReceiptRowsCompanion data,
+  ) {
+    return TransportChangeReceiptRow(
+      changeId: data.changeId.present ? data.changeId.value : this.changeId,
+      payloadHash: data.payloadHash.present
+          ? data.payloadHash.value
+          : this.payloadHash,
+      source: data.source.present ? data.source.value : this.source,
+      sourceScope: data.sourceScope.present
+          ? data.sourceScope.value
+          : this.sourceScope,
+      lineage: data.lineage.present ? data.lineage.value : this.lineage,
+      receivedAt: data.receivedAt.present
+          ? data.receivedAt.value
+          : this.receivedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TransportChangeReceiptRow(')
+          ..write('changeId: $changeId, ')
+          ..write('payloadHash: $payloadHash, ')
+          ..write('source: $source, ')
+          ..write('sourceScope: $sourceScope, ')
+          ..write('lineage: $lineage, ')
+          ..write('receivedAt: $receivedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    changeId,
+    payloadHash,
+    source,
+    sourceScope,
+    lineage,
+    receivedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is TransportChangeReceiptRow &&
+          other.changeId == this.changeId &&
+          other.payloadHash == this.payloadHash &&
+          other.source == this.source &&
+          other.sourceScope == this.sourceScope &&
+          other.lineage == this.lineage &&
+          other.receivedAt == this.receivedAt);
+}
+
+class TransportChangeReceiptRowsCompanion
+    extends UpdateCompanion<TransportChangeReceiptRow> {
+  final Value<String> changeId;
+  final Value<String> payloadHash;
+  final Value<String> source;
+  final Value<String?> sourceScope;
+  final Value<String?> lineage;
+  final Value<String> receivedAt;
+  final Value<int> rowid;
+  const TransportChangeReceiptRowsCompanion({
+    this.changeId = const Value.absent(),
+    this.payloadHash = const Value.absent(),
+    this.source = const Value.absent(),
+    this.sourceScope = const Value.absent(),
+    this.lineage = const Value.absent(),
+    this.receivedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  TransportChangeReceiptRowsCompanion.insert({
+    required String changeId,
+    required String payloadHash,
+    required String source,
+    this.sourceScope = const Value.absent(),
+    this.lineage = const Value.absent(),
+    required String receivedAt,
+    this.rowid = const Value.absent(),
+  }) : changeId = Value(changeId),
+       payloadHash = Value(payloadHash),
+       source = Value(source),
+       receivedAt = Value(receivedAt);
+  static Insertable<TransportChangeReceiptRow> custom({
+    Expression<String>? changeId,
+    Expression<String>? payloadHash,
+    Expression<String>? source,
+    Expression<String>? sourceScope,
+    Expression<String>? lineage,
+    Expression<String>? receivedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (changeId != null) 'change_id': changeId,
+      if (payloadHash != null) 'payload_hash': payloadHash,
+      if (source != null) 'source': source,
+      if (sourceScope != null) 'source_scope': sourceScope,
+      if (lineage != null) 'lineage': lineage,
+      if (receivedAt != null) 'received_at': receivedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  TransportChangeReceiptRowsCompanion copyWith({
+    Value<String>? changeId,
+    Value<String>? payloadHash,
+    Value<String>? source,
+    Value<String?>? sourceScope,
+    Value<String?>? lineage,
+    Value<String>? receivedAt,
+    Value<int>? rowid,
+  }) {
+    return TransportChangeReceiptRowsCompanion(
+      changeId: changeId ?? this.changeId,
+      payloadHash: payloadHash ?? this.payloadHash,
+      source: source ?? this.source,
+      sourceScope: sourceScope ?? this.sourceScope,
+      lineage: lineage ?? this.lineage,
+      receivedAt: receivedAt ?? this.receivedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (changeId.present) {
+      map['change_id'] = Variable<String>(changeId.value);
+    }
+    if (payloadHash.present) {
+      map['payload_hash'] = Variable<String>(payloadHash.value);
+    }
+    if (source.present) {
+      map['source'] = Variable<String>(source.value);
+    }
+    if (sourceScope.present) {
+      map['source_scope'] = Variable<String>(sourceScope.value);
+    }
+    if (lineage.present) {
+      map['lineage'] = Variable<String>(lineage.value);
+    }
+    if (receivedAt.present) {
+      map['received_at'] = Variable<String>(receivedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TransportChangeReceiptRowsCompanion(')
+          ..write('changeId: $changeId, ')
+          ..write('payloadHash: $payloadHash, ')
+          ..write('source: $source, ')
+          ..write('sourceScope: $sourceScope, ')
+          ..write('lineage: $lineage, ')
+          ..write('receivedAt: $receivedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $TransportPeerAckRowsTable extends TransportPeerAckRows
+    with TableInfo<$TransportPeerAckRowsTable, TransportPeerAckRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $TransportPeerAckRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _peerDeviceIdMeta = const VerificationMeta(
+    'peerDeviceId',
+  );
+  @override
+  late final GeneratedColumn<String> peerDeviceId = GeneratedColumn<String>(
+    'peer_device_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _changeIdMeta = const VerificationMeta(
+    'changeId',
+  );
+  @override
+  late final GeneratedColumn<String> changeId = GeneratedColumn<String>(
+    'change_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _mutationVersionMeta = const VerificationMeta(
+    'mutationVersion',
+  );
+  @override
+  late final GeneratedColumn<int> mutationVersion = GeneratedColumn<int>(
+    'mutation_version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _acknowledgedAtMeta = const VerificationMeta(
+    'acknowledgedAt',
+  );
+  @override
+  late final GeneratedColumn<String> acknowledgedAt = GeneratedColumn<String>(
+    'acknowledged_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    peerDeviceId,
+    changeId,
+    mutationVersion,
+    acknowledgedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'transport_peer_acks';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<TransportPeerAckRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('peer_device_id')) {
+      context.handle(
+        _peerDeviceIdMeta,
+        peerDeviceId.isAcceptableOrUnknown(
+          data['peer_device_id']!,
+          _peerDeviceIdMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_peerDeviceIdMeta);
+    }
+    if (data.containsKey('change_id')) {
+      context.handle(
+        _changeIdMeta,
+        changeId.isAcceptableOrUnknown(data['change_id']!, _changeIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_changeIdMeta);
+    }
+    if (data.containsKey('mutation_version')) {
+      context.handle(
+        _mutationVersionMeta,
+        mutationVersion.isAcceptableOrUnknown(
+          data['mutation_version']!,
+          _mutationVersionMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_mutationVersionMeta);
+    }
+    if (data.containsKey('acknowledged_at')) {
+      context.handle(
+        _acknowledgedAtMeta,
+        acknowledgedAt.isAcceptableOrUnknown(
+          data['acknowledged_at']!,
+          _acknowledgedAtMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_acknowledgedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {peerDeviceId, changeId};
+  @override
+  TransportPeerAckRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return TransportPeerAckRow(
+      peerDeviceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}peer_device_id'],
+      )!,
+      changeId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}change_id'],
+      )!,
+      mutationVersion: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}mutation_version'],
+      )!,
+      acknowledgedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}acknowledged_at'],
+      )!,
+    );
+  }
+
+  @override
+  $TransportPeerAckRowsTable createAlias(String alias) {
+    return $TransportPeerAckRowsTable(attachedDatabase, alias);
+  }
+}
+
+class TransportPeerAckRow extends DataClass
+    implements Insertable<TransportPeerAckRow> {
+  final String peerDeviceId;
+  final String changeId;
+  final int mutationVersion;
+  final String acknowledgedAt;
+  const TransportPeerAckRow({
+    required this.peerDeviceId,
+    required this.changeId,
+    required this.mutationVersion,
+    required this.acknowledgedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['peer_device_id'] = Variable<String>(peerDeviceId);
+    map['change_id'] = Variable<String>(changeId);
+    map['mutation_version'] = Variable<int>(mutationVersion);
+    map['acknowledged_at'] = Variable<String>(acknowledgedAt);
+    return map;
+  }
+
+  TransportPeerAckRowsCompanion toCompanion(bool nullToAbsent) {
+    return TransportPeerAckRowsCompanion(
+      peerDeviceId: Value(peerDeviceId),
+      changeId: Value(changeId),
+      mutationVersion: Value(mutationVersion),
+      acknowledgedAt: Value(acknowledgedAt),
+    );
+  }
+
+  factory TransportPeerAckRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return TransportPeerAckRow(
+      peerDeviceId: serializer.fromJson<String>(json['peerDeviceId']),
+      changeId: serializer.fromJson<String>(json['changeId']),
+      mutationVersion: serializer.fromJson<int>(json['mutationVersion']),
+      acknowledgedAt: serializer.fromJson<String>(json['acknowledgedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'peerDeviceId': serializer.toJson<String>(peerDeviceId),
+      'changeId': serializer.toJson<String>(changeId),
+      'mutationVersion': serializer.toJson<int>(mutationVersion),
+      'acknowledgedAt': serializer.toJson<String>(acknowledgedAt),
+    };
+  }
+
+  TransportPeerAckRow copyWith({
+    String? peerDeviceId,
+    String? changeId,
+    int? mutationVersion,
+    String? acknowledgedAt,
+  }) => TransportPeerAckRow(
+    peerDeviceId: peerDeviceId ?? this.peerDeviceId,
+    changeId: changeId ?? this.changeId,
+    mutationVersion: mutationVersion ?? this.mutationVersion,
+    acknowledgedAt: acknowledgedAt ?? this.acknowledgedAt,
+  );
+  TransportPeerAckRow copyWithCompanion(TransportPeerAckRowsCompanion data) {
+    return TransportPeerAckRow(
+      peerDeviceId: data.peerDeviceId.present
+          ? data.peerDeviceId.value
+          : this.peerDeviceId,
+      changeId: data.changeId.present ? data.changeId.value : this.changeId,
+      mutationVersion: data.mutationVersion.present
+          ? data.mutationVersion.value
+          : this.mutationVersion,
+      acknowledgedAt: data.acknowledgedAt.present
+          ? data.acknowledgedAt.value
+          : this.acknowledgedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TransportPeerAckRow(')
+          ..write('peerDeviceId: $peerDeviceId, ')
+          ..write('changeId: $changeId, ')
+          ..write('mutationVersion: $mutationVersion, ')
+          ..write('acknowledgedAt: $acknowledgedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(peerDeviceId, changeId, mutationVersion, acknowledgedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is TransportPeerAckRow &&
+          other.peerDeviceId == this.peerDeviceId &&
+          other.changeId == this.changeId &&
+          other.mutationVersion == this.mutationVersion &&
+          other.acknowledgedAt == this.acknowledgedAt);
+}
+
+class TransportPeerAckRowsCompanion
+    extends UpdateCompanion<TransportPeerAckRow> {
+  final Value<String> peerDeviceId;
+  final Value<String> changeId;
+  final Value<int> mutationVersion;
+  final Value<String> acknowledgedAt;
+  final Value<int> rowid;
+  const TransportPeerAckRowsCompanion({
+    this.peerDeviceId = const Value.absent(),
+    this.changeId = const Value.absent(),
+    this.mutationVersion = const Value.absent(),
+    this.acknowledgedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  TransportPeerAckRowsCompanion.insert({
+    required String peerDeviceId,
+    required String changeId,
+    required int mutationVersion,
+    required String acknowledgedAt,
+    this.rowid = const Value.absent(),
+  }) : peerDeviceId = Value(peerDeviceId),
+       changeId = Value(changeId),
+       mutationVersion = Value(mutationVersion),
+       acknowledgedAt = Value(acknowledgedAt);
+  static Insertable<TransportPeerAckRow> custom({
+    Expression<String>? peerDeviceId,
+    Expression<String>? changeId,
+    Expression<int>? mutationVersion,
+    Expression<String>? acknowledgedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (peerDeviceId != null) 'peer_device_id': peerDeviceId,
+      if (changeId != null) 'change_id': changeId,
+      if (mutationVersion != null) 'mutation_version': mutationVersion,
+      if (acknowledgedAt != null) 'acknowledged_at': acknowledgedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  TransportPeerAckRowsCompanion copyWith({
+    Value<String>? peerDeviceId,
+    Value<String>? changeId,
+    Value<int>? mutationVersion,
+    Value<String>? acknowledgedAt,
+    Value<int>? rowid,
+  }) {
+    return TransportPeerAckRowsCompanion(
+      peerDeviceId: peerDeviceId ?? this.peerDeviceId,
+      changeId: changeId ?? this.changeId,
+      mutationVersion: mutationVersion ?? this.mutationVersion,
+      acknowledgedAt: acknowledgedAt ?? this.acknowledgedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (peerDeviceId.present) {
+      map['peer_device_id'] = Variable<String>(peerDeviceId.value);
+    }
+    if (changeId.present) {
+      map['change_id'] = Variable<String>(changeId.value);
+    }
+    if (mutationVersion.present) {
+      map['mutation_version'] = Variable<int>(mutationVersion.value);
+    }
+    if (acknowledgedAt.present) {
+      map['acknowledged_at'] = Variable<String>(acknowledgedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TransportPeerAckRowsCompanion(')
+          ..write('peerDeviceId: $peerDeviceId, ')
+          ..write('changeId: $changeId, ')
+          ..write('mutationVersion: $mutationVersion, ')
+          ..write('acknowledgedAt: $acknowledgedAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -19488,6 +21297,12 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
       $SyncScopeBaselineRowsTable(this);
   late final $SyncAppliedChangeRowsTable syncAppliedChangeRows =
       $SyncAppliedChangeRowsTable(this);
+  late final $TransportChangeHeadRowsTable transportChangeHeadRows =
+      $TransportChangeHeadRowsTable(this);
+  late final $TransportChangeReceiptRowsTable transportChangeReceiptRows =
+      $TransportChangeReceiptRowsTable(this);
+  late final $TransportPeerAckRowsTable transportPeerAckRows =
+      $TransportPeerAckRowsTable(this);
   late final $CloudIndexStateRowsTable cloudIndexStateRows =
       $CloudIndexStateRowsTable(this);
   late final $CloudIndexObjectRowsTable cloudIndexObjectRows =
@@ -19516,6 +21331,14 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
   late final Index idxSyncConflictsScopeTableRecord = Index(
     'idx_sync_conflicts_scope_table_record',
     'CREATE INDEX idx_sync_conflicts_scope_table_record ON sync_conflicts (scope, table_name, record_id)',
+  );
+  late final Index idxTransportChangeHeadsChange = Index(
+    'idx_transport_change_heads_change',
+    'CREATE UNIQUE INDEX idx_transport_change_heads_change ON transport_change_heads (change_id)',
+  );
+  late final Index idxTransportPeerAcksChange = Index(
+    'idx_transport_peer_acks_change',
+    'CREATE INDEX idx_transport_peer_acks_change ON transport_peer_acks (change_id)',
   );
   late final Index idxTurnsRunIndex = Index(
     'idx_turns_run_index',
@@ -19568,6 +21391,9 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
     syncPolicyRows,
     syncScopeBaselineRows,
     syncAppliedChangeRows,
+    transportChangeHeadRows,
+    transportChangeReceiptRows,
+    transportPeerAckRows,
     cloudIndexStateRows,
     cloudIndexObjectRows,
     cloudIndexCategoryStatRows,
@@ -19582,6 +21408,8 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
     idxSyncOutboxScopeUpdatedTableRecord,
     idxSyncOutboxScopeChangeMutation,
     idxSyncConflictsScopeTableRecord,
+    idxTransportChangeHeadsChange,
+    idxTransportPeerAcksChange,
     idxTurnsRunIndex,
     idxItemsTurnIndex,
     idxToolCallsItem,
@@ -26385,6 +28213,10 @@ typedef $$SyncConflictRowsTableCreateCompanionBuilder =
       Value<String?> localDataJson,
       required String localChangeId,
       required int localMutationVersion,
+      Value<String> source,
+      Value<String?> sourceScope,
+      Value<String?> lineage,
+      Value<String> payloadHash,
       Value<int> rowid,
     });
 typedef $$SyncConflictRowsTableUpdateCompanionBuilder =
@@ -26403,6 +28235,10 @@ typedef $$SyncConflictRowsTableUpdateCompanionBuilder =
       Value<String?> localDataJson,
       Value<String> localChangeId,
       Value<int> localMutationVersion,
+      Value<String> source,
+      Value<String?> sourceScope,
+      Value<String?> lineage,
+      Value<String> payloadHash,
       Value<int> rowid,
     });
 
@@ -26482,6 +28318,26 @@ class $$SyncConflictRowsTableFilterComposer
 
   ColumnFilters<int> get localMutationVersion => $composableBuilder(
     column: $table.localMutationVersion,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get source => $composableBuilder(
+    column: $table.source,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourceScope => $composableBuilder(
+    column: $table.sourceScope,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lineage => $composableBuilder(
+    column: $table.lineage,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get payloadHash => $composableBuilder(
+    column: $table.payloadHash,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -26564,6 +28420,26 @@ class $$SyncConflictRowsTableOrderingComposer
     column: $table.localMutationVersion,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get source => $composableBuilder(
+    column: $table.source,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sourceScope => $composableBuilder(
+    column: $table.sourceScope,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lineage => $composableBuilder(
+    column: $table.lineage,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get payloadHash => $composableBuilder(
+    column: $table.payloadHash,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$SyncConflictRowsTableAnnotationComposer
@@ -26624,6 +28500,22 @@ class $$SyncConflictRowsTableAnnotationComposer
     column: $table.localMutationVersion,
     builder: (column) => column,
   );
+
+  GeneratedColumn<String> get source =>
+      $composableBuilder(column: $table.source, builder: (column) => column);
+
+  GeneratedColumn<String> get sourceScope => $composableBuilder(
+    column: $table.sourceScope,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get lineage =>
+      $composableBuilder(column: $table.lineage, builder: (column) => column);
+
+  GeneratedColumn<String> get payloadHash => $composableBuilder(
+    column: $table.payloadHash,
+    builder: (column) => column,
+  );
 }
 
 class $$SyncConflictRowsTableTableManager
@@ -26677,6 +28569,10 @@ class $$SyncConflictRowsTableTableManager
                 Value<String?> localDataJson = const Value.absent(),
                 Value<String> localChangeId = const Value.absent(),
                 Value<int> localMutationVersion = const Value.absent(),
+                Value<String> source = const Value.absent(),
+                Value<String?> sourceScope = const Value.absent(),
+                Value<String?> lineage = const Value.absent(),
+                Value<String> payloadHash = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => SyncConflictRowsCompanion(
                 scope: scope,
@@ -26693,6 +28589,10 @@ class $$SyncConflictRowsTableTableManager
                 localDataJson: localDataJson,
                 localChangeId: localChangeId,
                 localMutationVersion: localMutationVersion,
+                source: source,
+                sourceScope: sourceScope,
+                lineage: lineage,
+                payloadHash: payloadHash,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -26711,6 +28611,10 @@ class $$SyncConflictRowsTableTableManager
                 Value<String?> localDataJson = const Value.absent(),
                 required String localChangeId,
                 required int localMutationVersion,
+                Value<String> source = const Value.absent(),
+                Value<String?> sourceScope = const Value.absent(),
+                Value<String?> lineage = const Value.absent(),
+                Value<String> payloadHash = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => SyncConflictRowsCompanion.insert(
                 scope: scope,
@@ -26727,6 +28631,10 @@ class $$SyncConflictRowsTableTableManager
                 localDataJson: localDataJson,
                 localChangeId: localChangeId,
                 localMutationVersion: localMutationVersion,
+                source: source,
+                sourceScope: sourceScope,
+                lineage: lineage,
+                payloadHash: payloadHash,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -27643,6 +29551,856 @@ typedef $$SyncAppliedChangeRowsTableProcessedTableManager =
         >,
       ),
       SyncAppliedChangeRow,
+      PrefetchHooks Function()
+    >;
+typedef $$TransportChangeHeadRowsTableCreateCompanionBuilder =
+    TransportChangeHeadRowsCompanion Function({
+      required String table,
+      required String recordId,
+      required String op,
+      Value<String?> dataJson,
+      Value<String?> selectionDataJson,
+      required String changeId,
+      required String deviceId,
+      required String clientCreatedAt,
+      required int mutationVersion,
+      required String source,
+      Value<String?> sourceScope,
+      Value<String?> lineage,
+      Value<String?> routeScope,
+      required String updatedAt,
+      Value<int> rowid,
+    });
+typedef $$TransportChangeHeadRowsTableUpdateCompanionBuilder =
+    TransportChangeHeadRowsCompanion Function({
+      Value<String> table,
+      Value<String> recordId,
+      Value<String> op,
+      Value<String?> dataJson,
+      Value<String?> selectionDataJson,
+      Value<String> changeId,
+      Value<String> deviceId,
+      Value<String> clientCreatedAt,
+      Value<int> mutationVersion,
+      Value<String> source,
+      Value<String?> sourceScope,
+      Value<String?> lineage,
+      Value<String?> routeScope,
+      Value<String> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$TransportChangeHeadRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $TransportChangeHeadRowsTable> {
+  $$TransportChangeHeadRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get table => $composableBuilder(
+    column: $table.table,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get recordId => $composableBuilder(
+    column: $table.recordId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get op => $composableBuilder(
+    column: $table.op,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get dataJson => $composableBuilder(
+    column: $table.dataJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get selectionDataJson => $composableBuilder(
+    column: $table.selectionDataJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get changeId => $composableBuilder(
+    column: $table.changeId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get clientCreatedAt => $composableBuilder(
+    column: $table.clientCreatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get mutationVersion => $composableBuilder(
+    column: $table.mutationVersion,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get source => $composableBuilder(
+    column: $table.source,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourceScope => $composableBuilder(
+    column: $table.sourceScope,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lineage => $composableBuilder(
+    column: $table.lineage,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get routeScope => $composableBuilder(
+    column: $table.routeScope,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$TransportChangeHeadRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $TransportChangeHeadRowsTable> {
+  $$TransportChangeHeadRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get table => $composableBuilder(
+    column: $table.table,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get recordId => $composableBuilder(
+    column: $table.recordId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get op => $composableBuilder(
+    column: $table.op,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get dataJson => $composableBuilder(
+    column: $table.dataJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get selectionDataJson => $composableBuilder(
+    column: $table.selectionDataJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get changeId => $composableBuilder(
+    column: $table.changeId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get clientCreatedAt => $composableBuilder(
+    column: $table.clientCreatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get mutationVersion => $composableBuilder(
+    column: $table.mutationVersion,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get source => $composableBuilder(
+    column: $table.source,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sourceScope => $composableBuilder(
+    column: $table.sourceScope,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lineage => $composableBuilder(
+    column: $table.lineage,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get routeScope => $composableBuilder(
+    column: $table.routeScope,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$TransportChangeHeadRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $TransportChangeHeadRowsTable> {
+  $$TransportChangeHeadRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get table =>
+      $composableBuilder(column: $table.table, builder: (column) => column);
+
+  GeneratedColumn<String> get recordId =>
+      $composableBuilder(column: $table.recordId, builder: (column) => column);
+
+  GeneratedColumn<String> get op =>
+      $composableBuilder(column: $table.op, builder: (column) => column);
+
+  GeneratedColumn<String> get dataJson =>
+      $composableBuilder(column: $table.dataJson, builder: (column) => column);
+
+  GeneratedColumn<String> get selectionDataJson => $composableBuilder(
+    column: $table.selectionDataJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get changeId =>
+      $composableBuilder(column: $table.changeId, builder: (column) => column);
+
+  GeneratedColumn<String> get deviceId =>
+      $composableBuilder(column: $table.deviceId, builder: (column) => column);
+
+  GeneratedColumn<String> get clientCreatedAt => $composableBuilder(
+    column: $table.clientCreatedAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get mutationVersion => $composableBuilder(
+    column: $table.mutationVersion,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get source =>
+      $composableBuilder(column: $table.source, builder: (column) => column);
+
+  GeneratedColumn<String> get sourceScope => $composableBuilder(
+    column: $table.sourceScope,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get lineage =>
+      $composableBuilder(column: $table.lineage, builder: (column) => column);
+
+  GeneratedColumn<String> get routeScope => $composableBuilder(
+    column: $table.routeScope,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$TransportChangeHeadRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $TransportChangeHeadRowsTable,
+          TransportChangeHeadRow,
+          $$TransportChangeHeadRowsTableFilterComposer,
+          $$TransportChangeHeadRowsTableOrderingComposer,
+          $$TransportChangeHeadRowsTableAnnotationComposer,
+          $$TransportChangeHeadRowsTableCreateCompanionBuilder,
+          $$TransportChangeHeadRowsTableUpdateCompanionBuilder,
+          (
+            TransportChangeHeadRow,
+            BaseReferences<
+              _$StorageV2DriftDatabase,
+              $TransportChangeHeadRowsTable,
+              TransportChangeHeadRow
+            >,
+          ),
+          TransportChangeHeadRow,
+          PrefetchHooks Function()
+        > {
+  $$TransportChangeHeadRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $TransportChangeHeadRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$TransportChangeHeadRowsTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$TransportChangeHeadRowsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$TransportChangeHeadRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> table = const Value.absent(),
+                Value<String> recordId = const Value.absent(),
+                Value<String> op = const Value.absent(),
+                Value<String?> dataJson = const Value.absent(),
+                Value<String?> selectionDataJson = const Value.absent(),
+                Value<String> changeId = const Value.absent(),
+                Value<String> deviceId = const Value.absent(),
+                Value<String> clientCreatedAt = const Value.absent(),
+                Value<int> mutationVersion = const Value.absent(),
+                Value<String> source = const Value.absent(),
+                Value<String?> sourceScope = const Value.absent(),
+                Value<String?> lineage = const Value.absent(),
+                Value<String?> routeScope = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => TransportChangeHeadRowsCompanion(
+                table: table,
+                recordId: recordId,
+                op: op,
+                dataJson: dataJson,
+                selectionDataJson: selectionDataJson,
+                changeId: changeId,
+                deviceId: deviceId,
+                clientCreatedAt: clientCreatedAt,
+                mutationVersion: mutationVersion,
+                source: source,
+                sourceScope: sourceScope,
+                lineage: lineage,
+                routeScope: routeScope,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String table,
+                required String recordId,
+                required String op,
+                Value<String?> dataJson = const Value.absent(),
+                Value<String?> selectionDataJson = const Value.absent(),
+                required String changeId,
+                required String deviceId,
+                required String clientCreatedAt,
+                required int mutationVersion,
+                required String source,
+                Value<String?> sourceScope = const Value.absent(),
+                Value<String?> lineage = const Value.absent(),
+                Value<String?> routeScope = const Value.absent(),
+                required String updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => TransportChangeHeadRowsCompanion.insert(
+                table: table,
+                recordId: recordId,
+                op: op,
+                dataJson: dataJson,
+                selectionDataJson: selectionDataJson,
+                changeId: changeId,
+                deviceId: deviceId,
+                clientCreatedAt: clientCreatedAt,
+                mutationVersion: mutationVersion,
+                source: source,
+                sourceScope: sourceScope,
+                lineage: lineage,
+                routeScope: routeScope,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$TransportChangeHeadRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $TransportChangeHeadRowsTable,
+      TransportChangeHeadRow,
+      $$TransportChangeHeadRowsTableFilterComposer,
+      $$TransportChangeHeadRowsTableOrderingComposer,
+      $$TransportChangeHeadRowsTableAnnotationComposer,
+      $$TransportChangeHeadRowsTableCreateCompanionBuilder,
+      $$TransportChangeHeadRowsTableUpdateCompanionBuilder,
+      (
+        TransportChangeHeadRow,
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $TransportChangeHeadRowsTable,
+          TransportChangeHeadRow
+        >,
+      ),
+      TransportChangeHeadRow,
+      PrefetchHooks Function()
+    >;
+typedef $$TransportChangeReceiptRowsTableCreateCompanionBuilder =
+    TransportChangeReceiptRowsCompanion Function({
+      required String changeId,
+      required String payloadHash,
+      required String source,
+      Value<String?> sourceScope,
+      Value<String?> lineage,
+      required String receivedAt,
+      Value<int> rowid,
+    });
+typedef $$TransportChangeReceiptRowsTableUpdateCompanionBuilder =
+    TransportChangeReceiptRowsCompanion Function({
+      Value<String> changeId,
+      Value<String> payloadHash,
+      Value<String> source,
+      Value<String?> sourceScope,
+      Value<String?> lineage,
+      Value<String> receivedAt,
+      Value<int> rowid,
+    });
+
+class $$TransportChangeReceiptRowsTableFilterComposer
+    extends
+        Composer<_$StorageV2DriftDatabase, $TransportChangeReceiptRowsTable> {
+  $$TransportChangeReceiptRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get changeId => $composableBuilder(
+    column: $table.changeId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get payloadHash => $composableBuilder(
+    column: $table.payloadHash,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get source => $composableBuilder(
+    column: $table.source,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourceScope => $composableBuilder(
+    column: $table.sourceScope,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lineage => $composableBuilder(
+    column: $table.lineage,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get receivedAt => $composableBuilder(
+    column: $table.receivedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$TransportChangeReceiptRowsTableOrderingComposer
+    extends
+        Composer<_$StorageV2DriftDatabase, $TransportChangeReceiptRowsTable> {
+  $$TransportChangeReceiptRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get changeId => $composableBuilder(
+    column: $table.changeId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get payloadHash => $composableBuilder(
+    column: $table.payloadHash,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get source => $composableBuilder(
+    column: $table.source,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sourceScope => $composableBuilder(
+    column: $table.sourceScope,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lineage => $composableBuilder(
+    column: $table.lineage,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get receivedAt => $composableBuilder(
+    column: $table.receivedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$TransportChangeReceiptRowsTableAnnotationComposer
+    extends
+        Composer<_$StorageV2DriftDatabase, $TransportChangeReceiptRowsTable> {
+  $$TransportChangeReceiptRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get changeId =>
+      $composableBuilder(column: $table.changeId, builder: (column) => column);
+
+  GeneratedColumn<String> get payloadHash => $composableBuilder(
+    column: $table.payloadHash,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get source =>
+      $composableBuilder(column: $table.source, builder: (column) => column);
+
+  GeneratedColumn<String> get sourceScope => $composableBuilder(
+    column: $table.sourceScope,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get lineage =>
+      $composableBuilder(column: $table.lineage, builder: (column) => column);
+
+  GeneratedColumn<String> get receivedAt => $composableBuilder(
+    column: $table.receivedAt,
+    builder: (column) => column,
+  );
+}
+
+class $$TransportChangeReceiptRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $TransportChangeReceiptRowsTable,
+          TransportChangeReceiptRow,
+          $$TransportChangeReceiptRowsTableFilterComposer,
+          $$TransportChangeReceiptRowsTableOrderingComposer,
+          $$TransportChangeReceiptRowsTableAnnotationComposer,
+          $$TransportChangeReceiptRowsTableCreateCompanionBuilder,
+          $$TransportChangeReceiptRowsTableUpdateCompanionBuilder,
+          (
+            TransportChangeReceiptRow,
+            BaseReferences<
+              _$StorageV2DriftDatabase,
+              $TransportChangeReceiptRowsTable,
+              TransportChangeReceiptRow
+            >,
+          ),
+          TransportChangeReceiptRow,
+          PrefetchHooks Function()
+        > {
+  $$TransportChangeReceiptRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $TransportChangeReceiptRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$TransportChangeReceiptRowsTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$TransportChangeReceiptRowsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$TransportChangeReceiptRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> changeId = const Value.absent(),
+                Value<String> payloadHash = const Value.absent(),
+                Value<String> source = const Value.absent(),
+                Value<String?> sourceScope = const Value.absent(),
+                Value<String?> lineage = const Value.absent(),
+                Value<String> receivedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => TransportChangeReceiptRowsCompanion(
+                changeId: changeId,
+                payloadHash: payloadHash,
+                source: source,
+                sourceScope: sourceScope,
+                lineage: lineage,
+                receivedAt: receivedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String changeId,
+                required String payloadHash,
+                required String source,
+                Value<String?> sourceScope = const Value.absent(),
+                Value<String?> lineage = const Value.absent(),
+                required String receivedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => TransportChangeReceiptRowsCompanion.insert(
+                changeId: changeId,
+                payloadHash: payloadHash,
+                source: source,
+                sourceScope: sourceScope,
+                lineage: lineage,
+                receivedAt: receivedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$TransportChangeReceiptRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $TransportChangeReceiptRowsTable,
+      TransportChangeReceiptRow,
+      $$TransportChangeReceiptRowsTableFilterComposer,
+      $$TransportChangeReceiptRowsTableOrderingComposer,
+      $$TransportChangeReceiptRowsTableAnnotationComposer,
+      $$TransportChangeReceiptRowsTableCreateCompanionBuilder,
+      $$TransportChangeReceiptRowsTableUpdateCompanionBuilder,
+      (
+        TransportChangeReceiptRow,
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $TransportChangeReceiptRowsTable,
+          TransportChangeReceiptRow
+        >,
+      ),
+      TransportChangeReceiptRow,
+      PrefetchHooks Function()
+    >;
+typedef $$TransportPeerAckRowsTableCreateCompanionBuilder =
+    TransportPeerAckRowsCompanion Function({
+      required String peerDeviceId,
+      required String changeId,
+      required int mutationVersion,
+      required String acknowledgedAt,
+      Value<int> rowid,
+    });
+typedef $$TransportPeerAckRowsTableUpdateCompanionBuilder =
+    TransportPeerAckRowsCompanion Function({
+      Value<String> peerDeviceId,
+      Value<String> changeId,
+      Value<int> mutationVersion,
+      Value<String> acknowledgedAt,
+      Value<int> rowid,
+    });
+
+class $$TransportPeerAckRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $TransportPeerAckRowsTable> {
+  $$TransportPeerAckRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get peerDeviceId => $composableBuilder(
+    column: $table.peerDeviceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get changeId => $composableBuilder(
+    column: $table.changeId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get mutationVersion => $composableBuilder(
+    column: $table.mutationVersion,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get acknowledgedAt => $composableBuilder(
+    column: $table.acknowledgedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$TransportPeerAckRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $TransportPeerAckRowsTable> {
+  $$TransportPeerAckRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get peerDeviceId => $composableBuilder(
+    column: $table.peerDeviceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get changeId => $composableBuilder(
+    column: $table.changeId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get mutationVersion => $composableBuilder(
+    column: $table.mutationVersion,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get acknowledgedAt => $composableBuilder(
+    column: $table.acknowledgedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$TransportPeerAckRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $TransportPeerAckRowsTable> {
+  $$TransportPeerAckRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get peerDeviceId => $composableBuilder(
+    column: $table.peerDeviceId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get changeId =>
+      $composableBuilder(column: $table.changeId, builder: (column) => column);
+
+  GeneratedColumn<int> get mutationVersion => $composableBuilder(
+    column: $table.mutationVersion,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get acknowledgedAt => $composableBuilder(
+    column: $table.acknowledgedAt,
+    builder: (column) => column,
+  );
+}
+
+class $$TransportPeerAckRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $TransportPeerAckRowsTable,
+          TransportPeerAckRow,
+          $$TransportPeerAckRowsTableFilterComposer,
+          $$TransportPeerAckRowsTableOrderingComposer,
+          $$TransportPeerAckRowsTableAnnotationComposer,
+          $$TransportPeerAckRowsTableCreateCompanionBuilder,
+          $$TransportPeerAckRowsTableUpdateCompanionBuilder,
+          (
+            TransportPeerAckRow,
+            BaseReferences<
+              _$StorageV2DriftDatabase,
+              $TransportPeerAckRowsTable,
+              TransportPeerAckRow
+            >,
+          ),
+          TransportPeerAckRow,
+          PrefetchHooks Function()
+        > {
+  $$TransportPeerAckRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $TransportPeerAckRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$TransportPeerAckRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$TransportPeerAckRowsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$TransportPeerAckRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> peerDeviceId = const Value.absent(),
+                Value<String> changeId = const Value.absent(),
+                Value<int> mutationVersion = const Value.absent(),
+                Value<String> acknowledgedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => TransportPeerAckRowsCompanion(
+                peerDeviceId: peerDeviceId,
+                changeId: changeId,
+                mutationVersion: mutationVersion,
+                acknowledgedAt: acknowledgedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String peerDeviceId,
+                required String changeId,
+                required int mutationVersion,
+                required String acknowledgedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => TransportPeerAckRowsCompanion.insert(
+                peerDeviceId: peerDeviceId,
+                changeId: changeId,
+                mutationVersion: mutationVersion,
+                acknowledgedAt: acknowledgedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$TransportPeerAckRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $TransportPeerAckRowsTable,
+      TransportPeerAckRow,
+      $$TransportPeerAckRowsTableFilterComposer,
+      $$TransportPeerAckRowsTableOrderingComposer,
+      $$TransportPeerAckRowsTableAnnotationComposer,
+      $$TransportPeerAckRowsTableCreateCompanionBuilder,
+      $$TransportPeerAckRowsTableUpdateCompanionBuilder,
+      (
+        TransportPeerAckRow,
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $TransportPeerAckRowsTable,
+          TransportPeerAckRow
+        >,
+      ),
+      TransportPeerAckRow,
       PrefetchHooks Function()
     >;
 typedef $$CloudIndexStateRowsTableCreateCompanionBuilder =
@@ -31571,6 +34329,19 @@ class $StorageV2DriftDatabaseManager {
       $$SyncScopeBaselineRowsTableTableManager(_db, _db.syncScopeBaselineRows);
   $$SyncAppliedChangeRowsTableTableManager get syncAppliedChangeRows =>
       $$SyncAppliedChangeRowsTableTableManager(_db, _db.syncAppliedChangeRows);
+  $$TransportChangeHeadRowsTableTableManager get transportChangeHeadRows =>
+      $$TransportChangeHeadRowsTableTableManager(
+        _db,
+        _db.transportChangeHeadRows,
+      );
+  $$TransportChangeReceiptRowsTableTableManager
+  get transportChangeReceiptRows =>
+      $$TransportChangeReceiptRowsTableTableManager(
+        _db,
+        _db.transportChangeReceiptRows,
+      );
+  $$TransportPeerAckRowsTableTableManager get transportPeerAckRows =>
+      $$TransportPeerAckRowsTableTableManager(_db, _db.transportPeerAckRows);
   $$CloudIndexStateRowsTableTableManager get cloudIndexStateRows =>
       $$CloudIndexStateRowsTableTableManager(_db, _db.cloudIndexStateRows);
   $$CloudIndexObjectRowsTableTableManager get cloudIndexObjectRows =>

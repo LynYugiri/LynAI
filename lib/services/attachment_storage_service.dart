@@ -22,10 +22,14 @@ class StoredAttachment {
 
 /// Copies user selected files into app-private storage and returns metadata.
 class AttachmentStorageService {
-  const AttachmentStorageService({Directory? baseDirectory})
-    : _baseDirectory = baseDirectory;
+  const AttachmentStorageService({
+    Directory? baseDirectory,
+    StorageV2Service? storageV2,
+  }) : _baseDirectory = baseDirectory,
+       _storageV2 = storageV2;
 
   final Directory? _baseDirectory;
+  final StorageV2Service? _storageV2;
 
   Future<StoredAttachment> storeFile(
     File source, {
@@ -82,7 +86,10 @@ class AttachmentStorageService {
     String fallbackName,
   ) async {
     final base =
-        _baseDirectory ?? await StorageV2Service.defaultBaseDirectory();
+        _baseDirectory ??
+        (_storageV2 == null
+            ? await StorageV2Service.defaultBaseDirectory()
+            : (await _storageV2.storageRoot()).parent);
     final directory = Directory('${base.path}/$directoryName');
     if (!await directory.exists()) await directory.create(recursive: true);
     final safeName = safeStorageFileName(name, fallback: fallbackName);

@@ -34,6 +34,7 @@ import 'lynai_call_identity.dart';
 import 'lynai_permission_definitions.dart';
 import 'lynai_permission_service.dart';
 import 'image_generation_service.dart';
+import 'attachment_storage_service.dart';
 import 'model_recognition_service.dart';
 import 'storage_v2_service.dart';
 
@@ -57,6 +58,7 @@ class LynAIFunctionContext {
   final PluginProvider? plugins;
   final ConversationProvider? conversations;
   final BackendClient? backend;
+  final StorageV2Service? storage;
   final InstalledPlugin? plugin;
   final void Function(String message)? showToast;
   final BoundedOutboundHttpClient? outboundHttpClient;
@@ -74,6 +76,7 @@ class LynAIFunctionContext {
     this.plugins,
     this.conversations,
     this.backend,
+    this.storage,
     this.plugin,
     this.showToast,
     this.outboundHttpClient,
@@ -2672,6 +2675,7 @@ class LynAIFunctionService {
     final parameters = _imageGenerationParameters(args);
     final service = ImageGenerationService(
       api: ApiService(backend: context.backend),
+      attachmentStorage: AttachmentStorageService(storageV2: context.storage),
     );
     try {
       final result = await service.generate(

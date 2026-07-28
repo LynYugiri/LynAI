@@ -4,10 +4,14 @@ import 'dart:convert';
 import '../models/lan_peer.dart';
 import '../models/sync_data_selection.dart';
 import '../services/secret_store.dart';
+import '../services/storage_v2_service.dart';
 
 class LanPeerRepository {
-  LanPeerRepository({required SecretStore secretStore})
-    : _secretStore = secretStore;
+  LanPeerRepository({
+    required SecretStore secretStore,
+    StorageV2Service? storage,
+  }) : _secretStore = secretStore,
+       _storage = storage;
 
   static const _peersKey = 'lan.peers.v1';
   static const _sessionsKey = 'lan.pairing_sessions.v1';
@@ -15,6 +19,7 @@ class LanPeerRepository {
   static const _peerAcksKey = 'lan.peer_acks.v1';
 
   final SecretStore _secretStore;
+  final StorageV2Service? _storage;
   Future<void> _queue = Future.value();
 
   Future<List<LanPeer>> loadPeers() async {
@@ -116,15 +121,13 @@ class LanPeerRepository {
   Future<bool> markChangeApplied(String changeId) => _mutateResult(() async {
     final values = (await _readList(_appliedChangesKey)).cast<String>().toSet();
     if (!values.add(changeId)) return false;
-    final bounded = values.length <= 10000
-        ? values.toList()
-        : values.skip(values.length - 10000).toList();
-    await _writeList(_appliedChangesKey, bounded);
+    await _writeList(_appliedChangesKey, values.toList());
     return true;
   });
 
-  Future<bool> hasAppliedChange(String changeId) async =>
-      (await _readList(_appliedChangesKey)).cast<String>().contains(changeId);
+  Future<bool> hasAppliedChange(String changeId) async {
+    return (await _readList(_appliedChangesKey)).contains(changeId);
+  }
 
   Future<Set<String>> acknowledgedChangeIds(String peerDeviceId) async {
     final raw = await _readMap(_peerAcksKey);
@@ -137,11 +140,22 @@ class LanPeerRepository {
         final values =
             (raw[peerDeviceId] as List? ?? const []).cast<String>().toSet()
               ..addAll(ids);
-        raw[peerDeviceId] = values.length <= 10000
-            ? values.toList()
-            : values.skip(values.length - 10000).toList();
+        raw[peerDeviceId] = values.toList();
         await _secretStore.write(_peerAcksKey, jsonEncode(raw));
       });
+
+  Future<void> migrateLegacyTransportState() async {
+    final storage = _storage;
+    if (storage == null) return;
+    final applied = (await _readList(_appliedChangesKey)).whereType<String>();
+    final rawAcks = await _readMap(_peerAcksKey);
+    await storage.importLegacyLanTransportState(applied, {
+      for (final entry in rawAcks.entries)
+        entry.key: (entry.value as List? ?? const []).whereType<String>(),
+    });
+    await _secretStore.delete(_appliedChangesKey);
+    await _secretStore.delete(_peerAcksKey);
+  }
 
   Future<Map<String, LanPairingSession>> _sessions() async => {
     for (final item in await _readList(_sessionsKey))

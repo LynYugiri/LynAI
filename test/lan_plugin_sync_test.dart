@@ -152,7 +152,12 @@ void main() {
           isTrue,
         );
         await targetLan.apply(tombstones.map(_change).toList());
-        expect((await target.loadPluginSyncRows()).single['state'], 'deleted');
+        expect(
+          (await target.loadPluginSyncRows()).singleWhere(
+            (row) => row['id'] == 'review-plugin' && row['kind'] == 'package',
+          )['state'],
+          'deleted',
+        );
       } finally {
         await source.close();
         await target.close();

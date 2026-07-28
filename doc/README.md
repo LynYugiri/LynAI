@@ -10,7 +10,7 @@
 | 每个页面在哪里、用户路径是什么 | [页面与使用路径](pages.md) |
 | 模型字段、JSON 契约和兼容旧数据 | [数据模型](models.md) |
 | Provider 如何加载、通知、保存和容错 | [状态管理](providers.md) |
-| API、工具调用、备份、存储升级和平台能力 | [服务层](services.md) |
+| API、工具调用、备份、存储升级、durable 云/LAN transport ledger 和平台能力 | [服务层](services.md) |
 | Agent 多轮循环、取消、上下文、工具注册和本机 run graph | [Agent Runtime](agent-runtime.md) |
 | MCP transport、工具桥接、凭据和平台边界 | [MCP](mcp.md) |
 | 安全同步、设备身份、配对和加密备份的 v1 wire contract | [安全同步与备份协议 v1](protocol-v1.md) |
@@ -71,7 +71,7 @@ lib/
 | 设置 | `lib/pages/settings_page.dart` | 关于、背景、API、主题、数据管理入口。 |
 | 数据管理 | `lib/pages/data_management_page.dart` | ZIP 备份、预览、导入和冲突处理。 |
 | API 服务 | `lib/services/api_service.dart` | Chat/OCR/Speech/Image 请求、流式解析、附件转换。 |
-| 工具调用 | `lib/services/tool_call_service.dart` | 工具 schema、fallback JSON、规范任务/日历、旧别名、笔记和平台工具执行。 |
+| 工具调用 | `lib/services/tool_call_service.dart` | 原生工具 schema、规范任务/日历、旧别名、笔记和平台工具执行。 |
 | Agent 循环 | `lib/services/agent_loop_runtime.dart` | 统一模型 turn、tool continuation、轮数上限、取消和生命周期事件。 |
 | MCP | `lib/providers/mcp_provider.dart`, `lib/services/mcp/` | 连接远程 HTTP 或桌面 stdio MCP server，并把 tools 投影到 Agent 工具注册表。 |
 | 备份服务 | `lib/services/backup_service.dart` | manifest、分区 JSON、私有附件归档和恢复。 |

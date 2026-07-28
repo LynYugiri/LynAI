@@ -1,3 +1,5 @@
+import 'sync_change.dart';
+
 class CloudUsage {
   const CloudUsage({
     required this.recordCount,
@@ -12,14 +14,13 @@ class CloudUsage {
   final int blobRefCount;
 
   factory CloudUsage.fromJson(Object? value) {
-    final json = value is Map
-        ? Map<String, dynamic>.from(value)
-        : const <String, dynamic>{};
+    if (value is! Map) throw const FormatException('cloud usage is invalid');
+    final json = Map<String, dynamic>.from(value);
     return CloudUsage(
-      recordCount: (json['recordCount'] as num?)?.toInt() ?? 0,
-      blobCount: (json['blobCount'] as num?)?.toInt() ?? 0,
-      blobBytes: (json['blobBytes'] as num?)?.toInt() ?? 0,
-      blobRefCount: (json['blobRefCount'] as num?)?.toInt() ?? 0,
+      recordCount: _nonNegativeInt(json['recordCount'], 'recordCount'),
+      blobCount: _nonNegativeInt(json['blobCount'], 'blobCount'),
+      blobBytes: _nonNegativeInt(json['blobBytes'], 'blobBytes'),
+      blobRefCount: _nonNegativeInt(json['blobRefCount'], 'blobRefCount'),
     );
   }
 
@@ -38,6 +39,7 @@ class CloudIndexStatus {
     required this.indexRevision,
     required this.minAvailableSeq,
     required this.usage,
+    this.capabilities = const SyncCapabilities(),
   });
 
   final int lastSeq;
@@ -45,14 +47,19 @@ class CloudIndexStatus {
   final int indexRevision;
   final int minAvailableSeq;
   final CloudUsage usage;
+  final SyncCapabilities capabilities;
 
   factory CloudIndexStatus.fromJson(Map<String, dynamic> json) =>
       CloudIndexStatus(
-        lastSeq: (json['lastSeq'] as num?)?.toInt() ?? 0,
-        generation: (json['generation'] as num?)?.toInt() ?? 0,
-        indexRevision: (json['indexRevision'] as num?)?.toInt() ?? 0,
-        minAvailableSeq: (json['minAvailableSeq'] as num?)?.toInt() ?? 0,
+        lastSeq: _nonNegativeInt(json['lastSeq'], 'lastSeq'),
+        generation: _positiveInt(json['generation'], 'generation'),
+        indexRevision: _nonNegativeInt(json['indexRevision'], 'indexRevision'),
+        minAvailableSeq: _nonNegativeInt(
+          json['minAvailableSeq'],
+          'minAvailableSeq',
+        ),
         usage: CloudUsage.fromJson(json['usage']),
+        capabilities: SyncCapabilities.fromJson(json['capabilities']),
       );
 
   Map<String, dynamic> toJson() => {
@@ -61,6 +68,13 @@ class CloudIndexStatus {
     'indexRevision': indexRevision,
     'minAvailableSeq': minAvailableSeq,
     'usage': usage.toJson(),
+    if (capabilities.advertised)
+      'capabilities': {
+        'index': capabilities.index,
+        'selectivePurge': capabilities.selectivePurge,
+        'fullPurge': capabilities.fullPurge,
+        'operationAck': capabilities.operationAck,
+      },
   };
 }
 
@@ -81,17 +95,19 @@ class CloudIndexObject {
   final int latestSeq;
   final DateTime updatedAt;
 
-  factory CloudIndexObject.fromJson(Map<String, dynamic> json) =>
-      CloudIndexObject(
-        category: json['category'] as String? ?? '',
-        objectId: json['objectId'] as String? ?? '',
-        recordCount: (json['recordCount'] as num?)?.toInt() ?? 0,
-        blobRefCount: (json['blobRefCount'] as num?)?.toInt() ?? 0,
-        latestSeq: (json['latestSeq'] as num?)?.toInt() ?? 0,
-        updatedAt:
-            DateTime.tryParse(json['updatedAt'] as String? ?? '') ??
-            DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
-      );
+  factory CloudIndexObject.fromJson(Map<String, dynamic> json) {
+    final category = _requiredString(json['category'], 'category');
+    final objectId = _requiredString(json['objectId'], 'objectId');
+    final updatedAt = _requiredDateTime(json['updatedAt'], 'updatedAt');
+    return CloudIndexObject(
+      category: category,
+      objectId: objectId,
+      recordCount: _positiveInt(json['recordCount'], 'recordCount'),
+      blobRefCount: _nonNegativeInt(json['blobRefCount'], 'blobRefCount'),
+      latestSeq: _positiveInt(json['latestSeq'], 'latestSeq'),
+      updatedAt: updatedAt,
+    );
+  }
 
   Map<String, dynamic> toJson() => {
     'category': category,
@@ -104,19 +120,55 @@ class CloudIndexObject {
 }
 
 class CloudObjectDetail {
-  const CloudObjectDetail({required this.object, required this.records});
+  const CloudObjectDetail({
+    required this.object,
+    required this.records,
+    required this.indexRevision,
+  });
 
   final CloudIndexObject object;
   final List<Map<String, dynamic>> records;
+  final int indexRevision;
 
-  factory CloudObjectDetail.fromJson(Map<String, dynamic> json) =>
-      CloudObjectDetail(
-        object: CloudIndexObject.fromJson(json),
-        records: (json['records'] as List? ?? const [])
-            .whereType<Map>()
-            .map((item) => Map<String, dynamic>.from(item))
-            .toList(growable: false),
-      );
+  factory CloudObjectDetail.fromJson(Map<String, dynamic> json) {
+    final rawRecords = json['records'];
+    if (rawRecords is! List) {
+      throw const FormatException('cloud object records are invalid');
+    }
+    final records = rawRecords
+        .map((item) {
+          if (item is! Map) {
+            throw const FormatException('cloud object record is invalid');
+          }
+          final record = Map<String, dynamic>.from(item);
+          final table = _requiredString(record['table'], 'table');
+          final op = _requiredString(record['op'], 'op');
+          final recordId = _requiredString(record['recordId'], 'recordId');
+          if (op != 'upsert' || record['data'] is! Map) {
+            throw const FormatException('cloud projection record is invalid');
+          }
+          final data = Map<String, dynamic>.from(record['data'] as Map);
+          if (data['id'] != recordId) {
+            throw const FormatException('cloud projection data.id is invalid');
+          }
+          return <String, dynamic>{
+            'table': table,
+            'op': op,
+            'recordId': recordId,
+            'data': data,
+          };
+        })
+        .toList(growable: false);
+    final object = CloudIndexObject.fromJson(json);
+    if (records.length != object.recordCount) {
+      throw const FormatException('cloud object recordCount is inconsistent');
+    }
+    return CloudObjectDetail(
+      object: object,
+      records: records,
+      indexRevision: _nonNegativeInt(json['indexRevision'], 'indexRevision'),
+    );
+  }
 }
 
 enum CloudPurgeType { object, category, all }
@@ -165,13 +217,15 @@ class CloudPurgePreview {
     CloudPurgeSelector selector,
   ) => CloudPurgePreview(
     selector: selector,
-    generation: (json['generation'] as num?)?.toInt() ?? 0,
-    indexRevision: (json['indexRevision'] as num?)?.toInt() ?? 0,
-    recordCount: (json['recordCount'] as num?)?.toInt() ?? 0,
-    changeCount: (json['changeCount'] as num?)?.toInt() ?? 0,
-    blobRefCount: (json['blobRefCount'] as num?)?.toInt() ?? 0,
-    releasedBlobCandidates:
-        (json['releasedBlobCandidates'] as num?)?.toInt() ?? 0,
+    generation: _positiveInt(json['generation'], 'generation'),
+    indexRevision: _nonNegativeInt(json['indexRevision'], 'indexRevision'),
+    recordCount: _nonNegativeInt(json['recordCount'], 'recordCount'),
+    changeCount: _nonNegativeInt(json['changeCount'], 'changeCount'),
+    blobRefCount: _nonNegativeInt(json['blobRefCount'], 'blobRefCount'),
+    releasedBlobCandidates: _nonNegativeInt(
+      json['releasedBlobCandidates'],
+      'releasedBlobCandidates',
+    ),
   );
 }
 
@@ -196,19 +250,66 @@ class CloudManagementOperation {
   final int indexRevision;
   final DateTime createdAt;
 
-  factory CloudManagementOperation.fromJson(Map<String, dynamic> json) =>
-      CloudManagementOperation(
-        id: json['id'] as String? ?? '',
-        kind: json['kind'] as String? ?? '',
-        selectorType: json['selectorType'] as String? ?? '',
-        category: json['category'] as String?,
-        objectId: json['objectId'] as String?,
-        generation: (json['generation'] as num?)?.toInt() ?? 0,
-        indexRevision: (json['indexRevision'] as num?)?.toInt() ?? 0,
-        createdAt:
-            DateTime.tryParse(json['createdAt'] as String? ?? '') ??
-            DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
-      );
+  factory CloudManagementOperation.fromJson(Map<String, dynamic> json) {
+    final kind = _requiredString(json['kind'], 'kind');
+    final selectorType = _requiredString(json['selectorType'], 'selectorType');
+    final category = json['category'];
+    final objectId = json['objectId'];
+    if ((kind != 'selective' && kind != 'full') ||
+        !{'object', 'category', 'all'}.contains(selectorType) ||
+        (category != null && (category is! String || category.isEmpty)) ||
+        (objectId != null && (objectId is! String || objectId.isEmpty)) ||
+        (selectorType == 'object' && (category == null || objectId == null)) ||
+        (selectorType == 'category' &&
+            (category == null || objectId != null)) ||
+        (selectorType == 'all' && (category != null || objectId != null))) {
+      throw const FormatException('cloud management operation is invalid');
+    }
+    return CloudManagementOperation(
+      id: _requiredString(json['id'], 'id'),
+      kind: kind,
+      selectorType: selectorType,
+      category: category as String?,
+      objectId: objectId as String?,
+      generation: _positiveInt(json['generation'], 'generation'),
+      indexRevision: _nonNegativeInt(json['indexRevision'], 'indexRevision'),
+      createdAt: _requiredDateTime(json['createdAt'], 'createdAt'),
+    );
+  }
+}
+
+class CloudCurrentProjection {
+  const CloudCurrentProjection({required this.status, required this.records});
+
+  final CloudIndexStatus status;
+  final List<Map<String, dynamic>> records;
+}
+
+int _nonNegativeInt(Object? value, String field) {
+  if (value is! int || value < 0) {
+    throw FormatException('cloud $field is invalid');
+  }
+  return value;
+}
+
+int _positiveInt(Object? value, String field) {
+  final parsed = _nonNegativeInt(value, field);
+  if (parsed == 0) throw FormatException('cloud $field is invalid');
+  return parsed;
+}
+
+String _requiredString(Object? value, String field) {
+  if (value is! String || value.isEmpty) {
+    throw FormatException('cloud $field is invalid');
+  }
+  return value;
+}
+
+DateTime _requiredDateTime(Object? value, String field) {
+  if (value is! String) throw FormatException('cloud $field is invalid');
+  final parsed = DateTime.tryParse(value);
+  if (parsed == null) throw FormatException('cloud $field is invalid');
+  return parsed;
 }
 
 class CloudDurableRequest {

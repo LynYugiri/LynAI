@@ -58,6 +58,14 @@ class MemorySyncStorage implements SyncStorage {
   @override
   Future<void> prepareFullSnapshot(String scope, int generation) async {}
   @override
+  Future<Set<String>> reconcileCurrentProjection(
+    String scope,
+    int generation,
+    int minAvailableSeq,
+    List<Map<String, dynamic>> records,
+    Set<String> authoritativeTables,
+  ) async => const {};
+  @override
   Future<List<SyncOutboxEntry>> loadOutbox(
     String scope, {
     int? limit,

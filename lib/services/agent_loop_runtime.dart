@@ -8,6 +8,8 @@ import 'agent_context_builder.dart';
 import 'agent_lifecycle_hooks.dart';
 import 'agent_persistence_lifecycle.dart';
 import 'agent_protocol_codec.dart';
+import 'agent_tool_execution_service.dart';
+import 'dataset_runtime_barrier.dart';
 
 class AgentLoopRuntime {
   static const _uuid = Uuid();
@@ -15,10 +17,12 @@ class AgentLoopRuntime {
   const AgentLoopRuntime({
     this.codec = const AgentProtocolCodec(),
     this.contextBuilder = const AgentContextBuilder(),
+    this.cleanupTimeout = const Duration(seconds: 2),
   });
 
   final AgentProtocolCodec codec;
   final AgentContextBuilder contextBuilder;
+  final Duration cleanupTimeout;
 
   AgentRunHandle start({
     required Iterable<Map<String, dynamic>> messages,
@@ -27,18 +31,21 @@ class AgentLoopRuntime {
     required int maxToolRounds,
     String? runId,
     AgentRunPersistenceLifecycle? persistence,
+    AgentToolResultProcessor? toolResultProcessor,
     AgentRunPersistenceMetadata persistenceMetadata =
         const AgentRunPersistenceMetadata(),
     AgentContextCompactor? compactContext,
     AgentLifecycleHooks hooks = const AgentLifecycleHooks(),
     bool Function(Object error)? isContextOverflow,
     AgentCancellationToken? parentCancellationToken,
+    DatasetRuntimeBarrier? datasetBarrier,
     String finalTurnInstruction = '工具调用已达到上限。不要再调用工具，请基于已有文本和工具结果直接给出最终回复。',
   }) {
     final handle = _AgentRunHandle(
       runId ?? _uuid.v4(),
       parentCancellationToken: parentCancellationToken,
     );
+    datasetBarrier?.trackAgentRun(handle);
     unawaited(
       Future<void>.microtask(
         () => _run(
@@ -48,6 +55,7 @@ class AgentLoopRuntime {
           executeTools: executeTools,
           maxToolRounds: maxToolRounds,
           persistence: persistence,
+          toolResultProcessor: toolResultProcessor,
           persistenceMetadata: persistenceMetadata,
           compactContext: compactContext,
           hooks: hooks,
@@ -66,6 +74,7 @@ class AgentLoopRuntime {
     required AgentToolCompatibilityExecutor executeTools,
     required int maxToolRounds,
     required AgentRunPersistenceLifecycle? persistence,
+    required AgentToolResultProcessor? toolResultProcessor,
     required AgentRunPersistenceMetadata persistenceMetadata,
     required AgentContextCompactor? compactContext,
     required AgentLifecycleHooks hooks,
@@ -76,7 +85,8 @@ class AgentLoopRuntime {
         .map((message) => Map<String, dynamic>.from(message))
         .toList();
     var latestContent = '';
-    var allReasoning = '';
+    final partialContent = _TurnTextAccumulator();
+    final allReasoning = _TurnTextAccumulator();
     var toolRounds = 0;
     var overflowRetried = false;
     final hookRunner = AgentLifecycleHookRunner(hooks);
@@ -127,6 +137,10 @@ class AgentLoopRuntime {
 
         var context = await buildContext(false);
         late _TurnResult turn;
+        final turnProgress = _TurnProgress(
+          content: partialContent,
+          reasoning: allReasoning,
+        );
         while (true) {
           final request = AgentModelTurnRequest(
             identity: identity,
@@ -139,7 +153,12 @@ class AgentLoopRuntime {
             handle.token,
           );
           try {
-            turn = await _consumeTurn(handle, identity, model(request));
+            turn = await _consumeTurn(
+              handle,
+              identity,
+              model(request),
+              turnProgress,
+            );
             break;
           } catch (error) {
             final overflow =
@@ -151,6 +170,7 @@ class AgentLoopRuntime {
           }
         }
         handle.token.throwIfCancellationRequested();
+        _validateToolCalls(turn.toolCalls);
         await persistence?.recordAssistantResponse(
           identity,
           content: turn.content,
@@ -169,7 +189,6 @@ class AgentLoopRuntime {
           handle.token,
         );
         latestContent = turn.content;
-        allReasoning = _join(allReasoning, turn.reasoning);
         handle.emit(
           AgentRunEvent(
             kind: AgentRunEventKind.turnCompleted,
@@ -184,7 +203,8 @@ class AgentLoopRuntime {
             runId: handle.id,
             status: AgentRunStatus.completed,
             content: latestContent,
-            reasoning: allReasoning.isEmpty ? null : allReasoning,
+            partialContent: partialContent.value,
+            reasoning: allReasoning.isEmpty ? null : allReasoning.value,
             toolRounds: toolRounds,
             toolRoundLimitReached: forceFinal && turn.toolCalls.isNotEmpty,
             messages: working,
@@ -233,8 +253,8 @@ class AgentLoopRuntime {
         );
         handle.token.throwIfCancellationRequested();
         _validateToolResults(turn.toolCalls, results);
-        if (persistence != null) {
-          results = await persistence.toolResultProcessor.process(
+        if (toolResultProcessor != null) {
+          results = await toolResultProcessor.process(
             results,
             cancellationToken: handle.token,
           );
@@ -266,7 +286,8 @@ class AgentLoopRuntime {
         runId: handle.id,
         status: AgentRunStatus.cancelled,
         content: latestContent,
-        reasoning: allReasoning.isEmpty ? null : allReasoning,
+        partialContent: partialContent.value,
+        reasoning: allReasoning.isEmpty ? null : allReasoning.value,
         toolRounds: toolRounds,
         messages: working,
         error: error,
@@ -276,7 +297,8 @@ class AgentLoopRuntime {
         runId: handle.id,
         status: AgentRunStatus.failed,
         content: latestContent,
-        reasoning: allReasoning.isEmpty ? null : allReasoning,
+        partialContent: partialContent.value,
+        reasoning: allReasoning.isEmpty ? null : allReasoning.value,
         toolRounds: toolRounds,
         messages: working,
         error: error,
@@ -285,13 +307,16 @@ class AgentLoopRuntime {
     var completed = result;
     if (persistence != null) {
       try {
-        await persistence.completeRun(handle.id, completed);
+        await persistence
+            .completeRun(handle.id, completed)
+            .timeout(cleanupTimeout);
       } catch (error) {
-        if (completed.status != AgentRunStatus.failed) {
+        if (completed.status == AgentRunStatus.completed) {
           completed = AgentRunResult(
             runId: handle.id,
             status: AgentRunStatus.failed,
             content: completed.content,
+            partialContent: completed.partialContent,
             reasoning: completed.reasoning,
             toolRounds: completed.toolRounds,
             messages: completed.messages,
@@ -313,6 +338,7 @@ class AgentLoopRuntime {
     _AgentRunHandle handle,
     AgentTurnIdentity identity,
     Stream<AgentModelStreamEvent> stream,
+    _TurnProgress progress,
   ) async {
     var content = '';
     var reasoning = '';
@@ -325,6 +351,7 @@ class AgentLoopRuntime {
         switch (event) {
           case AgentModelTextDelta():
             content += event.text;
+            progress.content.add(identity.turnIndex, event.text);
             handle.emit(
               AgentRunEvent(
                 kind: AgentRunEventKind.textDelta,
@@ -336,6 +363,7 @@ class AgentLoopRuntime {
             );
           case AgentModelReasoningDelta():
             reasoning += event.text;
+            progress.reasoning.add(identity.turnIndex, event.text);
             handle.emit(
               AgentRunEvent(
                 kind: AgentRunEventKind.reasoningDelta,
@@ -368,7 +396,11 @@ class AgentLoopRuntime {
       handle.token.throwIfCancellationRequested();
       return _TurnResult(content, reasoning, calls);
     } finally {
-      await subscription.cancel();
+      try {
+        await subscription.cancel().timeout(cleanupTimeout);
+      } on TimeoutException {
+        // A broken upstream stream must not prevent the run from terminating.
+      }
     }
   }
 
@@ -395,10 +427,13 @@ class AgentLoopRuntime {
     }
   }
 
-  String _join(String first, String second) {
-    if (first.isEmpty) return second;
-    if (second.isEmpty) return first;
-    return '$first\n\n$second';
+  void _validateToolCalls(List<AgentToolInvocation> calls) {
+    final ids = <String>{};
+    for (final call in calls) {
+      if (call.id.isEmpty || call.id != call.id.trim() || !ids.add(call.id)) {
+        throw FormatException('Invalid or duplicate tool invocation id');
+      }
+    }
   }
 
   bool _defaultContextOverflow(Object error) {
@@ -465,4 +500,28 @@ class _TurnResult {
   final List<AgentToolInvocation> toolCalls;
 
   const _TurnResult(this.content, this.reasoning, this.toolCalls);
+}
+
+class _TurnProgress {
+  const _TurnProgress({required this.content, required this.reasoning});
+
+  final _TurnTextAccumulator content;
+  final _TurnTextAccumulator reasoning;
+}
+
+class _TurnTextAccumulator {
+  final StringBuffer _buffer = StringBuffer();
+  int? _lastTurnIndex;
+
+  bool get isEmpty => _buffer.isEmpty;
+  String get value => _buffer.toString();
+
+  void add(int turnIndex, String text) {
+    if (text.isEmpty) return;
+    if (_buffer.isNotEmpty && _lastTurnIndex != turnIndex) {
+      _buffer.write('\n\n');
+    }
+    _buffer.write(text);
+    _lastTurnIndex = turnIndex;
+  }
 }

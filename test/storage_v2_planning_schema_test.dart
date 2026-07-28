@@ -23,15 +23,13 @@ void main() {
       if (await root.exists()) await root.delete(recursive: true);
     });
 
-    test(
-      'migrates v14 planning and forces canonical sync rebaseline',
-      () async {
-        await storage.loadDataFile('tasks.json');
-        await storage.close();
-        storage = StorageV2Database(storageRoot);
-        final raw = sqlite3.open('${storageRoot.path}/app.db');
-        try {
-          raw.execute('''
+    test('migrates v14 planning and forces canonical sync rebaseline', () async {
+      await storage.loadDataFile('tasks.json');
+      await storage.close();
+      storage = StorageV2Database(storageRoot);
+      final raw = sqlite3.open('${storageRoot.path}/app.db');
+      try {
+        raw.execute('''
 DROP TABLE task_list_entries;
 DROP TABLE task_lists;
 DROP TABLE tasks;
@@ -88,15 +86,15 @@ INSERT INTO sync_outbox (
   'unrelated-change', 'device-before', '2026-07-01T00:00:00Z', 3,
   '2026-07-01T00:00:00Z'
 );
-INSERT INTO sync_conflicts VALUES (
-  'lan:v1', 1, 'todo_items', 'shared', 'upsert', NULL, 'c2', 'd', 'now', NULL,
-  'upsert', NULL, 'c3', 1
-);
-INSERT INTO sync_conflicts VALUES (
-  'lan:v1', 2, 'conversations', 'conversation-2', 'delete', NULL,
-  'unrelated-remote', 'remote-device', 'before', NULL,
-  'upsert', '{}', 'unrelated-local', 2
-);
+  INSERT INTO sync_conflicts VALUES (
+    'lan:v1', 1, 'todo_items', 'shared', 'upsert', NULL, 'c2', 'd', 'now', NULL,
+    'upsert', NULL, 'c3', 1, 'cloud', NULL, NULL, ''
+  );
+  INSERT INTO sync_conflicts VALUES (
+    'lan:v1', 2, 'conversations', 'conversation-2', 'delete', NULL,
+    'unrelated-remote', 'remote-device', 'before', NULL,
+    'upsert', '{}', 'unrelated-local', 2, 'cloud', NULL, NULL, ''
+  );
 INSERT INTO sync_scope_baselines VALUES (
   'lan:v1', 'todo_lists', 'list-1', '{}'
 );
@@ -113,115 +111,118 @@ DROP INDEX idx_sync_outbox_scope_change_mutation;
 DROP INDEX idx_sync_conflicts_scope_table_record;
 PRAGMA user_version = 14;
 ''');
-        } finally {
-          raw.close();
-        }
+      } finally {
+        raw.close();
+      }
 
-        final tasks = await storage.loadDataFile('tasks.json');
-        final calendar = await storage.loadDataFile('calendar.json');
+      final tasks = await storage.loadDataFile('tasks.json');
+      final calendar = await storage.loadDataFile('calendar.json');
 
-        expect((tasks?['lists'] as List).single['sortOrder'], 0);
-        final migratedTasks = (tasks?['tasks'] as List).cast<Map>();
-        final done = migratedTasks.singleWhere((row) => row['id'] == 'shared');
-        expect(done['completedAt'], '2026-07-02T09:00:00.000');
-        expect(done['updatedAt'], '2026-07-02T09:00:00.000');
-        final scheduled = migratedTasks.singleWhere(
-          (row) => row['id'] == 'legacy-schedule-task-shared',
-        );
-        expect(scheduled['plannedDate'], '2026-07-04');
-        expect(scheduled['plannedTime'], '11:30');
-        expect(scheduled['note'], 'task note');
-        expect((tasks?['entries'] as List), hasLength(2));
+      expect((tasks?['lists'] as List).single['sortOrder'], 0);
+      final migratedTasks = (tasks?['tasks'] as List).cast<Map>();
+      final done = migratedTasks.singleWhere((row) => row['id'] == 'shared');
+      expect(done['completedAt'], '2026-07-02T09:00:00.000');
+      expect(done['updatedAt'], '2026-07-02T09:00:00.000');
+      final scheduled = migratedTasks.singleWhere(
+        (row) => row['id'] == 'legacy-schedule-task-shared',
+      );
+      expect(scheduled['plannedDate'], '2026-07-04');
+      expect(scheduled['plannedTime'], '11:30');
+      expect(scheduled['note'], 'task note');
+      expect((tasks?['entries'] as List), hasLength(2));
 
-        final event = (calendar?['events'] as List).single as Map;
-        expect(event['id'], 'event-1');
-        expect(event['timeKind'], 'timed');
-        expect(event['startAt'], '2026-07-05T12:00:00.000');
-        expect(event['note'], 'event note');
-        expect(event['reminders'], isEmpty);
+      final event = (calendar?['events'] as List).single as Map;
+      expect(event['id'], 'event-1');
+      expect(event['timeKind'], 'timed');
+      expect(event['startAt'], '2026-07-05T12:00:00.000');
+      expect(event['note'], 'event note');
+      expect(event['reminders'], isEmpty);
 
-        final migrated = sqlite3.open('${storageRoot.path}/app.db');
-        try {
-          expect(migrated.userVersion, 23);
-          final tables = migrated
-              .select("SELECT name FROM sqlite_master WHERE type = 'table'")
-              .map((row) => row['name'])
-              .toSet();
-          expect(
-            tables,
-            containsAll(['tasks', 'task_lists', 'task_list_entries']),
-          );
-          expect(tables, containsAll(['calendar_events', 'anniversaries']));
-          expect(tables, isNot(contains('schedules')));
-          expect(tables, isNot(contains('todo_lists')));
-          expect(tables, isNot(contains('todo_items')));
-          final indexes = migrated
-              .select("SELECT name FROM sqlite_master WHERE type = 'index'")
-              .map((row) => row['name'])
-              .toSet();
-          expect(
-            indexes,
-            containsAll({
-              'idx_sync_outbox_scope_updated_table_record',
-              'idx_sync_outbox_scope_change_mutation',
-              'idx_sync_conflicts_scope_table_record',
-            }),
-          );
-          final state = migrated
-              .select("SELECT * FROM sync_state WHERE scope = 'lan:v1'")
-              .single;
-          expect(state['since'], 47);
-          expect(state['initialized'], 0);
-          expect(state['active'], 1);
-          expect(state['captures_local'], 1);
-          expect(state['device_id'], 'device-before');
-          final outbox = migrated.select('SELECT * FROM sync_outbox');
-          expect(outbox, hasLength(1));
-          expect(outbox.single['table_name'], 'conversations');
-          expect(outbox.single['change_id'], 'unrelated-change');
-          final conflicts = migrated.select('SELECT * FROM sync_conflicts');
-          expect(conflicts, hasLength(1));
-          expect(conflicts.single['table_name'], 'conversations');
-          expect(conflicts.single['change_id'], 'unrelated-remote');
-          final baselines = migrated.select(
-            'SELECT * FROM sync_scope_baselines',
-          );
-          expect(baselines, hasLength(1));
-          expect(baselines.single['table_name'], 'conversations');
-        } finally {
-          migrated.close();
-        }
-
-        await storage.activateSyncScope('lan:v1', deviceId: 'device-after');
-
-        expect(await storage.syncSince('lan:v1'), 47);
-        final outbox = await storage.loadSyncOutbox('lan:v1');
+      final migrated = sqlite3.open('${storageRoot.path}/app.db');
+      try {
+        expect(migrated.userVersion, 24);
+        final tables = migrated
+            .select("SELECT name FROM sqlite_master WHERE type = 'table'")
+            .map((row) => row['name'])
+            .toSet();
         expect(
-          outbox.map((entry) => '${entry.table}:${entry.recordId}'),
+          tables,
+          containsAll(['tasks', 'task_lists', 'task_list_entries']),
+        );
+        expect(tables, containsAll(['calendar_events', 'anniversaries']));
+        expect(tables, isNot(contains('schedules')));
+        expect(tables, isNot(contains('todo_lists')));
+        expect(tables, isNot(contains('todo_items')));
+        final indexes = migrated
+            .select("SELECT name FROM sqlite_master WHERE type = 'index'")
+            .map((row) => row['name'])
+            .toSet();
+        expect(
+          indexes,
           containsAll({
-            'tasks:shared',
-            'tasks:todo-2',
-            'tasks:legacy-schedule-task-shared',
-            'task_lists:list-1',
-            'task_list_entries:shared',
-            'task_list_entries:todo-2',
-            'calendar_events:event-1',
-            'conversations:conversation-1',
+            'idx_sync_outbox_scope_updated_table_record',
+            'idx_sync_outbox_scope_change_mutation',
+            'idx_sync_conflicts_scope_table_record',
           }),
         );
+        final state = migrated
+            .select("SELECT * FROM sync_state WHERE scope = 'lan:v1'")
+            .single;
+        expect(state['since'], 47);
+        expect(state['initialized'], 0);
+        expect(state['active'], 1);
+        expect(state['captures_local'], 1);
+        expect(state['device_id'], 'device-before');
+        final outbox = migrated.select('SELECT * FROM sync_outbox');
+        expect(outbox, isEmpty);
         expect(
-          outbox.where(
-            (entry) =>
-                entry.table == 'conversations' &&
-                entry.recordId == 'conversation-1',
-          ),
-          hasLength(1),
+          migrated
+              .select(
+                "SELECT change_id FROM transport_change_heads WHERE table_name = 'conversations'",
+              )
+              .single['change_id'],
+          'unrelated-change',
         );
-        expect(outbox.any((entry) => entry.table == 'schedules'), isFalse);
-        expect(outbox.any((entry) => entry.table == 'todo_lists'), isFalse);
-        expect(outbox.any((entry) => entry.table == 'todo_items'), isFalse);
-      },
-    );
+        final conflicts = migrated.select('SELECT * FROM sync_conflicts');
+        expect(conflicts, hasLength(1));
+        expect(conflicts.single['table_name'], 'conversations');
+        expect(conflicts.single['change_id'], 'unrelated-remote');
+        final baselines = migrated.select('SELECT * FROM sync_scope_baselines');
+        expect(baselines, hasLength(1));
+        expect(baselines.single['table_name'], 'conversations');
+      } finally {
+        migrated.close();
+      }
+
+      await storage.activateSyncScope('lan:v1', deviceId: 'device-after');
+
+      expect(await storage.syncSince('lan:v1'), 47);
+      final outbox = await storage.loadTransportHeadsForPeer('new-peer');
+      expect(
+        outbox.map((entry) => '${entry.table}:${entry.recordId}'),
+        containsAll({
+          'tasks:shared',
+          'tasks:todo-2',
+          'tasks:legacy-schedule-task-shared',
+          'task_lists:list-1',
+          'task_list_entries:shared',
+          'task_list_entries:todo-2',
+          'calendar_events:event-1',
+          'conversations:conversation-1',
+        }),
+      );
+      expect(
+        outbox.where(
+          (entry) =>
+              entry.table == 'conversations' &&
+              entry.recordId == 'conversation-1',
+        ),
+        hasLength(1),
+      );
+      expect(outbox.any((entry) => entry.table == 'schedules'), isFalse);
+      expect(outbox.any((entry) => entry.table == 'todo_lists'), isFalse);
+      expect(outbox.any((entry) => entry.table == 'todo_items'), isFalse);
+    });
 
     test(
       'rejects incoming legacy planning operations with upgrade error',

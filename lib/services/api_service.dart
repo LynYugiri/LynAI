@@ -201,8 +201,7 @@ class ApiService {
               message['reasoning_content'],
             ).length,
           if (toolCalls is List) 'toolCallCount': toolCalls.length,
-          if (message['tool_call_id'] != null)
-            'toolCallId': message['tool_call_id'],
+          if (message['tool_call_id'] != null) 'hasToolCallId': true,
         };
       }).toList(),
     };
@@ -219,14 +218,11 @@ class ApiService {
       'finishReason': finishReason,
       'contentLength': content?.length ?? 0,
       'reasoningLength': reasoning?.length ?? 0,
-      if (content != null && content.isNotEmpty)
-        'contentPreview': _compactSseText(content),
       'finalizedToolCalls': finalizedToolCalls
           .map(
             (call) => {
-              'id': call.id,
               'name': call.name,
-              'argumentKeys': call.arguments.keys.toList(),
+              'argumentCount': call.arguments.length,
             },
           )
           .toList(),
@@ -1384,21 +1380,40 @@ class ApiService {
   }
 
   List<ChatToolCall> _parseManagedToolCalls(Object? value) {
-    if (value is! List) return const [];
-    return value
-        .whereType<Map>()
-        .map((raw) {
-          final arguments = raw['arguments'];
-          return ChatToolCall(
-            id: raw['id']?.toString() ?? '',
-            name: raw['name']?.toString() ?? '',
-            arguments: arguments is Map
-                ? arguments.map((key, value) => MapEntry(key.toString(), value))
-                : const {},
-          );
-        })
-        .where((call) => call.name.isNotEmpty)
-        .toList(growable: false);
+    if (value == null) return const [];
+    if (value is! List) {
+      throw const FormatException('Managed Chat toolCalls 必须是 array');
+    }
+    final calls = <ChatToolCall>[];
+    for (final raw in value) {
+      if (raw is! Map) {
+        throw const FormatException('Managed Chat tool call 必须是 object');
+      }
+      final id = raw['id'];
+      final name = raw['name'];
+      final arguments = raw['arguments'];
+      if (id is! String || id.trim().isEmpty || id != id.trim()) {
+        throw const FormatException('Managed Chat tool call id 无效');
+      }
+      if (name is! String || name.trim().isEmpty) {
+        throw const FormatException('Managed Chat tool call name 无效');
+      }
+      if (arguments != null && arguments is! Map) {
+        throw const FormatException(
+          'Managed Chat tool call arguments 必须是 object',
+        );
+      }
+      calls.add(
+        ChatToolCall(
+          id: id,
+          name: name,
+          arguments: arguments is Map
+              ? arguments.map((key, value) => MapEntry(key.toString(), value))
+              : const {},
+        ),
+      );
+    }
+    return calls;
   }
 
   Future<ChatResponse> _sendOpenAICompatibleRequest(
@@ -1506,7 +1521,8 @@ class ApiService {
       _logSseDiagnostic(
         'request',
         jsonEncode({
-          'uri': uri.toString(),
+          'origin': uri.origin,
+          'path': uri.path,
           'model': config.modelName,
           ..._streamRequestSummary(
             messages,
@@ -1530,7 +1546,10 @@ class ApiService {
     if (streamedResponse.statusCode != 200) {
       final errorBody = await streamedResponse.stream.bytesToString();
       if (logSse) {
-        _logSseDiagnostic('error-body', errorBody);
+        _logSseDiagnostic(
+          'error-response',
+          jsonEncode({'bodyLength': errorBody.length}),
+        );
       }
       throw Exception(
         _formatHttpError('流式请求失败', streamedResponse.statusCode, errorBody),
@@ -1546,7 +1565,10 @@ class ApiService {
             .transform(const SseDecoder())
             .timeout(_streamTimeout)) {
       if (logSse) {
-        _logSseDiagnostic('raw-event', chunk.data);
+        _logSseDiagnostic(
+          'event',
+          jsonEncode({'event': chunk.event, 'dataLength': chunk.data.length}),
+        );
       }
       final data = chunk.data.trim();
       if (data.isNotEmpty) {
@@ -1572,43 +1594,50 @@ class ApiService {
           }
           if (json['error'] != null) {
             if (logSse) {
-              _logSseDiagnostic('api-error', jsonEncode(json['error']));
+              _logSseDiagnostic('api-error', const {'present': true});
             }
             throw Exception(_formatApiError(json['error']));
           }
-          final choice = json['choices']?[0];
-          if (choice != null) {
-            final delta = choice['delta'];
-            final content = _streamContentText(delta?['content']);
-            final reasoning = _extractReasoning(delta);
-            _accumulateOpenAIToolCalls(delta, toolCallParts);
-            if (logSse) {
-              final finalizedToolCalls =
-                  choice?['finish_reason'] == 'tool_calls'
-                  ? _finalizeOpenAIToolCalls(toolCallParts)
-                  : const <ChatToolCall>[];
-              _logSseDiagnostic(
-                'parsed-chunk',
-                jsonEncode(
-                  _streamChunkSummary(
-                    choice,
-                    content,
-                    reasoning,
-                    finalizedToolCalls,
-                  ),
-                ),
-              );
-            }
-            if (content != null || reasoning != null) {
-              yield StreamChunk(content: content, reasoningContent: reasoning);
-            }
+          final choices = json['choices'];
+          if (choices is! List || choices.isEmpty || choices.first is! Map) {
+            throw const FormatException('OpenAI SSE choices 必须包含 object');
           }
-          finishReason = choice?['finish_reason'];
-        } on FormatException {
+          final choice = choices.first as Map;
+          final delta = choice['delta'];
+          if (delta != null && delta is! Map) {
+            throw const FormatException('OpenAI SSE delta 必须是 object');
+          }
+          final content = _streamContentText(delta?['content']);
+          final reasoning = _extractReasoning(delta);
+          _accumulateOpenAIToolCalls(delta, toolCallParts);
           if (logSse) {
-            _logSseDiagnostic('malformed-data', data);
+            final finalizedToolCalls = choice['finish_reason'] == 'tool_calls'
+                ? _finalizeOpenAIToolCalls(toolCallParts)
+                : const <ChatToolCall>[];
+            _logSseDiagnostic(
+              'parsed-chunk',
+              jsonEncode(
+                _streamChunkSummary(
+                  choice,
+                  content,
+                  reasoning,
+                  finalizedToolCalls,
+                ),
+              ),
+            );
           }
-          // malformed chunk, skip
+          if (content != null || reasoning != null) {
+            yield StreamChunk(content: content, reasoningContent: reasoning);
+          }
+          finishReason = choice['finish_reason'];
+        } on FormatException catch (error) {
+          if (logSse) {
+            _logSseDiagnostic(
+              'malformed-event',
+              jsonEncode({'dataLength': data.length}),
+            );
+          }
+          throw Exception('OpenAI SSE 格式错误: $error');
         }
         if (finishReason != null && finishReason != '') {
           doneEmitted = true;
@@ -1621,9 +1650,8 @@ class ApiService {
                 'finalizedToolCalls': finalizedToolCalls
                     .map(
                       (call) => {
-                        'id': call.id,
                         'name': call.name,
-                        'argumentKeys': call.arguments.keys.toList(),
+                        'argumentCount': call.arguments.length,
                       },
                     )
                     .toList(),
@@ -1636,24 +1664,7 @@ class ApiService {
       }
     }
     if (!doneEmitted) {
-      final finalizedToolCalls = _finalizeOpenAIToolCalls(toolCallParts);
-      if (logSse) {
-        _logSseDiagnostic(
-          'implicit-done-summary',
-          jsonEncode({
-            'finalizedToolCalls': finalizedToolCalls
-                .map(
-                  (call) => {
-                    'id': call.id,
-                    'name': call.name,
-                    'argumentKeys': call.arguments.keys.toList(),
-                  },
-                )
-                .toList(),
-          }),
-        );
-      }
-      yield StreamChunk(toolCalls: finalizedToolCalls, isDone: true);
+      throw Exception('OpenAI SSE 在完成标记前结束');
     }
   }
 
@@ -1665,19 +1676,39 @@ class ApiService {
     final rawToolCalls = delta['tool_calls'];
     if (rawToolCalls is! List) return;
     for (final raw in rawToolCalls) {
-      if (raw is! Map) continue;
-      final index = (raw['index'] as num?)?.toInt() ?? 0;
+      if (raw is! Map) {
+        throw const FormatException('OpenAI streamed tool call 必须是 object');
+      }
+      final rawIndex = raw['index'];
+      if (rawIndex is! num || rawIndex.toInt() < 0) {
+        throw const FormatException('OpenAI streamed tool call index 无效');
+      }
+      final index = rawIndex.toInt();
       final acc = toolCallParts.putIfAbsent(
         index,
         _OpenAIStreamToolCallAccumulator.new,
       );
-      final id = raw['id'] as String?;
+      final id = raw['id'];
+      if (id != null && id is! String) {
+        throw const FormatException('OpenAI streamed tool call id 必须是 string');
+      }
       if (id != null && id.isNotEmpty) acc.id ??= id;
       final function = raw['function'];
+      if (function != null && function is! Map) {
+        throw const FormatException('OpenAI streamed tool function 必须是 object');
+      }
       if (function is Map) {
-        final name = function['name'] as String?;
+        final name = function['name'];
+        if (name != null && name is! String) {
+          throw const FormatException('OpenAI streamed tool name 必须是 string');
+        }
         if (name != null && name.isNotEmpty) acc.name = name;
-        final arguments = function['arguments'] as String?;
+        final arguments = function['arguments'];
+        if (arguments != null && arguments is! String) {
+          throw const FormatException(
+            'OpenAI streamed tool arguments 必须是 string',
+          );
+        }
         if (arguments != null && arguments.isNotEmpty) {
           acc.arguments.write(arguments);
         }
@@ -1693,8 +1724,14 @@ class ApiService {
         in toolCallParts.entries.toList()
           ..sort((a, b) => a.key.compareTo(b.key))) {
       final acc = entry.value;
+      final id = acc.id;
       final name = acc.name;
-      if (name == null || name.isEmpty) continue;
+      if (id == null || id.trim().isEmpty || id != id.trim()) {
+        throw const FormatException('OpenAI streamed tool call 缺少有效 id');
+      }
+      if (name == null || name.trim().isEmpty) {
+        throw const FormatException('OpenAI streamed tool call 缺少 name');
+      }
       final rawArgs = acc.arguments.toString().trim();
       var args = <String, dynamic>{};
       if (rawArgs.isNotEmpty) {
@@ -1703,21 +1740,13 @@ class ApiService {
           if (decoded is Map) {
             args = decoded.map((key, value) => MapEntry(key.toString(), value));
           } else {
-            debugPrint('跳过非 JSON 对象工具参数，长度: ${rawArgs.length}');
-            continue;
+            throw const FormatException('工具参数必须是 JSON object');
           }
-        } catch (e) {
-          debugPrint('跳过无法解析的工具参数: $e');
-          continue;
+        } catch (error) {
+          throw FormatException('工具参数不是合法 JSON: $error');
         }
       }
-      calls.add(
-        ChatToolCall(
-          id: acc.id ?? 'call_${entry.key}',
-          name: name,
-          arguments: args,
-        ),
-      );
+      calls.add(ChatToolCall(id: id, name: name, arguments: args));
     }
     return calls;
   }
@@ -2010,13 +2039,13 @@ class ApiService {
             yield StreamChunk(isDone: true);
             break;
           }
-        } on FormatException {
-          // malformed chunk, skip
+        } on FormatException catch (error) {
+          throw Exception('Anthropic SSE 格式错误: $error');
         }
       }
     }
     if (!doneEmitted) {
-      yield StreamChunk(isDone: true);
+      throw Exception('Anthropic SSE 在 message_stop 前结束');
     }
   }
 

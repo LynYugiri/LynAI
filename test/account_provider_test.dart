@@ -65,6 +65,60 @@ void main() {
       expect(calls, ['bind', 'enroll']);
     });
 
+    test('login activates dataset before publishing user', () async {
+      final calls = <String>[];
+      late final AccountProvider provider;
+      provider = AccountProvider(
+        service: _MockAccountService(),
+        onDatasetActivation: (user) async {
+          expect(provider.user, isNull);
+          calls.add('dataset:${user?.id}');
+        },
+        onSessionChanged: (user) async => calls.add('session:${user?.id}'),
+      );
+
+      expect(await provider.login('13800001111', 'password'), isTrue);
+      expect(calls, ['dataset:1', 'session:1']);
+    });
+
+    test('failed target activation leaves previous user unpublished', () async {
+      final provider = AccountProvider(
+        service: _MockAccountService(),
+        onDatasetActivation: (_) async => throw StateError('bad dataset'),
+      );
+
+      expect(await provider.login('13800001111', 'password'), isFalse);
+      expect(provider.user, isNull);
+      expect(provider.error, contains('bad dataset'));
+    });
+
+    test(
+      'backend reconfiguration awaits persistence then session teardown',
+      () async {
+        final backend = BackendClient()..configure('https://old.example');
+        final calls = <String>[];
+        final provider = AccountProvider(
+          backend: backend,
+          secretStore: InMemorySecretStore(),
+          onDatasetActivation: (_) async => calls.add('dataset'),
+          onSessionChanged: (_) async => calls.add('session'),
+        );
+
+        await provider.reconfigureBackend(
+          url: 'https://new.example/api',
+          persist: (url) async => calls.add('persist:$url'),
+        );
+
+        expect(calls, [
+          'persist:https://new.example/api',
+          'dataset',
+          'session',
+        ]);
+        expect(backend.backendUrl, 'https://new.example/api');
+        backend.dispose();
+      },
+    );
+
     test(
       'failed enrollment keeps login and still starts session callback',
       () async {
@@ -95,6 +149,30 @@ void main() {
       expect(provider.user, isNull);
     });
 
+    test(
+      'logout activation failure preserves authenticated publication',
+      () async {
+        var failLocalActivation = false;
+        final provider = AccountProvider(
+          service: _MockAccountService(),
+          onDatasetActivation: (user) async {
+            if (user == null && failLocalActivation) {
+              throw StateError('local unavailable');
+            }
+          },
+        );
+        await provider.login('13800001111', '');
+        failLocalActivation = true;
+
+        await provider.logout();
+
+        expect(provider.user, isNotNull);
+        expect(provider.isLoggedIn, isTrue);
+        expect(provider.loading, isFalse);
+        expect(provider.error, contains('local unavailable'));
+      },
+    );
+
     test('local session restore does not wait for remote refresh', () async {
       final service = _SplitRecoveryAccountService();
       final provider = AccountProvider(service: service);
@@ -124,6 +202,44 @@ void main() {
       expect(provider.user?.isAdmin, isTrue);
       expect(service.refreshCalls, 1);
     });
+
+    test('refresh invalidation activates local before clearing user', () async {
+      final service = _SplitRecoveryAccountService();
+      final calls = <String>[];
+      final provider = AccountProvider(
+        service: service,
+        onDatasetActivation: (user) async => calls.add('dataset:${user?.id}'),
+        onSessionChanged: (user) async => calls.add('session:${user?.id}'),
+      );
+      await provider.restoreLocalSession();
+      calls.clear();
+      service.refreshResult.complete(null);
+
+      await provider.refreshCurrentSession();
+
+      expect(provider.user, isNull);
+      expect(calls, ['dataset:null', 'session:null']);
+    });
+
+    test(
+      'refresh invalidation failure keeps the account dataset published',
+      () async {
+        final service = _SplitRecoveryAccountService();
+        final provider = AccountProvider(
+          service: service,
+          onDatasetActivation: (user) async {
+            if (user == null) throw StateError('local unavailable');
+          },
+        );
+        await provider.restoreLocalSession();
+        service.refreshResult.complete(null);
+
+        await provider.refreshCurrentSession();
+
+        expect(provider.user?.displayName, 'Cached');
+        expect(provider.isLoggedIn, isTrue);
+      },
+    );
 
     test('stale refresh cannot overwrite a new login session', () async {
       final service = _SplitRecoveryAccountService();
@@ -907,6 +1023,48 @@ void main() {
       );
       client.dispose();
     });
+
+    test(
+      'stale invalidation cannot clear a newer credential generation',
+      () async {
+        const scope = 'https://example.com';
+        SharedPreferences.setMockInitialValues({
+          RemoteAccountService.sessionKeyForScope(scope): jsonEncode({
+            'backendBaseUrl': scope,
+            'user': {
+              'id': '1',
+              'phone': '13800001111',
+              'displayName': 'Cached',
+            },
+          }),
+        });
+        final client = BackendClient(
+          client: _AccountClient(
+            (_) async => _jsonResponse(401, {'error': 'unauthorized'}),
+          ),
+        )..configure(scope);
+        final secrets = _BlockingDeleteSecretStore({
+          RemoteAccountService.accessTokenKeyForScope(scope): 'old-access',
+        });
+        var invalidations = 0;
+        final service = RemoteAccountService(
+          client,
+          secretStore: secrets,
+          onSessionInvalidated: () async => invalidations++,
+        );
+        await service.loadStoredSession();
+
+        final refresh = service.refreshCurrentSession();
+        await secrets.deleteStarted.future;
+        client.setTokens('new-access', 'new-refresh');
+        secrets.allowDelete.complete();
+        await refresh;
+
+        expect(invalidations, 0);
+        expect(client.accessToken, 'new-access');
+        client.dispose();
+      },
+    );
   });
 
   group('AccountUser', () {
@@ -943,6 +1101,32 @@ void main() {
       expect(token.expiresAt, isNull);
     });
   });
+}
+
+class _BlockingDeleteSecretStore implements SecretStore {
+  _BlockingDeleteSecretStore(Map<String, String> values)
+    : _values = Map.of(values);
+
+  final Map<String, String> _values;
+  final deleteStarted = Completer<void>();
+  final allowDelete = Completer<void>();
+  bool _blocked = false;
+
+  @override
+  Future<String?> read(String key) async => _values[key];
+
+  @override
+  Future<void> write(String key, String value) async => _values[key] = value;
+
+  @override
+  Future<void> delete(String key) async {
+    if (!_blocked) {
+      _blocked = true;
+      deleteStarted.complete();
+      await allowDelete.future;
+    }
+    _values.remove(key);
+  }
 }
 
 Map<String, dynamic> _sessionJson() => {

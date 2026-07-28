@@ -39,6 +39,7 @@ import '../services/agent_loop_runtime.dart';
 import '../services/agent_persistence_lifecycle.dart';
 import '../services/agent_tool_registry.dart';
 import '../services/agent_tool_result_sanitizer.dart';
+import '../services/agent_tool_execution_service.dart';
 import '../services/agent_user_interaction_broker.dart';
 import '../services/backend_client.dart';
 import '../services/model_recognition_service.dart';
@@ -296,7 +297,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   final _searchFocusNode = FocusNode();
   final _screenshotCtrl = ScreenshotController();
   final _audioRecorder = AudioRecorder();
-  final _attachmentStorage = const AttachmentStorageService();
+  late final AttachmentStorageService _attachmentStorage;
   late final ApiService _api;
   late final bool _ownsApi;
   late final ModelRecognitionService _recognition;
@@ -364,8 +365,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   late stt.SpeechToText _speech;
   StreamSubscription<AgentRunEvent>? _sub;
   AgentRunHandle? _agentRun;
+  String? _agentMessageId;
   AgentToolRegistry? _externalToolRegistry;
   AgentRunPersistenceLifecycle? _agentPersistence;
+  AgentToolResultProcessor? _agentToolResultProcessor;
   WebSearchService? _webSearch;
   final AgentUserInteractionBroker _userInteractionBroker =
       AgentUserInteractionBroker();
@@ -378,6 +381,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    _attachmentStorage = AttachmentStorageService(
+      storageV2: context.read<StorageV2Service>(),
+    );
     final backend = context.read<BackendClient>();
     try {
       _externalToolRegistry = context.read<McpProvider>().toolRegistry;
@@ -386,6 +392,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     }
     try {
       _agentPersistence = context.read<AgentRunPersistenceLifecycle>();
+      _agentToolResultProcessor = context.read<AgentToolResultProcessor>();
     } on ProviderNotFoundException {
       // Focused provider graphs may intentionally omit durable run recording.
     }
@@ -778,6 +785,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _sub = null;
     _agentRun?.cancel();
     _agentRun = null;
+    _agentMessageId = null;
     setState(() => _setStreaming(false));
   }
 
@@ -1263,22 +1271,29 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _streamWaitTimer = null;
     final cid = _streamingConvId ?? _convId;
     _streamGen++;
-    _agentRun?.cancel();
+    final run = _agentRun;
+    final messageId = _agentMessageId;
+    run?.cancel();
     _agentRun = null;
+    _agentMessageId = null;
     unawaited(_sub?.cancel());
     _sub = null;
     if (!mounted) return;
     setState(() => _setStreaming(false));
     if (cid == null) return;
-    final cp = context.read<ConversationProvider>();
-    final conv = cp.getConversation(cid);
-    if (conv == null || conv.messages.isEmpty) return;
-    final last = conv.messages.last;
-    if (last.role == 'assistant' && last.content.trim().isEmpty) {
-      cp.updateLastMessage(cid, '已停止生成', save: true);
-    } else if (last.role == 'assistant') {
-      cp.updateLastMessage(cid, '${last.content}\n\n---\n已停止生成', save: true);
-    }
+    if (run == null || messageId == null) return;
+    unawaited(
+      run.result.then((result) {
+        if (!mounted || result.runId != run.id) return;
+        final partial = result.partialContent.trim();
+        context.read<ConversationProvider>().updateMessageContent(
+          cid,
+          messageId,
+          partial.isEmpty ? '已停止生成' : '$partial\n\n---\n已停止生成',
+          thinkingContent: result.reasoning,
+        );
+      }),
+    );
   }
 
   ModelConfig? _getModel(ModelConfigProvider mp) {
@@ -1720,6 +1735,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
     final externalToolSnapshot = _externalToolRegistry?.snapshot();
     final storage = context.read<StorageV2Service>();
+    _agentMessageId = cp.getConversation(cid)?.messages.lastOrNull?.id;
     final toolService = ToolCallService(
       context.read<FeatureProvider>(),
       tasks: context.read<TaskProvider>(),
@@ -1731,9 +1747,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       backend: context.read<BackendClient>(),
       conversationId: cid,
       persistence: _agentPersistence,
+      externalToolRegistry: _externalToolRegistry,
       externalToolSnapshot: externalToolSnapshot,
       storage: storage,
       resultSanitizer: AgentToolResultSanitizer.storageV2(storage),
+      toolResultProcessor: _agentToolResultProcessor,
       userInteractionBroker: _userInteractionBroker,
       webSearch: _webSearch,
       permissionSnapshot: streamSettings?.permissionSnapshot,
@@ -1751,6 +1769,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       messages: msgs,
       maxToolRounds: ToolCallService.maxToolRounds,
       persistence: _agentPersistence,
+      toolResultProcessor: _agentToolResultProcessor,
       persistenceMetadata: AgentRunPersistenceMetadata(
         conversationId: cid,
         permissionPolicy: streamSettings?.permissionSnapshot,
@@ -1772,6 +1791,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           cancellationToken: cancellationToken,
         );
       },
+      datasetBarrier: storage.runtimeBarrier,
     );
     _agentRun = run;
     unawaited(_sub?.cancel());
@@ -1825,13 +1845,15 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       run.result.then((result) {
         if (!mounted || gen != _streamGen || result.runId != run.id) return;
         _agentRun = null;
+        _agentMessageId = null;
         clearWaitTimeout();
         if (result.isCancelled) return;
         if (!result.isSuccess) {
           setState(() => _setStreaming(false));
           final msg = result.error.toString().replaceFirst('Exception: ', '');
-          final display = buf.isNotEmpty
-              ? '$buf\n\n---\n请求失败: $msg'
+          final partial = result.partialContent.trim();
+          final display = partial.isNotEmpty
+              ? '$partial\n\n---\n请求失败: $msg'
               : '请求失败: $msg';
           cp.updateLastMessage(
             cid,

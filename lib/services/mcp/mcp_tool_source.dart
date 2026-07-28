@@ -69,6 +69,9 @@ class McpToolSource {
         invocation,
         cancellationToken,
       ) async {
+        if (_disposed) {
+          throw StateError('MCP server $serverId is no longer available');
+        }
         final result = await client.callTool(
           tool.name,
           invocation.arguments,

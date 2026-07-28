@@ -50,7 +50,7 @@ HomePage
 
 文件：`lib/pages/chat_page.dart`
 
-`ChatPage` 协调模型选择、附件、语音、文件识别、OCR、工具调用、Agent/Subagent、Agent 工作记忆、流式响应、失败恢复和分享。模型 turn 与工具 continuation 统一交给 `AgentLoopRuntime`，页面只订阅 run event 更新草稿并在停止、重试或销毁时取消 handle。
+`ChatPage` 协调模型选择、附件、语音、文件识别、OCR、工具调用、Agent/Subagent、Agent 工作记忆、流式响应、失败恢复和分享。模型 turn 与工具 continuation 统一交给 `AgentLoopRuntime`，页面只订阅 run event 更新草稿并在停止、重试或销毁时取消 handle。停止会等待 runtime 的 bounded terminal result，把跨 turn 聚合的 partial content 与 reasoning 保存到最后一条 assistant 消息；失败提示也保留该聚合内容，而不是只使用当前 turn 的 UI buffer。悬浮聊天采用相同语义。
 
 打开历史对话只加载该对话自己的设置快照，不把模型、提示词或识别设置写回全局设置。历史请求直接使用快照中的系统提示词正文；即使全局同 ID 提示词后来被编辑，旧会话上下文也保持不变。连续工具调用达到 `ToolCallService.maxToolRounds` 后，页面要求模型基于已有结果结束，并拒绝继续执行工具。
 
@@ -236,9 +236,9 @@ HTTP server 录入 endpoint，并可显式允许 HTTP 或私网；默认要求 H
 
 数据管理页顶部使用“本地/云端”分段，默认进入本地。storage_v2 创建和升级在启动阶段自动完成；设置页只保留「连接到服务端」入口。
 
-本地分段保持隐私说明、备份导出、备份读取预览、导入模式和冲突处理。云端分段读取当前账号与连接状态，展示索引 generation/revision、记录与 Blob 容量、分类统计、持久缓存对象和详情；刷新失败时继续显示上次成功缓存。用户可在此执行立即双向同步并处理 `SyncProvider` 冲突。
+本地分段保持隐私说明、备份导出、备份读取预览、导入模式和冲突处理。云端分段读取当前账号与连接状态，展示索引 generation/revision、记录与 Blob 容量、分类统计、持久缓存对象和详情；对象详情绑定当前 `indexRevision`，revision 已变化时拒绝显示过期混合结果。刷新失败时继续显示上次成功缓存。索引浏览、对象/分类清理、全部清理和 operation ACK 分别受 `index`、`selectivePurge`、`fullPurge`、`operationAck` capability 门控；不支持的按钮和入口禁用，ACK 不支持时 pending operation 保留。用户可在此执行立即双向同步并处理 `SyncProvider` 冲突；普通同步同样会自动发现管理操作并完成必要 reseed，无需先打开本页。
 
-云端对象、分类和全部数据都先请求 purge preview，再显示记录、历史 change 和 Blob 引用数量。全部清空使用高风险确认，明确说明操作只删除云端，本机数据不受影响，而且下次完整同步会重新上传；客户端不提供手动 GC。
+云端对象、分类和全部数据都先请求 purge preview，再显示记录、历史 change 和 Blob 引用数量。全部清空使用高风险确认，明确说明操作只删除云端；后续 current-projection reseed 会删除本机没有 pending 编辑的远端缺失记录，真实本地 pending 编辑仍会按用户意图重新上传。客户端不提供手动 GC。
 
 | 步骤 | 说明 |
 |------|------|

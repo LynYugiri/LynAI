@@ -10,6 +10,7 @@ import '../services/mcp/mcp_client.dart';
 import '../services/mcp/mcp_connection_factory.dart';
 import '../services/mcp/mcp_protocol.dart';
 import '../services/mcp/mcp_tool_importer.dart';
+import '../services/dataset_runtime_barrier.dart';
 
 enum McpServerStatus { disconnected, connecting, connected, failed }
 
@@ -34,12 +35,15 @@ class McpProvider extends ChangeNotifier {
     required McpRepository repository,
     required McpConnectionFactory connectionFactory,
     required this.toolRegistry,
+    DatasetRuntimeBarrier? datasetBarrier,
   }) : _repository = repository,
-       _connectionFactory = connectionFactory;
+       _connectionFactory = connectionFactory,
+       _datasetBarrier = datasetBarrier;
 
   final McpRepository _repository;
   final McpConnectionFactory _connectionFactory;
   final AgentToolRegistry toolRegistry;
+  final DatasetRuntimeBarrier? _datasetBarrier;
   final List<McpServerState> _servers = [];
   final Map<String, _McpConnection> _connections = {};
   final Map<String, int> _connectionGenerations = {};
@@ -88,6 +92,8 @@ class McpProvider extends ChangeNotifier {
         unawaited(connect(state.server.id));
       }
     } catch (error) {
+      await disconnectAll();
+      _servers.clear();
       _loadError = error.toString();
     } finally {
       _loading = false;
@@ -168,6 +174,7 @@ class McpProvider extends ChangeNotifier {
       _state(serverId)?.preferences.enabledTools[toolName] != false;
 
   Future<void> connect(String serverId) async {
+    await _datasetBarrier?.waitUntilOpen();
     final state = _requireState(serverId);
     if (_connections.containsKey(serverId) ||
         state.status == McpServerStatus.connecting) {
@@ -260,6 +267,8 @@ class McpProvider extends ChangeNotifier {
       await disconnect(serverId);
     }
   }
+
+  Future<void> quiesceForDatasetSwitch() => disconnectAll();
 
   Future<bool> _refreshTools(
     String serverId,

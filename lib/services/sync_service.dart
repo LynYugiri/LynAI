@@ -57,7 +57,6 @@ class SyncChangeRecord {
 
   Map<String, dynamic> toJson() => {
     'changeId': changeId,
-    'deviceId': deviceId,
     'clientCreatedAt': clientCreatedAt.toUtc().toIso8601String(),
     'table': table,
     'op': op,
@@ -90,6 +89,15 @@ class RemoteSyncService implements SyncService {
       throw Exception(_errorMessage(resp.body, '获取同步状态失败'));
     }
     final json = Map<String, dynamic>.from(jsonDecode(resp.body) as Map);
+    final capabilities = SyncCapabilities.fromJson(json['capabilities']);
+    if (capabilities.advertised &&
+        (json['generation'] is! num ||
+            json['indexRevision'] is! num ||
+            json['minAvailableSeq'] is! num)) {
+      throw const FormatException(
+        'sync status advertised capabilities without cursor metadata',
+      );
+    }
     return SyncStatus(
       lastSeq: (json['lastSeq'] as num?)?.toInt() ?? 0,
       blobCount: (json['blobCount'] as num?)?.toInt() ?? 0,
@@ -97,6 +105,7 @@ class RemoteSyncService implements SyncService {
       indexRevision: (json['indexRevision'] as num?)?.toInt() ?? 0,
       minAvailableSeq: (json['minAvailableSeq'] as num?)?.toInt() ?? 0,
       limits: SyncLimits.fromJson(json['limits']),
+      capabilities: capabilities,
     );
   }
 
@@ -106,13 +115,8 @@ class RemoteSyncService implements SyncService {
     int generation = 0,
   }) async {
     _requireSignedGeneration(generation);
+    final bodyBytes = encodeChangesRequest(changes, generation: generation);
     final requestId = requestIdForChanges(changes);
-    final body = {
-      'requestId': requestId,
-      'expectedGeneration': generation,
-      'changes': changes.map((c) => c.toJson()).toList(),
-    };
-    final bodyBytes = utf8.encode(jsonEncode(body));
     final resp = await _postSignedBytes(
       path: '/sync/changes',
       requestId: requestId,
@@ -121,6 +125,11 @@ class RemoteSyncService implements SyncService {
       generation: generation,
     );
     if (resp.statusCode != 200) {
+      final cursor = _cursorException(resp.body);
+      if (cursor != null) throw cursor;
+      if (_responseCode(resp.body) == 'replay_conflict') {
+        throw SyncReplayConflictException(_errorMessage(resp.body, '同步请求重放冲突'));
+      }
       if (_isExplicitSignatureRejection(resp.body)) {
         throw Exception(_errorMessage(resp.body, '同步签名被拒绝'));
       }
@@ -218,6 +227,17 @@ class RemoteSyncService implements SyncService {
     );
   }
 
+  static List<int> encodeChangesRequest(
+    List<SyncChangeRecord> changes, {
+    required int generation,
+  }) => utf8.encode(
+    jsonEncode({
+      'requestId': requestIdForChanges(changes),
+      'expectedGeneration': generation,
+      'changes': changes.map((change) => change.toJson()).toList(),
+    }),
+  );
+
   static String requestIdForBlob(String hash) => _base64Url(
     sha256.convert(utf8.encode('blob\n$hash')).bytes.sublist(0, 24),
   );
@@ -291,6 +311,15 @@ class RemoteSyncService implements SyncService {
   bool _isExplicitSignatureRejection(String body) =>
       _deviceRejectionCode(body) != null;
 
+  String? _responseCode(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      return decoded is Map ? decoded['code'] as String? : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   String? _deviceRejectionCode(String body) {
     try {
       final decoded = jsonDecode(body);
@@ -310,7 +339,6 @@ class RemoteSyncService implements SyncService {
           'device_session_mismatch',
           'revoked_device',
           'invalid_signed_request',
-          'replayed_request',
         };
         for (final value in values) {
           final code = value?.toString();
@@ -325,9 +353,6 @@ class RemoteSyncService implements SyncService {
         return 'signature_required';
       }
       if (message == 'invalid signed sync request') return 'invalid_signature';
-      if (message == 'request id conflicts with an existing request') {
-        return 'replayed_request';
-      }
       return null;
     } catch (_) {
       return null;
@@ -345,6 +370,8 @@ class RemoteSyncService implements SyncService {
       headers: {'X-LynAI-Expected-Generation': '$generation'},
     );
     if (resp.statusCode != 200) {
+      final cursor = _cursorException(resp.body);
+      if (cursor != null) throw cursor;
       throw Exception(_errorMessage(resp.body, '获取变更失败'));
     }
     final json = Map<String, dynamic>.from(jsonDecode(resp.body) as Map);
@@ -404,6 +431,9 @@ class RemoteSyncService implements SyncService {
       indexRevision: (json['indexRevision'] as num?)?.toInt() ?? 0,
       minAvailableSeq: (json['minAvailableSeq'] as num?)?.toInt() ?? 0,
       globalLatestSeq: globalLatestSeq,
+      hasGeneration: json.containsKey('generation'),
+      hasIndexRevision: json.containsKey('indexRevision'),
+      hasMinAvailableSeq: json.containsKey('minAvailableSeq'),
     );
   }
 
@@ -421,6 +451,8 @@ class RemoteSyncService implements SyncService {
         headers: {'X-LynAI-Expected-Generation': '$generation'},
       );
       if (resp.statusCode != 200) {
+        final cursor = _cursorException(resp.body);
+        if (cursor != null) throw cursor;
         throw Exception(_errorMessage(resp.body, '获取 blob 列表失败'));
       }
       final json = Map<String, dynamic>.from(jsonDecode(resp.body) as Map);
@@ -457,6 +489,11 @@ class RemoteSyncService implements SyncService {
       generation: generation,
     );
     if (resp.statusCode != 200) {
+      final cursor = _cursorException(resp.body);
+      if (cursor != null) throw cursor;
+      if (_responseCode(resp.body) == 'replay_conflict') {
+        throw SyncReplayConflictException(_errorMessage(resp.body, '同步请求重放冲突'));
+      }
       if (_isExplicitSignatureRejection(resp.body)) {
         throw Exception(_errorMessage(resp.body, '同步签名被拒绝'));
       }
@@ -558,18 +595,99 @@ class RemoteSyncService implements SyncService {
   }
 
   @override
-  Future<List<int>> downloadBlob(String sha256, {int generation = 0}) async {
-    final resp = await _client.get(
-      '/sync/blobs/$sha256',
+  Future<List<int>> downloadBlob(
+    String hash, {
+    int generation = 0,
+    int maxBytes = 64 * 1024 * 1024,
+  }) async {
+    final resp = await _client.getBounded(
+      '/sync/blobs/$hash',
+      maxBytes: maxBytes,
       headers: {'X-LynAI-Expected-Generation': '$generation'},
     );
     if (resp.statusCode != 200) {
+      final cursor = _cursorException(resp.body);
+      if (cursor != null) throw cursor;
       throw Exception(_errorMessage(resp.body, '下载 blob 失败'));
     }
-    return resp.bodyBytes;
+    final bytes = resp.bodyBytes;
+    if (bytes.length > maxBytes) {
+      throw StateError('sync blob $hash exceeds $maxBytes bytes');
+    }
+    if (sha256.convert(bytes).toString() != hash) {
+      throw StateError('sync blob $hash hash mismatch');
+    }
+    return bytes;
   }
 
   String _errorMessage(String body, String fallback) {
     return BackendClient.extractErrorMessage(body) ?? fallback;
   }
+
+  SyncCursorException? _cursorException(String body) {
+    Object? decoded;
+    try {
+      decoded = jsonDecode(body);
+    } catch (_) {
+      return null;
+    }
+    if (decoded is! Map) return null;
+    final json = Map<String, dynamic>.from(decoded);
+    final code = switch (json['code']) {
+      'generation_mismatch' => SyncCursorErrorCode.generationMismatch,
+      'stale_cursor' => SyncCursorErrorCode.staleCursor,
+      'future_cursor' => SyncCursorErrorCode.futureCursor,
+      _ => null,
+    };
+    if (code == null) return null;
+    int requiredInt(String key, {bool positive = false}) {
+      final value = json[key];
+      if (value is! int || value < (positive ? 1 : 0)) {
+        throw FormatException('sync cursor error $key is invalid');
+      }
+      return value;
+    }
+
+    final currentGeneration = requiredInt('currentGeneration', positive: true);
+    final expectedGeneration = json.containsKey('expectedGeneration')
+        ? requiredInt('expectedGeneration', positive: true)
+        : null;
+    final latestSeq = json.containsKey('latestSeq')
+        ? requiredInt('latestSeq')
+        : null;
+    final indexRevision = json.containsKey('indexRevision')
+        ? requiredInt('indexRevision')
+        : null;
+    final minAvailableSeq = json.containsKey('minAvailableSeq')
+        ? requiredInt('minAvailableSeq')
+        : null;
+    if (code == SyncCursorErrorCode.generationMismatch &&
+        expectedGeneration == null) {
+      throw const FormatException('sync generation mismatch is malformed');
+    }
+    if (code != SyncCursorErrorCode.generationMismatch &&
+        (latestSeq == null ||
+            indexRevision == null ||
+            minAvailableSeq == null)) {
+      throw const FormatException('sync cursor conflict is malformed');
+    }
+    return SyncCursorException(
+      code: code,
+      message: _errorMessage(body, '同步 cursor 冲突'),
+      currentGeneration: currentGeneration,
+      expectedGeneration: expectedGeneration,
+      latestSeq: latestSeq,
+      indexRevision: indexRevision,
+      minAvailableSeq: minAvailableSeq,
+    );
+  }
+}
+
+class SyncReplayConflictException implements Exception {
+  const SyncReplayConflictException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
 }

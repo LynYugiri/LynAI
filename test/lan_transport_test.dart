@@ -57,6 +57,40 @@ void main() {
     });
   });
 
+  test('frame sizing matches the exact serialized bytes', () {
+    final body = {
+      'changes': [
+        {'id': 'x', 'text': '"\\\n'},
+      ],
+      'blobs': const [],
+      'more': true,
+    };
+    final encoded = LanSecureTransport.encodeFrame(
+      type: 'manifest',
+      sessionId: 'session-a',
+      counter: 1,
+      purpose: 'sync',
+      role: 'initiator',
+      body: body,
+    );
+
+    expect(
+      LanSecureTransport.bodySize(body),
+      utf8.encode(jsonEncode(body)).length,
+    );
+    expect(
+      LanSecureTransport.frameSize(
+        type: 'manifest',
+        sessionId: 'session-a',
+        counter: 1,
+        purpose: 'sync',
+        role: 'initiator',
+        body: body,
+      ),
+      encoded.length,
+    );
+  });
+
   test('bad ALPN is rejected before consuming a connection slot', () {
     expect(LanSyncCoordinator.admitsConnection(null, 0), isFalse);
     expect(LanSyncCoordinator.admitsConnection('http/1.1', 0), isFalse);

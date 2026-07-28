@@ -132,6 +132,7 @@ class LanSyncCoordinator {
   Future<int> _startHost() async {
     final identity = await identityService.initialize();
     await syncStorage.activate(identity.deviceId);
+    await peerRepository.migrateLegacyTransportState();
     final material = await certificateService.loadOrCreate();
     SecureServerSocket? server;
     StreamSubscription<SecureSocket>? subscription;
@@ -193,6 +194,7 @@ class LanSyncCoordinator {
     final payload = await payloadCodec.decodeAndVerify(encodedPayload);
     final identity = await identityService.initialize();
     await syncStorage.activate(identity.deviceId);
+    await peerRepository.migrateLegacyTransportState();
     await runOutboundAttempts(
       payload.addresses,
       connect: (address) async => LanSecureTransport(
@@ -1188,10 +1190,7 @@ class LanSyncCoordinator {
     String peerDeviceId,
     SyncDataSelection selection,
   ) async {
-    final acknowledged = await peerRepository.acknowledgedChangeIds(
-      peerDeviceId,
-    );
-    final entries = await syncStorage.changesForPeer(acknowledged, selection);
+    final entries = await syncStorage.changesForPeer(peerDeviceId, selection);
     for (final batch in lanSyncBatches(entries, _maxChanges)) {
       var offset = 0;
       while (offset < batch.length) {
@@ -1205,8 +1204,20 @@ class LanSyncCoordinator {
             0,
             (total, blob) => total + blob.size,
           );
+          final manifestBody = _manifestBody(page, blobs, more: true);
           if (blobs.length <= _maxBlobDescriptors &&
-              totalBytes <= _maxSessionBytes) {
+              totalBytes <= _maxSessionBytes &&
+              LanSecureTransport.bodySize(manifestBody) <=
+                  LanSecureTransport.defaultMaxBodyBytes &&
+              LanSecureTransport.frameSize(
+                    type: 'manifest',
+                    sessionId: transport.sessionId,
+                    counter: transport.nextSentCounter,
+                    purpose: 'sync',
+                    role: transport.localRole,
+                    body: manifestBody,
+                  ) <=
+                  LanSecureTransport.defaultMaxFrameBytes) {
             break;
           }
           if (end - offset == 1) {
@@ -1234,18 +1245,7 @@ class LanSyncCoordinator {
     Map<String, LanSyncBlob> blobs, {
     required bool more,
   }) async {
-    await transport.send('manifest', {
-      'changes': entries.map(_entryJson).toList(),
-      'blobs': [
-        for (final entry in blobs.entries)
-          {
-            'sha256': entry.key,
-            'size': entry.value.size,
-            'kind': entry.value.kind,
-          },
-      ],
-      'more': more,
-    });
+    await transport.send('manifest', _manifestBody(entries, blobs, more: more));
     final request = await transport.receive(
       expectedTypes: const {'blob-request'},
     );
@@ -1297,8 +1297,28 @@ class LanSyncCoordinator {
     final acknowledgedIds = (ack.body['changeIds'] as List? ?? const [])
         .cast<String>();
     validateExactAcknowledgement(sentIds, acknowledgedIds);
-    await peerRepository.acknowledgeChanges(peerDeviceId, acknowledgedIds);
+    await syncStorage.acknowledgePeer(
+      peerDeviceId,
+      entries.cast<SyncOutboxEntry>(),
+    );
   }
+
+  Map<String, dynamic> _manifestBody(
+    List<dynamic> entries,
+    Map<String, LanSyncBlob> blobs, {
+    required bool more,
+  }) => {
+    'changes': entries.map(_entryJson).toList(),
+    'blobs': [
+      for (final entry in blobs.entries)
+        {
+          'sha256': entry.key,
+          'size': entry.value.size,
+          'kind': entry.value.kind,
+        },
+    ],
+    'more': more,
+  };
 
   Future<void> _receiveChanges(
     LanSecureTransport transport,
@@ -1330,7 +1350,7 @@ class LanSyncCoordinator {
     }
     final changes = rawChanges
         .whereType<Map>()
-        .map((item) => _changeFromJson(Map<String, dynamic>.from(item)))
+        .map((item) => parseLanChange(Map<String, dynamic>.from(item)))
         .toList(growable: false);
     if (changes.length != rawChanges.length) {
       throw StateError('invalid LAN change manifest');
@@ -1491,7 +1511,7 @@ class LanSyncCoordinator {
         }
         if (changes.isNotEmpty) {
           await beforeRemoteApply?.call();
-          await syncStorage.apply(changes);
+          await syncStorage.apply(peerDeviceId, changes);
           await onRemoteApplied?.call();
         }
       });
@@ -1516,22 +1536,62 @@ class LanSyncCoordinator {
     'op': entry.op,
     'recordId': entry.recordId,
     if (entry.data != null) 'data': entry.data,
+    if (entry.lineage != null) 'lineage': entry.lineage,
   };
 
-  SyncChange _changeFromJson(Map<String, dynamic> json) => SyncChange(
-    seq: _syntheticSequence(json['changeId'] as String),
-    changeId: json['changeId'] as String,
-    deviceId: json['deviceId'] as String,
-    clientCreatedAt: DateTime.parse(json['clientCreatedAt'] as String),
-    table: json['table'] as String,
-    op: json['op'] as String,
-    recordId: json['recordId'] as String,
-    data: json['data'] is Map
+  static SyncChange parseLanChange(Map<String, dynamic> json) {
+    const required = {
+      'changeId',
+      'deviceId',
+      'clientCreatedAt',
+      'table',
+      'op',
+      'recordId',
+    };
+    const allowed = {...required, 'data', 'lineage'};
+    if (!json.keys.toSet().containsAll(required) ||
+        json.keys.any((key) => !allowed.contains(key))) {
+      throw StateError('unexpected LAN change fields');
+    }
+    final changeId = json['changeId'];
+    final deviceId = json['deviceId'];
+    final createdAt = json['clientCreatedAt'];
+    final table = json['table'];
+    final op = json['op'];
+    final recordId = json['recordId'];
+    final lineage = json['lineage'];
+    if (changeId is! String ||
+        deviceId is! String ||
+        createdAt is! String ||
+        table is! String ||
+        op is! String ||
+        recordId is! String ||
+        (lineage != null && lineage is! String)) {
+      throw StateError('invalid LAN change fields');
+    }
+    final parsedCreatedAt = DateTime.tryParse(createdAt);
+    final data = json['data'] is Map
         ? Map<String, dynamic>.from(json['data'] as Map)
-        : null,
-  );
+        : null;
+    if (parsedCreatedAt == null ||
+        (op == 'upsert' && data?['id'] != recordId) ||
+        (op == 'delete' && json.containsKey('data'))) {
+      throw StateError('invalid LAN change payload');
+    }
+    return SyncChange(
+      seq: _syntheticSequence(changeId),
+      changeId: changeId,
+      deviceId: deviceId,
+      clientCreatedAt: parsedCreatedAt,
+      table: table,
+      op: op,
+      recordId: recordId,
+      data: data,
+      lineage: lineage as String?,
+    );
+  }
 
-  int _syntheticSequence(String changeId) {
+  static int _syntheticSequence(String changeId) {
     final bytes = sha256.convert(utf8.encode(changeId)).bytes;
     var value = 0;
     for (var index = 0; index < 7; index++) {
@@ -1589,6 +1649,12 @@ class LanSyncCoordinator {
           !const {'upsert', 'delete'}.contains(change.op) ||
           !LanSyncStorage.ordinaryLanTables.contains(change.table)) {
         throw StateError('invalid LAN change manifest');
+      }
+      if (change.op == 'upsert' && change.data?['id'] != change.recordId) {
+        throw StateError('LAN change data.id does not match recordId');
+      }
+      if (change.op == 'delete' && change.data != null) {
+        throw StateError('LAN delete must not contain data');
       }
       validatePluginSyncChange(change);
     }

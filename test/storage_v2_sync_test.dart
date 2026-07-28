@@ -619,6 +619,74 @@ void main() {
       },
     );
 
+    test(
+      'current projection reseed removes purged clean rows and keeps pending edits',
+      () async {
+        const scope = 'https://cloud.example|user-projection';
+        await database.writeDataFile('tasks.json', {
+          'tasks': [
+            _task('purged', 'purged'),
+            _task('remote', 'old remote'),
+            _task('pending', 'before edit'),
+          ],
+        });
+        await database.activateSyncScope(scope, deviceId: _deviceId);
+        final initial = await database.loadSyncOutbox(scope);
+        await database.acknowledgeSyncOutbox(scope, initial);
+        await database.writeDataFile('tasks.json', {
+          'tasks': [
+            _task('purged', 'purged'),
+            _task('remote', 'old remote'),
+            _task('pending', 'local edit'),
+          ],
+        });
+
+        final changed = await database.reconcileCurrentCloudProjection(
+          scope,
+          2,
+          9,
+          [
+            {
+              'table': 'tasks',
+              'op': 'upsert',
+              'recordId': 'remote',
+              'data': _task('remote', 'new remote'),
+            },
+            {
+              'table': 'tasks',
+              'op': 'upsert',
+              'recordId': 'pending',
+              'data': _task('pending', 'remote stale'),
+            },
+          ],
+          {'tasks'},
+        );
+
+        final tasks =
+            ((await database.loadDataFile('tasks.json'))?['tasks'] as List)
+                .cast<Map>();
+        expect(
+          tasks.map((row) => row['id']),
+          unorderedEquals(['remote', 'pending']),
+        );
+        expect(
+          tasks.singleWhere((row) => row['id'] == 'remote')['title'],
+          'new remote',
+        );
+        expect(
+          tasks.singleWhere((row) => row['id'] == 'pending')['title'],
+          'local edit',
+        );
+        final outbox = await database.loadSyncOutbox(scope);
+        expect(outbox.map((entry) => entry.recordId), ['pending']);
+        final state = await database.syncScopeState(scope);
+        expect(state.generation, 2);
+        expect(state.since, 9);
+        expect(state.fullReseedRequired, isFalse);
+        expect(changed, {'tasks'});
+      },
+    );
+
     test('remote resources apply incrementally without outbox echo', () async {
       const scope = 'server|user-a';
       await database.activateSyncScope(scope, deviceId: _deviceId);
@@ -644,7 +712,7 @@ void main() {
       expect(await database.syncSince(scope), 4);
     });
 
-    test('applied change ids are isolated by remote scope', () async {
+    test('change ids are global and payload reuse fails atomically', () async {
       const scopeA = 'https://a.example|user';
       const scopeB = 'https://b.example|user';
       await database.batchIncremental(
@@ -661,47 +729,34 @@ void main() {
         scope: scopeA,
         nextSince: 1,
       );
-      await database.batchIncremental(
-        [
-          _remote(
-            'tasks',
-            'task-1',
-            _task('task-1', 'scope B', updatedAt: '2026-01-01T00:00:01Z'),
-            seq: 1,
-            changeId: 'shared-change',
-          ),
-        ],
-        remote: true,
-        scope: scopeB,
-        nextSince: 1,
-      );
-      await database.batchIncremental(
-        [
-          _remote(
-            'tasks',
-            'task-1',
-            _task('task-1', 'duplicate A', updatedAt: '2026-01-01T00:00:02Z'),
-            seq: 2,
-            changeId: 'shared-change',
-          ),
-        ],
-        remote: true,
-        scope: scopeA,
-        nextSince: 2,
+      await expectLater(
+        database.batchIncremental(
+          [
+            _remote(
+              'tasks',
+              'task-1',
+              _task('task-1', 'scope B', updatedAt: '2026-01-01T00:00:01Z'),
+              seq: 1,
+              changeId: 'shared-change',
+            ),
+          ],
+          remote: true,
+          scope: scopeB,
+          nextSince: 1,
+        ),
+        throwsStateError,
       );
 
       final tasks = await database.loadDataFile('tasks.json');
-      expect((tasks?['tasks'] as List).single['title'], 'scope B');
+      expect((tasks?['tasks'] as List).single['title'], 'scope A');
+      expect(await database.syncSince(scopeB), 0);
       await database.close();
       final raw = sqlite3.open('${root.path}/storage_v2/app.db');
       try {
         final applied = raw.select(
           "SELECT scope FROM sync_applied_changes WHERE change_id = 'shared-change'",
         );
-        expect(
-          applied.map((row) => row['scope']),
-          unorderedEquals([scopeA, scopeB]),
-        );
+        expect(applied.map((row) => row['scope']), [scopeA]);
       } finally {
         raw.close();
       }
@@ -795,7 +850,7 @@ PRAGMA user_version = 16;
       await database.close();
       final migrated = sqlite3.open('${storageRoot.path}/app.db');
       try {
-        expect(migrated.userVersion, 23);
+        expect(migrated.userVersion, 24);
         expect(
           migrated
               .select(
@@ -828,11 +883,16 @@ PRAGMA user_version = 16;
         final outbox = migrated.select(
           'SELECT scope, op, record_id FROM sync_outbox ORDER BY scope',
         );
-        expect(outbox, hasLength(2));
-        expect(outbox.map((row) => row['scope']), contains('lan:v1'));
+        expect(outbox, hasLength(1));
+        expect(outbox.single['scope'], 'https://cloud.example|user');
+        expect(outbox.single['op'], 'delete');
         expect(
-          outbox.where((row) => row['scope'] != 'lan:v1').single['op'],
-          'delete',
+          migrated
+              .select(
+                "SELECT change_id FROM transport_change_heads WHERE record_id = 'lan-task'",
+              )
+              .single['change_id'],
+          'lan-outbox',
         );
         expect(
           migrated.select('SELECT scope FROM sync_conflicts').single['scope'],

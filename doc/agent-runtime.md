@@ -30,7 +30,7 @@ start
   -> 达到 maxToolRounds: 注入 final instruction，隐藏 tools，再执行一次最终 turn
 ```
 
-每个 run 有稳定 `runId`，每个模型 turn 有新的 `turnId` 和递增 `turnIndex`。tool executor 收到同一个 `AgentTurnIdentity`，tool result 必须按 invocation ID 与本轮 call 对应。runtime 将 assistant tool call 与 tool result 编码成标准消息，并把真实 reasoning 从后续上下文移除。
+每个 run 有稳定 `runId`，每个模型 turn 有新的 `turnId` 和递增 `turnIndex`。tool executor 收到同一个 `AgentTurnIdentity`，tool result 必须按 invocation ID 与本轮 call 对应。runtime 在写 assistant item、发出 tool 事件或执行副作用前拒绝空白、带首尾空格或重复的 invocation ID。runtime 将 assistant tool call 与 tool result 编码成标准消息，并把真实 reasoning 从后续上下文移除。
 
 达到 `maxToolRounds` 时，不会直接把最后一次工具结果当最终答复。runtime 增加 system 约束，设置 `forceFinalResponse=true`，调用方必须不再发送 tools。如果模型仍返回 tool calls，runtime 不执行它们，并在完成结果上设置 `toolRoundLimitReached=true`。
 
@@ -42,6 +42,8 @@ start
 2. 工具执行通过 `Future.any` 与取消竞争；run 不等待不合作的晚到工具 future。
 3. 取消后不追加 tool result、不启动下一 turn，只完成一个 `cancelled` result 和一个 `runCancelled` terminal event。
 4. 工具 handler 仍必须主动观察 token；若底层外部操作本身不可取消，它可能在后台结束，但结果不能回到已取消 run。
+
+模型订阅取消和 run persistence 终态写入都有固定收尾超时，失效的上游 stream 或存储实现不能无限阻塞 terminal result。`AgentRunResult.content` 仍表示最后一个完整 turn 的正文；`partialContent` 聚合所有已收到的 turn 正文，包括失败或取消时尚未完成的当前 turn。主聊天和悬浮聊天停止时保存 `partialContent` 与累计 reasoning，失败提示也基于该聚合内容渲染。
 5. 模型异常或 stream failure 形成 `failed` result；普通工具异常应由工具层转换为对应 invocation 的 failure result，而不是破坏整个批次。
 
 ## 工具注册与 schema
@@ -60,7 +62,7 @@ start
 
 结果始终按 invocation 输入顺序返回，而不是完成顺序。当前 `ToolCallService` 兼容路径整体按顺序执行，并对单个 MCP 工具使用 `maxConcurrency: 1`，所以通用 scheduler 的并行能力尚未用于主聊天批次。
 
-MCP 工具 schema 与 handler 在模型请求前取同一个 snapshot。server 在模型返回 tool call 前断开或刷新不会把旧调用绑定到新 handler；snapshot 中已经捕获的调用仍按原 registration 执行，新一轮模型请求才读取更新后的 registry。
+MCP 工具发给模型的 descriptor/schema 在 Run 开始时固定；执行时按 canonical name 查询实时 registry。server 在模型返回 tool call 前断开、禁用或刷新时，旧 schema 不会改写，但调用会 fail closed；它不会调用已释放连接，也不会悄悄绑定非 MCP 的同名 registration。插件和内置工具仍执行各自捕获的 handler。
 
 ## 上下文预算
 
@@ -72,7 +74,7 @@ MCP 工具 schema 与 handler 在模型请求前取同一个 snapshot。server �
 
 ## Tool Result Sanitization Foundation
 
-`AgentToolResultProcessor` 是 durable run 的必需边界。`AgentRunPersistenceLifecycle` 必须提供 processor，`AgentLoopRuntime` 在 executor 返回后、任何持久化或 tool result model message 之前统一处理整批结果，并再次校验 invocation correlation。生产 `RepositoryAgentRunPersistenceLifecycle` 使用 `SanitizingAgentToolResultProcessor` 和 storage_v2 sanitizer；executor 只返回原始终态结果，因此不会因现有调用方已配置 sanitizer 而重复处理。未注入 persistence 的非 durable 聚焦运行不会自动 offload。
+`AgentToolResultProcessor` 与 durable persistence 是独立依赖。`AgentLoopRuntime` 在 executor 返回后、任何 tool result 持久化或 model message 之前统一处理整批结果，并再次校验 invocation correlation。生产组合根单独提供 storage_v2-backed `SanitizingAgentToolResultProcessor`，主聊天、悬浮聊天和 Subagent 都显式注入；因此无 persistence 的运行也可以安全清洗，而只注入 persistence 不会隐式改变工具结果。executor 只返回原始终态结果，避免重复处理。
 
 服务递归规范化任意值，限制 JSON 深度、总 entry、单字符串字符数、inline JSON 字节数和 offload 字节数；非有限数字、循环和不支持的运行时对象会转换为 JSON-safe 标记。凭证式字段按 key 删除，Unix、Windows drive 和 UNC 绝对路径在 inline 内容、preview 和落盘文本中替换。小 JSON 保持 inline；大文本、`Uint8List`、可信 byte list 和有界可验证 base64 通过 storage_v2 私有 Resource/Blob 保存，并只返回 preview 与 `{id, mimeType, size, role}`，不返回 path、hash 或原始 base64。
 
@@ -144,3 +146,4 @@ is supplied it takes precedence over mutable application settings.
 - Delete policy is semantic: Agent callers are rejected before mutation for delete functions, note page/folder and todo-item `delete=true`, and todo replacement lists that omit existing item IDs.
 - `save_plugin_skill` requires the dedicated `plugins.skills.files:write` permission rather than notes or broad file-write permission.
 - `http.fetch` and `web_fetch` use `BoundedOutboundHttpClient`, including destination and redirect revalidation, URL credential rejection, public-network defaults, request/streamed-response byte limits, timeout, and active cancellation.
+All main chat, floating chat and Subagent `AgentLoopRuntime` handles are registered with the active physical-dataset barrier. A dataset switch cancels these runs and awaits their terminal result before changing storage, and no new dataset-bound run is admitted until reload and platform projection finish.

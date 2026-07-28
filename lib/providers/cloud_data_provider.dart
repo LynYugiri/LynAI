@@ -5,25 +5,36 @@ import '../models/cloud_data.dart';
 import '../repositories/cloud_data_repository.dart';
 import '../services/backend_client.dart';
 import '../services/cloud_data_service.dart';
+import '../services/cloud_management_coordinator.dart';
+import '../services/dataset_runtime_barrier.dart';
 
 class CloudDataProvider extends ChangeNotifier {
   CloudDataProvider({
     required BackendClient backend,
     required CloudDataRepository repository,
     required CloudDataService service,
+    CloudManagementOperations? management,
+    DatasetRuntimeBarrier? datasetBarrier,
   }) : _backend = backend,
        _repository = repository,
-       _service = service;
+       _service = service,
+       _management =
+           management ??
+           CloudManagementCoordinator(repository: repository, service: service),
+       _datasetBarrier = datasetBarrier;
 
   final BackendClient _backend;
   final CloudDataRepository _repository;
   final CloudDataService _service;
+  final CloudManagementOperations _management;
+  final DatasetRuntimeBarrier? _datasetBarrier;
 
   AccountUser? _user;
   String? _scope;
   CloudDataSnapshot _snapshot = const CloudDataSnapshot();
   List<CloudManagementOperation> _operations = const [];
   bool _loading = false;
+  Future<void>? _activeOperation;
   String? _error;
   int _generation = 0;
 
@@ -34,6 +45,14 @@ class CloudDataProvider extends ChangeNotifier {
   String? get error => _error;
   bool get canManage =>
       _scope != null && (_backend.accessToken ?? '').isNotEmpty;
+  bool get canBrowse =>
+      canManage && (_snapshot.status?.capabilities.index ?? false);
+  bool get canSelectivePurge =>
+      canManage && (_snapshot.status?.capabilities.selectivePurge ?? false);
+  bool get canFullPurge =>
+      canManage && (_snapshot.status?.capabilities.fullPurge ?? false);
+  bool get canAcknowledgeOperations =>
+      canManage && (_snapshot.status?.capabilities.operationAck ?? false);
 
   Future<void> bind(AccountUser? user) async {
     final token = ++_generation;
@@ -43,6 +62,7 @@ class CloudDataProvider extends ChangeNotifier {
     _snapshot = const CloudDataSnapshot();
     _operations = const [];
     _error = null;
+    _loading = false;
     notifyListeners();
     if (scope == null) return;
     try {
@@ -62,19 +82,31 @@ class CloudDataProvider extends ChangeNotifier {
     if (_isCurrent(token, scope)) notifyListeners();
   }
 
+  Future<void> quiesceForDatasetSwitch() async {
+    _generation++;
+    _loading = false;
+    notifyListeners();
+    await _activeOperation;
+  }
+
   Future<void> refresh() => _run((token, scope) => _refresh(token, scope));
 
   Future<void> _refresh(int token, String scope) async {
     final status = await _service.getStatus();
     if (!_isCurrent(token, scope)) return;
-    final groups = await Future.wait(
-      cloudDataCategories.map(
-        (category) => _service.listObjects(category, status.indexRevision),
-      ),
-    );
+    final groups = status.capabilities.index
+        ? await Future.wait(
+            cloudDataCategories.map(
+              (category) =>
+                  _service.listObjects(category, status.indexRevision),
+            ),
+          )
+        : const <List<CloudIndexObject>>[];
     if (!_isCurrent(token, scope)) return;
     final objects = groups.expand((items) => items).toList(growable: false);
-    final operations = await _service.getOperations();
+    final operations = status.capabilities.operationAck
+        ? await _service.getOperations()
+        : await _repository.loadOperations(scope);
     if (!_isCurrent(token, scope)) return;
     await _repository.replace(scope, status, objects);
     await _repository.reconcileOperations(scope, operations);
@@ -95,9 +127,15 @@ class CloudDataProvider extends ChangeNotifier {
   Future<CloudObjectDetail?> loadDetail(CloudIndexObject object) async {
     final token = _generation;
     final scope = _scope;
-    if (scope == null) return null;
+    if (scope == null || !canBrowse) return null;
     try {
-      final detail = await _service.getObject(object.category, object.objectId);
+      final revision = _snapshot.status?.indexRevision;
+      if (revision == null) return null;
+      final detail = await _service.getObject(
+        object.category,
+        object.objectId,
+        revision,
+      );
       if (!_isCurrent(token, scope)) return null;
       _error = null;
       return detail;
@@ -114,7 +152,10 @@ class CloudDataProvider extends ChangeNotifier {
     final token = _generation;
     final scope = _scope;
     final revision = _snapshot.status?.indexRevision;
-    if (scope == null || revision == null) return null;
+    final supported = selector.type == CloudPurgeType.all
+        ? canFullPurge
+        : canSelectivePurge;
+    if (scope == null || revision == null || !supported) return null;
     try {
       final result = await _service.previewPurge(selector, revision);
       if (!_isCurrent(token, scope)) return null;
@@ -130,6 +171,10 @@ class CloudDataProvider extends ChangeNotifier {
   }
 
   Future<bool> purge(CloudPurgePreview preview) async {
+    final supported = preview.selector.type == CloudPurgeType.all
+        ? canFullPurge
+        : canSelectivePurge;
+    if (!supported) return false;
     var succeeded = false;
     await _run((token, scope) async {
       final requestKey =
@@ -154,47 +199,41 @@ class CloudDataProvider extends ChangeNotifier {
     Future<bool> Function() synchronize,
     Future<bool> Function(String scope, int generation) canAcknowledge,
   ) => _run((token, scope) async {
-    final remote = await _service.getOperations();
+    final status = await _service.getStatus();
     if (!_isCurrent(token, scope)) return;
-    await _repository.reconcileOperations(scope, remote);
-    if (!_isCurrent(token, scope)) return;
-    _operations = await _repository.loadOperations(scope);
-    if (!_isCurrent(token, scope)) return;
-    if (_operations.isNotEmpty) {
-      final generation = _operations
-          .map((item) => item.generation)
-          .reduce((a, b) => a > b ? a : b);
-      await _repository.requireFullReseed(scope, generation);
-    }
+    _operations = await _management.discover(
+      scope,
+      remoteSupported: status.capabilities.operationAck,
+    );
     if (!_isCurrent(token, scope) || !await synchronize()) {
       throw StateError('云同步未成功完成');
     }
     if (!_isCurrent(token, scope)) return;
-    for (final operation in List<CloudManagementOperation>.of(_operations)) {
-      if (!await canAcknowledge(scope, operation.generation) ||
-          !_isCurrent(token, scope)) {
-        throw StateError('同步 scope 或 generation 已变化，未确认云端操作');
-      }
-      final requestKey = 'ack:${operation.id}';
-      var requestId = await _repository.loadRequestId(scope, requestKey);
-      if (!_isCurrent(token, scope)) return;
-      requestId ??= RemoteCloudDataService.newRequestId();
-      await _repository.saveRequestId(scope, requestKey, requestId);
-      await _service.acknowledgeOperation(
-        operation.id,
-        operation.generation,
-        requestId,
-      );
-      if (!_isCurrent(token, scope)) return;
-      await _repository.removeOperation(scope, operation.id);
-      await _repository.removeRequestId(scope, requestKey);
-    }
+    await _management.acknowledge(
+      scope,
+      _operations,
+      operationAckSupported: status.capabilities.operationAck,
+      canAcknowledge: (operation) async =>
+          _isCurrent(token, scope) &&
+          await canAcknowledge(scope, operation.generation),
+    );
     if (!_isCurrent(token, scope)) return;
-    _operations = const [];
+    _operations = await _repository.loadOperations(scope);
     await _refresh(token, scope);
   });
 
-  Future<void> _run(
+  Future<void> _run(Future<void> Function(int token, String scope) action) {
+    if (_loading) return Future.value();
+    final operation =
+        _datasetBarrier?.runExisting((_) => _runOpen(action)) ??
+        _runOpen(action);
+    _activeOperation = operation;
+    return operation.whenComplete(() {
+      if (identical(_activeOperation, operation)) _activeOperation = null;
+    });
+  }
+
+  Future<void> _runOpen(
     Future<void> Function(int token, String scope) action,
   ) async {
     if (_loading) return;

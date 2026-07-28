@@ -134,4 +134,44 @@ void main() {
       orderedEquals(List.generate(2501, (index) => index)),
     );
   });
+
+  test(
+    'LAN change parsing accepts optional lineage and rejects malformed rows',
+    () {
+      final valid = {
+        'changeId': 'change-a',
+        'deviceId': 'device-a',
+        'clientCreatedAt': '2026-07-28T00:00:00Z',
+        'table': 'tasks',
+        'op': 'upsert',
+        'recordId': 'task-a',
+        'data': {'id': 'task-a'},
+        'lineage': 'dataset-a',
+      };
+      expect(LanSyncCoordinator.parseLanChange(valid).lineage, 'dataset-a');
+      expect(
+        () => LanSyncCoordinator.parseLanChange({
+          ...valid,
+          'data': {'id': 'other'},
+        }),
+        throwsStateError,
+      );
+      expect(
+        () => LanSyncCoordinator.parseLanChange({...valid, 'unknown': true}),
+        throwsStateError,
+      );
+      expect(
+        () => LanSyncCoordinator.parseLanChange({...valid, 'op': 'delete'}),
+        throwsStateError,
+      );
+      expect(
+        () => LanSyncCoordinator.parseLanChange({
+          ...valid,
+          'op': 'delete',
+          'data': null,
+        }),
+        throwsStateError,
+      );
+    },
+  );
 }

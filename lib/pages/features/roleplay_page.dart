@@ -18,7 +18,7 @@ class _RoleplayPageState extends State<_RoleplayPage> {
   final _scrollCtrl = ScrollController();
   final _focusNode = FocusNode();
   late final RoleplayService _service;
-  final _attachmentStorage = const AttachmentStorageService();
+  late final AttachmentStorageService _attachmentStorage;
   final _screenshotCtrl = ScreenshotController();
   final List<_RoleplayPendingAttachment> _pendingAttachments = [];
   final Map<String, bool> _attachmentExistsCache = {};
@@ -41,6 +41,9 @@ class _RoleplayPageState extends State<_RoleplayPage> {
   @override
   void initState() {
     super.initState();
+    _attachmentStorage = AttachmentStorageService(
+      storageV2: context.read<StorageV2Service>(),
+    );
     _service = RoleplayService(backend: context.read<BackendClient>());
   }
 

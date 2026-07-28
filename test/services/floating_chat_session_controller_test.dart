@@ -153,7 +153,10 @@ void main() {
         controller.conversationId!,
       )!;
       expect(controller.isStreaming, isFalse);
-      expect(conversation.messages.last.content, '已停止生成');
+      await _waitFor(
+        () => conversation.messages.last.content == 'partial\n\n---\n已停止生成',
+      );
+      expect(conversation.messages.last.content, 'partial\n\n---\n已停止生成');
       expect(controller.stateJson()['draft'], 'partial');
     } finally {
       await controller.dispose();

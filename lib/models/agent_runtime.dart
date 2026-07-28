@@ -352,6 +352,7 @@ class AgentRunResult {
   final String runId;
   final AgentRunStatus status;
   final String content;
+  final String partialContent;
   final String? reasoning;
   final int toolRounds;
   final bool toolRoundLimitReached;
@@ -362,6 +363,7 @@ class AgentRunResult {
     required this.runId,
     required this.status,
     required this.content,
+    required this.partialContent,
     required this.reasoning,
     required this.toolRounds,
     this.toolRoundLimitReached = false,

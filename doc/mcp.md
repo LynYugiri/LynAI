@@ -51,7 +51,7 @@ tool_v1_<canonical identity>
 
 远端 `inputSchema` 由共享 importer 按原样交给 `AgentJsonSchemaValidator` 检查，不删除 keyword、不补默认约束。支持子集内的 schema 原样进入 registry；未知 keyword、非法 pattern、错误类型或其他不兼容约束会显式拒绝。Provider 保留发现到的 tool 并在 server error 中说明该 tool 未注册，其他兼容 tool 仍可用；独立 `McpToolSource` 拒绝该次 refresh，并保留 refresh 前持有的 registrations。MCP `isError=true` 被转换为工具执行失败，成功结果把 content、structuredContent 和 isError 一并返回模型。
 
-Provider 只移除自己仍持有的 registration ID，避免断连误删同名替换项。连接或工具刷新发现名称碰撞时不会覆盖已有工具。每次 Agent Run 由 `ToolCallService.createRunSnapshot()` 捕获 MCP descriptor、handler、并发语义和权限；模型 schema 与工具执行都绑定到该不可变 Run snapshot。后续断连或 refresh 只影响新 Run，不会让旧调用改绑到新 handler；运行时仍会把取消令牌传入已捕获 handler，并忽略取消后晚到的远端结果。
+Provider 只移除自己仍持有的 registration ID，避免断连误删同名替换项。连接或工具刷新发现名称碰撞时不会覆盖已有工具。每次 Agent Run 由 `ToolCallService.createRunSnapshot()` 固定 MCP descriptor/schema、并发语义和权限，保证同一 Run 后续模型 turn 的 tool catalog 不漂移；实际执行按 canonical name 查询实时共享 registry。断连、禁用或 refresh 后旧 schema 可以仍存在于该 Run 的模型上下文，但调用会显式失败，不会使用已 dispose 的 client，也不会改绑到非 MCP 同名工具。运行时仍传递取消令牌并忽略取消后晚到结果。
 
 ## 持久化与 SecretStore
 
@@ -88,3 +88,4 @@ flutter test test/agent_persistence_repository_test.dart
 ```
 
 涉及组合根或 ChatPage 工具暴露时还需运行相关 widget、工具调用和悬浮聊天测试，并执行完整 `flutter analyze --no-pub`、`flutter test --no-pub`。stdio 平台 wiring 变化必须在目标桌面平台验证进程启动、逐行 framing、环境注入和 dispose。
+Physical dataset switches disconnect MCP clients and remove their owned tool registrations before loading the target dataset. If target MCP configuration or preferences fail to load, the provider remains empty/failed and does not retain publication from the previous dataset.

@@ -34,20 +34,23 @@ class LanSyncStorage {
       _storage.resolveSyncConflict(scope, seq, resolution);
 
   Future<List<SyncOutboxEntry>> changesForPeer(
-    Set<String> acknowledgedChangeIds, [
+    Object peer, [
     SyncDataSelection selection = SyncDataSelection.defaults,
-  ]) async => (await _storage.loadSyncOutbox(scope))
-      .where(
-        (entry) =>
-            ordinaryLanTables.contains(entry.table) &&
-            SyncDataRegistry.allowsChange(
-              selection,
-              entry.table,
-              SyncDataRegistry.selectionData(entry.data, entry.selectionData),
-            ) &&
-            !acknowledgedChangeIds.contains(entry.changeId),
-      )
-      .toList(growable: false);
+  ]) async =>
+      (await _storage.loadTransportHeadsForPeer(peer is String ? peer : ''))
+          .where(
+            (entry) =>
+                ordinaryLanTables.contains(entry.table) &&
+                SyncDataRegistry.allowsChange(
+                  selection,
+                  entry.table,
+                  SyncDataRegistry.selectionData(
+                    entry.data,
+                    entry.selectionData,
+                  ),
+                ),
+          )
+          .toList(growable: false);
 
   Future<Map<String, LanSyncBlob>> blobsForChanges(
     List<SyncOutboxEntry> entries, [
@@ -192,7 +195,17 @@ class LanSyncStorage {
       role == 'message_image' ||
       role == 'background';
 
-  Future<void> apply(List<SyncChange> changes) async {
+  Future<void> acknowledgePeer(
+    String peerDeviceId,
+    List<SyncOutboxEntry> entries,
+  ) => _storage.acknowledgeTransportHeads(peerDeviceId, entries);
+
+  Future<void> apply(
+    Object peerOrChanges, [
+    List<SyncChange>? peerChanges,
+  ]) async {
+    final peerDeviceId = peerOrChanges is String ? peerOrChanges : '';
+    final changes = peerChanges ?? (peerOrChanges as List<SyncChange>);
     final normalized = <SyncRemoteOperation>[];
     for (final change in changes) {
       validatePluginSyncChange(change);
@@ -214,6 +227,7 @@ class LanSyncStorage {
       normalized,
       0,
       appliedSource: 'lan',
+      appliedSourcePeer: peerDeviceId,
     );
     if (changes.any((change) => _noteTables.contains(change.table))) {
       await _storage.recoverNoteMaterialization();

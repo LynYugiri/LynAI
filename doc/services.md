@@ -16,9 +16,9 @@
 
 同步服务只上传两个版本化配置投影：单例 `SharedSettingsV1` 和逐 Provider 的 `SyncedModelConfigV1`。前者不包含后端连接、登录/changelog、最近功能、悬浮助手、权限和本地路径；后者仅接受用户明确开启同步的非托管 Provider，并删除 API key、secure-store 引用、URL userinfo 及疑似凭证的嵌套参数。远端写入使用 storage_v2 的现有 Outbox/conflict 事务，存在本地 pending mutation 时不覆盖本地值。
 
-`RemoteSyncService` 对上传和下载响应执行结构校验后才交给 Provider：上传要求 `latestSeq` 合法，ACK 数量与批次一致，并且只能是完整 legacy seq ACK 或不重复且精确覆盖请求 changeId 的 ACK；下载要求 changes 为列表、change 字段和 upsert `data.id` 合法、seq 从 since 起严格递增、changeId 页内不重复，且 `nextSince` 覆盖本页最大 seq。格式异常不会推进游标或删除 Outbox。`postSignedJson()` 复用同一 enrollment、token refresh、稳定 body bytes 和 Ed25519 重签链路，供 purge 与 operation ACK 使用，管理签名逻辑不散落到页面或 Provider。
+`RemoteSyncService` 对上传和下载响应执行结构校验后才交给 Provider：上传要求 `latestSeq` 合法，ACK 数量与批次一致，并且只能是完整 legacy seq ACK 或不重复且精确覆盖请求 changeId 的 ACK；下载要求 changes 为列表、change 字段和 upsert `data.id` 合法、seq 从 since 起严格递增、changeId 页内不重复，且 `nextSince` 覆盖本页最大 seq。capabilities object 存在时，其已出现字段必须是 boolean；generation/indexRevision/minAvailableSeq 缺失、非法或分页不一致会失败关闭。`generation_mismatch`、`stale_cursor` 和 `future_cursor` 被解析为类型化异常，并严格要求对应 metadata。变更批次大小计算、签名和传输共用 canonical exact-byte encoder，change JSON 不发送本地 `deviceId`。Blob 下载通过 `BackendClient.getBounded()` 使用广告上限，并在安装和 cursor 提交前复验 SHA-256。格式异常不会推进游标或删除 Outbox。`postSignedJson()` 复用同一 enrollment、token refresh、稳定 body bytes 和 Ed25519 重签链路，供 purge 与 operation ACK 使用，管理签名逻辑不散落到页面或 Provider；`replay_conflict` 单独分类，不触发设备 enrollment 失效。
 
-`RemoteCloudDataService` 实现 `/sync/index/status`、按分类 keyset 分页的 `/sync/index/objects`、对象详情、purge preview、签名 purge、pending operations 和签名 ACK。所有对象分页绑定同一个 `expectedIndexRevision`；revision 冲突作为刷新失败返回，不提交部分缓存。管理 API 不实现 Blob 物理 GC。
+`RemoteCloudDataService` 实现 `/sync/index/status`、按分类 keyset 分页的 `/sync/index/objects`、对象详情、purge preview、签名 purge、pending operations 和签名 ACK。status/usage、对象页、详情 records、preview 和 operation 都严格解析，缺失、错误类型、非法枚举、空 ID、recordCount 不一致或 `data.id` 不匹配均失败关闭。所有对象分页和对象详情都绑定同一个 `expectedIndexRevision`，且响应 revision 必须相等；revision 冲突分类为可进行一次 status/reseed 重试的 projection race，不提交部分缓存。current-projection reseed 遍历固定 revision 下的对象列表与详情，storage 在一个事务中应用远端 upsert、absent-record 删除、pending mutation 保留和 generation/cursor 更新，不改写 blob 内容、transport head 或 physical dataset lineage。`CloudManagementCoordinator` 是 UI 与普通同步共享的窄服务边界，负责 operation 发现、repository 对账、reseed 标记和确定性 ACK，不依赖任一 Provider。管理 API 不实现 Blob 物理 GC。
 
 ## ApiService
 
@@ -36,7 +36,9 @@
 
 不同协议的请求和返回差异在 `ApiService` 内部消化。页面只处理标准化类型。
 
-OpenAI 兼容和 Anthropic 流使用共享 `SseDecoder`，按空行分隔完整事件，支持任意网络 chunk 边界、LF/CRLF/CR、注释行、`event:` 字段和多行 `data:` 拼接。解析器只把完整 event 的 data 交给协议层，不再假设一行就是一个网络 chunk；OpenAI、Anthropic、Ollama 的 JSON 顶层都必须是 object。
+OpenAI 兼容和 Anthropic 流使用共享 `SseDecoder`，按空行分隔完整事件，支持任意网络 chunk 边界、LF/CRLF/CR、注释行、`event:` 字段和多行 `data:` 拼接。解析器只把完整 event 的 data 交给协议层，不再假设一行就是一个网络 chunk；OpenAI、Anthropic、Ollama 的 JSON 顶层都必须是 object。畸形 SSE JSON、错误的 choices/delta/tool-call 形状、缺失或非法 tool ID、非 object arguments，以及完成标记前 EOF 都会失败，不再跳过或合成 ID。
+
+`debugSse` 只输出 URI/model、状态码、事件数据长度、正文/思考长度、finish reason、tool 名称和参数数量等元数据。它不打印原始 SSE data、正文 preview、tool arguments、tool call ID、API error body 或非 2xx response body。
 
 `managed=true` 的 LynAI 托管模型走独立 canonical 中转契约：endpoint 为 `BackendClient.backendUrl + '/relay'`，Chat 请求发送到 `/relay/chat`，OCR、语音转文字和图片生成分别使用无版本的 `/relay/ocr`、`/relay/transcribe`、`/relay/images/generations`。鉴权使用用户 JWT，路由字段只发送 `model`，不发送 `providerId` 或 `api_type`。普通 OpenAI/Anthropic/Ollama Provider 仍使用各自 direct 路径和用户填写的凭据；direct Vivo AppID 行为不变。
 
@@ -75,7 +77,7 @@ OCR 和文件识别是发送前处理。处理结果会替换历史附件并标�
 
 `AgentResourceService` 提供按稳定 resource ID 的受限元数据、文本、OCR/文件识别和资源搜索基础；`AttachmentReadService` 再把稳定 conversation ID、message ID 与 attachment index 解析为 resource ID。两者都不接受调用方路径，不返回路径、hash 或 base64，只允许消息附件/图片 role，并执行 MIME、字节和字符上限。资源搜索暂时复用现有 `loadResources()` 快照并限制扫描与返回数量；数据库尚无索引搜索 API，后续资源规模需要时再增加专用查询。
 
-`AgentToolResultSanitizer` 是 runtime-level 工具结果安全与 Resource offload 边界。`AgentToolExecutionService` 在 schema 校验、捕获权限授权和调度完成后统一处理所有非取消终态；`sanitize(result, cancellationToken:)` 返回 `AgentToolResultSanitization`，其中 `value` 是唯一可进入持久化和模型上下文的 bounded JSON-safe 值，`resources` 是安全元数据。`AgentToolResultResourceStore` 是存储抽象；`AgentToolResultSanitizer.storageV2(storage)` 使用现有 SHA-addressed Resource/Blob，并写入 local-only `agent_tool_result_local` role。handler、页面和协议适配器不得再次传递原始结果，也不得从 Resource row 暴露 `originalPath`、`relativePath` 或 `sha256`。
+`AgentToolResultSanitizer` 是 runtime-level 工具结果安全与 Resource offload 边界。`AgentToolExecutionService` 负责 schema 校验、捕获权限授权和调度；独立注入 `AgentLoopRuntime` 的 `SanitizingAgentToolResultProcessor` 在 executor 返回后统一处理所有非取消终态。`sanitize(result, cancellationToken:)` 返回 `AgentToolResultSanitization`，其中 `value` 是唯一可进入持久化和模型上下文的 bounded JSON-safe 值，`resources` 是安全元数据。`AgentToolResultResourceStore` 是存储抽象；`AgentToolResultSanitizer.storageV2(storage)` 使用现有 SHA-addressed Resource/Blob，并写入 local-only `agent_tool_result_local` role。handler、页面和协议适配器不得再次传递原始结果，也不得从 Resource row 暴露 `originalPath`、`relativePath` 或 `sha256`。
 
 对话页 OCR 支持两种引擎：云端 OCR API（如 vivo OCR，需网络和 API key）和本地 OCR（ncnn + PPOCRv5，离线免费，仅 Android）。在对话设置的 OCR 模型列表中，Android 端会显示"本地 OCR (PPOCRv5)"虚拟条目，选中后 `imageModelId` 存为 `ModelConfig.localOcrId` sentinel，OCR 路径自动分发到本地推理。`model.ocr` 函数同样支持该 sentinel，Agent Lua 调用时自动走本地路径。
 
@@ -88,13 +90,13 @@ OCR 和文件识别是发送前处理。处理结果会替换历史附件并标�
 | OpenAI SSE `error` | 转成异常进入 ChatPage 失败路径。 |
 | Anthropic `type:error` | 转成异常进入失败路径。 |
 | 单个坏 chunk | 跳过该 chunk，保留已收到正文。 |
-| 工具参数不是 JSON 对象 | 跳过该工具调用。 |
+| 工具参数不是 JSON 对象 | 作为协议错误终止该次请求。 |
 
 ## ToolCallService
 
 文件：`lib/services/tool_call_service.dart`
 
-`ToolCallService` 把模型请求转成本地动作。它定义工具 schema，解析 fallback JSON，并在 Run 开始时捕获 immutable tool/permission snapshot；执行由 `AgentToolExecutionService` 使用同一 snapshot 完成 schema 校验、授权、调度和终态 sanitizer。插件的自定义工具由已捕获 handler 转交给 `PluginLuaRuntimeService` 在 Lua 沙箱中执行。
+`ToolCallService` 把模型请求转成本地动作。生产聊天和 Agent 只接受接口原生 tool calls，不提供非原生 JSON fallback。Run 开始时捕获 immutable model schema/permission snapshot；执行由 `AgentToolExecutionService` 完成 schema 校验、授权和调度，独立注入的 `AgentToolResultProcessor` 负责终态 sanitizer。插件的自定义工具由已捕获 handler 转交给 `PluginLuaRuntimeService` 在 Lua 沙箱中执行；MCP schema 固定但执行查询实时 registry 并在不可用时 fail closed。
 
 模型多轮控制不再由页面或 `ToolCallService` 自己维护。主对话、悬浮聊天和 Subagent 都由 `AgentLoopRuntime` 驱动；`ToolCallService.executeSequentialCompatibility()` 是具体工具执行适配器，并通过 `AgentToolScheduler(maxConcurrency: 1)` 调用 MCP 等外部 registry 工具。统一运行时、上下文和取消边界见 [Agent Runtime](agent-runtime.md)。
 
@@ -147,12 +149,12 @@ Agent Lua 可以通过 `lynai.call()` 调用这些函数，也可以用 `lynai.d
 ### 工具调用策略
 
 1. OpenAI 兼容协议在子模型 `supportsTools=true` 且未通过 `extraParams.disableTools=true` 禁用时使用原生 `tools`。
-2. 不适合原生工具的协议可以使用 JSON fallback。
+2. 不支持原生 tools 的协议不暴露生产工具能力，不从 assistant 正文解析 JSON 调用。
 3. 启用工具时会注入当前本地时间、时区和 `timezoneOffsetMinutes`。
 4. 规范任务使用 `LocalDate`/`LocalTime` 字符串；定时日历事件解析 ISO-8601 并由事件规格保存真实开始/结束，全天事件保持 `[startDate, endDateExclusive)`。
 5. 发给模型的 assistant 消息始终带 `reasoning_content: ""`，真实 thinking 只用于 UI/历史展示，不再回传进工具轮次上下文。
 6. `generate_image` 只在当前对话开启图片生成时暴露，并追加在 tools 列表末尾。
-7. `get_current_screen` 只由悬浮聊天会话显式开启，执行层会再次校验授权，避免模型通过 fallback JSON 绕过工具暴露条件。
+7. `get_current_screen` 只由悬浮聊天会话显式开启，执行层会再次校验授权，避免未暴露调用绕过工具目录。
 8. Agent 模式提供 `read_agent_memory` 和 `update_agent_memory`，用于主 Agent、Subagent 和 Lua 共享当前对话的持久化工作记忆。
 9. Agent 模式提供 `run_subagent`，用于把手机自动化、屏幕读取和 OCR/识图等高噪声子任务隔离到独立上下文，主对话只接收最终结构化结果。
 10. 主对话和 Subagent 使用同一个 `ToolCallService.maxToolRounds` 上限。最后一轮工具结果后注入“直接给出最终回复”的约束；模型若仍请求工具，则停止执行并返回明确的轮数上限错误。
@@ -372,7 +374,9 @@ storage_v2/
 | `notes/*.md` | 笔记分页正文。 |
 | `assets/blobs/*` | 资源文件，按 SHA-256 内容寻址保存。 |
 
-Drift 内的 `sync_outbox` 保存尚未确认上传的行级变化，`sync_state` 保存各作用域的服务端游标、激活状态和持久化本地 mutation 捕获权。当前数据库布局不再通过停用时快照做账号 catch-up，而是在 mutation 发生时直接写入其目标云端/LAN Outbox；因此重启可保留归属，远端 apply 也不会被后续快照误判为本地编辑。Outbox 支持稳定排序的 limit/offset 窗口读取，资源可按 ID 集合查询，以便同步先处理记录描述符、需要上传时再读取 Blob。消息附件资源通过 `resources` 行和 SHA Blob 同步；下载文件只写入标准内容寻址路径，不采用远端提供的本地路径。
+Drift 内的 `sync_outbox` 保存尚未确认上传的 cloud 行级变化，`sync_state` 保存各作用域的服务端游标、激活状态和持久化本地 mutation 捕获权。`transport_change_heads` 保存每个逻辑行当前可传播的 upsert/delete head，`transport_change_receipts` 以全局 `changeId` 和 canonical payload hash 去重，`transport_peer_acks` 持久化逐 peer、逐 mutation-version ACK。一次本地逻辑 mutation 只生成一个稳定 `changeId`，复用于 head 和当前 cloud outbox；cloud ingress 更新 head 后可发送给 LAN，但不会回写来源 cloud；LAN ingress 在业务 apply、receipt/source ACK、head 更新和 cloud route 同一事务中提交。未解决 conflict 不进入 forwarding，显式选择远端后保留原 `changeId`，选择本地则产生新的本地 mutation。
+
+物理 dataset ID 同时作为 transport lineage。LAN wire 可选地携带 additive `lineage`；只有 lineage 与当前 dataset 一致的 LAN ingress 才能自动路由到当前 cloud scope。缺失 lineage 的旧 peer 数据仍可本地应用和 LAN 传播，但不会上传 cloud，也不会在后续登录账号时补传；这避免账号 A 的 mutation 进入账号 B 的物理 dataset。首次 LAN 激活会幂等导入旧 `lan:v1` outbox、`sync_applied_changes` 和 SecretStore 中的 LAN applied/ACK IDs，然后删除旧 transport keys。LAN manifest 分页按最终 JSON body 和完整 serialized frame 精确字节数裁切，并在 blob 工作和持久化之前校验允许字段、table/op、`recordId == data.id`、delete 不携带 data 和插件 schema。Outbox 支持稳定排序的 limit/offset 窗口读取，资源可按 ID 集合查询，以便同步先处理记录描述符、需要上传时再读取 Blob。消息附件资源通过 `resources` 行和 SHA Blob 同步；下载文件只写入标准内容寻址路径，不采用远端提供的本地路径。
 
 当前 Drift schema 增加六张仅本机使用的 Agent/MCP 表。`AgentPersistenceRepository` 创建运行图和快照，并通过带预期旧状态的 compare-and-set 完成状态迁移；`RepositoryAgentRunPersistenceLifecycle` 将主对话、悬浮聊天和 Subagent runtime 接到该图，确保工具调用记录在副作用前落库，取消/失败会终结仍活动的子项。启动协调会在 Provider 加载前把 `queued`/`running` 运行及其未完成子项原子标记为 `interrupted`，失败会中止启动，且不会自动重放工具。`mcp_servers` 仅接受公开 transport/command/URL、参数和环境变量名，拒绝凭据 URL、query/fragment 和 secret 参数。后续 generation/full-reseed、云索引缓存、Outbox/conflict 索引及规范任务/日历表沿用各自迁移历史。数据库 schema 版本与 `StorageV2Service.currentLayoutVersion` 是不同概念。
 
@@ -424,7 +428,7 @@ storage_v2 schemaVersion < current
 
 文件：`lib/services/backup_service.dart`
 
-`BackupService` 负责 ZIP 备份导出、读取、预览和导入。schema 常量以 `BackupService.currentSchemaVersion` 为准，并接受 `BackupService.oldestCompatibleSchemaVersion` 起的旧格式。普通 ZIP 永不包含 API key；加密“包含密钥”模式在内层 ZIP 加入独立模型 API-key 分区，再以 `BackupEncryption` 的 Argon2id + XChaCha20-Poly1305 信封认证加密精确 ZIP bytes。设备私钥、账号 token、同步 outbox/state/conflict/baseline 和数据库文件不参与备份；读取 ZIP 时也显式拒绝这些内部路径。
+`BackupService` 负责 ZIP 备份导出、读取、预览和导入。schema 常量以 `BackupService.currentSchemaVersion` 为准，并接受 `BackupService.oldestCompatibleSchemaVersion` 起的旧格式。普通 ZIP 永不包含 API key；加密“包含密钥”模式在内层 ZIP 加入独立模型 API-key 分区，再以 `BackupEncryption` 的 Argon2id + XChaCha20-Poly1305 信封认证加密精确 ZIP bytes。设备私钥、账号 token、同步 outbox/state/conflict/baseline/applied-change、transport ledger 和数据库文件不参与备份；读取 ZIP 时也显式拒绝这些内部路径。
 
 ### 导出结构
 
@@ -607,3 +611,20 @@ has not already been patched.
 - `BoundedOutboundHttpClient` is the shared boundary for Agent/plugin HTTP access. `http.fetch`, `web_fetch`, and built-in weather retrieval enforce SSRF policy, redirect revalidation, bounded request and streamed response sizes, timeout, and cancellation. Generic model-reachable fetch defaults to HTTPS even when a caller injects a client whose policy allows a specific HTTP origin; plaintext fetch requires a separate trusted construction opt-in.
 - Agent deletion checks inspect operation semantics as well as function names, so delete flags and replacement-list omissions cannot bypass the current no-delete policy.
 - Plugin Skill edits use `plugins.skills.files:write`. Plugin model tools are canonicalized per plugin and captured as immutable run registrations.
+## Dataset storage services
+
+`StorageV2Service` owns the dataset registry and active binding generation while
+preserving its existing repository facade. It validates registry identities,
+dataset metadata, containment, and symlink ownership before use. Legacy
+`storage_v2` migration is copy-style, journaled, idempotent, and retains the
+source. Each dataset carries its own database and filesystem payload, including
+sync Outbox, resources, plugin materialization, attachment staging, Agent graph,
+and MCP rows. No transport bridge tables are added yet; the per-dataset database
+is the boundary prepared for that phase.
+
+`DatasetSecretStore` namespaces model and MCP secret keys by active dataset.
+Account tokens and device identity remain device/bootstrap concerns in the
+unscoped protected store. `DeviceSettingsService` persists the backend bootstrap
+URL outside account datasets. Backup construction reuses the active storage and
+plugin roots, so it exports and restores only the selected dataset.
+`DatasetRuntimeBarrier` provides the exclusive physical-dataset switch boundary. `DatasetRuntimeCoordinator` quiesces Agent, MCP, cloud, LAN, resource queues and provider saves before activation, reloads the target, reconciles durable Agent state, and synchronizes the calendar platform projection after both success and rollback. Retired `StorageV2Database` leases reject later operations instead of remaining writable.

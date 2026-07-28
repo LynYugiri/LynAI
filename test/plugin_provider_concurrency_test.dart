@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/plugin.dart';
 import 'package:lynai/providers/plugin_provider.dart';
 import 'package:lynai/repositories/plugin_repository.dart';
+import 'package:lynai/services/dataset_runtime_barrier.dart';
 
 void main() {
   late Directory root;
@@ -200,6 +201,35 @@ void main() {
       ]);
     },
   );
+
+  test('dataset switch waits for an in-flight plugin import', () async {
+    final repository = _BlockingPluginRepository(
+      rootOverride: Directory('${root.path}/plugins'),
+    );
+    final barrier = DatasetRuntimeBarrier();
+    final provider = PluginProvider(
+      repository: repository,
+      datasetBarrier: barrier,
+    );
+    repository.blockNextImport();
+
+    final import = provider.importZipBytes(_pluginZip(version: '1.0.0'));
+    await repository.importStarted.future;
+    var switched = false;
+    final quiesce = barrier.quiesce().then((_) => switched = true);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(switched, isFalse);
+    expect(provider.pluginById('queued-plugin'), isNull);
+
+    repository.releaseImport();
+    await expectLater(import, throwsA(isA<StateError>()));
+    await quiesce;
+
+    expect(switched, isTrue);
+    expect(provider.pluginById('queued-plugin'), isNotNull);
+    barrier.reopen();
+  });
 
   test(
     'multi-manifest ZIP leaves installed plugin and metadata unchanged',

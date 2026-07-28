@@ -23,6 +23,7 @@ class StorageV2UpgradeService {
     if (!await manifestFile.exists()) {
       await _writeManifest(root);
       await _storageV2.loadDataFile('resources.json');
+      await _storageV2.validateDatabaseOwnership();
       return;
     }
 
@@ -37,6 +38,7 @@ class StorageV2UpgradeService {
     }
     if (version == StorageV2Service.currentLayoutVersion) {
       await _storageV2.loadDataFile('resources.json');
+      await _storageV2.validateDatabaseOwnership();
       return;
     }
 
@@ -47,10 +49,16 @@ class StorageV2UpgradeService {
     try {
       await _upgradeResourcesToBlobs(root);
       await _writeManifest(root);
+      await _storageV2.validateDatabaseOwnership();
     } catch (_) {
       await _restoreBackup(root, backup);
       rethrow;
     }
+  }
+
+  Future<void> ensureDatasetsReady() async {
+    await _storageV2.initializeDatasets();
+    await ensureReady();
   }
 
   Future<Map<String, dynamic>> _readManifest(File file) async {
@@ -159,7 +167,8 @@ class StorageV2UpgradeService {
   Future<void> _copyDirectory(Directory source, Directory target) async {
     if (!await target.exists()) await target.create(recursive: true);
     await for (final entity in source.list(recursive: false)) {
-      final name = entity.uri.pathSegments.last;
+      final segments = entity.uri.pathSegments.where((part) => part.isNotEmpty);
+      final name = segments.last;
       if (entity is Directory) {
         await _copyDirectory(entity, Directory('${target.path}/$name'));
       } else if (entity is File) {

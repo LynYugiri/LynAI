@@ -321,19 +321,33 @@ class RemoteAccountService implements AccountService, AccountSessionRecovery {
   });
 
   Future<void> _clearSession(String scope) async {
-    _authGeneration++;
-    await _clearStoredSession(scope: scope, notify: true);
+    final generation = ++_authGeneration;
+    final credentialGeneration = _client.credentialGeneration;
+    await _clearStoredSession(
+      scope: scope,
+      notify: true,
+      expectedGeneration: generation,
+      expectedCredentialGeneration: credentialGeneration,
+    );
   }
 
   Future<void> _invalidateSession(String scope) async {
-    _authGeneration++;
+    final generation = ++_authGeneration;
     _client.clearTokens();
-    await _clearStoredSession(scope: scope, notify: true);
+    final credentialGeneration = _client.credentialGeneration;
+    await _clearStoredSession(
+      scope: scope,
+      notify: true,
+      expectedGeneration: generation,
+      expectedCredentialGeneration: credentialGeneration,
+    );
   }
 
   Future<void> _clearStoredSession({
     required String scope,
     required bool notify,
+    int? expectedGeneration,
+    int? expectedCredentialGeneration,
   }) async {
     await _serializeCredentialStore(() async {
       if (scope.isEmpty) return;
@@ -342,7 +356,12 @@ class RemoteAccountService implements AccountService, AccountSessionRecovery {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_sessionKeyForScope(scope));
     });
-    if (notify) await _onSessionInvalidated?.call();
+    if (notify &&
+        (expectedGeneration == null || expectedGeneration == _authGeneration) &&
+        (expectedCredentialGeneration == null ||
+            expectedCredentialGeneration == _client.credentialGeneration)) {
+      await _onSessionInvalidated?.call();
+    }
   }
 
   /// Retries revocations retained exclusively in protected storage.

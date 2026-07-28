@@ -1,10 +1,13 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:crypto/crypto.dart';
 
 import '../models/sync_change.dart';
 import '../models/sync_data_selection.dart';
 import '../services/backend_client.dart';
+import '../services/cloud_management_coordinator.dart';
+import '../services/cloud_data_service.dart';
 import '../services/device_identity_service.dart';
 import '../services/device_registration_service.dart';
 import '../services/plugin_sync_validation.dart';
@@ -12,6 +15,7 @@ import '../services/remote_apply_coordinator.dart';
 import '../services/storage_v2_database.dart';
 import '../services/storage_v2_service.dart';
 import '../services/sync_service.dart';
+import '../services/dataset_runtime_barrier.dart';
 
 abstract class SyncStorage {
   Future<void> activateScope(String scope, String deviceId);
@@ -27,6 +31,13 @@ abstract class SyncStorage {
   }) async {}
   Future<void> resetCloudScope(String scope, int generation);
   Future<void> prepareFullSnapshot(String scope, int generation);
+  Future<Set<String>> reconcileCurrentProjection(
+    String scope,
+    int generation,
+    int minAvailableSeq,
+    List<Map<String, dynamic>> records,
+    Set<String> authoritativeTables,
+  ) async => const {};
   Future<List<SyncOutboxEntry>> loadOutbox(
     String scope, {
     int? limit,
@@ -76,13 +87,11 @@ abstract class SyncSelectionDataStorage {
 class _PreparedUploadEntry {
   final SyncOutboxEntry entry;
   final SyncChangeRecord record;
-  final int recordBytes;
   final int dataBytes;
 
   const _PreparedUploadEntry({
     required this.entry,
     required this.record,
-    required this.recordBytes,
     required this.dataBytes,
   });
 
@@ -147,6 +156,21 @@ class StorageV2SyncStorage implements SyncStorage, SyncSelectionDataStorage {
   @override
   Future<void> prepareFullSnapshot(String scope, int generation) =>
       _storage.prepareFullSyncSnapshot(scope, generation);
+
+  @override
+  Future<Set<String>> reconcileCurrentProjection(
+    String scope,
+    int generation,
+    int minAvailableSeq,
+    List<Map<String, dynamic>> records,
+    Set<String> authoritativeTables,
+  ) => _storage.reconcileCurrentCloudProjection(
+    scope,
+    generation,
+    minAvailableSeq,
+    records,
+    authoritativeTables,
+  );
 
   @override
   Future<List<SyncOutboxEntry>> loadOutbox(
@@ -307,6 +331,8 @@ class SyncProvider extends ChangeNotifier {
     Future<bool> Function(String changeId)? shouldApplyRemoteChange,
     Future<void> Function(Iterable<String> changeIds)? remoteChangesApplied,
     RemoteApplyCoordinator? remoteApplyCoordinator,
+    CloudManagementOperations? cloudManagement,
+    DatasetRuntimeBarrier? datasetBarrier,
   }) : _backend = backend,
        _injectedService = service,
        _storage = storage ?? StorageV2SyncStorage(StorageV2Service()),
@@ -321,6 +347,8 @@ class SyncProvider extends ChangeNotifier {
        _shouldApplyRemoteChange = shouldApplyRemoteChange,
        _remoteChangesApplied = remoteChangesApplied,
        _remoteApplyCoordinator = remoteApplyCoordinator,
+       _cloudManagement = cloudManagement,
+       _datasetBarrier = datasetBarrier,
        _backendScope = backend?.backendScope ?? '' {
     _backend?.addListener(_handleBackendChanged);
   }
@@ -340,6 +368,8 @@ class SyncProvider extends ChangeNotifier {
   final Future<void> Function(Iterable<String> changeIds)?
   _remoteChangesApplied;
   final RemoteApplyCoordinator? _remoteApplyCoordinator;
+  final CloudManagementOperations? _cloudManagement;
+  final DatasetRuntimeBarrier? _datasetBarrier;
   RemoteSyncService? _remoteService;
   Future<void> _queue = Future.value();
   bool _disposed = false;
@@ -486,16 +516,41 @@ class SyncProvider extends ChangeNotifier {
     return _enqueue(() => _flushUpload(generation));
   }
 
+  Future<void> quiesceForDatasetSwitch() async {
+    _generation++;
+    await _queue.catchError((Object _) {});
+  }
+
   Future<T> _runRemoteCommit<T>(Future<T> Function() action) {
     final coordinator = _remoteApplyCoordinator;
     return coordinator == null ? action() : coordinator.run(action);
   }
 
   Future<bool> _syncDownloadThenUpload(int generation) async {
+    try {
+      return await _syncDownloadThenUploadOnce(generation);
+    } on Object catch (error) {
+      if (error is! SyncCursorException &&
+          error is! CloudProjectionRaceException) {
+        rethrow;
+      }
+      if (!_isCurrent(generation)) rethrow;
+      return _syncDownloadThenUploadOnce(generation);
+    }
+  }
+
+  Future<bool> _syncDownloadThenUploadOnce(int generation) async {
     if (!_isCurrent(generation) || !canSync) return false;
     final currentScope = _scope;
     if (currentScope == null) return false;
     final status = await _service!.getStatus();
+    if (!_isCurrentScope(generation, currentScope)) return false;
+    final operations =
+        await _cloudManagement?.discover(
+          currentScope,
+          remoteSupported: status.capabilities.operationAck,
+        ) ??
+        const [];
     if (!_isCurrentScope(generation, currentScope)) return false;
     var localSnapshotFlushed = false;
     final state = await _storage.scopeState(currentScope);
@@ -504,6 +559,7 @@ class SyncProvider extends ChangeNotifier {
         status.generation > 0 && state.generation != status.generation;
     final cursorUnavailable =
         state.since > status.lastSeq || state.since < status.minAvailableSeq;
+    final changedTables = <String>{};
     if (state.fullReseedRequired ||
         serverGenerationChanged ||
         cursorUnavailable) {
@@ -511,17 +567,45 @@ class SyncProvider extends ChangeNotifier {
         await _beforeLocalSnapshot?.call();
         localSnapshotFlushed = true;
         if (!_isCurrentScope(generation, currentScope)) return;
-        await _storage.resetCloudScope(currentScope, status.generation);
-        if (!_isCurrentScope(generation, currentScope)) return;
-        await _storage.prepareFullSnapshot(currentScope, status.generation);
+        if (status.capabilities.index && _cloudManagement != null) {
+          final projection = await _cloudManagement.currentProjection(
+            indexSupported: true,
+          );
+          if (!_isCurrentScope(generation, currentScope)) return;
+          changedTables.addAll(
+            await _storage.reconcileCurrentProjection(
+              currentScope,
+              projection.status.generation,
+              projection.status.minAvailableSeq,
+              projection.records
+                  .where(
+                    (record) => SyncDataRegistry.allowsChange(
+                      _selection,
+                      record['table'] as String,
+                      record['data'] as Map<String, dynamic>,
+                    ),
+                  )
+                  .toList(growable: false),
+              _tablesForSelection(_selection),
+            ),
+          );
+        } else {
+          await _storage.resetCloudScope(currentScope, status.generation);
+          if (!_isCurrentScope(generation, currentScope)) return;
+          await _storage.prepareFullSnapshot(currentScope, status.generation);
+        }
         if (!_isCurrentScope(generation, currentScope)) return;
         _conflicts = const [];
       });
     }
-    final changedTables = <String>{};
     final flushedTables = <String>{};
     changedTables.addAll(
-      await _downloadPages(status.limits, generation, flushedTables),
+      await _downloadPages(
+        status.limits,
+        generation,
+        flushedTables,
+        strictMetadata: status.capabilities.advertised,
+      ),
     );
     if (!_isCurrentScope(generation, currentScope)) return false;
     if (!localSnapshotFlushed) {
@@ -535,7 +619,12 @@ class SyncProvider extends ChangeNotifier {
     );
     if (uploaded && _isCurrentScope(generation, currentScope)) {
       changedTables.addAll(
-        await _downloadPages(status.limits, generation, flushedTables),
+        await _downloadPages(
+          status.limits,
+          generation,
+          flushedTables,
+          strictMetadata: status.capabilities.advertised,
+        ),
       );
     }
     if (!_isCurrentScope(generation, currentScope)) return false;
@@ -543,15 +632,27 @@ class SyncProvider extends ChangeNotifier {
     if (!_isCurrentScope(generation, currentScope)) return false;
     _lastSyncAt = DateTime.now();
     final finalState = await _storage.scopeState(currentScope);
-    return _isCurrentScope(generation, currentScope) &&
+    final succeeded =
+        _isCurrentScope(generation, currentScope) &&
         !finalState.fullReseedRequired;
+    if (succeeded) {
+      await _cloudManagement?.acknowledge(
+        currentScope,
+        operations,
+        operationAckSupported: status.capabilities.operationAck,
+        canAcknowledge: (operation) =>
+            canAcknowledgeManagement(currentScope, operation.generation),
+      );
+    }
+    return succeeded;
   }
 
   Future<Set<String>> _downloadPages(
     SyncLimits limits,
     int generation,
-    Set<String> flushedTables,
-  ) async {
+    Set<String> flushedTables, {
+    required bool strictMetadata,
+  }) async {
     final service = _service;
     final currentScope = _scope;
     if (service == null ||
@@ -563,15 +664,24 @@ class SyncProvider extends ChangeNotifier {
     var cursor = await _storage.since(currentScope);
     if (!_isCurrentScope(generation, currentScope)) return const {};
     final changedTables = <String>{};
+    int? advertisedIndexRevision;
     while (true) {
+      final scopeState = await _storage.scopeState(currentScope);
       final page = await _getChanges(
         service,
         since: cursor,
-        generation: (await _storage.scopeState(currentScope)).generation,
+        generation: scopeState.generation,
         limit: limits.maxChangesPageSize,
       );
       if (!_isCurrentScope(generation, currentScope)) return const {};
-      _validateRemotePage(cursor, page);
+      _validateRemotePage(
+        cursor,
+        page,
+        strictMetadata: strictMetadata,
+        expectedGeneration: scopeState.generation,
+        expectedIndexRevision: advertisedIndexRevision,
+      );
+      if (strictMetadata) advertisedIndexRevision ??= page.indexRevision;
       final next = page.nextSince;
       final selectedChanges = <SyncChange>[];
       for (final change in page.changes) {
@@ -591,7 +701,11 @@ class SyncProvider extends ChangeNotifier {
           selectedChanges.add(change);
         }
       }
-      final ops = await _prepareRemoteOperations(service, selectedChanges);
+      final ops = await _prepareRemoteOperations(
+        service,
+        selectedChanges,
+        maxBlobBytes: limits.maxBlobBytes,
+      );
       if (!_isCurrentScope(generation, currentScope)) return const {};
       final pageTables = ops.map((op) => op.table).toSet();
       await _runRemoteCommit(() async {
@@ -743,10 +857,15 @@ class SyncProvider extends ChangeNotifier {
         continue;
       }
       final uploadable = <_PreparedUploadEntry>[];
+      final uploadGeneration = (await _storage.scopeState(
+        currentScope,
+      )).generation;
       for (final entry in selectedSnapshot) {
         final prepared = _prepareUploadEntry(entry);
         if (prepared.dataBytes > limits.maxChangeDataBytes ||
-            _singleUploadBodyBytes(prepared.recordBytes) >
+            RemoteSyncService.encodeChangesRequest([
+                  prepared.record,
+                ], generation: uploadGeneration).length >
                 limits.maxChangesRequestBytes) {
           oversizedRows.add(prepared.rowKey);
         } else {
@@ -760,12 +879,16 @@ class SyncProvider extends ChangeNotifier {
       }
       await _uploadBlobs(service, uploadable, limits, currentScope, generation);
       if (!_isCurrentScope(generation, currentScope)) return false;
-      for (final batch in _uploadBatches(uploadable, limits)) {
+      for (final batch in _uploadBatches(
+        uploadable,
+        limits,
+        uploadGeneration,
+      )) {
         final entries = batch.map((item) => item.entry).toList(growable: false);
         final result = await _uploadChanges(
           service,
           batch.map((item) => item.record).toList(growable: false),
-          generation: (await _storage.scopeState(currentScope)).generation,
+          generation: uploadGeneration,
         );
         if (!_isCurrentScope(generation, currentScope)) return false;
         _validateAcknowledgements(result, entries);
@@ -865,44 +988,32 @@ class SyncProvider extends ChangeNotifier {
   List<List<_PreparedUploadEntry>> _uploadBatches(
     List<_PreparedUploadEntry> entries,
     SyncLimits limits,
+    int generation,
   ) {
     final batches = <List<_PreparedUploadEntry>>[];
     var current = <_PreparedUploadEntry>[];
-    var currentBytes = _emptyUploadBodyBytes;
     for (final entry in entries) {
-      final candidateBytes =
-          currentBytes + entry.recordBytes + (current.isEmpty ? 0 : 1);
-      if (candidateBytes > limits.maxChangesRequestBytes ||
-          current.length == limits.maxChangesPerRequest) {
+      final candidateBytes = RemoteSyncService.encodeChangesRequest(
+        [...current, entry].map((item) => item.record).toList(growable: false),
+        generation: generation,
+      ).length;
+      if (current.isNotEmpty &&
+          (candidateBytes > limits.maxChangesRequestBytes ||
+              current.length == limits.maxChangesPerRequest)) {
         batches.add(current);
         current = <_PreparedUploadEntry>[];
-        currentBytes = _emptyUploadBodyBytes;
       }
       current.add(entry);
-      currentBytes += entry.recordBytes + (current.length == 1 ? 0 : 1);
     }
     if (current.isNotEmpty) batches.add(current);
     return batches;
   }
-
-  int get _emptyUploadBodyBytes => utf8
-      .encode(
-        jsonEncode({
-          'requestId': RemoteSyncService.requestIdForChanges(const []),
-          'changes': const [],
-        }),
-      )
-      .length;
-
-  int _singleUploadBodyBytes(int recordBytes) =>
-      _emptyUploadBodyBytes + recordBytes;
 
   _PreparedUploadEntry _prepareUploadEntry(SyncOutboxEntry entry) {
     final record = _recordForEntry(entry);
     return _PreparedUploadEntry(
       entry: entry,
       record: record,
-      recordBytes: utf8.encode(jsonEncode(record.toJson())).length,
       dataBytes: entry.data == null
           ? 0
           : utf8.encode(jsonEncode(entry.data)).length,
@@ -966,8 +1077,9 @@ class SyncProvider extends ChangeNotifier {
 
   Future<List<SyncRemoteOperation>> _prepareRemoteOperations(
     SyncService service,
-    List<SyncChange> changes,
-  ) async {
+    List<SyncChange> changes, {
+    required int maxBlobBytes,
+  }) async {
     final prepared = <SyncChange>[];
     for (final change in changes) {
       _validateRemoteChange(change);
@@ -983,6 +1095,7 @@ class SyncProvider extends ChangeNotifier {
               service,
               hash,
               generation: (await _storage.scopeState(_scope!)).generation,
+              maxBytes: maxBlobBytes,
             ),
           );
         }
@@ -1001,6 +1114,7 @@ class SyncProvider extends ChangeNotifier {
               service,
               hash,
               generation: (await _storage.scopeState(_scope!)).generation,
+              maxBytes: maxBlobBytes,
             ),
           );
         }
@@ -1026,6 +1140,7 @@ class SyncProvider extends ChangeNotifier {
               service,
               hash,
               generation: (await _storage.scopeState(_scope!)).generation,
+              maxBytes: maxBlobBytes,
             ),
           );
         }
@@ -1066,7 +1181,39 @@ class SyncProvider extends ChangeNotifier {
     return _operations(prepared);
   }
 
-  void _validateRemotePage(int since, SyncDownloadResult page) {
+  void _validateRemotePage(
+    int since,
+    SyncDownloadResult page, {
+    required bool strictMetadata,
+    required int expectedGeneration,
+    required int? expectedIndexRevision,
+  }) {
+    if (strictMetadata &&
+        (!page.hasGeneration ||
+            !page.hasIndexRevision ||
+            !page.hasMinAvailableSeq)) {
+      throw StateError(
+        '同步分页缺少 advertised generation/indexRevision/minAvailableSeq',
+      );
+    }
+    if (strictMetadata &&
+        (page.generation <= 0 ||
+            page.indexRevision < 0 ||
+            page.minAvailableSeq < 0 ||
+            page.minAvailableSeq > page.globalLatestSeq)) {
+      throw StateError('同步分页 advertised metadata 无效');
+    }
+    if (strictMetadata && page.generation != expectedGeneration) {
+      throw StateError('同步分页 generation 与本地 scope 不匹配');
+    }
+    if (strictMetadata &&
+        expectedIndexRevision != null &&
+        page.indexRevision != expectedIndexRevision) {
+      throw StateError('同步分页 indexRevision 在分页期间变化');
+    }
+    if (strictMetadata && page.minAvailableSeq > since) {
+      throw StateError('同步分页 minAvailableSeq 已超过当前 cursor');
+    }
     if (page.nextSince < since) {
       throw StateError('同步分页游标倒退: since=$since nextSince=${page.nextSince}');
     }
@@ -1194,20 +1341,34 @@ class SyncProvider extends ChangeNotifier {
     SyncService service,
     String hash, {
     required int generation,
+    required int maxBytes,
   }) => service is RemoteSyncService
-      ? service.downloadBlob(hash, generation: generation)
-      : service.downloadBlob(hash);
+      ? service.downloadBlob(hash, generation: generation, maxBytes: maxBytes)
+      : service.downloadBlob(hash).then((bytes) {
+          if (bytes.length > maxBytes) {
+            throw StateError('sync blob $hash exceeds $maxBytes bytes');
+          }
+          final digest = sha256.convert(bytes).toString();
+          if (digest != hash) throw StateError('sync blob $hash hash mismatch');
+          return bytes;
+        });
 
   Future<void> _enqueue(Future<void> Function() action) {
     if (_disposed) return Future.value();
-    final result = _queue.then((_) => _run(action));
+    final result = _queue.then(
+      (_) => _datasetBarrier?.runExisting((_) => _run(action)) ?? _run(action),
+    );
     _queue = result.catchError((_) {});
     return result;
   }
 
   Future<bool> _enqueueBool(Future<bool> Function() action) {
     if (_disposed) return Future.value(false);
-    final result = _queue.then((_) => _runBool(action));
+    final result = _queue.then(
+      (_) =>
+          _datasetBarrier?.runExisting((_) => _runBool(action)) ??
+          _runBool(action),
+    );
     _queue = result.then<void>((_) {}).catchError((_) {});
     return result;
   }
@@ -1265,6 +1426,38 @@ class SyncProvider extends ChangeNotifier {
     'note_revisions',
     'note_page_heads',
     'note_page_tombstones',
+  };
+
+  static Set<String> _tablesForSelection(SyncDataSelection selection) => {
+    for (final table in _allSyncTables)
+      if (SyncDataRegistry.allowsChange(selection, table, null)) table,
+    if (selection.contains(SyncDataCategory.staticResources)) 'resources',
+  };
+
+  static const _allSyncTables = {
+    'resources',
+    'conversations',
+    'messages',
+    'message_attachments',
+    'tasks',
+    'task_lists',
+    'task_list_entries',
+    'calendar_events',
+    'anniversaries',
+    'roleplay_scenarios',
+    'roleplay_threads',
+    'recycle_bin',
+    'note_folders',
+    'notes',
+    'note_pages',
+    'note_revisions',
+    'note_page_heads',
+    'note_page_tombstones',
+    'shared_settings',
+    'synced_model_configs',
+    'plugin_files',
+    'plugin_settings',
+    'plugin_config',
   };
 
   @override

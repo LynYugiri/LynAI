@@ -11,6 +11,7 @@ import '../models/plugin.dart'
 import '../services/bounded_zip_decoder.dart';
 import '../utils/plugin_path_utils.dart';
 import '../services/plugin_sync_validation.dart';
+import '../services/storage_v2_service.dart';
 
 /// 插件文件系统仓储。
 ///
@@ -66,10 +67,13 @@ class PluginRepository {
   };
 
   final Directory? _rootOverride;
+  final StorageV2Service? _storageV2;
 
   bool _applyingRemote = false;
 
-  PluginRepository({Directory? rootOverride}) : _rootOverride = rootOverride;
+  PluginRepository({Directory? rootOverride, StorageV2Service? storageV2})
+    : _rootOverride = rootOverride,
+      _storageV2 = storageV2;
 
   bool get applyingRemote => _applyingRemote;
 
@@ -1272,6 +1276,10 @@ class PluginRepository {
   Future<Directory> _pluginsRoot() async {
     final override = _rootOverride;
     if (override != null) return override;
+    final storage = _storageV2;
+    if (storage != null) {
+      return Directory('${(await storage.storageRoot()).parent.path}/plugins');
+    }
     final dir = await getApplicationSupportDirectory();
     return Directory('${dir.path}/plugins');
   }

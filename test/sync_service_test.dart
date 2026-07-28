@@ -79,6 +79,11 @@ void main() {
           client.jsonHeaders[1]?['X-LynAI-Request-ID'],
         );
         expect(client.jsonHeaders[0]?['X-LynAI-Signature'], isNotEmpty);
+        expect(
+          (jsonDecode(utf8.decode(client.jsonBodies[0]))['changes'] as List)
+              .single,
+          isNot(contains('deviceId')),
+        );
       },
     );
 
@@ -249,6 +254,29 @@ void main() {
       );
       await expectLater(
         uncoveredCursor.getChanges(since: 0),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('rejects cloud delete changes containing data', () async {
+      final service = _remoteSyncService(
+        _FakeBackendClient(
+          getResponses: {
+            '/sync/changes?since=0&limit=500': _jsonResponse(
+              '{"changes":[{"seq":1,"changeId":"remote-delete",'
+              '"deviceId":"device-2",'
+              '"clientCreatedAt":"2026-07-16T00:00:00Z",'
+              '"table":"messages","op":"delete","recordId":"m1",'
+              '"data":{"id":"m1"}}],"latestSeq":1,"hasMore":false,'
+              '"nextSince":1}',
+              200,
+            ),
+          },
+        ),
+      );
+
+      await expectLater(
+        service.getChanges(since: 0),
         throwsA(isA<FormatException>()),
       );
     });
@@ -426,6 +454,70 @@ void main() {
       expect(limits.maxChangesPageSize, 15);
       expect(limits.maxBlobsPageSize, 16);
     });
+
+    test(
+      'parses additive capabilities and keeps old backend fallback',
+      () async {
+        final modern = _remoteSyncService(
+          _FakeBackendClient(
+            getResponses: {
+              '/sync/status': _jsonResponse(
+                '{"lastSeq":2,"blobCount":0,"generation":1,'
+                '"indexRevision":2,"minAvailableSeq":0,'
+                '"capabilities":{"index":true,"operationAck":true}}',
+                200,
+              ),
+            },
+          ),
+        );
+        final legacy = _remoteSyncService(
+          _FakeBackendClient(
+            getResponses: {
+              '/sync/status': _jsonResponse('{"lastSeq":2,"blobCount":0}', 200),
+            },
+          ),
+        );
+
+        expect((await modern.getStatus()).capabilities.operationAck, isTrue);
+        expect((await legacy.getStatus()).capabilities.advertised, isFalse);
+      },
+    );
+
+    test('advertised capabilities require status cursor metadata', () async {
+      final service = _remoteSyncService(
+        _FakeBackendClient(
+          getResponses: {
+            '/sync/status': _jsonResponse(
+              '{"lastSeq":2,"blobCount":0,"capabilities":{"index":true}}',
+              200,
+            ),
+          },
+        ),
+      );
+
+      await expectLater(service.getStatus(), throwsA(isA<FormatException>()));
+    });
+
+    test(
+      'classifies replay conflict separately from signature rejection',
+      () async {
+        final service = _remoteSyncService(
+          _FakeBackendClient(
+            postResponses: {
+              '/sync/changes': _jsonResponse(
+                '{"code":"replay_conflict","error":"conflict"}',
+                409,
+              ),
+            },
+          ),
+        );
+
+        await expectLater(
+          service.uploadChanges([_changeRecord('c1', 'm1')], generation: 1),
+          throwsA(isA<SyncReplayConflictException>()),
+        );
+      },
+    );
 
     test('decodes generation and global cursor metadata', () async {
       final service = _remoteSyncService(
@@ -712,6 +804,13 @@ class _FakeBackendClient extends BackendClient {
     getPaths.add(path);
     return getResponses[path] ?? http.Response('{}', 404);
   }
+
+  @override
+  Future<http.Response> getBounded(
+    String path, {
+    required int maxBytes,
+    Map<String, String>? headers,
+  }) => get(path, headers: headers);
 
   @override
   Future<http.Response> post(

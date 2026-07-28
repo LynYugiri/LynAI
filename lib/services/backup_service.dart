@@ -64,7 +64,8 @@ class BackupService {
   }) : taskProvider = taskProvider ?? TaskProvider(storageV2: storageV2),
        calendarProvider =
            calendarProvider ?? CalendarProvider(storageV2: storageV2),
-       _pluginRepository = pluginRepository ?? PluginRepository(),
+       _pluginRepository =
+           pluginRepository ?? PluginRepository(storageV2: storageV2),
        _backupEncryption = backupEncryption ?? const BackupEncryption(),
        _appVersionLoader = appVersionLoader;
 
@@ -4450,6 +4451,10 @@ class BackupService {
           stem == 'sync_state' ||
           stem == 'sync_conflicts' ||
           stem == 'sync_scope_baselines' ||
+          stem == 'sync_applied_changes' ||
+          stem == 'transport_change_heads' ||
+          stem == 'transport_change_receipts' ||
+          stem == 'transport_peer_acks' ||
           stem == 'sync_baselines' ||
           stem == 'sync_baseline' ||
           stem == 'device_identity' ||
@@ -4464,6 +4469,10 @@ class BackupService {
                 'conflicts',
                 'baselines',
                 'baseline',
+                'applied_changes',
+                'transport_change_heads',
+                'transport_change_receipts',
+                'transport_peer_acks',
               }.contains(stem))) {
         throw FormatException('备份包包含禁止的内部文件：$path');
       }

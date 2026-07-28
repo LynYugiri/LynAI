@@ -256,6 +256,7 @@ class ToolCallService {
     AgentRunPersistenceLifecycle? persistence,
     StorageV2Service? storage,
     AgentToolResultSanitizer? resultSanitizer,
+    AgentToolResultProcessor? toolResultProcessor,
     AgentUserInteractionBroker? userInteractionBroker,
     AgentUserInteractionSurface interactionSurface =
         AgentUserInteractionSurface.mainChat,
@@ -280,6 +281,7 @@ class ToolCallService {
        _persistence = persistence,
        _storage = storage,
        _resultSanitizer = resultSanitizer,
+       _toolResultProcessor = toolResultProcessor,
        _userInteractionBroker = userInteractionBroker,
        _interactionSurface = interactionSurface,
        _webSearch =
@@ -327,6 +329,7 @@ class ToolCallService {
   final AgentRunPersistenceLifecycle? _persistence;
   final StorageV2Service? _storage;
   final AgentToolResultSanitizer? _resultSanitizer;
+  final AgentToolResultProcessor? _toolResultProcessor;
   final AgentUserInteractionBroker? _userInteractionBroker;
   final AgentUserInteractionSurface _interactionSurface;
   final WebSearchService? _webSearch;
@@ -341,27 +344,7 @@ class ToolCallService {
   final _schemaValidator = const AgentJsonSchemaValidator();
   final _agentRuntime = const AgentRuntimeService();
 
-  /// 非原生 tool_calls 接口使用的系统提示词。
-  ///
-  /// 当模型接口不支持 OpenAI 原生 tool_calls 时（如部分兼容接口），
-  /// 系统提示词教模型以 JSON fallback 格式发起工具调用：
-  /// `{"tool_calls":[{"name":"工具名","arguments":{...}}]}`。
-  /// 返回的 JSON 由 [parseFallbackToolCalls] 解析。
-  static const systemPrompt = '''
-你可以使用本地工具帮助用户管理任务、任务清单、日历事件、纪念日、笔记和旧待办清单，获取时间/位置、打开安卓应用和创建对话标题。
-当需要调用工具且当前模型接口不支持原生 tool_calls 时，只返回一个 JSON 对象，不要包含 Markdown：
-{"tool_calls":[{"name":"工具名","arguments":{...}}]}
-收到工具结果后，再用自然语言给用户最终回复。
-创建或修改数据前，应从用户输入中提取明确字段；缺少关键字段时先追问。
-需要查看笔记内容时，先用 list_notes 查找笔记 id，再用 read_note 读取完整内容；多分页笔记先用 list_note_pages 查看分页，read_note/save_note/edit_note/propose_note_edit 可用 pageId 或 pageTitle 指定分页。小范围修改笔记时，先 read_note，再用 propose_note_edit 按行提交 edits 让用户逐行确认；用户明确要求直接修改时才用 edit_note。创建、追加或整篇替换时用 save_note。笔记可通过 list_note_folders/save_note_folder 管理文件夹，通过 save_note_page 创建、重命名、删除或上移/下移分页。
-一个用户任务只调用一次 create_task，不要同时创建旧待办项或日历事件。需要按清单组织任务时先用 list_task_lists 查找清单，必要时用 create_task_list 创建；未指定 listId 的任务仍可创建，并会显示在未完成或已完成视图。任务的 plannedDate/dueDate、全天事件日期和纪念日 date 必须使用 YYYY-MM-DD；任务时间和日期型提醒的 dateOnlyTime 使用 HH:mm。reminders 的 offsetMinutes 为相对 anchor 的有符号分钟数，例如“截止前 30 分钟提醒”使用 taskDue 和 -30。定时日历事件使用带时区偏移的 ISO-8601 字符串；用户说“今天/明天”时必须先结合 get_current_time 的 iso 与 timezoneOffsetMinutes 换算成本地日期时间。
-需要查看旧待办清单内容时，先用 list_todo_lists 查找清单 id，再用 read_todo_list 读取完整内容；仅在用户明确操作旧清单时使用 save_todo_item。
-''';
-
   /// 支持原生 tool_calls 接口使用的系统提示词。
-  ///
-  /// 与 [systemPrompt] 的区别是不包含 JSON fallback 格式说明，
-  /// 因为原生 tool_calls 接口会自行处理工具调用的序列化和反序列化。
   static const nativeSystemPrompt = '''
 你可以使用本地工具帮助用户管理任务、任务清单、日历事件、纪念日、笔记和旧待办清单，获取时间/位置、打开安卓应用和创建对话标题。
 需要调用工具时使用接口提供的 tool_calls；不需要工具时直接正常回答，不要提及工具。
@@ -1747,57 +1730,11 @@ ${lines.join('\n')}$more''';
         skill.tags.any((tag) => tag.toLowerCase().contains(normalizedQuery));
   }
 
-  /// 解析 JSON fallback 格式的工具调用。
-  ///
-  /// 当模型不支持原生 tool_calls 时，它在 `content` 中返回 JSON 文本：
-  /// `{"tool_calls": [{"name": "...", "arguments": {...}}]}`。
-  /// 此方法从文本中提取并转换为 [ChatToolCall] 列表。
-  /// 支持被 Markdown 代码块包裹的 JSON（即 ```json ... ``` 格式）。
-  /// 解析失败时不抛异常，返回空列表。
-  static List<ChatToolCall> parseFallbackToolCalls(String content) {
-    final trimmed = content.trim();
-    if (trimmed.isEmpty) return const [];
-    try {
-      final data = jsonDecode(_stripCodeFence(trimmed));
-      final rawCalls = data is Map<String, dynamic> ? data['tool_calls'] : null;
-      if (rawCalls is! List) return const [];
-      return rawCalls
-          .whereType<Map<String, dynamic>>()
-          .indexed
-          .map((entry) {
-            final index = entry.$1;
-            final call = entry.$2;
-            final name = call['name'] as String? ?? '';
-            final args = _decodeArguments(call['arguments']);
-            return ChatToolCall(
-              id: 'fallback_${DateTime.now().microsecondsSinceEpoch}_${index}_$name',
-              name: name,
-              arguments: args,
-            );
-          })
-          .where((call) => call.name.isNotEmpty)
-          .toList();
-    } catch (_) {
-      return const [];
-    }
-  }
-
   static String _stripCodeFence(String value) {
     final match = RegExp(
       r'^```(?:json)?\s*([\s\S]*?)\s*```$',
     ).firstMatch(value);
     return match?.group(1) ?? value;
-  }
-
-  static Map<String, dynamic> _decodeArguments(Object? raw) {
-    if (raw is Map<String, dynamic>) return raw;
-    if (raw is String && raw.trim().isNotEmpty) {
-      try {
-        final decoded = jsonDecode(raw);
-        if (decoded is Map<String, dynamic>) return decoded;
-      } catch (_) {}
-    }
-    return <String, dynamic>{};
   }
 
   AgentToolRunSnapshot createRunSnapshot({
@@ -1878,7 +1815,21 @@ ${lines.join('\n')}$more''';
             permissionRequirements: requirements,
             semantics: registration.spec.semantics,
           ),
-          registration.handler,
+          registration.descriptor.source == AgentToolSource.mcp &&
+                  _externalToolRegistry != null
+              ? (invocation, context) {
+                  final current = _externalToolRegistry.registration(
+                    invocation.name,
+                  );
+                  if (current == null ||
+                      current.descriptor.source != AgentToolSource.mcp) {
+                    throw StateError(
+                      'MCP tool ${invocation.name} is no longer available',
+                    );
+                  }
+                  return current.handler(invocation, context);
+                }
+              : registration.handler,
           concurrencyKeyResolver: registration.concurrencyKeyResolver,
         );
       }
@@ -2145,6 +2096,7 @@ ${lines.join('\n')}$more''';
       persistence: _persistence,
       storage: _storage,
       resultSanitizer: _resultSanitizer,
+      toolResultProcessor: _toolResultProcessor,
       userInteractionBroker: _userInteractionBroker,
       interactionSurface: _interactionSurface,
       webSearch: _webSearch,
@@ -2804,6 +2756,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
         messages: working,
         maxToolRounds: maxToolRounds,
         persistence: _persistence,
+        toolResultProcessor: _toolResultProcessor,
         persistenceMetadata: AgentRunPersistenceMetadata(
           conversationId: _conversationId,
           parentRunId: identity?.runId ?? _providedAgentIdentity?.runId,
@@ -2839,6 +2792,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
           yield const AgentModelStreamCompleted();
         },
         parentCancellationToken: parentCancellationToken,
+        datasetBarrier: _storage?.runtimeBarrier,
         executeTools: (calls, identity, cancellationToken) {
           return subTools.executeCapturedBatch(
             childRunSnapshot,
@@ -3404,6 +3358,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
         plugins: _plugins,
         conversations: _conversations,
         backend: _backend,
+        storage: _storage,
         outboundHttpClient: _outboundHttpClient,
         allowPlaintextHttpFetch: _allowPlaintextHttpFetch,
         cancellationToken: cancellationToken,

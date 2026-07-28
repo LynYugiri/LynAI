@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/agent_runtime.dart';
+import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/services/agent_cancellation.dart';
 import 'package:lynai/services/agent_tool_registry.dart';
 import 'package:lynai/services/lynai_permission_definitions.dart';
@@ -9,6 +10,7 @@ import 'package:lynai/services/mcp/mcp_client.dart';
 import 'package:lynai/services/mcp/mcp_tool_importer.dart';
 import 'package:lynai/services/mcp/mcp_tool_source.dart';
 import 'package:lynai/services/mcp/mcp_transport.dart';
+import 'package:lynai/services/tool_call_service.dart';
 
 void main() {
   test('registers namespaced tools and refreshes changed lists', () async {
@@ -89,7 +91,7 @@ void main() {
   );
 
   test(
-    'old snapshot keeps its captured MCP registration after refresh',
+    'model snapshot stays fixed while live execution fails closed after dispose',
     () async {
       final transport = _ToolTransport();
       final registry = AgentToolRegistry();
@@ -103,32 +105,100 @@ void main() {
       final snapshot = registry.snapshot();
       final captured = snapshot[name]!;
 
-      await source.refresh();
-
       expect(snapshot[name], same(captured));
-      expect(snapshot.isRegistrationCurrent(registry, name), isFalse);
-      expect(
-        registry.registration(name)!.registrationId,
-        isNot(captured.registrationId),
-      );
-      final value = await captured.handler(
-        AgentToolInvocation(id: 'old-call', name: name),
-        AgentToolExecutionContext(
-          identity: AgentToolExecutionIdentity(
-            runId: 'run',
-            turnId: 'turn',
-            turnIndex: 0,
-            invocationId: 'old-call',
-            toolName: name,
+      await source.dispose();
+      expect(registry.registration(name), isNull);
+      await expectLater(
+        captured.handler(
+          AgentToolInvocation(id: 'old-call', name: name),
+          AgentToolExecutionContext(
+            identity: AgentToolExecutionIdentity(
+              runId: 'run',
+              turnId: 'turn',
+              turnIndex: 0,
+              invocationId: 'old-call',
+              toolName: name,
+            ),
+            permissionSnapshot: AgentPermissionSnapshot(permissions: const []),
+            cancellationToken: AgentCancellationSource().token,
+            snapshot: snapshot,
+            deadline: DateTime.now().add(const Duration(seconds: 30)),
           ),
-          permissionSnapshot: AgentPermissionSnapshot(permissions: const []),
-          cancellationToken: AgentCancellationSource().token,
-          snapshot: snapshot,
-          deadline: DateTime.now().add(const Duration(seconds: 30)),
+        ),
+        throwsStateError,
+      );
+    },
+  );
+
+  test(
+    'run snapshot keeps MCP schema but resolves the live registration',
+    () async {
+      final external = AgentToolRegistry();
+      final name = canonicalMcpToolName('weather', 'forecast');
+      external.register(
+        AgentToolDescriptor(
+          name: name,
+          description: 'Weather',
+          source: AgentToolSource.mcp,
+          sideEffect: AgentToolSideEffect.external,
+          concurrency: AgentToolConcurrency.parallelSafe,
+        ),
+        (invocation, cancellationToken) async => const {'version': 1},
+      );
+      final service = ToolCallService(
+        FeatureProvider(),
+        externalToolRegistry: external,
+        externalToolSnapshot: external.snapshot(),
+        permissionSnapshot: AgentPermissionSnapshot(
+          permissions: const [LynAIPermissions.networkAccess],
         ),
       );
-      expect((value as Map)['isError'], isFalse);
-      await source.dispose();
+      final runSnapshot = service.createRunSnapshot(
+        agentEnabled: false,
+        imageGenerationEnabled: false,
+      );
+      expect(
+        runSnapshot.openAITools.singleWhere(
+          (tool) => (tool['function'] as Map)['name'] == name,
+        ),
+        isNotNull,
+      );
+
+      external.unregister(name);
+      external.register(
+        AgentToolDescriptor(
+          name: name,
+          description: 'Weather v2',
+          source: AgentToolSource.mcp,
+          sideEffect: AgentToolSideEffect.external,
+          concurrency: AgentToolConcurrency.parallelSafe,
+        ),
+        (invocation, cancellationToken) async => const {'version': 2},
+      );
+      final results = await service.executeCapturedBatch(
+        runSnapshot,
+        [AgentToolInvocation(id: 'call', name: name)],
+        identity: const AgentTurnIdentity(
+          runId: 'run',
+          turnId: 'turn',
+          turnIndex: 0,
+        ),
+        cancellationToken: AgentCancellationSource().token,
+      );
+      expect(results.single.value, {'version': 2});
+
+      external.unregister(name);
+      final unavailable = await service.executeCapturedBatch(
+        runSnapshot,
+        [AgentToolInvocation(id: 'call-2', name: name)],
+        identity: const AgentTurnIdentity(
+          runId: 'run',
+          turnId: 'turn-2',
+          turnIndex: 1,
+        ),
+        cancellationToken: AgentCancellationSource().token,
+      );
+      expect(unavailable.single.status, AgentToolResultStatus.failure);
     },
   );
 }

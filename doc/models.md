@@ -369,3 +369,10 @@ copy the current global defaults. Conversations written before the version
 field existed are marked as legacy while decoding and receive the then-current
 global defaults once during startup migration; later global changes do not
 rewrite that conversation snapshot.
+## PhysicalDatasetIdentity
+
+`PhysicalDatasetIdentity` distinguishes the permanent local dataset from an
+account dataset. Account identity uses normalized backend origin and the opaque
+backend user ID; the directory ID is the complete SHA-256 hex digest, with no
+truncation. Dataset metadata repeats and validates this identity to fail closed
+on directory or registry ownership mismatch.

@@ -27,12 +27,7 @@ void main() {
       storage = StorageV2Service(rootDirectory: root);
       await StorageV2UpgradeService(storageV2: storage).ensureReady();
       repository = AgentPersistenceRepository(storage);
-      persistence = RepositoryAgentRunPersistenceLifecycle(
-        repository,
-        toolResultProcessor: SanitizingAgentToolResultProcessor(
-          AgentToolResultSanitizer.storageV2(storage),
-        ),
-      );
+      persistence = RepositoryAgentRunPersistenceLifecycle(repository);
     });
 
     tearDown(() async {
@@ -45,6 +40,9 @@ void main() {
           .start(
             runId: 'text-run',
             persistence: persistence,
+            toolResultProcessor: SanitizingAgentToolResultProcessor(
+              AgentToolResultSanitizer.storageV2(storage),
+            ),
             persistenceMetadata: AgentRunPersistenceMetadata(
               conversationId: 'conversation',
               parentRunId: 'parent-run',
@@ -186,6 +184,9 @@ void main() {
             .start(
               runId: 'sanitized-tool-run',
               persistence: persistence,
+              toolResultProcessor: SanitizingAgentToolResultProcessor(
+                AgentToolResultSanitizer.storageV2(storage),
+              ),
               messages: const [],
               maxToolRounds: 1,
               model: (request) async* {

@@ -11,6 +11,7 @@ import '../services/lan_device_profile_service.dart';
 import '../services/lan_sync_coordinator.dart';
 import '../services/lan_secret_transfer_service.dart';
 import '../services/storage_v2_database.dart';
+import '../services/dataset_runtime_barrier.dart';
 
 typedef LanHostingOperation = Future<void> Function();
 
@@ -35,6 +36,7 @@ class LanHostingLifecycle {
   bool _ready = false;
   bool _desired = false;
   bool _hosting = false;
+  bool _suspended = false;
   bool _closed = false;
 
   bool get ready => _ready;
@@ -66,6 +68,18 @@ class LanHostingLifecycle {
     return operation;
   }
 
+  Future<void> suspend() {
+    if (_closed) return Future.value();
+    _suspended = true;
+    return _scheduleReconcile();
+  }
+
+  Future<void> resume() {
+    if (_closed) return Future.value();
+    _suspended = false;
+    return _scheduleReconcile();
+  }
+
   Future<void> _scheduleReconcile() {
     final operation = _queue.then((_) => _reconcile());
     _queue = operation.catchError((Object _) {});
@@ -74,7 +88,7 @@ class LanHostingLifecycle {
 
   Future<void> _reconcile() async {
     while (true) {
-      final shouldHost = _ready && _desired && !_closed;
+      final shouldHost = _ready && _desired && !_suspended && !_closed;
       if (_hosting == shouldHost) return;
       if (shouldHost) {
         await _start();
@@ -111,10 +125,12 @@ class LanSyncProvider extends ChangeNotifier {
     required LanPeerRepository peerRepository,
     required LanMdnsService mdnsService,
     required LanDeviceProfileService deviceProfileService,
+    DatasetRuntimeBarrier? datasetBarrier,
   }) : _coordinator = coordinator,
        _peerRepository = peerRepository,
        _mdnsService = mdnsService,
-       _deviceProfileService = deviceProfileService {
+       _deviceProfileService = deviceProfileService,
+       _datasetBarrier = datasetBarrier {
     _hostingLifecycle = LanHostingLifecycle(
       start: () async {
         _deviceName = await _deviceProfileService.displayName();
@@ -144,6 +160,7 @@ class LanSyncProvider extends ChangeNotifier {
   final LanPeerRepository _peerRepository;
   final LanMdnsService _mdnsService;
   final LanDeviceProfileService _deviceProfileService;
+  final DatasetRuntimeBarrier? _datasetBarrier;
   late final LanHostingLifecycle _hostingLifecycle;
   StreamSubscription<List<LanDiscoveredPeer>>? _discoverySubscription;
   StreamSubscription<List<LanSecretTransferRequest>>?
@@ -202,6 +219,17 @@ class LanSyncProvider extends ChangeNotifier {
   Future<void> resumeHosting() => setHostingDesired(true);
 
   Future<void> pauseHosting() => setHostingDesired(false);
+
+  Future<void> quiesceForDatasetSwitch() async {
+    await _runHosting(_hostingLifecycle.suspend);
+    await _mdnsService.stopDiscovery();
+    while (_busy) {
+      await Future<void>.delayed(Duration.zero);
+    }
+  }
+
+  Future<void> resumeAfterDatasetSwitch() =>
+      _runHosting(_hostingLifecycle.resume);
 
   Future<void> updateDeviceName(String value) => _run(() async {
     _deviceName = await _deviceProfileService.updateDisplayName(value);
@@ -316,7 +344,10 @@ class LanSyncProvider extends ChangeNotifier {
         : '对方仅接受了部分新增类别。';
   });
 
-  Future<void> _run(Future<void> Function() action) async {
+  Future<void> _run(Future<void> Function() action) =>
+      _datasetBarrier?.runExisting((_) => _runOpen(action)) ?? _runOpen(action);
+
+  Future<void> _runOpen(Future<void> Function() action) async {
     if (_disposed) return;
     _busy = true;
     _error = null;

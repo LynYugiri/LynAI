@@ -22,6 +22,7 @@ import 'agent_loop_runtime.dart';
 import 'agent_persistence_lifecycle.dart';
 import 'agent_tool_registry.dart';
 import 'agent_tool_result_sanitizer.dart';
+import 'agent_tool_execution_service.dart';
 import 'agent_user_interaction_broker.dart';
 import 'backend_client.dart';
 import 'stream_chunk_agent_adapter.dart';
@@ -40,6 +41,7 @@ class FloatingChatSessionController extends ChangeNotifier {
     required PluginProvider plugins,
     AgentToolRegistry? externalToolRegistry,
     AgentRunPersistenceLifecycle? persistence,
+    AgentToolResultProcessor? toolResultProcessor,
     AgentUserInteractionBroker? userInteractionBroker,
     StorageV2Service? storage,
     BackendClient? backend,
@@ -54,6 +56,7 @@ class FloatingChatSessionController extends ChangeNotifier {
        _plugins = plugins,
        _externalToolRegistry = externalToolRegistry,
        _persistence = persistence,
+       _toolResultProcessor = toolResultProcessor,
        _userInteractionBroker =
            userInteractionBroker ?? AgentUserInteractionBroker(),
        _ownsUserInteractionBroker = userInteractionBroker == null,
@@ -76,6 +79,7 @@ class FloatingChatSessionController extends ChangeNotifier {
   final PluginProvider _plugins;
   final AgentToolRegistry? _externalToolRegistry;
   final AgentRunPersistenceLifecycle? _persistence;
+  final AgentToolResultProcessor? _toolResultProcessor;
   final AgentUserInteractionBroker _userInteractionBroker;
   final bool _ownsUserInteractionBroker;
   final ApiService _api;
@@ -86,6 +90,7 @@ class FloatingChatSessionController extends ChangeNotifier {
 
   StreamSubscription<AgentRunEvent>? _subscription;
   AgentRunHandle? _run;
+  String? _runMessageId;
   String? _conversationId;
   String _draftContent = '';
   String _draftThinking = '';
@@ -218,26 +223,28 @@ class FloatingChatSessionController extends ChangeNotifier {
     );
     if (!_streaming) return;
     _generation++;
-    _run?.cancel();
+    final run = _run;
+    final messageId = _runMessageId;
+    run?.cancel();
     _run = null;
+    _runMessageId = null;
     unawaited(_subscription?.cancel());
     _subscription = null;
     final conversationId = _conversationId;
     _streaming = false;
     _status = '已停止生成';
-    if (conversationId != null) {
-      final conversation = _conversations.getConversation(conversationId);
-      if (conversation != null && conversation.messages.isNotEmpty) {
-        final last = conversation.messages.last;
-        if (last.role == 'assistant' && last.content.trim().isEmpty) {
-          _conversations.updateLastMessage(conversationId, '已停止生成');
-        } else if (last.role == 'assistant') {
-          _conversations.updateLastMessage(
+    if (conversationId != null && run != null && messageId != null) {
+      unawaited(
+        run.result.then((result) {
+          final partial = result.partialContent.trim();
+          _conversations.updateMessageContent(
             conversationId,
-            '${last.content}\n\n---\n已停止生成',
+            messageId,
+            partial.isEmpty ? '已停止生成' : '$partial\n\n---\n已停止生成',
+            thinkingContent: result.reasoning,
           );
-        }
-      }
+        }),
+      );
     }
     notifyListeners();
   }
@@ -451,6 +458,11 @@ class FloatingChatSessionController extends ChangeNotifier {
     var buffer = '';
     var thinkingBuffer = '';
     final externalToolSnapshot = _externalToolRegistry?.snapshot();
+    _runMessageId = _conversations
+        .getConversation(conversationId)
+        ?.messages
+        .lastOrNull
+        ?.id;
     final toolService = ToolCallService(
       _features,
       tasks: _tasks,
@@ -469,6 +481,7 @@ class FloatingChatSessionController extends ChangeNotifier {
       resultSanitizer: _storage == null
           ? null
           : AgentToolResultSanitizer.storageV2(_storage),
+      toolResultProcessor: _toolResultProcessor,
       userInteractionBroker: _userInteractionBroker,
       interactionSurface: AgentUserInteractionSurface.floatingAssistant,
       webSearch: _webSearch,
@@ -486,6 +499,7 @@ class FloatingChatSessionController extends ChangeNotifier {
       messages: working,
       maxToolRounds: ToolCallService.maxToolRounds,
       persistence: _persistence,
+      toolResultProcessor: _toolResultProcessor,
       persistenceMetadata: AgentRunPersistenceMetadata(
         conversationId: conversationId,
         permissionPolicy: conversationSettings?.permissionSnapshot,
@@ -508,6 +522,7 @@ class FloatingChatSessionController extends ChangeNotifier {
           cancellationToken: cancellationToken,
         );
       },
+      datasetBarrier: _storage?.runtimeBarrier,
     );
     _run = run;
     unawaited(_subscription?.cancel());
@@ -538,6 +553,7 @@ class FloatingChatSessionController extends ChangeNotifier {
       run.result.then((result) {
         if (generation != _generation || result.runId != run.id) return;
         _run = null;
+        _runMessageId = null;
         if (result.isCancelled) return;
         if (!result.isSuccess) {
           _streaming = false;
@@ -545,9 +561,11 @@ class FloatingChatSessionController extends ChangeNotifier {
           _draftThinking = '';
           final error = result.error.toString().replaceFirst('Exception: ', '');
           _setError(error);
+          final partial = result.partialContent.trim();
           _conversations.updateLastMessage(
             conversationId,
-            buffer.isEmpty ? '请求失败: $error' : '$buffer\n\n---\n请求失败: $error',
+            partial.isEmpty ? '请求失败: $error' : '$partial\n\n---\n请求失败: $error',
+            thinkingContent: result.reasoning,
           );
           return;
         }

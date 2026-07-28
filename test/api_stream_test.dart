@@ -120,6 +120,109 @@ void main() {
     }
   });
 
+  test('malformed OpenAI SSE JSON is not skipped', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    unawaited(
+      server.first.then((request) async {
+        await utf8.decoder.bind(request).join();
+        request.response.headers.contentType = ContentType(
+          'text',
+          'event-stream',
+          charset: 'utf-8',
+        );
+        request.response.write('data: {invalid}\n\n');
+        await request.response.close();
+      }),
+    );
+
+    try {
+      await expectLater(
+        ApiService()
+            .sendStreamRequest(_model(server, 'openai'), const [])
+            .toList(),
+        throwsA(
+          isA<Exception>().having(
+            (error) => error.toString(),
+            'message',
+            contains('OpenAI SSE 格式错误'),
+          ),
+        ),
+      );
+    } finally {
+      await server.close(force: true);
+    }
+  });
+
+  test('malformed streamed tool arguments fail the stream', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    unawaited(
+      server.first.then((request) async {
+        await utf8.decoder.bind(request).join();
+        request.response.headers.contentType = ContentType(
+          'text',
+          'event-stream',
+          charset: 'utf-8',
+        );
+        request.response.write(
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"tool","arguments":"{"}}]},"finish_reason":"tool_calls"}]}\n\n',
+        );
+        await request.response.close();
+      }),
+    );
+
+    try {
+      await expectLater(
+        ApiService()
+            .sendStreamRequest(_model(server, 'openai'), const [])
+            .toList(),
+        throwsA(
+          isA<Exception>().having(
+            (error) => error.toString(),
+            'message',
+            contains('工具参数不是合法 JSON'),
+          ),
+        ),
+      );
+    } finally {
+      await server.close(force: true);
+    }
+  });
+
+  test('OpenAI stream rejects EOF before a completion marker', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    unawaited(
+      server.first.then((request) async {
+        await utf8.decoder.bind(request).join();
+        request.response.headers.contentType = ContentType(
+          'text',
+          'event-stream',
+          charset: 'utf-8',
+        );
+        request.response.write(
+          'data: {"choices":[{"delta":{"content":"partial"},"finish_reason":null}]}\n\n',
+        );
+        await request.response.close();
+      }),
+    );
+
+    try {
+      await expectLater(
+        ApiService()
+            .sendStreamRequest(_model(server, 'openai'), const [])
+            .toList(),
+        throwsA(
+          isA<Exception>().having(
+            (error) => error.toString(),
+            'message',
+            contains('完成标记前结束'),
+          ),
+        ),
+      );
+    } finally {
+      await server.close(force: true);
+    }
+  });
+
   test('managed stream parses canonical SSE only', () async {
     final fixture =
         jsonDecode(

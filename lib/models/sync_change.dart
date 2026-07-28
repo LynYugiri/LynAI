@@ -27,6 +27,10 @@ class SyncChange {
   /// upsert 时的完整行 JSON；delete 时为 null。
   final Map<String, dynamic>? data;
 
+  /// Physical dataset lineage used only by additive LAN transport metadata.
+  /// It is deliberately omitted from the backend sync wire contract.
+  final String? lineage;
+
   /// 服务端创建时间。
   final DateTime? createdAt;
 
@@ -40,6 +44,7 @@ class SyncChange {
     required this.op,
     required this.recordId,
     this.data,
+    this.lineage,
     this.createdAt,
   });
 
@@ -69,6 +74,9 @@ class SyncChange {
         'sync change data.id does not match recordId: $recordId',
       );
     }
+    if (op == 'delete' && json.containsKey('data')) {
+      throw const FormatException('sync delete must not contain data');
+    }
     return SyncChange(
       seq: seq,
       changeId: changeId,
@@ -78,6 +86,7 @@ class SyncChange {
       op: op,
       recordId: recordId,
       data: data,
+      lineage: json['lineage'] as String?,
       createdAt: json['createdAt'] != null
           ? DateTime.tryParse(json['createdAt'].toString())
           : null,
@@ -112,6 +121,7 @@ class SyncStatus {
   final int minAvailableSeq;
 
   final SyncLimits limits;
+  final SyncCapabilities capabilities;
 
   /// 创建同步状态实例。
   const SyncStatus({
@@ -121,7 +131,72 @@ class SyncStatus {
     this.indexRevision = 0,
     this.minAvailableSeq = 0,
     this.limits = const SyncLimits(),
+    this.capabilities = const SyncCapabilities(),
   });
+}
+
+class SyncCapabilities {
+  const SyncCapabilities({
+    this.advertised = false,
+    this.index = false,
+    this.selectivePurge = false,
+    this.fullPurge = false,
+    this.operationAck = false,
+  });
+
+  final bool advertised;
+  final bool index;
+  final bool selectivePurge;
+  final bool fullPurge;
+  final bool operationAck;
+
+  factory SyncCapabilities.fromJson(Object? value) {
+    if (value == null) return const SyncCapabilities();
+    if (value is! Map) {
+      throw const FormatException('sync capabilities must be an object');
+    }
+    bool flag(String key) {
+      if (!value.containsKey(key)) return false;
+      final parsed = value[key];
+      if (parsed is! bool) {
+        throw FormatException('sync capability $key must be boolean');
+      }
+      return parsed;
+    }
+
+    return SyncCapabilities(
+      advertised: true,
+      index: flag('index'),
+      selectivePurge: flag('selectivePurge'),
+      fullPurge: flag('fullPurge'),
+      operationAck: flag('operationAck'),
+    );
+  }
+}
+
+enum SyncCursorErrorCode { generationMismatch, staleCursor, futureCursor }
+
+class SyncCursorException implements Exception {
+  const SyncCursorException({
+    required this.code,
+    required this.message,
+    required this.currentGeneration,
+    this.expectedGeneration,
+    this.latestSeq,
+    this.indexRevision,
+    this.minAvailableSeq,
+  });
+
+  final SyncCursorErrorCode code;
+  final String message;
+  final int currentGeneration;
+  final int? expectedGeneration;
+  final int? latestSeq;
+  final int? indexRevision;
+  final int? minAvailableSeq;
+
+  @override
+  String toString() => message;
 }
 
 class SyncLimits {
@@ -220,6 +295,9 @@ class SyncDownloadResult {
   final int indexRevision;
   final int minAvailableSeq;
   final int globalLatestSeq;
+  final bool hasGeneration;
+  final bool hasIndexRevision;
+  final bool hasMinAvailableSeq;
 
   const SyncDownloadResult({
     required this.changes,
@@ -230,5 +308,8 @@ class SyncDownloadResult {
     this.indexRevision = 0,
     this.minAvailableSeq = 0,
     int? globalLatestSeq,
+    this.hasGeneration = false,
+    this.hasIndexRevision = false,
+    this.hasMinAvailableSeq = false,
   }) : globalLatestSeq = globalLatestSeq ?? latestSeq;
 }

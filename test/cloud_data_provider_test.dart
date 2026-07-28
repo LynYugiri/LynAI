@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/account.dart';
 import 'package:lynai/models/cloud_data.dart';
+import 'package:lynai/models/sync_change.dart';
 import 'package:lynai/providers/cloud_data_provider.dart';
 import 'package:lynai/repositories/cloud_data_repository.dart';
 import 'package:lynai/services/backend_client.dart';
 import 'package:lynai/services/cloud_data_service.dart';
+import 'package:lynai/services/dataset_runtime_barrier.dart';
 
 void main() {
   test('refresh failure keeps the last successful cache', () async {
@@ -100,6 +102,58 @@ void main() {
     expect(provider.snapshot.status, isNull);
   });
 
+  test(
+    'bind clears loading when an in-flight refresh is invalidated',
+    () async {
+      final backend = BackendClient()..configure('https://example.com');
+      addTearDown(backend.close);
+      backend.setTokens('token', 'refresh');
+      final service = _FakeCloudService();
+      final provider = CloudDataProvider(
+        backend: backend,
+        repository: _MemoryCloudRepository(),
+        service: service,
+      );
+      await provider.bind(_user);
+      final gate = service.blockStatus();
+      final refresh = provider.refresh();
+      await Future<void>.delayed(Duration.zero);
+
+      await provider.bind(null);
+      gate.complete();
+      await refresh;
+
+      expect(provider.loading, isFalse);
+    },
+  );
+
+  test('dataset quiesce invalidates loading without self-deadlock', () async {
+    final backend = BackendClient()..configure('https://example.com');
+    addTearDown(backend.close);
+    backend.setTokens('token', 'refresh');
+    final service = _FakeCloudService();
+    final barrier = DatasetRuntimeBarrier();
+    final provider = CloudDataProvider(
+      backend: backend,
+      repository: _MemoryCloudRepository(),
+      service: service,
+      datasetBarrier: barrier,
+    );
+    await provider.bind(_user);
+    final gate = service.blockStatus();
+    final refresh = provider.refresh();
+    await Future<void>.delayed(Duration.zero);
+
+    final quiesce = provider.quiesceForDatasetSwitch();
+    await Future<void>.delayed(Duration.zero);
+    expect(provider.loading, isFalse);
+    gate.complete();
+    await quiesce.timeout(const Duration(seconds: 1));
+    await refresh;
+
+    expect(provider.loading, isFalse);
+  });
+
   test('lost ACK retry reuses durable request id', () async {
     final backend = BackendClient()..configure('https://example.com');
     addTearDown(backend.close);
@@ -128,6 +182,40 @@ void main() {
     expect(service.ackRequestIds, hasLength(2));
     expect(service.ackRequestIds.toSet(), hasLength(1));
     expect(provider.operations, isEmpty);
+  });
+
+  test('operation ACK capability is gated independently', () async {
+    final backend = BackendClient()..configure('https://example.com');
+    addTearDown(backend.close);
+    backend.setTokens('token', 'refresh');
+    final operation = CloudManagementOperation(
+      id: 'op-no-ack',
+      kind: 'selective',
+      selectorType: 'category',
+      category: 'tasks',
+      generation: 2,
+      indexRevision: 3,
+      createdAt: DateTime.utc(2026, 7, 24),
+    );
+    final repository = _MemoryCloudRepository()
+      ..tasks['https://example.com|user-1'] = [operation];
+    final service = _FakeCloudService()
+      ..statusCapabilities = const SyncCapabilities(
+        advertised: true,
+        index: true,
+        selectivePurge: true,
+      );
+    final provider = CloudDataProvider(
+      backend: backend,
+      repository: repository,
+      service: service,
+    );
+    await provider.bind(_user);
+
+    await provider.syncNow(() async => true, (_, _) async => true);
+
+    expect(service.acked, isEmpty);
+    expect(provider.operations.map((item) => item.id), ['op-no-ack']);
   });
 }
 
@@ -225,15 +313,27 @@ class _FakeCloudService implements CloudDataService {
   final ackRequestIds = <String>[];
   bool loseFirstAck = false;
   Completer<void>? _statusGate;
+  SyncCapabilities statusCapabilities = const SyncCapabilities(
+    advertised: true,
+    index: true,
+    selectivePurge: true,
+    fullPurge: true,
+    operationAck: true,
+  );
 
   Completer<void> blockStatus() => _statusGate = Completer<void>();
+
+  @override
+  Future<CloudCurrentProjection> getCurrentProjection() async =>
+      CloudCurrentProjection(status: await getStatus(), records: const []);
 
   @override
   Future<void> acknowledgeOperation(
     String operationId,
     int generation,
-    String requestId,
-  ) async {
+    String requestId, {
+    required bool includeOperationId,
+  }) async {
     ackRequestIds.add(requestId);
     if (loseFirstAck && ackRequestIds.length == 1) {
       throw StateError('response lost');
@@ -242,8 +342,11 @@ class _FakeCloudService implements CloudDataService {
   }
 
   @override
-  Future<CloudObjectDetail> getObject(String category, String objectId) async =>
-      throw UnimplementedError();
+  Future<CloudObjectDetail> getObject(
+    String category,
+    String objectId,
+    int revision,
+  ) async => throw UnimplementedError();
 
   @override
   Future<List<CloudManagementOperation>> getOperations() async =>
@@ -253,17 +356,18 @@ class _FakeCloudService implements CloudDataService {
   Future<CloudIndexStatus> getStatus() async {
     await _statusGate?.future;
     if (failStatus) throw StateError('offline');
-    return const CloudIndexStatus(
+    return CloudIndexStatus(
       lastSeq: 1,
       generation: 1,
       indexRevision: 1,
       minAvailableSeq: 0,
-      usage: CloudUsage(
+      usage: const CloudUsage(
         recordCount: 1,
         blobCount: 0,
         blobBytes: 0,
         blobRefCount: 0,
       ),
+      capabilities: statusCapabilities,
     );
   }
 

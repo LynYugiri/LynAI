@@ -54,6 +54,8 @@ final class CalendarPlatformProjectionCoordinator {
     return operation;
   }
 
+  Future<void> quiesce() => _queue.catchError((Object _) {});
+
   void dispose() {
     if (!_attached) return;
     tasks.onSnapshotPersisted = null;

@@ -23,12 +23,14 @@ class AccountProvider extends ChangeNotifier {
     AccountService? service,
     SecretStore? secretStore,
     Future<void> Function(AccountUser? user)? onSessionChanged,
+    Future<void> Function(AccountUser? user)? onDatasetActivation,
     Future<void> Function()? afterAuthenticated,
     Future<void> Function(AccountUser user)? onRemoteActivation,
   }) : _backend = backend,
        _injectedService = service,
        _secretStore = secretStore,
        _onSessionChanged = onSessionChanged,
+       _onDatasetActivation = onDatasetActivation,
        _afterAuthenticated = afterAuthenticated,
        _onRemoteActivation = onRemoteActivation,
        _backendScope = backend?.backendScope ?? '' {
@@ -39,6 +41,7 @@ class AccountProvider extends ChangeNotifier {
   final AccountService? _injectedService;
   final SecretStore? _secretStore;
   final Future<void> Function(AccountUser? user)? _onSessionChanged;
+  final Future<void> Function(AccountUser? user)? _onDatasetActivation;
   final Future<void> Function()? _afterAuthenticated;
   final Future<void> Function(AccountUser user)? _onRemoteActivation;
   RemoteAccountService? _remoteService;
@@ -70,12 +73,65 @@ class AccountProvider extends ChangeNotifier {
 
   Future<void> _handleSessionInvalidated() async {
     if (_disposed) return;
-    _operationGeneration++;
-    _user = null;
-    _loading = false;
+    final generation = ++_operationGeneration;
+    _loading = true;
     _error = null;
     _notifyListeners();
+    try {
+      await _onDatasetActivation?.call(null);
+    } catch (e) {
+      if (_isCurrent(generation)) {
+        _loading = false;
+        _error = '切换到本地数据集失败: $e';
+        _notifyListeners();
+      }
+      return;
+    }
+    if (!_isCurrent(generation)) return;
+    _user = null;
+    _loading = false;
+    _notifyListeners();
+    try {
+      await _onSessionChanged?.call(null);
+    } catch (e) {
+      debugPrint('解除账号会话绑定失败: $e');
+      return;
+    }
+    if (!_isCurrent(generation)) return;
+  }
+
+  Future<void> reconfigureBackend({
+    required String? url,
+    required Future<void> Function(String? url) persist,
+  }) async {
+    final backend = _backend;
+    if (backend == null) throw StateError('Backend client is not configured');
+    final generation = ++_operationGeneration;
+    await persist(url);
+    if (!_isCurrent(generation)) return;
+    _loading = true;
+    _error = null;
+    _notifyListeners();
+    try {
+      await _onDatasetActivation?.call(null);
+    } catch (e) {
+      if (_isCurrent(generation)) {
+        _loading = false;
+        _error = e.toString();
+        _notifyListeners();
+      }
+      return;
+    }
+    if (!_isCurrent(generation)) return;
+    _user = null;
+    _loading = false;
+    _notifyListeners();
     await _onSessionChanged?.call(null);
+    if (!_isCurrent(generation)) return;
+    _backendScope = BackendClient.normalizeUrl(url ?? '');
+    backend.configure(url ?? '');
+    _remoteService = null;
+    _notifyListeners();
   }
 
   void _handleBackendChanged() {
@@ -87,9 +143,32 @@ class AccountProvider extends ChangeNotifier {
     _loading = false;
     _error = null;
     final hadUser = _user != null;
-    _user = null;
+    if (!hadUser) {
+      _notifyListeners();
+      return;
+    }
+    final generation = _operationGeneration;
+    unawaited(_clearForBackendChange(generation));
+  }
+
+  Future<void> _clearForBackendChange(int generation) async {
+    _loading = true;
     _notifyListeners();
-    if (hadUser) _notifySessionChanged();
+    try {
+      await _onDatasetActivation?.call(null);
+    } catch (e) {
+      if (_isCurrent(generation)) {
+        _loading = false;
+        _error = '切换到本地数据集失败: $e';
+        _notifyListeners();
+      }
+      return;
+    }
+    if (!_isCurrent(generation)) return;
+    _user = null;
+    _loading = false;
+    _notifyListeners();
+    await _onSessionChanged?.call(null);
   }
 
   /// 当前登录用户，未登录时为 null。
@@ -134,7 +213,10 @@ class AccountProvider extends ChangeNotifier {
         _ => svc.loadStoredSession(),
       };
       if (!_isCurrent(generation)) return;
-      _user = session?.user;
+      final user = session?.user;
+      await _onDatasetActivation?.call(user);
+      if (!_isCurrent(generation)) return;
+      _user = user;
       _notifyListeners();
       await _onSessionChanged?.call(_user);
     } catch (e) {
@@ -157,6 +239,12 @@ class AccountProvider extends ChangeNotifier {
         _ => svc.getCurrentUser(),
       };
       if (!_isCurrent(generation)) return;
+      if (user == null && _user != null) {
+        await _onDatasetActivation?.call(null);
+        if (!_isCurrent(generation)) return;
+        await _onSessionChanged?.call(null);
+        if (!_isCurrent(generation)) return;
+      }
       _user = user;
       _notifyListeners();
     } catch (e) {
@@ -209,6 +297,15 @@ class AccountProvider extends ChangeNotifier {
     try {
       final session = await svc.login(username: phone, password: password);
       if (!_isCurrent(generation)) return false;
+      try {
+        await _onDatasetActivation?.call(session.user);
+      } catch (_) {
+        try {
+          await svc.logout();
+        } catch (_) {}
+        rethrow;
+      }
+      if (!_isCurrent(generation)) return false;
       _user = session.user;
       _loading = false;
       _notifyListeners();
@@ -248,6 +345,15 @@ class AccountProvider extends ChangeNotifier {
         displayName: displayName,
       );
       if (!_isCurrent(generation)) return false;
+      try {
+        await _onDatasetActivation?.call(session.user);
+      } catch (_) {
+        try {
+          await svc.logout();
+        } catch (_) {}
+        rethrow;
+      }
+      if (!_isCurrent(generation)) return false;
       _user = session.user;
       _loading = false;
       _notifyListeners();
@@ -269,10 +375,7 @@ class AccountProvider extends ChangeNotifier {
     final generation = ++_operationGeneration;
     final svc = _service;
     if (svc == null) {
-      _user = null;
-      _notifyListeners();
-      await _onSessionChanged?.call(null);
-      if (!_isCurrent(generation)) return;
+      await _activateLocalThenPublishLogout(generation);
       return;
     }
     _loading = true;
@@ -281,11 +384,7 @@ class AccountProvider extends ChangeNotifier {
     try {
       await svc.logout();
       if (!_isCurrent(generation)) return;
-      _user = null;
-      _loading = false;
-      _notifyListeners();
-      await _onSessionChanged?.call(null);
-      if (!_isCurrent(generation)) return;
+      await _activateLocalThenPublishLogout(generation);
     } catch (e) {
       if (!_isCurrent(generation)) return;
       _loading = false;
@@ -294,9 +393,13 @@ class AccountProvider extends ChangeNotifier {
     }
   }
 
-  void _notifySessionChanged() {
-    final callback = _onSessionChanged;
-    if (!_disposed && callback != null) unawaited(callback(_user));
+  Future<void> _activateLocalThenPublishLogout(int generation) async {
+    await _onDatasetActivation?.call(null);
+    if (!_isCurrent(generation)) return;
+    _user = null;
+    _loading = false;
+    _notifyListeners();
+    await _onSessionChanged?.call(null);
   }
 
   bool _isCurrent(int generation) =>

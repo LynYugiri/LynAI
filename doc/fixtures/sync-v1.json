@@ -1,0 +1,265 @@
+{
+  "fixtureVersion": 1,
+  "protocol": "LynAI canonical sync v1",
+  "cryptography": {
+    "seedHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "userId": "42",
+    "sessionId": "session-vector-1",
+    "deviceId": "kzdvvj2umnduyauf35o36k6kw462mujvra46tn3uqgzovmihocga",
+    "timestampMs": 1700000000123,
+    "requestId": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYX",
+    "canonicalTarget": "/sync/changes",
+    "bodySha256": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "expectedGeneration": 1,
+    "messageHex": "4c796e41492f76312f73796e632d72657175657374000001000000020001000200000002343200030000001073657373696f6e2d766563746f722d310004000000346b7a6476766a32756d6e64757961756633356f33366b366b773436326d756a7672613436746e337571677a6f766d69686f6367610005000000080000018bcfe5687b00060000002041414543417751464267634943516f4c4441304f4478415245684d5546525958000700000004504f535400080000000d2f73796e632f6368616e676573000900000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000a000000080000000000000001",
+    "signatureBase64Url": "-Q019gyA3ngLx2w19PfpFX7FqV6X04RJrECgf2x5NJMaKj5A4h_JOcqk3ga52-EPwZFsHJas15Osk8w4ygQ-Dg"
+  },
+  "status": {
+    "lastSeq": 2,
+    "generation": 1,
+    "indexRevision": 2,
+    "minAvailableSeq": 0,
+    "blobCount": 1,
+    "usage": {
+      "recordCount": 1,
+      "blobCount": 1,
+      "blobBytes": 17,
+      "blobRefCount": 1
+    },
+    "limits": {
+      "maxBlobBytes": 67108864,
+      "maxChangesRequestBytes": 2097152,
+      "maxChangesPerRequest": 500,
+      "maxChangeDataBytes": 262144,
+      "maxChangesPageSize": 1000,
+      "maxBlobsPageSize": 1000
+    },
+    "capabilities": {
+      "index": true,
+      "selectivePurge": true,
+      "fullPurge": true,
+      "operationAck": true
+    }
+  },
+  "upload": {
+    "requestId": "niKYt8trvclVIPYnjP-YyhqX5J6coffP",
+    "exactBodyUtf8": "{\"requestId\":\"niKYt8trvclVIPYnjP-YyhqX5J6coffP\",\"expectedGeneration\":1,\"changes\":[{\"changeId\":\"change-fixture-1\",\"clientCreatedAt\":\"2026-07-16T00:00:00.000Z\",\"table\":\"messages\",\"op\":\"upsert\",\"recordId\":\"message-1\",\"data\":{\"id\":\"message-1\",\"conversationId\":\"conversation-1\",\"content\":\"hello\"}},{\"changeId\":\"change-fixture-2\",\"clientCreatedAt\":\"2026-07-16T00:00:01.000Z\",\"table\":\"messages\",\"op\":\"delete\",\"recordId\":\"message-2\"}]}",
+    "bodySha256": "cf07b79b3a2f3919393e362a8126074ab0095a76ce9356a97dc1449c09f7e91c",
+    "request": {
+      "requestId": "niKYt8trvclVIPYnjP-YyhqX5J6coffP",
+      "expectedGeneration": 1,
+      "changes": [
+        {
+          "changeId": "change-fixture-1",
+          "clientCreatedAt": "2026-07-16T00:00:00.000Z",
+          "table": "messages",
+          "op": "upsert",
+          "recordId": "message-1",
+          "data": {
+            "id": "message-1",
+            "conversationId": "conversation-1",
+            "content": "hello"
+          }
+        },
+        {
+          "changeId": "change-fixture-2",
+          "clientCreatedAt": "2026-07-16T00:00:01.000Z",
+          "table": "messages",
+          "op": "delete",
+          "recordId": "message-2"
+        }
+      ]
+    },
+    "response": {
+      "requestId": "niKYt8trvclVIPYnjP-YyhqX5J6coffP",
+      "changes": [
+        {
+          "seq": 1,
+          "changeId": "change-fixture-1",
+          "deviceId": "kzdvvj2umnduyauf35o36k6kw462mujvra46tn3uqgzovmihocga",
+          "table": "messages",
+          "op": "upsert",
+          "recordId": "message-1",
+          "data": {
+            "id": "message-1",
+            "conversationId": "conversation-1",
+            "content": "hello"
+          },
+          "clientCreatedAt": "2026-07-16T00:00:00Z",
+          "createdAt": "2026-07-16T00:00:02Z"
+        },
+        {
+          "seq": 2,
+          "changeId": "change-fixture-2",
+          "deviceId": "kzdvvj2umnduyauf35o36k6kw462mujvra46tn3uqgzovmihocga",
+          "table": "messages",
+          "op": "delete",
+          "recordId": "message-2",
+          "clientCreatedAt": "2026-07-16T00:00:01Z",
+          "createdAt": "2026-07-16T00:00:02Z"
+        }
+      ],
+      "latestSeq": 2
+    }
+  },
+  "pullPage": {
+    "changes": [
+      {
+        "seq": 1,
+        "changeId": "change-fixture-1",
+        "deviceId": "kzdvvj2umnduyauf35o36k6kw462mujvra46tn3uqgzovmihocga",
+        "table": "messages",
+        "op": "upsert",
+        "recordId": "message-1",
+        "data": {
+          "id": "message-1",
+          "conversationId": "conversation-1",
+          "content": "hello"
+        },
+        "clientCreatedAt": "2026-07-16T00:00:00Z",
+        "createdAt": "2026-07-16T00:00:02Z"
+      },
+      {
+        "seq": 2,
+        "changeId": "change-fixture-2",
+        "deviceId": "kzdvvj2umnduyauf35o36k6kw462mujvra46tn3uqgzovmihocga",
+        "table": "messages",
+        "op": "delete",
+        "recordId": "message-2",
+        "clientCreatedAt": "2026-07-16T00:00:01Z",
+        "createdAt": "2026-07-16T00:00:02Z"
+      }
+    ],
+    "latestSeq": 2,
+    "globalLatestSeq": 2,
+    "generation": 1,
+    "indexRevision": 2,
+    "minAvailableSeq": 0,
+    "hasMore": false,
+    "nextSince": 2
+  },
+  "selectivePurge": {
+    "request": {
+      "requestId": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYX",
+      "expectedGeneration": 1,
+      "expectedIndexRevision": 2,
+      "selector": {
+        "type": "object",
+        "category": "messages",
+        "objectId": "conversation-1"
+      }
+    },
+    "result": {
+      "operation": {
+        "id": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYX",
+        "userId": "42",
+        "kind": "selective",
+        "selectorType": "object",
+        "category": "messages",
+        "objectId": "conversation-1",
+        "generation": 2,
+        "indexRevision": 3,
+        "releasedBlobCandidates": 1,
+        "deletedRecordCount": 1,
+        "deletedChangeCount": 1,
+        "status": "pending",
+        "createdByDeviceId": "kzdvvj2umnduyauf35o36k6kw462mujvra46tn3uqgzovmihocga",
+        "createdAt": "2026-07-16T00:00:03Z"
+      }
+    }
+  },
+  "operationAck": {
+    "scope": "https://sync.example.test|42",
+    "canonicalTarget": "/sync/manage/operations/:id/ack",
+    "requestId": "TzqwjPCjl1AkY9ypR-ofRFolZVCnLYga",
+    "request": {
+      "requestId": "TzqwjPCjl1AkY9ypR-ofRFolZVCnLYga",
+      "expectedGeneration": 2,
+      "operationId": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYX"
+    },
+    "response": {
+      "id": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYX",
+      "userId": "42",
+      "kind": "selective",
+      "selectorType": "object",
+      "category": "messages",
+      "objectId": "conversation-1",
+      "generation": 2,
+      "indexRevision": 3,
+      "releasedBlobCandidates": 1,
+      "deletedRecordCount": 1,
+      "deletedChangeCount": 1,
+      "status": "acked",
+      "createdByDeviceId": "kzdvvj2umnduyauf35o36k6kw462mujvra46tn3uqgzovmihocga",
+      "createdAt": "2026-07-16T00:00:03Z",
+      "ackedByDeviceId": "kzdvvj2umnduyauf35o36k6kw462mujvra46tn3uqgzovmihocga",
+      "ackedAt": "2026-07-16T00:00:04Z"
+    }
+  },
+  "conflicts": {
+    "generation": {
+      "httpStatus": 409,
+      "body": {
+        "error": "sync generation mismatch",
+        "code": "generation_mismatch",
+        "expectedGeneration": 1,
+        "currentGeneration": 2
+      }
+    },
+    "replay": {
+      "httpStatus": 409,
+      "body": {
+        "error": "request ID conflicts with an existing request",
+        "code": "replay_conflict"
+      }
+    },
+    "indexRevision": {
+      "httpStatus": 409,
+      "body": {
+        "error": "index revision conflict",
+        "code": "index_revision_conflict"
+      }
+    }
+  },
+  "blobs": {
+    "listPage": {
+      "blobs": [
+        {
+          "userId": "42",
+          "sha256": "ab1bb92135f1b2b6d5f5f645c167ebe6a357b278d7cf1877c0e7e5b09210deb8",
+          "size": 17,
+          "createdAt": "2026-07-16T00:00:02Z"
+        }
+      ],
+      "nextAfter": 1,
+      "hasMore": false,
+      "truncated": false,
+      "returnedCount": 1,
+      "pageSize": 1000
+    },
+    "uploadResult": {
+      "owned": true,
+      "created": true,
+      "size": 17
+    }
+  },
+  "clientOnlyExtensions": {
+    "lanLineage": {
+      "description": "Client LAN frame v2 extension; never sent to backend /sync/changes.",
+      "change": {
+        "changeId": "lan-change-fixture-1",
+        "deviceId": "lan-peer-device",
+        "clientCreatedAt": "2026-07-16T00:00:05.000Z",
+        "table": "messages",
+        "op": "upsert",
+        "recordId": "lan-message-1",
+        "data": {
+          "id": "lan-message-1",
+          "conversationId": "lan-conversation-1",
+          "content": "from LAN"
+        },
+        "lineage": "dataset-fixture-1"
+      }
+    }
+  }
+}

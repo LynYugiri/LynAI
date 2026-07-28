@@ -178,6 +178,53 @@ void main() {
     },
   );
 
+  test('cancellation bounds stream subscription cleanup', () async {
+    final onCancel = Completer<void>();
+    final stream = StreamController<AgentModelStreamEvent>(
+      onCancel: () => onCancel.future,
+    );
+    final handle =
+        const AgentLoopRuntime(
+          cleanupTimeout: Duration(milliseconds: 20),
+        ).start(
+          messages: const [],
+          maxToolRounds: 0,
+          model: (request) => stream.stream,
+          executeTools: (calls, identity, cancellationToken) async => const [],
+        );
+    await Future<void>.delayed(Duration.zero);
+
+    handle.cancel();
+    final result = await handle.result.timeout(const Duration(seconds: 1));
+
+    expect(result.status, AgentRunStatus.cancelled);
+    onCancel.complete();
+    await stream.close();
+  });
+
+  test('cancellation bounds persistence finalization', () async {
+    final persistence = _HangingCompletionPersistence();
+    final model = StreamController<AgentModelStreamEvent>();
+    final handle =
+        const AgentLoopRuntime(
+          cleanupTimeout: Duration(milliseconds: 20),
+        ).start(
+          persistence: persistence,
+          messages: const [],
+          maxToolRounds: 0,
+          model: (request) => model.stream,
+          executeTools: (calls, identity, cancellationToken) async => const [],
+        );
+    await Future<void>.delayed(Duration.zero);
+
+    handle.cancel();
+    final result = await handle.result.timeout(const Duration(seconds: 1));
+
+    expect(result.status, AgentRunStatus.cancelled);
+    persistence.completion.complete();
+    await model.close();
+  });
+
   test('model failure becomes a failed result', () async {
     final result = await const AgentLoopRuntime()
         .start(
@@ -196,6 +243,106 @@ void main() {
     expect(result.status, AgentRunStatus.failed);
     expect(result.error, isA<StateError>());
   });
+
+  test('aggregates partial content across turns and a failing turn', () async {
+    var turn = 0;
+    final result = await const AgentLoopRuntime()
+        .start(
+          messages: const [],
+          maxToolRounds: 2,
+          model: (request) async* {
+            if (turn++ == 0) {
+              yield const AgentModelTextDelta('first');
+              yield AgentModelToolCalls([
+                AgentToolInvocation(id: 'call', name: 'tool'),
+              ]);
+              yield const AgentModelStreamCompleted();
+              return;
+            }
+            yield const AgentModelTextDelta('second');
+            yield AgentModelStreamFailure(
+              StateError('broken'),
+              StackTrace.current,
+            );
+          },
+          executeTools: (calls, identity, cancellationToken) async => [
+            AgentToolResult.success(invocationId: 'call', toolName: 'tool'),
+          ],
+        )
+        .result;
+
+    expect(result.status, AgentRunStatus.failed);
+    expect(result.content, 'first');
+    expect(result.partialContent, 'first\n\nsecond');
+  });
+
+  test('processes tool results without persistence', () async {
+    var processed = false;
+    final result = await const AgentLoopRuntime()
+        .start(
+          messages: const [],
+          maxToolRounds: 1,
+          toolResultProcessor: _CallbackProcessor((results) {
+            processed = true;
+            return results;
+          }),
+          model: (request) async* {
+            if (request.identity.turnIndex == 0) {
+              yield AgentModelToolCalls([
+                AgentToolInvocation(id: 'call', name: 'tool'),
+              ]);
+            } else {
+              yield const AgentModelTextDelta('done');
+            }
+            yield const AgentModelStreamCompleted();
+          },
+          executeTools: (calls, identity, cancellationToken) async => [
+            AgentToolResult.success(invocationId: 'call', toolName: 'tool'),
+          ],
+        )
+        .result;
+
+    expect(result.status, AgentRunStatus.completed);
+    expect(processed, isTrue);
+  });
+
+  test(
+    'rejects duplicate invocation ids before tool persistence or events',
+    () async {
+      final persistence = _TrackingPersistence();
+      var executions = 0;
+      final events = <AgentRunEvent>[];
+      final handle = const AgentLoopRuntime().start(
+        persistence: persistence,
+        messages: const [],
+        maxToolRounds: 1,
+        model: (request) async* {
+          yield AgentModelToolCalls([
+            AgentToolInvocation(id: 'duplicate', name: 'first'),
+            AgentToolInvocation(id: 'duplicate', name: 'second'),
+          ]);
+          yield const AgentModelStreamCompleted();
+        },
+        executeTools: (calls, identity, cancellationToken) async {
+          executions++;
+          return const [];
+        },
+      );
+      final subscription = handle.events.listen(events.add);
+      final result = await handle.result;
+      await subscription.cancel();
+
+      expect(result.status, AgentRunStatus.failed);
+      expect(result.error, isA<FormatException>());
+      expect(persistence.assistantResponses, 0);
+      expect(persistence.startedToolCalls, 0);
+      expect(executions, 0);
+      expect(
+        events.where((event) => event.kind == AgentRunEventKind.toolCalls),
+        isEmpty,
+      );
+    },
+  );
 
   test('tool persistence failure prevents side effects', () async {
     var executions = 0;
@@ -272,9 +419,6 @@ class _ContextOverflow implements Exception {}
 
 class _FailingToolPersistence implements AgentRunPersistenceLifecycle {
   @override
-  AgentToolResultProcessor get toolResultProcessor => _IdentityProcessor();
-
-  @override
   Future<void> startRun(
     String runId,
     AgentRunPersistenceMetadata metadata,
@@ -312,10 +456,66 @@ class _FailingToolPersistence implements AgentRunPersistenceLifecycle {
   Future<void> completeRun(String runId, AgentRunResult result) async {}
 }
 
-class _IdentityProcessor implements AgentToolResultProcessor {
+class _CallbackProcessor implements AgentToolResultProcessor {
+  const _CallbackProcessor(this.callback);
+
+  final List<AgentToolResult> Function(List<AgentToolResult>) callback;
+
   @override
   Future<List<AgentToolResult>> process(
     List<AgentToolResult> results, {
     required AgentCancellationToken cancellationToken,
-  }) async => results;
+  }) async => callback(results);
+}
+
+class _TrackingPersistence implements AgentRunPersistenceLifecycle {
+  int assistantResponses = 0;
+  int startedToolCalls = 0;
+
+  @override
+  Future<void> startRun(
+    String runId,
+    AgentRunPersistenceMetadata metadata,
+  ) async {}
+
+  @override
+  Future<void> startTurn(AgentTurnIdentity identity) async {}
+
+  @override
+  Future<void> recordAssistantResponse(
+    AgentTurnIdentity identity, {
+    required String content,
+    required String reasoning,
+    required List<AgentToolInvocation> toolCalls,
+  }) async {
+    assistantResponses++;
+  }
+
+  @override
+  Future<void> startToolCalls(
+    AgentTurnIdentity identity,
+    List<AgentToolInvocation> toolCalls,
+  ) async {
+    startedToolCalls++;
+  }
+
+  @override
+  Future<void> completeToolCall(
+    AgentTurnIdentity identity,
+    AgentToolResult result,
+  ) async {}
+
+  @override
+  Future<void> completeTurn(AgentTurnIdentity identity) async {}
+
+  @override
+  Future<void> completeRun(String runId, AgentRunResult result) async {}
+}
+
+class _HangingCompletionPersistence extends _TrackingPersistence {
+  final Completer<void> completion = Completer<void>();
+
+  @override
+  Future<void> completeRun(String runId, AgentRunResult result) =>
+      completion.future;
 }

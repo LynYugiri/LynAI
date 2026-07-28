@@ -8,6 +8,7 @@ import '../providers/recycle_bin_provider.dart';
 import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/backend_client.dart';
+import '../services/device_settings_service.dart';
 import '../utils/managed_model_id_migration.dart';
 import '../widgets/account_header_card.dart';
 import '../widgets/plugin_feature_webview.dart';
@@ -79,7 +80,7 @@ class _SettingsPageState extends State<SettingsPage> {
             context,
             Icons.dns_outlined,
             '连接到服务端',
-            _backendSubtitle(settings.backendUrl, backend),
+            _backendSubtitle(backend.backendUrl, backend),
             Colors.blueGrey,
             () => _showBackendDialog(context),
           ),
@@ -257,13 +258,20 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _showBackendDialog(BuildContext context) async {
     final settingsProvider = context.read<SettingsProvider>();
     final backend = context.read<BackendClient>();
+    final deviceSettings = context.read<DeviceSettingsService>();
+    final account = context.read<AccountProvider>();
+    final models = context.read<ModelConfigProvider>();
+    final conversations = context.read<ConversationProvider>();
+    final roleplay = context.read<RoleplayProvider>();
+    final plugins = context.read<PluginProvider>();
 
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => TextEditingControllerHost(
         initialTexts: [
-          settingsProvider.settings.backendUrl ??
-              BackendClient.defaultBackendUrl,
+          backend.backendUrl.isNotEmpty
+              ? backend.backendUrl
+              : BackendClient.defaultBackendUrl,
         ],
         builder: (ctx, controllers) {
           final controller = controllers.single;
@@ -331,15 +339,22 @@ class _SettingsPageState extends State<SettingsPage> {
     if (!context.mounted) return;
 
     final url = result.isEmpty ? null : result;
-    backend.configure(url ?? '');
-    settingsProvider.updateBackendUrl(url);
+    await account.reconfigureBackend(
+      url: url,
+      persist: (value) async {
+        await deviceSettings.saveBackendUrl(value);
+        settingsProvider.updateBackendUrl(value);
+        await settingsProvider.flushPendingSaves();
+      },
+    );
+    if (!context.mounted) return;
     await syncManagedModelsAndApplyMigrations(
-      models: context.read<ModelConfigProvider>(),
+      models: models,
       backend: backend,
       settings: settingsProvider,
-      conversations: context.read<ConversationProvider>(),
-      roleplay: context.read<RoleplayProvider>(),
-      plugins: context.read<PluginProvider>(),
+      conversations: conversations,
+      roleplay: roleplay,
+      plugins: plugins,
     );
   }
 

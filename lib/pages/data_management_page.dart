@@ -65,7 +65,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       taskProvider: context.read<TaskProvider>(),
       calendarProvider: context.read<CalendarProvider>(),
       pluginProvider: context.read<PluginProvider>(),
-      storageV2: StorageV2Service(),
+      storageV2: context.read<StorageV2Service>(),
     );
   }
 
@@ -506,7 +506,7 @@ class _CloudDataView extends StatelessWidget {
           canManage: cloud.canManage,
           onRefresh: cloud.refresh,
           onSync: onSync,
-          onPurgeAll: status == null
+          onPurgeAll: status == null || !cloud.canFullPurge
               ? null
               : () => onPreviewPurge(const CloudPurgeSelector.all()),
         ),
@@ -524,21 +524,24 @@ class _CloudDataView extends StatelessWidget {
               style: TextStyle(color: Theme.of(context).colorScheme.outline),
             ),
         ],
-        if (status != null) ...[
+        if (status != null && cloud.canBrowse) ...[
           const SizedBox(height: 12),
           _CloudCategoryCard(
             counts: cloud.snapshot.categoryCounts,
-            onPurge: (category) =>
-                onPreviewPurge(CloudPurgeSelector.category(category)),
+            onPurge: cloud.canSelectivePurge
+                ? (category) =>
+                      onPreviewPurge(CloudPurgeSelector.category(category))
+                : null,
           ),
         ],
         const SizedBox(height: 12),
         _SyncCard(onManualSync: onSync),
         const SizedBox(height: 12),
-        _CloudObjectsCard(
-          objects: cloud.snapshot.objects,
-          onPreviewPurge: onPreviewPurge,
-        ),
+        if (cloud.canBrowse)
+          _CloudObjectsCard(
+            objects: cloud.snapshot.objects,
+            onPreviewPurge: cloud.canSelectivePurge ? onPreviewPurge : null,
+          ),
       ],
     );
   }
@@ -690,7 +693,7 @@ class _CloudCategoryCard extends StatelessWidget {
   const _CloudCategoryCard({required this.counts, required this.onPurge});
 
   final Map<String, int> counts;
-  final ValueChanged<String> onPurge;
+  final ValueChanged<String>? onPurge;
 
   @override
   Widget build(BuildContext context) => Card(
@@ -715,7 +718,9 @@ class _CloudCategoryCard extends StatelessWidget {
                     children: [
                       Text('${counts[category]}'),
                       IconButton(
-                        onPressed: () => onPurge(category),
+                        onPressed: onPurge == null
+                            ? null
+                            : () => onPurge!(category),
                         tooltip: '删除该分类云端数据',
                         icon: const Icon(Icons.delete_outline),
                       ),
@@ -736,7 +741,7 @@ class _CloudObjectsCard extends StatelessWidget {
   });
 
   final List<CloudIndexObject> objects;
-  final ValueChanged<CloudPurgeSelector> onPreviewPurge;
+  final ValueChanged<CloudPurgeSelector>? onPreviewPurge;
 
   @override
   Widget build(BuildContext context) => Card(
@@ -768,9 +773,14 @@ class _CloudObjectsCard extends StatelessWidget {
                 ),
                 onTap: () => _showCloudDetail(context, object),
                 trailing: IconButton(
-                  onPressed: () => onPreviewPurge(
-                    CloudPurgeSelector.object(object.category, object.objectId),
-                  ),
+                  onPressed: onPreviewPurge == null
+                      ? null
+                      : () => onPreviewPurge!(
+                          CloudPurgeSelector.object(
+                            object.category,
+                            object.objectId,
+                          ),
+                        ),
                   tooltip: '删除该云端对象',
                   icon: const Icon(Icons.delete_outline),
                 ),

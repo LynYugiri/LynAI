@@ -33,12 +33,14 @@ class LanFrameException implements Exception {
 
 class LanSecureTransport {
   static const blobChunkBytes = 384 * 1024;
+  static const defaultMaxFrameBytes = 1024 * 1024;
+  static const defaultMaxBodyBytes = 768 * 1024;
 
   LanSecureTransport(
     this.socket, {
-    this.maxFrameBytes = 1024 * 1024,
+    this.maxFrameBytes = defaultMaxFrameBytes,
     this.maxPreAuthFrameBytes = 16 * 1024,
-    this.maxBodyBytes = 768 * 1024,
+    this.maxBodyBytes = defaultMaxBodyBytes,
     this.maxBlobBytes = 64 * 1024 * 1024,
     this.readTimeout = const Duration(seconds: 20),
     this.writeTimeout = const Duration(seconds: 20),
@@ -61,6 +63,33 @@ class LanSecureTransport {
   String? _localRole;
   String? _remoteRole;
   Future<void>? _closeFuture;
+
+  String get sessionId =>
+      _sessionId ?? (throw const LanFrameException('session is not bound'));
+  String get localRole =>
+      _localRole ?? (throw const LanFrameException('session is not bound'));
+  int get nextSentCounter => _sentCounter + 1;
+
+  static int bodySize(Map<String, dynamic> body) =>
+      JsonUtf8Encoder().convert(body).length;
+
+  static int frameSize({
+    required String type,
+    required String sessionId,
+    required int counter,
+    required String purpose,
+    required String role,
+    required Map<String, dynamic> body,
+  }) => encodeFrame(
+    type: type,
+    sessionId: sessionId,
+    counter: counter,
+    purpose: purpose,
+    role: role,
+    body: body,
+    maxFrameBytes: 1 << 30,
+    maxBodyBytes: 1 << 30,
+  ).length;
 
   void bindSession({
     required String sessionId,

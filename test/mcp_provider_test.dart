@@ -202,6 +202,27 @@ void main() {
     expect(registry.registration(registeredName), isNotNull);
   });
 
+  test('target load failure clears old MCP publication and state', () async {
+    final repository = _MemoryMcpRepository([_server(enabled: false)]);
+    final registry = AgentToolRegistry();
+    final provider = McpProvider(
+      repository: repository,
+      connectionFactory: _QueueConnectionFactory([_ToolTransport()]),
+      toolRegistry: registry,
+    );
+    await provider.load();
+    await provider.connect('weather');
+    final name = canonicalMcpToolName('weather', 'forecast');
+    expect(registry.registration(name), isNotNull);
+
+    repository.loadError = StateError('target dataset unreadable');
+    await provider.load();
+
+    expect(registry.registration(name), isNull);
+    expect(provider.servers, isEmpty);
+    expect(provider.loadError, contains('target dataset unreadable'));
+  });
+
   test(
     'keeps incompatible tools visible but explicitly unregistered',
     () async {
@@ -262,9 +283,14 @@ class _MemoryMcpRepository implements McpRepository {
   final List<AgentMcpServerRecord> servers;
   final Map<String, McpServerPreferences> preferences = {};
   final Map<String, Map<String, String>> credentials = {};
+  Object? loadError;
 
   @override
-  Future<List<AgentMcpServerRecord>> loadServers() async => List.of(servers);
+  Future<List<AgentMcpServerRecord>> loadServers() async {
+    final error = loadError;
+    if (error != null) throw error;
+    return List.of(servers);
+  }
 
   @override
   Future<void> saveServer(AgentMcpServerRecord server) async {

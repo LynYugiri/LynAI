@@ -9,6 +9,7 @@ import '../models/plugin_config_schema.dart';
 import '../repositories/plugin_repository.dart';
 import '../services/plugin_sync_validation.dart';
 import '../services/storage_v2_service.dart';
+import '../services/dataset_runtime_barrier.dart';
 
 /// 管理插件安装状态、权限授权、功能页开关和插件私有配置。
 ///
@@ -16,12 +17,17 @@ import '../services/storage_v2_service.dart';
 /// 通过这里查询启用状态和读写插件私有 storage，确保 UI、工具和 WebView Bridge
 /// 共用同一套权限状态。
 class PluginProvider extends ChangeNotifier {
-  PluginProvider({PluginRepository? repository, StorageV2Service? storageV2})
-    : _repository = repository ?? PluginRepository(),
-      _storageV2 = storageV2;
+  PluginProvider({
+    PluginRepository? repository,
+    StorageV2Service? storageV2,
+    DatasetRuntimeBarrier? datasetBarrier,
+  }) : _repository = repository ?? PluginRepository(storageV2: storageV2),
+       _storageV2 = storageV2,
+       _datasetBarrier = datasetBarrier ?? storageV2?.runtimeBarrier;
 
   final PluginRepository _repository;
   final StorageV2Service? _storageV2;
+  final DatasetRuntimeBarrier? _datasetBarrier;
   List<InstalledPlugin> _plugins = const [];
   final Map<String, Map<String, dynamic>> _settingsCache = {};
   final Map<String, Map<String, dynamic>> _storageCache = {};
@@ -42,7 +48,7 @@ class PluginProvider extends ChangeNotifier {
   Future<List<int>> readSyncBlob(String hash) => _repository.readSyncBlob(hash);
   Future<bool> hasSyncBlob(String hash) => _repository.hasSyncBlob(hash);
   Future<void> installSyncBlob(String hash, List<int> bytes) =>
-      _repository.installSyncBlob(hash, bytes);
+      _runDatasetMutation((_) => _repository.installSyncBlob(hash, bytes));
 
   /// 返回当前已启用插件的数量。
   int get enabledCount => _plugins.where((plugin) => plugin.enabled).length;
@@ -59,12 +65,23 @@ class PluginProvider extends ChangeNotifier {
   }
 
   /// 从仓库加载所有已安装插件并刷新其清单。
-  Future<void> load() async {
+  Future<void> load() => _load();
+
+  Future<void> loadForDatasetSwitch() => _load(duringDatasetSwitch: true);
+
+  Future<void> _load({bool duringDatasetSwitch = false}) async {
     _loading = true;
     notifyListeners();
     try {
+      _settingsCache.clear();
+      _storageCache.clear();
+      _configCache.clear();
+      _schemaCache.clear();
       _plugins = await _repository.loadInstalledPlugins();
-      await refreshManifests(save: true);
+      await refreshManifests(
+        save: true,
+        duringDatasetSwitch: duringDatasetSwitch,
+      );
     } catch (e) {
       debugPrint('加载插件失败: $e');
       _plugins = const [];
@@ -79,28 +96,30 @@ class PluginProvider extends ChangeNotifier {
   /// ZIP import uses this after extraction. The user-facing plugin manager does
   /// not expose directory import, so tests and internal import flows are the only
   /// callers that should use it.
-  Future<void> importDirectory(String path) async {
+  Future<void> importDirectory(String path) => _runDatasetMutation((_) async {
     final manifest = _repository.readManifestSync(path);
-    await _serializeMutation(manifest.id, () async {
+    await _serializeMutationOpen(manifest.id, () async {
       final plugin = await _repository.importDirectory(path);
       await _upsert(plugin);
     });
-  }
+  });
 
   /// 从 ZIP 字节内容导入并安装插件。
-  Future<void> importZipBytes(List<int> bytes) async {
-    await _repository.importZipBytes(
-      bytes,
-      serialize: (pluginId, install) => _serializeMutation(pluginId, () async {
-        final plugin = await install();
-        if (plugin.id != pluginId) {
-          throw StateError('插件压缩包清单 ID 不一致');
-        }
-        await _upsert(plugin);
-        return plugin;
-      }),
-    );
-  }
+  Future<void> importZipBytes(List<int> bytes) =>
+      _runDatasetMutation((_) async {
+        await _repository.importZipBytes(
+          bytes,
+          serialize: (pluginId, install) =>
+              _serializeMutationOpen(pluginId, () async {
+                final plugin = await install();
+                if (plugin.id != pluginId) {
+                  throw StateError('插件压缩包清单 ID 不一致');
+                }
+                await _upsert(plugin);
+                return plugin;
+              }),
+        );
+      });
 
   /// 安装应用内置可信插件，并默认启用和授予其声明的全部权限。
   Future<InstalledPlugin> installTrustedBuiltIn(String pluginId) async {
@@ -123,74 +142,77 @@ class PluginProvider extends ChangeNotifier {
   }
 
   /// 刷新所有插件的清单文件，可选是否持久化保存。
-  Future<void> refreshManifests({bool save = false}) async {
+  Future<void> refreshManifests({
+    bool save = false,
+    bool duringDatasetSwitch = false,
+  }) async {
     final pluginIds = _plugins.map((plugin) => plugin.id).toList();
     await Future.wait(
       pluginIds.map(
-        (pluginId) => _serializeMutation(pluginId, () async {
-          final plugin = pluginById(pluginId);
-          if (plugin == null) return;
-          late InstalledPlugin refreshed;
-          try {
-            final manifest = await _repository.readManifest(plugin.path);
-            final granted = plugin.grantedPermissions
-                .where(manifest.permissions.contains)
-                .toList(growable: false);
-            final pageIds = manifest.featurePages
-                .map((page) => page.id)
-                .toSet();
-            final enabledPages = plugin.enabledFeaturePages
-                .where(pageIds.contains)
-                .toList(growable: false);
-            final previousToolIds = plugin.manifest.tools
-                .map((tool) => tool.name)
-                .toSet();
-            final toolIds = manifest.tools.map((tool) => tool.name).toSet();
-            final enabledTools = plugin.enabledTools
-                .where(toolIds.contains)
-                .toSet();
-            enabledTools.addAll(toolIds.difference(previousToolIds));
-            final previousFunctionIds = plugin.manifest.functions
-                .map((function) => function.name)
-                .toSet();
-            final functionIds = manifest.functions
-                .map((function) => function.name)
-                .toSet();
-            final enabledFunctions = plugin.enabledFunctions
-                .where(functionIds.contains)
-                .toSet();
-            enabledFunctions.addAll(
-              functionIds.difference(previousFunctionIds),
-            );
-            final previousSkillIds = plugin.manifest.skills
-                .map((skill) => skill.name)
-                .toSet();
-            final skillIds = manifest.skills.map((skill) => skill.name).toSet();
-            final enabledSkills = plugin.enabledSkills
-                .where(skillIds.contains)
-                .toSet();
-            enabledSkills.addAll(skillIds.difference(previousSkillIds));
-            refreshed = plugin.copyWith(
-              manifest: manifest,
-              grantedPermissions: granted,
-              enabledFeaturePages: enabledPages,
-              enabledTools: enabledTools.toList(growable: false),
-              enabledFunctions: enabledFunctions.toList(growable: false),
-              enabledSkills: enabledSkills.toList(growable: false),
-              loadError: null,
-            );
-          } catch (e) {
-            refreshed = plugin.copyWith(enabled: false, loadError: '$e');
-          }
-          _plugins = _sortPlugins(
-            _plugins
-                .map((item) => item.id == pluginId ? refreshed : item)
-                .toList(),
-          );
-          if (save) await _save();
-        }),
+        (pluginId) => (duringDatasetSwitch
+            ? _serializeMutationOpen(pluginId, () async {
+                await _refreshManifest(pluginId, save);
+              })
+            : _serializeMutation(pluginId, () async {
+                await _refreshManifest(pluginId, save);
+              })),
       ),
     );
+  }
+
+  Future<void> _refreshManifest(String pluginId, bool save) async {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) return;
+    late InstalledPlugin refreshed;
+    try {
+      final manifest = await _repository.readManifest(plugin.path);
+      final granted = plugin.grantedPermissions
+          .where(manifest.permissions.contains)
+          .toList(growable: false);
+      final pageIds = manifest.featurePages.map((page) => page.id).toSet();
+      final enabledPages = plugin.enabledFeaturePages
+          .where(pageIds.contains)
+          .toList(growable: false);
+      final previousToolIds = plugin.manifest.tools
+          .map((tool) => tool.name)
+          .toSet();
+      final toolIds = manifest.tools.map((tool) => tool.name).toSet();
+      final enabledTools = plugin.enabledTools.where(toolIds.contains).toSet();
+      enabledTools.addAll(toolIds.difference(previousToolIds));
+      final previousFunctionIds = plugin.manifest.functions
+          .map((function) => function.name)
+          .toSet();
+      final functionIds = manifest.functions
+          .map((function) => function.name)
+          .toSet();
+      final enabledFunctions = plugin.enabledFunctions
+          .where(functionIds.contains)
+          .toSet();
+      enabledFunctions.addAll(functionIds.difference(previousFunctionIds));
+      final previousSkillIds = plugin.manifest.skills
+          .map((skill) => skill.name)
+          .toSet();
+      final skillIds = manifest.skills.map((skill) => skill.name).toSet();
+      final enabledSkills = plugin.enabledSkills
+          .where(skillIds.contains)
+          .toSet();
+      enabledSkills.addAll(skillIds.difference(previousSkillIds));
+      refreshed = plugin.copyWith(
+        manifest: manifest,
+        grantedPermissions: granted,
+        enabledFeaturePages: enabledPages,
+        enabledTools: enabledTools.toList(growable: false),
+        enabledFunctions: enabledFunctions.toList(growable: false),
+        enabledSkills: enabledSkills.toList(growable: false),
+        loadError: null,
+      );
+    } catch (e) {
+      refreshed = plugin.copyWith(enabled: false, loadError: '$e');
+    }
+    _plugins = _sortPlugins(
+      _plugins.map((item) => item.id == pluginId ? refreshed : item).toList(),
+    );
+    if (save) await _save();
     notifyListeners();
   }
 
@@ -314,30 +336,32 @@ class PluginProvider extends ChangeNotifier {
 
   /// 为当前插件创建一个默认禁用的独立快照，复制授权和功能页状态。
   Future<InstalledPlugin> createSnapshot(String pluginId) async {
-    final source = pluginById(pluginId);
-    if (source == null) throw Exception('插件不存在: $pluginId');
-    final index = _nextSnapshotIndex(source.id);
-    final snapshotId = '${source.id}-snapshot-$index';
-    final snapshotName = '${source.displayName}-快照 #$index';
-    final imported = await _repository.createSnapshot(
-      source,
-      snapshotId,
-      snapshotName,
-      index,
-    );
-    final snapshot = imported.copyWith(
-      enabled: false,
-      grantedPermissions: source.grantedPermissions.toList(growable: false),
-      enabledFeaturePages: source.enabledFeaturePages.toList(growable: false),
-      enabledTools: source.enabledTools.toList(growable: false),
-      enabledFunctions: source.enabledFunctions.toList(growable: false),
-      enabledSkills: source.enabledSkills.toList(growable: false),
-    );
-    _plugins = _sortPlugins([..._plugins, snapshot]);
-    await _save();
-    await _syncPlugin(snapshot.id);
-    notifyListeners();
-    return snapshot;
+    return _serializeMutation(pluginId, () async {
+      final source = pluginById(pluginId);
+      if (source == null) throw Exception('插件不存在: $pluginId');
+      final index = _nextSnapshotIndex(source.id);
+      final snapshotId = '${source.id}-snapshot-$index';
+      final snapshotName = '${source.displayName}-快照 #$index';
+      final imported = await _repository.createSnapshot(
+        source,
+        snapshotId,
+        snapshotName,
+        index,
+      );
+      final snapshot = imported.copyWith(
+        enabled: false,
+        grantedPermissions: source.grantedPermissions.toList(growable: false),
+        enabledFeaturePages: source.enabledFeaturePages.toList(growable: false),
+        enabledTools: source.enabledTools.toList(growable: false),
+        enabledFunctions: source.enabledFunctions.toList(growable: false),
+        enabledSkills: source.enabledSkills.toList(growable: false),
+      );
+      _plugins = _sortPlugins([..._plugins, snapshot]);
+      await _save();
+      await _syncPlugin(snapshot.id);
+      notifyListeners();
+      return snapshot;
+    });
   }
 
   /// 修改快照插件自身 id/name。普通插件不允许执行此操作。
@@ -345,7 +369,7 @@ class PluginProvider extends ChangeNotifier {
     String pluginId,
     String newId,
     String newName,
-  ) async {
+  ) => _serializeMutation(pluginId, () async {
     final plugin = pluginById(pluginId);
     if (plugin == null) throw Exception('插件不存在: $pluginId');
     if (newId != pluginId && pluginById(newId) != null) {
@@ -367,30 +391,42 @@ class PluginProvider extends ChangeNotifier {
     await _syncPlugin(updated.id);
     notifyListeners();
     return updated;
-  }
+  });
 
   /// 用快照文件覆盖来源插件文件，保留来源插件当前名称、启用状态和授权状态。
   Future<InstalledPlugin> restoreSnapshotToSource(String snapshotId) async {
-    final snapshot = pluginById(snapshotId);
-    if (snapshot == null) throw Exception('插件不存在: $snapshotId');
-    final sourceId = snapshot.manifest.snapshotOf;
-    if (sourceId == null) throw Exception('插件不是快照: $snapshotId');
-    final source = pluginById(sourceId);
-    if (source == null) throw Exception('快照来源插件不存在: $sourceId');
-    final restored = await _repository.restoreSnapshotToSource(
-      snapshot,
-      source,
-    );
-    _configCache.remove(source.id);
-    _schemaCache.remove(source.id);
-    _bumpRenderVersion(source.id);
-    await _mutatePlugin(
-      source.id,
-      (current) => current.copyWith(manifest: restored.manifest),
-      requirePlugin: true,
-    );
-    await _syncPlugin(source.id);
-    return pluginById(source.id)!;
+    return _serializeMutation(snapshotId, () async {
+      final snapshot = pluginById(snapshotId);
+      if (snapshot == null) throw Exception('插件不存在: $snapshotId');
+      final sourceId = snapshot.manifest.snapshotOf;
+      if (sourceId == null) throw Exception('插件不是快照: $snapshotId');
+      final source = pluginById(sourceId);
+      if (source == null) throw Exception('快照来源插件不存在: $sourceId');
+      final restored = await _repository.restoreSnapshotToSource(
+        snapshot,
+        source,
+      );
+      _configCache.remove(source.id);
+      _schemaCache.remove(source.id);
+      _bumpRenderVersion(source.id);
+      await _serializeMutationOpen(source.id, () async {
+        final current = pluginById(source.id);
+        if (current == null) throw Exception('插件不存在: ${source.id}');
+        _plugins = _sortPlugins(
+          _plugins
+              .map(
+                (item) => item.id == source.id
+                    ? current.copyWith(manifest: restored.manifest)
+                    : item,
+              )
+              .toList(),
+        );
+        await _save();
+        notifyListeners();
+      });
+      await _syncPlugin(source.id);
+      return pluginById(source.id)!;
+    });
   }
 
   /// 删除指定插件及其所有缓存数据和文件。
@@ -731,10 +767,17 @@ class PluginProvider extends ChangeNotifier {
   }
 
   Future<void> syncAllPlugins() async {
+    await _runDatasetMutation((_) => _syncAllPluginsOpen());
+  }
+
+  Future<void> syncAllPluginsForDatasetSwitch() => _syncAllPluginsOpen();
+
+  Future<void> _syncAllPluginsOpen() async {
     final pluginIds = _plugins.map((plugin) => plugin.id).toList();
     await Future.wait(
       pluginIds.map(
-        (pluginId) => _serializeMutation(pluginId, () => _syncPlugin(pluginId)),
+        (pluginId) =>
+            _serializeMutationOpen(pluginId, () => _syncPlugin(pluginId)),
       ),
     );
   }
@@ -750,6 +793,10 @@ class PluginProvider extends ChangeNotifier {
   }
 
   Future<void> applyRemoteSync(String scope) {
+    return _runDatasetMutation((_) => _applyRemoteSyncQueued(scope));
+  }
+
+  Future<void> _applyRemoteSyncQueued(String scope) {
     final previous = _materializationTail;
     final operation = previous.then(
       (_) => _applyRemoteSync(scope),
@@ -772,7 +819,7 @@ class PluginProvider extends ChangeNotifier {
     await _repository.withoutSyncEcho(() async {
       await Future.wait(
         byPlugin.entries.map(
-          (entry) => _serializeMutation(
+          (entry) => _serializeMutationOpen(
             entry.key,
             () => _applyRemotePlugin(entry.key, entry.value, scope),
             waitForMaterialization: false,
@@ -1056,15 +1103,29 @@ class PluginProvider extends ChangeNotifier {
     Future<T> Function() mutation, {
     bool waitForMaterialization = true,
   }) {
+    return _runDatasetMutation(
+      (_) => _serializeMutationOpen(
+        pluginId,
+        mutation,
+        waitForMaterialization: waitForMaterialization,
+      ),
+    );
+  }
+
+  Future<T> _serializeMutationOpen<T>(
+    String pluginId,
+    Future<T> Function() mutation, {
+    bool waitForMaterialization = true,
+  }) {
     if (waitForMaterialization) {
       final materialization = _materializationTail;
       return materialization.then(
-        (_) => _serializeMutation(
+        (_) => _serializeMutationOpen(
           pluginId,
           mutation,
           waitForMaterialization: false,
         ),
-        onError: (_) => _serializeMutation(
+        onError: (_) => _serializeMutationOpen(
           pluginId,
           mutation,
           waitForMaterialization: false,
@@ -1085,6 +1146,10 @@ class PluginProvider extends ChangeNotifier {
     });
     return operation;
   }
+
+  Future<T> _runDatasetMutation<T>(
+    Future<T> Function(int generation) mutation,
+  ) => _datasetBarrier?.runExisting(mutation) ?? mutation(0);
 
   /// 持久化当前插件列表到本地。
   Future<void> _save() {

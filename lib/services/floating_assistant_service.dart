@@ -17,6 +17,7 @@ import 'device_control_service.dart';
 import 'device_run_controller.dart';
 import 'agent_tool_registry.dart';
 import 'agent_persistence_lifecycle.dart';
+import 'agent_tool_execution_service.dart';
 import 'agent_user_interaction_broker.dart';
 import 'storage_v2_service.dart';
 import 'floating_assistant_bridge.dart';
@@ -50,6 +51,7 @@ class FloatingAssistantService with WidgetsBindingObserver {
     required PluginProvider plugins,
     AgentToolRegistry? externalToolRegistry,
     AgentRunPersistenceLifecycle? persistence,
+    AgentToolResultProcessor? toolResultProcessor,
     BackendClient? backend,
     StorageV2Service? storage,
     WebSearchService? webSearch,
@@ -68,6 +70,7 @@ class FloatingAssistantService with WidgetsBindingObserver {
       plugins: plugins,
       externalToolRegistry: externalToolRegistry,
       persistence: persistence,
+      toolResultProcessor: toolResultProcessor,
       backend: backend,
       storage: storage,
       webSearch: webSearch,

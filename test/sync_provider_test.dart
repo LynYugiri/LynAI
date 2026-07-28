@@ -1,14 +1,15 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/sync_change.dart';
+import 'package:lynai/models/cloud_data.dart';
 import 'package:lynai/models/sync_data_selection.dart';
 import 'package:lynai/providers/sync_provider.dart';
 import 'package:lynai/services/remote_apply_coordinator.dart';
 import 'package:lynai/services/storage_v2_database.dart';
 import 'package:lynai/services/sync_service.dart';
+import 'package:lynai/services/cloud_management_coordinator.dart';
 
 void main() {
   group('SyncProvider', () {
@@ -330,6 +331,143 @@ void main() {
       expect(storage.snapshotGenerations, [2]);
     });
 
+    test('ordinary sync discovers management operation before ACK', () async {
+      final storage = _FakeSyncStorage()..generation = 1;
+      final management = _FakeCloudManagementOperations(
+        CloudManagementOperation(
+          id: 'operation-1',
+          kind: 'full',
+          selectorType: 'all',
+          generation: 2,
+          indexRevision: 3,
+          createdAt: DateTime.utc(2026, 7, 24),
+        ),
+        onDiscover: () => storage.fullReseedRequired = true,
+      );
+      final provider = SyncProvider(
+        service: _FakeSyncService(
+          statusGeneration: 2,
+          capabilities: const SyncCapabilities(
+            advertised: true,
+            operationAck: true,
+          ),
+          pages: const [
+            SyncDownloadResult(
+              changes: [],
+              latestSeq: 0,
+              hasMore: false,
+              nextSince: 0,
+              generation: 2,
+              indexRevision: 3,
+              minAvailableSeq: 0,
+              hasGeneration: true,
+              hasIndexRevision: true,
+              hasMinAvailableSeq: true,
+            ),
+          ],
+        ),
+        storage: storage,
+        cloudManagement: management,
+      );
+
+      await provider.bindScope('user-1');
+      expect(await provider.manualSync(), isTrue);
+
+      expect(storage.snapshotGenerations, [2]);
+      expect(management.acknowledged, ['operation-1']);
+    });
+
+    test(
+      'selective purge reseeds at minAvailableSeq without recreating purged object',
+      () async {
+        final storage = _FakeSyncStorage()
+          ..generation = 1
+          ..fullReseedRequired = true;
+        final operation = CloudManagementOperation(
+          id: 'operation-selective',
+          kind: 'selective',
+          selectorType: 'object',
+          category: 'messages',
+          objectId: 'conversation-purged',
+          generation: 2,
+          indexRevision: 8,
+          createdAt: DateTime.utc(2026, 7, 24),
+        );
+        final management = _FakeCloudManagementOperations(
+          operation,
+          onDiscover: () {},
+          projection: CloudCurrentProjection(
+            status: const CloudIndexStatus(
+              lastSeq: 9,
+              generation: 2,
+              indexRevision: 8,
+              minAvailableSeq: 9,
+              usage: CloudUsage(
+                recordCount: 1,
+                blobCount: 0,
+                blobBytes: 0,
+                blobRefCount: 0,
+              ),
+              capabilities: SyncCapabilities(
+                advertised: true,
+                index: true,
+                selectivePurge: true,
+                operationAck: true,
+              ),
+            ),
+            records: const [
+              {
+                'table': 'messages',
+                'op': 'upsert',
+                'recordId': 'remaining',
+                'data': {'id': 'remaining'},
+              },
+            ],
+          ),
+        );
+        final service = _FakeSyncService(
+          statusGeneration: 2,
+          statusLastSeq: 9,
+          statusMinAvailableSeq: 9,
+          capabilities: const SyncCapabilities(
+            advertised: true,
+            index: true,
+            selectivePurge: true,
+            operationAck: true,
+          ),
+          pages: const [
+            SyncDownloadResult(
+              changes: [],
+              latestSeq: 9,
+              hasMore: false,
+              nextSince: 9,
+              generation: 2,
+              indexRevision: 8,
+              minAvailableSeq: 9,
+              globalLatestSeq: 9,
+              hasGeneration: true,
+              hasIndexRevision: true,
+              hasMinAvailableSeq: true,
+            ),
+          ],
+        );
+        final provider = SyncProvider(
+          service: service,
+          storage: storage,
+          cloudManagement: management,
+        );
+
+        await provider.bindScope('user-1');
+        expect(await provider.manualSync(), isTrue);
+
+        expect(storage.sinceByScope[provider.scope], 9);
+        expect(storage.generation, 2);
+        expect(storage.outbox, isEmpty);
+        expect(service.uploadedRecordIds, isNot(contains('purged')));
+        expect(management.acknowledged, ['operation-selective']);
+      },
+    );
+
     test('cursor ahead of server enters reseed', () async {
       final storage = _FakeSyncStorage()..sinceByScope['injected|user-1'] = 9;
       final provider = SyncProvider(
@@ -363,6 +501,40 @@ void main() {
       expect(storage.snapshotGenerations, [1]);
       expect(provider.error, isNull);
     });
+
+    test(
+      'advertised page metadata fails closed before cursor advance',
+      () async {
+        final storage = _FakeSyncStorage();
+        final provider = SyncProvider(
+          service: _FakeSyncService(
+            capabilities: const SyncCapabilities(advertised: true, index: true),
+            pages: [
+              SyncDownloadResult(
+                changes: [_page(seq: 1, hasMore: false).changes.single],
+                latestSeq: 1,
+                hasMore: false,
+                nextSince: 1,
+                generation: 1,
+                indexRevision: 1,
+                minAvailableSeq: 0,
+              ),
+            ],
+            statusGeneration: 1,
+          ),
+          storage: storage,
+        );
+        final oldDebugPrint = debugPrint;
+        debugPrint = (String? message, {int? wrapWidth}) {};
+        addTearDown(() => debugPrint = oldDebugPrint);
+
+        await provider.bindScope('user-1');
+        await provider.autoDownload();
+
+        expect(provider.error, contains('advertised'));
+        expect(storage.sinceByScope[provider.scope], 0);
+      },
+    );
 
     test('serializes concurrent public sync calls', () async {
       final service = _FakeSyncService(delay: const Duration(milliseconds: 20));
@@ -728,7 +900,7 @@ void main() {
         expect(storage.installedHashes, [_hashA]);
         expect(
           storage.appliedOps.single.data?['relativePath'],
-          'assets/blobs/aa/$_hashA',
+          'assets/blobs/03/$_hashA',
         );
         expect(storage.appliedSince, [1]);
       },
@@ -794,6 +966,31 @@ void main() {
 
         expect(provider.error, contains('hash mismatch'));
         expect(storage.appliedOps, isEmpty);
+        expect(storage.sinceByScope[provider.scope], 0);
+      },
+    );
+
+    test(
+      'oversized downloaded blob is not installed or cursor-advanced',
+      () async {
+        final storage = _FakeSyncStorage();
+        final service = _FakeSyncService(
+          limits: const SyncLimits(maxBlobBytes: 2),
+          pages: [_resourcePage(_hashA)],
+          downloadedBlobs: const {
+            _hashA: [1, 2, 3],
+          },
+        );
+        final provider = SyncProvider(service: service, storage: storage);
+        final oldDebugPrint = debugPrint;
+        debugPrint = (String? message, {int? wrapWidth}) {};
+        addTearDown(() => debugPrint = oldDebugPrint);
+
+        await provider.bindScope('user-1');
+        await provider.autoDownload();
+
+        expect(provider.error, contains('exceeds 2 bytes'));
+        expect(storage.installedHashes, isEmpty);
         expect(storage.sinceByScope[provider.scope], 0);
       },
     );
@@ -1036,7 +1233,7 @@ void main() {
 }
 
 const _hashA =
-    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81';
 const _hashB =
     'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 
@@ -1282,6 +1479,29 @@ class _FakeSyncStorage implements SyncStorage, SyncSelectionDataStorage {
   }
 
   @override
+  Future<Set<String>> reconcileCurrentProjection(
+    String scope,
+    int nextGeneration,
+    int minAvailableSeq,
+    List<Map<String, dynamic>> records,
+    Set<String> authoritativeTables,
+  ) async {
+    generation = nextGeneration;
+    sinceByScope[scope] = minAvailableSeq;
+    fullReseedRequired = false;
+    final remoteKeys = {
+      for (final record in records)
+        '${record['table']}\u0000${record['recordId']}',
+    };
+    outbox.removeWhere(
+      (entry) =>
+          authoritativeTables.contains(entry.table) &&
+          !remoteKeys.contains('${entry.table}\u0000${entry.recordId}'),
+    );
+    return const {};
+  }
+
+  @override
   Future<List<SyncOutboxEntry>> loadOutbox(
     String scope, {
     int? limit,
@@ -1447,6 +1667,7 @@ class _FakeSyncService implements SyncService {
     this.statusGeneration = 0,
     this.statusLastSeq = 0,
     this.statusMinAvailableSeq = 0,
+    this.capabilities = const SyncCapabilities(),
   }) : _pages = List.of(pages);
 
   final List<SyncDownloadResult> _pages;
@@ -1460,6 +1681,7 @@ class _FakeSyncService implements SyncService {
   final int statusGeneration;
   final int statusLastSeq;
   final int statusMinAvailableSeq;
+  final SyncCapabilities capabilities;
   final List<int> requestedSince = [];
   final List<int> requestedLimits = [];
   final List<String> uploadedBlobs = [];
@@ -1506,14 +1728,7 @@ class _FakeSyncService implements SyncService {
         uploadedBatchSizes.add(changes.length);
         uploadedRecordIds.addAll(changes.map((change) => change.recordId));
         uploadedBodySizes.add(
-          utf8
-              .encode(
-                jsonEncode({
-                  'requestId': RemoteSyncService.requestIdForChanges(changes),
-                  'changes': changes.map((change) => change.toJson()).toList(),
-                }),
-              )
-              .length,
+          RemoteSyncService.encodeChangesRequest(changes, generation: 0).length,
         );
         if (uploadError != null) throw uploadError!;
         return uploadResult ??
@@ -1537,6 +1752,7 @@ class _FakeSyncService implements SyncService {
     generation: statusGeneration,
     minAvailableSeq: statusMinAvailableSeq,
     limits: limits,
+    capabilities: capabilities,
   );
 
   @override
@@ -1558,4 +1774,47 @@ class _FakeSyncService implements SyncService {
     calls.add('uploadBlob:$sha256');
     uploadedBlobs.add(sha256);
   }
+}
+
+class _FakeCloudManagementOperations implements CloudManagementOperations {
+  _FakeCloudManagementOperations(
+    this.operation, {
+    required this.onDiscover,
+    this.projection,
+  });
+
+  final CloudManagementOperation operation;
+  final void Function() onDiscover;
+  final CloudCurrentProjection? projection;
+  final List<String> acknowledged = [];
+
+  @override
+  Future<List<CloudManagementOperation>> discover(
+    String scope, {
+    required bool remoteSupported,
+  }) async {
+    expect(remoteSupported, isTrue);
+    onDiscover();
+    return [operation];
+  }
+
+  @override
+  Future<void> acknowledge(
+    String scope,
+    Iterable<CloudManagementOperation> operations, {
+    required bool operationAckSupported,
+    required Future<bool> Function(CloudManagementOperation operation)
+    canAcknowledge,
+  }) async {
+    expect(operationAckSupported, isTrue);
+    for (final operation in operations) {
+      expect(await canAcknowledge(operation), isTrue);
+      acknowledged.add(operation.id);
+    }
+  }
+
+  @override
+  Future<CloudCurrentProjection> currentProjection({
+    required bool indexSupported,
+  }) async => projection ?? (throw StateError('projection unavailable'));
 }
