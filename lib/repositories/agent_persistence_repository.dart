@@ -1,17 +1,34 @@
 import '../models/agent_persistence.dart';
 import '../models/agent_runtime.dart';
 import '../services/storage_v2_service.dart';
+import '../services/lynai_permission_definitions.dart';
 
 class AgentPersistenceRepository {
   AgentPersistenceRepository(this._storage);
 
   final StorageV2Service _storage;
 
-  Future<void> createRun(AgentRunRecord run) async {
+  Future<void> createRun(
+    AgentRunRecord run, {
+    AgentPermissionSnapshot? permissionPolicy,
+    String? parentRunId,
+  }) async {
     if (run.status != AgentRunStatus.queued) {
       throw ArgumentError('New Agent runs must be queued');
     }
-    await (await _storage.storageDatabase()).insertAgentRun(run);
+    final database = await _storage.storageDatabase();
+    final inherited = parentRunId == null
+        ? null
+        : await database.loadAgentPermissionSnapshot(parentRunId);
+    await database.insertAgentRun(
+      AgentRunCreation(
+        run: run,
+        permissionPolicy:
+            inherited ??
+            permissionPolicy ??
+            AgentPermissionSnapshot(permissions: LynAIPermissions.defaultAgent),
+      ),
+    );
   }
 
   Future<void> createTurn(AgentTurnRecord turn) async {
@@ -36,6 +53,9 @@ class AgentPersistenceRepository {
   }
 
   Future<void> saveSnapshot(AgentSnapshotRecord snapshot) async {
+    if (snapshot.kind == 'permission_policy') {
+      throw ArgumentError('permission_policy is insert-only at run creation');
+    }
     await (await _storage.storageDatabase()).insertAgentSnapshot(snapshot);
   }
 

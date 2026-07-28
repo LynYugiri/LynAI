@@ -13,6 +13,7 @@ import '../models/merge_models.dart';
 import '../models/shared_sync_models.dart';
 import '../models/sync_change.dart';
 import '../models/sync_data_selection.dart';
+import 'lynai_permission_definitions.dart';
 
 part 'storage_v2_database.g.dart';
 
@@ -827,10 +828,14 @@ class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
   /// This is separate from [StorageV2Service.currentLayoutVersion], which
   /// describes the storage_v2 directory layout.
   @override
-  int get schemaVersion => 22;
+  int get schemaVersion => 23;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
+    onCreate: (m) async {
+      await m.createAll();
+      await _createPermissionPolicyIndex();
+    },
     beforeOpen: (details) async {
       await customStatement('PRAGMA journal_mode = WAL');
       await customStatement('PRAGMA busy_timeout = 5000');
@@ -1033,9 +1038,19 @@ SET captures_local = active
         await m.createTable(snapshotRows);
         await m.createTable(mcpServerRows);
       }
+      if (from < 23) {
+        await _createPermissionPolicyIndex();
+      }
       await _ensureCloudDataColumns();
     },
   );
+
+  Future<void> _createPermissionPolicyIndex() {
+    return customStatement(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshots_permission_policy_run '
+      "ON snapshots(run_id) WHERE kind = 'permission_policy'",
+    );
+  }
 
   Future<void> _migrateSyncSchemaV17(Migrator m) async {
     await _addColumnIfMissing(
@@ -1443,22 +1458,54 @@ class StorageV2Database {
     _db = null;
   }
 
-  Future<void> insertAgentRun(AgentRunRecord run) async {
+  Future<void> insertAgentRun(AgentRunCreation creation) async {
     final db = await _open();
-    await db
-        .into(db.runRows)
-        .insert(
-          RunRowsCompanion.insert(
-            id: run.id,
-            conversationId: Value(run.conversationId),
-            status: run.status.name,
-            errorCode: Value(run.errorCode),
-            errorMessage: Value(run.errorMessage),
-            createdAt: run.createdAt.toIso8601String(),
-            updatedAt: run.updatedAt.toIso8601String(),
-            completedAt: Value(run.completedAt?.toIso8601String()),
-          ),
-        );
+    final run = creation.run;
+    await db.transaction(() async {
+      await db
+          .into(db.runRows)
+          .insert(
+            RunRowsCompanion.insert(
+              id: run.id,
+              conversationId: Value(run.conversationId),
+              status: run.status.name,
+              errorCode: Value(run.errorCode),
+              errorMessage: Value(run.errorMessage),
+              createdAt: run.createdAt.toIso8601String(),
+              updatedAt: run.updatedAt.toIso8601String(),
+              completedAt: Value(run.completedAt?.toIso8601String()),
+            ),
+          );
+      await db
+          .into(db.snapshotRows)
+          .insert(
+            SnapshotRowsCompanion.insert(
+              id: _uuid.v4(),
+              runId: run.id,
+              turnId: const Value(null),
+              kind: 'permission_policy',
+              dataJson: jsonEncode(creation.permissionPolicy.toJson()),
+              createdAt: run.createdAt.toIso8601String(),
+            ),
+          );
+    });
+  }
+
+  Future<AgentPermissionSnapshot?> loadAgentPermissionSnapshot(
+    String runId,
+  ) async {
+    final db = await _open();
+    final row =
+        await (db.select(db.snapshotRows)..where(
+              (snapshot) =>
+                  snapshot.runId.equals(runId) &
+                  snapshot.kind.equals('permission_policy'),
+            ))
+            .getSingleOrNull();
+    if (row == null) return null;
+    return AgentPermissionSnapshot.fromJson(
+      Map<String, dynamic>.from(jsonDecode(row.dataJson) as Map),
+    );
   }
 
   Future<void> insertAgentTurn(AgentTurnRecord turn) async {
@@ -4219,6 +4266,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_turns_run_index ON turns(run_id, turn_inde
 CREATE UNIQUE INDEX IF NOT EXISTS idx_items_turn_index ON items(turn_id, item_index);
 CREATE INDEX IF NOT EXISTS idx_tool_calls_item ON tool_calls(item_id);
 CREATE INDEX IF NOT EXISTS idx_snapshots_run_created ON snapshots(run_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshots_permission_policy_run ON snapshots(run_id) WHERE kind = 'permission_policy';
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_attachments_message ON message_attachments(message_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_note_pages_note ON note_pages(note_id, sort_order);

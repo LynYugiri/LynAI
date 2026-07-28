@@ -6,6 +6,7 @@ import 'package:lynai/models/agent_runtime.dart';
 import 'package:lynai/repositories/agent_persistence_repository.dart';
 import 'package:lynai/services/storage_v2_service.dart';
 import 'package:lynai/services/storage_v2_upgrade_service.dart';
+import 'package:lynai/services/lynai_permission_definitions.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 void main() {
@@ -64,6 +65,86 @@ void main() {
         ),
         throwsStateError,
       );
+    });
+
+    test(
+      'run creation atomically inserts one immutable permission policy',
+      () async {
+        final createdAt = DateTime.utc(2026, 7, 28, 10);
+        final policy = AgentPermissionSnapshot(
+          permissions: const [LynAIPermissions.notesRead],
+        );
+        await repository.createRun(
+          AgentRunRecord(
+            id: 'run-policy',
+            status: AgentRunStatus.queued,
+            createdAt: createdAt,
+            updatedAt: createdAt,
+          ),
+          permissionPolicy: policy,
+        );
+
+        await storage.close();
+        final db = sqlite3.open('${root.path}/storage_v2/app.db');
+        try {
+          final rows = db.select(
+            "SELECT * FROM snapshots WHERE run_id = 'run-policy' "
+            "AND kind = 'permission_policy'",
+          );
+          expect(rows, hasLength(1));
+          expect(
+            rows.single['data_json'],
+            contains(LynAIPermissions.notesRead),
+          );
+          expect(
+            () => db.execute(
+              "INSERT INTO snapshots(id, run_id, kind, data_json, created_at) "
+              "VALUES ('duplicate', 'run-policy', 'permission_policy', '{}', '')",
+            ),
+            throwsA(isA<SqliteException>()),
+          );
+        } finally {
+          db.close();
+        }
+      },
+    );
+
+    test('child run retains the parent permission policy', () async {
+      final createdAt = DateTime.utc(2026, 7, 28, 11);
+      await repository.createRun(
+        AgentRunRecord(
+          id: 'parent',
+          status: AgentRunStatus.queued,
+          createdAt: createdAt,
+          updatedAt: createdAt,
+        ),
+        permissionPolicy: AgentPermissionSnapshot(
+          permissions: const [LynAIPermissions.todosRead],
+        ),
+      );
+      await repository.createRun(
+        AgentRunRecord(
+          id: 'child',
+          status: AgentRunStatus.queued,
+          createdAt: createdAt,
+          updatedAt: createdAt,
+        ),
+        parentRunId: 'parent',
+        permissionPolicy: AgentPermissionSnapshot(permissions: const []),
+      );
+
+      await storage.close();
+      final db = sqlite3.open('${root.path}/storage_v2/app.db');
+      try {
+        final policies = db.select(
+          "SELECT run_id, data_json FROM snapshots "
+          "WHERE kind = 'permission_policy' ORDER BY run_id",
+        );
+        expect(policies, hasLength(2));
+        expect(policies[0]['data_json'], policies[1]['data_json']);
+      } finally {
+        db.close();
+      }
     });
 
     test('restart reconciliation fails active graph without replay', () async {
@@ -172,7 +253,10 @@ void main() {
           expect(row['error_code'], 'interrupted', reason: table);
           expect(row['completed_at'], interruptedAt.toIso8601String());
         }
-        expect(db.select('SELECT * FROM snapshots'), isEmpty);
+        expect(
+          db.select("SELECT * FROM snapshots WHERE kind = 'permission_policy'"),
+          hasLength(1),
+        );
       } finally {
         db.close();
       }

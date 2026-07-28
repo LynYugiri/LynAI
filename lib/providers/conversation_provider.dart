@@ -12,6 +12,7 @@ import '../models/recycle_bin_item.dart';
 import '../repositories/conversation_repository.dart';
 import '../repositories/recycle_bin_repository.dart';
 import '../services/storage_v2_service.dart';
+import '../services/lynai_permission_definitions.dart';
 import '../utils/chat_search_matcher.dart';
 
 enum ConversationSearchMatchType { none, title, message, attachment }
@@ -166,6 +167,31 @@ class ConversationProvider extends ChangeNotifier {
       await flushPendingSaves();
       return false;
     }
+    _queueSaveConversations(immediate: true);
+    await flushPendingSaves();
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> migrateLegacyPermissionSnapshots(
+    Iterable<String> currentGlobalDefaults,
+  ) async {
+    var changed = false;
+    _conversations = _conversations
+        .map((conversation) {
+          if (conversation.settings.permissionSnapshotVersion != 0) {
+            return conversation;
+          }
+          changed = true;
+          return conversation.copyWith(
+            settings: conversation.settings.copyWith(
+              permissionSnapshotVersion: AgentPermissionSnapshot.currentVersion,
+              agentGrantedPermissions: List<String>.from(currentGlobalDefaults),
+            ),
+          );
+        })
+        .toList(growable: false);
+    if (!changed) return false;
     _queueSaveConversations(immediate: true);
     await flushPendingSaves();
     notifyListeners();

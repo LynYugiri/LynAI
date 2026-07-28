@@ -14,6 +14,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:super_clipboard/super_clipboard.dart';
 import '../models/agent_plan.dart';
 import '../models/agent_runtime.dart';
+import '../models/agent_user_interaction.dart';
 import '../models/agent_trace.dart';
 import '../models/agent_working_memory.dart';
 import '../models/conversation.dart';
@@ -35,12 +36,16 @@ import '../services/api_service.dart';
 import '../services/agent_loop_runtime.dart';
 import '../services/agent_persistence_lifecycle.dart';
 import '../services/agent_tool_registry.dart';
+import '../services/agent_tool_result_sanitizer.dart';
+import '../services/agent_user_interaction_broker.dart';
 import '../services/backend_client.dart';
 import '../services/model_recognition_service.dart';
+import '../services/storage_v2_service.dart';
 import '../services/system_scroll_capture_service.dart';
 import '../services/tool_call_service.dart';
 import '../services/stream_chunk_agent_adapter.dart';
 import '../services/lynai_permission_definitions.dart';
+import '../services/web_search_service.dart';
 import '../utils/file_picker_io_utils.dart';
 import '../utils/chat_search_matcher.dart';
 import '../utils/share_image_utils.dart';
@@ -244,6 +249,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   AgentRunHandle? _agentRun;
   AgentToolRegistry? _externalToolRegistry;
   AgentRunPersistenceLifecycle? _agentPersistence;
+  WebSearchService? _webSearch;
+  final AgentUserInteractionBroker _userInteractionBroker =
+      AgentUserInteractionBroker();
+  String? _shownUserInteractionId;
+  BuildContext? _userInteractionDialogContext;
   String? _recordPath;
   int _recordingRequestGen = 0;
   bool _recordingStartCancelled = false;
@@ -262,9 +272,19 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     } on ProviderNotFoundException {
       // Focused provider graphs may intentionally omit durable run recording.
     }
+    try {
+      _webSearch = context.read<WebSearchService>();
+    } on ProviderNotFoundException {
+      // Focused widget tests may omit optional web search composition.
+    }
     _ownsApi = widget.api == null;
     _api = widget.api ?? ApiService(backend: backend);
     _recognition = ModelRecognitionService(api: _api);
+    _agentEnabled = context
+        .read<SettingsProvider>()
+        .settings
+        .agentEnabledByDefault;
+    _userInteractionBroker.addListener(_onUserInteractionChanged);
     WidgetsBinding.instance.addObserver(this);
     _searchCtrl.addListener(_refreshSearchMatches);
     _speech = stt.SpeechToText();
@@ -285,6 +305,177 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     super.didChangeDependencies();
     widget.onBackHandlerChanged?.call(_handleBack);
     widget.onNewConversationHandlerChanged?.call(_startNewConversation);
+  }
+
+  void _onUserInteractionChanged() {
+    final request = _userInteractionBroker.pendingFor(
+      AgentUserInteractionSurface.mainChat,
+    );
+    if (request?.id != _shownUserInteractionId) {
+      final dialogContext = _userInteractionDialogContext;
+      if (dialogContext != null) Navigator.of(dialogContext).pop();
+    }
+    if (request == null || !mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted ||
+          _userInteractionBroker
+                  .pendingFor(AgentUserInteractionSurface.mainChat)
+                  ?.id !=
+              request.id) {
+        return;
+      }
+      final answer = await _showAgentQuestion(request);
+      if (!mounted) return;
+      if (answer == null) {
+        _userInteractionBroker.cancel(
+          surface: AgentUserInteractionSurface.mainChat,
+          requestId: request.id,
+          reason: 'user_cancelled',
+        );
+      } else {
+        _userInteractionBroker.answer(
+          surface: AgentUserInteractionSurface.mainChat,
+          requestId: request.id,
+          answer: answer,
+        );
+      }
+    });
+  }
+
+  Future<AgentUserAnswer?> _showAgentQuestion(
+    AgentUserInteractionRequest request,
+  ) async {
+    final question = request.question;
+    if (question.kind == AgentUserQuestionKind.confirm) {
+      final confirmed = await _showUserInteractionDialog<bool>(
+        requestId: request.id,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(question.prompt),
+          content: question.detail == null ? null : Text(question.detail!),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('否'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('是'),
+            ),
+          ],
+        ),
+      );
+      return confirmed == null ? null : AgentUserAnswer.confirm(confirmed);
+    }
+    if (question.kind == AgentUserQuestionKind.singleChoice) {
+      final choice = await _showUserInteractionDialog<String>(
+        requestId: request.id,
+        builder: (dialogContext) => SimpleDialog(
+          title: Text(question.prompt),
+          children: question.choices
+              .map(
+                (choice) => SimpleDialogOption(
+                  onPressed: () => Navigator.pop(dialogContext, choice.id),
+                  child: Text(choice.label),
+                ),
+              )
+              .toList(growable: false),
+        ),
+      );
+      return choice == null ? null : AgentUserAnswer.singleChoice(choice);
+    }
+    if (question.kind == AgentUserQuestionKind.multipleChoice) {
+      final selected = <String>{};
+      final choices = await _showUserInteractionDialog<Set<String>>(
+        requestId: request.id,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: Text(question.prompt),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: question.choices
+                  .map(
+                    (choice) => CheckboxListTile(
+                      value: selected.contains(choice.id),
+                      title: Text(choice.label),
+                      onChanged: (value) => setDialogState(() {
+                        value == true
+                            ? selected.add(choice.id)
+                            : selected.remove(choice.id);
+                      }),
+                    ),
+                  )
+                  .toList(growable: false),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed:
+                    selected.length < question.minSelections ||
+                        selected.length >
+                            (question.maxSelections ?? question.choices.length)
+                    ? null
+                    : () => Navigator.pop(
+                        dialogContext,
+                        Set<String>.from(selected),
+                      ),
+                child: const Text('确定'),
+              ),
+            ],
+          ),
+        ),
+      );
+      return choices == null ? null : AgentUserAnswer.multipleChoice(choices);
+    }
+    final controller = TextEditingController();
+    final text = await _showUserInteractionDialog<String>(
+      requestId: request.id,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(question.prompt),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: InputDecoration(hintText: question.detail),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text),
+            child: const Text('提交'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    return text == null || text.trim().isEmpty
+        ? null
+        : AgentUserAnswer.text(text);
+  }
+
+  Future<T?> _showUserInteractionDialog<T>({
+    required String requestId,
+    required WidgetBuilder builder,
+  }) async {
+    _shownUserInteractionId = requestId;
+    try {
+      return await showDialog<T>(
+        context: context,
+        builder: (dialogContext) {
+          _userInteractionDialogContext = dialogContext;
+          return builder(dialogContext);
+        },
+      );
+    } finally {
+      if (_shownUserInteractionId == requestId) {
+        _shownUserInteractionId = null;
+        _userInteractionDialogContext = null;
+      }
+    }
   }
 
   bool _handleBack() {
@@ -351,6 +542,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       imageRecognitionPrompt: settings.imageRecognitionPrompt,
       imageGenerationModelId: settings.imageGenerationModelId,
       imageGenerationEnabled: settings.imageGenerationEnabled,
+      agentGrantedPermissions: settings.agentGrantedPermissions,
     );
   }
 
@@ -370,6 +562,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     widget.onBackAvailabilityChanged?.call(false);
     widget.onNewConversationHandlerChanged?.call(() {});
     _agentRun?.cancel();
+    _userInteractionBroker.cancelSurface(
+      AgentUserInteractionSurface.mainChat,
+      reason: 'surface_disposed',
+    );
+    _userInteractionBroker.removeListener(_onUserInteractionChanged);
+    _userInteractionBroker.dispose();
     _sub?.cancel();
     _setBackgroundGenerationActive(false);
     _inputActionCollapseTimer?.cancel();
@@ -930,6 +1128,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   }
 
   void _stopStreaming() {
+    _userInteractionBroker.cancelSurface(
+      AgentUserInteractionSurface.mainChat,
+      reason: 'user_stopped',
+    );
     if (!_streaming) return;
     _streamWaitTimer?.cancel();
     _streamWaitTimer = null;
@@ -1052,6 +1254,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       imageRecognitionPrompt: set.imageRecognitionPrompt,
       imageGenerationModelId: set.imageGenerationModelId,
       imageGenerationEnabled: set.imageGenerationEnabled,
+      agentGrantedPermissions: set.agentGrantedPermissions,
     );
   }
 
@@ -1389,19 +1592,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       _streamWaitTimer = null;
     }
 
-    final externalToolRegistry = _externalToolRegistry;
     final externalToolSnapshot = _externalToolRegistry?.snapshot();
-    final tools = allowTools
-        ? ToolCallService.openAITools(
-            context.read<PluginProvider>().plugins,
-            streamSettings?.agentEnabled == true,
-            context.read<SettingsProvider>().settings.agentGrantedPermissions,
-            streamSettings?.imageGenerationEnabled == true &&
-                _imageGenerationModel(streamSettings) != null,
-            false,
-            externalToolSnapshot,
-          )
-        : const <Map<String, dynamic>>[];
+    final storage = context.read<StorageV2Service>();
     final toolService = ToolCallService(
       context.read<FeatureProvider>(),
       tasks: context.read<TaskProvider>(),
@@ -1413,14 +1605,30 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       backend: context.read<BackendClient>(),
       conversationId: cid,
       persistence: _agentPersistence,
-      externalToolRegistry: externalToolRegistry,
       externalToolSnapshot: externalToolSnapshot,
+      storage: storage,
+      resultSanitizer: AgentToolResultSanitizer.storageV2(storage),
+      userInteractionBroker: _userInteractionBroker,
+      webSearch: _webSearch,
+      permissionSnapshot: streamSettings?.permissionSnapshot,
     );
+    final runSnapshot = toolService.createRunSnapshot(
+      agentEnabled: streamSettings?.agentEnabled == true,
+      imageGenerationEnabled:
+          streamSettings?.imageGenerationEnabled == true &&
+          _imageGenerationModel(streamSettings) != null,
+    );
+    final tools = allowTools
+        ? runSnapshot.openAITools
+        : const <Map<String, dynamic>>[];
     final run = const AgentLoopRuntime().start(
       messages: msgs,
       maxToolRounds: ToolCallService.maxToolRounds,
       persistence: _agentPersistence,
-      persistenceMetadata: AgentRunPersistenceMetadata(conversationId: cid),
+      persistenceMetadata: AgentRunPersistenceMetadata(
+        conversationId: cid,
+        permissionPolicy: streamSettings?.permissionSnapshot,
+      ),
       model: (request) => const StreamChunkAgentAdapter().adapt(
         _api.sendStreamRequest(
           model,
@@ -1431,30 +1639,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         ),
       ),
       executeTools: (calls, identity, cancellationToken) {
-        final conv = cp.getConversation(cid);
-        return toolService.executeSequentialCompatibility(
+        return toolService.executeCapturedBatch(
+          runSnapshot,
           calls,
-          conv?.messages ?? const [],
           identity: identity,
           cancellationToken: cancellationToken,
-          onToolStart: (call) {
-            if (!mounted || gen != _streamGen) return;
-            final skillDisplayName = call.name == 'load_plugin_skill'
-                ? ToolCallService.pluginSkillDisplayName(
-                    context.read<PluginProvider>().plugins,
-                    call.arguments,
-                  )
-                : null;
-            _shouldUpdateStreamUi(force: true);
-            _updateStreamDraft(
-              _StreamDraft(
-                content: buf,
-                thinking: thinkBuf.isEmpty ? null : thinkBuf,
-                activeToolName: call.name,
-                activeSkillDisplayName: skillDisplayName,
-              ),
-            );
-          },
         );
       },
     );
@@ -1475,6 +1664,24 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         case AgentRunEventKind.toolCalls:
           _shouldUpdateStreamUi(force: true);
           emitDraft(status: '正在调用工具...');
+        case AgentRunEventKind.toolStarted:
+          final call = event.toolCall;
+          if (call != null) {
+            final skillDisplayName = call.name == 'load_plugin_skill'
+                ? ToolCallService.pluginSkillDisplayName(
+                    context.read<PluginProvider>().plugins,
+                    call.arguments,
+                  )
+                : null;
+            _updateStreamDraft(
+              _StreamDraft(
+                content: buf,
+                thinking: thinkBuf.isEmpty ? null : thinkBuf,
+                activeToolName: call.name,
+                activeSkillDisplayName: skillDisplayName,
+              ),
+            );
+          }
         default:
           break;
       }
@@ -2360,6 +2567,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       imageRecognitionPrompt: settings.imageRecognitionPrompt,
       imageGenerationModelId: settings.imageGenerationModelId,
       imageGenerationEnabled: settings.imageGenerationEnabled,
+      agentEnabled: settings.agentEnabledByDefault,
+      agentGrantedPermissions: settings.agentGrantedPermissions,
     );
   }
 
@@ -2642,9 +2851,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _sendGen++;
     _clearRetryState();
     _clearPendingState();
+    final defaults = context.read<SettingsProvider>().settings;
     setState(() {
       _preparingSend = false;
       _convId = null;
+      _agentEnabled = defaults.agentEnabledByDefault;
+      _draftSettings = null;
     });
     _closeSearch();
     _scheduleJumpToBottom(unfocusInput: true);

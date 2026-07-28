@@ -30,7 +30,10 @@ class _UnsupportedMcpStdioTransport implements McpTransport {
   Future<void> start() => Future.error(_error);
 
   @override
-  Future<void> send(Map<String, dynamic> message) => Future.error(_error);
+  Future<void> send(
+    Map<String, dynamic> message, {
+    McpTransportCancellation? cancellation,
+  }) => Future.error(_error);
 
   @override
   Future<void> dispose() async {}

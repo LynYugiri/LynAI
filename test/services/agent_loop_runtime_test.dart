@@ -5,7 +5,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/agent_runtime.dart';
 import 'package:lynai/services/agent_loop_runtime.dart';
 import 'package:lynai/services/agent_context_builder.dart';
+import 'package:lynai/services/agent_cancellation.dart';
 import 'package:lynai/services/agent_persistence_lifecycle.dart';
+import 'package:lynai/services/agent_tool_execution_service.dart';
 
 void main() {
   test('runs model tool continuation with correlated identities', () async {
@@ -270,6 +272,9 @@ class _ContextOverflow implements Exception {}
 
 class _FailingToolPersistence implements AgentRunPersistenceLifecycle {
   @override
+  AgentToolResultProcessor get toolResultProcessor => _IdentityProcessor();
+
+  @override
   Future<void> startRun(
     String runId,
     AgentRunPersistenceMetadata metadata,
@@ -305,4 +310,12 @@ class _FailingToolPersistence implements AgentRunPersistenceLifecycle {
 
   @override
   Future<void> completeRun(String runId, AgentRunResult result) async {}
+}
+
+class _IdentityProcessor implements AgentToolResultProcessor {
+  @override
+  Future<List<AgentToolResult>> process(
+    List<AgentToolResult> results, {
+    required AgentCancellationToken cancellationToken,
+  }) async => results;
 }

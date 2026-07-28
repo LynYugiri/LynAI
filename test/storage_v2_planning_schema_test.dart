@@ -142,7 +142,7 @@ PRAGMA user_version = 14;
 
         final migrated = sqlite3.open('${storageRoot.path}/app.db');
         try {
-          expect(migrated.userVersion, 22);
+          expect(migrated.userVersion, 23);
           final tables = migrated
               .select("SELECT name FROM sqlite_master WHERE type = 'table'")
               .map((row) => row['name'])

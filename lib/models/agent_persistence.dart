@@ -1,4 +1,5 @@
 import 'agent_runtime.dart';
+import '../services/lynai_permission_definitions.dart';
 
 enum AgentToolCallStatus { pending, running, completed, failed, cancelled }
 
@@ -120,6 +121,13 @@ class AgentSnapshotRecord {
   final String kind;
   final Map<String, dynamic> data;
   final DateTime createdAt;
+}
+
+class AgentRunCreation {
+  const AgentRunCreation({required this.run, required this.permissionPolicy});
+
+  final AgentRunRecord run;
+  final AgentPermissionSnapshot permissionPolicy;
 }
 
 class AgentMcpServerRecord {

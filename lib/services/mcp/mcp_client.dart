@@ -139,41 +139,51 @@ class McpClient {
     cancellationToken?.throwIfCancellationRequested();
     final id = ++_nextRequestId;
     final completer = Completer<Map<String, dynamic>>();
+    final sendCancellation = McpTransportCancellation();
     _pending[id] = completer;
-    try {
-      await transport.send({
-        'jsonrpc': '2.0',
-        'id': id,
-        'method': method,
-        'params': params,
-      });
-    } catch (_) {
-      _pending.remove(id);
-      rethrow;
-    }
-
     Timer? timer;
     StreamSubscription<AgentCancellationReason>? cancellationSubscription;
+    var sendStarted = false;
+
+    void cancelRequest(Object error, String reason) {
+      if (_pending.remove(id) == null || completer.isCompleted) return;
+      sendCancellation.cancel();
+      completer.completeError(error);
+      if (sendStarted) _notifyCancellation(id, reason);
+    }
+
     final cancellation = cancellationToken;
     if (cancellation != null) {
       cancellationSubscription = cancellation.whenCancelled.asStream().listen((
         reason,
       ) {
-        if (_pending.remove(id) == null || completer.isCompleted) return;
-        _notifyCancellation(id, reason.message);
-        completer.completeError(AgentCancellationException(reason));
+        cancelRequest(AgentCancellationException(reason), reason.message);
       });
     }
     timer = Timer(timeout ?? requestTimeout, () {
-      if (_pending.remove(id) == null || completer.isCompleted) return;
-      _notifyCancellation(id, 'Request timed out');
-      completer.completeError(
+      cancelRequest(
         TimeoutException('MCP $method timed out', timeout ?? requestTimeout),
+        'Request timed out',
       );
     });
+    sendStarted = true;
+    unawaited(
+      transport
+          .send({
+            'jsonrpc': '2.0',
+            'id': id,
+            'method': method,
+            'params': params,
+          }, cancellation: sendCancellation)
+          .catchError((Object error, StackTrace stackTrace) {
+            if (_pending.remove(id) == null || completer.isCompleted) return;
+            completer.completeError(error, stackTrace);
+          }),
+    );
     try {
       return await completer.future;
     } finally {
+      sendCancellation.cancel();
       timer.cancel();
       await cancellationSubscription?.cancel();
       _pending.remove(id);
@@ -190,11 +200,17 @@ class McpClient {
   }
 
   void _notifyCancellation(int requestId, String reason) {
+    final cancellation = McpTransportCancellation();
+    final timer = Timer(requestTimeout, cancellation.cancel);
     unawaited(
-      notify('notifications/cancelled', {
-        'requestId': requestId,
-        'reason': reason,
-      }).catchError((_) {}),
+      transport
+          .send({
+            'jsonrpc': '2.0',
+            'method': 'notifications/cancelled',
+            'params': {'requestId': requestId, 'reason': reason},
+          }, cancellation: cancellation)
+          .catchError((_) {})
+          .whenComplete(timer.cancel),
     );
   }
 

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/services/floating_assistant_service.dart';
+import 'package:lynai/models/agent_user_interaction.dart';
 
 void main() {
   test('floating assistant channel parses safe numeric coordinates', () {
@@ -38,5 +39,21 @@ void main() {
     expect(merged.panelY, 40);
     expect(merged.panelWidth, 360);
     expect(merged.panelHeight, 320);
+  });
+
+  test('floating assistant parses structured user answers', () {
+    final text = floatingAssistantUserAnswer({'kind': 'text', 'text': 'hello'});
+    final multiple = floatingAssistantUserAnswer({
+      'kind': 'multipleChoice',
+      'choiceIds': ['a', 'b'],
+    });
+
+    expect(text!.kind, AgentUserQuestionKind.text);
+    expect(text.text, 'hello');
+    expect(multiple!.choiceIds, ['a', 'b']);
+    expect(
+      floatingAssistantUserAnswer({'kind': 'confirm', 'confirmed': 'yes'}),
+      isNull,
+    );
   });
 }

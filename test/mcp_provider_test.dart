@@ -7,6 +7,7 @@ import 'package:lynai/repositories/mcp_repository.dart';
 import 'package:lynai/services/agent_tool_registry.dart';
 import 'package:lynai/services/mcp/mcp_client.dart';
 import 'package:lynai/services/mcp/mcp_connection_factory.dart';
+import 'package:lynai/services/mcp/mcp_tool_importer.dart';
 import 'package:lynai/services/mcp/mcp_transport.dart';
 
 void main() {
@@ -44,22 +45,23 @@ void main() {
       expect(provider.servers.single.status, McpServerStatus.disconnected);
 
       await provider.connect('weather');
+      final registeredName = canonicalMcpToolName('weather', 'forecast');
       expect(provider.servers.single.status, McpServerStatus.connected);
       expect(provider.servers.single.tools.single.name, 'forecast');
       expect(factory.lastCredentials, {'Authorization': 'Bearer secret'});
-      expect(registry.registration('mcp_weather_forecast'), isNotNull);
+      expect(registry.registration(registeredName), isNotNull);
 
       await provider.setToolEnabled('weather', 'forecast', false);
-      expect(registry.registration('mcp_weather_forecast'), isNull);
+      expect(registry.registration(registeredName), isNull);
       expect(
         repository.preferences['weather']!.enabledTools['forecast'],
         isFalse,
       );
 
       await provider.setToolEnabled('weather', 'forecast', true);
-      expect(registry.registration('mcp_weather_forecast'), isNotNull);
+      expect(registry.registration(registeredName), isNotNull);
       await provider.disconnect('weather');
-      expect(registry.registration('mcp_weather_forecast'), isNull);
+      expect(registry.registration(registeredName), isNull);
       expect(provider.servers.single.tools.single.name, 'forecast');
     },
   );
@@ -185,19 +187,51 @@ void main() {
 
     await provider.load();
     await provider.connect('weather');
-    expect(registry.registration('mcp_weather_forecast'), isNotNull);
+    final registeredName = canonicalMcpToolName('weather', 'forecast');
+    expect(registry.registration(registeredName), isNotNull);
 
     failedTransport.fail(StateError('connection lost'));
     await _waitUntil(
       () => provider.servers.single.status == McpServerStatus.failed,
     );
     expect(failedTransport.disposed, isTrue);
-    expect(registry.registration('mcp_weather_forecast'), isNull);
+    expect(registry.registration(registeredName), isNull);
 
     await provider.connect('weather');
     expect(provider.servers.single.status, McpServerStatus.connected);
-    expect(registry.registration('mcp_weather_forecast'), isNotNull);
+    expect(registry.registration(registeredName), isNotNull);
   });
+
+  test(
+    'keeps incompatible tools visible but explicitly unregistered',
+    () async {
+      final repository = _MemoryMcpRepository([_server(enabled: false)]);
+      final transport = _ToolTransport(
+        inputSchema: {
+          'type': 'object',
+          'properties': <String, dynamic>{},
+          r'$schema': 'https://json-schema.org/draft/2020-12/schema',
+        },
+      );
+      final registry = AgentToolRegistry();
+      final provider = McpProvider(
+        repository: repository,
+        connectionFactory: _QueueConnectionFactory([transport]),
+        toolRegistry: registry,
+      );
+
+      await provider.load();
+      await provider.connect('weather');
+
+      expect(provider.servers.single.status, McpServerStatus.connected);
+      expect(provider.servers.single.tools.single.name, 'forecast');
+      expect(provider.servers.single.error, contains(r'$schema'));
+      expect(
+        registry.registration(canonicalMcpToolName('weather', 'forecast')),
+        isNull,
+      );
+    },
+  );
 }
 
 AgentMcpServerRecord _server({bool enabled = false, String name = 'Weather'}) {
@@ -333,7 +367,11 @@ class _BlockedInitializeTransport implements McpTransport {
   Future<void> start() async {}
 
   @override
-  Future<void> send(Map<String, dynamic> message) async {
+  Future<void> send(
+    Map<String, dynamic> message, {
+    McpTransportCancellation? cancellation,
+  }) async {
+    cancellation?.throwIfCancelled();
     if (message['method'] == 'initialize' && !initializeSent.isCompleted) {
       initializeSent.complete();
     }
@@ -348,7 +386,15 @@ class _BlockedInitializeTransport implements McpTransport {
 }
 
 class _ToolTransport implements McpTransport {
+  _ToolTransport({
+    this.inputSchema = const {
+      'type': 'object',
+      'properties': <String, dynamic>{},
+    },
+  });
+
   final _messages = StreamController<Map<String, dynamic>>.broadcast();
+  final Map<String, dynamic> inputSchema;
   bool disposed = false;
 
   @override
@@ -365,7 +411,11 @@ class _ToolTransport implements McpTransport {
   Future<void> start() async {}
 
   @override
-  Future<void> send(Map<String, dynamic> message) async {
+  Future<void> send(
+    Map<String, dynamic> message, {
+    McpTransportCancellation? cancellation,
+  }) async {
+    cancellation?.throwIfCancelled();
     final id = message['id'];
     if (id is! int) return;
     final result = switch (message['method']) {
@@ -375,10 +425,7 @@ class _ToolTransport implements McpTransport {
           {
             'name': 'forecast',
             'description': 'Weather forecast',
-            'inputSchema': {
-              'type': 'object',
-              'properties': <String, dynamic>{},
-            },
+            'inputSchema': inputSchema,
           },
         ],
       },

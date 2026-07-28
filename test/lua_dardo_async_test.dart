@@ -6,9 +6,12 @@ import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/device_control.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/task_provider.dart';
+import 'package:lynai/services/agent_cancellation.dart';
 import 'package:lynai/services/agent_lua_script_service.dart';
 import 'package:lynai/services/device_control_service.dart';
 import 'package:lynai/services/device_run_controller.dart';
+import 'package:lynai/services/lynai_call_identity.dart';
+import 'package:lynai/services/lynai_permission_definitions.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fake_path_provider.dart';
@@ -65,6 +68,115 @@ return { ok = true, count = count }
       DeviceRunController.instance.snapshot.status,
       DeviceRunStatus.completed,
     );
+  });
+
+  test('Agent Lua cancellation persists across async resume', () async {
+    DeviceRunController.instance.reset();
+    final execution = AgentLuaScriptService().execute(
+      purpose: 'cancel async device loop',
+      code: r'''
+lynai.call("device.sleep", { ms = 50 })
+while true do end
+''',
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+    DeviceRunController.instance.stop();
+
+    final result = await execution;
+
+    expect(result['ok'], isFalse);
+    expect((result['error'] as Map)['code'], 'user_stopped');
+    expect(
+      DeviceRunController.instance.snapshot.status,
+      DeviceRunStatus.stopped,
+    );
+  });
+
+  test(
+    'Agent Lua run snapshot cannot be expanded by global permissions',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final root = await installFakePathProvider('lynai_lua_permissions_');
+      addTearDown(() => deleteFakePathProviderRoot(root));
+      final features = FeatureProvider();
+      final settings = memorySettingsProvider();
+      await settings.replaceSettings(
+        settings.settings.copyWith(
+          agentGrantedPermissions: const [
+            LynAIPermissions.luaExecute,
+            LynAIPermissions.notesWrite,
+          ],
+        ),
+      );
+      final cancellation = AgentCancellationSource();
+
+      final result = await AgentLuaScriptService().execute(
+        purpose: 'immutable permission snapshot',
+        code: r'''
+return lynai.call("notes.save", {
+  title = "Must Not Be Saved",
+  content = "global permission is not part of this run"
+})
+''',
+        features: features,
+        settings: settings,
+        identity: const LynAICallIdentity(type: LynAICallerType.agentLua),
+        permissionSnapshot: AgentPermissionSnapshot(
+          permissions: const [LynAIPermissions.luaExecute],
+        ),
+        cancellationToken: cancellation.token,
+      );
+
+      expect(result['ok'], isFalse);
+      expect(result['error'].toString(), contains(LynAIPermissions.notesWrite));
+      expect(features.notes, isEmpty);
+    },
+  );
+
+  test('parent cancellation stops calls after an async Lua yield', () async {
+    SharedPreferences.setMockInitialValues({});
+    final root = await installFakePathProvider('lynai_lua_cancel_yield_');
+    addTearDown(() => deleteFakePathProviderRoot(root));
+    final features = FeatureProvider();
+    final cancellation = AgentCancellationSource();
+    DeviceRunController.instance.reset();
+
+    final execution = AgentLuaScriptService().execute(
+      purpose: 'cancel before post-yield side effect',
+      code: r'''
+local slept = lynai.call("device.sleep", { ms = 50 })
+if not slept.ok then return slept end
+return lynai.call("notes.save", {
+  title = "Must Not Be Saved",
+  content = "parent was cancelled"
+})
+''',
+      features: features,
+      identity: const LynAICallIdentity(type: LynAICallerType.agentLua),
+      permissionSnapshot: AgentPermissionSnapshot(
+        permissions: const [
+          LynAIPermissions.luaExecute,
+          LynAIPermissions.deviceControl,
+          LynAIPermissions.notesWrite,
+        ],
+      ),
+      cancellationToken: cancellation.token,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+    cancellation.cancel(
+      const AgentCancellationReason(
+        code: 'parent_cancelled',
+        message: 'Parent run cancelled',
+      ),
+    );
+
+    final result = await execution;
+
+    expect(result['ok'], isFalse);
+    expect((result['error'] as Map)['code'], 'parent_cancelled');
+    expect((result['error'] as Map)['message'], 'Parent run cancelled');
+    expect(features.notes, isEmpty);
+    DeviceRunController.instance.reset();
   });
 
   test('Agent Lua exposes lynai.device sleep helper', () async {
@@ -208,6 +320,26 @@ return { ok = true, value = "accepted" }
 
     expect(result['ok'], isTrue);
     expect((result['result'] as Map)['value'], 'accepted');
+  });
+
+  test('Agent Lua interrupts infinite loops with a structured error', () async {
+    final result = await AgentLuaScriptService().execute(
+      purpose: 'budget loop',
+      code: 'while true do end',
+    );
+
+    expect(result['ok'], isFalse);
+    expect((result['error'] as Map)['code'], 'instruction_limit_exceeded');
+  });
+
+  test('Agent Lua limits serialized result size', () async {
+    final result = await AgentLuaScriptService().execute(
+      purpose: 'large result',
+      code: 'return string.rep("x", 300000)',
+    );
+
+    expect(result['ok'], isFalse);
+    expect((result['error'] as Map)['code'], 'result_limit_exceeded');
   });
 
   test('Agent Lua does not hard-limit repeated device calls', () async {

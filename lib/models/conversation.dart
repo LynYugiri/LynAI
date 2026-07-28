@@ -2,12 +2,16 @@ import 'agent_plan.dart';
 import 'agent_working_memory.dart';
 import 'message.dart';
 import 'package:flutter/foundation.dart';
+import '../services/lynai_permission_definitions.dart';
 
 /// 一次对话保存的设置快照。
 ///
 /// 历史对话不能只依赖全局设置，否则用户后来切换模型、提示词或 OCR 配置时，
 /// 旧对话的上下文会被悄悄改变。这个模型把发送所需的设置固定在对话上。
 class ConversationSettings {
+  /// 当前权限快照格式版本。0 仅用于识别尚未迁移的历史数据。
+  final int permissionSnapshotVersion;
+
   /// 对话使用的模型配置 ID。
   final String modelId;
 
@@ -56,6 +60,7 @@ class ConversationSettings {
   /// 创建一个对话设置快照实例。
   ConversationSettings({
     required this.modelId,
+    this.permissionSnapshotVersion = AgentPermissionSnapshot.currentVersion,
     this.modelName,
     this.thinking = true,
     this.selectedSystemPromptId,
@@ -69,14 +74,20 @@ class ConversationSettings {
     this.imageGenerationModelId,
     this.imageGenerationEnabled = false,
     this.agentEnabled = false,
-    this.agentGrantedPermissions = const [],
-  });
+    Iterable<String> agentGrantedPermissions = const [],
+  }) : agentGrantedPermissions = List.unmodifiable(agentGrantedPermissions);
+
+  AgentPermissionSnapshot get permissionSnapshot => AgentPermissionSnapshot(
+    version: permissionSnapshotVersion,
+    permissions: agentGrantedPermissions,
+  );
 
   static const _sentinel = Object();
 
   /// 创建当前实例的副本，可选择性更新部分字段。
   ConversationSettings copyWith({
     String? modelId,
+    int? permissionSnapshotVersion,
     Object? modelName = _sentinel,
     bool? thinking,
     Object? selectedSystemPromptId = _sentinel,
@@ -94,6 +105,8 @@ class ConversationSettings {
   }) {
     return ConversationSettings(
       modelId: modelId ?? this.modelId,
+      permissionSnapshotVersion:
+          permissionSnapshotVersion ?? this.permissionSnapshotVersion,
       modelName: identical(modelName, _sentinel)
           ? this.modelName
           : modelName as String?,
@@ -134,6 +147,8 @@ class ConversationSettings {
   }) {
     return ConversationSettings(
       modelId: json['modelId'] as String? ?? fallbackModelId,
+      permissionSnapshotVersion:
+          (json['permissionSnapshotVersion'] as num?)?.toInt() ?? 0,
       modelName: json['modelName'] as String?,
       thinking: json['thinking'] as bool? ?? true,
       selectedSystemPromptId: json['selectedSystemPromptId'] as String?,
@@ -164,6 +179,7 @@ class ConversationSettings {
   Map<String, dynamic> toJson() {
     return {
       'modelId': modelId,
+      'permissionSnapshotVersion': permissionSnapshotVersion,
       if (modelName != null && modelName!.isNotEmpty) 'modelName': modelName,
       'thinking': thinking,
       if (selectedSystemPromptId != null)
@@ -180,8 +196,7 @@ class ConversationSettings {
         'imageGenerationModelId': imageGenerationModelId,
       'imageGenerationEnabled': imageGenerationEnabled,
       'agentEnabled': agentEnabled,
-      if (agentGrantedPermissions.isNotEmpty)
-        'agentGrantedPermissions': agentGrantedPermissions,
+      'agentGrantedPermissions': agentGrantedPermissions,
     };
   }
 }

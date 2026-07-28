@@ -34,6 +34,8 @@ import 'services/device_registration_service.dart';
 import 'services/secret_store.dart';
 import 'services/agent_tool_registry.dart';
 import 'services/agent_persistence_lifecycle.dart';
+import 'services/agent_tool_result_sanitizer.dart';
+import 'services/web_search_service.dart';
 import 'services/mcp/mcp_connection_factory.dart';
 import 'services/storage_v2_service.dart';
 import 'services/cloud_data_service.dart';
@@ -103,6 +105,9 @@ Future<void> main() async {
         Provider<AgentRunPersistenceLifecycle>(
           create: (ctx) => RepositoryAgentRunPersistenceLifecycle(
             ctx.read<AgentPersistenceRepository>(),
+            toolResultProcessor: SanitizingAgentToolResultProcessor(
+              AgentToolResultSanitizer.storageV2(ctx.read<StorageV2Service>()),
+            ),
           ),
         ),
         Provider(
@@ -206,6 +211,19 @@ Future<void> main() async {
         ChangeNotifierProvider(
           create: (ctx) =>
               SettingsProvider(storageV2: ctx.read<StorageV2Service>()),
+        ),
+        ProxyProvider3<
+          SettingsProvider,
+          SecretStore,
+          BackendClient,
+          WebSearchService
+        >(
+          update: (_, settings, secrets, backend, previous) =>
+              WebSearchService.production(
+                settings: settings,
+                secretStore: secrets,
+                backend: backend,
+              ),
         ),
         ChangeNotifierProvider(
           create: (ctx) => SyncProvider(
@@ -671,6 +689,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       final backendClient = context.read<BackendClient>();
       final deviceIdentityService = context.read<DeviceIdentityService>();
       final storageV2 = context.read<StorageV2Service>();
+      final webSearch = context.read<WebSearchService>();
       AgentRunPersistenceLifecycle? agentPersistence;
       try {
         agentPersistence = context.read<AgentRunPersistenceLifecycle>();
@@ -692,8 +711,12 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       await StorageV2UpgradeService(storageV2: storageV2).ensureReady();
       await AgentPersistenceRepository(storageV2).reconcileAfterRestart();
 
+      await settingsProvider.loadSettings();
+      await conversationProvider.loadConversations();
+      await conversationProvider.migrateLegacyPermissionSnapshots(
+        settingsProvider.settings.agentGrantedPermissions,
+      );
       await Future.wait([
-        conversationProvider.loadConversations(),
         featureProvider.load(),
         calendarProvider.load(),
         pluginProvider.load(),
@@ -701,7 +724,6 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         roleplayProvider.loadSessions(),
         taskProvider.load(),
         modelProvider.loadModels(),
-        settingsProvider.loadSettings(),
         if (mcpProvider != null) mcpProvider.load(),
       ]);
       await applyPendingManagedModelIdMigrations(
@@ -733,6 +755,8 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         externalToolRegistry: agentToolRegistry,
         persistence: agentPersistence,
         backend: backendClient,
+        storage: storageV2,
+        webSearch: webSearch,
       );
 
       if (mounted) {

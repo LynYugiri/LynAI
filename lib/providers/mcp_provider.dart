@@ -9,6 +9,7 @@ import '../services/agent_tool_registry.dart';
 import '../services/mcp/mcp_client.dart';
 import '../services/mcp/mcp_connection_factory.dart';
 import '../services/mcp/mcp_protocol.dart';
+import '../services/mcp/mcp_tool_importer.dart';
 
 enum McpServerStatus { disconnected, connecting, connected, failed }
 
@@ -42,6 +43,7 @@ class McpProvider extends ChangeNotifier {
   final List<McpServerState> _servers = [];
   final Map<String, _McpConnection> _connections = {};
   final Map<String, int> _connectionGenerations = {};
+  static const _schemaImporter = McpToolSchemaImporter();
   bool _loading = false;
   String? _loadError;
 
@@ -158,7 +160,7 @@ class McpProvider extends ChangeNotifier {
       credentialTargets: state.preferences.credentialTargets,
     );
     await _repository.savePreferences(serverId, state.preferences);
-    _syncRegistrations(state, _connections[serverId]);
+    state.error = _syncRegistrations(state, _connections[serverId]);
     notifyListeners();
   }
 
@@ -268,8 +270,7 @@ class McpProvider extends ChangeNotifier {
       final tools = await connection.client.listTools();
       if (!_ownsConnection(serverId, state, connection)) return false;
       state.tools = tools;
-      state.error = null;
-      _syncRegistrations(state, connection);
+      state.error = _syncRegistrations(state, connection);
       state.status = McpServerStatus.connected;
       notifyListeners();
       return true;
@@ -319,17 +320,25 @@ class McpProvider extends ChangeNotifier {
     await connection.client.dispose();
   }
 
-  void _syncRegistrations(McpServerState state, _McpConnection? connection) {
-    if (connection == null) return;
+  String? _syncRegistrations(McpServerState state, _McpConnection? connection) {
+    if (connection == null) return null;
     final next = <String, AgentToolRegistration>{};
+    final errors = <String>[];
     for (final tool in state.tools) {
       if (!isToolEnabled(state.server.id, tool.name)) continue;
-      final registeredName = _registeredName(state.server.id, tool.name);
+      Map<String, dynamic> parameters;
+      try {
+        parameters = _schemaImporter.import(tool);
+      } on McpToolSchemaException catch (error) {
+        errors.add(error.toString());
+        continue;
+      }
+      final registeredName = canonicalMcpToolName(state.server.id, tool.name);
       final owned = connection.registrations[tool.name];
       final existing = toolRegistry.registration(registeredName);
       if (existing != null &&
           (owned == null || existing.registrationId != owned.registrationId)) {
-        state.error = '工具名称冲突: $registeredName';
+        errors.add('工具名称冲突: $registeredName');
         continue;
       }
       next[tool.name] = toolRegistry.register(
@@ -339,7 +348,7 @@ class McpProvider extends ChangeNotifier {
           source: AgentToolSource.mcp,
           sideEffect: AgentToolSideEffect.external,
           concurrency: AgentToolConcurrency.parallelSafe,
-          parameters: _compatibleSchema(tool.inputSchema),
+          parameters: parameters,
         ),
         (invocation, cancellationToken) async {
           final result = await connection.client.callTool(
@@ -360,89 +369,8 @@ class McpProvider extends ChangeNotifier {
     connection.registrations
       ..clear()
       ..addAll(next);
+    return errors.isEmpty ? null : errors.join('\n');
   }
-
-  Map<String, dynamic> _compatibleSchema(Map<String, dynamic> schema) {
-    final copy = _sanitizeSchema(schema);
-    copy.putIfAbsent('type', () => 'object');
-    copy.putIfAbsent('properties', () => <String, dynamic>{});
-    return copy;
-  }
-
-  Map<String, dynamic> _sanitizeSchema(Map<String, dynamic> schema) {
-    const supported = {
-      'type',
-      'properties',
-      'required',
-      'additionalProperties',
-      'items',
-      'enum',
-      'const',
-      'minimum',
-      'maximum',
-      'exclusiveMinimum',
-      'exclusiveMaximum',
-      'minLength',
-      'maxLength',
-      'pattern',
-      'minItems',
-      'maxItems',
-      'uniqueItems',
-      'minProperties',
-      'maxProperties',
-      'anyOf',
-      'oneOf',
-      'allOf',
-      'not',
-      'description',
-      'title',
-      'default',
-    };
-    final sanitized = <String, dynamic>{};
-    for (final entry in schema.entries) {
-      if (!supported.contains(entry.key)) continue;
-      final value = entry.value;
-      if (entry.key == 'properties' && value is Map) {
-        sanitized[entry.key] = value.map(
-          (key, property) => MapEntry(
-            key.toString(),
-            property is Map
-                ? _sanitizeSchema(Map<String, dynamic>.from(property))
-                : property,
-          ),
-        );
-      } else if ((entry.key == 'items' ||
-              entry.key == 'additionalProperties' ||
-              entry.key == 'not') &&
-          value is Map) {
-        sanitized[entry.key] = _sanitizeSchema(
-          Map<String, dynamic>.from(value),
-        );
-      } else if ((entry.key == 'anyOf' ||
-              entry.key == 'oneOf' ||
-              entry.key == 'allOf') &&
-          value is List) {
-        sanitized[entry.key] = value
-            .map(
-              (item) => item is Map
-                  ? _sanitizeSchema(Map<String, dynamic>.from(item))
-                  : item,
-            )
-            .toList();
-      } else {
-        sanitized[entry.key] = value;
-      }
-    }
-    return sanitized;
-  }
-
-  String _registeredName(String serverId, String toolName) =>
-      'mcp_${_encodeName(serverId)}_${_encodeName(toolName)}';
-
-  String _encodeName(String value) => value.replaceAllMapped(
-    RegExp(r'[^A-Za-z0-9_-]'),
-    (match) => '_${match.group(0)!.codeUnitAt(0).toRadixString(16)}_',
-  );
 
   void _unregisterIfCurrent(AgentToolRegistration registration) {
     if (toolRegistry

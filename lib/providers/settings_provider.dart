@@ -5,6 +5,7 @@ import '../models/chat_role.dart';
 import '../models/conversation.dart';
 import '../models/model_config.dart';
 import '../models/system_prompt.dart';
+import '../models/web_search.dart';
 import '../repositories/settings_repository.dart';
 import '../services/storage_v2_service.dart';
 
@@ -82,6 +83,30 @@ class SettingsProvider extends ChangeNotifier {
     await _queueSaveSettings();
     notifyListeners();
   }
+
+  Future<void> updateAgentDefaults({
+    required bool enabled,
+    required List<String> permissions,
+  }) => replaceSettings(
+    _settings.copyWith(
+      agentEnabledByDefault: enabled,
+      agentGrantedPermissions: permissions,
+    ),
+  );
+
+  Future<void> updateWebSearchSettings({
+    required WebSearchRoute route,
+    required WebSearchClientProvider provider,
+    required String? searxngEndpoint,
+    required bool searxngAllowHttp,
+  }) => replaceSettings(
+    _settings.copyWith(
+      webSearchRoute: route,
+      webSearchClientProvider: provider,
+      searxngEndpoint: searxngEndpoint,
+      searxngAllowHttp: searxngAllowHttp,
+    ),
+  );
 
   ChatRole get currentRole {
     return _settings.roles.firstWhere(

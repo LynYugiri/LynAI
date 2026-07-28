@@ -36,17 +36,24 @@ import 'upvalue_holder.dart';
 class LuaStateImpl implements LuaState, LuaVM {
   LuaStack? _stack = LuaStack();
   final List<LuaYieldedCallSite> _yieldedCalls = <LuaYieldedCallSite>[];
+  final LuaExecutionBudget? _executionBudget;
   LuaCoroutine? _runningCoroutine;
+  Object? _lastError;
+  int _protectedCallDepth = 0;
 
   /// 注册表
   LuaTable? registry = LuaTable(0, 0);
 
-  LuaStateImpl() {
+  LuaStateImpl({LuaExecutionBudget? executionBudget})
+      : _executionBudget = executionBudget {
     registry!.put(luaRidxGlobals, LuaTable(0, 0));
     LuaStack stack = LuaStack();
     stack.state = this;
     _pushLuaStack(stack);
   }
+
+  @override
+  Object? get lastError => _lastError;
 
   /// 压入调用栈帧
   void _pushLuaStack(LuaStack newTop) {
@@ -603,6 +610,9 @@ class LuaStateImpl implements LuaState, LuaVM {
   }
 
   void _callDartClosure(int nArgs, int nResults, Closure c) {
+    if (_stack!.closure?.proto != null) {
+      _executionBudget?.checkHostCall();
+    }
     // create new lua stack
     LuaStack newStack = new LuaStack(/*nRegs+LUA_MINSTACK*/);
     newStack.state = this;
@@ -818,10 +828,14 @@ class LuaStateImpl implements LuaState, LuaVM {
   ThreadStatus pCall(int nArgs, int nResults, int msgh) {
     LuaStack? caller = _stack;
     _yieldedCalls.clear();
+    _lastError = null;
+    _protectedCallDepth++;
     try {
       call(nArgs, nResults);
       return ThreadStatus.luaOk;
     } catch (e) {
+      if (e is LuaExecutionLimitException && _protectedCallDepth > 1) rethrow;
+      _lastError = e;
       if (msgh != 0) {
         throw e;
       }
@@ -830,6 +844,8 @@ class LuaStateImpl implements LuaState, LuaVM {
       }
       _stack!.push("$e"); // TODO
       return ThreadStatus.luaErrRun;
+    } finally {
+      _protectedCallDepth--;
     }
   }
 
@@ -842,6 +858,8 @@ class LuaStateImpl implements LuaState, LuaVM {
   ) async {
     LuaStack? caller = _stack;
     _yieldedCalls.clear();
+    _lastError = null;
+    _protectedCallDepth++;
     try {
       call(nArgs, nResults);
       return ThreadStatus.luaOk;
@@ -876,6 +894,7 @@ class LuaStateImpl implements LuaState, LuaVM {
         if (nResults != 0) _stack!.pushN(results, nResults);
         return ThreadStatus.luaOk;
       } catch (e) {
+        _lastError = e;
         if (msgh != 0) rethrow;
         while (_stack != caller) {
           _popLuaStack();
@@ -884,12 +903,15 @@ class LuaStateImpl implements LuaState, LuaVM {
         return ThreadStatus.luaErrRun;
       }
     } catch (e) {
+      _lastError = e;
       if (msgh != 0) rethrow;
       while (_stack != caller) {
         _popLuaStack();
       }
       _stack!.push('$e');
       return ThreadStatus.luaErrRun;
+    } finally {
+      _protectedCallDepth--;
     }
   }
 
@@ -965,6 +987,7 @@ class LuaStateImpl implements LuaState, LuaVM {
       _stack!.pushN(values, -1);
       return values.length + 1;
     } catch (e) {
+      if (e is LuaExecutionLimitException) rethrow;
       coroutine.status = LuaCoroutineStatus.dead;
       coroutine.yieldedCalls.clear();
       _runningCoroutine = null;
@@ -1418,6 +1441,7 @@ class LuaStateImpl implements LuaState, LuaVM {
 
   @override
   int fetch() {
+    _executionBudget?.checkInstruction();
     return _stack!.closure!.proto!.code[_stack!.pc++];
   }
 

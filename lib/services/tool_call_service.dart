@@ -7,6 +7,8 @@ import 'package:uuid/uuid.dart';
 
 import '../models/agent_trace.dart';
 import '../models/agent_runtime.dart';
+import '../models/agent_user_interaction.dart';
+import '../models/web_search.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
 import '../models/note.dart';
@@ -28,15 +30,45 @@ import 'agent_json_schema.dart';
 import 'agent_loop_runtime.dart';
 import 'agent_persistence_lifecycle.dart';
 import 'agent_tool_registry.dart';
+import 'agent_tool_execution_service.dart';
+import 'agent_tool_name_codec.dart';
+import 'agent_tool_result_sanitizer.dart';
 import 'agent_tool_scheduler.dart';
+import 'agent_user_interaction_broker.dart';
+import 'agent_resource_service.dart';
+import 'attachment_read_service.dart';
 import 'agent_lua_script_service.dart';
 import 'agent_runtime_service.dart';
 import 'device_control_service.dart';
 import 'lynai_call_identity.dart';
 import 'lynai_function_service.dart';
 import 'lynai_permission_service.dart';
+import 'lynai_permission_definitions.dart';
 import 'plugin_lua_runtime_service.dart';
+import 'plugin_tool_importer.dart';
 import 'storage_v2_service.dart';
+import 'web_search_service.dart';
+import 'bounded_outbound_http_client.dart';
+
+class AgentToolRunSnapshot {
+  final AgentToolSnapshot tools;
+  final AgentPermissionSnapshot permissions;
+
+  const AgentToolRunSnapshot({required this.tools, required this.permissions});
+
+  List<Map<String, dynamic>> get openAITools => tools.registrations
+      .map(
+        (registration) => {
+          'type': 'function',
+          'function': {
+            'name': registration.descriptor.name,
+            'description': registration.descriptor.description,
+            'parameters': registration.descriptor.parameters,
+          },
+        },
+      )
+      .toList(growable: false);
+}
 
 /// 模型请求执行本地工具的标准化描述。
 ///
@@ -222,8 +254,18 @@ class ToolCallService {
     AgentToolRegistry? externalToolRegistry,
     AgentToolSnapshot? externalToolSnapshot,
     AgentRunPersistenceLifecycle? persistence,
+    StorageV2Service? storage,
+    AgentToolResultSanitizer? resultSanitizer,
+    AgentUserInteractionBroker? userInteractionBroker,
+    AgentUserInteractionSurface interactionSurface =
+        AgentUserInteractionSurface.mainChat,
+    WebSearchService? webSearch,
+    BoundedOutboundHttpClient? outboundHttpClient,
+    bool allowPlaintextHttpFetch = false,
+    AgentPermissionSnapshot? permissionSnapshot,
     bool allowScreenContextTool = false,
     bool allowSubagents = true,
+    int subagentDepth = 0,
   }) : _tasks = tasks,
        _calendar = calendar,
        _plugins = plugins,
@@ -236,8 +278,25 @@ class ToolCallService {
        _externalToolRegistry = externalToolRegistry,
        _externalToolSnapshot = externalToolSnapshot,
        _persistence = persistence,
+       _storage = storage,
+       _resultSanitizer = resultSanitizer,
+       _userInteractionBroker = userInteractionBroker,
+       _interactionSurface = interactionSurface,
+       _webSearch =
+           webSearch ??
+           (backend == null
+               ? null
+               : WebSearchService(
+                   backendAdapter: LynaiBackendWebSearchAdapter(
+                     backend: backend,
+                   ),
+                 )),
+       _outboundHttpClient = outboundHttpClient ?? BoundedOutboundHttpClient(),
+       _allowPlaintextHttpFetch = allowPlaintextHttpFetch,
+       _permissionSnapshot = permissionSnapshot,
        _allowScreenContextTool = allowScreenContextTool,
-       _allowSubagents = allowSubagents;
+       _allowSubagents = allowSubagents,
+       _subagentDepth = subagentDepth;
 
   static const _channel = MethodChannel('lynai/native_tools');
   static const _uuid = Uuid();
@@ -245,6 +304,7 @@ class ToolCallService {
   static const _webFetchMaxChars = 60000;
   static const _webFetchTimeout = Duration(seconds: 20);
   static const maxToolRounds = 12;
+  static const maxSubagentDepth = 1;
 
   static String toolRoundLimitMessage([String content = '']) {
     const error = '工具调用已达到 12 轮上限，已停止继续执行。请缩小任务范围后重试。';
@@ -265,8 +325,17 @@ class ToolCallService {
   final AgentToolRegistry? _externalToolRegistry;
   final AgentToolSnapshot? _externalToolSnapshot;
   final AgentRunPersistenceLifecycle? _persistence;
+  final StorageV2Service? _storage;
+  final AgentToolResultSanitizer? _resultSanitizer;
+  final AgentUserInteractionBroker? _userInteractionBroker;
+  final AgentUserInteractionSurface _interactionSurface;
+  final WebSearchService? _webSearch;
+  final BoundedOutboundHttpClient _outboundHttpClient;
+  final bool _allowPlaintextHttpFetch;
+  final AgentPermissionSnapshot? _permissionSnapshot;
   final bool _allowScreenContextTool;
   final bool _allowSubagents;
+  final int _subagentDepth;
   final _lynaiFunctions = LynAIFunctionService();
   final _permissionService = const LynAIPermissionService();
   final _schemaValidator = const AgentJsonSchemaValidator();
@@ -311,7 +380,7 @@ Plan 创建和更新不需要权限，只用于当前对话的可视化状态。
 工作记忆是当前对话内持久保存的共享上下文。跨主 Agent、Subagent 和 Lua 协作的目标、关键事实、决策、已加载 Skill、子任务结果应写入工作记忆；不要把长屏幕快照或截图写入记忆。
 如果需要了解可用插件函数，先调用 list_plugin_functions。
 如果需要调用插件函数，先调用 list_plugin_functions 查看可用函数，再用 call_plugin_function。该能力需要 plugins.callFunction 权限。
-如果需要了解可用插件 Skill，先调用 list_plugin_skills；Skill 摘要不是完整说明，执行相关流程前调用 load_plugin_skill 加载正文。加载 Skill 不需要额外权限；需要按用户要求沉淀或修正可编辑 Skill 时调用 save_plugin_skill 保存正文。
+如果需要了解可用插件 Skill，先调用 list_plugin_skills；Skill 摘要不是完整说明，执行相关流程前调用 load_plugin_skill 加载正文。加载 Skill 不需要额外权限；需要按用户要求沉淀或修正可编辑 Skill 时，在已授权 plugins.skills.files:write 后调用 save_plugin_skill 保存正文。
 如果需要运行 Lua，调用 execute_lua。Lua 运行在受限沙箱中：禁用 os/io/package/require/dofile/loadfile，不能访问文件系统或系统命令；所有 LynAI 能力可通过 lynai.call(name, args) 调用，设备能力优先用 lynai.device.* 便捷接口；脚本最后必须 return 一个 JSON 可序列化 table。Agent Lua 支持同步读取函数、plugins.functions.list、plugins.callFunction、agent.plan.update、agent.memory.read、agent.memory.update、agent.note.add、model.chat、model.ocr、model.recognizeFile、model.generateImage、device.app.open、device.* 和 lynai.device.status/query/wait/clickFirst/waitAndClick/inputInto/scrollUntil/readVisibleText/extractMessages。插件函数调用需要 plugins.callFunction 权限。同一应用内的打开、查找、点击、滚动、读取、输入、发送等确定性步骤，能合并就优先放进一次 execute_lua 线性编排，不要拆成多轮工具调用。打开已安装 Android 应用时在 Lua 中调用 lynai.device.openApp("目标包名")。复杂屏幕操控优先使用 lynai.device.query、lynai.device.waitAndClick、lynai.device.inputInto、lynai.device.scrollUntil 和 device.screen.extractMessages；必要时才用坐标 tap/swipe。读取 QQ/消息应用时优先用无障碍节点和 device.screen.extractMessages，不足时再截图配合 OCR/识图。关键调用后检查 ok，失败时返回结构化 error。截图只能作为 OCR/识图输入，不要把截图 base64 返回给模型。
 如果手机自动化子任务会产生很多中间屏幕信息，优先调用 run_subagent。Subagent 使用独立上下文执行多轮工具，只把最终结构化结果返回当前对话。需要读取聊天上下文再生成回复时，先让 Subagent 返回 peer、messages、summary、confidence；用户已经明确要求发送且目标明确时，可让 Subagent/Lua 直接发送，不要二次确认。
 Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:false,error:{code,message,details?}}；读取数据时优先看 result。
@@ -1025,15 +1094,17 @@ ${lines.join('\n')}$more''';
       for (final tool in plugin.manifest.tools) {
         if (tool.name.isEmpty ||
             tool.handler.isEmpty ||
-            !plugin.enabledTools.contains(tool.name) ||
-            names.contains(tool.name)) {
+            !plugin.enabledTools.contains(tool.name)) {
           continue;
         }
-        names.add(tool.name);
+        final canonicalName = canonicalPluginToolName(plugin.id, tool.name);
+        if (!names.add(canonicalName)) {
+          throw AgentToolNameCollisionException(canonicalName);
+        }
         tools.add({
           'type': 'function',
           'function': {
-            'name': tool.name,
+            'name': canonicalName,
             'description': tool.description,
             'parameters': tool.parameters,
           },
@@ -1243,23 +1314,25 @@ ${lines.join('\n')}$more''';
         },
       },
     );
-    add(
-      'save_plugin_skill',
-      '保存可编辑插件 Skill 正文。仅能修改清单中声明且 editable 未关闭的 Skill。',
-      {
-        'type': 'object',
-        'properties': {
-          'pluginId': {'type': 'string', 'description': '插件 ID'},
-          'skillName': {'type': 'string', 'description': '插件 Skill 名'},
-          'qualifiedName': {
-            'type': 'string',
-            'description': '可选，形如 pluginId__skillName；解析时只切第一个 __',
+    if (permissions.contains(LynAIPermissions.pluginSkillFilesWrite)) {
+      add(
+        'save_plugin_skill',
+        '保存可编辑插件 Skill 正文。仅能修改清单中声明且 editable 未关闭的 Skill。需要 plugins.skills.files:write 权限。',
+        {
+          'type': 'object',
+          'properties': {
+            'pluginId': {'type': 'string', 'description': '插件 ID'},
+            'skillName': {'type': 'string', 'description': '插件 Skill 名'},
+            'qualifiedName': {
+              'type': 'string',
+              'description': '可选，形如 pluginId__skillName；解析时只切第一个 __',
+            },
+            'content': {'type': 'string', 'description': '新的 Markdown 正文'},
           },
-          'content': {'type': 'string', 'description': '新的 Markdown 正文'},
+          'required': ['content'],
         },
-        'required': ['content'],
-      },
-    );
+      );
+    }
     add(
       'add_agent_note',
       '向当前 assistant 消息追加一条简短的用户可见 Agent 中间说明。不需要权限，不要用于最终回答或输出工具 JSON。',
@@ -1398,6 +1471,215 @@ ${lines.join('\n')}$more''';
     return skillName;
   }
 
+  static void _appendFoundationTools(
+    List<Map<String, dynamic>> tools,
+    bool agentEnabled,
+  ) {
+    final names = tools
+        .map((tool) => tool['function']?['name']?.toString())
+        .whereType<String>()
+        .toSet();
+    void add(String name, String description, Map<String, dynamic> parameters) {
+      if (!names.add(name)) return;
+      tools.add({
+        'type': 'function',
+        'function': {
+          'name': name,
+          'description': description,
+          'parameters': parameters,
+        },
+      });
+    }
+
+    if (agentEnabled) {
+      add('ask_user', '暂停当前 Agent 运行并向用户提出一个结构化问题。', {
+        'type': 'object',
+        'properties': {
+          'kind': {
+            'type': 'string',
+            'enum': ['text', 'confirm', 'singleChoice', 'multipleChoice'],
+          },
+          'prompt': {'type': 'string'},
+          'detail': {'type': 'string'},
+          'choices': {
+            'type': 'array',
+            'items': {
+              'type': 'object',
+              'properties': {
+                'id': {'type': 'string'},
+                'label': {'type': 'string'},
+                'description': {'type': 'string'},
+              },
+              'required': ['id', 'label'],
+            },
+          },
+          'minSelections': {'type': 'integer'},
+          'maxSelections': {'type': 'integer'},
+        },
+        'required': ['kind', 'prompt'],
+      });
+    }
+    add('web_search', '搜索互联网并返回规范化的标题、链接和摘要。', {
+      'type': 'object',
+      'properties': {
+        'query': {'type': 'string'},
+        'maxResults': {'type': 'integer'},
+        'language': {'type': 'string'},
+        'timeRange': {'type': 'string'},
+      },
+      'required': ['query'],
+    });
+    add('read_attachment', '按当前对话的 messageId 和附件序号安全读取附件。', {
+      'type': 'object',
+      'properties': {
+        'messageId': {'type': 'string'},
+        'attachmentIndex': {'type': 'integer'},
+        'mode': {
+          'type': 'string',
+          'enum': ['metadata', 'text', 'ocr', 'recognize'],
+        },
+        'prompt': {'type': 'string'},
+      },
+      'required': ['messageId', 'attachmentIndex'],
+    });
+    add('resource', '操作当前对话拥有的资源。', {
+      'type': 'object',
+      'properties': {
+        'operation': {
+          'type': 'string',
+          'enum': ['metadata', 'search', 'read', 'recognize'],
+        },
+        'resourceId': {'type': 'string'},
+        'query': {'type': 'string'},
+        'limit': {'type': 'integer'},
+        'mode': {
+          'type': 'string',
+          'enum': ['ocr', 'file'],
+        },
+        'prompt': {'type': 'string'},
+      },
+      'required': ['operation'],
+    });
+  }
+
+  AgentToolPermissionRequirements _permissionRequirements(String name) {
+    if (_isPluginTool(name)) {
+      return AgentToolPermissionRequirements(
+        permissions: const [LynAIPermissions.pluginCallFunction],
+      );
+    }
+    const notesRead = {'list_notes', 'read_note', 'list_note_pages'};
+    const notesWrite = {
+      'save_note',
+      'edit_note',
+      'save_note_page',
+      'save_note_folder',
+    };
+    const todosRead = {'list_todo_lists', 'read_todo_list', 'list_tasks'};
+    const todosWrite = {
+      'save_todo_item',
+      'create_task',
+      'update_task',
+      'delete_task',
+    };
+    const schedulesRead = {
+      'list_schedules',
+      'list_calendar_events',
+      'list_anniversaries',
+    };
+    const schedulesWrite = {
+      'create_schedule',
+      'update_schedule',
+      'create_calendar_event',
+      'update_calendar_event',
+      'delete_calendar_event',
+      'create_anniversary',
+      'update_anniversary',
+      'delete_anniversary',
+    };
+    final permissions = switch (name) {
+      'web_fetch' || 'web_search' => const [LynAIPermissions.networkAccess],
+      'save_plugin_skill' => const [LynAIPermissions.pluginSkillFilesWrite],
+      'get_current_screen' => const [LynAIPermissions.deviceScreenRead],
+      'open_app' => const [LynAIPermissions.deviceControl],
+      'generate_image' => const [LynAIPermissions.modelGenerateImage],
+      'execute_lua' => const [LynAIPermissions.luaExecute],
+      'call_plugin_function' => const [LynAIPermissions.pluginCallFunction],
+      'propose_note_edit' => const [LynAIPermissions.notesPropose],
+      'resource' || 'read_attachment' => const [LynAIPermissions.storageRead],
+      _ when notesRead.contains(name) => const [LynAIPermissions.notesRead],
+      _ when notesWrite.contains(name) => const [LynAIPermissions.notesWrite],
+      _ when todosRead.contains(name) => const [LynAIPermissions.todosRead],
+      _ when todosWrite.contains(name) => const [LynAIPermissions.todosWrite],
+      _ when schedulesRead.contains(name) => const [
+        LynAIPermissions.schedulesRead,
+      ],
+      _ when schedulesWrite.contains(name) => const [
+        LynAIPermissions.schedulesWrite,
+      ],
+      _ => const <String>[],
+    };
+    return AgentToolPermissionRequirements(permissions: permissions);
+  }
+
+  AgentToolSideEffect _toolSideEffect(String name) {
+    if (name == 'web_fetch' ||
+        name == 'web_search' ||
+        name.startsWith('mcp_')) {
+      return AgentToolSideEffect.external;
+    }
+    final operation = _toolOperation(name);
+    if (operation == AgentToolOperation.read ||
+        operation == AgentToolOperation.observe) {
+      return AgentToolSideEffect.read;
+    }
+    return AgentToolSideEffect.write;
+  }
+
+  AgentToolConcurrency _toolConcurrency(String name) =>
+      _toolSideEffect(name) == AgentToolSideEffect.write
+      ? AgentToolConcurrency.exclusive
+      : AgentToolConcurrency.parallelSafe;
+
+  AgentToolOperation _toolOperation(String name) {
+    if (name == 'web_fetch' || name == 'web_search') {
+      return AgentToolOperation.network;
+    }
+    if (name.startsWith('list_') ||
+        name.startsWith('read_') ||
+        name.startsWith('get_') ||
+        name.startsWith('resource_')) {
+      return AgentToolOperation.read;
+    }
+    if (name.startsWith('create_') || name.startsWith('save_')) {
+      return AgentToolOperation.create;
+    }
+    if (name.startsWith('delete_')) return AgentToolOperation.delete;
+    if (name.startsWith('update_') || name.startsWith('edit_')) {
+      return AgentToolOperation.update;
+    }
+    return AgentToolOperation.execute;
+  }
+
+  AgentToolRisk _toolRisk(String name) =>
+      _toolSideEffect(name) == AgentToolSideEffect.write ||
+          _toolSideEffect(name) == AgentToolSideEffect.external
+      ? AgentToolRisk.elevated
+      : AgentToolRisk.low;
+
+  bool _isPluginTool(String name) => _pluginToolBinding(name) != null;
+
+  (InstalledPlugin, PluginToolDefinition)? _pluginToolBinding(String name) {
+    for (final plugin in _plugins?.plugins ?? const <InstalledPlugin>[]) {
+      for (final tool in plugin.manifest.tools) {
+        if (canonicalPluginToolName(plugin.id, tool.name) == name) {
+          return (plugin, tool);
+        }
+      }
+    }
+    return null;
+  }
+
   static Map<String, dynamic> _skillSummaryJson(
     InstalledPlugin plugin,
     PluginSkillDefinition skill,
@@ -1481,6 +1763,293 @@ ${lines.join('\n')}$more''';
     return <String, dynamic>{};
   }
 
+  AgentToolRunSnapshot createRunSnapshot({
+    required bool agentEnabled,
+    required bool imageGenerationEnabled,
+  }) {
+    final permissions =
+        _permissionSnapshot ??
+        (_conversationId == null
+            ? _settings?.settings.agentPermissionSnapshot
+            : _conversations
+                      ?.getConversation(_conversationId)
+                      ?.settings
+                      .permissionSnapshot ??
+                  _settings?.settings.agentPermissionSnapshot) ??
+        AgentPermissionSnapshot(permissions: const []);
+    final registry = AgentToolRegistry();
+    final definitions = openAITools(
+      _plugins?.plugins ?? const [],
+      agentEnabled,
+      permissions.permissions,
+      imageGenerationEnabled,
+      _allowScreenContextTool,
+    );
+    _appendFoundationTools(definitions, agentEnabled);
+    for (final definition in definitions) {
+      final function = definition['function'];
+      if (function is! Map) continue;
+      final name = function['name']?.toString() ?? '';
+      final description = function['description']?.toString() ?? '';
+      final parameters = function['parameters'];
+      if (name.isEmpty || parameters is! Map) continue;
+      final requirements = _permissionRequirements(name);
+      if (!requirements.allows(permissions.permissions)) continue;
+      final pluginBinding = _pluginToolBinding(name);
+      registry.registerSpec(
+        AgentToolRegistrationSpec(
+          descriptor: AgentToolDescriptor(
+            name: name,
+            description: description,
+            source: !_isPluginTool(name)
+                ? AgentToolSource.builtIn
+                : AgentToolSource.plugin,
+            sideEffect: _toolSideEffect(name),
+            concurrency: _toolConcurrency(name),
+            parameters: Map<String, dynamic>.from(parameters),
+          ),
+          permissionRequirements: requirements,
+          semantics: AgentToolSemantics(
+            operation: _toolOperation(name),
+            risk: _toolRisk(name),
+            timeout: name == 'run_subagent'
+                ? const Duration(minutes: 10)
+                : const Duration(seconds: 60),
+          ),
+        ),
+        (invocation, context) => _executeRegistered(
+          invocation,
+          context,
+          permissions,
+          pluginBinding: pluginBinding,
+        ),
+      );
+    }
+    final external = _externalToolSnapshot ?? _externalToolRegistry?.snapshot();
+    if (external != null) {
+      for (final registration in external.registrations) {
+        if (registry.registration(registration.descriptor.name) != null) {
+          continue;
+        }
+        final requirements = AgentToolPermissionRequirements(
+          permissions: const [LynAIPermissions.networkAccess],
+        );
+        if (!requirements.allows(permissions.permissions)) continue;
+        registry.registerSpec(
+          AgentToolRegistrationSpec(
+            descriptor: registration.descriptor,
+            permissionRequirements: requirements,
+            semantics: registration.spec.semantics,
+          ),
+          registration.handler,
+          concurrencyKeyResolver: registration.concurrencyKeyResolver,
+        );
+      }
+    }
+    return AgentToolRunSnapshot(
+      tools: registry.snapshot(),
+      permissions: permissions,
+    );
+  }
+
+  Future<List<AgentToolResult>> executeCapturedBatch(
+    AgentToolRunSnapshot runSnapshot,
+    List<AgentToolInvocation> calls, {
+    required AgentTurnIdentity identity,
+    required AgentRunCancellation cancellationToken,
+  }) {
+    if (cancellationToken is! AgentCancellationToken) {
+      throw ArgumentError('Agent tool execution requires a cancellation token');
+    }
+    return AgentToolExecutionService().execute(
+      AgentToolExecutionRequest(
+        snapshot: runSnapshot.tools,
+        invocations: calls,
+        turnIdentity: identity,
+        permissionSnapshot: runSnapshot.permissions,
+        cancellationToken: cancellationToken,
+        conversationId: _conversationId,
+      ),
+    );
+  }
+
+  Future<Object?> _executeRegistered(
+    AgentToolInvocation invocation,
+    AgentToolExecutionContext context,
+    AgentPermissionSnapshot permissions, {
+    (InstalledPlugin, PluginToolDefinition)? pluginBinding,
+  }) async {
+    final call = ChatToolCall(
+      id: invocation.id,
+      name: invocation.name,
+      arguments: invocation.arguments,
+    );
+    if (pluginBinding != null) {
+      final (plugin, tool) = pluginBinding;
+      if (!plugin.enabled ||
+          plugin.hasError ||
+          !plugin.enabledTools.contains(tool.name) ||
+          !plugin.hasAllPermissionsGranted) {
+        return _error('插件 ${plugin.manifest.name} 当前不可执行 ${tool.name}');
+      }
+      return PluginLuaRuntimeService().executeTool(
+        plugin: plugin,
+        tool: tool,
+        arguments: invocation.arguments,
+        cancellationToken: context.cancellationToken,
+        deadline: context.deadline,
+        features: _features,
+        tasks: _tasks,
+        calendar: _calendar,
+        modelConfigs: _modelConfigs,
+        plugins: _plugins,
+        settings: _settings,
+      );
+    }
+    final identity = LynAICallIdentity(
+      type: _agentEnabled ? LynAICallerType.agent : LynAICallerType.assistant,
+      conversationId: _conversationId,
+      runId: context.identity.runId,
+      turnId: context.identity.turnId,
+      toolCallId: invocation.id,
+      toolName: invocation.name,
+    );
+    final aliasedFunction = LynAIFunctionService.aiToolAliases[invocation.name];
+    if (aliasedFunction != null) {
+      return _registeredFunction(
+        call,
+        aliasedFunction,
+        identity,
+        permissions,
+        context,
+      );
+    }
+    return switch (invocation.name) {
+      'get_current_time' => _currentTimeResult(),
+      'web_fetch' => _webFetch(call, context.cancellationToken, identity),
+      'get_location' => _nativeLocation(),
+      'open_app' => _registeredOpenApp(call, identity, permissions, context),
+      'get_current_screen' => _registeredCurrentScreen(
+        call,
+        identity,
+        permissions,
+        context,
+      ),
+      'create_plan' => _createPlan(call.arguments),
+      'update_plan' => _updatePlan(call.arguments),
+      'read_agent_memory' => _readAgentMemory(),
+      'update_agent_memory' => _updateAgentMemory(call.arguments),
+      'list_plugin_functions' => _listPluginFunctionsForAgent(),
+      'list_plugin_skills' => _listPluginSkillsForAgent(call.arguments),
+      'load_plugin_skill' => _loadPluginSkill(call.arguments),
+      'save_plugin_skill' => _savePluginSkill(
+        call.arguments,
+        identity: identity,
+        permissions: permissions,
+      ),
+      'add_agent_note' => _addAgentNote(call.arguments),
+      'call_plugin_function' => _callPluginFunction(
+        call.arguments,
+        identity: identity,
+        permissions: permissions,
+        cancellationToken: context.cancellationToken,
+        deadline: context.deadline,
+      ),
+      'run_subagent' => _runSubagent(
+        call,
+        context.cancellationToken,
+        identity: identity,
+      ),
+      'execute_lua' => _executeAgentLua(
+        call,
+        context.cancellationToken,
+        identity: identity,
+        permissions: permissions,
+      ),
+      'ask_user' => _askUser(call, context),
+      'web_search' => _webSearchTool(call, context.cancellationToken),
+      'read_attachment' => _readAttachment(call),
+      'resource' => _resourceTool(call),
+      'generate_image' => _registeredFunction(
+        call,
+        'model.generateImage',
+        identity,
+        permissions,
+        context,
+      ),
+      _ => _error('未注册具体工具实现: ${invocation.name}'),
+    };
+  }
+
+  Map<String, dynamic> _currentTimeResult() {
+    final now = DateTime.now();
+    return {
+      'ok': true,
+      'iso': now.toIso8601String(),
+      'localIso': now.toLocal().toIso8601String(),
+      'timezone': now.timeZoneName,
+      'timezoneOffsetMinutes': now.timeZoneOffset.inMinutes,
+    };
+  }
+
+  Future<Map<String, dynamic>> _nativeLocation() async => {
+    'ok': true,
+    ...await _invokeNative('getLocation'),
+  };
+
+  Future<Map<String, dynamic>> _registeredOpenApp(
+    ChatToolCall call,
+    LynAICallIdentity identity,
+    AgentPermissionSnapshot permissions,
+    AgentToolExecutionContext context,
+  ) {
+    final packageName = _stringArg(call, 'packageName');
+    if (packageName.isEmpty) return Future.value(_error('缺少 packageName'));
+    return _registeredFunction(
+      call,
+      'device.app.open',
+      identity,
+      permissions,
+      context,
+      arguments: {'packageName': packageName},
+    );
+  }
+
+  Future<Map<String, dynamic>> _registeredCurrentScreen(
+    ChatToolCall call,
+    LynAICallIdentity identity,
+    AgentPermissionSnapshot permissions,
+    AgentToolExecutionContext context,
+  ) {
+    if (!_allowScreenContextTool) {
+      return Future.value(_error('当前对话未允许模型读取当前页面'));
+    }
+    return _registeredFunction(
+      call,
+      'device.screen.context',
+      identity,
+      permissions,
+      context,
+      arguments: const {},
+    );
+  }
+
+  Future<Map<String, dynamic>> _registeredFunction(
+    ChatToolCall call,
+    String functionName,
+    LynAICallIdentity identity,
+    AgentPermissionSnapshot permissions,
+    AgentToolExecutionContext context, {
+    Map<String, dynamic>? arguments,
+  }) => _executeLynAIFunctionWithIdentity(
+    call,
+    functionName,
+    arguments ?? call.arguments,
+    identity: identity,
+    permissions: permissions,
+    cancellationToken: context.cancellationToken,
+  );
+
   /// 批量执行一组工具调用。
   ///
   /// 按顺序逐个执行，每个调用返回一个 [ToolExecutionResult]。
@@ -1521,16 +2090,33 @@ ${lines.join('\n')}$more''';
       conversations: _conversations,
       backend: _backend,
       conversationId: _conversationId,
-      agentIdentity: _agentIdentity.child(
-        type: _agentEnabled ? LynAICallerType.agent : LynAICallerType.assistant,
-        runId: identity.runId,
-        turnId: identity.turnId,
-      ),
+      agentIdentity:
+          (_providedAgentIdentity ??
+                  LynAICallIdentity(
+                    type: LynAICallerType.assistant,
+                    conversationId: _conversationId,
+                  ))
+              .child(
+                type: _agentEnabled
+                    ? LynAICallerType.agent
+                    : LynAICallerType.assistant,
+                runId: identity.runId,
+                turnId: identity.turnId,
+              ),
       externalToolRegistry: _externalToolRegistry,
       externalToolSnapshot: _externalToolSnapshot,
       persistence: _persistence,
+      storage: _storage,
+      resultSanitizer: _resultSanitizer,
+      userInteractionBroker: _userInteractionBroker,
+      interactionSurface: _interactionSurface,
+      webSearch: _webSearch,
+      outboundHttpClient: _outboundHttpClient,
+      allowPlaintextHttpFetch: _allowPlaintextHttpFetch,
+      permissionSnapshot: _permissionSnapshot,
       allowScreenContextTool: _allowScreenContextTool,
       allowSubagents: _allowSubagents,
+      subagentDepth: _subagentDepth,
     );
     final results = <AgentToolResult>[];
     for (final call in calls) {
@@ -1651,11 +2237,17 @@ ${lines.join('\n')}$more''';
         case 'add_agent_note':
           return _addAgentNote(call.arguments);
         case 'call_plugin_function':
-          return _callPluginFunction(call.arguments);
+          return _callPluginFunction(
+            call.arguments,
+            cancellationToken: cancellationToken,
+          );
         case 'run_subagent':
-          return _runSubagent(call);
+          return _runSubagent(call, cancellationToken);
         case 'execute_lua':
-          final result = await _executeAgentLua(call);
+          if (cancellationToken == null) {
+            return _agentError('missing_execution_context', 'Agent Lua 缺少取消令牌');
+          }
+          final result = await _executeAgentLua(call, cancellationToken);
           _appendGeneratedImagesToConversation(result);
           return result;
         default:
@@ -1680,7 +2272,10 @@ ${lines.join('\n')}$more''';
             }
             return result;
           }
-          final pluginResult = await _executePluginTool(call);
+          final pluginResult = await _executePluginTool(
+            call,
+            cancellationToken,
+          );
           if (pluginResult != null) return pluginResult;
           final externalResult = await _executeExternalTool(
             call,
@@ -1771,13 +2366,303 @@ ${lines.join('\n')}$more''';
     );
   }
 
-  Future<Map<String, dynamic>> _runSubagent(ChatToolCall call) async {
+  Future<Map<String, dynamic>> _askUser(
+    ChatToolCall call,
+    AgentToolExecutionContext context,
+  ) async {
+    final broker = _userInteractionBroker;
+    if (broker == null) {
+      return _agentError('interaction_unavailable', '当前界面不支持 Agent 追问');
+    }
+    final kindName = call.arguments['kind']?.toString() ?? 'text';
+    final kind = AgentUserQuestionKind.values.firstWhere(
+      (value) => value.name == kindName,
+      orElse: () => AgentUserQuestionKind.text,
+    );
+    final rawChoices = call.arguments['choices'];
+    final choices = rawChoices is List
+        ? rawChoices
+              .whereType<Map>()
+              .map(
+                (raw) => AgentUserChoice(
+                  id: raw['id']?.toString() ?? '',
+                  label: raw['label']?.toString() ?? '',
+                  description: raw['description']?.toString(),
+                ),
+              )
+              .toList(growable: false)
+        : const <AgentUserChoice>[];
+    late final Future<AgentUserInteractionResult> future;
+    late final String requestId;
+    try {
+      future = broker.ask(
+        surface: _interactionSurface,
+        identity: AgentUserInteractionIdentity(
+          runId: context.identity.runId,
+          turnId: context.identity.turnId,
+          toolCallId: call.id,
+          toolName: call.name,
+        ),
+        question: AgentUserQuestion(
+          kind: kind,
+          prompt: call.arguments['prompt']?.toString() ?? '',
+          detail: call.arguments['detail']?.toString(),
+          choices: choices,
+          minSelections:
+              (call.arguments['minSelections'] as num?)?.toInt() ?? 1,
+          maxSelections: (call.arguments['maxSelections'] as num?)?.toInt(),
+        ),
+      );
+      requestId = broker.pendingFor(_interactionSurface)!.id;
+    } on ArgumentError catch (error) {
+      return _agentError(
+        'invalid_arguments',
+        error.message?.toString() ?? '追问参数无效',
+      );
+    } on AgentUserInteractionBusyException {
+      return _agentError('interaction_busy', '当前界面已有待回答问题');
+    }
+    final result = await Future.any([
+      future,
+      context.cancellationToken.whenCancelled.then((reason) {
+        broker.cancel(
+          surface: _interactionSurface,
+          requestId: requestId,
+          reason: reason.code,
+        );
+        return AgentUserInteractionResult.cancelled(reason.code);
+      }),
+    ]);
+    if (!result.isAnswered) {
+      return _agentError('cancelled', result.cancellationReason ?? '用户取消了回答');
+    }
+    return _agentOk({'answer': result.answer!.toJson()});
+  }
+
+  Future<Map<String, dynamic>> _webSearchTool(
+    ChatToolCall call,
+    AgentCancellationToken cancellationToken,
+  ) async {
+    final service = _webSearch;
+    if (service == null) {
+      return _agentError('search_unavailable', '未配置网页搜索服务');
+    }
+    try {
+      final response = await service.search(
+        WebSearchRequest(
+          query: call.arguments['query']?.toString() ?? '',
+          maxResults: (call.arguments['maxResults'] as num?)?.toInt() ?? 5,
+          language: call.arguments['language']?.toString(),
+          timeRange: call.arguments['timeRange']?.toString(),
+        ),
+        cancellationToken: cancellationToken,
+      );
+      return _agentOk({
+        'query': response.query,
+        'provider': response.provider,
+        'route': response.route.name,
+        'results': response.results
+            .map(
+              (result) => {
+                'title': result.title,
+                'url': result.url.toString(),
+                'snippet': result.snippet,
+                if (result.score != null) 'score': result.score,
+                if (result.publishedAt != null)
+                  'publishedAt': result.publishedAt!.toIso8601String(),
+              },
+            )
+            .toList(growable: false),
+      });
+    } on WebSearchException catch (error) {
+      return _agentError('web_search_failed', error.message);
+    }
+  }
+
+  Future<Map<String, dynamic>> _readAttachment(ChatToolCall call) async {
+    final storage = _storage;
+    final conversationId = _conversationId;
+    if (storage == null || conversationId == null || _conversations == null) {
+      return _agentError('missing_context', '缺少附件读取上下文');
+    }
+    final service = AttachmentReadService(
+      storage: storage,
+      findConversation: (id) async => _conversations.getConversation(id),
+    );
+    final messageId = call.arguments['messageId']?.toString() ?? '';
+    final index = (call.arguments['attachmentIndex'] as num?)?.toInt() ?? -1;
+    final mode = call.arguments['mode']?.toString() ?? 'metadata';
+    final permissions =
+        _permissionSnapshot ?? _conversationSettings?.permissionSnapshot;
+    if (mode == 'ocr' &&
+        permissions?.contains(LynAIPermissions.modelOcr) != true) {
+      return _agentError(
+        'permission_denied',
+        '缺少 ${LynAIPermissions.modelOcr} 权限',
+      );
+    }
+    if (mode == 'recognize' &&
+        permissions?.contains(LynAIPermissions.modelRecognizeFile) != true) {
+      return _agentError(
+        'permission_denied',
+        '缺少 ${LynAIPermissions.modelRecognizeFile} 权限',
+      );
+    }
+    try {
+      final result = switch (mode) {
+        'text' => await service.readText(
+          conversationId: conversationId,
+          messageId: messageId,
+          attachmentIndex: index,
+        ),
+        'ocr' => await service.recognizeImageText(
+          conversationId: conversationId,
+          messageId: messageId,
+          attachmentIndex: index,
+          modelConfigs: _modelConfigs!,
+          modelId: _conversations
+              .getConversation(conversationId)
+              ?.settings
+              .imageModelId,
+        ),
+        'recognize' => await service.recognizeFileText(
+          conversationId: conversationId,
+          messageId: messageId,
+          attachmentIndex: index,
+          modelConfigs: _modelConfigs!,
+          modelId: _conversations
+              .getConversation(conversationId)
+              ?.settings
+              .imageRecognitionModelId,
+          prompt: call.arguments['prompt']?.toString() ?? '读取此文件',
+        ),
+        _ => await service.metadata(
+          conversationId: conversationId,
+          messageId: messageId,
+          attachmentIndex: index,
+        ),
+      };
+      return _agentOk(_resourceValue(result));
+    } on AgentResourceException catch (error) {
+      return _agentError(error.code, error.message);
+    }
+  }
+
+  Future<Map<String, dynamic>> _resourceTool(ChatToolCall call) async {
+    final storage = _storage;
+    if (storage == null) return _agentError('missing_context', '缺少资源存储上下文');
+    final conversationId = _conversationId;
+    if (conversationId == null || _conversations == null) {
+      return _agentError('missing_context', '缺少当前对话资源上下文');
+    }
+    final service = AgentResourceService(
+      storage: storage,
+      conversationId: conversationId,
+      findConversation: (id) async => _conversations.getConversation(id),
+    );
+    try {
+      final operation = call.arguments['operation']?.toString() ?? '';
+      final resourceId = call.arguments['resourceId']?.toString() ?? '';
+      final query = call.arguments['query']?.toString() ?? '';
+      final mode = call.arguments['mode']?.toString() ?? '';
+      if ((operation == 'metadata' ||
+              operation == 'read' ||
+              operation == 'recognize') &&
+          resourceId.trim().isEmpty) {
+        return _agentError('invalid_arguments', '$operation 需要 resourceId');
+      }
+      if (operation == 'search' && query.trim().isEmpty) {
+        return _agentError('invalid_arguments', 'search 需要 query');
+      }
+      if (operation == 'recognize' && mode != 'ocr' && mode != 'file') {
+        return _agentError(
+          'invalid_arguments',
+          'recognize 的 mode 必须是 ocr 或 file',
+        );
+      }
+      if (operation == 'recognize') {
+        final permission = call.arguments['mode'] == 'ocr'
+            ? LynAIPermissions.modelOcr
+            : LynAIPermissions.modelRecognizeFile;
+        final permissions =
+            _permissionSnapshot ?? _conversationSettings?.permissionSnapshot;
+        if (permissions?.contains(permission) != true) {
+          return _agentError('permission_denied', '缺少 $permission 权限');
+        }
+      }
+      final result = switch (operation) {
+        'metadata' => await service.metadata(resourceId),
+        'search' => await service.search(
+          query,
+          limit: (call.arguments['limit'] as num?)?.toInt() ?? 20,
+        ),
+        'read' => await service.readText(resourceId),
+        'recognize' when mode == 'ocr' => await service.recognizeImageText(
+          resourceId,
+          modelConfigs: _modelConfigs!,
+          modelId: _conversationSettings?.imageModelId,
+        ),
+        'recognize' => await service.recognizeFileText(
+          resourceId,
+          modelConfigs: _modelConfigs!,
+          modelId: _conversationSettings?.imageRecognitionModelId,
+          prompt: call.arguments['prompt']?.toString() ?? '读取此文件',
+        ),
+        _ => throw const AgentResourceException(
+          'unknown_tool',
+          'Unknown resource tool',
+        ),
+      };
+      return _agentOk(_resourceValue(result));
+    } on AgentResourceException catch (error) {
+      return _agentError(error.code, error.message);
+    } finally {
+      service.dispose();
+    }
+  }
+
+  ConversationSettings? get _conversationSettings => _conversationId == null
+      ? null
+      : _conversations?.getConversation(_conversationId)?.settings;
+
+  static Map<String, dynamic> _resourceValue(Object result) {
+    if (result is AgentResourceMetadata) {
+      return {
+        'id': result.id,
+        'name': result.name,
+        'mimeType': result.mimeType,
+        'size': result.size,
+        'role': result.role,
+        'missing': result.missing,
+      };
+    }
+    if (result is AgentResourceText) {
+      return {
+        'metadata': _resourceValue(result.metadata),
+        'text': result.text,
+        'truncated': result.truncated,
+      };
+    }
+    if (result is List<AgentResourceMetadata>) {
+      return {'resources': result.map(_resourceValue).toList(growable: false)};
+    }
+    return {'value': result.toString()};
+  }
+
+  Future<Map<String, dynamic>> _runSubagent(
+    ChatToolCall call,
+    AgentCancellationToken? parentCancellationToken, {
+    LynAICallIdentity? identity,
+  }) async {
     final args = call.arguments;
     if (!_allowSubagents) {
       return _agentError(
         'subagent_recursion_blocked',
         'Subagent 内不能再启动 Subagent',
       );
+    }
+    if (_subagentDepth >= maxSubagentDepth) {
+      return _agentError('subagent_depth_exceeded', 'Subagent 深度已达到策略上限');
     }
     if (!_agentEnabled) {
       return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
@@ -1824,11 +2709,20 @@ ${lines.join('\n')}$more''';
       conversations: _conversations,
       backend: _backend,
       conversationId: _conversationId,
-      agentIdentity: _identityForToolCall(call),
+      agentIdentity: identity ?? _identityForToolCall(call),
       persistence: _persistence,
       externalToolRegistry: _externalToolRegistry,
       externalToolSnapshot: _externalToolSnapshot,
-      allowSubagents: false,
+      storage: _storage,
+      resultSanitizer: _resultSanitizer,
+      userInteractionBroker: _userInteractionBroker,
+      interactionSurface: _interactionSurface,
+      webSearch: _webSearch,
+      outboundHttpClient: _outboundHttpClient,
+      allowPlaintextHttpFetch: _allowPlaintextHttpFetch,
+      permissionSnapshot: _permissionSnapshot,
+      allowSubagents: _subagentDepth + 1 < maxSubagentDepth,
+      subagentDepth: _subagentDepth + 1,
     );
     final working = <Map<String, dynamic>>[
       {
@@ -1853,15 +2747,20 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
         }),
       },
     ];
-    final tools =
-        openAITools(
-              _plugins?.plugins ?? const [],
-              true,
-              _settings?.settings.agentGrantedPermissions ?? const [],
-              false,
-            )
-            .where((tool) => _toolName(tool) != 'run_subagent')
-            .toList(growable: false);
+    final childSnapshot = subTools.createRunSnapshot(
+      agentEnabled: true,
+      imageGenerationEnabled: false,
+    );
+    final childTools = childSnapshot.tools.where(
+      (registration) =>
+          registration.descriptor.name != 'run_subagent' &&
+          registration.descriptor.name != 'ask_user',
+    );
+    final childRunSnapshot = AgentToolRunSnapshot(
+      tools: childTools,
+      permissions: childSnapshot.permissions,
+    );
+    final tools = childRunSnapshot.openAITools;
 
     try {
       final handle = const AgentLoopRuntime().start(
@@ -1870,8 +2769,8 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
         persistence: _persistence,
         persistenceMetadata: AgentRunPersistenceMetadata(
           conversationId: _conversationId,
-          parentRunId: _providedAgentIdentity?.runId,
-          parentTurnId: _providedAgentIdentity?.turnId,
+          parentRunId: identity?.runId ?? _providedAgentIdentity?.runId,
+          parentTurnId: identity?.turnId ?? _providedAgentIdentity?.turnId,
           parentToolCallId: call.id,
         ),
         finalTurnInstruction: '工具调用已达到上限。不要再调用工具，请基于已有文本和工具结果直接返回最终 JSON。',
@@ -1902,16 +2801,18 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
           }
           yield const AgentModelStreamCompleted();
         },
+        parentCancellationToken: parentCancellationToken,
         executeTools: (calls, identity, cancellationToken) {
-          return subTools.executeSequentialCompatibility(
+          return subTools.executeCapturedBatch(
+            childRunSnapshot,
             calls,
-            const [],
             identity: identity,
             cancellationToken: cancellationToken,
           );
         },
       );
       final runtimeResult = await handle.result;
+      parentCancellationToken?.throwIfCancellationRequested();
       if (runtimeResult.toolRoundLimitReached) {
         final result = _agentError(
           'tool_round_limit_reached',
@@ -2022,12 +2923,6 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
       } catch (_) {}
     }
     return _agentOk({'content': content});
-  }
-
-  static String _toolName(Map<String, dynamic> tool) {
-    final function = tool['function'];
-    if (function is Map) return function['name']?.toString() ?? '';
-    return '';
   }
 
   void _appendGeneratedImagesToConversation(Map<String, dynamic> result) {
@@ -2282,10 +3177,22 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
   }
 
   Future<Map<String, dynamic>> _savePluginSkill(
-    Map<String, dynamic> args,
-  ) async {
+    Map<String, dynamic> args, {
+    LynAICallIdentity? identity,
+    AgentPermissionSnapshot? permissions,
+  }) async {
     if (!_agentEnabled) {
       return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
+    }
+    if (!_hasAgentCapability(
+      LynAIPermissions.pluginSkillFilesWrite,
+      identity: identity,
+      permissions: permissions,
+    )) {
+      return _agentError(
+        'permission_denied',
+        'Agent 未授权 ${LynAIPermissions.pluginSkillFilesWrite}',
+      );
     }
     final plugins = _plugins;
     if (plugins == null) {
@@ -2380,21 +3287,44 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
 
   LynAICallIdentity get _agentIdentity =>
       _providedAgentIdentity ??
-      LynAICallIdentity(
-        type: LynAICallerType.agent,
-        conversationId: _conversationId,
-      );
+      (throw StateError('Agent tool execution requires an explicit identity'));
 
   LynAICallIdentity _identityForToolCall(ChatToolCall call) {
+    final provided = _providedAgentIdentity;
+    if (provided != null && provided.type == LynAICallerType.system) {
+      return provided.child(
+        type: LynAICallerType.system,
+        toolCallId: call.id,
+        toolName: call.name,
+      );
+    }
+    if (provided != null &&
+        (provided.type == LynAICallerType.agent ||
+            provided.type == LynAICallerType.agentLua ||
+            provided.type == LynAICallerType.lua)) {
+      return provided.child(
+        type: provided.type,
+        toolCallId: call.id,
+        toolName: call.name,
+      );
+    }
     if (!_agentEnabled) {
       return LynAICallIdentity(
-        type: LynAICallerType.system,
+        type: LynAICallerType.assistant,
         conversationId: _conversationId,
         toolCallId: call.id,
         toolName: call.name,
       );
     }
-    return _agentIdentity.child(
+    if (provided == null) {
+      return LynAICallIdentity(
+        type: LynAICallerType.assistant,
+        conversationId: _conversationId,
+        toolCallId: call.id,
+        toolName: call.name,
+      );
+    }
+    return provided.child(
       type: LynAICallerType.agent,
       toolCallId: call.id,
       toolName: call.name,
@@ -2406,10 +3336,29 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     String functionName,
     Map<String, dynamic> arguments,
   ) {
+    return _executeLynAIFunctionWithIdentity(
+      call,
+      functionName,
+      arguments,
+      identity: _identityForToolCall(call),
+      permissions:
+          _permissionSnapshot ?? _conversationSettings?.permissionSnapshot,
+    );
+  }
+
+  Future<Map<String, dynamic>> _executeLynAIFunctionWithIdentity(
+    ChatToolCall call,
+    String functionName,
+    Map<String, dynamic> arguments, {
+    required LynAICallIdentity identity,
+    required AgentPermissionSnapshot? permissions,
+    AgentCancellationToken? cancellationToken,
+  }) {
     return _lynaiFunctions.execute(
       LynAIFunctionCall(name: functionName, arguments: arguments),
       LynAIFunctionContext(
-        identity: _identityForToolCall(call),
+        identity: identity,
+        agentPermissionSnapshot: permissions,
         features: _features,
         tasks: _tasks,
         calendar: _calendar,
@@ -2418,6 +3367,9 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
         plugins: _plugins,
         conversations: _conversations,
         backend: _backend,
+        outboundHttpClient: _outboundHttpClient,
+        allowPlaintextHttpFetch: _allowPlaintextHttpFetch,
+        cancellationToken: cancellationToken,
       ),
     );
   }
@@ -2477,15 +3429,23 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     return _error('工具 ${call.name} 参数无效: $message');
   }
 
-  bool _hasAgentCapability(String capability) {
+  bool _hasAgentCapability(
+    String capability, {
+    LynAICallIdentity? identity,
+    AgentPermissionSnapshot? permissions,
+  }) {
     final cid = _conversationId;
     final conversations = _conversations;
     if (cid == null || conversations == null) return false;
     final settings = conversations.getConversation(cid)?.settings;
     if (settings == null || !settings.agentEnabled) return false;
     return _permissionService.canUseCapability(
-      identity: _agentIdentity,
+      identity: identity ?? _agentIdentity,
       capability: capability,
+      agentPermissionSnapshot:
+          permissions ??
+          _permissionSnapshot ??
+          _conversationSettings?.permissionSnapshot,
       appSettings: _settings?.settings,
     );
   }
@@ -2544,8 +3504,12 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
   }
 
   Future<Map<String, dynamic>> _callPluginFunction(
-    Map<String, dynamic> args,
-  ) async {
+    Map<String, dynamic> args, {
+    LynAICallIdentity? identity,
+    AgentPermissionSnapshot? permissions,
+    AgentCancellationToken? cancellationToken,
+    DateTime? deadline,
+  }) async {
     final cid = _conversationId;
     final conversations = _conversations;
     if (cid == null || conversations == null) {
@@ -2555,7 +3519,11 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     if (conv?.settings.agentEnabled != true) {
       return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
     }
-    if (!_hasAgentCapability(LynAICapabilities.pluginCallFunction)) {
+    if (!_hasAgentCapability(
+      LynAICapabilities.pluginCallFunction,
+      identity: identity,
+      permissions: permissions,
+    )) {
       final result = _agentError(
         'permission_denied',
         'Agent 未授权 plugins.callFunction。请请求用户在 Agent 设置中开启“调用插件函数”。',
@@ -2621,6 +3589,8 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
       plugin: plugin,
       function: function,
       arguments: functionArgs,
+      cancellationToken: cancellationToken,
+      deadline: deadline,
       features: _features,
       tasks: _tasks,
       calendar: _calendar,
@@ -2659,7 +3629,12 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     };
   }
 
-  Future<Map<String, dynamic>> _executeAgentLua(ChatToolCall call) async {
+  Future<Map<String, dynamic>> _executeAgentLua(
+    ChatToolCall call,
+    AgentCancellationToken cancellationToken, {
+    LynAICallIdentity? identity,
+    AgentPermissionSnapshot? permissions,
+  }) async {
     final args = call.arguments;
     final cid = _conversationId;
     final conversations = _conversations;
@@ -2670,7 +3645,11 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     if (conv?.settings.agentEnabled != true) {
       return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
     }
-    if (!_hasAgentCapability(LynAICapabilities.luaExecute)) {
+    if (!_hasAgentCapability(
+      LynAICapabilities.luaExecute,
+      identity: identity,
+      permissions: permissions,
+    )) {
       final result = _agentError(
         'permission_denied',
         'Agent 未授权 lua.execute。请请求用户在 Agent 设置中开启“执行 Lua 脚本”。',
@@ -2698,11 +3677,16 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
       settings: _settings,
       conversations: _conversations,
       conversationId: _conversationId,
-      identity: _agentIdentity.child(
+      identity: (identity ?? _agentIdentity).child(
         type: LynAICallerType.agentLua,
         toolCallId: call.id,
         toolName: 'execute_lua',
       ),
+      permissionSnapshot:
+          permissions ??
+          _permissionSnapshot ??
+          conv!.settings.permissionSnapshot,
+      cancellationToken: cancellationToken,
       backend: _backend,
     );
     _appendAgentTrace(
@@ -2720,7 +3704,10 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     return result;
   }
 
-  Future<Map<String, dynamic>?> _executePluginTool(ChatToolCall call) async {
+  Future<Map<String, dynamic>?> _executePluginTool(
+    ChatToolCall call,
+    AgentCancellationToken? cancellationToken,
+  ) async {
     final plugins = _plugins;
     if (plugins == null) return null;
     for (final plugin in plugins.plugins) {
@@ -2735,6 +3722,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
           plugin: plugin,
           tool: tool,
           arguments: call.arguments,
+          cancellationToken: cancellationToken,
           features: _features,
           tasks: _tasks,
           calendar: _calendar,
@@ -2747,7 +3735,11 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     return null;
   }
 
-  Future<Map<String, dynamic>> _webFetch(ChatToolCall call) async {
+  Future<Map<String, dynamic>> _webFetch(
+    ChatToolCall call, [
+    AgentCancellationToken? cancellationToken,
+    LynAICallIdentity? identity,
+  ]) async {
     final args = call.arguments;
     final url = (args['url'] as String? ?? '').trim();
     if (url.isEmpty) return _error('web_fetch 缺少 url');
@@ -2767,7 +3759,10 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
             arguments: {'url': uri.toString(), 'method': 'GET'},
           ),
           LynAIFunctionContext(
-            identity: _identityForToolCall(call),
+            identity: identity ?? _identityForToolCall(call),
+            agentPermissionSnapshot:
+                _permissionSnapshot ??
+                _conversationSettings?.permissionSnapshot,
             features: _features,
             tasks: _tasks,
             calendar: _calendar,
@@ -2776,6 +3771,9 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
             settings: _settings,
             conversations: _conversations,
             backend: _backend,
+            outboundHttpClient: _outboundHttpClient,
+            allowPlaintextHttpFetch: _allowPlaintextHttpFetch,
+            cancellationToken: cancellationToken,
           ),
         )
         .timeout(_webFetchTimeout);

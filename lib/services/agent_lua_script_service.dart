@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:lua_dardo/lua.dart';
 
 import '../models/plugin.dart';
+import '../models/device_control.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/calendar_provider.dart';
 import '../providers/feature_provider.dart';
@@ -10,11 +11,13 @@ import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
+import 'agent_cancellation.dart';
 import 'lynai_call_identity.dart';
 import 'device_run_controller.dart';
 import 'agent_runtime_service.dart';
 import 'backend_client.dart';
 import 'lynai_function_service.dart';
+import 'lynai_permission_definitions.dart';
 import 'lynai_permission_service.dart';
 import 'lua_sandbox_utils.dart';
 import 'plugin_lua_runtime_service.dart';
@@ -35,8 +38,21 @@ class AgentLuaScriptService {
     ConversationProvider? conversations,
     String? conversationId,
     LynAICallIdentity? identity,
+    AgentPermissionSnapshot? permissionSnapshot,
+    AgentCancellationToken? cancellationToken,
     BackendClient? backend,
   }) async {
+    final modelOriginated =
+        identity != null &&
+        (identity.type == LynAICallerType.agent ||
+            identity.type == LynAICallerType.agentLua ||
+            identity.type == LynAICallerType.lua);
+    if (modelOriginated &&
+        (permissionSnapshot == null || cancellationToken == null)) {
+      return _error('missing_execution_context', 'Agent Lua 缺少不可变权限快照或取消令牌');
+    }
+    final cancelled = _cancellationError(cancellationToken);
+    if (cancelled != null) return cancelled;
     final trimmed = code.trim();
     if (trimmed.isEmpty) return _error('empty_code', 'Lua 脚本为空');
     final isDeviceScript = trimmed.contains('device.');
@@ -46,7 +62,16 @@ class AgentLuaScriptService {
         conversationId: conversationId,
       );
     }
-    final state = LuaState.newState();
+    final state = LuaState.newState(
+      executionBudget: createLuaSandboxBudget(
+        cancellationToken: cancellationToken,
+        isCancelled: isDeviceScript
+            ? () =>
+                  DeviceRunController.instance.snapshot.status ==
+                  DeviceRunStatus.stopping
+            : null,
+      ),
+    );
     try {
       state.openLibs();
       removeDangerousLuaGlobals(state);
@@ -56,8 +81,9 @@ class AgentLuaScriptService {
         state,
         asyncCalls: true,
         onCall: (method, args) {
+          cancellationToken?.throwIfCancellationRequested();
           callCount++;
-          return _call(
+          final result = _call(
             method,
             args,
             features: features,
@@ -69,8 +95,12 @@ class AgentLuaScriptService {
             conversations: conversations,
             conversationId: conversationId,
             identity: identity,
+            permissionSnapshot: permissionSnapshot,
+            cancellationToken: cancellationToken,
             backend: backend,
           );
+          enforceLuaSandboxResultLimit(result);
+          return result;
         },
       );
       final loaded = state.loadString(trimmed);
@@ -97,17 +127,28 @@ class AgentLuaScriptService {
           conversations: conversations,
           conversationId: conversationId,
           identity: identity,
+          permissionSnapshot: permissionSnapshot,
+          cancellationToken: cancellationToken,
           backend: backend,
         ),
       );
       if (status != ThreadStatus.luaOk) {
+        final budgetError = _budgetError(
+          state.lastError,
+          cancellationToken: cancellationToken,
+        );
         return _finishDeviceRun(
-          _error('execution_failed', 'Lua 执行失败: ${_popError(state, status)}'),
+          budgetError ??
+              _error(
+                'execution_failed',
+                'Lua 执行失败: ${_popError(state, status)}',
+              ),
           isDeviceScript,
         );
       }
       final result = _readJsonValue(state, -1);
       state.pop(1);
+      enforceLuaSandboxResultLimit(result);
       final commandResult = await _executeCommand(
         result,
         state: state,
@@ -122,6 +163,8 @@ class AgentLuaScriptService {
         conversations: conversations,
         conversationId: conversationId,
         identity: identity,
+        permissionSnapshot: permissionSnapshot,
+        cancellationToken: cancellationToken,
         backend: backend,
       );
       if (commandResult != null) {
@@ -164,8 +207,9 @@ class AgentLuaScriptService {
         if (generatedImages.isNotEmpty) 'generatedImages': generatedImages,
       }, isDeviceScript);
     } catch (e) {
+      final budgetError = _budgetError(e, cancellationToken: cancellationToken);
       return _finishDeviceRun(
-        _error('execution_failed', 'Lua 执行失败: $e'),
+        budgetError ?? _error('execution_failed', 'Lua 执行失败: $e'),
         isDeviceScript,
       );
     }
@@ -205,8 +249,11 @@ class AgentLuaScriptService {
     ConversationProvider? conversations,
     String? conversationId,
     LynAICallIdentity? identity,
+    AgentPermissionSnapshot? permissionSnapshot,
+    AgentCancellationToken? cancellationToken,
     BackendClient? backend,
   }) {
+    cancellationToken?.throwIfCancellationRequested();
     final callIdentity =
         (identity ??
                 LynAICallIdentity(
@@ -254,6 +301,7 @@ class AgentLuaScriptService {
     final functions = LynAIFunctionService();
     final context = LynAIFunctionContext(
       identity: callIdentity,
+      agentPermissionSnapshot: permissionSnapshot,
       features: features,
       tasks: tasks,
       calendar: calendar,
@@ -349,8 +397,11 @@ class AgentLuaScriptService {
     ConversationProvider? conversations,
     String? conversationId,
     LynAICallIdentity? identity,
+    AgentPermissionSnapshot? permissionSnapshot,
+    AgentCancellationToken? cancellationToken,
     BackendClient? backend,
   }) async {
+    cancellationToken?.throwIfCancellationRequested();
     if (request is! Map) return _error('invalid_yield', 'Lua yield 请求无效');
     final command = request.map(
       (key, value) => MapEntry(key.toString(), value),
@@ -364,7 +415,7 @@ class AgentLuaScriptService {
     final args = command['args'] is Map
         ? Map<String, dynamic>.from(command['args'] as Map)
         : <String, dynamic>{};
-    return _executeAgentCommand(
+    final result = await _executeAgentCommand(
       name,
       args,
       generatedImages: generatedImages,
@@ -377,8 +428,13 @@ class AgentLuaScriptService {
       conversations: conversations,
       conversationId: conversationId,
       identity: identity,
+      permissionSnapshot: permissionSnapshot,
+      cancellationToken: cancellationToken,
       backend: backend,
     );
+    cancellationToken?.throwIfCancellationRequested();
+    enforceLuaSandboxResultLimit(result);
+    return result;
   }
 
   Future<Map<String, dynamic>?> _executeCommand(
@@ -395,8 +451,11 @@ class AgentLuaScriptService {
     ConversationProvider? conversations,
     String? conversationId,
     LynAICallIdentity? identity,
+    AgentPermissionSnapshot? permissionSnapshot,
+    AgentCancellationToken? cancellationToken,
     BackendClient? backend,
   }) async {
+    cancellationToken?.throwIfCancellationRequested();
     if (raw is! Map) return null;
     final command = raw.map((key, value) => MapEntry(key.toString(), value));
     final name =
@@ -425,10 +484,15 @@ class AgentLuaScriptService {
       conversations: conversations,
       conversationId: conversationId,
       identity: identity,
+      permissionSnapshot: permissionSnapshot,
+      cancellationToken: cancellationToken,
       backend: backend,
     );
+    cancellationToken?.throwIfCancellationRequested();
+    enforceLuaSandboxResultLimit(result);
     final next = (command['__lynai_next'] as String? ?? '').trim();
     if (next.isEmpty) return result;
+    cancellationToken?.throwIfCancellationRequested();
     state.getGlobal(next);
     if (!state.isFunction(-1)) {
       state.pop(1);
@@ -438,6 +502,11 @@ class AgentLuaScriptService {
     _pushJsonValue(state, args);
     final status = state.pCall(2, 1, 0);
     if (status != ThreadStatus.luaOk) {
+      final budgetError = _budgetError(
+        state.lastError,
+        cancellationToken: cancellationToken,
+      );
+      if (budgetError != null) return budgetError;
       return _error(
         'continuation_failed',
         'Lua continuation 执行失败: ${_popError(state, status)}',
@@ -445,18 +514,22 @@ class AgentLuaScriptService {
     }
     final continuationResult = _readJsonValue(state, -1);
     state.pop(1);
+    enforceLuaSandboxResultLimit(continuationResult);
     final nested = await _executeCommand(
       continuationResult,
       state: state,
       depth: depth + 1,
       generatedImages: generatedImages,
       features: features,
+      tasks: tasks,
       modelConfigs: modelConfigs,
       plugins: plugins,
       settings: settings,
       conversations: conversations,
       conversationId: conversationId,
       identity: identity,
+      permissionSnapshot: permissionSnapshot,
+      cancellationToken: cancellationToken,
       backend: backend,
     );
     if (nested != null) return nested;
@@ -481,8 +554,11 @@ class AgentLuaScriptService {
     ConversationProvider? conversations,
     String? conversationId,
     LynAICallIdentity? identity,
+    AgentPermissionSnapshot? permissionSnapshot,
+    AgentCancellationToken? cancellationToken,
     BackendClient? backend,
   }) async {
+    cancellationToken?.throwIfCancellationRequested();
     final callIdentity =
         (identity ??
                 LynAICallIdentity(
@@ -495,6 +571,7 @@ class AgentLuaScriptService {
         LynAIFunctionCall(name: name, arguments: args),
         LynAIFunctionContext(
           identity: callIdentity,
+          agentPermissionSnapshot: permissionSnapshot,
           features: features,
           tasks: tasks,
           calendar: calendar,
@@ -504,6 +581,7 @@ class AgentLuaScriptService {
           backend: backend,
         ),
       );
+      cancellationToken?.throwIfCancellationRequested();
       if (name == 'model.generateImage') {
         generatedImages?.addAll(_generatedImageMaps(result));
       }
@@ -518,6 +596,7 @@ class AgentLuaScriptService {
     final permitted = const LynAIPermissionService().canUseCapability(
       identity: callIdentity,
       capability: LynAICapabilities.pluginCallFunction,
+      agentPermissionSnapshot: permissionSnapshot,
       appSettings: settings?.settings,
     );
     if (!permitted) {
@@ -559,17 +638,26 @@ class AgentLuaScriptService {
         '插件 ${plugin.displayName} 权限不足，无法执行 $functionName',
       );
     }
-    return PluginLuaRuntimeService().executeFunction(
-      plugin: plugin,
-      function: function,
-      arguments: functionArgs,
-      features: features,
-      tasks: tasks,
-      calendar: calendar,
-      modelConfigs: modelConfigs,
-      plugins: plugins,
-      settings: settings,
+    final selectedPlugin = plugin;
+    final selectedFunction = function;
+    cancellationToken?.throwIfCancellationRequested();
+    final result = await runWithLuaSandboxCancellation(
+      cancellationToken,
+      () => PluginLuaRuntimeService().executeFunction(
+        plugin: selectedPlugin,
+        function: selectedFunction,
+        arguments: functionArgs,
+        cancellationToken: cancellationToken,
+        features: features,
+        tasks: tasks,
+        calendar: calendar,
+        modelConfigs: modelConfigs,
+        plugins: plugins,
+        settings: settings,
+      ),
     );
+    cancellationToken?.throwIfCancellationRequested();
+    return result;
   }
 
   List<Map<String, dynamic>> _generatedImageMaps(Map<String, dynamic> result) {
@@ -984,6 +1072,31 @@ class AgentLuaScriptService {
     final message = state.getTop() > 0 ? state.toStr(-1) : null;
     if (state.getTop() > 0) state.pop(1);
     return message ?? status.toString();
+  }
+
+  static Map<String, dynamic>? _budgetError(
+    Object? error, {
+    AgentCancellationToken? cancellationToken,
+  }) {
+    if (error is AgentCancellationException) {
+      return _error(error.reason.code, error.reason.message);
+    }
+    final code = luaSandboxErrorCode(error);
+    if (code == null) return null;
+    if (code == 'cancelled') {
+      final cancellation = _cancellationError(cancellationToken);
+      if (cancellation != null) return cancellation;
+      return _error('user_stopped', '用户已停止设备任务');
+    }
+    return _error(code, luaSandboxErrorMessage(code));
+  }
+
+  static Map<String, dynamic>? _cancellationError(
+    AgentCancellationToken? cancellationToken,
+  ) {
+    final reason = cancellationToken?.reason;
+    if (reason == null) return null;
+    return _error(reason.code, reason.message);
   }
 
   static Map<String, dynamic> _error(String code, String message) => {

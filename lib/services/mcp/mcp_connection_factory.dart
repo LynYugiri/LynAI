@@ -1,6 +1,4 @@
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
-
 import '../../models/agent_persistence.dart';
 import '../../models/mcp_config.dart';
 import '../../repositories/mcp_repository.dart';
@@ -49,8 +47,6 @@ class DefaultMcpConnectionFactory implements McpConnectionFactory {
           transport: McpHttpTransport(
             config: config,
             credentials: McpHttpCredentials(headers: credentials),
-            client: http.Client(),
-            closeClient: true,
           ),
           requestTimeout: config.requestTimeout,
         );

@@ -795,7 +795,7 @@ PRAGMA user_version = 16;
       await database.close();
       final migrated = sqlite3.open('${storageRoot.path}/app.db');
       try {
-        expect(migrated.userVersion, 22);
+        expect(migrated.userVersion, 23);
         expect(
           migrated
               .select(

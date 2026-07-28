@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'chat_role.dart';
 import 'system_prompt.dart';
+import 'web_search.dart';
 import '../services/lynai_permission_definitions.dart';
 
 class FloatingAssistantSettings {
@@ -238,10 +239,18 @@ class AppSettings {
   final String lastFeature;
   final String? lastSeenChangelogVersion;
   final List<String> agentGrantedPermissions;
+  final bool agentEnabledByDefault;
+  final WebSearchRoute webSearchRoute;
+  final WebSearchClientProvider webSearchClientProvider;
+  final String? searxngEndpoint;
+  final bool searxngAllowHttp;
   final FloatingAssistantSettings floatingAssistant;
   final String? backendUrl;
   final bool hasConfiguredBackend;
   final bool hasSeenLoginGuide;
+
+  AgentPermissionSnapshot get agentPermissionSnapshot =>
+      AgentPermissionSnapshot(permissions: agentGrantedPermissions);
 
   AppSettings({
     required this.themeColor,
@@ -268,6 +277,11 @@ class AppSettings {
     this.lastFeature = 'dashboard',
     this.lastSeenChangelogVersion,
     this.agentGrantedPermissions = LynAIPermissions.defaultAgent,
+    this.agentEnabledByDefault = false,
+    this.webSearchRoute = WebSearchRoute.auto,
+    this.webSearchClientProvider = WebSearchClientProvider.tavily,
+    this.searxngEndpoint,
+    this.searxngAllowHttp = false,
     this.floatingAssistant = const FloatingAssistantSettings(),
     this.backendUrl,
     this.hasConfiguredBackend = false,
@@ -305,6 +319,11 @@ class AppSettings {
     String? lastFeature,
     Object? lastSeenChangelogVersion = _sentinel,
     List<String>? agentGrantedPermissions,
+    bool? agentEnabledByDefault,
+    WebSearchRoute? webSearchRoute,
+    WebSearchClientProvider? webSearchClientProvider,
+    Object? searxngEndpoint = _sentinel,
+    bool? searxngAllowHttp,
     FloatingAssistantSettings? floatingAssistant,
     Object? backendUrl = _sentinel,
     bool? hasConfiguredBackend,
@@ -355,6 +374,15 @@ class AppSettings {
           : lastSeenChangelogVersion as String?,
       agentGrantedPermissions:
           agentGrantedPermissions ?? this.agentGrantedPermissions,
+      agentEnabledByDefault:
+          agentEnabledByDefault ?? this.agentEnabledByDefault,
+      webSearchRoute: webSearchRoute ?? this.webSearchRoute,
+      webSearchClientProvider:
+          webSearchClientProvider ?? this.webSearchClientProvider,
+      searxngEndpoint: identical(searxngEndpoint, _sentinel)
+          ? this.searxngEndpoint
+          : searxngEndpoint as String?,
+      searxngAllowHttp: searxngAllowHttp ?? this.searxngAllowHttp,
       floatingAssistant: floatingAssistant ?? this.floatingAssistant,
       backendUrl: identical(backendUrl, _sentinel)
           ? this.backendUrl
@@ -463,6 +491,17 @@ class AppSettings {
       agentGrantedPermissions: _agentPermissionsFromJson(
         json['agentGrantedPermissions'],
       ),
+      agentEnabledByDefault: json['agentEnabledByDefault'] as bool? ?? false,
+      webSearchRoute: WebSearchRoute.values.firstWhere(
+        (value) => value.name == json['webSearchRoute'],
+        orElse: () => WebSearchRoute.auto,
+      ),
+      webSearchClientProvider: WebSearchClientProvider.values.firstWhere(
+        (value) => value.name == json['webSearchClientProvider'],
+        orElse: () => WebSearchClientProvider.tavily,
+      ),
+      searxngEndpoint: _optionalHttpUrl(json['searxngEndpoint']),
+      searxngAllowHttp: json['searxngAllowHttp'] as bool? ?? false,
       floatingAssistant: FloatingAssistantSettings.fromJson(
         json['floatingAssistant'],
       ),
@@ -502,6 +541,11 @@ class AppSettings {
       if (lastSeenChangelogVersion != null)
         'lastSeenChangelogVersion': lastSeenChangelogVersion,
       'agentGrantedPermissions': agentGrantedPermissions,
+      'agentEnabledByDefault': agentEnabledByDefault,
+      'webSearchRoute': webSearchRoute.name,
+      'webSearchClientProvider': webSearchClientProvider.name,
+      if (searxngEndpoint != null) 'searxngEndpoint': searxngEndpoint,
+      'searxngAllowHttp': searxngAllowHttp,
       'floatingAssistant': floatingAssistant.toJson(),
       if (backendUrl != null) 'backendUrl': backendUrl,
       'hasConfiguredBackend': hasConfiguredBackend,
@@ -517,12 +561,20 @@ class AppSettings {
               .toSet()
         : <String>{};
     return LynAIPermissions.defaultAgent
-        .where(
-          (permission) =>
-              raw == null ||
-              restored.contains(permission) ||
-              permission.startsWith('device:'),
-        )
+        .where((permission) => raw == null || restored.contains(permission))
         .toList(growable: false);
+  }
+
+  static String? _optionalHttpUrl(Object? raw) {
+    final value = raw?.toString().trim() ?? '';
+    if (value.isEmpty) return null;
+    final uri = Uri.tryParse(value);
+    if (uri == null ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty ||
+        (uri.scheme != 'http' && uri.scheme != 'https')) {
+      return null;
+    }
+    return uri.toString();
   }
 }

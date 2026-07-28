@@ -22,8 +22,33 @@ abstract interface class McpTransport {
   McpTransportStatus get status;
 
   Future<void> start();
-  Future<void> send(Map<String, dynamic> message);
+  Future<void> send(
+    Map<String, dynamic> message, {
+    McpTransportCancellation? cancellation,
+  });
   Future<void> dispose();
+}
+
+class McpTransportCancellation {
+  final Completer<void> _cancelled = Completer<void>();
+
+  bool get isCancelled => _cancelled.isCompleted;
+  Future<void> get whenCancelled => _cancelled.future;
+
+  void cancel() {
+    if (!_cancelled.isCompleted) _cancelled.complete();
+  }
+
+  void throwIfCancelled() {
+    if (isCancelled) throw const McpTransportSendCancelledException();
+  }
+}
+
+class McpTransportSendCancelledException implements Exception {
+  const McpTransportSendCancelledException();
+
+  @override
+  String toString() => 'MCP transport send cancelled';
 }
 
 class McpTransportException implements Exception {

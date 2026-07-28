@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -11,6 +12,7 @@ import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
 import '../utils/plugin_path_utils.dart';
+import 'agent_cancellation.dart';
 import 'agent_json_schema.dart';
 import 'lynai_call_identity.dart';
 import 'lua_sandbox_utils.dart';
@@ -47,6 +49,8 @@ class PluginLuaRuntimeService {
     ModelConfigProvider? modelConfigs,
     PluginProvider? plugins,
     SettingsProvider? settings,
+    AgentCancellationToken? cancellationToken,
+    DateTime? deadline,
   }) {
     final invalid = _validateArguments(arguments, tool.parameters);
     if (invalid != null) return Future.value(invalid);
@@ -54,6 +58,8 @@ class PluginLuaRuntimeService {
       plugin: plugin,
       handler: tool.handler,
       arguments: arguments,
+      cancellationToken: cancellationToken,
+      deadline: deadline,
       features: features,
       tasks: tasks,
       calendar: calendar,
@@ -73,6 +79,8 @@ class PluginLuaRuntimeService {
     ModelConfigProvider? modelConfigs,
     PluginProvider? plugins,
     SettingsProvider? settings,
+    AgentCancellationToken? cancellationToken,
+    DateTime? deadline,
   }) {
     final invalid = _validateArguments(arguments, function.parameters);
     if (invalid != null) return Future.value(invalid);
@@ -80,6 +88,8 @@ class PluginLuaRuntimeService {
       plugin: plugin,
       handler: function.handler,
       arguments: arguments,
+      cancellationToken: cancellationToken,
+      deadline: deadline,
       features: features,
       tasks: tasks,
       calendar: calendar,
@@ -112,7 +122,27 @@ class PluginLuaRuntimeService {
     ModelConfigProvider? modelConfigs,
     PluginProvider? plugins,
     SettingsProvider? settings,
+    AgentCancellationToken? cancellationToken,
+    DateTime? deadline,
   }) async {
+    final deadlineSource = deadline == null
+        ? null
+        : AgentCancellationSource(parent: cancellationToken);
+    final effectiveCancellationToken =
+        deadlineSource?.token ?? cancellationToken;
+    Timer? deadlineTimer;
+    if (deadline != null) {
+      final remaining = deadline.difference(DateTime.now());
+      if (remaining <= Duration.zero) {
+        deadlineSource!.cancel(_deadlineReason);
+      } else {
+        deadlineTimer = Timer(
+          remaining,
+          () => deadlineSource!.cancel(_deadlineReason),
+        );
+      }
+    }
+    effectiveCancellationToken?.throwIfCancellationRequested();
     final entryRelPath = plugin.manifest.entry;
     final entryPath = safePluginFilePath(plugin.path, entryRelPath);
     if (entryPath == null) {
@@ -127,65 +157,93 @@ class PluginLuaRuntimeService {
       if (!await entry.exists()) return _error('插件入口文件不存在: $entryRelPath');
     }
 
-    final state = LuaState.newState();
-    state.openLibs();
-    removeDangerousLuaGlobals(state);
-    final preloadedConfig = await _preloadPluginConfig(
-      plugin: plugin,
-      features: features,
-      tasks: tasks,
-      calendar: calendar,
-      modelConfigs: modelConfigs,
-      plugins: plugins,
-      settings: settings,
+    final state = LuaState.newState(
+      executionBudget: createLuaSandboxBudget(
+        cancellationToken: effectiveCancellationToken,
+      ),
     );
-    _installLynAI(
-      state,
-      plugin: plugin,
-      features: features,
-      tasks: tasks,
-      calendar: calendar,
-      modelConfigs: modelConfigs,
-      plugins: plugins,
-      settings: settings,
-      preloadedConfig: preloadedConfig,
-    );
-    final loaded = state.loadString(await entry.readAsString());
-    if (loaded != ThreadStatus.luaOk) return _error('Lua 加载失败: $loaded');
-    final loadStatus = state.pCall(0, 0, 0);
-    if (loadStatus != ThreadStatus.luaOk) {
-      return _error('Lua 初始化失败: ${_popError(state, loadStatus)}');
-    }
+    try {
+      state.openLibs();
+      removeDangerousLuaGlobals(state);
+      final preloadedConfig = await _preloadPluginConfig(
+        plugin: plugin,
+        cancellationToken: effectiveCancellationToken,
+        features: features,
+        tasks: tasks,
+        calendar: calendar,
+        modelConfigs: modelConfigs,
+        plugins: plugins,
+        settings: settings,
+      );
+      _installLynAI(
+        state,
+        plugin: plugin,
+        features: features,
+        tasks: tasks,
+        calendar: calendar,
+        modelConfigs: modelConfigs,
+        plugins: plugins,
+        settings: settings,
+        preloadedConfig: preloadedConfig,
+        cancellationToken: effectiveCancellationToken,
+      );
+      effectiveCancellationToken?.throwIfCancellationRequested();
+      final loaded = state.loadString(await entry.readAsString());
+      if (loaded != ThreadStatus.luaOk) return _error('Lua 加载失败: $loaded');
+      final loadStatus = state.pCall(0, 0, 0);
+      if (loadStatus != ThreadStatus.luaOk) {
+        return _budgetError(
+              state.lastError,
+              cancellationToken: effectiveCancellationToken,
+            ) ??
+            _error('Lua 初始化失败: ${_popError(state, loadStatus)}');
+      }
 
-    state.getGlobal(handler);
-    if (!state.isFunction(-1)) {
+      state.getGlobal(handler);
+      if (!state.isFunction(-1)) {
+        state.pop(1);
+        return _error('Lua handler 不存在: $handler');
+      }
+      _pushJsonValue(state, arguments);
+      final status = state.pCall(1, 1, 0);
+      if (status != ThreadStatus.luaOk) {
+        return _budgetError(
+              state.lastError,
+              cancellationToken: effectiveCancellationToken,
+            ) ??
+            _error('Lua 执行失败: ${_popError(state, status)}');
+      }
+      final result = _readJsonValue(state, -1);
       state.pop(1);
-      return _error('Lua handler 不存在: $handler');
+      enforceLuaSandboxResultLimit(result);
+      final commandResult = await _executeCommand(
+        result,
+        state: state,
+        originalArguments: arguments,
+        plugin: plugin,
+        features: features,
+        tasks: tasks,
+        calendar: calendar,
+        modelConfigs: modelConfigs,
+        plugins: plugins,
+        settings: settings,
+        cancellationToken: effectiveCancellationToken,
+      );
+      if (commandResult != null) return commandResult;
+      if (result is Map) {
+        return result.map((key, value) => MapEntry(key.toString(), value));
+      }
+      return {'ok': true, 'result': result};
+    } catch (error) {
+      return _budgetError(
+            error,
+            cancellationToken: effectiveCancellationToken,
+          ) ??
+          _error('Lua 执行失败: $error');
+    } finally {
+      deadlineTimer?.cancel();
+      deadlineSource?.dispose();
     }
-    _pushJsonValue(state, arguments);
-    final status = state.pCall(1, 1, 0);
-    if (status != ThreadStatus.luaOk) {
-      return _error('Lua 执行失败: ${_popError(state, status)}');
-    }
-    final result = _readJsonValue(state, -1);
-    state.pop(1);
-    final commandResult = await _executeCommand(
-      result,
-      state: state,
-      originalArguments: arguments,
-      plugin: plugin,
-      features: features,
-      tasks: tasks,
-      calendar: calendar,
-      modelConfigs: modelConfigs,
-      plugins: plugins,
-      settings: settings,
-    );
-    if (commandResult != null) return commandResult;
-    if (result is Map) {
-      return result.map((key, value) => MapEntry(key.toString(), value));
-    }
-    return {'ok': true, 'result': result};
   }
 
   /// 向 Lua 状态机注入 `lynai` 全局 API 表（沙箱入口）。
@@ -213,6 +271,7 @@ class PluginLuaRuntimeService {
     required PluginProvider? plugins,
     required SettingsProvider? settings,
     required Map<String, dynamic>? preloadedConfig,
+    required AgentCancellationToken? cancellationToken,
   }) {
     final context = LynAIFunctionContext(
       identity: LynAICallIdentity(
@@ -226,10 +285,12 @@ class PluginLuaRuntimeService {
       settings: settings,
       plugins: plugins,
       plugin: plugin,
+      cancellationToken: cancellationToken,
     );
     final functions = LynAIFunctionService();
     state.newTable();
     _setFunction(state, -1, 'call', (ls) {
+      cancellationToken?.throwIfCancellationRequested();
       final method = ls.checkString(1)?.trim() ?? '';
       final args = _readJsonValue(ls, 2);
       final normalizedArgs = args is Map
@@ -239,9 +300,9 @@ class PluginLuaRuntimeService {
         final requestedPath = (normalizedArgs['path'] as String? ?? '').trim();
         if (requestedPath.isEmpty ||
             requestedPath == plugin.manifest.config.path) {
-          _pushJsonValue(ls, preloadedConfig);
+          _pushHostResult(ls, preloadedConfig);
         } else {
-          _pushJsonValue(ls, _error('plugin.config.read 只能读取当前插件配置文件'));
+          _pushHostResult(ls, _error('plugin.config.read 只能读取当前插件配置文件'));
         }
         return 1;
       }
@@ -253,11 +314,12 @@ class PluginLuaRuntimeService {
           (sync['error'] as String? ?? '').contains('需要异步执行')) {
         _pushFunctionCommand(ls, method, normalizedArgs);
       } else {
-        _pushJsonValue(ls, sync);
+        _pushHostResult(ls, sync);
       }
       return 1;
     });
     _setFunction(state, -1, 'command', (ls) {
+      cancellationToken?.throwIfCancellationRequested();
       final method = ls.checkString(1)?.trim() ?? '';
       final args = _readJsonValue(ls, 2);
       _pushFunctionCommand(
@@ -271,7 +333,8 @@ class PluginLuaRuntimeService {
     });
     _setTable(state, -1, 'plugin', {
       'info': (LuaState ls) {
-        _pushJsonValue(
+        cancellationToken?.throwIfCancellationRequested();
+        _pushHostResult(
           ls,
           functions.executeSync(
             const LynAIFunctionCall(
@@ -286,6 +349,7 @@ class PluginLuaRuntimeService {
     });
     _setTable(state, -1, 'json', {
       'decode': (LuaState ls) {
+        cancellationToken?.throwIfCancellationRequested();
         final text = ls.checkString(1) ?? '';
         try {
           _pushJsonValue(ls, jsonDecode(text));
@@ -297,6 +361,7 @@ class PluginLuaRuntimeService {
         }
       },
       'encode': (LuaState ls) {
+        cancellationToken?.throwIfCancellationRequested();
         try {
           ls.pushString(jsonEncode(_readJsonValue(ls, 1)));
           return 1;
@@ -309,18 +374,22 @@ class PluginLuaRuntimeService {
     });
     _setTable(state, -1, 'model', {
       'chat': (LuaState ls) {
+        cancellationToken?.throwIfCancellationRequested();
         _pushFunctionCommand(ls, 'model.chat', _readJsonValue(ls, 1));
         return 1;
       },
       'ocr': (LuaState ls) {
+        cancellationToken?.throwIfCancellationRequested();
         _pushFunctionCommand(ls, 'model.ocr', _readJsonValue(ls, 1));
         return 1;
       },
       'recognizeFile': (LuaState ls) {
+        cancellationToken?.throwIfCancellationRequested();
         _pushFunctionCommand(ls, 'model.recognizeFile', _readJsonValue(ls, 1));
         return 1;
       },
       'generateImage': (LuaState ls) {
+        cancellationToken?.throwIfCancellationRequested();
         _pushFunctionCommand(ls, 'model.generateImage', _readJsonValue(ls, 1));
         return 1;
       },
@@ -328,7 +397,7 @@ class PluginLuaRuntimeService {
     _installDeviceTable(state, -1);
     _setTable(state, -1, 'notes', {
       'list': (LuaState ls) {
-        _pushJsonValue(
+        _pushHostResult(
           ls,
           functions.executeSync(
             LynAIFunctionCall(name: 'notes.list', arguments: _mapArg(ls, 1)),
@@ -338,7 +407,7 @@ class PluginLuaRuntimeService {
         return 1;
       },
       'read': (LuaState ls) {
-        _pushJsonValue(
+        _pushHostResult(
           ls,
           functions.executeSync(
             LynAIFunctionCall(name: 'notes.read', arguments: _mapArg(ls, 1)),
@@ -366,7 +435,7 @@ class PluginLuaRuntimeService {
     });
     _setTable(state, -1, 'todos', {
       'list': (LuaState ls) {
-        _pushJsonValue(
+        _pushHostResult(
           ls,
           functions.executeSync(
             LynAIFunctionCall(name: 'todos.list', arguments: _mapArg(ls, 1)),
@@ -376,7 +445,7 @@ class PluginLuaRuntimeService {
         return 1;
       },
       'read': (LuaState ls) {
-        _pushJsonValue(
+        _pushHostResult(
           ls,
           functions.executeSync(
             LynAIFunctionCall(name: 'todos.read', arguments: _mapArg(ls, 1)),
@@ -396,7 +465,7 @@ class PluginLuaRuntimeService {
     });
     _setTable(state, -1, 'schedules', {
       'list': (LuaState ls) {
-        _pushJsonValue(
+        _pushHostResult(
           ls,
           functions.executeSync(
             LynAIFunctionCall(
@@ -445,7 +514,7 @@ class PluginLuaRuntimeService {
   ) {
     _setTable(state, parentIndex, tableName, {
       'list': (LuaState ls) {
-        _pushJsonValue(
+        _pushHostResult(
           ls,
           functions.executeSync(
             LynAIFunctionCall(
@@ -667,9 +736,11 @@ class PluginLuaRuntimeService {
     required ModelConfigProvider? modelConfigs,
     required PluginProvider? plugins,
     required SettingsProvider? settings,
+    required AgentCancellationToken? cancellationToken,
   }) async {
+    cancellationToken?.throwIfCancellationRequested();
     if (plugins == null) return null;
-    return LynAIFunctionService().execute(
+    final result = await LynAIFunctionService().execute(
       const LynAIFunctionCall(
         name: 'plugin.config.read',
         arguments: <String, dynamic>{},
@@ -686,8 +757,11 @@ class PluginLuaRuntimeService {
         settings: settings,
         plugins: plugins,
         plugin: plugin,
+        cancellationToken: cancellationToken,
       ),
     );
+    cancellationToken?.throwIfCancellationRequested();
+    return result;
   }
 
   void _pushJsonValue(LuaState state, Object? value) {
@@ -717,6 +791,11 @@ class PluginLuaRuntimeService {
     } else {
       state.pushString(value.toString());
     }
+  }
+
+  void _pushHostResult(LuaState state, Object? value) {
+    enforceLuaSandboxResultLimit(value);
+    _pushJsonValue(state, value);
   }
 
   Object? _readJsonValue(LuaState state, int index) {
@@ -764,8 +843,10 @@ class PluginLuaRuntimeService {
     required ModelConfigProvider? modelConfigs,
     required PluginProvider? plugins,
     required SettingsProvider? settings,
+    required AgentCancellationToken? cancellationToken,
     int depth = 0,
   }) async {
+    cancellationToken?.throwIfCancellationRequested();
     if (value is! Map) return null;
     final rawMethod = value['__lynai_function'] ?? value['__lynai_command'];
     if (rawMethod is! String) return null;
@@ -792,8 +873,11 @@ class PluginLuaRuntimeService {
         plugins: plugins,
         settings: settings,
         plugin: plugin,
+        cancellationToken: cancellationToken,
       ),
     );
+    cancellationToken?.throwIfCancellationRequested();
+    enforceLuaSandboxResultLimit(result);
     final next = (value['__lynai_next'] as String? ?? '').trim();
     if (next.isEmpty) return result;
 
@@ -807,10 +891,16 @@ class PluginLuaRuntimeService {
     _pushJsonValue(state, args);
     final status = state.pCall(3, 1, 0);
     if (status != ThreadStatus.luaOk) {
+      final budgetError = _budgetError(
+        state.lastError,
+        cancellationToken: cancellationToken,
+      );
+      if (budgetError != null) return budgetError;
       return _error('Lua continuation 执行失败: ${_popError(state, status)}');
     }
     final nextResult = _readJsonValue(state, -1);
     state.pop(1);
+    enforceLuaSandboxResultLimit(nextResult);
     final commandResult = await _executeCommand(
       nextResult,
       state: state,
@@ -822,6 +912,7 @@ class PluginLuaRuntimeService {
       modelConfigs: modelConfigs,
       plugins: plugins,
       settings: settings,
+      cancellationToken: cancellationToken,
       depth: depth + 1,
     );
     if (commandResult != null) return commandResult;
@@ -841,4 +932,33 @@ class PluginLuaRuntimeService {
     'ok': false,
     'error': message,
   };
+
+  static const _deadlineReason = AgentCancellationReason(
+    code: 'deadline_exceeded',
+    message: 'Tool execution deadline exceeded',
+  );
+
+  Map<String, dynamic>? _budgetError(
+    Object? error, {
+    AgentCancellationToken? cancellationToken,
+  }) {
+    if (error is AgentCancellationException) {
+      return {
+        'ok': false,
+        'error': error.reason.message,
+        'errorCode': error.reason.code,
+      };
+    }
+    final code = luaSandboxErrorCode(error);
+    if (code == null) return null;
+    final reason = cancellationToken?.reason;
+    if (code == 'cancelled' && reason != null) {
+      return {'ok': false, 'error': reason.message, 'errorCode': reason.code};
+    }
+    return {
+      'ok': false,
+      'error': luaSandboxErrorMessage(code),
+      'errorCode': code,
+    };
+  }
 }

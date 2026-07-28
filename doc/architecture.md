@@ -168,7 +168,9 @@ storage_v2 中的资源注册表使用 content-addressed blob 路径。对话附
 
 规范工具使用 `tasks.*`、`calendar.*` 和 `anniversaries.*` 读取或修改 `TaskProvider`/`CalendarProvider`；`todos.*` 和 `schedules.*` 只是已发布兼容别名，仍写入规范 Provider。权限 ID 继续复用 `todos:*` 和 `schedules:*`，避免破坏插件授权。工具也可修改笔记或调用 Android 平台能力，应只在可信模型和可信对话中启用。
 
-动态工具统一注册到 `AgentToolRegistry`。MCP 连接会把远端工具命名为 `mcp_<server>_<tool>`；主对话与悬浮聊天在模型请求开始前取得 schema snapshot。该 snapshot 不受后续注册表变化影响，但当前兼容执行器仍从实时 registry 查找 handler，因此服务断开或工具刷新后，已暴露名称可能在执行时返回未知工具；不能把当前行为描述为整次 run 的完全 handler pinning。MCP 细节见 [MCP](mcp.md)。
+动态工具统一注册到 `AgentToolRegistry`。MCP Provider、插件工具与 tool source 共用 `AgentToolNameCodec`，按 source、server/plugin ID 和远端工具名生成长度有界的 `tool_v1_*` canonical name。`ToolCallService.createRunSnapshot()` 在 Run 开始时捕获 descriptor、handler、并发语义和权限快照；模型暴露与后续执行都使用这份不可变 Run snapshot，注册表刷新、断连或插件更新不会把已捕获调用重新绑定到新实现。MCP 细节见 [MCP](mcp.md)。
+
+模型来源的终态工具结果统一经过 `AgentToolExecutionService` 的 runtime-level sanitizer，再进入持久化和模型上下文。sanitizer 负责 bounded JSON、安全元数据和 Resource/Blob offload；页面、插件和 MCP handler 不各自承担最终结果清洗，也不得绕过该运行时边界传递原始二进制或本地路径。
 
 ## 任务与日历链路
 

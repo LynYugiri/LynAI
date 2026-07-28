@@ -10,7 +10,7 @@ import 'package:lynai/services/storage_v2_upgrade_service.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 void main() {
-  test('schema 21 migrates to local-only Agent schema 22', () async {
+  test('schema 21 migrates Agent tables and permission policy index', () async {
     final root = await Directory.systemTemp.createTemp('lynai_agent_schema_');
     final storageRoot = Directory('${root.path}/storage_v2');
     await storageRoot.create(recursive: true);
@@ -40,7 +40,7 @@ void main() {
       await reopened.close();
       final migrated = sqlite3.open('${storageRoot.path}/app.db');
       try {
-        expect(migrated.userVersion, 22);
+        expect(migrated.userVersion, 23);
         final tables = migrated
             .select("SELECT name FROM sqlite_master WHERE type = 'table'")
             .map((row) => row['name'])
@@ -67,6 +67,7 @@ void main() {
             'idx_items_turn_index',
             'idx_tool_calls_item',
             'idx_snapshots_run_created',
+            'idx_snapshots_permission_policy_run',
           }),
         );
       } finally {
@@ -99,6 +100,10 @@ void main() {
       final db = sqlite3.open('${root.path}/storage_v2/app.db');
       try {
         expect(db.select('SELECT * FROM runs'), hasLength(1));
+        expect(
+          db.select("SELECT * FROM snapshots WHERE kind = 'permission_policy'"),
+          hasLength(1),
+        );
         expect(db.select('SELECT * FROM sync_outbox'), isEmpty);
       } finally {
         db.close();

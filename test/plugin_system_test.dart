@@ -6,6 +6,7 @@ import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:lynai/models/conversation.dart';
+import 'package:lynai/models/agent_runtime.dart';
 import 'package:lynai/models/model_config.dart';
 import 'package:lynai/models/plugin.dart';
 import 'package:lynai/models/plugin_config_schema.dart';
@@ -15,9 +16,12 @@ import 'package:lynai/providers/plugin_provider.dart';
 import 'package:lynai/repositories/plugin_repository.dart';
 import 'package:lynai/repositories/recycle_bin_repository.dart';
 import 'package:lynai/services/agent_lua_script_service.dart';
+import 'package:lynai/services/agent_cancellation.dart';
+import 'package:lynai/services/lynai_permission_definitions.dart';
 import 'package:lynai/services/lynai_call_identity.dart';
 import 'package:lynai/services/lynai_function_service.dart';
 import 'package:lynai/services/plugin_lua_runtime_service.dart';
+import 'package:lynai/services/plugin_tool_importer.dart';
 import 'package:lynai/services/tool_call_service.dart';
 import 'package:lynai/utils/plugin_path_utils.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -711,10 +715,12 @@ end
       );
 
       final tools = ToolCallService.openAITools([plugin]);
+      final canonicalName = canonicalPluginToolName(
+        plugin.id,
+        manifest.tools.single.name,
+      );
       expect(
-        tools.any(
-          (tool) => tool['function']?['name'] == 'calc_plugin_add_numbers',
-        ),
+        tools.any((tool) => tool['function']?['name'] == canonicalName),
         isTrue,
       );
 
@@ -729,6 +735,167 @@ end
       await root.delete(recursive: true);
     }
   });
+
+  test('direct plugin cancellation prevents post-yield mutation', () async {
+    SharedPreferences.setMockInitialValues({});
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_plugin_cancel_continuation_',
+    );
+    try {
+      await File('${root.path}/main.lua').writeAsString(r'''
+function run(args)
+  return {
+    __lynai_function = "device.sleep",
+    args = { ms = 100 },
+    __lynai_next = "after_sleep"
+  }
+end
+
+function after_sleep(result, original, command_args)
+  return lynai.notes.save({ title = "late", content = "mutation" })
+end
+''');
+      final manifest = PluginManifest.fromJson({
+        'id': 'cancelled_plugin',
+        'name': 'Cancelled Plugin',
+        'entry': 'main.lua',
+        'permissions': ['device:control', 'notes:write'],
+        'tools': [
+          {
+            'name': 'run',
+            'description': 'Wait then mutate',
+            'handler': 'run',
+            'parameters': {'type': 'object'},
+          },
+        ],
+      });
+      final plugin = InstalledPlugin(
+        manifest: manifest,
+        path: root.path,
+        enabled: true,
+        grantedPermissions: const ['device:control', 'notes:write'],
+        enabledFeaturePages: const [],
+        enabledTools: const ['run'],
+      );
+      final features = FeatureProvider();
+      final cancellation = AgentCancellationSource();
+      final execution = PluginLuaRuntimeService().executeTool(
+        plugin: plugin,
+        tool: manifest.tools.single,
+        arguments: const {},
+        features: features,
+        cancellationToken: cancellation.token,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      cancellation.cancel(
+        const AgentCancellationReason(
+          code: 'user_stop',
+          message: 'User stopped the run',
+        ),
+      );
+      final result = await execution;
+
+      expect(result['ok'], isFalse);
+      expect(result['errorCode'], 'user_stop');
+      expect(features.notes, isEmpty);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test(
+    'plugin run snapshot binds canonical name, handler, and schema',
+    () async {
+      final source = await Directory.systemTemp.createTemp(
+        'lynai_plugin_snapshot_source_',
+      );
+      final installedRoot = await Directory.systemTemp.createTemp(
+        'lynai_plugin_snapshot_installed_',
+      );
+      try {
+        await File('${source.path}/main.lua').writeAsString(r'''
+function version_one(args)
+  return { ok = true, version = 1, value = args.value }
+end
+function version_two(args)
+  return { ok = true, version = 2, value = args.value }
+end
+''');
+        Future<void> writeManifest(String handler, String requiredName) {
+          return File('${source.path}/plugin.json').writeAsString(
+            jsonEncode({
+              'id': 'snapshot_plugin',
+              'name': 'Snapshot Plugin',
+              'entry': 'main.lua',
+              'tools': [
+                {
+                  'name': 'lookup',
+                  'description': 'Lookup',
+                  'handler': handler,
+                  'parameters': {
+                    'type': 'object',
+                    'properties': {
+                      requiredName: {'type': 'string'},
+                    },
+                    'required': [requiredName],
+                  },
+                },
+              ],
+            }),
+          );
+        }
+
+        await writeManifest('version_one', 'value');
+        final plugins = PluginProvider(
+          repository: PluginRepository(rootOverride: installedRoot),
+        );
+        await plugins.importDirectory(source.path);
+        await plugins.setEnabled('snapshot_plugin', true);
+        final plugin = plugins.pluginById('snapshot_plugin')!;
+        final canonicalName = canonicalPluginToolName(plugin.id, 'lookup');
+        final service = ToolCallService(
+          FeatureProvider(),
+          plugins: plugins,
+          permissionSnapshot: AgentPermissionSnapshot(
+            permissions: const [LynAIPermissions.pluginCallFunction],
+          ),
+        );
+        final snapshot = service.createRunSnapshot(
+          agentEnabled: false,
+          imageGenerationEnabled: false,
+        );
+
+        await writeManifest('version_two', 'replacement');
+        await plugins.importDirectory(source.path);
+        final result = await service.executeCapturedBatch(
+          snapshot,
+          [
+            AgentToolInvocation(
+              id: 'plugin-call',
+              name: canonicalName,
+              arguments: const {'value': 'captured'},
+            ),
+          ],
+          identity: const AgentTurnIdentity(
+            runId: 'run',
+            turnId: 'turn',
+            turnIndex: 0,
+          ),
+          cancellationToken: AgentCancellationSource().token,
+        );
+
+        expect(snapshot.tools[canonicalName], isNotNull);
+        expect(snapshot.tools['lookup'], isNull);
+        expect(result.single.isSuccess, isTrue);
+        expect((result.single.value as Map)['version'], 1);
+        expect((result.single.value as Map)['value'], 'captured');
+      } finally {
+        await source.delete(recursive: true);
+        await installedRoot.delete(recursive: true);
+      }
+    },
+  );
 
   test('Lua plugin functions are executable through runtime', () async {
     final root = await Directory.systemTemp.createTemp('lynai_lua_function_');
@@ -1217,9 +1384,11 @@ end
     final granted = locked.copyWith(grantedPermissions: const ['notes:read']);
 
     bool containsSecureTool(List<Map<String, dynamic>> tools) {
-      return tools.any(
-        (tool) => tool['function']?['name'] == 'secure_plugin_read_notes',
+      final canonicalName = canonicalPluginToolName(
+        granted.id,
+        'secure_plugin_read_notes',
       );
+      return tools.any((tool) => tool['function']?['name'] == canonicalName);
     }
 
     expect(containsSecureTool(ToolCallService.openAITools([locked])), isFalse);
@@ -2062,6 +2231,48 @@ end
       expect(result['loadMissing'], isTrue);
       expect(result['debugMissing'], isTrue);
       expect(result['collectgarbageMissing'], isTrue);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('Lua plugin runtime interrupts infinite loops', () async {
+    final root = await Directory.systemTemp.createTemp('lynai_lua_budget_');
+    try {
+      await File('${root.path}/main.lua').writeAsString(r'''
+function loop_forever(args)
+  while true do end
+end
+''');
+      final manifest = PluginManifest.fromJson({
+        'id': 'budget_plugin',
+        'name': 'Budget Plugin',
+        'entry': 'main.lua',
+        'tools': [
+          {
+            'name': 'budget_plugin_loop',
+            'description': 'Loop forever',
+            'handler': 'loop_forever',
+            'parameters': {'type': 'object'},
+          },
+        ],
+      });
+      final plugin = InstalledPlugin(
+        manifest: manifest,
+        path: root.path,
+        enabled: true,
+        grantedPermissions: const [],
+        enabledFeaturePages: const [],
+      );
+
+      final result = await PluginLuaRuntimeService().executeTool(
+        plugin: plugin,
+        tool: manifest.tools.single,
+        arguments: const {},
+      );
+
+      expect(result['ok'], isFalse);
+      expect(result['errorCode'], 'instruction_limit_exceeded');
     } finally {
       await root.delete(recursive: true);
     }

@@ -220,6 +220,12 @@ Ed25519 signature base64url:
 -Q019gyA3ngLx2w19PfpFX7FqV6X04RJrECgf2x5NJMaKj5A4h_JOcqk3ga52-EPwZFsHJas15Osk8w4ygQ-Dg
 ```
 
+### 5.3 Web 搜索
+
+`POST /search/web` 使用账号 Bearer 鉴权，不使用设备同步签名。请求必须是严格 JSON object：`query` 必填且 trim 后长度为 1..1000；`provider` 可选且只允许 `auto`、`tavily`、`searxng`；`maxResults` 可选且范围 1..10；`language` 可选且为 BCP 47 风格 tag；`timeRange` 可选且只允许 `day`、`month`、`year`。客户端不得发送 upstream URL、origin、header、API key 或 token。响应返回实际 `provider` 和统一 `results`，每项包含 `title`、HTTP(S) `url`、`snippet`，以及可选 `score`、`publishedAt`。
+
+客户端 `web_search` foundation tool 不公开 `provider` 或 `route` 参数。client/backend/auto 和客户端 Tavily/SearXNG 首选项是用户设置策略，由可信 composition 注入；模型和 Subagent 均不能覆盖。后端 `auto` 按服务端已配置 provider 顺序回退，显式 provider 不回退。未配置 provider 返回 503，上游失败、超时、无效或超大响应返回 502，响应和日志不得包含 upstream body、origin 或 secret。不存在旧 `/search`、snake_case 字段或客户端自定义 upstream 的兼容承诺。
+
 ## 6. 后续 LAN TLS 1.3 绑定
 
 LAN 连接必须使用 TLS 1.3。配对记录绑定的是 TLS 证书 `SubjectPublicKeyInfo` DER 的 SHA-256：

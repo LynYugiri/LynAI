@@ -41,7 +41,7 @@ MultiProvider(
 | `setToolEnabled()` | 把逐工具开关写入 `SecretStore` preferences，并同步共享 registry。 |
 | `testConnection()` | 断开后重新连接，以最终连接状态作为结果。 |
 
-MCP 工具注册名为 `mcp_<encodedServerId>_<encodedToolName>`，来源标为 `mcp`、副作用标为 `external`、当前并发策略为 `parallelSafe`。server 通知 `notifications/tools/list_changed` 时 Provider 重新拉取工具；名称冲突会记录错误而不覆盖非本连接持有的 registration。断开连接只移除 registration ID 仍与本连接一致的项，避免删除后来替换的工具。
+MCP 工具通过共享 `AgentToolNameCodec` 把 source、server ID 和远端名称编码为最长 64 字符的 `tool_v1_*` canonical name，来源标为 `mcp`、副作用标为 `external`、当前并发策略为 `parallelSafe`。原始 `inputSchema` 必须完整通过 `AgentJsonSchemaValidator`；Provider 会保留但不注册不兼容工具，并把具体 schema issue 写入 server error，不会通过删除 keyword 静默放宽约束。server 通知 `notifications/tools/list_changed` 时 Provider 重新拉取工具；名称冲突会记录错误而不覆盖非本连接持有的 registration。断开连接只移除 registration ID 仍与本连接一致的项，避免删除后来替换的工具。
 
 公开 server row 在 Drift；credential value、credential target、HTTP/私网许可和 enabled tool map 在 `SecretStore`。当前实现没有删除 server 的 Repository/API，也没有 MCP resources、prompts 或 sampling 状态。
 
@@ -383,3 +383,9 @@ subscriptions stop updating disposed state, the provider closes its coordinator,
 the coordinator stops hosting and closes its per-instance secret-transfer stream,
 while the globally provided mDNS service is disposed by Provider registration.
 LAN conflicts are loaded from the `lan:v1` scope and resolved through the same storage conflict engine used by cloud sync.
+## Conversation Permission Migration
+
+Startup loads `SettingsProvider` before `ConversationProvider`, then calls the
+idempotent conversation permission migration. Only settings with a missing
+snapshot version are updated, and the full conversation replacement is written
+in the existing storage transaction before normal startup continues.

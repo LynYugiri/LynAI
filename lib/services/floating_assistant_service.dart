@@ -11,14 +11,18 @@ import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/task_provider.dart';
+import '../models/agent_user_interaction.dart';
 import 'backend_client.dart';
 import 'device_control_service.dart';
 import 'device_run_controller.dart';
 import 'agent_tool_registry.dart';
 import 'agent_persistence_lifecycle.dart';
+import 'agent_user_interaction_broker.dart';
+import 'storage_v2_service.dart';
 import 'floating_assistant_bridge.dart';
 import 'floating_chat_session_controller.dart';
 import 'floating_translation_controller.dart';
+import 'web_search_service.dart';
 
 class FloatingAssistantService with WidgetsBindingObserver {
   FloatingAssistantService._();
@@ -47,6 +51,8 @@ class FloatingAssistantService with WidgetsBindingObserver {
     AgentToolRegistry? externalToolRegistry,
     AgentRunPersistenceLifecycle? persistence,
     BackendClient? backend,
+    StorageV2Service? storage,
+    WebSearchService? webSearch,
   }) {
     if (_started || !Platform.isAndroid) return;
     _started = true;
@@ -63,6 +69,8 @@ class FloatingAssistantService with WidgetsBindingObserver {
       externalToolRegistry: externalToolRegistry,
       persistence: persistence,
       backend: backend,
+      storage: storage,
+      webSearch: webSearch,
     );
     _translation = FloatingTranslationController(
       settings: settings,
@@ -135,6 +143,31 @@ class FloatingAssistantService with WidgetsBindingObserver {
       case 'stopGeneration':
         _chat?.stop();
         return {'ok': true};
+      case 'answerUserInteraction':
+        final args = _callArgs(call);
+        final requestId = args['requestId']?.toString() ?? '';
+        final answer = floatingAssistantUserAnswer(args['answer']);
+        if (answer == null) {
+          return {'ok': false, 'error': '回答格式无效'};
+        }
+        final status = _chat?.answerUserInteraction(
+          requestId: requestId,
+          answer: answer,
+        );
+        return {
+          'ok': status == AgentUserInteractionResponseStatus.accepted,
+          'status': status?.name ?? 'unavailable',
+        };
+      case 'cancelUserInteraction':
+        final args = _callArgs(call);
+        final status = _chat?.cancelUserInteraction(
+          requestId: args['requestId']?.toString() ?? '',
+          reason: 'user_cancelled',
+        );
+        return {
+          'ok': status == AgentUserInteractionResponseStatus.accepted,
+          'status': status?.name ?? 'unavailable',
+        };
       case 'newConversation':
         _chat?.startNewConversation();
         return {'ok': true};
@@ -389,6 +422,32 @@ class FloatingAssistantService with WidgetsBindingObserver {
     final arguments = call.arguments;
     if (arguments is Map) return Map<String, dynamic>.from(arguments);
     return const {};
+  }
+}
+
+@visibleForTesting
+AgentUserAnswer? floatingAssistantUserAnswer(Object? value) {
+  if (value is! Map) return null;
+  final answer = Map<String, dynamic>.from(value);
+  switch (answer['kind']?.toString()) {
+    case 'text':
+      final text = answer['text'];
+      return text is String ? AgentUserAnswer.text(text) : null;
+    case 'confirm':
+      final confirmed = answer['confirmed'];
+      return confirmed is bool ? AgentUserAnswer.confirm(confirmed) : null;
+    case 'singleChoice':
+      final ids = answer['choiceIds'];
+      return ids is List && ids.length == 1 && ids.single is String
+          ? AgentUserAnswer.singleChoice(ids.single as String)
+          : null;
+    case 'multipleChoice':
+      final ids = answer['choiceIds'];
+      return ids is List && ids.every((id) => id is String)
+          ? AgentUserAnswer.multipleChoice(ids.cast<String>())
+          : null;
+    default:
+      return null;
   }
 }
 

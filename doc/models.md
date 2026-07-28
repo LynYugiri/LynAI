@@ -16,6 +16,14 @@
 
 `CommunityUser`、`CommunityMedia`、`CommunityPost` 和 `CommunityComment` 描述远端社区数据；`CommunityPageResult` 表达分页结果。解析同时容忍常见 camelCase/snake_case 字段和字符串/整数 ID，模型不负责网络或页面状态。
 
+## Web Search
+
+文件：`lib/models/web_search.dart`
+
+`WebSearchRequest` 是 provider 无关的公开输入，只包含定长 query、1-10 的结果上限、可选 BCP 47 风格语言标签和 `day`/`month`/`year` 时间范围，不包含 URL、header 或 credential。`WebSearchRoute` 区分 `client`、`backend` 和 `auto`，`WebSearchClientProvider` 只允许已实现的 Tavily/SearXNG 选择。`WebSearchResult` 统一标题、HTTP(S) URL、摘要、可选 score 和发布时间；`WebSearchResponse` 记录实际使用的 provider/route 和规范化结果。provider endpoint 和 secret 属于服务层可信配置，不进入这些模型。
+
+`AppSettings` 保存新对话默认的 `agentEnabledByDefault`、权限列表、网页搜索 route、客户端首选 provider、非秘密 SearXNG endpoint，以及默认关闭的 SearXNG HTTP 精确-origin 明文授权。每个 `ConversationSettings` 在创建时复制 Agent enabled 和权限；之后设置页改默认值不会改写历史对话，当前对话设置弹窗只编辑该对话快照。Tavily key 和 SearXNG bearer token 不属于 `AppSettings`。
+
 ## Message 与附件
 
 文件：`lib/models/message.dart`
@@ -353,3 +361,11 @@ storage_v2 的数据库行、笔记分页和资源注册表定义在 `lib/servic
 - `LanPairingSession` stores a short-lived, atomically consumed pairing nonce.
 - `LanPairingPayload` is the versioned QR contract containing device ID/public
   key, signed SPKI binding, addresses, port, expiry, and one-time nonce.
+## Conversation Permission Snapshots
+
+`ConversationSettings` serializes an explicit permission snapshot version and
+the complete Agent permission list, including an empty list. New conversations
+copy the current global defaults. Conversations written before the version
+field existed are marked as legacy while decoding and receive the then-current
+global defaults once during startup migration; later global changes do not
+rewrite that conversation snapshot.

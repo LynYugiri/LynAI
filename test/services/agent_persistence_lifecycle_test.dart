@@ -7,8 +7,10 @@ import 'package:lynai/models/agent_runtime.dart';
 import 'package:lynai/repositories/agent_persistence_repository.dart';
 import 'package:lynai/services/agent_loop_runtime.dart';
 import 'package:lynai/services/agent_persistence_lifecycle.dart';
+import 'package:lynai/services/agent_tool_result_sanitizer.dart';
 import 'package:lynai/services/storage_v2_service.dart';
 import 'package:lynai/services/storage_v2_upgrade_service.dart';
+import 'package:lynai/services/lynai_permission_definitions.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 void main() {
@@ -25,7 +27,12 @@ void main() {
       storage = StorageV2Service(rootDirectory: root);
       await StorageV2UpgradeService(storageV2: storage).ensureReady();
       repository = AgentPersistenceRepository(storage);
-      persistence = RepositoryAgentRunPersistenceLifecycle(repository);
+      persistence = RepositoryAgentRunPersistenceLifecycle(
+        repository,
+        toolResultProcessor: SanitizingAgentToolResultProcessor(
+          AgentToolResultSanitizer.storageV2(storage),
+        ),
+      );
     });
 
     tearDown(() async {
@@ -38,11 +45,14 @@ void main() {
           .start(
             runId: 'text-run',
             persistence: persistence,
-            persistenceMetadata: const AgentRunPersistenceMetadata(
+            persistenceMetadata: AgentRunPersistenceMetadata(
               conversationId: 'conversation',
               parentRunId: 'parent-run',
               parentTurnId: 'parent-turn',
               parentToolCallId: 'parent-call',
+              permissionPolicy: AgentPermissionSnapshot(
+                permissions: [LynAIPermissions.notesRead],
+              ),
             ),
             messages: const [
               {'role': 'user', 'content': 'hello'},
@@ -74,12 +84,23 @@ void main() {
           'role': 'assistant',
           'content': 'answer',
         });
-        final snapshot = db.select('SELECT * FROM snapshots').single;
+        final snapshots = db.select('SELECT * FROM snapshots');
+        expect(snapshots, hasLength(2));
+        final snapshot = snapshots.singleWhere(
+          (row) => row['kind'] == 'parent_run',
+        );
         expect(snapshot['kind'], 'parent_run');
         expect(jsonDecode(snapshot['data_json'] as String), {
           'runId': 'parent-run',
           'turnId': 'parent-turn',
           'toolCallId': 'parent-call',
+        });
+        final policy = snapshots.singleWhere(
+          (row) => row['kind'] == 'permission_policy',
+        );
+        expect(jsonDecode(policy['data_json'] as String), {
+          'version': AgentPermissionSnapshot.currentVersion,
+          'permissions': [LynAIPermissions.notesRead],
         });
       } finally {
         db.close();
@@ -156,6 +177,62 @@ void main() {
         db.close();
       }
     });
+
+    test(
+      'sanitizes raw results before persistence and model continuation',
+      () async {
+        final requests = <AgentModelTurnRequest>[];
+        final result = await const AgentLoopRuntime()
+            .start(
+              runId: 'sanitized-tool-run',
+              persistence: persistence,
+              messages: const [],
+              maxToolRounds: 1,
+              model: (request) async* {
+                requests.add(request);
+                if (request.identity.turnIndex == 0) {
+                  yield AgentModelToolCalls([
+                    AgentToolInvocation(id: 'raw-call', name: 'lookup'),
+                  ]);
+                } else {
+                  yield const AgentModelTextDelta('done');
+                }
+                yield const AgentModelStreamCompleted();
+              },
+              executeTools: (calls, identity, cancellation) async => [
+                AgentToolResult.success(
+                  invocationId: calls.single.id,
+                  toolName: calls.single.name,
+                  value: const {
+                    'password': 'raw-secret',
+                    'path': '/home/person/private.txt',
+                  },
+                ),
+              ],
+            )
+            .result;
+
+        expect(result.status, AgentRunStatus.completed);
+        final toolMessage = requests.last.messages.singleWhere(
+          (message) => message['role'] == 'tool',
+        );
+        final modelResult = jsonDecode(toolMessage['content'] as String);
+        expect(modelResult['password'], '[REDACTED]');
+        expect(modelResult['path'], '[REDACTED_PATH]');
+
+        final db = await _openRaw(storage, root);
+        try {
+          final call = db.select('SELECT result_json FROM tool_calls').single;
+          final persisted = jsonDecode(call['result_json'] as String);
+          expect(persisted['value']['password'], '[REDACTED]');
+          expect(persisted['value']['path'], '[REDACTED_PATH]');
+          expect(call['result_json'], isNot(contains('raw-secret')));
+          expect(call['result_json'], isNot(contains('/home/person')));
+        } finally {
+          db.close();
+        }
+      },
+    );
 
     test('cancellation terminalizes the active durable graph once', () async {
       final model = StreamController<AgentModelStreamEvent>();

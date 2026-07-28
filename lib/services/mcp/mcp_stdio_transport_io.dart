@@ -45,7 +45,10 @@ class _UnsupportedIoMcpStdioTransport implements McpTransport {
   Future<void> start() => Future.error(_error);
 
   @override
-  Future<void> send(Map<String, dynamic> message) => Future.error(_error);
+  Future<void> send(
+    Map<String, dynamic> message, {
+    McpTransportCancellation? cancellation,
+  }) => Future.error(_error);
 
   @override
   Future<void> dispose() async {}
@@ -118,10 +121,14 @@ class _McpStdioTransport implements McpTransport {
   }
 
   @override
-  Future<void> send(Map<String, dynamic> message) async {
+  Future<void> send(
+    Map<String, dynamic> message, {
+    McpTransportCancellation? cancellation,
+  }) async {
     if (_disposed || _process == null) {
       throw const McpTransportException('MCP stdio process is not running');
     }
+    cancellation?.throwIfCancelled();
     _process!.write([...encodeMcpMessage(message, config.maxMessageBytes), 10]);
   }
 

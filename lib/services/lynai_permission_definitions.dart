@@ -1,5 +1,33 @@
 enum LynAIPermissionRisk { normal, elevated }
 
+final class AgentPermissionSnapshot {
+  static const currentVersion = 1;
+
+  AgentPermissionSnapshot({
+    this.version = currentVersion,
+    required Iterable<String> permissions,
+  }) : permissions = List.unmodifiable(permissions);
+
+  factory AgentPermissionSnapshot.fromJson(Map<String, dynamic> json) {
+    return AgentPermissionSnapshot(
+      version: (json['version'] as num?)?.toInt() ?? currentVersion,
+      permissions: (json['permissions'] as List<dynamic>? ?? const [])
+          .map((item) => item.toString())
+          .where((item) => item.isNotEmpty),
+    );
+  }
+
+  final int version;
+  final List<String> permissions;
+
+  bool contains(String permission) => permissions.contains(permission);
+
+  Map<String, dynamic> toJson() => {
+    'version': version,
+    'permissions': permissions,
+  };
+}
+
 class LynAIPermissions {
   static const luaExecute = 'lua.execute';
   static const pluginCallFunction = 'plugins.callFunction';
@@ -11,6 +39,7 @@ class LynAIPermissions {
   static const schedulesRead = 'schedules:read';
   static const schedulesWrite = 'schedules:write';
   static const filesWrite = 'files:write';
+  static const pluginSkillFilesWrite = 'plugins.skills.files:write';
   static const storageRead = 'storage:read';
   static const storageWrite = 'storage:write';
   static const recycleBinRead = 'recycleBin:read';
@@ -36,6 +65,8 @@ class LynAIPermissions {
     todosWrite,
     schedulesRead,
     schedulesWrite,
+    pluginSkillFilesWrite,
+    storageRead,
     networkAccess,
     modelChat,
     modelOcr,
@@ -113,6 +144,17 @@ const lynaiPermissionDefinitions = <LynAIPermissionDefinition>[
     title: '修改日程',
     description: '允许创建和修改日程；删除暂不开放给 Agent。',
     risk: LynAIPermissionRisk.elevated,
+  ),
+  LynAIPermissionDefinition(
+    id: LynAIPermissions.pluginSkillFilesWrite,
+    title: '修改插件 Skill 文件',
+    description: '允许 Agent 写入插件清单中声明为可编辑的 Skill Markdown 文件。',
+    risk: LynAIPermissionRisk.elevated,
+  ),
+  LynAIPermissionDefinition(
+    id: LynAIPermissions.storageRead,
+    title: '读取对话附件',
+    description: '允许 Agent 通过稳定资源 ID 读取当前设备上的对话附件和资源元数据。',
   ),
   LynAIPermissionDefinition(
     id: LynAIPermissions.networkAccess,

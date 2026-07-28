@@ -203,6 +203,8 @@ HomePage
 | 关于 | `about_page.dart` | 应用信息、项目链接、许可证和更新日志入口。 |
 | 背景 | `background_page.dart` | 背景图、清除背景、模糊开关和强度。 |
 | API | `api_models_page.dart` | 模型配置分类、编辑、排序和模型拉取。 |
+| 网页搜索 | `web_search_settings_page.dart` | 管理 client/backend/auto 路由、Tavily/SearXNG 首选项和 SearXNG endpoint；Tavily key 与 SearXNG bearer token 只写入 `SecretStore`。SearXNG HTTP 必须显式勾选精确 origin 明文授权，保存 Bearer token 时再次显示明文确认。 |
+| 新对话 Agent 默认值 | `agent_defaults_settings_page.dart` | 控制之后创建的主聊天和悬浮聊天是否默认启用 Agent 及其权限。历史对话不随默认值变化；对话设置弹窗只编辑当前对话快照。 |
 | 悬浮窗 | `floating_assistant_settings_page.dart` | Android 系统悬浮助手设置。原生面板分为 Chat、Translation、Agent；翻译支持一次翻译和停止滚动后自动翻译，Agent 模式展示运行状态与完整 Plan。 |
 | 翻译历史 | `translation_history_page.dart` | 浏览悬浮窗屏幕翻译历史记录（时间/原文/译文/应用包名），长按复制、一键清空。 |
 | 主题 | `theme_page.dart` | 预设色、HSV 调色板、浅色/深色/跟随系统。 |

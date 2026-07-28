@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/agent_runtime.dart';
 import 'package:lynai/models/agent_trace.dart';
+import 'package:lynai/models/agent_user_interaction.dart';
 import 'package:lynai/models/app_settings.dart';
 import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/message.dart';
@@ -23,11 +24,14 @@ import 'package:lynai/services/agent_cancellation.dart';
 import 'package:lynai/services/agent_loop_runtime.dart';
 import 'package:lynai/services/agent_protocol_codec.dart';
 import 'package:lynai/services/agent_tool_registry.dart';
+import 'package:lynai/services/agent_user_interaction_broker.dart';
+import 'package:lynai/services/bounded_outbound_http_client.dart';
 import 'package:lynai/services/floating_chat_session_controller.dart';
 import 'package:lynai/services/lynai_call_identity.dart';
 import 'package:lynai/services/lynai_function_service.dart';
 import 'package:lynai/services/lynai_permission_definitions.dart';
 import 'package:lynai/services/lynai_permission_service.dart';
+import 'package:lynai/services/outbound_network_policy.dart';
 import 'package:lynai/services/storage_v2_service.dart';
 import 'package:lynai/services/storage_v2_upgrade_service.dart';
 import 'package:lynai/services/tool_call_service.dart';
@@ -134,7 +138,10 @@ void main() {
         final features = FeatureProvider(storageV2: storage);
         await features.load();
         await features.addNoteWithContent('secret', 'private body');
-        final service = ToolCallService(features);
+        final service = ToolCallService(
+          features,
+          agentIdentity: const LynAICallIdentity(type: LynAICallerType.system),
+        );
 
         final blocked = await service.execute(
           const ChatToolCall(
@@ -172,7 +179,10 @@ void main() {
       final features = FeatureProvider(storageV2: storage);
       await features.load();
       final noteId = await features.addNoteWithContent('note', 'body');
-      final service = ToolCallService(features);
+      final service = ToolCallService(
+        features,
+        agentIdentity: const LynAICallIdentity(type: LynAICallerType.system),
+      );
       final secondPage = await features.addNotePage(noteId, 'second');
       expect(secondPage, isNotNull);
       final initialPageIds = features
@@ -221,18 +231,20 @@ void main() {
       expect(baseNames, contains('list_plugin_functions'));
       expect(baseNames, contains('list_plugin_skills'));
       expect(baseNames, contains('load_plugin_skill'));
-      expect(baseNames, contains('save_plugin_skill'));
+      expect(baseNames, isNot(contains('save_plugin_skill')));
       expect(baseNames, contains('run_subagent'));
       expect(baseNames, isNot(contains('call_plugin_function')));
 
       final grantedTools = ToolCallService.openAITools(const [], true, const [
         LynAICapabilities.pluginCallFunction,
+        LynAIPermissions.pluginSkillFilesWrite,
       ]);
       final grantedNames = grantedTools
           .map((tool) => tool['function']?['name'])
           .whereType<String>()
           .toSet();
       expect(grantedNames, contains('call_plugin_function'));
+      expect(grantedNames, contains('save_plugin_skill'));
     },
   );
 
@@ -247,6 +259,120 @@ void main() {
     expect(webFetch['parameters'], isA<Map>());
     expect((webFetch['parameters'] as Map)['required'], contains('url'));
   });
+
+  test('foundation catalog has exactly four logical names', () {
+    final service = ToolCallService(
+      FeatureProvider(),
+      permissionSnapshot: AgentPermissionSnapshot(
+        permissions: const [
+          LynAIPermissions.networkAccess,
+          LynAIPermissions.storageRead,
+        ],
+      ),
+    );
+    final snapshot = service.createRunSnapshot(
+      agentEnabled: true,
+      imageGenerationEnabled: false,
+    );
+    final foundation = snapshot.tools.registrations
+        .map((registration) => registration.descriptor.name)
+        .where(
+          const {
+            'ask_user',
+            'web_search',
+            'read_attachment',
+            'resource',
+            'resource_metadata',
+            'resource_search',
+            'resource_read_text',
+            'resource_recognize',
+          }.contains,
+        )
+        .toSet();
+
+    expect(foundation, {
+      'ask_user',
+      'web_search',
+      'read_attachment',
+      'resource',
+    });
+    final resource = snapshot.tools['resource']!;
+    expect(resource.descriptor.parameters['required'], contains('operation'));
+    final webProperties =
+        snapshot.tools['web_search']!.descriptor.parameters['properties']
+            as Map<String, dynamic>;
+    expect(webProperties, isNot(contains('route')));
+    expect(webProperties, isNot(contains('provider')));
+  });
+
+  test(
+    'ask_user run cancellation removes only its exact broker request',
+    () async {
+      final broker = AgentUserInteractionBroker();
+      final service = ToolCallService(
+        FeatureProvider(),
+        userInteractionBroker: broker,
+      );
+      final snapshot = service.createRunSnapshot(
+        agentEnabled: true,
+        imageGenerationEnabled: false,
+      );
+      final cancellation = AgentCancellationSource();
+      final execution = service.executeCapturedBatch(
+        snapshot,
+        [
+          AgentToolInvocation(
+            id: 'ask-cancelled',
+            name: 'ask_user',
+            arguments: const {'kind': 'confirm', 'prompt': 'Continue?'},
+          ),
+        ],
+        identity: const AgentTurnIdentity(
+          runId: 'run-cancelled',
+          turnId: 'turn-cancelled',
+          turnIndex: 0,
+        ),
+        cancellationToken: cancellation.token,
+      );
+      for (var i = 0; i < 100; i++) {
+        if (broker.pendingFor(AgentUserInteractionSurface.mainChat) != null) {
+          break;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+      expect(
+        broker.pendingFor(AgentUserInteractionSurface.mainChat),
+        isNotNull,
+      );
+
+      cancellation.cancel();
+      await execution;
+
+      expect(broker.pendingFor(AgentUserInteractionSurface.mainChat), isNull);
+      final next = broker.ask(
+        surface: AgentUserInteractionSurface.mainChat,
+        identity: const AgentUserInteractionIdentity(
+          runId: 'next-run',
+          turnId: 'next-turn',
+          toolCallId: 'next-call',
+          toolName: 'ask_user',
+        ),
+        question: AgentUserQuestion(
+          kind: AgentUserQuestionKind.confirm,
+          prompt: 'Next?',
+        ),
+      );
+      final nextRequest = broker.pendingFor(
+        AgentUserInteractionSurface.mainChat,
+      )!;
+      broker.cancel(
+        surface: AgentUserInteractionSurface.mainChat,
+        requestId: nextRequest.id,
+      );
+      await next;
+      broker.dispose();
+    },
+  );
 
   test('canonical organizer tools and legacy aliases are exposed', () {
     final tools = ToolCallService.openAITools();
@@ -328,6 +454,7 @@ void main() {
           features,
           tasks: tasks,
           calendar: calendar,
+          agentIdentity: const LynAICallIdentity(type: LynAICallerType.system),
         );
 
         final created = await service.execute(
@@ -397,6 +524,124 @@ void main() {
     },
   );
 
+  test('Agent semantic delete variants fail closed before mutation', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_semantic_delete_',
+    );
+    try {
+      final storage = await _readyStorageV2(root);
+      final features = FeatureProvider(storageV2: storage);
+      final tasks = TaskProvider(storageV2: storage);
+      await Future.wait([features.load(), tasks.load()]);
+      final noteId = await features.addNoteWithContent('note', 'body');
+      final pageId = await features.addNotePage(noteId, 'second');
+      final folderId = await features.addNoteFolder('folder');
+      final listId = await tasks.addList('list');
+      final firstItemId = await tasks.addTask(title: 'first', listId: listId);
+      final secondItemId = await tasks.addTask(title: 'second', listId: listId);
+      final service = LynAIFunctionService();
+      final context = LynAIFunctionContext(
+        identity: const LynAICallIdentity(type: LynAICallerType.agent),
+        agentPermissionSnapshot: AgentPermissionSnapshot(
+          permissions: const [
+            LynAIPermissions.notesWrite,
+            LynAIPermissions.todosWrite,
+          ],
+        ),
+        features: features,
+        tasks: tasks,
+      );
+
+      for (final call in [
+        LynAIFunctionCall(
+          name: 'notes.pages.save',
+          arguments: {'id': noteId, 'pageId': pageId, 'delete': true},
+        ),
+        LynAIFunctionCall(
+          name: 'notes.folders.save',
+          arguments: {'id': folderId, 'delete': true},
+        ),
+        LynAIFunctionCall(
+          name: 'todos.saveItem',
+          arguments: {'listId': listId, 'itemId': firstItemId, 'delete': true},
+        ),
+        LynAIFunctionCall(
+          name: 'todos.saveList',
+          arguments: {
+            'id': listId,
+            'items': [
+              {'id': firstItemId, 'text': 'first'},
+            ],
+          },
+        ),
+      ]) {
+        final result = await service.execute(call, context);
+        expect(result['ok'], isFalse, reason: call.name);
+        expect(result['error'].toString(), contains('删除操作'));
+      }
+
+      expect(
+        features.notePages(noteId).map((page) => page.id),
+        contains(pageId),
+      );
+      expect(features.getNoteFolder(folderId), isNotNull);
+      expect(tasks.taskById(firstItemId), isNotNull);
+      expect(tasks.taskById(secondItemId), isNotNull);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('http.fetch uses bounded SSRF policy', () async {
+    final result = await LynAIFunctionService().execute(
+      const LynAIFunctionCall(
+        name: 'http.fetch',
+        arguments: {'url': 'http://127.0.0.1/private'},
+      ),
+      LynAIFunctionContext(
+        identity: const LynAICallIdentity(type: LynAICallerType.agent),
+        agentPermissionSnapshot: AgentPermissionSnapshot(
+          permissions: const [LynAIPermissions.networkAccess],
+        ),
+        outboundHttpClient: BoundedOutboundHttpClient(
+          policy: OutboundNetworkPolicy(
+            allowedHttpOrigins: const {'http://127.0.0.1'},
+          ),
+        ),
+      ),
+    );
+
+    expect(result['ok'], isFalse);
+    expect(result['error'].toString(), contains('默认仅允许 HTTPS'));
+  });
+
+  test(
+    'http.fetch plaintext opt-in is explicit and still policy bounded',
+    () async {
+      final result = await LynAIFunctionService().execute(
+        const LynAIFunctionCall(
+          name: 'http.fetch',
+          arguments: {'url': 'http://127.0.0.1/private'},
+        ),
+        LynAIFunctionContext(
+          identity: const LynAICallIdentity(type: LynAICallerType.agent),
+          agentPermissionSnapshot: AgentPermissionSnapshot(
+            permissions: const [LynAIPermissions.networkAccess],
+          ),
+          outboundHttpClient: BoundedOutboundHttpClient(
+            policy: OutboundNetworkPolicy(
+              allowedHttpOrigins: const {'http://127.0.0.1'},
+            ),
+          ),
+          allowPlaintextHttpFetch: true,
+        ),
+      );
+
+      expect(result['ok'], isFalse);
+      expect(result['error'].toString(), contains('privateHost'));
+    },
+  );
+
   test('call identity children preserve Agent correlation', () {
     const identity = LynAICallIdentity(
       type: LynAICallerType.agent,
@@ -421,7 +666,7 @@ void main() {
   });
 
   test(
-    'Agent tool dispatch uses Agent permissions while ordinary chat stays system',
+    'model-reachable direct dispatch fails closed without explicit trusted identity',
     () async {
       SharedPreferences.setMockInitialValues({});
       final settings = memorySettingsProvider();
@@ -454,6 +699,7 @@ void main() {
       final ordinaryResult = await ToolCallService(
         features,
         settings: settings,
+        agentIdentity: const LynAICallIdentity(type: LynAICallerType.system),
       ).execute(call, const []);
       final agentOpenApp =
           await ToolCallService(
@@ -476,6 +722,15 @@ void main() {
         contains(LynAIPermissions.notesRead),
       );
       expect(ordinaryResult['ok'], isTrue);
+      final missingIdentity = await ToolCallService(
+        features,
+        settings: settings,
+      ).execute(call, const []);
+      expect(missingIdentity['ok'], isFalse);
+      expect(
+        missingIdentity['error'].toString(),
+        contains(LynAIPermissions.notesRead),
+      );
       expect(agentOpenApp['ok'], isFalse);
       expect(
         agentOpenApp['error'].toString(),
@@ -594,6 +849,60 @@ void main() {
     },
   );
 
+  test(
+    'run snapshot is permission-filtered and keeps captured MCP handler',
+    () async {
+      final registry = AgentToolRegistry();
+      registry.register(
+        AgentToolDescriptor(
+          name: 'mcp_snapshot_lookup',
+          description: 'Snapshot MCP',
+          source: AgentToolSource.mcp,
+          sideEffect: AgentToolSideEffect.external,
+          concurrency: AgentToolConcurrency.parallelSafe,
+        ),
+        (invocation, cancellationToken) async => {'version': 1},
+      );
+      final service = ToolCallService(
+        FeatureProvider(),
+        externalToolSnapshot: registry.snapshot(),
+        permissionSnapshot: AgentPermissionSnapshot(
+          permissions: const [LynAIPermissions.networkAccess],
+        ),
+      );
+      final snapshot = service.createRunSnapshot(
+        agentEnabled: false,
+        imageGenerationEnabled: false,
+      );
+      registry.register(
+        AgentToolDescriptor(
+          name: 'mcp_snapshot_lookup',
+          description: 'Replacement MCP',
+          source: AgentToolSource.mcp,
+          sideEffect: AgentToolSideEffect.external,
+          concurrency: AgentToolConcurrency.parallelSafe,
+        ),
+        (invocation, cancellationToken) async => {'version': 2},
+      );
+      final cancellation = AgentCancellationSource();
+      final results = await service.executeCapturedBatch(
+        snapshot,
+        [AgentToolInvocation(id: 'mcp', name: 'mcp_snapshot_lookup')],
+        identity: const AgentTurnIdentity(
+          runId: 'run',
+          turnId: 'turn',
+          turnIndex: 0,
+        ),
+        cancellationToken: cancellation.token,
+      );
+
+      expect(snapshot.tools['web_search'], isNotNull);
+      expect(snapshot.tools['list_notes'], isNull);
+      expect(snapshot.tools['mcp_snapshot_lookup'], isNotNull);
+      expect((results.single.value as Map)['version'], 1);
+    },
+  );
+
   test('get_current_screen is exposed only for floating screen context', () {
     final regularTools = ToolCallService.openAITools();
     final floatingTools = ToolCallService.openAITools(
@@ -704,7 +1013,17 @@ void main() {
           await request.response.close();
         });
 
-        final service = ToolCallService(FeatureProvider());
+        final service = ToolCallService(
+          FeatureProvider(),
+          agentIdentity: const LynAICallIdentity(type: LynAICallerType.system),
+          outboundHttpClient: BoundedOutboundHttpClient(
+            policy: OutboundNetworkPolicy(
+              allowedHttpOrigins: {'http://127.0.0.1:${server!.port}'},
+              allowPrivateNetwork: true,
+            ),
+          ),
+          allowPlaintextHttpFetch: true,
+        );
         final result = await service.execute(
           ChatToolCall(
             id: 'fetch-local',
@@ -859,7 +1178,7 @@ void main() {
     );
     expect(
       settings.agentGrantedPermissions,
-      contains(LynAIPermissions.deviceControl),
+      isNot(contains(LynAIPermissions.deviceControl)),
     );
     expect(
       settings.agentGrantedPermissions,
@@ -1022,7 +1341,11 @@ void main() {
     try {
       final conversations = memoryConversationProvider();
       final cid = conversations.createConversation(
-        ConversationSettings(modelId: 'chat-1', agentEnabled: true),
+        ConversationSettings(
+          modelId: 'chat-1',
+          agentEnabled: true,
+          agentGrantedPermissions: const [LynAIPermissions.luaExecute],
+        ),
       );
       conversations.addMessage(cid, 'user', 'draw a cat');
       conversations.addMessage(cid, 'assistant', '', save: false);
@@ -1037,6 +1360,14 @@ void main() {
         settings: settings,
         conversations: conversations,
         conversationId: cid,
+        agentIdentity: const LynAICallIdentity(
+          type: LynAICallerType.agent,
+          runId: 'run-lua-image',
+          turnId: 'turn-lua-image',
+        ),
+        permissionSnapshot: AgentPermissionSnapshot(
+          permissions: const [LynAIPermissions.luaExecute],
+        ),
       );
 
       final result = await service.execute(
@@ -1062,6 +1393,7 @@ return {
           },
         ),
         const [],
+        cancellationToken: AgentCancellationSource().token,
       );
 
       expect(result['ok'], isTrue);

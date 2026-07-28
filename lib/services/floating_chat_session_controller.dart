@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/chat_role.dart';
 import '../models/agent_runtime.dart';
+import '../models/agent_user_interaction.dart';
 import '../models/app_settings.dart';
 import '../models/conversation.dart';
 import '../models/message.dart';
@@ -20,9 +21,13 @@ import 'api_service.dart';
 import 'agent_loop_runtime.dart';
 import 'agent_persistence_lifecycle.dart';
 import 'agent_tool_registry.dart';
+import 'agent_tool_result_sanitizer.dart';
+import 'agent_user_interaction_broker.dart';
 import 'backend_client.dart';
 import 'stream_chunk_agent_adapter.dart';
+import 'storage_v2_service.dart';
 import 'tool_call_service.dart';
+import 'web_search_service.dart';
 
 class FloatingChatSessionController extends ChangeNotifier {
   FloatingChatSessionController({
@@ -35,7 +40,10 @@ class FloatingChatSessionController extends ChangeNotifier {
     required PluginProvider plugins,
     AgentToolRegistry? externalToolRegistry,
     AgentRunPersistenceLifecycle? persistence,
+    AgentUserInteractionBroker? userInteractionBroker,
+    StorageV2Service? storage,
     BackendClient? backend,
+    WebSearchService? webSearch,
     ApiService? api,
   }) : _settings = settings,
        _conversations = conversations,
@@ -46,12 +54,18 @@ class FloatingChatSessionController extends ChangeNotifier {
        _plugins = plugins,
        _externalToolRegistry = externalToolRegistry,
        _persistence = persistence,
+       _userInteractionBroker =
+           userInteractionBroker ?? AgentUserInteractionBroker(),
+       _ownsUserInteractionBroker = userInteractionBroker == null,
        _api = api ?? ApiService(backend: backend),
        _ownsApi = api == null,
-       _backend = backend;
+       _backend = backend {
+    _storage = storage;
+    _webSearch = webSearch;
+    _userInteractionBroker.addListener(_onUserInteractionChanged);
+  }
 
   static const _emptyAssistantReply = '模型没有返回内容，请稍后重试或检查模型配置。';
-  static const _maxToolDepth = 6;
 
   final SettingsProvider _settings;
   final ConversationProvider _conversations;
@@ -62,9 +76,13 @@ class FloatingChatSessionController extends ChangeNotifier {
   final PluginProvider _plugins;
   final AgentToolRegistry? _externalToolRegistry;
   final AgentRunPersistenceLifecycle? _persistence;
+  final AgentUserInteractionBroker _userInteractionBroker;
+  final bool _ownsUserInteractionBroker;
   final ApiService _api;
   final bool _ownsApi;
   final BackendClient? _backend;
+  late final WebSearchService? _webSearch;
+  late final StorageV2Service? _storage;
 
   StreamSubscription<AgentRunEvent>? _subscription;
   AgentRunHandle? _run;
@@ -79,6 +97,8 @@ class FloatingChatSessionController extends ChangeNotifier {
   String? get conversationId => _conversationId;
   bool get isStreaming => _streaming;
   bool get screenContextToolAllowed => _screenContextToolAllowed;
+  AgentUserInteractionBroker get userInteractionBroker =>
+      _userInteractionBroker;
 
   void startNewConversation() {
     if (_streaming) stop();
@@ -104,6 +124,8 @@ class FloatingChatSessionController extends ChangeNotifier {
       'draft': _draftContent,
       'thinking': _draftThinking,
       'screenContextEnabled': _screenContextToolAllowed,
+      if (_pendingUserInteraction != null)
+        'pendingUserInteraction': _pendingUserInteraction!.toJson(),
       'messages': messages
           .where((message) => message.agentTrace == null)
           .take(40)
@@ -117,6 +139,28 @@ class FloatingChatSessionController extends ChangeNotifier {
           )
           .toList(growable: false),
     };
+  }
+
+  AgentUserInteractionResponseStatus answerUserInteraction({
+    required String requestId,
+    required AgentUserAnswer answer,
+  }) {
+    return _userInteractionBroker.answer(
+      surface: AgentUserInteractionSurface.floatingAssistant,
+      requestId: requestId,
+      answer: answer,
+    );
+  }
+
+  AgentUserInteractionResponseStatus cancelUserInteraction({
+    required String requestId,
+    String? reason,
+  }) {
+    return _userInteractionBroker.cancel(
+      surface: AgentUserInteractionSurface.floatingAssistant,
+      requestId: requestId,
+      reason: reason,
+    );
   }
 
   Future<void> send(String rawText) async {
@@ -168,6 +212,10 @@ class FloatingChatSessionController extends ChangeNotifier {
   }
 
   void stop() {
+    _userInteractionBroker.cancelSurface(
+      AgentUserInteractionSurface.floatingAssistant,
+      reason: 'user_stopped',
+    );
     if (!_streaming) return;
     _generation++;
     _run?.cancel();
@@ -233,8 +281,25 @@ class FloatingChatSessionController extends ChangeNotifier {
     await _subscription?.cancel();
     _subscription = null;
     _run?.cancel();
+    _userInteractionBroker.removeListener(_onUserInteractionChanged);
+    _userInteractionBroker.cancelSurface(
+      AgentUserInteractionSurface.floatingAssistant,
+      reason: 'floating_chat_disposed',
+    );
+    if (_ownsUserInteractionBroker) {
+      _userInteractionBroker.dispose();
+    }
     if (_ownsApi) _api.dispose();
     super.dispose();
+  }
+
+  AgentUserInteractionRequest? get _pendingUserInteraction =>
+      _userInteractionBroker.pendingFor(
+        AgentUserInteractionSurface.floatingAssistant,
+      );
+
+  void _onUserInteractionChanged() {
+    notifyListeners();
   }
 
   ModelConfig? _currentModel() {
@@ -293,7 +358,7 @@ class FloatingChatSessionController extends ChangeNotifier {
       return ConversationSettings(
         modelId: role.modelId ?? model.id,
         modelName: role.modelName ?? model.modelName,
-        thinking: true,
+        thinking: model.supportsThinking,
         selectedSystemPromptId: role.id == ChatRole.defaultId ? null : role.id,
         systemPrompt: role.systemPrompt,
         speechModelId: appSettings.speechModelId,
@@ -304,12 +369,14 @@ class FloatingChatSessionController extends ChangeNotifier {
         imageRecognitionPrompt: appSettings.imageRecognitionPrompt,
         imageGenerationModelId: appSettings.imageGenerationModelId,
         imageGenerationEnabled: appSettings.imageGenerationEnabled,
+        agentEnabled: appSettings.agentEnabledByDefault,
+        agentGrantedPermissions: appSettings.agentGrantedPermissions,
       );
     }
     return ConversationSettings(
       modelId: model.id,
       modelName: model.modelName,
-      thinking: true,
+      thinking: model.supportsThinking,
       selectedSystemPromptId: appSettings.selectedSystemPromptId,
       systemPrompt: _settings.effectiveSystemPrompt,
       speechModelId: appSettings.speechModelId,
@@ -320,6 +387,8 @@ class FloatingChatSessionController extends ChangeNotifier {
       imageRecognitionPrompt: appSettings.imageRecognitionPrompt,
       imageGenerationModelId: appSettings.imageGenerationModelId,
       imageGenerationEnabled: appSettings.imageGenerationEnabled,
+      agentEnabled: appSettings.agentEnabledByDefault,
+      agentGrantedPermissions: appSettings.agentGrantedPermissions,
     );
   }
 
@@ -360,7 +429,7 @@ class FloatingChatSessionController extends ChangeNotifier {
       if (message.role == 'assistant' && message.content.isEmpty) continue;
       messages.add({
         'role': message.role,
-        'content': message.content,
+        'content': message.modelContextContent ?? message.content,
         if (message.role == 'assistant') 'reasoning_content': '',
       });
     }
@@ -382,16 +451,6 @@ class FloatingChatSessionController extends ChangeNotifier {
     var buffer = '';
     var thinkingBuffer = '';
     final externalToolSnapshot = _externalToolRegistry?.snapshot();
-    final tools = allowTools
-        ? ToolCallService.openAITools(
-            _plugins.plugins,
-            conversationSettings?.agentEnabled == true,
-            _settings.settings.agentGrantedPermissions,
-            conversationSettings?.imageGenerationEnabled == true,
-            screenContextEnabled,
-            externalToolSnapshot,
-          )
-        : const <Map<String, dynamic>>[];
     final toolService = ToolCallService(
       _features,
       tasks: _tasks,
@@ -406,28 +465,45 @@ class FloatingChatSessionController extends ChangeNotifier {
       allowScreenContextTool: screenContextEnabled,
       externalToolRegistry: _externalToolRegistry,
       externalToolSnapshot: externalToolSnapshot,
+      storage: _storage,
+      resultSanitizer: _storage == null
+          ? null
+          : AgentToolResultSanitizer.storageV2(_storage),
+      userInteractionBroker: _userInteractionBroker,
+      interactionSurface: AgentUserInteractionSurface.floatingAssistant,
+      webSearch: _webSearch,
+      permissionSnapshot: conversationSettings?.permissionSnapshot,
     );
+    final runSnapshot = toolService.createRunSnapshot(
+      agentEnabled: conversationSettings?.agentEnabled == true,
+      imageGenerationEnabled:
+          conversationSettings?.imageGenerationEnabled == true,
+    );
+    final tools = allowTools
+        ? runSnapshot.openAITools
+        : const <Map<String, dynamic>>[];
     final run = const AgentLoopRuntime().start(
       messages: working,
-      maxToolRounds: _maxToolDepth,
+      maxToolRounds: ToolCallService.maxToolRounds,
       persistence: _persistence,
       persistenceMetadata: AgentRunPersistenceMetadata(
         conversationId: conversationId,
+        permissionPolicy: conversationSettings?.permissionSnapshot,
       ),
       model: (request) => const StreamChunkAgentAdapter().adapt(
         _api.sendStreamRequest(
           model,
           request.messages,
-          thinking: model.supportsThinking,
+          thinking:
+              conversationSettings?.thinking == true && model.supportsThinking,
           tools: request.forceFinalResponse ? const [] : tools,
           toolChoice: request.forceFinalResponse ? null : 'auto',
         ),
       ),
       executeTools: (calls, identity, cancellationToken) {
-        final conversation = _conversations.getConversation(conversationId);
-        return toolService.executeSequentialCompatibility(
+        return toolService.executeCapturedBatch(
+          runSnapshot,
           calls,
-          conversation?.messages ?? const [],
           identity: identity,
           cancellationToken: cancellationToken,
         );

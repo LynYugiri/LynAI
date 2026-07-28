@@ -1,8 +1,5 @@
-import 'mcp_host_resolver_stub.dart'
-    if (dart.library.io) 'mcp_host_resolver_io.dart'
-    as implementation;
+import '../outbound_host_resolver.dart';
 
 typedef McpHostResolver = Future<List<String>?> Function(String host);
 
-Future<List<String>?> resolveMcpHost(String host) =>
-    implementation.resolveMcpHost(host);
+Future<List<String>?> resolveMcpHost(String host) => resolveOutboundHost(host);

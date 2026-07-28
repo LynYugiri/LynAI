@@ -14,6 +14,7 @@ class LynAIPermissionService {
   bool canUsePermission({
     required LynAICallIdentity identity,
     required String permission,
+    AgentPermissionSnapshot? agentPermissionSnapshot,
     AppSettings? appSettings,
     InstalledPlugin? plugin,
   }) {
@@ -22,8 +23,9 @@ class LynAIPermissionService {
       LynAICallerType.agent ||
       LynAICallerType.agentLua ||
       LynAICallerType.lua =>
-        (appSettings ?? AppSettings.defaults()).agentGrantedPermissions
-            .contains(permission),
+        agentPermissionSnapshot?.contains(permission) ??
+            (appSettings ?? AppSettings.defaults()).agentGrantedPermissions
+                .contains(permission),
       LynAICallerType.plugin || LynAICallerType.pluginWebview =>
         plugin?.grantedPermissions.contains(permission) == true,
       LynAICallerType.assistant => false,
@@ -33,12 +35,14 @@ class LynAIPermissionService {
   bool canUseCapability({
     required LynAICallIdentity identity,
     required String capability,
+    AgentPermissionSnapshot? agentPermissionSnapshot,
     AppSettings? appSettings,
     InstalledPlugin? plugin,
   }) {
     return canUsePermission(
       identity: identity,
       permission: capability,
+      agentPermissionSnapshot: agentPermissionSnapshot,
       appSettings: appSettings,
       plugin: plugin,
     );

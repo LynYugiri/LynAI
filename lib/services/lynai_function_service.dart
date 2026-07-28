@@ -3,7 +3,6 @@ import 'dart:io' show Platform;
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
 import '../models/model_config.dart';
@@ -27,6 +26,8 @@ import '../providers/task_provider.dart';
 import '../repositories/recycle_bin_repository.dart';
 import 'api_service.dart';
 import 'backend_client.dart';
+import 'agent_cancellation.dart';
+import 'bounded_outbound_http_client.dart';
 import 'device_control_service.dart';
 import 'device_run_controller.dart';
 import 'lynai_call_identity.dart';
@@ -47,6 +48,7 @@ class LynAIFunctionCall {
 /// AI 函数执行的上下文环境。
 class LynAIFunctionContext {
   final LynAICallIdentity identity;
+  final AgentPermissionSnapshot? agentPermissionSnapshot;
   final FeatureProvider? features;
   final TaskProvider? tasks;
   final CalendarProvider? calendar;
@@ -57,9 +59,13 @@ class LynAIFunctionContext {
   final BackendClient? backend;
   final InstalledPlugin? plugin;
   final void Function(String message)? showToast;
+  final BoundedOutboundHttpClient? outboundHttpClient;
+  final bool allowPlaintextHttpFetch;
+  final AgentCancellationToken? cancellationToken;
 
   const LynAIFunctionContext({
-    this.identity = const LynAICallIdentity(type: LynAICallerType.system),
+    required this.identity,
+    this.agentPermissionSnapshot,
     this.features,
     this.tasks,
     this.calendar,
@@ -70,6 +76,9 @@ class LynAIFunctionContext {
     this.backend,
     this.plugin,
     this.showToast,
+    this.outboundHttpClient,
+    this.allowPlaintextHttpFetch = false,
+    this.cancellationToken,
   });
 }
 
@@ -270,9 +279,10 @@ class LynAIFunctionService {
     LynAIFunctionContext context,
   ) async {
     try {
+      context.cancellationToken?.throwIfCancellationRequested();
       final permission = _permissionFor(call.name);
       if (permission != null) {
-        _requirePermission(context, call.name, permission);
+        _requirePermission(context, call.name, call.arguments, permission);
       }
       return switch (call.name) {
         'plugin.info' => _pluginInfo(context),
@@ -421,9 +431,10 @@ class LynAIFunctionService {
     LynAIFunctionContext context,
   ) {
     try {
+      context.cancellationToken?.throwIfCancellationRequested();
       final permission = _permissionFor(call.name);
       if (permission != null) {
-        _requirePermission(context, call.name, permission);
+        _requirePermission(context, call.name, call.arguments, permission);
       }
       return switch (call.name) {
         'plugin.info' => _pluginInfo(context),
@@ -530,14 +541,16 @@ class LynAIFunctionService {
   void _requirePermission(
     LynAIFunctionContext context,
     String functionName,
+    Map<String, dynamic> arguments,
     String permission,
   ) {
-    if (_agentDeleteBlocked(context, functionName)) {
+    if (_agentDeleteBlocked(context, functionName, arguments)) {
       throw Exception('当前暂不支持 Agent 删除操作，未来会在回收站能力完成后开放');
     }
     final allowed = _permissionService.canUsePermission(
       identity: context.identity,
       permission: permission,
+      agentPermissionSnapshot: context.agentPermissionSnapshot,
       appSettings: context.settings?.settings,
       plugin: context.plugin,
     );
@@ -546,14 +559,18 @@ class LynAIFunctionService {
     }
   }
 
-  bool _agentDeleteBlocked(LynAIFunctionContext context, String functionName) {
+  bool _agentDeleteBlocked(
+    LynAIFunctionContext context,
+    String functionName,
+    Map<String, dynamic> arguments,
+  ) {
     final caller = context.identity.type;
     if (caller != LynAICallerType.agent &&
         caller != LynAICallerType.agentLua &&
         caller != LynAICallerType.lua) {
       return false;
     }
-    return switch (functionName) {
+    final namedDelete = switch (functionName) {
       'notes.delete' ||
       'tasks.delete' ||
       'calendar.delete' ||
@@ -565,6 +582,30 @@ class LynAIFunctionService {
       'plugin.restore' => true,
       _ => false,
     };
+    if (namedDelete) return true;
+    if ((functionName == 'notes.pages.save' ||
+            functionName == 'notes.folders.save' ||
+            functionName == 'todos.saveItem') &&
+        _boolArg(arguments, 'delete') == true) {
+      return true;
+    }
+    if (functionName != 'todos.saveList') return false;
+    final listId = (arguments['id'] as String? ?? '').trim();
+    final rawItems = arguments['items'];
+    if (listId.isEmpty || rawItems is! List) return false;
+    final tasks = context.tasks;
+    if (tasks == null || tasks.listById(listId) == null) return true;
+    final existingIds = tasks
+        .tasksForList(listId)
+        .map((item) => item.id)
+        .toSet();
+    final suppliedIds = <String>{};
+    for (final raw in rawItems) {
+      if (raw is! Map) return true;
+      final id = raw['id']?.toString().trim() ?? '';
+      if (id.isNotEmpty) suppliedIds.add(id);
+    }
+    return !suppliedIds.containsAll(existingIds);
   }
 
   FeatureProvider _features(LynAIFunctionContext context) {
@@ -769,20 +810,35 @@ class LynAIFunctionService {
         headerMap[k.toString()] = v.toString();
       });
     }
+    final uri = Uri.tryParse(url);
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+      return _error('http.fetch URL 无效');
+    }
+    if (uri.scheme.toLowerCase() == 'http' &&
+        !context.allowPlaintextHttpFetch) {
+      return _error('http.fetch 默认仅允许 HTTPS；HTTP 需要可信调用方显式授权');
+    }
     try {
-      final uri = Uri.parse(url);
-      final request = http.Request(method, uri);
-      request.headers.addAll(headerMap);
-      if (body != null && body.isNotEmpty) {
-        request.body = body;
-      }
-      final streamed = await request.send();
-      final response = await http.Response.fromStream(streamed);
+      final response =
+          await (context.outboundHttpClient ?? BoundedOutboundHttpClient())
+              .send(
+                method: method,
+                uri: uri,
+                headers: headerMap,
+                bodyBytes: body == null ? null : utf8.encode(body),
+                maxRequestBytes: 256 * 1024,
+                maxResponseBytes: 2 * 1024 * 1024,
+                maxRedirects: 3,
+                timeout: const Duration(seconds: 20),
+                cancellation: context.cancellationToken?.whenCancelled
+                    .then<void>((_) {}),
+              );
       return {
         'ok': true,
         'status': response.statusCode,
         'headers': response.headers,
-        'body': response.body,
+        'body': utf8.decode(response.bodyBytes, allowMalformed: true),
+        'url': response.uri.toString(),
       };
     } catch (e) {
       return _error('http.fetch 请求失败: $e');
@@ -1043,11 +1099,21 @@ class LynAIFunctionService {
     LynAIFunctionContext context,
   ) async {
     try {
-      final response = await http.get(Uri.parse('https://wttr.in?format=j1'));
+      final response =
+          await (context.outboundHttpClient ?? BoundedOutboundHttpClient())
+              .send(
+                method: 'GET',
+                uri: Uri.parse('https://wttr.in?format=j1'),
+                maxResponseBytes: 512 * 1024,
+                cancellation: context.cancellationToken?.whenCancelled
+                    .then<void>((_) {}),
+              );
       if (response.statusCode != 200) {
         return _error('天气请求失败: ${response.statusCode}');
       }
-      final data = jsonDecode(response.body);
+      final data = jsonDecode(
+        utf8.decode(response.bodyBytes, allowMalformed: true),
+      );
       final current =
           (data['current_condition'] as List?)?.first as Map<String, dynamic>?;
       final area =

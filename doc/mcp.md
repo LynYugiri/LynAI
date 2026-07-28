@@ -26,11 +26,12 @@ HTTP transport 可用于所有具备 HTTP client 的平台。
 1. endpoint 默认必须使用 HTTPS，且不能包含 userinfo。
 2. HTTP 与私网访问是两个独立的显式开关。
 3. POST 接受 JSON response、SSE response、202 或 204；取得 `MCP-Session-Id` 后可启动 GET SSE 通知流。
-4. 最多跟随三次重定向；POST 只允许 307/308。重定向后不再附带 credentials 或 session ID，避免跨 origin 泄漏。
+4. 每次请求及每个重定向 hop 独立解析并校验 DNS；原生 transport 直接连接该次批准的 IP，同时保留原始 Host、TLS SNI 和证书 hostname 校验。最多跟随三次重定向；POST 只允许 307/308。重定向后不再附带 credentials 或 session ID，避免跨 origin 泄漏。
 5. 单条 JSON-RPC message、单个 SSE event 和 POST 总响应有独立字节限制。通知 SSE 是长连接，不使用 POST 总响应上限，但每个 event 仍受 message limit。
-6. dispose 时若有 session ID，会 best-effort DELETE endpoint。
+6. client 在开始 POST 前注册调用取消和 request timeout。取消或超时会终止该次 POST send/response stream；原生 HTTP 为每次请求使用独立 client，因此不会关闭其他并发请求。`notifications/cancelled` 只做独立、限时的 best-effort 发送，不阻塞本地终态。
+7. dispose 时若有 session ID，会 best-effort DELETE endpoint。
 
-当前私网判断覆盖字面 localhost、`.local`、常见 IPv4 私网/loopback/link-local 和部分 IPv6 前缀；它不是 DNS 解析后的完整 SSRF 防护。MCP endpoint 是用户本机配置的信任边界，文档不得等同于后端 relay 的解析后 IP 防护。
+私网判断同时覆盖字面 host 和解析后的全部地址。HTTP 或私网仍必须由用户分别显式允许；即使允许私网，每个原生连接也只使用该次解析批准的地址，重定向不会复用上一跳的 pin。Web 平台执行相同的 scheme、host 和 DNS 策略校验，但浏览器 transport 不提供指定连接 IP 的能力。
 
 ### stdio
 
@@ -40,17 +41,17 @@ stdio 只在 Linux、macOS、Windows 支持。transport 启动指定 command/arg
 
 ## 工具桥接
 
-`McpProvider` 初始化 client 后分页读取 tools，并注册到全局 `AgentToolRegistry`。名称格式为：
+`McpProvider` 初始化 client 后分页读取 tools，并注册到全局 `AgentToolRegistry`。Provider 与独立 `McpToolSource` 共用 `AgentToolNameCodec`，以 source、server ID 和远端 tool name 的长度前缀 identity 生成稳定 canonical name。短 identity 使用 `tool_v1_<base64url>`，超长 identity 使用有界 SHA-256 名称；最终名称不超过 64 字符，并避免 server/tool 边界、`.`、字面 `_2e_` 和 Unicode 转义碰撞。
 
 ```text
-mcp_<encoded server id>_<encoded tool name>
+tool_v1_<canonical identity>
 ```
 
-非 ASCII 或名称外字符编码为带十六进制 code unit 的片段。工具 descriptor 来源为 `mcp`，副作用为 `external`，并发策略当前固定为 `parallelSafe`。
+工具 descriptor 来源为 `mcp`，副作用为 `external`，并发策略当前固定为 `parallelSafe`。
 
-远端 `inputSchema` 会递归保留本地 validator 支持的 keyword，删除其他 keyword，并在缺失时补 `type: object` 与空 `properties`。这避免未知 keyword 阻止注册，但也可能弱化远端约束；执行前只按清理后的 schema 校验。MCP `isError=true` 被转换为工具执行失败，成功结果把 content、structuredContent 和 isError 一并返回模型。
+远端 `inputSchema` 由共享 importer 按原样交给 `AgentJsonSchemaValidator` 检查，不删除 keyword、不补默认约束。支持子集内的 schema 原样进入 registry；未知 keyword、非法 pattern、错误类型或其他不兼容约束会显式拒绝。Provider 保留发现到的 tool 并在 server error 中说明该 tool 未注册，其他兼容 tool 仍可用；独立 `McpToolSource` 拒绝该次 refresh，并保留 refresh 前持有的 registrations。MCP `isError=true` 被转换为工具执行失败，成功结果把 content、structuredContent 和 isError 一并返回模型。
 
-Provider 只移除自己仍持有的 registration ID，避免断连误删同名替换项。连接或工具刷新发现名称碰撞时不会覆盖已有工具。主聊天模型请求使用 registry snapshot 生成 schema，但执行时 `ToolCallService` 当前重新读取实时 registry，因此断连或刷新可能让已返回的 tool call 失败。
+Provider 只移除自己仍持有的 registration ID，避免断连误删同名替换项。连接或工具刷新发现名称碰撞时不会覆盖已有工具。每次 Agent Run 由 `ToolCallService.createRunSnapshot()` 捕获 MCP descriptor、handler、并发语义和权限；模型 schema 与工具执行都绑定到该不可变 Run snapshot。后续断连或 refresh 只影响新 Run，不会让旧调用改绑到新 handler；运行时仍会把取消令牌传入已捕获 handler，并忽略取消后晚到的远端结果。
 
 ## 持久化与 SecretStore
 

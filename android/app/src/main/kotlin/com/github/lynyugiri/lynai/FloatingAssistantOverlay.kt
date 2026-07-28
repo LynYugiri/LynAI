@@ -72,6 +72,8 @@ object FloatingAssistantOverlay {
     private var lastAgentActive = false
     private var interactionEnabled = true
     private var chatInputDraft = ""
+    private var interactionRequestId = ""
+    private val interactionSelections = linkedSetOf<String>()
 
     private var mangaLayoutMode = "auto"
     private var mangaOverlayStyle = "auto"
@@ -560,6 +562,12 @@ object FloatingAssistantOverlay {
         ))
         updateMessages(ctx)
 
+        val interaction = mapValue(chatState["pendingUserInteraction"])
+        if (interaction.isNotEmpty()) {
+            buildUserInteraction(ctx, content, interaction)
+            return
+        }
+
         val composer = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -610,6 +618,184 @@ object FloatingAssistantOverlay {
             }
         }.also { composer.addView(it) }
         content.addView(composer)
+    }
+
+    private fun buildUserInteraction(
+        ctx: Context,
+        content: LinearLayout,
+        interaction: Map<String, Any?>
+    ) {
+        val requestId = interaction["id"]?.toString().orEmpty()
+        val question = mapValue(interaction["question"])
+        val kind = question["kind"]?.toString().orEmpty()
+        if (requestId != interactionRequestId) {
+            interactionRequestId = requestId
+            interactionSelections.clear()
+            chatInputDraft = ""
+        }
+        val card = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(0xFFFFFBEB.toInt(), dp(ctx, 16), 0x33D97706, 1)
+            setPadding(dp(ctx, 12), dp(ctx, 10), dp(ctx, 12), dp(ctx, 10))
+        }
+        card.addView(TextView(ctx).apply {
+            text = question["prompt"]?.toString().orEmpty()
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(0xFF0F172A.toInt())
+        })
+        val detail = question["detail"]?.toString().orEmpty()
+        if (detail.isNotEmpty()) {
+            card.addView(TextView(ctx).apply {
+                text = detail
+                textSize = 12f
+                setTextColor(0xFF64748B.toInt())
+                setPadding(0, dp(ctx, 4), 0, 0)
+            })
+        }
+        when (kind) {
+            "text" -> buildTextInteraction(ctx, card, requestId, kind)
+            "confirm" -> buildConfirmInteraction(ctx, card, requestId, kind)
+            "singleChoice", "multipleChoice" -> buildChoiceInteraction(
+                ctx,
+                card,
+                requestId,
+                kind,
+                question
+            )
+        }
+        card.addView(chip(ctx, "取消", false) {
+            channel?.invokeMethod("cancelUserInteraction", mapOf("requestId" to requestId))
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.END
+            topMargin = dp(ctx, 8)
+        })
+        content.addView(card)
+    }
+
+    private fun buildTextInteraction(
+        ctx: Context,
+        card: LinearLayout,
+        requestId: String,
+        kind: String
+    ) {
+        val row = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(ctx, 8), 0, 0)
+        }
+        inputEdit = EditText(ctx).apply {
+            hint = "输入回答"
+            textSize = 14f
+            maxLines = 4
+            setText(chatInputDraft)
+            setSelection(text.length)
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(text: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(text: CharSequence?, start: Int, before: Int, count: Int) {
+                    chatInputDraft = text?.toString().orEmpty()
+                }
+                override fun afterTextChanged(text: Editable?) = Unit
+            })
+        }.also { row.addView(it, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)) }
+        row.addView(chip(ctx, "回答", true) {
+            submitInteractionAnswer(
+                requestId,
+                FloatingAssistantInteraction.answerPayload(kind, text = inputEdit?.text?.toString().orEmpty())
+            )
+        })
+        card.addView(row)
+    }
+
+    private fun buildConfirmInteraction(
+        ctx: Context,
+        card: LinearLayout,
+        requestId: String,
+        kind: String
+    ) {
+        val row = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(ctx, 8), 0, 0)
+        }
+        listOf(false to "否", true to "是").forEachIndexed { index, (value, label) ->
+            row.addView(chip(ctx, label, value) {
+                submitInteractionAnswer(
+                    requestId,
+                    FloatingAssistantInteraction.answerPayload(kind, confirmed = value)
+                )
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            if (index == 0) row.addView(space(ctx, 8, 1))
+        }
+        card.addView(row)
+    }
+
+    private fun buildChoiceInteraction(
+        ctx: Context,
+        card: LinearLayout,
+        requestId: String,
+        kind: String,
+        question: Map<String, Any?>
+    ) {
+        listMaps(question["choices"]).forEach { choice ->
+            val id = choice["id"]?.toString().orEmpty()
+            val description = choice["description"]?.toString().orEmpty()
+            val label = choice["label"]?.toString().orEmpty() +
+                if (description.isEmpty()) "" else "\n$description"
+            card.addView(chip(ctx, label, interactionSelections.contains(id)) {
+                if (kind == "singleChoice") {
+                    submitInteractionAnswer(
+                        requestId,
+                        FloatingAssistantInteraction.answerPayload(kind, choiceIds = listOf(id))
+                    )
+                } else {
+                    if (!interactionSelections.add(id)) interactionSelections.remove(id)
+                    rebuildModeContent(ctx)
+                }
+            }, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(ctx, 6) })
+        }
+        if (kind == "multipleChoice") {
+            card.addView(chip(ctx, "提交选择", true) {
+                submitInteractionAnswer(
+                    requestId,
+                    FloatingAssistantInteraction.answerPayload(
+                        kind,
+                        choiceIds = interactionSelections
+                    )
+                )
+            }, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.END
+                topMargin = dp(ctx, 8)
+            })
+        }
+    }
+
+    private fun submitInteractionAnswer(requestId: String, payload: Map<String, Any?>?) {
+        if (payload == null) return
+        channel?.invokeMethod(
+            "answerUserInteraction",
+            payload + mapOf("requestId" to requestId),
+            object : MethodChannel.Result {
+                override fun success(result: Any?) {
+                    val response = mapValue(result)
+                    if (response["ok"] == true) {
+                        chatInputDraft = ""
+                        interactionSelections.clear()
+                    }
+                }
+
+                override fun error(code: String, message: String?, details: Any?) = Unit
+                override fun notImplemented() = Unit
+            }
+        )
     }
 
     private fun buildTranslationMode(ctx: Context, content: LinearLayout) {

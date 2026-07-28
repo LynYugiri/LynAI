@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/agent_runtime.dart';
 import 'package:lynai/services/agent_cancellation.dart';
 import 'package:lynai/services/agent_tool_registry.dart';
+import 'package:lynai/services/lynai_permission_definitions.dart';
 
 void main() {
   AgentToolDescriptor descriptor(String name) => AgentToolDescriptor(
@@ -32,7 +33,19 @@ void main() {
     expect(
       await captured.handler(
         AgentToolInvocation(id: 'call', name: 'echo'),
-        AgentCancellationSource().token,
+        AgentToolExecutionContext(
+          identity: const AgentToolExecutionIdentity(
+            runId: 'run',
+            turnId: 'turn',
+            turnIndex: 0,
+            invocationId: 'call',
+            toolName: 'echo',
+          ),
+          permissionSnapshot: AgentPermissionSnapshot(permissions: const []),
+          cancellationToken: AgentCancellationSource().token,
+          snapshot: snapshot,
+          deadline: DateTime.now().add(const Duration(seconds: 1)),
+        ),
       ),
       'v1',
     );
@@ -69,6 +82,57 @@ void main() {
           parameters: const {'type': 'object', 'definitions': {}},
         ),
         (invocation, token) async => null,
+      ),
+      throwsArgumentError,
+    );
+  });
+
+  test('complete registration spec is captured immutably', () {
+    final registry = AgentToolRegistry();
+    final permissions = <String>['notes:read'];
+    final registration = registry.registerSpec(
+      AgentToolRegistrationSpec(
+        descriptor: descriptor('read_notes'),
+        permissionRequirements: AgentToolPermissionRequirements(
+          permissions: permissions,
+        ),
+        semantics: const AgentToolSemantics(
+          operation: AgentToolOperation.read,
+          risk: AgentToolRisk.elevated,
+          resultPolicy: AgentToolResultPolicy.redactValue,
+          timeout: Duration(seconds: 2),
+        ),
+      ),
+      (invocation, context) async => null,
+    );
+    permissions.add('notes:write');
+
+    expect(registration.spec.permissionRequirements.permissions, [
+      'notes:read',
+    ]);
+    expect(registration.spec.semantics.operation, AgentToolOperation.read);
+    expect(registration.spec.semantics.risk, AgentToolRisk.elevated);
+    expect(
+      registration.spec.semantics.resultPolicy,
+      AgentToolResultPolicy.redactValue,
+    );
+    expect(registration.spec.semantics.timeout, const Duration(seconds: 2));
+  });
+
+  test('keyed spec requires a host-side key resolver', () {
+    final registry = AgentToolRegistry();
+    expect(
+      () => registry.registerSpec(
+        AgentToolRegistrationSpec(
+          descriptor: AgentToolDescriptor(
+            name: 'keyed',
+            description: 'test',
+            source: AgentToolSource.runtime,
+            sideEffect: AgentToolSideEffect.write,
+            concurrency: AgentToolConcurrency.keyed,
+          ),
+        ),
+        (invocation, context) async => null,
       ),
       throwsArgumentError,
     );

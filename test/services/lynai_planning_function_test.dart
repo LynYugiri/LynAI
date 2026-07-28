@@ -12,6 +12,7 @@ import 'package:lynai/repositories/calendar_repository.dart';
 import 'package:lynai/repositories/recycle_bin_repository.dart';
 import 'package:lynai/repositories/task_repository.dart';
 import 'package:lynai/services/lynai_function_service.dart';
+import 'package:lynai/services/lynai_call_identity.dart';
 
 void main() {
   late _MemoryTaskRepository taskRepository;
@@ -33,7 +34,11 @@ void main() {
       recycleBinRepository: _MemoryRecycleBinRepository(),
     );
     service = LynAIFunctionService();
-    context = LynAIFunctionContext(tasks: tasks, calendar: calendar);
+    context = LynAIFunctionContext(
+      identity: const LynAICallIdentity(type: LynAICallerType.system),
+      tasks: tasks,
+      calendar: calendar,
+    );
   });
 
   test(

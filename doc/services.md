@@ -10,6 +10,10 @@
 
 `BackendClient` 为 JSON POST/PUT/PATCH/DELETE、可重放字节请求和内存 multipart 上传提供统一 Bearer token、超时、401 刷新和重放。同步上传保留稳定 body bytes，但通过 `postReplayableBytes()` 在首次发送和 token refresh 后分别重建鉴权与设备签名头，避免使用旧 session 的签名重放。`RemoteCommunityService` 在 `/community` 下实现公开动态、评论、用户资料和媒体读取，以及登录后的发布、互动、收藏、资料修改和置顶操作。社区图片先上传为当前用户拥有的临时 media，再由帖子 JSON 中的有序 `mediaIds` 原子关联；客户端只渲染后端显式返回的媒体，社区 Markdown 会隐藏图片语法、危险 scheme 链接和原始 HTML 标签。
 
+`OutboundNetworkPolicy` 和 `BoundedOutboundHttpClient` 是通用出站网络安全基础。默认只允许无 URL 凭据的 HTTPS 公网目标，请求和每次重定向前都重新检查 host 与 DNS 结果；`dart:io` transport 随后直接连接该次校验通过的 IP，同时仍使用原始 URI host 生成 HTTP Host，并由 `HttpClient` 对原始 hostname 执行 HTTPS SNI 与证书校验。每个 redirect hop 都重新解析、校验和 pin，不复用上一跳地址。HTTP 或私网只能由可信应用配置显式开启。通用客户端限制请求/响应字节数、超时和重定向次数，跨重定向删除 Authorization、proxy authorization 和 API-key header，并通过关闭请求专用 `http.Client` 主动取消进行中的连接。Web/stub 平台保留相同策略校验，但底层浏览器 transport 无法接收应用指定的连接 IP。`McpHttpTransport` 复用相同的 resolver 和 pinned native client factory，为每个请求及 redirect hop 创建独立 pin，同时保留 MCP 的 POST redirect、credential/session header、SSE、错误和大小限制行为。
+
+`WebSearchService` 提供聊天工具使用的双模式搜索基础。模型只能传入规范化的 `WebSearchRequest`（query、1-10 结果数、可选语言和 `day`/`month`/`year` 时间范围），不能传 route、provider、endpoint、header 或 credential。production composition 每次执行从可信 `AppSettings` 读取 route 和客户端首选 provider：client 模式支持固定 HTTPS Tavily endpoint 和用户配置的 SearXNG endpoint；backend 模式使用当前 `BackendClient` 的固定 `/search/web` 路径；auto 模式按首选 client、其余已配置 client、LynAI backend 的顺序回退。主聊天、悬浮聊天和 Subagent 复用同一个 production service，Subagent 不能覆盖策略。Tavily API key 和可选 SearXNG bearer token 只从 `SecretStore` 读取；Tavily 因 key 位于请求 body 而禁止重定向。SearXNG 使用 HTTP 时必须保存显式用户授权，该授权只加入当前配置 endpoint 的精确 origin；Bearer token 仅在此授权存在时可发往该明文 origin，任何 redirect 都不转发 bearer，且跳转到其他 HTTP origin 会被拒绝。异常不包含响应 body 或 secret。
+
 同步服务只上传两个版本化配置投影：单例 `SharedSettingsV1` 和逐 Provider 的 `SyncedModelConfigV1`。前者不包含后端连接、登录/changelog、最近功能、悬浮助手、权限和本地路径；后者仅接受用户明确开启同步的非托管 Provider，并删除 API key、secure-store 引用、URL userinfo 及疑似凭证的嵌套参数。远端写入使用 storage_v2 的现有 Outbox/conflict 事务，存在本地 pending mutation 时不覆盖本地值。
 
 `RemoteSyncService` 对上传和下载响应执行结构校验后才交给 Provider：上传要求 `latestSeq` 合法，ACK 数量与批次一致，并且只能是完整 legacy seq ACK 或不重复且精确覆盖请求 changeId 的 ACK；下载要求 changes 为列表、change 字段和 upsert `data.id` 合法、seq 从 since 起严格递增、changeId 页内不重复，且 `nextSince` 覆盖本页最大 seq。格式异常不会推进游标或删除 Outbox。`postSignedJson()` 复用同一 enrollment、token refresh、稳定 body bytes 和 Ed25519 重签链路，供 purge 与 operation ACK 使用，管理签名逻辑不散落到页面或 Provider。
@@ -69,6 +73,10 @@ Direct Provider 的 `extraParams` 会合并到请求体，但不会覆盖代码�
 
 OCR 和文件识别是发送前处理。处理结果会替换历史附件并标注来源（`[文件: name (size, mime)]` 仅用于仍作为原始多模态输入发送的附件；`[图片 OCR 识别结果（来源: ...，可能含识别误差）]\n<text>`、`[文件识别结果（来源: ...，可能含识别误差）]\n<text>`、`[文件内容: name]\n<text>` 分别用于 OCR 图片、文件识别、纯文本附件），让模型清楚读出的是识别输出而非原始字节内容并知悉可能存在误差。托管 OCR API 走 `/relay/ocr`；使用 Chat/视觉模型识别文件时走 canonical `/relay/chat`。历史会话持久化的 `Message.content` 仍是用户原文，仅 API 调用时构造的覆盖内容包含上述标注。模型主动调用 `model.ocr` / `model.recognizeFile` 的结果以 tool result 形式返回，不进入用户消息正文故无需标注。
 
+`AgentResourceService` 提供按稳定 resource ID 的受限元数据、文本、OCR/文件识别和资源搜索基础；`AttachmentReadService` 再把稳定 conversation ID、message ID 与 attachment index 解析为 resource ID。两者都不接受调用方路径，不返回路径、hash 或 base64，只允许消息附件/图片 role，并执行 MIME、字节和字符上限。资源搜索暂时复用现有 `loadResources()` 快照并限制扫描与返回数量；数据库尚无索引搜索 API，后续资源规模需要时再增加专用查询。
+
+`AgentToolResultSanitizer` 是 runtime-level 工具结果安全与 Resource offload 边界。`AgentToolExecutionService` 在 schema 校验、捕获权限授权和调度完成后统一处理所有非取消终态；`sanitize(result, cancellationToken:)` 返回 `AgentToolResultSanitization`，其中 `value` 是唯一可进入持久化和模型上下文的 bounded JSON-safe 值，`resources` 是安全元数据。`AgentToolResultResourceStore` 是存储抽象；`AgentToolResultSanitizer.storageV2(storage)` 使用现有 SHA-addressed Resource/Blob，并写入 local-only `agent_tool_result_local` role。handler、页面和协议适配器不得再次传递原始结果，也不得从 Resource row 暴露 `originalPath`、`relativePath` 或 `sha256`。
+
 对话页 OCR 支持两种引擎：云端 OCR API（如 vivo OCR，需网络和 API key）和本地 OCR（ncnn + PPOCRv5，离线免费，仅 Android）。在对话设置的 OCR 模型列表中，Android 端会显示"本地 OCR (PPOCRv5)"虚拟条目，选中后 `imageModelId` 存为 `ModelConfig.localOcrId` sentinel，OCR 路径自动分发到本地推理。`model.ocr` 函数同样支持该 sentinel，Agent Lua 调用时自动走本地路径。
 
 ### 流式错误处理
@@ -86,7 +94,7 @@ OCR 和文件识别是发送前处理。处理结果会替换历史附件并标�
 
 文件：`lib/services/tool_call_service.dart`
 
-`ToolCallService` 把模型请求转成本地动作。它定义工具 schema，解析 fallback JSON，校验参数，并调用 Provider 或平台通道。插件的自定义工具由 `ToolCallService` 识别后转交给 `PluginLuaRuntimeService` 在 Lua 沙箱中执行。
+`ToolCallService` 把模型请求转成本地动作。它定义工具 schema，解析 fallback JSON，并在 Run 开始时捕获 immutable tool/permission snapshot；执行由 `AgentToolExecutionService` 使用同一 snapshot 完成 schema 校验、授权、调度和终态 sanitizer。插件的自定义工具由已捕获 handler 转交给 `PluginLuaRuntimeService` 在 Lua 沙箱中执行。
 
 模型多轮控制不再由页面或 `ToolCallService` 自己维护。主对话、悬浮聊天和 Subagent 都由 `AgentLoopRuntime` 驱动；`ToolCallService.executeSequentialCompatibility()` 是具体工具执行适配器，并通过 `AgentToolScheduler(maxConcurrency: 1)` 调用 MCP 等外部 registry 工具。统一运行时、上下文和取消边界见 [Agent Runtime](agent-runtime.md)。
 
@@ -184,7 +192,7 @@ Android 悬浮助手由原生 `WindowManager` 渲染系统级气泡和上下文�
 
 `run_subagent` 是 Agent 专用工具。它使用当前对话模型和权限创建独立短上下文，允许子任务多轮调用 `execute_lua`、Skill、OCR/识图等工具，但不会把中间屏幕信息写入主对话上下文。Subagent 会接收当前 Agent 工作记忆和计划摘要，完成后会把最终摘要或 `memoryUpdates` 合并回工作记忆。Subagent 禁止递归启动 Subagent，并受共享工具轮数上限约束，最终必须返回 `{ok:true,result:{...}}` 或 `{ok:false,error:{...}}`。
 
-Agent 可通过 `list_plugin_skills` 查看启用 Skill 摘要、`load_plugin_skill` 读取 Markdown 正文，并可在用户要求沉淀或修正流程时调用 `save_plugin_skill` 写回可编辑 Skill。Skill 正文默认路径为 `skills/<name>.md`；`PluginSkillDefinition.editable` 默认 true，若清单显式设为 false 则模型写入会被拒绝。内置 Skill 的出厂正文放在 `defaults/skills/*.md`，用户或模型写入的 `skills/*.md` 作为 overlay 保留，不会被内置插件同步覆盖。
+Agent 可通过 `list_plugin_skills` 查看启用 Skill 摘要、`load_plugin_skill` 读取 Markdown 正文，并可在用户要求沉淀或修正流程且已授权 `plugins.skills.files:write` 时调用 `save_plugin_skill` 写回可编辑 Skill。Skill 正文默认路径为 `skills/<name>.md`；`PluginSkillDefinition.editable` 默认 true，若清单显式设为 false 则模型写入会被拒绝。内置 Skill 的出厂正文放在 `defaults/skills/*.md`，用户或模型写入的 `skills/*.md` 作为 overlay 保留，不会被内置插件同步覆盖。
 
 Subagent 适合 QQ/消息应用这类流程：主 Agent 只描述目标，Subagent 负责打开应用、查询屏幕、滚动、OCR 和读取上下文，最后把联系人、最近消息、置信度和摘要返回主 Agent。
 
@@ -198,7 +206,7 @@ Subagent 适合 QQ/消息应用这类流程：主 Agent 只描述目标，Subage
 
 文件：`lib/services/plugin_lua_runtime_service.dart`
 
-`PluginLuaRuntimeService` 管理 Lua 沙箱运行时，负责加载插件脚本、注册和调用工具/函数、维护延续链和事件通知。
+`PluginLuaRuntimeService` 管理 Lua 沙箱运行时，负责加载插件脚本、注册和调用工具/函数、维护延续链和事件通知。模型直接调用插件工具或函数时，`AgentCancellationToken` 会贯穿 VM 指令/时限预算、yield、continuation、同步 host call、延迟 command 和嵌套 LynAI operation；取消或 deadline 获胜后不会继续执行后续 Lua mutation。
 
 ### 沙箱执行
 
@@ -377,7 +385,7 @@ MCP 当前实现是客户端工具桥，不是 LynAI 后端 API。`McpClient` �
 
 stdio transport 使用逐行 JSON，仅在 Linux、macOS、Windows 可创建；启动进程只收到显式 credential environment。Android、iOS、Web 只支持 HTTP transport UI。
 
-MCP server 公开配置保存在 `mcp_servers`，preferences 与 credentials 保存在 `SecretStore`。远端 tool schema 会递归删除本地 validator 不支持的 keyword，再补默认 object/properties；这提供的是兼容子集，不是完整 JSON Schema 或完整 MCP schema 保真。协议和平台范围详见 [MCP](mcp.md)。
+MCP server 公开配置保存在 `mcp_servers`，preferences 与 credentials 保存在 `SecretStore`。远端 tool schema 通过共享 importer 按原样接受 `AgentJsonSchemaValidator` 支持子集校验；任何未知 keyword 或格式错误都会显式禁用/拒绝该工具，不会删除约束或补默认 schema。Provider 与 `McpToolSource` 还共用同一个长度有界、边界安全的 `AgentToolNameCodec` canonical naming。协议和平台范围详见 [MCP](mcp.md)。
 
 运行时的 `tasks.json` 和 `calendar.json` 是 Repository/备份/同步使用的逻辑分区门面，不是 `storage_v2/data/*.json` 镜像文件；结构化权威仍是 `app.db`。任务与日历日常 mutation 通过 `applyLocalRowChanges()` 在一个事务中按行 upsert/delete 并捕获 Outbox，完整 replace 留给备份恢复和远端重载。`tasks.json` 包含 `tasks`、`lists`、`entries`，其中 entry 使用 `listId`、`taskId`、`sortOrder`；`calendar.json` 包含 `events` 和 `anniversaries`，事件使用扁平 `timeKind` 字段，全天结束日期始终为 exclusive。
 
@@ -586,3 +594,15 @@ after `flutter pub get` and before macOS release builds:
 `ruby scripts/patch-speech-to-text.rb`. CI performs this step explicitly; local
 Apple-platform release builds should use the same order if the pub-cache package
 has not already been patched.
+# Agent Tool Services
+
+- `AgentToolExecutionService` is the production batch execution boundary for model-originated tools. It validates schemas, authorizes the captured permission snapshot, applies scheduler concurrency semantics, and sanitizes terminal values.
+- `WebSearchService` can route to configured client adapters or the authenticated backend endpoint `/search/web`.
+- `AttachmentReadService` resolves attachments only through conversation ID, message ID, and attachment index. `AgentResourceService` reads only allowlisted resource roles through stable resource IDs and bounded text/model recognition APIs.
+- `AgentUserInteractionBroker` correlates `ask_user` requests to run, turn, invocation, and UI surface. Run/tool cancellation atomically removes that exact request and clears its UI; stopping main or floating chat cancels only that surface, while stale responses cannot resume another tool call.
+### Tool And Outbound Security
+
+- `LynAIFunctionContext` requires an explicit `LynAICallIdentity`; trusted host callers must opt into `system` identity rather than receiving it as a default.
+- `BoundedOutboundHttpClient` is the shared boundary for Agent/plugin HTTP access. `http.fetch`, `web_fetch`, and built-in weather retrieval enforce SSRF policy, redirect revalidation, bounded request and streamed response sizes, timeout, and cancellation. Generic model-reachable fetch defaults to HTTPS even when a caller injects a client whose policy allows a specific HTTP origin; plaintext fetch requires a separate trusted construction opt-in.
+- Agent deletion checks inspect operation semantics as well as function names, so delete flags and replacement-list omissions cannot bypass the current no-delete policy.
+- Plugin Skill edits use `plugins.skills.files:write`. Plugin model tools are canonicalized per plugin and captured as immutable run registrations.

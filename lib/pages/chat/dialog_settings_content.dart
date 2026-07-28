@@ -939,7 +939,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
             childrenPadding: const EdgeInsets.only(bottom: 8),
             initiallyExpanded: false,
             title: Text(
-              'Agent 权限（全局）',
+              '当前对话权限',
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
@@ -950,8 +950,8 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
               _agentPermissionTile(
                 const LynAIPermissionDefinition(
                   id: '__info__',
-                  title: '这些权限对所有对话生效',
-                  description: '当前开关只决定本对话是否启用 Agent。',
+                  title: '仅修改当前对话快照',
+                  description: '不会改变设置页中的新对话默认权限，也不会改写其他历史对话。',
                 ),
                 informational: true,
               ),
@@ -975,8 +975,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
         subtitle: Text(definition.description),
       );
     }
-    final provider = context.watch<SettingsProvider>();
-    final permissions = provider.settings.agentGrantedPermissions.toSet();
+    final permissions = _settings.agentGrantedPermissions.toSet();
     return CheckboxListTile(
       dense: true,
       value: permissions.contains(definition.id),
@@ -989,8 +988,8 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
         } else {
           permissions.remove(definition.id);
         }
-        context.read<SettingsProvider>().replaceSettings(
-          provider.settings.copyWith(
+        _updateSettings(
+          _settings.copyWith(
             agentGrantedPermissions: LynAIPermissions.agentAssignable
                 .where(permissions.contains)
                 .toList(growable: false),

@@ -70,6 +70,14 @@ MCP 工具 schema 与 handler 在模型请求前取同一个 snapshot。server �
 
 模型返回 context overflow 时，runtime 最多强制压缩重试一次；第二次 overflow 直接失败。当前主对话、悬浮聊天和 Subagent 没有传入 compactor，也没有按具体模型配置调整预算，因此通常使用默认字符估算和裁剪，不应描述为精确 token 管理或持久化摘要系统。
 
+## Tool Result Sanitization Foundation
+
+`AgentToolResultProcessor` 是 durable run 的必需边界。`AgentRunPersistenceLifecycle` 必须提供 processor，`AgentLoopRuntime` 在 executor 返回后、任何持久化或 tool result model message 之前统一处理整批结果，并再次校验 invocation correlation。生产 `RepositoryAgentRunPersistenceLifecycle` 使用 `SanitizingAgentToolResultProcessor` 和 storage_v2 sanitizer；executor 只返回原始终态结果，因此不会因现有调用方已配置 sanitizer 而重复处理。未注入 persistence 的非 durable 聚焦运行不会自动 offload。
+
+服务递归规范化任意值，限制 JSON 深度、总 entry、单字符串字符数、inline JSON 字节数和 offload 字节数；非有限数字、循环和不支持的运行时对象会转换为 JSON-safe 标记。凭证式字段按 key 删除，Unix、Windows drive 和 UNC 绝对路径在 inline 内容、preview 和落盘文本中替换。小 JSON 保持 inline；大文本、`Uint8List`、可信 byte list 和有界可验证 base64 通过 storage_v2 私有 Resource/Blob 保存，并只返回 preview 与 `{id, mimeType, size, role}`，不返回 path、hash 或原始 base64。
+
+offload role 固定为 `agent_tool_result_local`。该 role 不在 cloud/LAN 的 roamable resource allowlist 中，且普通备份只收集被选中业务资产引用的资源，因此结果资源保持 local-only。内容按 SHA-256 Blob 去重；取消或失败时 sanitizer best-effort 删除本次新建的 row，并在没有其他引用时清理 Blob。底层不可取消写入仍可能完成后再进入清理阶段。
+
 ## Lifecycle Hooks
 
 支持 `beforeModelRequest`、`afterModelResponse`、`beforeToolCall`、`afterToolCall`、`beforeCompaction`、`afterRun`。hooks 是观测回调：
@@ -105,6 +113,34 @@ flutter test test/services/agent_tool_scheduler_test.dart
 flutter test test/agent_persistence_repository_test.dart
 flutter test test/storage_v2_agent_schema_test.dart
 flutter test test/agent_persistence_exclusion_test.dart
+flutter test test/agent_tool_result_sanitizer_test.dart
 ```
 
 修改 Drift table 或注解时先运行 `dart run build_runner build --delete-conflicting-outputs`，不得手改 `lib/services/storage_v2_database.g.dart`。随后执行完整 `flutter analyze --no-pub` 和 `flutter test --no-pub`。
+## Permission Policy Snapshot
+
+Every durable Agent run is created together with exactly one insert-only
+`permission_policy` snapshot. Run and policy insertion share one SQLite
+transaction, and a partial unique index enforces one policy per run. A child run
+with `parentRunId` inherits the stored parent policy instead of consulting
+current global settings. The separate `parent_run` snapshot remains the source
+of parent run, turn, and tool-call correlation metadata.
+
+Permission checks can consume an immutable `AgentPermissionSnapshot`; when it
+is supplied it takes precedence over mutable application settings.
+# Production Tool Snapshot
+
+- Main chat, floating chat, and Subagent compose model-visible built-in, Agent, plugin, and MCP tools into one immutable run snapshot before the first model turn.
+- Exposure and dispatch both use the conversation `AgentPermissionSnapshot`; denied tools are omitted and execution rechecks the captured requirements.
+- Tool-call batches execute through `AgentToolExecutionService` and `AgentToolScheduler`. `ToolCallService.executeSequentialCompatibility` remains only for legacy tests/adapters and has no production caller.
+- Tool results are sanitized before they enter durable tool-call rows or model continuation messages. Large or binary values are offloaded to local-only resources.
+- Subagents receive a filtered child snapshot, inherit the parent cancellation token, cannot expose `ask_user`, and cannot recurse beyond the configured depth policy. Parent cancellation prevents late memory or trace merges.
+- The public foundation catalog has exactly four logical names: `ask_user`, `web_search`, `read_attachment`, and `resource`. `resource.operation` is one of `metadata`, `search`, `read`, or `recognize`; execution performs cross-field validation before dispatch. Attachment and resource metadata/search/read/recognition are restricted to resources referenced by the active conversation, so an ID from another conversation resolves as not found.
+## Tool Security Boundaries
+
+- Model-visible plugin tools use `AgentToolNameCodec` canonical names scoped by plugin ID. A run snapshot captures the plugin, raw handler name, and validated schema together; later manifest refreshes do not retarget an in-flight run. Canonical-name collisions fail registration explicitly.
+- Production snapshot handlers call concrete built-in, LynAI function, plugin, or captured external handlers directly. They do not re-enter `ToolCallService.execute`, rediscover a plugin by raw model name, or re-snapshot an external registry.
+- Model-reachable LynAI function calls require an explicit caller identity. Only explicit trusted host code may use `LynAICallerType.system`; missing or assistant identity fails permission checks closed.
+- Delete policy is semantic: Agent callers are rejected before mutation for delete functions, note page/folder and todo-item `delete=true`, and todo replacement lists that omit existing item IDs.
+- `save_plugin_skill` requires the dedicated `plugins.skills.files:write` permission rather than notes or broad file-write permission.
+- `http.fetch` and `web_fetch` use `BoundedOutboundHttpClient`, including destination and redirect revalidation, URL credential rejection, public-network defaults, request/streamed-response byte limits, timeout, and active cancellation.

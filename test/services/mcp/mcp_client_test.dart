@@ -139,7 +139,11 @@ class _FakeTransport implements McpTransport {
   }
 
   @override
-  Future<void> send(Map<String, dynamic> message) async {
+  Future<void> send(
+    Map<String, dynamic> message, {
+    McpTransportCancellation? cancellation,
+  }) async {
+    cancellation?.throwIfCancelled();
     sent.add(message);
     onSend(message, this);
   }

@@ -58,6 +58,59 @@ enum AgentToolSideEffect { none, read, write, external }
 
 enum AgentToolConcurrency { parallelSafe, exclusive, keyed }
 
+enum AgentToolOperation {
+  observe,
+  read,
+  create,
+  update,
+  delete,
+  execute,
+  network,
+}
+
+enum AgentToolRisk { low, elevated, high }
+
+enum AgentToolResultPolicy { returnValue, redactValue, discardValue }
+
+enum AgentToolPermissionMode { all, any }
+
+class AgentToolPermissionRequirements {
+  final List<String> permissions;
+  final AgentToolPermissionMode mode;
+
+  AgentToolPermissionRequirements({
+    Iterable<String> permissions = const [],
+    this.mode = AgentToolPermissionMode.all,
+  }) : permissions = List.unmodifiable(
+         permissions
+             .map((item) => item.trim())
+             .where((item) => item.isNotEmpty),
+       );
+
+  bool allows(Iterable<String> grantedPermissions) {
+    if (permissions.isEmpty) return true;
+    final granted = grantedPermissions.toSet();
+    return switch (mode) {
+      AgentToolPermissionMode.all => permissions.every(granted.contains),
+      AgentToolPermissionMode.any => permissions.any(granted.contains),
+    };
+  }
+}
+
+class AgentToolSemantics {
+  final AgentToolOperation operation;
+  final AgentToolRisk risk;
+  final AgentToolResultPolicy resultPolicy;
+  final Duration timeout;
+
+  const AgentToolSemantics({
+    this.operation = AgentToolOperation.observe,
+    this.risk = AgentToolRisk.low,
+    this.resultPolicy = AgentToolResultPolicy.returnValue,
+    this.timeout = const Duration(seconds: 30),
+  });
+}
+
 class AgentToolDescriptor {
   final String name;
   final String description;
@@ -103,6 +156,24 @@ class AgentToolInvocation {
       throw ArgumentError.value(name, 'name', 'must not be empty');
     }
   }
+}
+
+class AgentToolExecutionIdentity {
+  final String runId;
+  final String turnId;
+  final int turnIndex;
+  final String invocationId;
+  final String toolName;
+  final String? conversationId;
+
+  const AgentToolExecutionIdentity({
+    required this.runId,
+    required this.turnId,
+    required this.turnIndex,
+    required this.invocationId,
+    required this.toolName,
+    this.conversationId,
+  });
 }
 
 enum AgentToolResultStatus { success, failure, cancelled }

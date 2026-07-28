@@ -3,6 +3,8 @@ import 'package:uuid/uuid.dart';
 import '../models/agent_persistence.dart';
 import '../models/agent_runtime.dart';
 import '../repositories/agent_persistence_repository.dart';
+import 'agent_tool_execution_service.dart';
+import 'lynai_permission_definitions.dart';
 
 class AgentRunPersistenceMetadata {
   const AgentRunPersistenceMetadata({
@@ -10,15 +12,19 @@ class AgentRunPersistenceMetadata {
     this.parentRunId,
     this.parentTurnId,
     this.parentToolCallId,
+    this.permissionPolicy,
   });
 
   final String? conversationId;
   final String? parentRunId;
   final String? parentTurnId;
   final String? parentToolCallId;
+  final AgentPermissionSnapshot? permissionPolicy;
 }
 
 abstract interface class AgentRunPersistenceLifecycle {
+  AgentToolResultProcessor get toolResultProcessor;
+
   Future<void> startRun(String runId, AgentRunPersistenceMetadata metadata);
 
   Future<void> startTurn(AgentTurnIdentity identity);
@@ -47,11 +53,16 @@ abstract interface class AgentRunPersistenceLifecycle {
 
 class RepositoryAgentRunPersistenceLifecycle
     implements AgentRunPersistenceLifecycle {
-  RepositoryAgentRunPersistenceLifecycle(this._repository);
+  RepositoryAgentRunPersistenceLifecycle(
+    this._repository, {
+    required this.toolResultProcessor,
+  });
 
   static const _uuid = Uuid();
 
   final AgentPersistenceRepository _repository;
+  @override
+  final AgentToolResultProcessor toolResultProcessor;
   final Map<String, _PersistedRunState> _runs = {};
 
   @override
@@ -68,6 +79,8 @@ class RepositoryAgentRunPersistenceLifecycle
         createdAt: now,
         updatedAt: now,
       ),
+      permissionPolicy: metadata.permissionPolicy,
+      parentRunId: metadata.parentRunId,
     );
     final state = _PersistedRunState();
     _runs[runId] = state;

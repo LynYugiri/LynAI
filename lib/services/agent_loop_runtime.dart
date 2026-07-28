@@ -32,9 +32,13 @@ class AgentLoopRuntime {
     AgentContextCompactor? compactContext,
     AgentLifecycleHooks hooks = const AgentLifecycleHooks(),
     bool Function(Object error)? isContextOverflow,
+    AgentCancellationToken? parentCancellationToken,
     String finalTurnInstruction = '工具调用已达到上限。不要再调用工具，请基于已有文本和工具结果直接给出最终回复。',
   }) {
-    final handle = _AgentRunHandle(runId ?? _uuid.v4());
+    final handle = _AgentRunHandle(
+      runId ?? _uuid.v4(),
+      parentCancellationToken: parentCancellationToken,
+    );
     unawaited(
       Future<void>.microtask(
         () => _run(
@@ -223,12 +227,20 @@ class AgentLoopRuntime {
         handle.token.throwIfCancellationRequested();
         await persistence?.startToolCalls(identity, turn.toolCalls);
         handle.token.throwIfCancellationRequested();
-        final results = await _executeTools(
+        var results = await _executeTools(
           handle,
           () => executeTools(turn.toolCalls, identity, handle.token),
         );
         handle.token.throwIfCancellationRequested();
         _validateToolResults(turn.toolCalls, results);
+        if (persistence != null) {
+          results = await persistence.toolResultProcessor.process(
+            results,
+            cancellationToken: handle.token,
+          );
+          handle.token.throwIfCancellationRequested();
+          _validateToolResults(turn.toolCalls, results);
+        }
         for (final result in results) {
           await persistence?.completeToolCall(identity, result);
           working.add(codec.toolResultMessage(result));
@@ -400,11 +412,12 @@ class AgentLoopRuntime {
 }
 
 class _AgentRunHandle implements AgentRunHandle {
-  _AgentRunHandle(this.id);
+  _AgentRunHandle(this.id, {AgentCancellationToken? parentCancellationToken})
+    : _cancellation = AgentCancellationSource(parent: parentCancellationToken);
 
   @override
   final String id;
-  final AgentCancellationSource _cancellation = AgentCancellationSource();
+  final AgentCancellationSource _cancellation;
   final StreamController<AgentRunEvent> _events = StreamController.broadcast(
     sync: true,
   );

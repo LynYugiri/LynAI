@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/app_settings.dart';
@@ -12,6 +14,8 @@ import 'package:lynai/providers/plugin_provider.dart';
 import 'package:lynai/providers/task_provider.dart';
 import 'package:lynai/services/api_service.dart';
 import 'package:lynai/services/backend_client.dart';
+import 'package:lynai/services/storage_v2_service.dart';
+import 'package:lynai/services/storage_v2_upgrade_service.dart';
 import 'package:lynai/services/tool_call_service.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -61,6 +65,20 @@ class _CapturingApi extends ApiService {
 }
 
 void main() {
+  late Directory storageRoot;
+  late StorageV2Service storage;
+
+  setUp(() async {
+    storageRoot = await Directory.systemTemp.createTemp('lynai_chat_snapshot_');
+    storage = StorageV2Service(rootDirectory: storageRoot);
+    await StorageV2UpgradeService(storageV2: storage).ensureReady();
+  });
+
+  tearDown(() async {
+    await storage.close();
+    await storageRoot.delete(recursive: true);
+  });
+
   testWidgets(
     'loading historical conversation does not change global settings',
     (tester) async {
@@ -95,6 +113,7 @@ void main() {
             ChangeNotifierProvider(create: (_) => ModelConfigProvider()),
             ChangeNotifierProvider(create: (_) => PluginProvider()),
             ChangeNotifierProvider(create: (_) => BackendClient()),
+            Provider.value(value: storage),
           ],
           child: MaterialApp(home: ChatPage(conversationId: conversationId)),
         ),
@@ -158,6 +177,7 @@ void main() {
           ChangeNotifierProvider(create: (_) => CalendarProvider()),
           ChangeNotifierProvider(create: (_) => PluginProvider()),
           ChangeNotifierProvider(create: (_) => BackendClient()),
+          Provider.value(value: storage),
         ],
         child: MaterialApp(
           home: ChatPage(conversationId: conversationId, api: api),
@@ -219,6 +239,7 @@ void main() {
           ChangeNotifierProvider(create: (_) => CalendarProvider()),
           ChangeNotifierProvider(create: (_) => PluginProvider()),
           ChangeNotifierProvider(create: (_) => BackendClient()),
+          Provider.value(value: storage),
         ],
         child: MaterialApp(
           home: ChatPage(conversationId: conversationId, api: api),

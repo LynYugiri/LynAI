@@ -36,6 +36,8 @@ import 'package:lynai/services/attachment_storage_service.dart';
 import 'package:lynai/services/backup_service.dart';
 import 'package:lynai/services/backend_client.dart';
 import 'package:lynai/services/image_generation_service.dart';
+import 'package:lynai/services/agent_cancellation.dart';
+import 'package:lynai/services/lynai_call_identity.dart';
 import 'package:lynai/services/lynai_permission_definitions.dart';
 import 'package:lynai/services/roleplay_service.dart';
 import 'package:lynai/services/storage_v2_service.dart';
@@ -49,6 +51,24 @@ import 'support/memory_repositories.dart';
 
 const _tinyPngBase64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+const _testAgentIdentity = LynAICallIdentity(
+  type: LynAICallerType.agent,
+  conversationId: 'test-conversation',
+  runId: 'test-run',
+  turnId: 'test-turn',
+);
+
+AgentPermissionSnapshot get _testAgentPermissions =>
+    AgentPermissionSnapshot(permissions: LynAIPermissions.defaultAgent);
+
+Future<Map<String, dynamic>> _executeAuthorized(
+  ToolCallService service,
+  ChatToolCall call,
+) {
+  final cancellation = AgentCancellationSource();
+  return service.execute(call, const [], cancellationToken: cancellation.token);
+}
 
 Future<StorageV2Service> _readyStorageV2(Directory root) async {
   final storage = StorageV2Service(rootDirectory: root);
@@ -1273,6 +1293,10 @@ void main() {
           agentEnabled: true,
           imageGenerationModelId: 'image-1',
           imageGenerationEnabled: true,
+          agentGrantedPermissions: const [
+            LynAIPermissions.luaExecute,
+            LynAIPermissions.modelGenerateImage,
+          ],
         ),
       );
       conversations.addMessage(cid, 'user', 'draw a cat');
@@ -1306,9 +1330,17 @@ void main() {
         settings: settings,
         conversations: conversations,
         conversationId: cid,
+        agentIdentity: _testAgentIdentity,
+        permissionSnapshot: AgentPermissionSnapshot(
+          permissions: const [
+            LynAIPermissions.luaExecute,
+            LynAIPermissions.modelGenerateImage,
+          ],
+        ),
       );
 
-      final result = await service.execute(
+      final result = await _executeAuthorized(
+        service,
         const ChatToolCall(
           id: 'lua-image',
           name: 'execute_lua',
@@ -1321,7 +1353,6 @@ return { ok = true, note = "image generated" }
 ''',
           },
         ),
-        const [],
       );
 
       expect(result['ok'], isTrue);
@@ -1712,6 +1743,8 @@ return { ok = true, note = "image generated" }
           featureProvider,
           tasks: taskProvider,
           calendar: calendarProvider,
+          agentIdentity: _testAgentIdentity,
+          permissionSnapshot: _testAgentPermissions,
         );
 
         final taskResult = await service.execute(
@@ -1744,7 +1777,12 @@ return { ok = true, note = "image generated" }
       final featureProvider = await _loadedFeatureProvider(storage);
       final taskProvider = TaskProvider(storageV2: storage);
       await taskProvider.load();
-      final service = ToolCallService(featureProvider, tasks: taskProvider);
+      final service = ToolCallService(
+        featureProvider,
+        tasks: taskProvider,
+        agentIdentity: _testAgentIdentity,
+        permissionSnapshot: _testAgentPermissions,
+      );
 
       final createResult = await service.execute(
         const ChatToolCall(
@@ -1797,16 +1835,16 @@ return { ok = true, note = "image generated" }
         ChatToolCall(
           id: 'rename-list',
           name: 'save_todo_list',
-          arguments: {'id': listId, 'items': const []},
+          arguments: {'id': listId, 'title': '购物清单'},
         ),
         const [],
       );
 
       expect(renameResult['ok'], isTrue);
-      expect(renameResult['todoList']['title'], '购物');
-      expect(renameResult['todoList']['items'], isEmpty);
-      expect(taskProvider.lists.single.title, '购物');
-      expect(taskProvider.tasks, isEmpty);
+      expect(renameResult['todoList']['title'], '购物清单');
+      expect(renameResult['todoList']['items'], hasLength(2));
+      expect(taskProvider.lists.single.title, '购物清单');
+      expect(taskProvider.tasks, hasLength(2));
     });
   });
 
@@ -2003,7 +2041,11 @@ return { ok = true, note = "image generated" }
     SharedPreferences.setMockInitialValues({});
     final featureProvider = FeatureProvider();
     await featureProvider.load();
-    final service = ToolCallService(featureProvider);
+    final service = ToolCallService(
+      featureProvider,
+      agentIdentity: _testAgentIdentity,
+      permissionSnapshot: _testAgentPermissions,
+    );
 
     final folderResult = await service.execute(
       const ChatToolCall(
@@ -2058,7 +2100,11 @@ return { ok = true, note = "image generated" }
     SharedPreferences.setMockInitialValues({});
     final featureProvider = FeatureProvider();
     await featureProvider.load();
-    final service = ToolCallService(featureProvider);
+    final service = ToolCallService(
+      featureProvider,
+      agentIdentity: _testAgentIdentity,
+      permissionSnapshot: _testAgentPermissions,
+    );
 
     final noteId = await featureProvider.addNoteWithContent(
       'note',
@@ -2106,7 +2152,11 @@ return { ok = true, note = "image generated" }
       SharedPreferences.setMockInitialValues({});
       final featureProvider = FeatureProvider();
       await featureProvider.load();
-      final service = ToolCallService(featureProvider);
+      final service = ToolCallService(
+        featureProvider,
+        agentIdentity: _testAgentIdentity,
+        permissionSnapshot: _testAgentPermissions,
+      );
 
       final noteId = await featureProvider.addNoteWithContent('note', 'a\nb');
       final read = await service.execute(
@@ -2152,7 +2202,11 @@ return { ok = true, note = "image generated" }
       SharedPreferences.setMockInitialValues({});
       final featureProvider = FeatureProvider();
       await featureProvider.load();
-      final service = ToolCallService(featureProvider);
+      final service = ToolCallService(
+        featureProvider,
+        agentIdentity: _testAgentIdentity,
+        permissionSnapshot: _testAgentPermissions,
+      );
 
       final noteId = await featureProvider.addNoteWithContent(
         'note',
@@ -2193,7 +2247,11 @@ return { ok = true, note = "image generated" }
     SharedPreferences.setMockInitialValues({});
     final featureProvider = FeatureProvider();
     await featureProvider.load();
-    final service = ToolCallService(featureProvider);
+    final service = ToolCallService(
+      featureProvider,
+      agentIdentity: _testAgentIdentity,
+      permissionSnapshot: _testAgentPermissions,
+    );
 
     await featureProvider.addNoteWithContent('项目例会记录', 'older exact');
     await featureProvider.addNoteWithContent('项目例会记录补充', 'newer partial');
@@ -2226,7 +2284,11 @@ return { ok = true, note = "image generated" }
     SharedPreferences.setMockInitialValues({});
     final featureProvider = FeatureProvider();
     await featureProvider.load();
-    final service = ToolCallService(featureProvider);
+    final service = ToolCallService(
+      featureProvider,
+      agentIdentity: _testAgentIdentity,
+      permissionSnapshot: _testAgentPermissions,
+    );
 
     await featureProvider.addNoteWithContent('日志 2026-05-17', 'alpha');
     await featureProvider.addNoteWithContent('随手记', 'beta-42');
@@ -2259,7 +2321,11 @@ return { ok = true, note = "image generated" }
     SharedPreferences.setMockInitialValues({});
     final featureProvider = FeatureProvider();
     await featureProvider.load();
-    final service = ToolCallService(featureProvider);
+    final service = ToolCallService(
+      featureProvider,
+      agentIdentity: _testAgentIdentity,
+      permissionSnapshot: _testAgentPermissions,
+    );
 
     final noteId = await featureProvider.addNoteWithContent('note', 'a\nb\nc');
     final read = await service.execute(
@@ -2302,7 +2368,11 @@ return { ok = true, note = "image generated" }
     SharedPreferences.setMockInitialValues({});
     final featureProvider = FeatureProvider();
     await featureProvider.load();
-    final service = ToolCallService(featureProvider);
+    final service = ToolCallService(
+      featureProvider,
+      agentIdentity: _testAgentIdentity,
+      permissionSnapshot: _testAgentPermissions,
+    );
 
     final noteId = await featureProvider.addNoteWithContent('note', 'a\nb');
     final read = await service.execute(
@@ -2357,7 +2427,11 @@ return { ok = true, note = "image generated" }
       SharedPreferences.setMockInitialValues({});
       final featureProvider = FeatureProvider();
       await featureProvider.load();
-      final service = ToolCallService(featureProvider);
+      final service = ToolCallService(
+        featureProvider,
+        agentIdentity: _testAgentIdentity,
+        permissionSnapshot: _testAgentPermissions,
+      );
 
       final noteId = await featureProvider.addNoteWithContent(
         'note',
@@ -2910,7 +2984,11 @@ return { ok = true, note = "image generated" }
       );
       expect(chapterRevision, isNotNull);
       expect(chapterRevision!.id, isNot(firstPageRevisionId));
-      final service = ToolCallService(loaded);
+      final service = ToolCallService(
+        loaded,
+        agentIdentity: _testAgentIdentity,
+        permissionSnapshot: _testAgentPermissions,
+      );
       final pagesResult = await service.execute(
         ChatToolCall(
           id: 'pages',

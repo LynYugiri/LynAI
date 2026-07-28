@@ -25,6 +25,8 @@ import 'plugin_management_page.dart';
 import 'recycle_bin_page.dart';
 import 'role_management_page.dart';
 import 'theme_page.dart';
+import 'agent_defaults_settings_page.dart';
+import 'web_search_settings_page.dart';
 
 /// 设置页面。
 ///
@@ -112,6 +114,32 @@ class _SettingsPageState extends State<SettingsPage> {
             () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const ApiModelsPage()),
+            ),
+          ),
+          _buildItem(
+            context,
+            Icons.travel_explore,
+            '网页搜索',
+            '${settings.webSearchRoute.name} · ${settings.webSearchClientProvider.name}',
+            Colors.lightBlue,
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const WebSearchSettingsPage()),
+            ),
+          ),
+          _buildItem(
+            context,
+            Icons.smart_toy_outlined,
+            '新对话 Agent 默认值',
+            settings.agentEnabledByDefault
+                ? '默认启用 · ${settings.agentGrantedPermissions.length} 项权限'
+                : '默认关闭 · ${settings.agentGrantedPermissions.length} 项权限',
+            Colors.deepPurple,
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const AgentDefaultsSettingsPage(),
+              ),
             ),
           ),
           _buildItem(
