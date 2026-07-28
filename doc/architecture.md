@@ -174,7 +174,7 @@ storage_v2 中的资源注册表使用 content-addressed blob 路径。对话附
 
 ## 任务与日历链路
 
-任务内容、清单元数据和归属关系分离；日历事件、纪念日和发生记录也分离。页面、工具、备份和同步只能修改 canonical source models，不能把 `CalendarOccurrence` 或 Android 投影当成反向写入源。
+任务内容、清单元数据和归属关系分离；未完成/已完成只是页面和工具按 `completedAt` 计算的聚合，不是持久化清单。任务页与日历页使用同一规范任务编辑边界；日历事件、纪念日和发生记录也分离。页面、工具、备份和同步只能修改 canonical source models，不能把 `CalendarOccurrence` 或 Android 投影当成反向写入源。
 
 ```text
 TaskProvider                 CalendarProvider

@@ -362,6 +362,7 @@ class MarkdownWithLatex extends StatelessWidget {
   final MarkdownBlockEditCallback? onEditLatexBlock;
   final MarkdownBlockEditCallback? onEditMermaidBlock;
   final MarkdownBlockEditCallback? onEditCodeBlock;
+  final void Function(String text, String? href, String title)? onTapLink;
 
   const MarkdownWithLatex({
     super.key,
@@ -373,6 +374,7 @@ class MarkdownWithLatex extends StatelessWidget {
     this.onEditLatexBlock,
     this.onEditMermaidBlock,
     this.onEditCodeBlock,
+    this.onTapLink,
   });
 
   static final _inlineRegExp = RegExp(r'\$(.+?)\$');
@@ -435,6 +437,7 @@ class MarkdownWithLatex extends StatelessWidget {
       builders: builders,
       extensionSet: _extensionSet(withInlineLatex: withInlineLatex),
       softLineBreak: true,
+      onTapLink: onTapLink,
     );
   }
 

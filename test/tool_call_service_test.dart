@@ -388,6 +388,10 @@ void main() {
         'create_task',
         'update_task',
         'delete_task',
+        'list_task_lists',
+        'create_task_list',
+        'update_task_list',
+        'delete_task_list',
         'list_calendar_events',
         'create_calendar_event',
         'update_calendar_event',
@@ -404,6 +408,7 @@ void main() {
     );
     expect(ToolCallService.nativeSystemPrompt, contains('YYYY-MM-DD'));
     expect(ToolCallService.nativeSystemPrompt, contains('只调用一次 create_task'));
+    expect(ToolCallService.nativeSystemPrompt, contains('list_task_lists'));
     for (final name in const [
       'create_task',
       'update_task',

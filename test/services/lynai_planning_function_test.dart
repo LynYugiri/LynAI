@@ -196,6 +196,38 @@ void main() {
     },
   );
 
+  test('canonical task list functions preserve tasks on delete', () async {
+    final created = await service.execute(
+      const LynAIFunctionCall(
+        name: 'taskLists.create',
+        arguments: {'title': 'Work'},
+      ),
+      context,
+    );
+    final listId = (created['taskList'] as Map)['id'] as String;
+    await service.execute(
+      LynAIFunctionCall(
+        name: 'tasks.create',
+        arguments: {'title': 'Report', 'listId': listId},
+      ),
+      context,
+    );
+
+    final listed = service.executeSync(
+      const LynAIFunctionCall(name: 'taskLists.list', arguments: {}),
+      context,
+    );
+    expect(((listed['taskLists'] as List).single as Map)['unfinishedTasks'], 1);
+
+    final deleted = await service.execute(
+      LynAIFunctionCall(name: 'taskLists.delete', arguments: {'id': listId}),
+      context,
+    );
+    expect(deleted['preservedTaskCount'], 1);
+    expect(tasks.tasks.single.title, 'Report');
+    expect(tasks.entryForTask(tasks.tasks.single.id), isNull);
+  });
+
   test('legacy schedule task projections use half-open from and to', () async {
     for (final day in [22, 23, 24]) {
       await tasks.addTask(

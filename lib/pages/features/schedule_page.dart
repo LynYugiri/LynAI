@@ -1158,114 +1158,12 @@ class _SchedulePageState extends State<_SchedulePage> {
   }
 
   Future<void> _openTaskEditor([Task? task]) async {
-    final provider = context.read<TaskProvider>();
-    final title = TextEditingController(text: task?.title ?? '');
-    final note = TextEditingController(text: task?.note ?? '');
     final base = _selectedDate ?? _focus;
-    DateTime? plannedDate =
-        task?.plannedDate?.atStartOfDay() ?? _dateOnly(base);
-    TimeOfDay? plannedTime = task?.plannedTime == null
-        ? null
-        : TimeOfDay(
-            hour: task!.plannedTime!.hour,
-            minute: task.plannedTime!.minute,
-          );
-    DateTime? dueDate = task?.dueDate?.atStartOfDay();
-    TimeOfDay? dueTime = task?.dueTime == null
-        ? null
-        : TimeOfDay(hour: task!.dueTime!.hour, minute: task.dueTime!.minute);
-    var completed = task?.isCompleted ?? false;
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setSheet) => _editorSheet(
-          context,
-          title: task == null ? '新建任务' : '编辑任务',
-          titleController: title,
-          noteController: note,
-          onDelete: task == null
-              ? null
-              : () => Navigator.pop(context, 'delete'),
-          onSave: () => Navigator.pop(context, 'save'),
-          children: [
-            if (task != null)
-              CheckboxListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('已完成'),
-                value: completed,
-                onChanged: (value) =>
-                    setSheet(() => completed = value ?? false),
-              ),
-            _optionalDateTile(context, '计划日期', plannedDate, (value) {
-              setSheet(() {
-                plannedDate = value;
-                if (value == null) plannedTime = null;
-              });
-            }),
-            if (plannedDate != null)
-              _optionalTimeTile(context, '计划时间', plannedTime, (value) {
-                setSheet(() => plannedTime = value);
-              }),
-            _optionalDateTile(context, '截止日期', dueDate, (value) {
-              setSheet(() {
-                dueDate = value;
-                if (value == null) dueTime = null;
-              });
-            }),
-            if (dueDate != null)
-              _optionalTimeTile(context, '截止时间', dueTime, (value) {
-                setSheet(() => dueTime = value);
-              }),
-          ],
-        ),
-      ),
+    await _openCanonicalTaskEditor(
+      context,
+      task: task,
+      initialPlannedDate: task == null ? LocalDate.fromDateTime(base) : null,
     );
-    final titleText = title.text.trim();
-    final noteText = note.text.trim();
-    title.dispose();
-    note.dispose();
-    if (!mounted || action == null) return;
-    if (action == 'delete' && task != null) {
-      await provider.deleteTask(task.id);
-      return;
-    }
-    if (titleText.isEmpty) return;
-    final plannedLocalDate = plannedDate == null
-        ? null
-        : LocalDate.fromDateTime(plannedDate!);
-    final dueLocalDate = dueDate == null
-        ? null
-        : LocalDate.fromDateTime(dueDate!);
-    final plannedLocalTime = plannedTime == null
-        ? null
-        : LocalTime(plannedTime!.hour, plannedTime!.minute);
-    final dueLocalTime = dueTime == null
-        ? null
-        : LocalTime(dueTime!.hour, dueTime!.minute);
-    if (task == null) {
-      await provider.addTask(
-        title: titleText,
-        note: noteText.isEmpty ? null : noteText,
-        plannedDate: plannedLocalDate,
-        plannedTime: plannedLocalTime,
-        dueDate: dueLocalDate,
-        dueTime: dueLocalTime,
-      );
-    } else {
-      await provider.updateTask(
-        task.copyWith(
-          title: titleText,
-          note: noteText.isEmpty ? null : noteText,
-          plannedDate: plannedLocalDate,
-          plannedTime: plannedLocalTime,
-          dueDate: dueLocalDate,
-          dueTime: dueLocalTime,
-          completedAt: completed ? task.completedAt ?? DateTime.now() : null,
-        ),
-      );
-    }
   }
 
   Future<void> _openAnniversaryEditor([Anniversary? anniversary]) async {
@@ -1509,39 +1407,6 @@ class _SchedulePageState extends State<_SchedulePage> {
     );
   }
 
-  Widget _optionalDateTile(
-    BuildContext context,
-    String label,
-    DateTime? value,
-    ValueChanged<DateTime?> onChanged,
-  ) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      title: Text(label),
-      subtitle: Text(
-        value == null
-            ? '未设置'
-            : '${value.year}-${_two(value.month)}-${_two(value.day)}',
-      ),
-      trailing: value == null
-          ? const Icon(Icons.add)
-          : IconButton(
-              tooltip: '清除',
-              onPressed: () => onChanged(null),
-              icon: const Icon(Icons.close),
-            ),
-      onTap: () async {
-        final selected = await showDatePicker(
-          context: context,
-          firstDate: DateTime(1900),
-          lastDate: DateTime(2200),
-          initialDate: value ?? _dateOnly(DateTime.now()),
-        );
-        if (selected != null) onChanged(selected);
-      },
-    );
-  }
-
   Widget _timeTile(
     BuildContext context,
     String label,
@@ -1557,33 +1422,6 @@ class _SchedulePageState extends State<_SchedulePage> {
         final selected = await showTimePicker(
           context: context,
           initialTime: value,
-        );
-        if (selected != null) onChanged(selected);
-      },
-    );
-  }
-
-  Widget _optionalTimeTile(
-    BuildContext context,
-    String label,
-    TimeOfDay? value,
-    ValueChanged<TimeOfDay?> onChanged,
-  ) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      title: Text(label),
-      subtitle: Text(value?.format(context) ?? '未设置'),
-      trailing: value == null
-          ? const Icon(Icons.add_alarm_outlined)
-          : IconButton(
-              tooltip: '清除',
-              onPressed: () => onChanged(null),
-              icon: const Icon(Icons.close),
-            ),
-      onTap: () async {
-        final selected = await showTimePicker(
-          context: context,
-          initialTime: value ?? TimeOfDay.now(),
         );
         if (selected != null) onChanged(selected);
       },

@@ -246,6 +246,10 @@ class LynAIFunctionService {
     'create_task': 'tasks.create',
     'update_task': 'tasks.update',
     'delete_task': 'tasks.delete',
+    'list_task_lists': 'taskLists.list',
+    'create_task_list': 'taskLists.create',
+    'update_task_list': 'taskLists.update',
+    'delete_task_list': 'taskLists.delete',
     'list_calendar_events': 'calendar.list',
     'create_calendar_event': 'calendar.create',
     'update_calendar_event': 'calendar.update',
@@ -371,6 +375,19 @@ class LynAIFunctionService {
         'tasks.create' => await _createTask(_tasks(context), call.arguments),
         'tasks.update' => await _updateTask(_tasks(context), call.arguments),
         'tasks.delete' => await _deleteTask(_tasks(context), call.arguments),
+        'taskLists.list' => _listTaskLists(_tasks(context), call.arguments),
+        'taskLists.create' => await _createTaskList(
+          _tasks(context),
+          call.arguments,
+        ),
+        'taskLists.update' => await _updateTaskList(
+          _tasks(context),
+          call.arguments,
+        ),
+        'taskLists.delete' => await _deleteTaskList(
+          _tasks(context),
+          call.arguments,
+        ),
         'calendar.list' => _listCalendar(_calendar(context), call.arguments),
         'calendar.create' => await _createCalendar(
           _calendar(context),
@@ -448,6 +465,7 @@ class LynAIFunctionService {
         'todos.list' => _listTodoLists(_tasks(context), call.arguments),
         'todos.read' => _readTodoList(_tasks(context), call.arguments),
         'tasks.list' => _listTasks(_tasks(context), call.arguments),
+        'taskLists.list' => _listTaskLists(_tasks(context), call.arguments),
         'calendar.list' => _listCalendar(_calendar(context), call.arguments),
         'anniversaries.list' => _listAnniversaries(
           _calendar(context),
@@ -495,10 +513,13 @@ class LynAIFunctionService {
       'todos.saveList' ||
       'todos.saveItem' ||
       'todos.deleteList' => LynAIPermissions.todosWrite,
-      'tasks.list' => LynAIPermissions.todosRead,
+      'tasks.list' || 'taskLists.list' => LynAIPermissions.todosRead,
       'tasks.create' ||
       'tasks.update' ||
-      'tasks.delete' => LynAIPermissions.todosWrite,
+      'tasks.delete' ||
+      'taskLists.create' ||
+      'taskLists.update' ||
+      'taskLists.delete' => LynAIPermissions.todosWrite,
       'calendar.list' ||
       'anniversaries.list' ||
       'schedules.list' => LynAIPermissions.schedulesRead,
@@ -572,7 +593,6 @@ class LynAIFunctionService {
     }
     final namedDelete = switch (functionName) {
       'notes.delete' ||
-      'tasks.delete' ||
       'calendar.delete' ||
       'anniversaries.delete' ||
       'todos.deleteList' ||
@@ -1149,6 +1169,7 @@ class LynAIFunctionService {
     final query = (args['query'] as String? ?? '').trim().toLowerCase();
     final completed = args['completed'] as bool?;
     final listId = (args['listId'] as String? ?? '').trim();
+    final unassigned = args['unassigned'] as bool?;
     return {
       'ok': true,
       'tasks': tasks.tasks
@@ -1158,6 +1179,10 @@ class LynAIFunctionService {
             }
             if (listId.isNotEmpty &&
                 tasks.entryForTask(task.id)?.taskListId != listId) {
+              return false;
+            }
+            if (unassigned != null &&
+                (tasks.entryForTask(task.id) == null) != unassigned) {
               return false;
             }
             return query.isEmpty ||
@@ -1256,6 +1281,70 @@ class LynAIFunctionService {
     if (tasks.taskById(id) == null) return _error('未找到任务: $id');
     await tasks.deleteTask(id);
     return {'ok': true};
+  }
+
+  Map<String, dynamic> _listTaskLists(
+    TaskProvider tasks,
+    Map<String, dynamic> args,
+  ) {
+    final query = (args['query'] as String? ?? '').trim().toLowerCase();
+    return {
+      'ok': true,
+      'taskLists': tasks.lists
+          .where((list) {
+            if (query.isEmpty || list.title.toLowerCase().contains(query)) {
+              return true;
+            }
+            return tasks
+                .tasksForList(list.id)
+                .any(
+                  (task) =>
+                      task.title.toLowerCase().contains(query) ||
+                      (task.note ?? '').toLowerCase().contains(query),
+                );
+          })
+          .map((list) => _taskListJson(tasks, list))
+          .toList(),
+    };
+  }
+
+  Future<Map<String, dynamic>> _createTaskList(
+    TaskProvider tasks,
+    Map<String, dynamic> args,
+  ) async {
+    final title = (args['title'] as String? ?? '').trim();
+    if (title.isEmpty) return _error('taskLists.create 缺少 title');
+    final id = await tasks.addList(title);
+    return {'ok': true, 'taskList': _taskListJson(tasks, tasks.listById(id)!)};
+  }
+
+  Future<Map<String, dynamic>> _updateTaskList(
+    TaskProvider tasks,
+    Map<String, dynamic> args,
+  ) async {
+    final id = (args['id'] as String? ?? '').trim();
+    final title = (args['title'] as String? ?? '').trim();
+    final current = tasks.listById(id);
+    if (current == null) return _error('未找到任务清单: $id');
+    if (title.isEmpty) return _error('任务清单标题不能为空');
+    await tasks.updateList(current.copyWith(title: title));
+    return {'ok': true, 'taskList': _taskListJson(tasks, tasks.listById(id)!)};
+  }
+
+  Future<Map<String, dynamic>> _deleteTaskList(
+    TaskProvider tasks,
+    Map<String, dynamic> args,
+  ) async {
+    final id = (args['id'] as String? ?? '').trim();
+    final list = tasks.listById(id);
+    if (list == null) return _error('未找到任务清单: $id');
+    final taskIds = tasks.tasksForList(id).map((task) => task.id).toList();
+    await tasks.deleteList(id);
+    return {
+      'ok': true,
+      'preservedTaskCount': taskIds.length,
+      'preservedTaskIds': taskIds,
+    };
   }
 
   Map<String, dynamic> _listCalendar(
@@ -3165,6 +3254,24 @@ class LynAIFunctionService {
       'createdAt': task.createdAt.toIso8601String(),
       'updatedAt': task.updatedAt.toIso8601String(),
       'reminders': task.reminders.map((value) => value.toJson()).toList(),
+    };
+  }
+
+  static Map<String, dynamic> _taskListJson(
+    TaskProvider provider,
+    TaskList list,
+  ) {
+    final tasks = provider.tasksForList(list.id);
+    final completed = tasks.where((task) => task.isCompleted).length;
+    return {
+      'id': list.id,
+      'title': list.title,
+      'sortOrder': list.sortOrder,
+      'totalTasks': tasks.length,
+      'unfinishedTasks': tasks.length - completed,
+      'completedTasks': completed,
+      'createdAt': list.createdAt.toIso8601String(),
+      'updatedAt': list.updatedAt.toIso8601String(),
     };
   }
 

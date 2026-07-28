@@ -754,6 +754,14 @@ class AgentLuaScriptService {
     _installFunctionTable(
       state,
       -1,
+      'taskLists',
+      'taskLists',
+      onCall,
+      asyncCalls,
+    );
+    _installFunctionTable(
+      state,
+      -1,
       'calendar',
       'calendar',
       onCall,

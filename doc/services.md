@@ -123,6 +123,7 @@ OCR 和文件识别是发送前处理。处理结果会替换历史附件并标�
 | `list_note_folders` | 只读，列出笔记文件夹。 |
 | `save_note_folder` | 创建或更新笔记文件夹。 |
 | `list_schedules` / `create_schedule` / `update_schedule` | 旧 schedule 工具别名，兼容输入后转写规范任务或日历事件。新提示和新调用应使用 canonical 工具。 |
+| `list_task_lists` / `create_task_list` / `update_task_list` / `delete_task_list` | 规范任务清单 CRUD；删除清单只移除归属并保留任务。内部函数前缀为 `taskLists.*`。 |
 
 规范任务、日历事件和纪念日的 create/update 工具共用 `reminders` wire schema：提醒包含可选 `id`、实体对应的 `anchor`、有符号 `offsetMinutes` 和可选 `HH:mm` `dateOnlyTime`。创建或替换列表时缺失的提醒 ID 自动生成；update 省略 `reminders` 保留原列表，显式传入数组则整体替换，空数组清空。list/create/update 结果都会返回提醒 JSON。旧 `list_schedules` 对任务计划时间和事件都采用 `[from, to)` 过滤；旧 `update_schedule` 可在任务与事件之间保留 ID 转换，并先持久化目标后移除来源。
 | `list_todo_lists` / `read_todo_list` / `save_todo_list` / `save_todo_item` | 旧 todo 工具别名，以旧形状读写 `TaskProvider`。仅在用户明确操作旧清单契约时使用。 |
@@ -223,7 +224,7 @@ Subagent 适合 QQ/消息应用这类流程：主 Agent 只描述目标，Subage
 | 规范规划 API | `lynai.tasks.*`、`lynai.calendar.*`、`lynai.anniversaries.*` 提供 `list/create/update/delete`。 |
 | 旧规划 API | `lynai.todos.*`、`lynai.schedules.*` 继续可用，但只作为兼容适配器。 |
 
-任务 API 复用既有 `todos:read` / `todos:write` 权限；日历事件与纪念日 API 复用 `schedules:read` / `schedules:write` 权限。权限名称为已发布插件契约，不因为领域模型规范化而改名。插件 Lua 的同步 `list` 直接返回结果；写操作通过异步 function command 执行。Agent Lua 同样注入 `lynai.tasks`、`lynai.calendar` 和 `lynai.anniversaries` 便捷表，也可通过 `lynai.call('tasks.create', args)` 等完整函数名调用。
+任务 API 复用既有 `todos:read` / `todos:write` 权限；日历事件与纪念日 API 复用 `schedules:read` / `schedules:write` 权限。权限名称为已发布插件契约，不因为领域模型规范化而改名。插件 Lua 的同步 `list` 直接返回结果；写操作通过异步 function command 执行。Agent Lua 同样注入 `lynai.tasks`、`lynai.taskLists`、`lynai.calendar` 和 `lynai.anniversaries` 便捷表，也可通过 `lynai.call('tasks.create', args)` 等完整函数名调用。
 
 ### 工具执行
 

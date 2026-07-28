@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lynai/models/local_date.dart';
 import 'package:lynai/models/task.dart';
 import 'package:lynai/models/task_list.dart';
 import 'package:lynai/pages/feature_page.dart';
@@ -14,33 +13,31 @@ import 'package:provider/provider.dart';
 import 'support/memory_repositories.dart';
 
 void main() {
-  testWidgets('Today is hidden when empty and visible when populated', (
+  testWidgets('task page has no Inbox and exposes status views', (
     tester,
   ) async {
     final provider = _taskProvider();
+    await provider.addTask(title: '未归类任务');
     await _pumpTasks(tester, provider);
 
-    expect(find.text('今日'), findsNothing);
-
-    await provider.addTask(
-      title: '今天截止',
-      dueDate: LocalDate.fromDateTime(DateTime.now()),
-    );
-    await tester.pump();
-
-    expect(find.text('今日'), findsOneWidget);
-    await tester.tap(find.widgetWithText(ChoiceChip, '今日'));
+    expect(find.textContaining('收件箱'), findsNothing);
+    expect(find.text('未完成 1'), findsOneWidget);
+    expect(find.text('已完成 0'), findsOneWidget);
+    await tester.tap(find.text('未完成 1'));
     await tester.pumpAndSettle();
-    expect(find.text('今天截止'), findsOneWidget);
+    expect(find.text('未归入清单'), findsOneWidget);
+    expect(find.text('未归类任务'), findsOneWidget);
   });
 
-  testWidgets('deleting a list preserves its task in Inbox', (tester) async {
+  testWidgets('deleting a list preserves its task in Unfinished', (
+    tester,
+  ) async {
     final provider = _taskProvider();
     final listId = await provider.addList('工作');
     final taskId = await provider.addTask(title: '保留任务', listId: listId);
     await _pumpTasks(tester, provider);
 
-    await tester.tap(find.text('工作'));
+    await tester.tap(find.byTooltip('展开'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('清单操作'));
     await tester.pumpAndSettle();
@@ -52,38 +49,48 @@ void main() {
     expect(provider.listById(listId), isNull);
     expect(provider.taskById(taskId), isNotNull);
     expect(provider.unlistedTasks.single.id, taskId);
+    await tester.tap(find.text('未完成 1'));
+    await tester.pumpAndSettle();
+    expect(find.text('未归入清单'), findsOneWidget);
     expect(find.text('保留任务'), findsOneWidget);
   });
 
-  testWidgets('quick add creates a simple Inbox task', (tester) async {
+  testWidgets('expanded checklist adds a task to the canonical list', (
+    tester,
+  ) async {
     final provider = _taskProvider();
+    final listId = await provider.addList('工作');
     await _pumpTasks(tester, provider);
 
-    await tester.enterText(
-      find.byKey(const ValueKey('task-quick-add')),
-      '快速任务',
-    );
-    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.tap(find.byTooltip('展开'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增任务'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, '快速任务');
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
     await tester.pumpAndSettle();
 
     expect(provider.tasks.single.title, '快速任务');
-    expect(provider.unlistedTasks.single.title, '快速任务');
+    expect(provider.entryForTask(provider.tasks.single.id)?.taskListId, listId);
     expect(find.text('快速任务'), findsOneWidget);
   });
 
-  testWidgets('task checkbox completes the canonical task', (tester) async {
+  testWidgets('completed task remains in its expanded checklist', (
+    tester,
+  ) async {
     final provider = _taskProvider();
-    final taskId = await provider.addTask(title: '完成我');
+    final listId = await provider.addList('工作');
+    final taskId = await provider.addTask(title: '完成我', listId: listId);
     await _pumpTasks(tester, provider);
 
+    await tester.tap(find.byTooltip('展开'));
+    await tester.pumpAndSettle();
     await tester.tap(find.byType(Checkbox).first);
     await tester.pumpAndSettle();
 
     expect(provider.taskById(taskId)!.isCompleted, isTrue);
-    expect(find.text('完成我'), findsNothing);
-    await tester.tap(find.widgetWithText(ChoiceChip, '已完成'));
-    await tester.pumpAndSettle();
     expect(find.text('完成我'), findsOneWidget);
+    expect(find.text('1 项，已完成 1 项'), findsOneWidget);
   });
 }
 

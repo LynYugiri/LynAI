@@ -110,6 +110,12 @@ class TaskProvider extends ChangeNotifier {
 
   List<Task> get unlisted => unlistedTasks;
 
+  List<Task> get unfinishedTasks =>
+      List.unmodifiable(_tasks.where((task) => !task.isCompleted));
+
+  List<Task> get completedTasks =>
+      List.unmodifiable(_tasks.where((task) => task.isCompleted));
+
   List<Task> get today => todayTasks();
 
   List<Task> get overdue => overdueTasks();

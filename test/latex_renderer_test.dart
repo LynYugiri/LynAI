@@ -1,9 +1,45 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/widgets/latex_renderer.dart';
 
 void main() {
+  testWidgets('MarkdownWithLatex forwards markdown link taps', (
+    WidgetTester tester,
+  ) async {
+    String? href;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MarkdownWithLatex(
+            content: '打开 [LynAI](https://example.com) 或 https://dart.dev',
+            onTapLink: (_, value, _) => href = value,
+          ),
+        ),
+      ),
+    );
+
+    final richText = tester
+        .widgetList<RichText>(find.byType(RichText))
+        .firstWhere((widget) => widget.text.toPlainText().contains('LynAI'));
+    final links = <TapGestureRecognizer>[];
+    bool collect(InlineSpan span) {
+      if (span is TextSpan) {
+        if (span.recognizer case final TapGestureRecognizer recognizer) {
+          links.add(recognizer);
+        }
+      }
+      return true;
+    }
+
+    richText.text.visitChildren(collect);
+    links.first.onTap!();
+    expect(href, 'https://example.com');
+    links.last.onTap!();
+    expect(href, 'https://dart.dev');
+  });
+
   testWidgets('MarkdownWithLatex renders parenthesized inline latex', (
     WidgetTester tester,
   ) async {

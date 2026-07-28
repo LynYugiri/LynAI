@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,6 +13,7 @@ import 'package:screenshot/screenshot.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:super_clipboard/super_clipboard.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/agent_plan.dart';
 import '../models/agent_runtime.dart';
 import '../models/agent_user_interaction.dart';
@@ -58,6 +60,121 @@ part 'chat/share_conversation_image.dart';
 part 'chat/dialog_settings_content.dart';
 part 'chat/prompt_role_dialogs.dart';
 part 'chat/history_drawer.dart';
+
+final class _UserTextHighlight {
+  const _UserTextHighlight({
+    required this.start,
+    required this.end,
+    required this.current,
+  });
+
+  final int start;
+  final int end;
+  final bool current;
+}
+
+class _LinkAwareSelectableText extends StatefulWidget {
+  const _LinkAwareSelectableText({
+    required this.content,
+    required this.onOpenLink,
+    this.highlights = const [],
+  });
+
+  final String content;
+  final List<_UserTextHighlight> highlights;
+  final ValueChanged<String> onOpenLink;
+
+  @override
+  State<_LinkAwareSelectableText> createState() =>
+      _LinkAwareSelectableTextState();
+}
+
+class _LinkAwareSelectableTextState extends State<_LinkAwareSelectableText> {
+  static final _urlPattern = RegExp(r'https?://[^\s<>]+', caseSensitive: false);
+  final List<TapGestureRecognizer> _recognizers = [];
+
+  @override
+  void dispose() {
+    for (final recognizer in _recognizers) {
+      recognizer.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    for (final recognizer in _recognizers) {
+      recognizer.dispose();
+    }
+    _recognizers.clear();
+    final boundaries = <int>{0, widget.content.length};
+    final urls = _urlPattern.allMatches(widget.content).toList();
+    for (final match in urls) {
+      boundaries
+        ..add(match.start)
+        ..add(match.end);
+    }
+    for (final highlight in widget.highlights) {
+      boundaries
+        ..add(highlight.start)
+        ..add(highlight.end);
+    }
+    final points = boundaries.toList()..sort();
+    final scheme = Theme.of(context).colorScheme;
+    final spans = <TextSpan>[];
+    for (var index = 0; index < points.length - 1; index++) {
+      final start = points[index];
+      final end = points[index + 1];
+      if (start == end) continue;
+      final url = urls.cast<RegExpMatch?>().firstWhere(
+        (match) => match != null && start >= match.start && end <= match.end,
+        orElse: () => null,
+      );
+      final highlight = widget.highlights
+          .cast<_UserTextHighlight?>()
+          .firstWhere(
+            (item) => item != null && start >= item.start && end <= item.end,
+            orElse: () => null,
+          );
+      TapGestureRecognizer? recognizer;
+      if (url != null) {
+        final href = url.group(0)!;
+        recognizer = TapGestureRecognizer()
+          ..onTap = () => widget.onOpenLink(href);
+        _recognizers.add(recognizer);
+      }
+      spans.add(
+        TextSpan(
+          text: widget.content.substring(start, end),
+          recognizer: recognizer,
+          style: TextStyle(
+            color: highlight?.current == true
+                ? scheme.onPrimary
+                : url != null
+                ? scheme.primary
+                : highlight != null
+                ? Colors.black
+                : null,
+            backgroundColor: highlight?.current == true
+                ? scheme.primary
+                : highlight != null
+                ? Colors.yellow
+                : null,
+            fontWeight: highlight?.current == true
+                ? FontWeight.w700
+                : highlight != null
+                ? FontWeight.w600
+                : null,
+            decoration: url != null ? TextDecoration.underline : null,
+          ),
+        ),
+      );
+    }
+    return SelectableText.rich(
+      TextSpan(style: const TextStyle(fontSize: 15), children: spans),
+    );
+  }
+}
 
 /// 重试历史条目。
 ///
@@ -1063,40 +1180,49 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
   Widget _searchableUserText(Message msg) {
     final query = _searchCtrl.text.trim();
+    final highlights = <_UserTextHighlight>[];
     if (!_showSearch || query.isEmpty || !_messageHasSearchMatch(msg.id)) {
-      return SelectableText(msg.content, style: const TextStyle(fontSize: 15));
+      return _LinkAwareSelectableText(
+        content: msg.content,
+        onOpenLink: _openExternalLink,
+      );
     }
     final matcher = ChatSearchMatcher.fromQuery(query);
-    final ranges = matcher.rangesIn(msg.content);
-    if (ranges.isEmpty) {
-      return SelectableText(msg.content, style: const TextStyle(fontSize: 15));
-    }
-    final scheme = Theme.of(context).colorScheme;
-    final spans = <TextSpan>[];
-    var start = 0;
-    for (final range in ranges) {
-      if (range.start > start) {
-        spans.add(TextSpan(text: msg.content.substring(start, range.start)));
-      }
-      final current = _isCurrentTextRange(msg.id, range.start, range.end);
-      spans.add(
-        TextSpan(
-          text: msg.content.substring(range.start, range.end),
-          style: TextStyle(
-            color: current ? scheme.onPrimary : Colors.black,
-            backgroundColor: current ? scheme.primary : Colors.yellow,
-            fontWeight: current ? FontWeight.w700 : FontWeight.w600,
-          ),
+    for (final range in matcher.rangesIn(msg.content)) {
+      highlights.add(
+        _UserTextHighlight(
+          start: range.start,
+          end: range.end,
+          current: _isCurrentTextRange(msg.id, range.start, range.end),
         ),
       );
-      start = range.end;
     }
-    if (start < msg.content.length) {
-      spans.add(TextSpan(text: msg.content.substring(start)));
-    }
-    return SelectableText.rich(
-      TextSpan(style: const TextStyle(fontSize: 15), children: spans),
+    return _LinkAwareSelectableText(
+      content: msg.content,
+      highlights: highlights,
+      onOpenLink: _openExternalLink,
     );
+  }
+
+  Future<void> _openExternalLink(String href) async {
+    if (_shareSelecting) return;
+    final uri = Uri.tryParse(href);
+    if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(shortSnackBar('无法打开该链接'));
+      }
+      return;
+    }
+    try {
+      final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!opened && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(shortSnackBar('无法打开该链接'));
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(shortSnackBar('无法打开该链接'));
+      }
+    }
   }
 
   @override
@@ -3567,6 +3693,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                 MarkdownWithLatex(
                   content: displayContent,
                   renderMermaid: !streaming,
+                  onTapLink: (_, href, _) {
+                    if (href != null) _openExternalLink(href);
+                  },
                 ),
               if (showImages && displayContent.isNotEmpty)
                 const SizedBox(height: 8),

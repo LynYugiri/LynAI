@@ -1,16 +1,6 @@
 part of '../feature_page.dart';
 
-enum _TaskSectionKind { today, inbox, list, completed }
-
-class _TaskSection {
-  const _TaskSection(this.kind, this.title, {this.listId});
-
-  final _TaskSectionKind kind;
-  final String title;
-  final String? listId;
-
-  String get key => listId ?? kind.name;
-}
+enum _TaskPageView { overview, unfinished, completed }
 
 class _TodoListsPage extends StatefulWidget {
   const _TodoListsPage({
@@ -31,432 +21,387 @@ class _TodoListsPageState extends State<_TodoListsPage> {
   static const _nativeTools = MethodChannel('lynai/native_tools');
 
   final _shot = ScreenshotController();
-  final _quickAddController = TextEditingController();
-  String _selectedSectionKey = 'inbox';
-
-  @override
-  void dispose() {
-    _quickAddController.dispose();
-    super.dispose();
-  }
+  final Set<String> _expandedListIds = {};
+  _TaskPageView _view = _TaskPageView.overview;
 
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<TaskProvider>();
-    final sections = _sections(provider);
-    final selected = sections.firstWhere(
-      (section) => section.key == _selectedSectionKey,
-      orElse: () => sections.first,
-    );
-    if (selected.key != _selectedSectionKey) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() => _selectedSectionKey = selected.key);
-      });
-    }
-    final tasks = _tasksForSection(provider, selected);
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 760;
-        final content = _taskContent(provider, selected, tasks);
-        if (!wide) {
-          return Column(
-            children: [
-              _mobileSections(sections, selected),
-              Expanded(child: content),
-            ],
-          );
-        }
-        return Row(
-          children: [
-            SizedBox(
-              width: 248,
-              child: _desktopSections(provider, sections, selected),
-            ),
-            const VerticalDivider(width: 1),
-            Expanded(child: content),
-          ],
-        );
-      },
-    );
-  }
-
-  List<_TaskSection> _sections(TaskProvider provider) {
-    final sections = <_TaskSection>[];
-    if (_todayTasks(provider).isNotEmpty) {
-      sections.add(const _TaskSection(_TaskSectionKind.today, '今日'));
-    }
-    sections.add(const _TaskSection(_TaskSectionKind.inbox, '收件箱'));
-    sections.addAll(
-      provider.lists.map(
-        (list) =>
-            _TaskSection(_TaskSectionKind.list, list.title, listId: list.id),
-      ),
-    );
-    sections.add(const _TaskSection(_TaskSectionKind.completed, '已完成'));
-    return sections;
-  }
-
-  List<Task> _todayTasks(TaskProvider provider) {
-    final now = DateTime.now();
-    final today = LocalDate.fromDateTime(now);
-    final result = <Task>[];
-    final seen = <String>{};
-
-    // 今日按逾期、今日截止、今日计划分组，同一任务只出现一次。
-    void add(Iterable<Task> values) {
-      for (final task in values) {
-        if (!task.isCompleted && seen.add(task.id)) result.add(task);
-      }
-    }
-
-    add(provider.overdueTasks(now));
-    add(provider.tasks.where((task) => task.dueDate == today));
-    add(provider.tasks.where((task) => task.plannedDate == today));
-    return result;
-  }
-
-  List<Task> _tasksForSection(TaskProvider provider, _TaskSection section) {
-    final values = switch (section.kind) {
-      _TaskSectionKind.today => _todayTasks(provider),
-      _TaskSectionKind.inbox =>
-        provider.unlistedTasks.where((task) => !task.isCompleted).toList(),
-      _TaskSectionKind.list =>
-        provider
-            .tasksForList(section.listId!)
-            .where((task) => !task.isCompleted)
-            .toList(),
-      _TaskSectionKind.completed =>
-        provider.tasks.where((task) => task.isCompleted).toList(),
-    };
-    final query = widget.searchQuery.trim().toLowerCase();
-    if (query.isEmpty) return values;
-    return values.where((task) {
-      return task.title.toLowerCase().contains(query) ||
-          (task.note?.toLowerCase().contains(query) ?? false);
-    }).toList();
-  }
-
-  Widget _mobileSections(List<_TaskSection> sections, _TaskSection selected) {
-    return Material(
-      color: Theme.of(context).colorScheme.surfaceContainerLow,
-      child: SizedBox(
-        height: 58,
-        child: ListView.separated(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          scrollDirection: Axis.horizontal,
-          itemCount: sections.length,
-          separatorBuilder: (_, _) => const SizedBox(width: 8),
-          itemBuilder: (context, index) {
-            final section = sections[index];
-            return ChoiceChip(
-              label: Text(section.title),
-              selected: section.key == selected.key,
-              onSelected: (_) => setState(() {
-                _selectedSectionKey = section.key;
-              }),
-            );
-          },
-        ),
-      ),
-    );
-  }
-
-  Widget _desktopSections(
-    TaskProvider provider,
-    List<_TaskSection> sections,
-    _TaskSection selected,
-  ) {
     return Column(
       children: [
+        _statusNavigation(provider),
+        _searchField(),
         Expanded(
-          child: ReorderableListView.builder(
-            padding: const EdgeInsets.fromLTRB(10, 12, 10, 8),
-            buildDefaultDragHandles: false,
-            itemCount: sections.length,
-            onReorderItem: (oldIndex, newIndex) =>
-                _reorderSection(provider, sections, oldIndex, newIndex),
-            itemBuilder: (context, index) {
-              final section = sections[index];
-              final named = section.kind == _TaskSectionKind.list;
-              return ListTile(
-                key: ValueKey(section.key),
-                selected: section.key == selected.key,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                leading: named
-                    ? ReorderableDragStartListener(
-                        index: index,
-                        child: const Icon(Icons.drag_handle),
-                      )
-                    : Icon(_sectionIcon(section.kind)),
-                title: Text(
-                  section.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                trailing: named
-                    ? PopupMenuButton<String>(
-                        tooltip: '清单操作',
-                        onSelected: (value) => _listMenu(
-                          value,
-                          provider.listById(section.listId!)!,
-                        ),
-                        itemBuilder: (_) => _listMenuItems,
-                      )
-                    : null,
-                onTap: () => setState(() {
-                  _selectedSectionKey = section.key;
-                }),
-              );
-            },
-          ),
+          child: switch (_view) {
+            _TaskPageView.overview => _overview(provider),
+            _TaskPageView.unfinished => _statusView(
+              provider,
+              title: '未完成',
+              tasks: _filteredTasks(provider.unfinishedTasks),
+            ),
+            _TaskPageView.completed => _statusView(
+              provider,
+              title: '已完成',
+              tasks: _filteredTasks(provider.completedTasks),
+            ),
+          },
         ),
       ],
     );
   }
 
-  IconData _sectionIcon(_TaskSectionKind kind) => switch (kind) {
-    _TaskSectionKind.today => Icons.today_outlined,
-    _TaskSectionKind.inbox => Icons.inbox_outlined,
-    _TaskSectionKind.list => Icons.list_alt,
-    _TaskSectionKind.completed => Icons.task_alt,
-  };
+  Widget _statusNavigation(TaskProvider provider) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 2),
+      child: Row(
+        children: [
+          IconButton.filledTonal(
+            tooltip: '任务清单',
+            onPressed: () => setState(() => _view = _TaskPageView.overview),
+            icon: const Icon(Icons.checklist),
+            isSelected: _view == _TaskPageView.overview,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _statusButton(
+              label: '未完成',
+              count: provider.unfinishedTasks.length,
+              selected: _view == _TaskPageView.unfinished,
+              onPressed: () => setState(() => _view = _TaskPageView.unfinished),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _statusButton(
+              label: '已完成',
+              count: provider.completedTasks.length,
+              selected: _view == _TaskPageView.completed,
+              onPressed: () => setState(() => _view = _TaskPageView.completed),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statusButton({
+    required String label,
+    required int count,
+    required bool selected,
+    required VoidCallback onPressed,
+  }) => selected
+      ? FilledButton.tonal(onPressed: onPressed, child: Text('$label $count'))
+      : OutlinedButton(onPressed: onPressed, child: Text('$label $count'));
+
+  Widget _searchField() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+      child: TextField(
+        controller: widget.searchController,
+        onChanged: widget.onSearchChanged,
+        decoration: InputDecoration(
+          hintText: '搜索清单标题、任务或备注...',
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: widget.searchQuery.isEmpty
+              ? null
+              : IconButton(
+                  tooltip: '清除搜索',
+                  onPressed: () {
+                    widget.searchController.clear();
+                    widget.onSearchChanged('');
+                  },
+                  icon: const Icon(Icons.clear),
+                ),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      ),
+    );
+  }
+
+  Widget _overview(TaskProvider provider) {
+    final lists = _filteredLists(provider);
+    if (provider.lists.isEmpty) {
+      return const _FeatureEmptyState(
+        icon: Icons.checklist,
+        title: '暂无任务清单',
+        subtitle: '点击右上角 + 创建第一份清单。未归入清单的任务可在状态入口中查看。',
+      );
+    }
+    if (lists.isEmpty) {
+      return const ListTile(
+        leading: Icon(Icons.search_off),
+        title: Text('未找到匹配的清单'),
+      );
+    }
+    if (widget.searchQuery.trim().isNotEmpty) {
+      return ListView.builder(
+        padding: const EdgeInsets.fromLTRB(8, 6, 8, 20),
+        itemCount: lists.length,
+        itemBuilder: (context, index) =>
+            _listCard(provider, lists[index], index: index, draggable: false),
+      );
+    }
+    return ReorderableListView.builder(
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 20),
+      itemCount: lists.length,
+      buildDefaultDragHandles: false,
+      onReorderItem: provider.reorderLists,
+      itemBuilder: (context, index) =>
+          _listCard(provider, lists[index], index: index, draggable: true),
+    );
+  }
+
+  List<TaskList> _filteredLists(TaskProvider provider) {
+    final query = widget.searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return provider.lists;
+    return provider.lists.where((list) {
+      return list.title.toLowerCase().contains(query) ||
+          provider
+              .tasksForList(list.id)
+              .any(
+                (task) =>
+                    task.title.toLowerCase().contains(query) ||
+                    (task.note ?? '').toLowerCase().contains(query),
+              );
+    }).toList();
+  }
+
+  List<Task> _filteredTasks(List<Task> tasks) {
+    final query = widget.searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return tasks;
+    return tasks.where((task) {
+      return task.title.toLowerCase().contains(query) ||
+          (task.note ?? '').toLowerCase().contains(query);
+    }).toList();
+  }
+
+  Widget _listCard(
+    TaskProvider provider,
+    TaskList list, {
+    required int index,
+    required bool draggable,
+  }) {
+    final allTasks = provider.tasksForList(list.id);
+    final tasks = _filteredTasks(allTasks);
+    final expanded = _expandedListIds.contains(list.id);
+    final done = allTasks.where((task) => task.isCompleted).length;
+    return Card(
+      key: ValueKey(list.id),
+      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 5),
+      child: Column(
+        children: [
+          ListTile(
+            leading: draggable
+                ? ReorderableDragStartListener(
+                    index: index,
+                    child: const Icon(Icons.drag_handle),
+                  )
+                : const Icon(Icons.checklist),
+            title: Text(
+              list.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            subtitle: Text('${allTasks.length} 项，已完成 $done 项'),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  tooltip: expanded ? '折叠' : '展开',
+                  icon: Icon(expanded ? Icons.expand_less : Icons.expand_more),
+                  onPressed: () => _toggleExpanded(list.id),
+                ),
+                PopupMenuButton<String>(
+                  tooltip: '清单操作',
+                  onSelected: (value) => _listMenu(value, list),
+                  itemBuilder: (_) => _listMenuItems,
+                ),
+              ],
+            ),
+            onTap: () => _toggleExpanded(list.id),
+          ),
+          if (expanded) ...[
+            const Divider(height: 1),
+            ListTile(
+              dense: true,
+              leading: Icon(
+                Icons.add_task,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              title: Text(
+                '新增任务',
+                style: TextStyle(color: Theme.of(context).colorScheme.primary),
+              ),
+              onTap: () => _addTask(list.id),
+            ),
+            if (tasks.isEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    widget.searchQuery.isEmpty ? '清单为空' : '没有匹配任务',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              )
+            else if (widget.searchQuery.trim().isEmpty)
+              ReorderableListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                buildDefaultDragHandles: false,
+                itemCount: tasks.length,
+                onReorderItem: (oldIndex, newIndex) =>
+                    provider.reorderTaskEntries(list.id, oldIndex, newIndex),
+                itemBuilder: (context, taskIndex) =>
+                    _taskTile(provider, tasks[taskIndex], dragIndex: taskIndex),
+              )
+            else
+              for (final task in tasks) _taskTile(provider, task),
+          ],
+        ],
+      ),
+    );
+  }
+
+  void _toggleExpanded(String id) {
+    setState(() {
+      if (!_expandedListIds.add(id)) _expandedListIds.remove(id);
+    });
+  }
+
+  Future<void> _addTask(String listId) async {
+    final title = await _textDialog('新增任务', '');
+    if (title == null || title.isEmpty || !mounted) return;
+    await context.read<TaskProvider>().addTask(title: title, listId: listId);
+  }
+
+  Widget _statusView(
+    TaskProvider provider, {
+    required String title,
+    required List<Task> tasks,
+  }) {
+    if (tasks.isEmpty) {
+      return Center(
+        child: Text(widget.searchQuery.isEmpty ? '暂无$title任务' : '未找到匹配任务'),
+      );
+    }
+    final groups = <String?, List<Task>>{};
+    for (final task in tasks) {
+      final listId = provider.entryForTask(task.id)?.taskListId;
+      groups.putIfAbsent(listId, () => []).add(task);
+    }
+    final orderedKeys = <String?>[
+      for (final list in provider.lists)
+        if (groups.containsKey(list.id)) list.id,
+      if (groups.containsKey(null)) null,
+    ];
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
+      children: [
+        for (final listId in orderedKeys) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 14, 4, 4),
+            child: Text(
+              listId == null
+                  ? '未归入清单'
+                  : provider.listById(listId)?.title ?? '未知清单',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            ),
+          ),
+          Card(
+            margin: EdgeInsets.zero,
+            child: Column(
+              children: [
+                for (final task in groups[listId]!) _taskTile(provider, task),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
 
   List<PopupMenuEntry<String>> get _listMenuItems => const [
     PopupMenuItem(value: 'rename', child: Text('重命名')),
-    PopupMenuItem(value: 'up', child: Text('上移')),
-    PopupMenuItem(value: 'down', child: Text('下移')),
     PopupMenuItem(value: 'export', child: Text('导出 Markdown')),
     PopupMenuItem(value: 'image', child: Text('导出长图')),
     PopupMenuDivider(),
     PopupMenuItem(value: 'delete', child: Text('删除清单')),
   ];
 
-  Widget _taskContent(
-    TaskProvider provider,
-    _TaskSection section,
-    List<Task> tasks,
-  ) {
-    final reorderable =
-        section.kind == _TaskSectionKind.list &&
-        widget.searchQuery.trim().isEmpty;
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  section.title,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-              if (section.kind == _TaskSectionKind.list)
-                PopupMenuButton<String>(
-                  tooltip: '清单操作',
-                  onSelected: (value) =>
-                      _listMenu(value, provider.listById(section.listId!)!),
-                  itemBuilder: (_) => _listMenuItems,
-                ),
-            ],
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: TextField(
-            controller: widget.searchController,
-            onChanged: widget.onSearchChanged,
-            decoration: InputDecoration(
-              hintText: '搜索任务标题或备注',
-              prefixIcon: const Icon(Icons.search),
-              suffixIcon: widget.searchQuery.isEmpty
-                  ? null
-                  : IconButton(
-                      tooltip: '清除搜索',
-                      onPressed: () {
-                        widget.searchController.clear();
-                        widget.onSearchChanged('');
-                      },
-                      icon: const Icon(Icons.clear),
-                    ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-            ),
-          ),
-        ),
-        if (section.kind != _TaskSectionKind.completed)
-          _quickAdd(provider, section),
-        Expanded(
-          child: tasks.isEmpty
-              ? _emptySection(section)
-              : reorderable
-              ? ReorderableListView.builder(
-                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
-                  buildDefaultDragHandles: false,
-                  itemCount: tasks.length,
-                  onReorderItem: (oldIndex, newIndex) => provider
-                      .reorderTaskEntries(section.listId!, oldIndex, newIndex),
-                  itemBuilder: (context, index) =>
-                      _taskTile(provider, tasks[index], dragIndex: index),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
-                  itemCount: tasks.length,
-                  itemBuilder: (context, index) =>
-                      _taskTile(provider, tasks[index]),
-                ),
-        ),
-      ],
-    );
-  }
-
-  Widget _quickAdd(TaskProvider provider, _TaskSection section) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
-      child: TextField(
-        key: const ValueKey('task-quick-add'),
-        controller: _quickAddController,
-        textInputAction: TextInputAction.done,
-        onSubmitted: (_) => _quickAddTask(provider, section),
-        decoration: InputDecoration(
-          labelText: '快速添加任务',
-          hintText: '任务标题',
-          prefixIcon: const Icon(Icons.add_task),
-          suffixIcon: IconButton(
-            tooltip: '添加任务',
-            onPressed: () => _quickAddTask(provider, section),
-            icon: const Icon(Icons.arrow_upward),
-          ),
-          filled: true,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _quickAddTask(
-    TaskProvider provider,
-    _TaskSection section,
-  ) async {
-    final title = _quickAddController.text.trim();
-    if (title.isEmpty) return;
-    await provider.addTask(
-      title: title,
-      listId: section.kind == _TaskSectionKind.list ? section.listId : null,
-      plannedDate: section.kind == _TaskSectionKind.today
-          ? LocalDate.fromDateTime(DateTime.now())
-          : null,
-    );
-    _quickAddController.clear();
-  }
-
-  Widget _emptySection(_TaskSection section) {
-    final message = widget.searchQuery.trim().isNotEmpty
-        ? '未找到匹配任务'
-        : switch (section.kind) {
-            _TaskSectionKind.today => '今天没有任务',
-            _TaskSectionKind.inbox => '收件箱为空',
-            _TaskSectionKind.list => '清单为空',
-            _TaskSectionKind.completed => '还没有已完成任务',
-          };
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              _sectionIcon(section.kind),
-              size: 48,
-              color: Theme.of(context).colorScheme.outline,
-            ),
-            const SizedBox(height: 12),
-            Text(message),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _taskTile(TaskProvider provider, Task task, {int? dragIndex}) {
     final scheme = Theme.of(context).colorScheme;
     final overdue = task.isOverdue;
     final status = _taskStatus(task);
-    return Card(
+    return ListTile(
       key: ValueKey(task.id),
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      color: overdue
-          ? Color.alphaBlend(
-              scheme.error.withValues(alpha: 0.07),
-              scheme.surfaceContainerLow,
-            )
-          : null,
-      child: ListTile(
-        contentPadding: const EdgeInsets.only(left: 8, right: 4),
-        leading: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (dragIndex != null)
-              ReorderableDragStartListener(
-                index: dragIndex,
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 4),
-                  child: Icon(Icons.drag_indicator),
-                ),
-              ),
-            Semantics(
-              label: task.isCompleted ? '标记为未完成' : '标记为已完成',
-              child: Checkbox(
-                value: task.isCompleted,
-                onChanged: (_) => task.isCompleted
-                    ? provider.uncompleteTask(task.id)
-                    : provider.completeTask(task.id),
+      dense: true,
+      tileColor: overdue ? scheme.error.withValues(alpha: 0.05) : null,
+      contentPadding: const EdgeInsets.only(left: 8, right: 4),
+      leading: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (dragIndex != null)
+            ReorderableDragStartListener(
+              index: dragIndex,
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 4),
+                child: Icon(Icons.drag_indicator),
               ),
             ),
-          ],
-        ),
-        title: Text(
-          task.title,
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            decoration: task.isCompleted ? TextDecoration.lineThrough : null,
-            color: task.isCompleted
-                ? scheme.onSurfaceVariant
-                : overdue
-                ? scheme.error
-                : null,
+          Semantics(
+            label: task.isCompleted ? '标记为未完成' : '标记为已完成',
+            child: Checkbox(
+              value: task.isCompleted,
+              onChanged: (_) => task.isCompleted
+                  ? provider.uncompleteTask(task.id)
+                  : provider.completeTask(task.id),
+            ),
           ),
-        ),
-        subtitle: status == null
-            ? null
-            : Text(
-                status,
-                style: TextStyle(
-                  color: overdue ? scheme.error : scheme.onSurfaceVariant,
-                  fontWeight: overdue ? FontWeight.w700 : null,
-                ),
-              ),
-        trailing: PopupMenuButton<String>(
-          tooltip: '任务操作',
-          onSelected: (value) => _taskMenu(value, provider, task),
-          itemBuilder: (_) => [
-            const PopupMenuItem(value: 'edit', child: Text('编辑')),
-            const PopupMenuItem(value: 'move', child: Text('移动到')),
-            PopupMenuItem(
-              value: 'complete',
-              child: Text(task.isCompleted ? '标记为未完成' : '标记为已完成'),
-            ),
-            const PopupMenuDivider(),
-            const PopupMenuItem(value: 'delete', child: Text('删除任务')),
-          ],
-        ),
-        onTap: () => _editTask(provider, task),
+        ],
       ),
+      title: Text(
+        task.title,
+        style: TextStyle(
+          fontWeight: FontWeight.w600,
+          decoration: task.isCompleted ? TextDecoration.lineThrough : null,
+          color: task.isCompleted
+              ? scheme.onSurfaceVariant
+              : overdue
+              ? scheme.error
+              : null,
+        ),
+      ),
+      subtitle: status == null
+          ? null
+          : Text(
+              status,
+              style: TextStyle(
+                color: overdue ? scheme.error : scheme.onSurfaceVariant,
+                fontWeight: overdue ? FontWeight.w700 : null,
+              ),
+            ),
+      trailing: PopupMenuButton<String>(
+        tooltip: '任务操作',
+        onSelected: (value) => _taskMenu(value, provider, task),
+        itemBuilder: (_) => [
+          const PopupMenuItem(value: 'edit', child: Text('编辑')),
+          const PopupMenuItem(value: 'move', child: Text('移动到')),
+          PopupMenuItem(
+            value: 'complete',
+            child: Text(task.isCompleted ? '标记为未完成' : '标记为已完成'),
+          ),
+          const PopupMenuDivider(),
+          const PopupMenuItem(value: 'delete', child: Text('删除任务')),
+        ],
+      ),
+      onTap: () => _editTask(provider, task),
     );
   }
 
@@ -474,7 +419,7 @@ class _TodoListsPageState extends State<_TodoListsPage> {
       );
     }
     if (task.reminders.isNotEmpty) values.add('${task.reminders.length} 个提醒');
-    if ((task.note ?? '').trim().isNotEmpty) values.add(task.note!.trim());
+    if ((task.note ?? '').trim().isNotEmpty) values.add('有备注');
     return values.isEmpty ? null : values.join(' · ');
   }
 
@@ -494,44 +439,12 @@ class _TodoListsPageState extends State<_TodoListsPage> {
   }
 
   Future<void> _editTask(TaskProvider provider, Task task) async {
-    final result = await showModalBottomSheet<_TaskEditorResult>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      showDragHandle: true,
-      builder: (_) => _TaskEditorSheet(
-        task: task,
-        initialListId: provider.entryForTask(task.id)?.taskListId,
-        lists: provider.lists,
-      ),
-    );
-    if (result == null || !mounted) return;
-    final calendarBridge = context.read<CalendarPlatformBridge?>();
-    await provider.updateTask(
-      task.copyWith(
-        title: result.title,
-        note: result.note,
-        plannedDate: result.plannedDate,
-        plannedTime: result.plannedTime,
-        dueDate: result.dueDate,
-        dueTime: result.dueTime,
-        completedAt: result.completed
-            ? task.completedAt ?? DateTime.now()
-            : null,
-        reminders: result.reminders,
-      ),
-    );
-    await provider.moveTask(task.id, result.listId);
-    await ReminderNotificationPermissionService.requestAfterExplicitSave(
-      bridge: calendarBridge,
-      previousReminderCount: task.reminders.length,
-      savedReminderCount: result.reminders.length,
-    );
+    await _openCanonicalTaskEditor(context, task: task);
   }
 
   Future<void> _moveTask(TaskProvider provider, Task task) async {
     final current = provider.entryForTask(task.id)?.taskListId;
-    const inbox = '__inbox__';
+    const unassigned = '__unassigned__';
     final selection = await showDialog<String>(
       context: context,
       builder: (ctx) => SimpleDialog(
@@ -543,8 +456,8 @@ class _TodoListsPageState extends State<_TodoListsPage> {
                   ? Icons.radio_button_checked
                   : Icons.radio_button_unchecked,
             ),
-            title: const Text('收件箱'),
-            onTap: () => Navigator.pop(ctx, inbox),
+            title: const Text('未归入清单'),
+            onTap: () => Navigator.pop(ctx, unassigned),
           ),
           for (final list in provider.lists)
             ListTile(
@@ -560,7 +473,7 @@ class _TodoListsPageState extends State<_TodoListsPage> {
       ),
     );
     if (!mounted || selection == null) return;
-    final listId = selection == inbox ? null : selection;
+    final listId = selection == unassigned ? null : selection;
     if (listId == current) return;
     await provider.moveTask(task.id, listId);
   }
@@ -569,10 +482,6 @@ class _TodoListsPageState extends State<_TodoListsPage> {
     switch (value) {
       case 'rename':
         await _renameList(list);
-      case 'up':
-        await _moveList(list, -1);
-      case 'down':
-        await _moveList(list, 1);
       case 'export':
         await _exportList(list);
       case 'image':
@@ -586,16 +495,6 @@ class _TodoListsPageState extends State<_TodoListsPage> {
     final title = await _textDialog('重命名清单', list.title);
     if (title == null || title.isEmpty || !mounted) return;
     await context.read<TaskProvider>().updateList(list.copyWith(title: title));
-  }
-
-  Future<void> _moveList(TaskList list, int delta) async {
-    final provider = context.read<TaskProvider>();
-    final oldIndex = provider.lists.indexWhere((item) => item.id == list.id);
-    final newIndex = oldIndex + delta;
-    if (oldIndex == -1 || newIndex < 0 || newIndex >= provider.lists.length) {
-      return;
-    }
-    await provider.reorderLists(oldIndex, newIndex);
   }
 
   Future<String?> _textDialog(String title, String initialValue) {
@@ -633,7 +532,9 @@ class _TodoListsPageState extends State<_TodoListsPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('删除任务清单'),
-        content: Text('删除“${list.title}”后，清单内任务会保留并移动到收件箱。'),
+        content: Text(
+          '删除“${list.title}”后，清单内任务会保留，但不再属于任何清单。未完成任务可在“未完成”中查看，已完成任务可在“已完成”中查看。',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -647,31 +548,8 @@ class _TodoListsPageState extends State<_TodoListsPage> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    // 删除清单只移除归属，任务由 TaskProvider 保留并进入收件箱。
     await context.read<TaskProvider>().deleteList(list.id);
-    if (mounted) setState(() => _selectedSectionKey = 'inbox');
-  }
-
-  void _reorderSection(
-    TaskProvider provider,
-    List<_TaskSection> sections,
-    int oldIndex,
-    int newIndex,
-  ) {
-    if (oldIndex < 0 || oldIndex >= sections.length) return;
-    final moved = sections[oldIndex];
-    if (moved.kind != _TaskSectionKind.list) return;
-    final named = sections
-        .where((item) => item.kind == _TaskSectionKind.list)
-        .toList();
-    final oldNamed = named.indexWhere((item) => item.key == moved.key);
-    final reordered = List<_TaskSection>.from(sections)..removeAt(oldIndex);
-    reordered.insert(newIndex.clamp(0, reordered.length), moved);
-    final newNamed = reordered
-        .where((item) => item.kind == _TaskSectionKind.list)
-        .toList()
-        .indexWhere((item) => item.key == moved.key);
-    provider.reorderLists(oldNamed, newNamed);
+    if (mounted) setState(() => _expandedListIds.remove(list.id));
   }
 
   Future<void> _exportList(TaskList list) async {
@@ -760,6 +638,71 @@ class _TodoListsPageState extends State<_TodoListsPage> {
   }
 }
 
+Future<void> _openCanonicalTaskEditor(
+  BuildContext context, {
+  Task? task,
+  LocalDate? initialPlannedDate,
+}) async {
+  final provider = context.read<TaskProvider>();
+  final result = await showModalBottomSheet<_TaskEditorResult>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    showDragHandle: true,
+    builder: (_) => _TaskEditorSheet(
+      task: task,
+      initialListId: task == null
+          ? null
+          : provider.entryForTask(task.id)?.taskListId,
+      initialPlannedDate: initialPlannedDate,
+      lists: provider.lists,
+    ),
+  );
+  if (result == null || !context.mounted) return;
+  if (result.delete && task != null) {
+    await provider.deleteTask(task.id);
+    return;
+  }
+  final calendarBridge = context.read<CalendarPlatformBridge?>();
+  late final Task saved;
+  if (task == null) {
+    final id = await provider.addTask(
+      title: result.title,
+      note: result.note,
+      plannedDate: result.plannedDate,
+      plannedTime: result.plannedTime,
+      dueDate: result.dueDate,
+      dueTime: result.dueTime,
+      reminders: result.reminders,
+      listId: result.listId,
+    );
+    if (result.completed) await provider.completeTask(id);
+    saved = provider.taskById(id)!;
+  } else {
+    await provider.updateTask(
+      task.copyWith(
+        title: result.title,
+        note: result.note,
+        plannedDate: result.plannedDate,
+        plannedTime: result.plannedTime,
+        dueDate: result.dueDate,
+        dueTime: result.dueTime,
+        completedAt: result.completed
+            ? task.completedAt ?? DateTime.now()
+            : null,
+        reminders: result.reminders,
+      ),
+    );
+    await provider.moveTask(task.id, result.listId);
+    saved = provider.taskById(task.id)!;
+  }
+  await ReminderNotificationPermissionService.requestAfterExplicitSave(
+    bridge: calendarBridge,
+    previousReminderCount: task?.reminders.length ?? 0,
+    savedReminderCount: saved.reminders.length,
+  );
+}
+
 class _TaskEditorResult {
   const _TaskEditorResult({
     required this.title,
@@ -771,6 +714,7 @@ class _TaskEditorResult {
     required this.dueTime,
     required this.completed,
     required this.reminders,
+    this.delete = false,
   });
 
   final String title;
@@ -782,17 +726,20 @@ class _TaskEditorResult {
   final LocalTime? dueTime;
   final bool completed;
   final List<ItemReminder> reminders;
+  final bool delete;
 }
 
 class _TaskEditorSheet extends StatefulWidget {
   const _TaskEditorSheet({
-    required this.task,
+    this.task,
     required this.initialListId,
+    this.initialPlannedDate,
     required this.lists,
   });
 
-  final Task task;
+  final Task? task;
   final String? initialListId;
+  final LocalDate? initialPlannedDate;
   final List<TaskList> lists;
 
   @override
@@ -814,15 +761,15 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
   void initState() {
     super.initState();
     final task = widget.task;
-    _titleController = TextEditingController(text: task.title);
-    _noteController = TextEditingController(text: task.note);
+    _titleController = TextEditingController(text: task?.title ?? '');
+    _noteController = TextEditingController(text: task?.note);
     _listId = widget.initialListId;
-    _plannedDate = task.plannedDate;
-    _plannedTime = task.plannedTime;
-    _dueDate = task.dueDate;
-    _dueTime = task.dueTime;
-    _completed = task.isCompleted;
-    _reminders = List.of(task.reminders);
+    _plannedDate = task?.plannedDate ?? widget.initialPlannedDate;
+    _plannedTime = task?.plannedTime;
+    _dueDate = task?.dueDate;
+    _dueTime = task?.dueTime;
+    _completed = task?.isCompleted ?? false;
+    _reminders = List.of(task?.reminders ?? const []);
   }
 
   @override
@@ -846,7 +793,10 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('编辑任务', style: Theme.of(context).textTheme.titleLarge),
+              Text(
+                widget.task == null ? '新建任务' : '编辑任务',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
               const SizedBox(height: 16),
               TextField(
                 controller: _titleController,
@@ -865,7 +815,7 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
                 initialValue: _listId,
                 decoration: const InputDecoration(labelText: '清单'),
                 items: [
-                  const DropdownMenuItem(value: null, child: Text('收件箱')),
+                  const DropdownMenuItem(value: null, child: Text('未归入清单')),
                   for (final list in widget.lists)
                     DropdownMenuItem(value: list.id, child: Text(list.title)),
                 ],
@@ -918,14 +868,40 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
               ),
               const SizedBox(height: 18),
               Row(
-                mainAxisAlignment: MainAxisAlignment.end,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('取消'),
+                  if (widget.task != null)
+                    TextButton.icon(
+                      onPressed: () => Navigator.pop(
+                        context,
+                        _TaskEditorResult(
+                          title: '',
+                          note: null,
+                          listId: null,
+                          plannedDate: null,
+                          plannedTime: null,
+                          dueDate: null,
+                          dueTime: null,
+                          completed: false,
+                          reminders: const [],
+                          delete: true,
+                        ),
+                      ),
+                      icon: const Icon(Icons.delete_outline),
+                      label: const Text('删除'),
+                    )
+                  else
+                    const SizedBox.shrink(),
+                  Row(
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('取消'),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton(onPressed: _save, child: const Text('保存')),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  FilledButton(onPressed: _save, child: const Text('保存')),
                 ],
               ),
             ],

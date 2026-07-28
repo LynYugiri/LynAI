@@ -32,7 +32,7 @@ class _FeatureDashboard extends StatelessWidget {
       value: 'todos',
       icon: Icons.checklist,
       title: '任务',
-      subtitle: '今日、收件箱与任务清单',
+      subtitle: '未完成汇总与可展开任务清单',
     ),
     _FeatureDashboardItem(
       value: 'roleplay',

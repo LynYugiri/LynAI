@@ -492,6 +492,7 @@ class PluginLuaRuntimeService {
     });
     // 规范 API 与旧 todos/schedules 并存，插件可逐步迁移。
     _installCrudTable(state, -1, 'tasks', 'tasks', functions, context);
+    _installCrudTable(state, -1, 'taskLists', 'taskLists', functions, context);
     _installCrudTable(state, -1, 'calendar', 'calendar', functions, context);
     _installCrudTable(
       state,
