@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -56,6 +58,10 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
+  tearDown(() {
+    debugDefaultTargetPlatformOverride = null;
+  });
+
   testWidgets('renders all five tab labels', (tester) async {
     await tester.pumpWidget(buildHome());
     await tester.pump();
@@ -77,6 +83,7 @@ void main() {
 
     final bar = tester.widget<NavigationBar>(find.byType(NavigationBar));
     expect(bar.selectedIndex, AppTab.chat.index);
+    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('tapping market tab switches selectedIndex', (tester) async {
@@ -133,6 +140,20 @@ void main() {
 
     final bar = tester.widget<NavigationBar>(find.byType(NavigationBar));
     expect(bar.selectedIndex, AppTab.feature.index);
+  });
+
+  testWidgets('desktop Escape returns non-chat tabs to chat', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    await tester.pumpWidget(buildHome(initialTab: AppTab.settings));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+
+    final bar = tester.widget<NavigationBar>(find.byType(NavigationBar));
+    expect(bar.selectedIndex, AppTab.chat.index);
+    debugDefaultTargetPlatformOverride = null;
   });
 
   test('AppTab order and indices are stable', () {

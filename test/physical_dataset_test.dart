@@ -114,7 +114,12 @@ void main() {
       (await storage.loadDataFile('dataset_marker.json'))['value'],
       'local',
     );
-    expect(await storage.loadSyncOutbox('offline'), hasLength(1));
+    expect(
+      (await storage.loadSyncOutbox(
+        'offline',
+      )).where((entry) => entry.table == 'tasks'),
+      hasLength(1),
+    );
     await storage.activateAccountDataset(
       backendUrl: 'https://example.com/other',
       userId: '42',

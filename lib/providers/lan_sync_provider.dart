@@ -301,7 +301,7 @@ class LanSyncProvider extends ChangeNotifier {
   }
 
   Future<bool> _ensureLanPermission() async {
-    if (defaultTargetPlatform != TargetPlatform.android) return true;
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return true;
     final status = await Permission.nearbyWifiDevices.request();
     if (status.isGranted) return true;
     _error = status.isPermanentlyDenied

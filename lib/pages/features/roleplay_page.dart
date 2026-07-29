@@ -17,6 +17,7 @@ class _RoleplayPageState extends State<_RoleplayPage> {
   final _inputCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
   final _focusNode = FocusNode();
+  late final ApiService _api;
   late final RoleplayService _service;
   late final AttachmentStorageService _attachmentStorage;
   final _screenshotCtrl = ScreenshotController();
@@ -44,7 +45,14 @@ class _RoleplayPageState extends State<_RoleplayPage> {
     _attachmentStorage = AttachmentStorageService(
       storageV2: context.read<StorageV2Service>(),
     );
-    _service = RoleplayService(backend: context.read<BackendClient>());
+    _api = ApiService(backend: context.read<BackendClient>());
+    _service = RoleplayService(
+      api: _api,
+      knowledgeAnnotationPrompt: () =>
+          const KnowledgeAnnotationPromptFormatter().format(
+            context.read<KnowledgeProvider>().annotationPromptSnapshot,
+          ),
+    );
   }
 
   @override
@@ -201,9 +209,10 @@ class _RoleplayPageState extends State<_RoleplayPage> {
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
               children: [
                 if (thread.messages.isEmpty) _scenarioIntro(thread),
-                for (final message in thread.messages) _messageBubble(message),
+                for (final message in thread.messages)
+                  _messageBubble(thread, message),
                 if (isActive && provider.activeSpeakerName != null)
-                  _draftBubble(provider),
+                  _draftBubble(thread, provider),
                 if (pending.isNotEmpty) _queuedBanner(pending.length),
                 if (isActive &&
                     provider.runState == RoleplayRunState.error &&
@@ -262,7 +271,7 @@ class _RoleplayPageState extends State<_RoleplayPage> {
     );
   }
 
-  Widget _messageBubble(RoleplayMessage message) {
+  Widget _messageBubble(RoleplayThread thread, RoleplayMessage message) {
     final isPlayer = message.kind == RoleplayMessageKind.player;
     final isNarrator = message.kind == RoleplayMessageKind.narrator;
     final scheme = Theme.of(context).colorScheme;
@@ -277,7 +286,11 @@ class _RoleplayPageState extends State<_RoleplayPage> {
             color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
             borderRadius: BorderRadius.circular(14),
           ),
-          child: MarkdownWithLatex(content: message.content),
+          child: _characterMarkdown(
+            thread: thread,
+            content: message.content,
+            enableExplanation: true,
+          ),
         ),
       );
     }
@@ -317,7 +330,18 @@ class _RoleplayPageState extends State<_RoleplayPage> {
                 ),
                 if (message.content.isNotEmpty) ...[
                   const SizedBox(height: 4),
-                  MarkdownWithLatex(content: message.content),
+                  if (isPlayer)
+                    _characterMarkdown(
+                      thread: thread,
+                      content: message.content,
+                      enableExplanation: true,
+                    )
+                  else
+                    _characterMarkdown(
+                      thread: thread,
+                      content: message.content,
+                      enableExplanation: true,
+                    ),
                 ],
                 if (message.attachments.isNotEmpty) ...[
                   const SizedBox(height: 8),
@@ -331,7 +355,7 @@ class _RoleplayPageState extends State<_RoleplayPage> {
     );
   }
 
-  Widget _draftBubble(RoleplayProvider provider) {
+  Widget _draftBubble(RoleplayThread thread, RoleplayProvider provider) {
     final scheme = Theme.of(context).colorScheme;
     return Align(
       alignment: Alignment.centerLeft,
@@ -359,10 +383,54 @@ class _RoleplayPageState extends State<_RoleplayPage> {
                     height: 24,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : MarkdownWithLatex(content: provider.draftContent!),
+                : _characterMarkdown(
+                    thread: thread,
+                    content: provider.draftContent!,
+                    enableExplanation: false,
+                  ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _characterMarkdown({
+    required RoleplayThread thread,
+    required String content,
+    required bool enableExplanation,
+  }) {
+    final knowledge = context.read<KnowledgeProvider>();
+    final defaultCategory = knowledge.defaultAnnotationCategory?.alias;
+
+    Future<void> explain(String text, {String? categoryId}) {
+      return showKnowledgeExplanationDialog(
+        context: context,
+        api: _api,
+        text: text,
+        categoryId: categoryId,
+        sourceContext: content,
+        sourceTitle: thread.scenarioTitle,
+        saveAutomatically: categoryId != null,
+        knowledge: knowledge,
+      );
+    }
+
+    return MarkdownWithLatex(
+      content: content,
+      defaultKnowledgeCategory: defaultCategory,
+      knowledgeCategoryResolver: knowledge.resolveAnnotationCategory,
+      knowledgeCategoryColorResolver: (id) {
+        final category = knowledge.categoryById(id);
+        return category == null || category.colorValue == 0
+            ? null
+            : Color(category.colorValue);
+      },
+      onTapKnowledgeAnnotation: enableExplanation
+          ? (annotation) => unawaited(
+              explain(annotation.text, categoryId: annotation.category),
+            )
+          : null,
+      onExplainSelection: enableExplanation ? (text) => explain(text) : null,
     );
   }
 
@@ -416,25 +484,10 @@ class _RoleplayPageState extends State<_RoleplayPage> {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Expanded(
-                child: Focus(
-                  onKeyEvent: (_, event) {
-                    if (event is KeyDownEvent &&
-                        event.logicalKey == LogicalKeyboardKey.enter &&
-                        !HardwareKeyboard.instance.isShiftPressed) {
-                      _submit(thread, running: running);
-                      return KeyEventResult.handled;
-                    }
-                    final isPaste =
-                        event is KeyDownEvent &&
-                        event.logicalKey == LogicalKeyboardKey.keyV &&
-                        (HardwareKeyboard.instance.isControlPressed ||
-                            HardwareKeyboard.instance.isMetaPressed);
-                    if (isPaste) {
-                      unawaited(_pasteClipboardImage());
-                      return KeyEventResult.ignored;
-                    }
-                    return KeyEventResult.ignored;
-                  },
+                child: ChatComposerKeyboard(
+                  controller: _inputCtrl,
+                  onSend: () => _submit(thread, running: running),
+                  onPaste: () => unawaited(_pasteClipboardImage()),
                   child: TextField(
                     controller: _inputCtrl,
                     focusNode: _focusNode,
@@ -3078,6 +3131,15 @@ class _ExportBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final isPlayer = message.kind == RoleplayMessageKind.player;
     final isNarrator = message.kind == RoleplayMessageKind.narrator;
+    final knowledge = context.read<KnowledgeProvider>();
+    final defaultCategory = knowledge.defaultAnnotationCategory?.alias;
+
+    Color? resolveCategoryColor(String id) {
+      final category = knowledge.categoryById(id);
+      return category == null || category.colorValue == 0
+          ? null
+          : Color(category.colorValue);
+    }
 
     if (isNarrator) {
       return Container(
@@ -3092,6 +3154,9 @@ class _ExportBubble extends StatelessWidget {
           content: message.content,
           selectable: false,
           wrapCodeBlocks: true,
+          defaultKnowledgeCategory: defaultCategory,
+          knowledgeCategoryResolver: knowledge.resolveAnnotationCategory,
+          knowledgeCategoryColorResolver: resolveCategoryColor,
           textStyle: TextStyle(
             fontStyle: FontStyle.italic,
             color: mutedColor,
@@ -3137,6 +3202,10 @@ class _ExportBubble extends StatelessWidget {
                   content: message.content.trim(),
                   selectable: false,
                   wrapCodeBlocks: true,
+                  defaultKnowledgeCategory: defaultCategory,
+                  knowledgeCategoryResolver:
+                      knowledge.resolveAnnotationCategory,
+                  knowledgeCategoryColorResolver: resolveCategoryColor,
                   textStyle: TextStyle(
                     fontSize: 17,
                     height: 1.5,

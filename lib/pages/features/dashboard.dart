@@ -2,7 +2,7 @@ part of '../feature_page.dart';
 
 /// 功能总览仪表盘。
 ///
-/// 以自适应网格布局展示对话历史、日程、笔记、待办、情景演绎
+/// 以自适应网格布局展示对话历史、日程、笔记、待办、知识库、情景演绎
 /// 及已启用的插件功能页入口。
 class _FeatureDashboard extends StatelessWidget {
   final ValueChanged<String> onFeatureSelected;
@@ -39,6 +39,12 @@ class _FeatureDashboard extends StatelessWidget {
       icon: Icons.theater_comedy_outlined,
       title: '情景演绎',
       subtitle: '设定场景，多角色共演',
+    ),
+    _FeatureDashboardItem(
+      value: 'knowledge',
+      icon: Icons.local_library_outlined,
+      title: '知识库',
+      subtitle: '整理条目、来源与解释',
     ),
   ];
 

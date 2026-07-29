@@ -376,3 +376,6 @@ account dataset. Account identity uses normalized backend origin and the opaque
 backend user ID; the directory ID is the complete SHA-256 hex digest, with no
 truncation. Dataset metadata repeats and validates this identity to fail closed
 on directory or registry ownership mismatch.
+# 知识库与标注
+
+知识库数据由 `KnowledgeBase`、`KnowledgeCategory`、`KnowledgeEntry`、`KnowledgeSource` 和 `KnowledgeExplanation` 组成；`KnowledgeSettings` 单独表达全局默认知识库、默认类别和更新时间，不归属于某个知识库。类别使用全局唯一的稳定 `alias`，配置标注规则、解释提示词、颜色、自动标注状态及目标知识库；默认关系的权威源是 `KnowledgeSettings`，类别中的历史默认字段只用于旧数据兼容。聊天和情景演绎角色回复只使用 `[[category:text]]`，不接受管道分隔的 Wiki 链接语法；未知类别统一回落到用户的有效默认类别。用户点击标注后自动解释，成功结果保存为知识条目、来源和解释；普通选区释义由用户决定是否保存。记忆卡片尚无持久化契约，因此知识页面不展示未实现入口。

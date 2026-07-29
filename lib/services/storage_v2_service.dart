@@ -344,6 +344,16 @@ class StorageV2Service {
     await (await _storageDatabase()).batchIncremental(operations);
   }
 
+  Future<void> applyLocalKnowledgeChanges(
+    List<SyncRemoteOperation> operations,
+    Map<String, dynamic> settings,
+  ) async {
+    await (await _storageDatabase()).batchIncremental(
+      operations,
+      knowledgeSettings: settings,
+    );
+  }
+
   Future<Map<String, dynamic>> loadNotesData() {
     return loadDataFile('notes.json');
   }

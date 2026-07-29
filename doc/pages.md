@@ -66,7 +66,7 @@ HomePage
 | 附件按钮 | 选择文件、多图、拍照或桌面剪贴板图片。 |
 | 语音按钮 | 使用系统语音识别或配置的语音模型。 |
 
-桌面端 `Enter` 发送，`Shift + Enter` 换行。移动端回车默认换行，点击发送按钮发送。移动端只有用户主动点输入框才弹出输入法；从历史打开对话和模型输出结束不会自动唤起键盘。
+主聊天和情景演绎共用 composer 键盘策略：桌面端裸 `Enter` 发送、`Shift + Enter` 换行；Android/iOS 裸 `Enter` 换行；所有平台 `Ctrl + Enter` 或 `Meta + Enter` 发送。`Alt + Enter` 和输入法 composing 期间的回车不发送。移动端只有用户主动点输入框才弹出输入法；从历史打开对话和模型输出结束不会自动唤起键盘。桌面端 `Escape` 在焦点不处于输入框时复用 Home/Feature 现有返回处理。
 
 ### 消息区
 
@@ -127,7 +127,7 @@ HomePage
 
 ## 情景演绎
 
-情景演绎页面维护情景和线程。情景定义导演、玩家和默认角色；线程保存一次演绎的角色快照和消息历史。导演模型决定下一步由哪个角色发言、是否旁白或是否等待用户。玩家在 AI 运行时继续发送的消息会排队。
+情景演绎页面维护情景和线程。情景定义导演、玩家和默认角色；线程保存一次演绎的角色快照和消息历史。导演模型决定下一步由哪个角色发言、是否旁白或是否等待用户。玩家在 AI 运行时继续发送的消息会排队，输入区复用 ChatPage 的跨平台 composer 键盘策略。
 
 可重点手测：创建情景、从情景开新线程、修改线程设置、上传附件、AI 自动轮次、等待用户、导出长图和删除情景。
 
@@ -268,7 +268,7 @@ HTTP server 录入 endpoint，并可显式允许 HTTP 或私网；默认要求 H
 |------|----------|
 | ChatPage | 普通发送、停止、失败重试、编辑重发、附件重试、语音快速松手、工具调用、Agent Lua、Subagent、移动端自动化；取消后不接收晚到模型/tool result，达到轮数上限只执行强制最终 turn。 |
 | MCP 服务 | HTTP/私网许可、credential header 映射、连接测试、tool list change、逐工具开关；桌面 stdio 可用，移动/Web stdio 禁用；断连后 registry 清理。 |
-| 悬浮窗 | Android 悬浮权限、无障碍权限、后台气泡；Chat 模式输入/发送/停止/新建对话和语音；Translation 模式手动翻译、自动翻译、停止自动后保留当前译文、清除译文、滚动跟随、停止 600ms 后刷新、横排/CJK 竖排、屏蔽应用和历史；Agent 模式默认切换、完整 Plan、暂停/继续/停止；节点树排除 LynAI 窗口，Agent 手势期间悬浮窗不可触摸。 |
+| 悬浮窗 | Android 悬浮权限、无障碍权限、后台气泡；Chat 模式 `Enter` 换行、`Ctrl + Enter` 发送，并在键盘关闭后允许系统返回收起面板；发送/停止/新建对话和语音；Translation 模式手动翻译、自动翻译、停止自动后保留当前译文、清除译文、滚动跟随、停止 600ms 后刷新、横排/CJK 竖排、屏蔽应用和历史；Agent 模式默认切换、完整 Plan、暂停/继续/停止；节点树排除 LynAI 窗口，Agent 手势期间悬浮窗不可触摸。 |
 | 日历页 | 月/日/年切换；定时和全天跨日事件；任务计划/截止同日合并；一次性/年度纪念日、来源年份、周年数和 2 月 29 日；编辑/删除后回收站；提醒偏移和日期型 09:00。 |
 | 任务页 | 未完成/已完成分组聚合；可展开清单创建、重命名和删除后任务保留；任务排序、移动、完成/恢复并保留在原清单；计划/截止提醒；搜索、Markdown 导入导出和长图。 |
 | Android 规划投影 | Android 13+ 新安装确认加载/同步不会自动弹通知权限；在事件、任务或纪念日编辑器中从 0 个提醒变为至少 1 个并明确保存时应请求一次权限。授权后检查小组件和通知；完成任务后不再通知；修改/删除提醒后旧闹钟取消；重启、改日期/时间/时区后重新排程。非 Android 确认数据可保存但无系统通知承诺。 |
@@ -290,3 +290,6 @@ reductions apply immediately, while additions require the discovered peer to
 approve all or a subset. The page also shows and edits the stable local device
 name and provides keep-local/use-peer actions for durable LAN conflicts. Windows users are reminded to allow LynAI through the private-network
 firewall prompt.
+# 知识库
+
+功能仪表盘中的“知识库”页面提供知识库、标注类别和条目管理，条目详情展示 AI 解释与来源，并保留“记忆卡片”占位。类别可配置 alias、自动标注规则、解释提示词、颜色和默认状态。

@@ -108,7 +108,7 @@ void main() {
                   ),
                 )
                 as Map<String, dynamic>;
-        expect(jsonFile('manifest.json')['schemaVersion'], 10);
+        expect(jsonFile('manifest.json')['schemaVersion'], 12);
         expect(jsonFile('tasks.json')['entries'].single, {
           'id': 'task',
           'taskId': 'task',
@@ -233,7 +233,7 @@ void main() {
                   ),
                 )
                 as Map<String, dynamic>;
-        expect(roundTripManifest['schemaVersion'], 10);
+        expect(roundTripManifest['schemaVersion'], 12);
       } finally {
         await sourceRoot.delete(recursive: true);
         await targetRoot.delete(recursive: true);

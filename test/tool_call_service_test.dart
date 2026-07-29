@@ -14,6 +14,7 @@ import 'package:lynai/models/plugin.dart';
 import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/calendar_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
+import 'package:lynai/providers/knowledge_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
 import 'package:lynai/providers/plugin_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
@@ -940,6 +941,7 @@ void main() {
       conversations: ConversationProvider(),
       models: ModelConfigProvider(),
       features: FeatureProvider(),
+      knowledge: KnowledgeProvider(),
       tasks: TaskProvider(),
       calendar: CalendarProvider(),
       plugins: PluginProvider(),

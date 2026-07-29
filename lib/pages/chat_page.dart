@@ -28,6 +28,7 @@ import '../models/system_prompt.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/calendar_provider.dart';
+import '../providers/knowledge_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/mcp_provider.dart';
 import '../providers/plugin_provider.dart';
@@ -42,6 +43,8 @@ import '../services/agent_tool_result_sanitizer.dart';
 import '../services/agent_tool_execution_service.dart';
 import '../services/agent_user_interaction_broker.dart';
 import '../services/backend_client.dart';
+import '../services/knowledge_annotation_prompt.dart';
+import '../services/generation_background_service.dart';
 import '../services/model_recognition_service.dart';
 import '../services/storage_v2_service.dart';
 import '../services/system_scroll_capture_service.dart';
@@ -54,7 +57,10 @@ import '../utils/chat_search_matcher.dart';
 import '../utils/share_image_utils.dart';
 import '../utils/snackbar_utils.dart';
 import '../widgets/latex_renderer.dart';
+import '../widgets/ai_explain_selection_area.dart';
 import '../widgets/chat_role_edit_dialog.dart';
+import '../widgets/chat_composer_keyboard.dart';
+import '../widgets/knowledge_explanation_dialog.dart';
 import '../widgets/text_editing_controller_host.dart';
 import 'role_management_page.dart';
 part 'chat/share_conversation_image.dart';
@@ -78,12 +84,14 @@ class _LinkAwareSelectableText extends StatefulWidget {
   const _LinkAwareSelectableText({
     required this.content,
     required this.onOpenLink,
+    required this.onExplainSelection,
     this.highlights = const [],
   });
 
   final String content;
   final List<_UserTextHighlight> highlights;
   final ValueChanged<String> onOpenLink;
+  final AiExplainSelectionCallback onExplainSelection;
 
   @override
   State<_LinkAwareSelectableText> createState() =>
@@ -171,8 +179,11 @@ class _LinkAwareSelectableTextState extends State<_LinkAwareSelectableText> {
         ),
       );
     }
-    return SelectableText.rich(
-      TextSpan(style: const TextStyle(fontSize: 15), children: spans),
+    return AiExplainSelectionArea(
+      onExplain: widget.onExplainSelection,
+      child: Text.rich(
+        TextSpan(style: const TextStyle(fontSize: 15), children: spans),
+      ),
     );
   }
 }
@@ -283,9 +294,6 @@ class ChatPage extends StatefulWidget {
 /// 维护消息列表滚动、流式输出、语音输入/识别、图片识别、工具调用、
 /// 撤回/重试、分享导出和会话设置等全部交互状态。
 class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
-  static const _backgroundServiceChannel = MethodChannel(
-    'lynai/background_service',
-  );
   static const _nativeToolsChannel = MethodChannel('lynai/native_tools');
   static const _emptyAssistantReply = '模型没有返回内容，请稍后重试或检查模型配置。';
   static const _streamWaitTimeout = Duration(minutes: 5);
@@ -297,6 +305,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   final _searchFocusNode = FocusNode();
   final _screenshotCtrl = ScreenshotController();
   final _audioRecorder = AudioRecorder();
+  final _generationBackgroundService = const GenerationBackgroundService();
   late final AttachmentStorageService _attachmentStorage;
   late final ApiService _api;
   late final bool _ownsApi;
@@ -762,14 +771,15 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
   void _setBackgroundGenerationActive(bool active) {
     unawaited(
-      _backgroundServiceChannel
-          .invokeMethod<void>(active ? 'startGeneration' : 'stopGeneration')
-          .catchError((Object error, StackTrace stackTrace) {
-            debugPrint(
-              '切换生成前台服务失败 (${active ? 'start' : 'stop'}): '
-              '$error\n$stackTrace',
-            );
-          }),
+      _generationBackgroundService.setActive(active).catchError((
+        Object error,
+        StackTrace stackTrace,
+      ) {
+        debugPrint(
+          '切换生成前台服务失败 (${active ? 'start' : 'stop'}): '
+          '$error\n$stackTrace',
+        );
+      }),
     );
   }
 
@@ -1193,6 +1203,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       return _LinkAwareSelectableText(
         content: msg.content,
         onOpenLink: _openExternalLink,
+        onExplainSelection: (text) => _showKnowledgeExplanation(
+          text: text,
+          message: msg,
+          saveAutomatically: false,
+        ),
       );
     }
     final matcher = ChatSearchMatcher.fromQuery(query);
@@ -1209,6 +1224,34 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       content: msg.content,
       highlights: highlights,
       onOpenLink: _openExternalLink,
+      onExplainSelection: (text) => _showKnowledgeExplanation(
+        text: text,
+        message: msg,
+        saveAutomatically: false,
+      ),
+    );
+  }
+
+  Future<void> _showKnowledgeExplanation({
+    required String text,
+    required Message message,
+    String? categoryId,
+    bool saveAutomatically = true,
+  }) async {
+    final cid = _convId;
+    if (cid == null) return;
+    final conversation = context.read<ConversationProvider>().getConversation(
+      cid,
+    );
+    await showKnowledgeExplanationDialog(
+      context: context,
+      api: _api,
+      text: text,
+      categoryId: categoryId,
+      sourceContext: message.content,
+      sourceTitle: conversation?.title ?? '',
+      sourceUrl: 'lynai://conversation/$cid/message/${message.id}',
+      saveAutomatically: saveAutomatically,
     );
   }
 
@@ -1533,10 +1576,14 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       _clearAbortedStreaming('流式请求对应的对话不存在', conversationId: cid);
       return;
     }
+    final annotationPrompt = const KnowledgeAnnotationPromptFormatter().format(
+      context.read<KnowledgeProvider>().annotationPromptSnapshot,
+    );
     final msgs = _buildApiMessages(
       conv,
       lastUserContentOverride: lastUserContentOverride,
       enableTools: _supportsNativeTools(model),
+      annotationPrompt: annotationPrompt,
     );
     _doStream(model, cid, msgs, createTitle: createTitle);
   }
@@ -1616,6 +1663,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     Conversation conv, {
     Object? lastUserContentOverride,
     bool enableTools = false,
+    String annotationPrompt = '',
   }) {
     final msgs = <Map<String, dynamic>>[];
     final promptContent = conv.settings.systemPrompt;
@@ -1628,18 +1676,14 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final fullToolPrompt = agentContext.isEmpty
         ? toolPrompt
         : '$toolPrompt\n\n$agentContext';
-    if (promptContent.isNotEmpty) {
-      msgs.add({
-        'role': 'system',
-        'content': enableTools
-            ? '$promptContent\n\n$fullToolPrompt\n\n${ToolCallService.currentTimeContext()}'
-            : promptContent,
-      });
-    } else if (enableTools) {
-      msgs.add({
-        'role': 'system',
-        'content': '$fullToolPrompt\n\n${ToolCallService.currentTimeContext()}',
-      });
+    final systemParts = <String>[
+      if (promptContent.isNotEmpty) promptContent,
+      if (enableTools) fullToolPrompt,
+      if (enableTools) ToolCallService.currentTimeContext(),
+      if (annotationPrompt.isNotEmpty) annotationPrompt,
+    ];
+    if (systemParts.isNotEmpty) {
+      msgs.add({'role': 'system', 'content': systemParts.join('\n\n')});
     }
     final lastUserIndex = lastUserContentOverride == null
         ? -1
@@ -3646,6 +3690,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   Widget _assistantBubble(Message msg, bool isLastAi, _StreamDraft? draft) {
     final streaming = draft != null;
     final displayContent = streaming ? draft.content : msg.content;
+    final knowledge = context.read<KnowledgeProvider>();
+    final defaultKnowledgeCategory = knowledge.defaultAnnotationCategory?.alias;
     final showImages = msg.images.isNotEmpty;
     final hasSearchMatch = _showSearch && _messageHasSearchMatch(msg.id);
     final currentSearchMessage = _isCurrentSearchMessage(msg.id);
@@ -3715,6 +3761,29 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                 MarkdownWithLatex(
                   content: displayContent,
                   renderMermaid: !streaming,
+                  defaultKnowledgeCategory: defaultKnowledgeCategory,
+                  knowledgeCategoryResolver:
+                      knowledge.resolveAnnotationCategory,
+                  knowledgeCategoryColorResolver: (id) {
+                    final category = knowledge.categoryById(id);
+                    return category == null || category.colorValue == 0
+                        ? null
+                        : Color(category.colorValue);
+                  },
+                  onTapKnowledgeAnnotation: streaming
+                      ? null
+                      : (annotation) => _showKnowledgeExplanation(
+                          text: annotation.text,
+                          message: msg,
+                          categoryId: annotation.category,
+                        ),
+                  onExplainSelection: streaming
+                      ? null
+                      : (text) => _showKnowledgeExplanation(
+                          text: text,
+                          message: msg,
+                          saveAutomatically: false,
+                        ),
                   onTapLink: (_, href, _) {
                     if (href != null) _openExternalLink(href);
                   },
@@ -4833,25 +4902,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                     ? _transcribingOverlay()
                     : _recording
                     ? _recOverlay()
-                    : Focus(
-                        onKeyEvent: (node, event) {
-                          if (event is KeyDownEvent &&
-                              event.logicalKey == LogicalKeyboardKey.enter &&
-                              !HardwareKeyboard.instance.isShiftPressed) {
-                            unawaited(_send());
-                            return KeyEventResult.handled;
-                          }
-                          final isPaste =
-                              event is KeyDownEvent &&
-                              event.logicalKey == LogicalKeyboardKey.keyV &&
-                              (HardwareKeyboard.instance.isControlPressed ||
-                                  HardwareKeyboard.instance.isMetaPressed);
-                          if (isPaste) {
-                            unawaited(_handlePasteShortcut());
-                            return KeyEventResult.ignored;
-                          }
-                          return KeyEventResult.ignored;
-                        },
+                    : ChatComposerKeyboard(
+                        controller: _msgCtrl,
+                        onSend: () => unawaited(_send()),
+                        onPaste: () => unawaited(_handlePasteShortcut()),
                         child: TextField(
                           controller: _msgCtrl,
                           focusNode: _focusNode,

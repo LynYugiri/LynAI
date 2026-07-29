@@ -29,7 +29,7 @@ class AppSettingsRows extends Table {
   @override
   String get tableName => 'app_settings';
 
-  IntColumn get id => integer()();
+  IntColumn get id => integer().customConstraint('NOT NULL CHECK (id = 1)')();
   TextColumn get settingsJson => text().named('settings_json')();
   TextColumn get updatedAt => text().named('updated_at')();
 
@@ -330,6 +330,159 @@ class TaskListEntryRows extends Table {
 
   @override
   Set<Column> get primaryKey => {taskId};
+}
+
+class KnowledgeBaseRows extends Table {
+  @override
+  String get tableName => 'knowledge_bases';
+
+  TextColumn get id => text()();
+  TextColumn get name => text()();
+  TextColumn get description => text().nullable()();
+  BoolColumn get enabled => boolean().withDefault(const Constant(true))();
+  IntColumn get sortOrder => integer().named('sort_order')();
+  TextColumn get createdAt => text().named('created_at')();
+  TextColumn get updatedAt => text().named('updated_at')();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+class KnowledgeCategoryRows extends Table {
+  @override
+  String get tableName => 'knowledge_categories';
+
+  TextColumn get id => text()();
+  TextColumn get knowledgeBaseId => text()
+      .named('knowledge_base_id')
+      .customConstraint(
+        'NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE',
+      )();
+  TextColumn get name => text()();
+  TextColumn get alias => text().customConstraint(
+    "NOT NULL UNIQUE CHECK (alias GLOB '[a-z]*' AND length(alias) BETWEEN 1 AND 32 AND alias NOT GLOB '*[^a-z0-9_-]*')",
+  )();
+  TextColumn get description => text().nullable()();
+  TextColumn get annotationRule => text().named('annotation_rule')();
+  TextColumn get explanationPrompt => text().named('explanation_prompt')();
+  IntColumn get colorValue => integer().named('color_value')();
+  BoolColumn get autoAnnotate => boolean().named('auto_annotate')();
+  TextColumn get modelConfigId => text().named('model_config_id').nullable()();
+  BoolColumn get isDefault => boolean().named('is_default')();
+  BoolColumn get enabled => boolean().withDefault(const Constant(true))();
+  IntColumn get sortOrder => integer().named('sort_order')();
+  TextColumn get createdAt => text().named('created_at')();
+  TextColumn get updatedAt => text().named('updated_at')();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+class KnowledgeSettingsRows extends Table {
+  @override
+  String get tableName => 'knowledge_settings';
+
+  IntColumn get id => integer()();
+  TextColumn get defaultKnowledgeBaseId => text()
+      .named('default_knowledge_base_id')
+      .nullable()
+      .customConstraint(
+        'NULL REFERENCES knowledge_bases(id) ON DELETE SET NULL',
+      )();
+  TextColumn get defaultCategoryId => text()
+      .named('default_category_id')
+      .nullable()
+      .customConstraint(
+        'NULL REFERENCES knowledge_categories(id) ON DELETE SET NULL',
+      )();
+  TextColumn get updatedAt => text().named('updated_at')();
+
+  @override
+  List<String> get customConstraints => [
+    'CHECK (id = 1)',
+    'CHECK ((default_knowledge_base_id IS NULL) = (default_category_id IS NULL))',
+  ];
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+class KnowledgeEntryRows extends Table {
+  @override
+  String get tableName => 'knowledge_entries';
+
+  TextColumn get id => text()();
+  TextColumn get knowledgeBaseId => text()
+      .named('knowledge_base_id')
+      .customConstraint(
+        'NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE',
+      )();
+  TextColumn get categoryId => text()
+      .named('category_id')
+      .nullable()
+      .customConstraint(
+        'NULL REFERENCES knowledge_categories(id) ON DELETE SET NULL',
+      )();
+  TextColumn get title => text()();
+  TextColumn get content => text()();
+  BoolColumn get enabled => boolean().withDefault(const Constant(true))();
+  IntColumn get sortOrder => integer().named('sort_order')();
+  TextColumn get createdAt => text().named('created_at')();
+  TextColumn get updatedAt => text().named('updated_at')();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+class KnowledgeSourceRows extends Table {
+  @override
+  String get tableName => 'knowledge_sources';
+
+  TextColumn get id => text()();
+  TextColumn get knowledgeBaseId => text()
+      .named('knowledge_base_id')
+      .customConstraint(
+        'NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE',
+      )();
+  TextColumn get entryId => text()
+      .named('entry_id')
+      .customConstraint(
+        'NOT NULL REFERENCES knowledge_entries(id) ON DELETE CASCADE',
+      )();
+  TextColumn get title => text()();
+  TextColumn get url => text().nullable()();
+  TextColumn get note => text().nullable()();
+  IntColumn get sortOrder => integer().named('sort_order')();
+  TextColumn get createdAt => text().named('created_at')();
+  TextColumn get updatedAt => text().named('updated_at')();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+class KnowledgeExplanationRows extends Table {
+  @override
+  String get tableName => 'knowledge_explanations';
+
+  TextColumn get id => text()();
+  TextColumn get knowledgeBaseId => text()
+      .named('knowledge_base_id')
+      .customConstraint(
+        'NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE',
+      )();
+  TextColumn get entryId => text()
+      .named('entry_id')
+      .customConstraint(
+        'NOT NULL REFERENCES knowledge_entries(id) ON DELETE CASCADE',
+      )();
+  TextColumn get title => text()();
+  TextColumn get content => text()();
+  IntColumn get sortOrder => integer().named('sort_order')();
+  TextColumn get createdAt => text().named('created_at')();
+  TextColumn get updatedAt => text().named('updated_at')();
+
+  @override
+  Set<Column> get primaryKey => {id};
 }
 
 class CalendarEventRows extends Table {
@@ -854,6 +1007,12 @@ class SyncScopeState {
     TaskRows,
     TaskListRows,
     TaskListEntryRows,
+    KnowledgeBaseRows,
+    KnowledgeCategoryRows,
+    KnowledgeSettingsRows,
+    KnowledgeEntryRows,
+    KnowledgeSourceRows,
+    KnowledgeExplanationRows,
     CalendarEventRows,
     AnniversaryRows,
     RoleplayScenarioRows,
@@ -896,13 +1055,16 @@ class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
   /// This is separate from [StorageV2Service.currentLayoutVersion], which
   /// describes the storage_v2 directory layout.
   @override
-  int get schemaVersion => 24;
+  int get schemaVersion => 26;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) async {
       await m.createAll();
       await _createPermissionPolicyIndex();
+      await _createKnowledgeDefaultCategoryIndex();
+      await _createKnowledgeAliasIndex();
+      await _migrateKnowledgeSettingsV26();
     },
     beforeOpen: (details) async {
       await customStatement('PRAGMA journal_mode = WAL');
@@ -1126,6 +1288,19 @@ SET captures_local = active
         );
         await _migrateTransportLedgerV24();
       }
+      if (from < 25) {
+        await m.createTable(knowledgeBaseRows);
+        await m.createTable(knowledgeCategoryRows);
+        await m.createTable(knowledgeEntryRows);
+        await m.createTable(knowledgeSourceRows);
+        await m.createTable(knowledgeExplanationRows);
+        await _createKnowledgeDefaultCategoryIndex();
+        await _createKnowledgeAliasIndex();
+      }
+      if (from < 26) {
+        await m.createTable(knowledgeSettingsRows);
+        await _migrateKnowledgeSettingsV26();
+      }
       await _ensureCloudDataColumns();
     },
   );
@@ -1134,6 +1309,64 @@ SET captures_local = active
     return customStatement(
       'CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshots_permission_policy_run '
       "ON snapshots(run_id) WHERE kind = 'permission_policy'",
+    );
+  }
+
+  Future<void> _createKnowledgeDefaultCategoryIndex() async {
+    await customStatement(
+      'DROP INDEX IF EXISTS idx_knowledge_categories_default',
+    );
+    await customStatement('''
+UPDATE knowledge_categories
+SET is_default = 0
+WHERE is_default = 1
+  AND id <> COALESCE((
+    SELECT id FROM knowledge_categories
+    WHERE is_default = 1
+    ORDER BY sort_order, created_at, id
+    LIMIT 1
+  ), '')
+''');
+    await customStatement(
+      'CREATE UNIQUE INDEX idx_knowledge_categories_default '
+      'ON knowledge_categories(is_default) WHERE is_default = 1',
+    );
+  }
+
+  Future<void> _createKnowledgeAliasIndex() => customStatement(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_categories_alias '
+    'ON knowledge_categories(alias)',
+  );
+
+  Future<void> _migrateKnowledgeSettingsV26() async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    await customStatement(
+      '''
+INSERT OR REPLACE INTO knowledge_settings(
+  id, default_knowledge_base_id, default_category_id, updated_at
+)
+SELECT 1, selected.knowledge_base_id, selected.id, ?
+FROM (
+  SELECT category.id, category.knowledge_base_id
+  FROM knowledge_categories AS category
+  JOIN knowledge_bases AS base ON base.id = category.knowledge_base_id
+  WHERE base.enabled = 1
+    AND category.enabled = 1
+    AND category.auto_annotate = 1
+  ORDER BY category.is_default DESC, base.sort_order, category.sort_order,
+           category.created_at, category.id
+  LIMIT 1
+) AS selected
+''',
+      [now],
+    );
+    await customStatement(
+      '''
+INSERT OR IGNORE INTO knowledge_settings(
+  id, default_knowledge_base_id, default_category_id, updated_at
+) VALUES (1, NULL, NULL, ?)
+''',
+      [now],
     );
   }
 
@@ -1949,6 +2182,7 @@ WHERE id IN (${List.filled(runIds.length, '?').join(', ')})
       'conversations.json' => await _loadConversations(db),
       'notes.json' => await _loadNotes(db),
       'tasks.json' => await _loadTasks(db),
+      'knowledge.json' => await _loadKnowledge(db),
       'calendar.json' => await _loadCalendar(db),
       'resources.json' => await _loadResources(db),
       'roleplay_scenarios.json' => await _loadRoleplayScenarios(db),
@@ -1974,6 +2208,8 @@ WHERE id IN (${List.filled(runIds.length, '?').join(', ')})
           await _replaceNotes(db, data);
         case 'tasks.json':
           await _replaceTasks(db, data);
+        case 'knowledge.json':
+          await _replaceKnowledge(db, data);
         case 'calendar.json':
           await _replaceCalendar(db, data);
         case 'resources.json':
@@ -2290,6 +2526,335 @@ WHERE id IN (${List.filled(runIds.length, '?').join(', ')})
     await (db.delete(
       db.taskListEntryRows,
     )..where((t) => t.taskId.equals(taskId))).go();
+  }
+
+  Future<void> upsertKnowledgeBaseRow(
+    Map<String, dynamic> json, {
+    StorageV2DriftDatabase? transactionDb,
+  }) async {
+    final db = transactionDb ?? await _open();
+    final id = json['id'] as String?;
+    if (id == null || id.isEmpty) return;
+    await db
+        .into(db.knowledgeBaseRows)
+        .insertOnConflictUpdate(
+          KnowledgeBaseRowsCompanion.insert(
+            id: id,
+            name: json['name'] as String? ?? '',
+            description: Value(json['description'] as String?),
+            enabled: Value(json['enabled'] as bool? ?? true),
+            sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
+            createdAt: json['createdAt'] as String? ?? '',
+            updatedAt: json['updatedAt'] as String? ?? '',
+          ),
+        );
+  }
+
+  Future<void> deleteKnowledgeBaseRow(
+    String id, {
+    StorageV2DriftDatabase? transactionDb,
+  }) async {
+    if (transactionDb == null) {
+      final db = await _open();
+      await db.transaction(() => deleteKnowledgeBaseRow(id, transactionDb: db));
+      return;
+    }
+    final db = transactionDb;
+    await _clearKnowledgeSettingsForDefault(db, knowledgeBaseId: id);
+    await (db.delete(
+      db.knowledgeBaseRows,
+    )..where((row) => row.id.equals(id))).go();
+  }
+
+  Future<void> upsertKnowledgeCategoryRow(
+    Map<String, dynamic> json, {
+    StorageV2DriftDatabase? transactionDb,
+  }) async {
+    final db = transactionDb ?? await _open();
+    final id = json['id'] as String?;
+    if (id == null || id.isEmpty) return;
+    final baseId = json['knowledgeBaseId'] as String? ?? '';
+    final enabled = json['enabled'] as bool? ?? true;
+    final isDefault = (json['isDefault'] as bool? ?? false) && enabled;
+    if (isDefault) {
+      await (db.update(db.knowledgeCategoryRows)
+            ..where((row) => row.id.equals(id).not()))
+          .write(const KnowledgeCategoryRowsCompanion(isDefault: Value(false)));
+    }
+    await db
+        .into(db.knowledgeCategoryRows)
+        .insertOnConflictUpdate(
+          KnowledgeCategoryRowsCompanion.insert(
+            id: id,
+            knowledgeBaseId: baseId,
+            name: json['name'] as String? ?? '',
+            alias: json['alias'] as String? ?? '',
+            description: Value(json['description'] as String?),
+            annotationRule: json['annotationRule'] as String? ?? '',
+            explanationPrompt: json['explanationPrompt'] as String? ?? '',
+            colorValue: (json['colorValue'] as num?)?.toInt() ?? 0,
+            autoAnnotate: json['autoAnnotate'] as bool? ?? false,
+            modelConfigId: Value(json['modelConfigId'] as String?),
+            isDefault: isDefault,
+            enabled: Value(enabled),
+            sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
+            createdAt: json['createdAt'] as String? ?? '',
+            updatedAt: json['updatedAt'] as String? ?? '',
+          ),
+        );
+  }
+
+  Future<void> deleteKnowledgeCategoryRow(
+    String id, {
+    StorageV2DriftDatabase? transactionDb,
+  }) async {
+    if (transactionDb == null) {
+      final db = await _open();
+      await db.transaction(
+        () => deleteKnowledgeCategoryRow(id, transactionDb: db),
+      );
+      return;
+    }
+    final db = transactionDb;
+    await _clearKnowledgeSettingsForDefault(db, categoryId: id);
+    await (db.delete(
+      db.knowledgeCategoryRows,
+    )..where((row) => row.id.equals(id))).go();
+  }
+
+  Future<void> _clearKnowledgeSettingsForDefault(
+    StorageV2DriftDatabase db, {
+    String? knowledgeBaseId,
+    String? categoryId,
+  }) async {
+    final matchesDefault = knowledgeBaseId != null
+        ? db.knowledgeSettingsRows.defaultKnowledgeBaseId.equals(
+            knowledgeBaseId,
+          )
+        : db.knowledgeSettingsRows.defaultCategoryId.equals(categoryId!);
+    await (db.update(
+      db.knowledgeSettingsRows,
+    )..where((_) => matchesDefault)).write(
+      KnowledgeSettingsRowsCompanion(
+        defaultKnowledgeBaseId: const Value(null),
+        defaultCategoryId: const Value(null),
+        updatedAt: Value(DateTime.now().toUtc().toIso8601String()),
+      ),
+    );
+  }
+
+  Future<void> writeKnowledgeSettings(Map<String, dynamic> json) async {
+    final db = await _open();
+    await _upsertKnowledgeSettings(db, json);
+  }
+
+  Future<void> deleteKnowledgeSettings({
+    StorageV2DriftDatabase? transactionDb,
+  }) async {
+    final db = transactionDb ?? await _open();
+    await db.delete(db.knowledgeSettingsRows).go();
+  }
+
+  Future<void> _upsertKnowledgeSettings(
+    StorageV2DriftDatabase db,
+    Map<String, dynamic> json,
+  ) async {
+    final baseId = json['defaultKnowledgeBaseId'] as String?;
+    final categoryId = json['defaultCategoryId'] as String?;
+    if (baseId != null || categoryId != null) {
+      if (baseId == null ||
+          categoryId == null ||
+          !await _knowledgeCategoryIsEligibleDefault(db, categoryId, baseId)) {
+        throw StateError('Knowledge settings default category is invalid');
+      }
+    }
+    await db
+        .into(db.knowledgeSettingsRows)
+        .insertOnConflictUpdate(
+          KnowledgeSettingsRowsCompanion.insert(
+            id: const Value(1),
+            defaultKnowledgeBaseId: Value(baseId),
+            defaultCategoryId: Value(categoryId),
+            updatedAt:
+                json['updatedAt'] as String? ??
+                DateTime.now().toUtc().toIso8601String(),
+          ),
+        );
+  }
+
+  Future<bool> _knowledgeCategoryIsEligibleDefault(
+    StorageV2DriftDatabase db,
+    String categoryId,
+    String baseId,
+  ) async {
+    final row = await db
+        .customSelect(
+          '''
+SELECT 1
+FROM knowledge_categories AS category
+JOIN knowledge_bases AS base ON base.id = category.knowledge_base_id
+WHERE category.id = ? AND category.knowledge_base_id = ?
+  AND category.enabled = 1 AND category.auto_annotate = 1
+  AND base.enabled = 1
+LIMIT 1
+''',
+          variables: [
+            Variable.withString(categoryId),
+            Variable.withString(baseId),
+          ],
+        )
+        .getSingleOrNull();
+    return row != null;
+  }
+
+  Future<void> upsertKnowledgeEntryRow(
+    Map<String, dynamic> json, {
+    StorageV2DriftDatabase? transactionDb,
+  }) async {
+    final db = transactionDb ?? await _open();
+    final id = json['id'] as String?;
+    if (id == null || id.isEmpty) return;
+    final baseId = json['knowledgeBaseId'] as String? ?? '';
+    final categoryId = json['categoryId'] as String?;
+    if (categoryId != null &&
+        !await _knowledgeCategoryBelongsToBase(db, categoryId, baseId)) {
+      throw StateError('Knowledge entry category does not belong to its base');
+    }
+    await db
+        .into(db.knowledgeEntryRows)
+        .insertOnConflictUpdate(
+          KnowledgeEntryRowsCompanion.insert(
+            id: id,
+            knowledgeBaseId: baseId,
+            categoryId: Value(categoryId),
+            title: json['title'] as String? ?? '',
+            content: json['content'] as String? ?? '',
+            enabled: Value(json['enabled'] as bool? ?? true),
+            sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
+            createdAt: json['createdAt'] as String? ?? '',
+            updatedAt: json['updatedAt'] as String? ?? '',
+          ),
+        );
+  }
+
+  Future<bool> _knowledgeCategoryBelongsToBase(
+    StorageV2DriftDatabase db,
+    String categoryId,
+    String baseId,
+  ) async {
+    final row =
+        await (db.select(db.knowledgeCategoryRows)..where(
+              (item) =>
+                  item.id.equals(categoryId) &
+                  item.knowledgeBaseId.equals(baseId),
+            ))
+            .getSingleOrNull();
+    return row != null;
+  }
+
+  Future<void> deleteKnowledgeEntryRow(
+    String id, {
+    StorageV2DriftDatabase? transactionDb,
+  }) async {
+    final db = transactionDb ?? await _open();
+    await (db.delete(
+      db.knowledgeEntryRows,
+    )..where((row) => row.id.equals(id))).go();
+  }
+
+  Future<void> upsertKnowledgeSourceRow(
+    Map<String, dynamic> json, {
+    StorageV2DriftDatabase? transactionDb,
+  }) async {
+    final db = transactionDb ?? await _open();
+    final id = json['id'] as String?;
+    if (id == null || id.isEmpty) return;
+    final baseId = json['knowledgeBaseId'] as String? ?? '';
+    final entryId = json['entryId'] as String? ?? '';
+    if (!await _knowledgeEntryBelongsToBase(db, entryId, baseId)) {
+      throw StateError('Knowledge source entry does not belong to its base');
+    }
+    await db
+        .into(db.knowledgeSourceRows)
+        .insertOnConflictUpdate(
+          KnowledgeSourceRowsCompanion.insert(
+            id: id,
+            knowledgeBaseId: baseId,
+            entryId: entryId,
+            title: json['title'] as String? ?? '',
+            url: Value(json['url'] as String?),
+            note: Value(json['note'] as String?),
+            sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
+            createdAt: json['createdAt'] as String? ?? '',
+            updatedAt: json['updatedAt'] as String? ?? '',
+          ),
+        );
+  }
+
+  Future<void> deleteKnowledgeSourceRow(
+    String id, {
+    StorageV2DriftDatabase? transactionDb,
+  }) async {
+    final db = transactionDb ?? await _open();
+    await (db.delete(
+      db.knowledgeSourceRows,
+    )..where((row) => row.id.equals(id))).go();
+  }
+
+  Future<void> upsertKnowledgeExplanationRow(
+    Map<String, dynamic> json, {
+    StorageV2DriftDatabase? transactionDb,
+  }) async {
+    final db = transactionDb ?? await _open();
+    final id = json['id'] as String?;
+    if (id == null || id.isEmpty) return;
+    final baseId = json['knowledgeBaseId'] as String? ?? '';
+    final entryId = json['entryId'] as String? ?? '';
+    if (!await _knowledgeEntryBelongsToBase(db, entryId, baseId)) {
+      throw StateError(
+        'Knowledge explanation entry does not belong to its base',
+      );
+    }
+    await db
+        .into(db.knowledgeExplanationRows)
+        .insertOnConflictUpdate(
+          KnowledgeExplanationRowsCompanion.insert(
+            id: id,
+            knowledgeBaseId: baseId,
+            entryId: entryId,
+            title: json['title'] as String? ?? '',
+            content: json['content'] as String? ?? '',
+            sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
+            createdAt: json['createdAt'] as String? ?? '',
+            updatedAt: json['updatedAt'] as String? ?? '',
+          ),
+        );
+  }
+
+  Future<void> deleteKnowledgeExplanationRow(
+    String id, {
+    StorageV2DriftDatabase? transactionDb,
+  }) async {
+    final db = transactionDb ?? await _open();
+    await (db.delete(
+      db.knowledgeExplanationRows,
+    )..where((row) => row.id.equals(id))).go();
+  }
+
+  Future<bool> _knowledgeEntryBelongsToBase(
+    StorageV2DriftDatabase db,
+    String entryId,
+    String knowledgeBaseId,
+  ) async {
+    if (entryId.isEmpty || knowledgeBaseId.isEmpty) return false;
+    final row =
+        await (db.select(db.knowledgeEntryRows)..where(
+              (item) =>
+                  item.id.equals(entryId) &
+                  item.knowledgeBaseId.equals(knowledgeBaseId),
+            ))
+            .getSingleOrNull();
+    return row != null;
   }
 
   Future<void> upsertCalendarEventRow(
@@ -3095,6 +3660,16 @@ ORDER BY CASE
   WHEN table_name = 'task_lists' THEN 9
   WHEN table_name = 'task_list_entries' AND op = 'delete' THEN 0
   WHEN table_name = 'task_list_entries' THEN 2
+  WHEN table_name = 'knowledge_bases' AND op <> 'delete' THEN 0
+  WHEN table_name = 'knowledge_categories' AND op <> 'delete' THEN 1
+  WHEN table_name = 'knowledge_settings' AND op = 'delete' THEN 0
+  WHEN table_name = 'knowledge_settings' THEN 2
+  WHEN table_name = 'knowledge_entries' AND op <> 'delete' THEN 3
+  WHEN table_name IN ('knowledge_sources', 'knowledge_explanations') AND op = 'delete' THEN 0
+  WHEN table_name IN ('knowledge_sources', 'knowledge_explanations') THEN 4
+  WHEN table_name = 'knowledge_entries' THEN 7
+  WHEN table_name = 'knowledge_categories' THEN 8
+  WHEN table_name = 'knowledge_bases' THEN 9
   WHEN table_name = 'note_page_tombstones' AND op = 'delete' THEN 2
   WHEN table_name = 'note_pages' THEN 3
   WHEN table_name = 'note_revisions' THEN 4
@@ -3158,6 +3733,16 @@ ORDER BY CASE
   WHEN h.table_name = 'task_lists' THEN 9
   WHEN h.table_name = 'task_list_entries' AND h.op = 'delete' THEN 0
   WHEN h.table_name = 'task_list_entries' THEN 2
+  WHEN h.table_name = 'knowledge_bases' AND h.op <> 'delete' THEN 0
+  WHEN h.table_name = 'knowledge_categories' AND h.op <> 'delete' THEN 1
+  WHEN h.table_name = 'knowledge_settings' AND h.op = 'delete' THEN 0
+  WHEN h.table_name = 'knowledge_settings' THEN 2
+  WHEN h.table_name = 'knowledge_entries' AND h.op <> 'delete' THEN 3
+  WHEN h.table_name IN ('knowledge_sources', 'knowledge_explanations') AND h.op = 'delete' THEN 0
+  WHEN h.table_name IN ('knowledge_sources', 'knowledge_explanations') THEN 4
+  WHEN h.table_name = 'knowledge_entries' THEN 7
+  WHEN h.table_name = 'knowledge_categories' THEN 8
+  WHEN h.table_name = 'knowledge_bases' THEN 9
   WHEN h.table_name = 'note_page_tombstones' AND h.op = 'delete' THEN 2
   WHEN h.table_name = 'note_pages' THEN 3
   WHEN h.table_name = 'note_revisions' THEN 4
@@ -3492,14 +4077,39 @@ END, h.client_created_at, h.updated_at, h.table_name, h.record_id
     int? nextSince,
     String appliedSource = 'cloud',
     String? appliedSourcePeer,
+    Map<String, dynamic>? knowledgeSettings,
   }) async {
     if (remote && (scope == null || scope.isEmpty)) {
       throw ArgumentError.value(scope, 'scope', 'remote scope is required');
     }
     final db = await _open();
     await db.transaction(() async {
-      final orderedOps = remote ? List<SyncRemoteOperation>.from(ops) : ops;
+      final orderedOps = remote
+          ? _latestRemoteOperations(
+              ops,
+              reliableSequence: appliedSource != 'lan',
+            )
+          : ops;
       if (remote) {
+        final materializedChangeIds = orderedOps
+            .map((op) => op.change?.changeId)
+            .whereType<String>()
+            .toSet();
+        for (final op in ops) {
+          final change = op.change;
+          if (change == null ||
+              materializedChangeIds.contains(change.changeId)) {
+            continue;
+          }
+          await _recordSupersededRemoteOperation(
+            db,
+            op,
+            scope: scope!,
+            source: appliedSource,
+            sourceScope: appliedSourcePeer ?? scope,
+            sourcePeer: appliedSourcePeer,
+          );
+        }
         orderedOps.sort((a, b) {
           final byPriority = _syncOperationPriority(
             a.table,
@@ -3531,14 +4141,14 @@ END, h.client_created_at, h.updated_at, h.table_name, h.record_id
             continue;
           }
         }
-        final id = op.data?['id'] as String?;
+        final id = op.data!['id'] as String;
         if (!_syncTableNames.contains(op.table)) {
           throw StateError('unsupported remote sync table: ${op.table}');
         }
         if (op.op != 'upsert' && op.op != 'delete') {
           throw StateError('unsupported remote sync operation: ${op.op}');
         }
-        if (id == null || id.isEmpty) {
+        if (id.isEmpty) {
           throw StateError('remote sync operation is missing record id');
         }
         final pendingScope = remoteScope == 'lan:v1'
@@ -3737,6 +4347,60 @@ END, h.client_created_at, h.updated_at, h.table_name, h.record_id
                 transactionDb: db,
               );
             }
+          case 'knowledge_bases':
+            if (op.op == 'upsert' && op.data != null) {
+              await upsertKnowledgeBaseRow(op.data!, transactionDb: db);
+            } else if (op.op == 'delete') {
+              await deleteKnowledgeBaseRow(
+                op.data!['id'] as String,
+                transactionDb: db,
+              );
+            }
+          case 'knowledge_categories':
+            if (op.op == 'upsert' && op.data != null) {
+              await upsertKnowledgeCategoryRow(op.data!, transactionDb: db);
+            } else if (op.op == 'delete') {
+              await deleteKnowledgeCategoryRow(
+                op.data!['id'] as String,
+                transactionDb: db,
+              );
+            }
+          case 'knowledge_entries':
+            if (op.op == 'upsert' && op.data != null) {
+              await upsertKnowledgeEntryRow(op.data!, transactionDb: db);
+            } else if (op.op == 'delete') {
+              await deleteKnowledgeEntryRow(
+                op.data!['id'] as String,
+                transactionDb: db,
+              );
+            }
+          case 'knowledge_sources':
+            if (op.op == 'upsert' && op.data != null) {
+              await upsertKnowledgeSourceRow(op.data!, transactionDb: db);
+            } else if (op.op == 'delete') {
+              await deleteKnowledgeSourceRow(
+                op.data!['id'] as String,
+                transactionDb: db,
+              );
+            }
+          case 'knowledge_explanations':
+            if (op.op == 'upsert' && op.data != null) {
+              await upsertKnowledgeExplanationRow(op.data!, transactionDb: db);
+            } else if (op.op == 'delete') {
+              await deleteKnowledgeExplanationRow(
+                op.data!['id'] as String,
+                transactionDb: db,
+              );
+            }
+          case 'knowledge_settings':
+            if (id != 'global') {
+              throw StateError('knowledge_settings record id must be global');
+            }
+            if (op.op == 'upsert' && op.data != null) {
+              await _upsertKnowledgeSettings(db, op.data!);
+            } else if (op.op == 'delete') {
+              await deleteKnowledgeSettings(transactionDb: db);
+            }
           case 'calendar_events':
             if (op.op == 'upsert' && op.data != null) {
               await upsertCalendarEventRow(op.data!, transactionDb: db);
@@ -3897,6 +4561,9 @@ END, h.client_created_at, h.updated_at, h.table_name, h.record_id
               );
         }
       }
+      if (!remote && knowledgeSettings != null) {
+        await _upsertKnowledgeSettings(db, knowledgeSettings);
+      }
       if (remote && scope != null && nextSince != null) {
         await _setSyncSince(db, scope, nextSince);
       }
@@ -3922,6 +4589,50 @@ END, h.client_created_at, h.updated_at, h.table_name, h.record_id
             lineage: Value(change.lineage),
             receivedAt: DateTime.now().toUtc().toIso8601String(),
           ),
+        );
+  }
+
+  Future<void> _recordSupersededRemoteOperation(
+    StorageV2DriftDatabase db,
+    SyncRemoteOperation op, {
+    required String scope,
+    required String source,
+    required String? sourceScope,
+    required String? sourcePeer,
+  }) async {
+    final change = op.change;
+    if (change == null) {
+      throw StateError('remote change metadata is missing');
+    }
+    final payloadHash = _changePayloadHash(op);
+    final receipt = await (db.select(
+      db.transportChangeReceiptRows,
+    )..where((row) => row.changeId.equals(change.changeId))).getSingleOrNull();
+    if (receipt != null) {
+      if (receipt.payloadHash.isNotEmpty &&
+          receipt.payloadHash != payloadHash) {
+        throw StateError('sync changeId was reused with another payload');
+      }
+      return;
+    }
+    _validateRemoteOperation(op);
+    await _recordTransportReceipt(
+      db,
+      op,
+      source: source,
+      sourceScope: sourceScope,
+    );
+    await _recordSourcePeerAck(db, sourcePeer, change.changeId);
+    await db
+        .into(db.syncAppliedChangeRows)
+        .insert(
+          SyncAppliedChangeRowsCompanion.insert(
+            scope: scope,
+            changeId: change.changeId,
+            source: source,
+            appliedAt: DateTime.now().toUtc().toIso8601String(),
+          ),
+          mode: InsertMode.insertOrIgnore,
         );
   }
 
@@ -4382,12 +5093,58 @@ END, h.client_created_at, h.updated_at, h.table_name, h.record_id
       'tasks' => op == 'delete' ? 9 : 0,
       'task_lists' => op == 'delete' ? 9 : 1,
       'task_list_entries' => op == 'delete' ? 0 : 2,
+      'knowledge_bases' => op == 'delete' ? 9 : 0,
+      'knowledge_categories' => op == 'delete' ? 8 : 1,
+      'knowledge_settings' => op == 'delete' ? 0 : 2,
+      'knowledge_entries' => op == 'delete' ? 7 : 3,
+      'knowledge_sources' || 'knowledge_explanations' => op == 'delete' ? 0 : 4,
       'note_pages' => 3,
       'note_revisions' => 4,
       'note_page_heads' => 5,
       'resources' => 7,
       _ => 10,
     };
+  }
+
+  static List<SyncRemoteOperation> _latestRemoteOperations(
+    List<SyncRemoteOperation> ops, {
+    required bool reliableSequence,
+  }) {
+    final latestByIdentity = <String, SyncRemoteOperation>{};
+    for (final op in ops) {
+      final id = op.data?['id'];
+      if (id is! String || id.isEmpty || op.change == null) {
+        latestByIdentity['invalid:${latestByIdentity.length}'] = op;
+        continue;
+      }
+      final identity = '${op.table}\u0000$id';
+      final current = latestByIdentity[identity];
+      if (current == null ||
+          !reliableSequence ||
+          op.change!.seq >= (current.change?.seq ?? -1)) {
+        latestByIdentity[identity] = op;
+      }
+    }
+    return latestByIdentity.values.toList();
+  }
+
+  static void _validateRemoteOperation(SyncRemoteOperation op) {
+    if (_legacyPlanningSyncTableNames.contains(op.table)) {
+      throw StateError(
+        'sync schema upgrade required: legacy planning table '
+        '${op.table} is not supported by storage schema v15',
+      );
+    }
+    if (!_syncTableNames.contains(op.table)) {
+      throw StateError('unsupported remote sync table: ${op.table}');
+    }
+    if (op.op != 'upsert' && op.op != 'delete') {
+      throw StateError('unsupported remote sync operation: ${op.op}');
+    }
+    final id = op.data?['id'];
+    if (id is! String || id.isEmpty) {
+      throw StateError('remote sync operation is missing record id');
+    }
   }
 
   Future<StorageV2DriftDatabase> _open() async {
@@ -4746,6 +5503,97 @@ CREATE TABLE IF NOT EXISTS task_list_entries (
   updated_at TEXT NOT NULL,
   FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
   FOREIGN KEY (list_id) REFERENCES task_lists(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS knowledge_bases (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  sort_order INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS knowledge_categories (
+  id TEXT PRIMARY KEY,
+  knowledge_base_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  alias TEXT NOT NULL UNIQUE CHECK (
+    alias GLOB '[a-z]*' AND length(alias) BETWEEN 1 AND 32
+    AND alias NOT GLOB '*[^a-z0-9_-]*'
+  ),
+  description TEXT,
+  annotation_rule TEXT NOT NULL,
+  explanation_prompt TEXT NOT NULL,
+  color_value INTEGER NOT NULL,
+  auto_annotate INTEGER NOT NULL,
+  model_config_id TEXT,
+  is_default INTEGER NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  sort_order INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (knowledge_base_id) REFERENCES knowledge_bases(id) ON DELETE CASCADE
+);
+DROP INDEX IF EXISTS idx_knowledge_categories_default;
+UPDATE knowledge_categories
+SET is_default = 0
+WHERE is_default = 1
+  AND id <> COALESCE((
+    SELECT id FROM knowledge_categories
+    WHERE is_default = 1
+    ORDER BY sort_order, created_at, id
+    LIMIT 1
+  ), '');
+CREATE UNIQUE INDEX idx_knowledge_categories_default
+  ON knowledge_categories(is_default) WHERE is_default = 1;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_categories_alias
+  ON knowledge_categories(alias);
+CREATE TABLE IF NOT EXISTS knowledge_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  default_knowledge_base_id TEXT,
+  default_category_id TEXT,
+  updated_at TEXT NOT NULL,
+  CHECK ((default_knowledge_base_id IS NULL) = (default_category_id IS NULL)),
+  FOREIGN KEY (default_knowledge_base_id) REFERENCES knowledge_bases(id) ON DELETE SET NULL,
+  FOREIGN KEY (default_category_id) REFERENCES knowledge_categories(id) ON DELETE SET NULL
+);
+CREATE TABLE IF NOT EXISTS knowledge_entries (
+  id TEXT PRIMARY KEY,
+  knowledge_base_id TEXT NOT NULL,
+  category_id TEXT,
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  sort_order INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (knowledge_base_id) REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+  FOREIGN KEY (category_id) REFERENCES knowledge_categories(id) ON DELETE SET NULL
+);
+CREATE TABLE IF NOT EXISTS knowledge_sources (
+  id TEXT PRIMARY KEY,
+  knowledge_base_id TEXT NOT NULL,
+  entry_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  url TEXT,
+  note TEXT,
+  sort_order INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (knowledge_base_id) REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+  FOREIGN KEY (entry_id) REFERENCES knowledge_entries(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS knowledge_explanations (
+  id TEXT PRIMARY KEY,
+  knowledge_base_id TEXT NOT NULL,
+  entry_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  sort_order INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (knowledge_base_id) REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+  FOREIGN KEY (entry_id) REFERENCES knowledge_entries(id) ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS calendar_events (
   id TEXT PRIMARY KEY,
@@ -5266,6 +6114,129 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
             )
             .toList();
     return {'tasks': tasks, 'lists': lists, 'entries': entries};
+  }
+
+  Future<Map<String, dynamic>> _loadKnowledge(StorageV2DriftDatabase db) async {
+    final settings = await (db.select(
+      db.knowledgeSettingsRows,
+    )..where((row) => row.id.equals(1))).getSingleOrNull();
+    final bases =
+        (await (db.select(
+              db.knowledgeBaseRows,
+            )..orderBy([(row) => OrderingTerm.asc(row.sortOrder)])).get())
+            .map(
+              (row) => {
+                'id': row.id,
+                'name': row.name,
+                if (row.description != null) 'description': row.description,
+                'enabled': row.enabled,
+                'sortOrder': row.sortOrder,
+                'createdAt': row.createdAt,
+                'updatedAt': row.updatedAt,
+              },
+            )
+            .toList();
+    final categories =
+        (await (db.select(db.knowledgeCategoryRows)..orderBy([
+                  (row) => OrderingTerm.asc(row.knowledgeBaseId),
+                  (row) => OrderingTerm.asc(row.sortOrder),
+                ]))
+                .get())
+            .map(
+              (row) => {
+                'id': row.id,
+                'knowledgeBaseId': row.knowledgeBaseId,
+                'name': row.name,
+                'alias': row.alias,
+                if (row.description != null) 'description': row.description,
+                'annotationRule': row.annotationRule,
+                'explanationPrompt': row.explanationPrompt,
+                'colorValue': row.colorValue,
+                'autoAnnotate': row.autoAnnotate,
+                if (row.modelConfigId != null)
+                  'modelConfigId': row.modelConfigId,
+                'isDefault': row.isDefault,
+                'enabled': row.enabled,
+                'sortOrder': row.sortOrder,
+                'createdAt': row.createdAt,
+                'updatedAt': row.updatedAt,
+              },
+            )
+            .toList();
+    final entries =
+        (await (db.select(db.knowledgeEntryRows)..orderBy([
+                  (row) => OrderingTerm.asc(row.knowledgeBaseId),
+                  (row) => OrderingTerm.asc(row.sortOrder),
+                ]))
+                .get())
+            .map(
+              (row) => {
+                'id': row.id,
+                'knowledgeBaseId': row.knowledgeBaseId,
+                if (row.categoryId != null) 'categoryId': row.categoryId,
+                'title': row.title,
+                'content': row.content,
+                'enabled': row.enabled,
+                'sortOrder': row.sortOrder,
+                'createdAt': row.createdAt,
+                'updatedAt': row.updatedAt,
+              },
+            )
+            .toList();
+    final sources =
+        (await (db.select(db.knowledgeSourceRows)..orderBy([
+                  (row) => OrderingTerm.asc(row.entryId),
+                  (row) => OrderingTerm.asc(row.sortOrder),
+                ]))
+                .get())
+            .map(
+              (row) => {
+                'id': row.id,
+                'knowledgeBaseId': row.knowledgeBaseId,
+                'entryId': row.entryId,
+                'title': row.title,
+                if (row.url != null) 'url': row.url,
+                if (row.note != null) 'note': row.note,
+                'sortOrder': row.sortOrder,
+                'createdAt': row.createdAt,
+                'updatedAt': row.updatedAt,
+              },
+            )
+            .toList();
+    final explanations =
+        (await (db.select(db.knowledgeExplanationRows)..orderBy([
+                  (row) => OrderingTerm.asc(row.entryId),
+                  (row) => OrderingTerm.asc(row.sortOrder),
+                ]))
+                .get())
+            .map(
+              (row) => {
+                'id': row.id,
+                'knowledgeBaseId': row.knowledgeBaseId,
+                'entryId': row.entryId,
+                'title': row.title,
+                'content': row.content,
+                'sortOrder': row.sortOrder,
+                'createdAt': row.createdAt,
+                'updatedAt': row.updatedAt,
+              },
+            )
+            .toList();
+    return {
+      if (settings != null)
+        'settings': {
+          if (settings.defaultKnowledgeBaseId != null)
+            'defaultKnowledgeBaseId': settings.defaultKnowledgeBaseId,
+          if (settings.defaultCategoryId != null)
+            'defaultCategoryId': settings.defaultCategoryId,
+          'updatedAt': settings.updatedAt,
+        },
+      'knowledgeBases': bases,
+      'categories': categories,
+      'entries': entries,
+      'sources': sources,
+      'explanations': explanations,
+    };
   }
 
   Future<Map<String, dynamic>> _loadCalendar(StorageV2DriftDatabase db) async {
@@ -5845,6 +6816,95 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
     }
   }
 
+  Future<void> _replaceKnowledge(
+    StorageV2DriftDatabase db,
+    Map<String, dynamic> data,
+  ) async {
+    await db.delete(db.knowledgeSettingsRows).go();
+    await db.delete(db.knowledgeSourceRows).go();
+    await db.delete(db.knowledgeExplanationRows).go();
+    await db.delete(db.knowledgeEntryRows).go();
+    await db.delete(db.knowledgeCategoryRows).go();
+    await db.delete(db.knowledgeBaseRows).go();
+    final baseIds = <String>{};
+    for (final item in data['knowledgeBases'] as List<dynamic>? ?? const []) {
+      if (item is! Map) continue;
+      final json = Map<String, dynamic>.from(item);
+      final id = json['id'] as String?;
+      if (id == null || id.isEmpty) continue;
+      await upsertKnowledgeBaseRow(json, transactionDb: db);
+      baseIds.add(id);
+    }
+    final categoryIds = <String>{};
+    for (final item in data['categories'] as List<dynamic>? ?? const []) {
+      if (item is! Map) continue;
+      final json = Map<String, dynamic>.from(item);
+      final id = json['id'] as String?;
+      if (id == null || !baseIds.contains(json['knowledgeBaseId'])) continue;
+      await upsertKnowledgeCategoryRow(json, transactionDb: db);
+      categoryIds.add(id);
+    }
+    final entryBaseIds = <String, String>{};
+    for (final item in data['entries'] as List<dynamic>? ?? const []) {
+      if (item is! Map) continue;
+      final json = Map<String, dynamic>.from(item);
+      final id = json['id'] as String?;
+      if (id == null || !baseIds.contains(json['knowledgeBaseId'])) continue;
+      if (json['categoryId'] != null &&
+          !categoryIds.contains(json['categoryId'])) {
+        json.remove('categoryId');
+      }
+      await upsertKnowledgeEntryRow(json, transactionDb: db);
+      entryBaseIds[id] = json['knowledgeBaseId'] as String;
+    }
+    for (final item in data['sources'] as List<dynamic>? ?? const []) {
+      if (item is Map &&
+          entryBaseIds[item['entryId']] == item['knowledgeBaseId']) {
+        await upsertKnowledgeSourceRow(
+          Map<String, dynamic>.from(item),
+          transactionDb: db,
+        );
+      }
+    }
+    for (final item in data['explanations'] as List<dynamic>? ?? const []) {
+      if (item is Map &&
+          entryBaseIds[item['entryId']] == item['knowledgeBaseId']) {
+        await upsertKnowledgeExplanationRow(
+          Map<String, dynamic>.from(item),
+          transactionDb: db,
+        );
+      }
+    }
+    final rawSettings = data['settings'];
+    if (rawSettings is Map) {
+      await _upsertKnowledgeSettings(
+        db,
+        Map<String, dynamic>.from(rawSettings),
+      );
+    } else {
+      await _deriveKnowledgeSettings(db);
+    }
+  }
+
+  Future<void> _deriveKnowledgeSettings(StorageV2DriftDatabase db) async {
+    final row = await db.customSelect('''
+SELECT category.id AS category_id, category.knowledge_base_id AS base_id
+FROM knowledge_categories AS category
+JOIN knowledge_bases AS base ON base.id = category.knowledge_base_id
+WHERE base.enabled = 1
+  AND category.enabled = 1
+  AND category.auto_annotate = 1
+ORDER BY category.is_default DESC, base.sort_order, category.sort_order,
+         category.created_at, category.id
+LIMIT 1
+''').getSingleOrNull();
+    await _upsertKnowledgeSettings(db, {
+      if (row != null) 'defaultKnowledgeBaseId': row.data['base_id'],
+      if (row != null) 'defaultCategoryId': row.data['category_id'],
+      'updatedAt': DateTime.now().toUtc().toIso8601String(),
+    });
+  }
+
   Future<void> _replaceCalendar(
     StorageV2DriftDatabase db,
     Map<String, dynamic> data,
@@ -5957,6 +7017,12 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
     'tasks',
     'task_lists',
     'task_list_entries',
+    'knowledge_bases',
+    'knowledge_categories',
+    'knowledge_entries',
+    'knowledge_sources',
+    'knowledge_explanations',
+    'knowledge_settings',
     'calendar_events',
     'anniversaries',
     'roleplay_scenarios',
@@ -5992,6 +7058,14 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
       'message_attachments',
     },
     'tasks.json' => {'tasks', 'task_lists', 'task_list_entries'},
+    'knowledge.json' => {
+      'knowledge_bases',
+      'knowledge_categories',
+      'knowledge_entries',
+      'knowledge_sources',
+      'knowledge_explanations',
+      'knowledge_settings',
+    },
     'calendar.json' => {'calendar_events', 'anniversaries'},
     'roleplay_scenarios.json' => {'roleplay_scenarios'},
     'roleplay_threads.json' => {'roleplay_threads'},
@@ -6086,6 +7160,29 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
       add('tasks', data['tasks'] as List);
       add('task_lists', data['lists'] as List);
       add('task_list_entries', data['entries'] as List);
+    }
+    if (tables.any(
+      {
+        'knowledge_bases',
+        'knowledge_categories',
+        'knowledge_entries',
+        'knowledge_sources',
+        'knowledge_explanations',
+        'knowledge_settings',
+      }.contains,
+    )) {
+      final data = await _loadKnowledge(db);
+      add('knowledge_bases', data['knowledgeBases'] as List);
+      add('knowledge_categories', data['categories'] as List);
+      add('knowledge_entries', data['entries'] as List);
+      add('knowledge_sources', data['sources'] as List);
+      add('knowledge_explanations', data['explanations'] as List);
+      final settings = data['settings'];
+      if (settings is Map) {
+        add('knowledge_settings', [
+          {'id': 'global', ...Map<String, dynamic>.from(settings)},
+        ]);
+      }
     }
     if (tables.any({'calendar_events', 'anniversaries'}.contains)) {
       final data = await _loadCalendar(db);
@@ -6428,6 +7525,12 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
     if (table == 'tasks' ||
         table == 'task_lists' ||
         table == 'task_list_entries' ||
+        table == 'knowledge_bases' ||
+        table == 'knowledge_categories' ||
+        table == 'knowledge_entries' ||
+        table == 'knowledge_sources' ||
+        table == 'knowledge_explanations' ||
+        table == 'knowledge_settings' ||
         table == 'calendar_events' ||
         table == 'anniversaries') {
       return MergePlanner.latestWins(
@@ -6530,6 +7633,57 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
           await upsertTaskListEntryRow(data, transactionDb: db);
         } else {
           await deleteTaskListEntryRow(data['id'] as String, transactionDb: db);
+        }
+      case 'knowledge_bases':
+        if (op == 'upsert') {
+          await upsertKnowledgeBaseRow(data, transactionDb: db);
+        } else {
+          await deleteKnowledgeBaseRow(data['id'] as String, transactionDb: db);
+        }
+      case 'knowledge_categories':
+        if (op == 'upsert') {
+          await upsertKnowledgeCategoryRow(data, transactionDb: db);
+        } else {
+          await deleteKnowledgeCategoryRow(
+            data['id'] as String,
+            transactionDb: db,
+          );
+        }
+      case 'knowledge_entries':
+        if (op == 'upsert') {
+          await upsertKnowledgeEntryRow(data, transactionDb: db);
+        } else {
+          await deleteKnowledgeEntryRow(
+            data['id'] as String,
+            transactionDb: db,
+          );
+        }
+      case 'knowledge_sources':
+        if (op == 'upsert') {
+          await upsertKnowledgeSourceRow(data, transactionDb: db);
+        } else {
+          await deleteKnowledgeSourceRow(
+            data['id'] as String,
+            transactionDb: db,
+          );
+        }
+      case 'knowledge_explanations':
+        if (op == 'upsert') {
+          await upsertKnowledgeExplanationRow(data, transactionDb: db);
+        } else {
+          await deleteKnowledgeExplanationRow(
+            data['id'] as String,
+            transactionDb: db,
+          );
+        }
+      case 'knowledge_settings':
+        if (data['id'] != 'global') {
+          throw StateError('knowledge_settings record id must be global');
+        }
+        if (op == 'upsert') {
+          await _upsertKnowledgeSettings(db, data);
+        } else {
+          await deleteKnowledgeSettings(transactionDb: db);
         }
       case 'calendar_events':
         if (op == 'upsert') {

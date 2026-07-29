@@ -1255,6 +1255,12 @@ class SyncProvider extends ChangeNotifier {
       'tasks',
       'task_lists',
       'task_list_entries',
+      'knowledge_bases',
+      'knowledge_categories',
+      'knowledge_entries',
+      'knowledge_sources',
+      'knowledge_explanations',
+      'knowledge_settings',
       'calendar_events',
       'anniversaries',
       'roleplay_scenarios',
@@ -1289,6 +1295,9 @@ class SyncProvider extends ChangeNotifier {
     }
     if (change.recordId.isEmpty) {
       throw StateError('remote sync recordId is empty');
+    }
+    if (change.table == 'knowledge_settings' && change.recordId != 'global') {
+      throw StateError('knowledge_settings recordId must be global');
     }
     if (change.op == 'upsert') {
       final dataId = change.data?['id'];
@@ -1442,6 +1451,12 @@ class SyncProvider extends ChangeNotifier {
     'tasks',
     'task_lists',
     'task_list_entries',
+    'knowledge_bases',
+    'knowledge_categories',
+    'knowledge_entries',
+    'knowledge_sources',
+    'knowledge_explanations',
+    'knowledge_settings',
     'calendar_events',
     'anniversaries',
     'roleplay_scenarios',

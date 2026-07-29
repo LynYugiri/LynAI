@@ -19,9 +19,28 @@ import 'package:webview_all/webview_all.dart';
 import '../services/code_syntax_service.dart';
 import '../utils/snackbar_utils.dart';
 import '../utils/webview_dispose_utils.dart';
+import 'ai_explain_selection_area.dart';
 
 typedef MarkdownBlockEditCallback =
     void Function(String source, int start, int end);
+
+typedef KnowledgeCategoryResolver = String? Function(String categoryOrAlias);
+typedef KnowledgeCategoryColorResolver = Color? Function(String category);
+typedef KnowledgeAnnotationTapCallback =
+    void Function(KnowledgeAnnotationRenderData annotation);
+
+/// Data exposed by a rendered `[[category:text]]` annotation.
+class KnowledgeAnnotationRenderData {
+  final String sourceCategory;
+  final String category;
+  final String text;
+
+  const KnowledgeAnnotationRenderData({
+    required this.sourceCategory,
+    required this.category,
+    required this.text,
+  });
+}
 
 /// 低层 LaTeX 渲染工具。
 ///
@@ -349,6 +368,92 @@ class _LatexBuilder extends MarkdownElementBuilder {
   }
 }
 
+class _KnowledgeAnnotationSyntax extends md.InlineSyntax {
+  _KnowledgeAnnotationSyntax() : super(r'\[\[([^\[\]\n:|]+):([^\[\]\n|]+)\]\]');
+
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    final category = match[1]!.trim();
+    final text = match[2]!.trim();
+    if (category.isEmpty || text.isEmpty) {
+      parser.addNode(md.Text(match[0]!));
+      return true;
+    }
+    parser.addNode(
+      md.Element.text('knowledgeAnnotation', text)
+        ..attributes['category'] = category,
+    );
+    return true;
+  }
+}
+
+class _KnowledgeAnnotationBuilder extends MarkdownElementBuilder {
+  final String? defaultCategory;
+  final KnowledgeCategoryResolver? resolver;
+  final KnowledgeCategoryColorResolver? colorResolver;
+  final KnowledgeAnnotationTapCallback? onTap;
+
+  _KnowledgeAnnotationBuilder({
+    required this.defaultCategory,
+    required this.resolver,
+    required this.colorResolver,
+    required this.onTap,
+  });
+
+  @override
+  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
+    final sourceCategory = element.attributes['category'] ?? '';
+    final category = _resolveCategory(sourceCategory);
+    final annotation = KnowledgeAnnotationRenderData(
+      sourceCategory: sourceCategory,
+      category: category,
+      text: element.textContent,
+    );
+    return Builder(
+      builder: (context) {
+        final color =
+            colorResolver?.call(category) ??
+            Theme.of(context).colorScheme.primary;
+        final child = DecoratedBox(
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(3),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: Text(
+              annotation.text,
+              style: (preferredStyle ?? const TextStyle()).copyWith(
+                color: color,
+                decoration: TextDecoration.underline,
+                decorationColor: color.withValues(alpha: 0.65),
+                decorationStyle: TextDecorationStyle.dotted,
+              ),
+            ),
+          ),
+        );
+        if (onTap == null) return child;
+        return InkWell(
+          onTap: () => onTap!(annotation),
+          borderRadius: BorderRadius.circular(3),
+          child: child,
+        );
+      },
+    );
+  }
+
+  String _resolveCategory(String sourceCategory) {
+    final resolved = resolver?.call(sourceCategory)?.trim();
+    if (resolved != null && resolved.isNotEmpty) return resolved;
+    final fallback = defaultCategory?.trim();
+    if (fallback == null || fallback.isEmpty) return sourceCategory;
+    final resolvedFallback = resolver?.call(fallback)?.trim();
+    return resolvedFallback == null || resolvedFallback.isEmpty
+        ? fallback
+        : resolvedFallback;
+  }
+}
+
 /// 支持 Markdown、代码高亮和 LaTeX 的统一渲染组件。
 ///
 /// 组件会避开 fenced code block 中的 `$`，避免把代码误判为公式。代码块和
@@ -363,6 +468,12 @@ class MarkdownWithLatex extends StatelessWidget {
   final MarkdownBlockEditCallback? onEditMermaidBlock;
   final MarkdownBlockEditCallback? onEditCodeBlock;
   final void Function(String text, String? href, String title)? onTapLink;
+  final String? defaultKnowledgeCategory;
+  final KnowledgeCategoryResolver? knowledgeCategoryResolver;
+  final KnowledgeCategoryColorResolver? knowledgeCategoryColorResolver;
+  final KnowledgeAnnotationTapCallback? onTapKnowledgeAnnotation;
+  final AiExplainSelectionCallback? onExplainSelection;
+  final String explainSelectionLabel;
 
   const MarkdownWithLatex({
     super.key,
@@ -375,6 +486,12 @@ class MarkdownWithLatex extends StatelessWidget {
     this.onEditMermaidBlock,
     this.onEditCodeBlock,
     this.onTapLink,
+    this.defaultKnowledgeCategory,
+    this.knowledgeCategoryResolver,
+    this.knowledgeCategoryColorResolver,
+    this.onTapKnowledgeAnnotation,
+    this.onExplainSelection,
+    this.explainSelectionLabel = 'AI 释义',
   });
 
   static final _inlineRegExp = RegExp(r'\$(.+?)\$');
@@ -409,7 +526,12 @@ class MarkdownWithLatex extends StatelessWidget {
         hasLatex || hasLatexFence || hasMermaid || onEditCodeBlock != null
         ? _buildRichContent(context, segments)
         : _buildMarkdown(context, content);
-    return selectable ? SelectionArea(child: child) : child;
+    if (!selectable) return child;
+    return AiExplainSelectionArea(
+      onExplain: onExplainSelection,
+      explainLabel: explainSelectionLabel,
+      child: child,
+    );
   }
 
   Widget _buildMarkdown(
@@ -428,6 +550,12 @@ class MarkdownWithLatex extends StatelessWidget {
         highlighter: highlighter,
       ),
       if (withInlineLatex) 'inlineLatex': _LatexBuilder(textStyle: textStyle),
+      'knowledgeAnnotation': _KnowledgeAnnotationBuilder(
+        defaultCategory: defaultKnowledgeCategory,
+        resolver: knowledgeCategoryResolver,
+        colorResolver: knowledgeCategoryColorResolver,
+        onTap: onTapKnowledgeAnnotation,
+      ),
     };
 
     return MarkdownBody(
@@ -517,13 +645,12 @@ class MarkdownWithLatex extends StatelessWidget {
   }
 
   md.ExtensionSet _extensionSet({required bool withInlineLatex}) {
-    final inlineSyntaxes = withInlineLatex
-        ? [
-            ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
-            _LatexInlineSyntax(),
-            _LatexParenthesizedInlineSyntax(),
-          ]
-        : md.ExtensionSet.gitHubFlavored.inlineSyntaxes;
+    final inlineSyntaxes = [
+      ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
+      _KnowledgeAnnotationSyntax(),
+      if (withInlineLatex) _LatexInlineSyntax(),
+      if (withInlineLatex) _LatexParenthesizedInlineSyntax(),
+    ];
     return md.ExtensionSet(
       md.ExtensionSet.gitHubFlavored.blockSyntaxes,
       inlineSyntaxes,

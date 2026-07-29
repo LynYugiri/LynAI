@@ -24,10 +24,15 @@ class RoleplayDecision {
 }
 
 class RoleplayService {
-  RoleplayService({ApiService? api, BackendClient? backend})
-    : _api = api ?? ApiService(backend: backend);
+  RoleplayService({
+    ApiService? api,
+    BackendClient? backend,
+    String Function()? knowledgeAnnotationPrompt,
+  }) : _api = api ?? ApiService(backend: backend),
+       _knowledgeAnnotationPrompt = knowledgeAnnotationPrompt;
 
   final ApiService _api;
+  final String Function()? _knowledgeAnnotationPrompt;
 
   void dispose() => _api.dispose();
 
@@ -170,6 +175,11 @@ ${_history(thread)}
     RoleplayThread thread,
     RoleplayParticipant participant,
   ) {
+    final currentAnnotationPrompt =
+        _knowledgeAnnotationPrompt?.call().trim() ?? '';
+    final annotationPrompt = currentAnnotationPrompt.isEmpty
+        ? ''
+        : '\n\n$currentAnnotationPrompt';
     return '''你正在参与一个多角色情景演绎。
 
 你扮演：${participant.name}
@@ -182,7 +192,7 @@ ${participant.systemPrompt}
 2. 不要替其他角色发言。
 3. 保持符合你的角色设定。
 
-期待你的表现 ''';
+期待你的表现$annotationPrompt ''';
   }
 
   String _speakerUserPrompt(

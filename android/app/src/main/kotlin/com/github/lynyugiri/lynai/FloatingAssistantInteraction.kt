@@ -1,6 +1,21 @@
 package com.github.lynyugiri.lynai
 
+import android.view.KeyEvent
+
 object FloatingAssistantInteraction {
+    fun shouldCollapsePanelOnBack(action: Int, imeVisible: Boolean): Boolean =
+        action == KeyEvent.ACTION_UP && !imeVisible
+
+    fun shouldSendComposerKey(
+        keyCode: Int,
+        action: Int,
+        controlPressed: Boolean,
+        composing: Boolean
+    ): Boolean = keyCode == KeyEvent.KEYCODE_ENTER &&
+        action == KeyEvent.ACTION_DOWN &&
+        controlPressed &&
+        !composing
+
     fun answerPayload(
         kind: String,
         text: String = "",

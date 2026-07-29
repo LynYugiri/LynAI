@@ -225,6 +225,7 @@ class $AppSettingsRowsTable extends AppSettingsRows
     false,
     type: DriftSqlType.int,
     requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL CHECK (id = 1)',
   );
   static const VerificationMeta _settingsJsonMeta = const VerificationMeta(
     'settingsJson',
@@ -8693,6 +8694,3367 @@ class TaskListEntryRowsCompanion extends UpdateCompanion<TaskListEntryRow> {
           ..write('taskId: $taskId, ')
           ..write('listId: $listId, ')
           ..write('sortOrder: $sortOrder, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $KnowledgeBaseRowsTable extends KnowledgeBaseRows
+    with TableInfo<$KnowledgeBaseRowsTable, KnowledgeBaseRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $KnowledgeBaseRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _descriptionMeta = const VerificationMeta(
+    'description',
+  );
+  @override
+  late final GeneratedColumn<String> description = GeneratedColumn<String>(
+    'description',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _enabledMeta = const VerificationMeta(
+    'enabled',
+  );
+  @override
+  late final GeneratedColumn<bool> enabled = GeneratedColumn<bool>(
+    'enabled',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("enabled" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _sortOrderMeta = const VerificationMeta(
+    'sortOrder',
+  );
+  @override
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+    'sort_order',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<String> createdAt = GeneratedColumn<String>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    name,
+    description,
+    enabled,
+    sortOrder,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'knowledge_bases';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<KnowledgeBaseRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('description')) {
+      context.handle(
+        _descriptionMeta,
+        description.isAcceptableOrUnknown(
+          data['description']!,
+          _descriptionMeta,
+        ),
+      );
+    }
+    if (data.containsKey('enabled')) {
+      context.handle(
+        _enabledMeta,
+        enabled.isAcceptableOrUnknown(data['enabled']!, _enabledMeta),
+      );
+    }
+    if (data.containsKey('sort_order')) {
+      context.handle(
+        _sortOrderMeta,
+        sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sortOrderMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  KnowledgeBaseRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return KnowledgeBaseRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      description: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}description'],
+      ),
+      enabled: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}enabled'],
+      )!,
+      sortOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sort_order'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $KnowledgeBaseRowsTable createAlias(String alias) {
+    return $KnowledgeBaseRowsTable(attachedDatabase, alias);
+  }
+}
+
+class KnowledgeBaseRow extends DataClass
+    implements Insertable<KnowledgeBaseRow> {
+  final String id;
+  final String name;
+  final String? description;
+  final bool enabled;
+  final int sortOrder;
+  final String createdAt;
+  final String updatedAt;
+  const KnowledgeBaseRow({
+    required this.id,
+    required this.name,
+    this.description,
+    required this.enabled,
+    required this.sortOrder,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['name'] = Variable<String>(name);
+    if (!nullToAbsent || description != null) {
+      map['description'] = Variable<String>(description);
+    }
+    map['enabled'] = Variable<bool>(enabled);
+    map['sort_order'] = Variable<int>(sortOrder);
+    map['created_at'] = Variable<String>(createdAt);
+    map['updated_at'] = Variable<String>(updatedAt);
+    return map;
+  }
+
+  KnowledgeBaseRowsCompanion toCompanion(bool nullToAbsent) {
+    return KnowledgeBaseRowsCompanion(
+      id: Value(id),
+      name: Value(name),
+      description: description == null && nullToAbsent
+          ? const Value.absent()
+          : Value(description),
+      enabled: Value(enabled),
+      sortOrder: Value(sortOrder),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory KnowledgeBaseRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return KnowledgeBaseRow(
+      id: serializer.fromJson<String>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      description: serializer.fromJson<String?>(json['description']),
+      enabled: serializer.fromJson<bool>(json['enabled']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
+      createdAt: serializer.fromJson<String>(json['createdAt']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'name': serializer.toJson<String>(name),
+      'description': serializer.toJson<String?>(description),
+      'enabled': serializer.toJson<bool>(enabled),
+      'sortOrder': serializer.toJson<int>(sortOrder),
+      'createdAt': serializer.toJson<String>(createdAt),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+    };
+  }
+
+  KnowledgeBaseRow copyWith({
+    String? id,
+    String? name,
+    Value<String?> description = const Value.absent(),
+    bool? enabled,
+    int? sortOrder,
+    String? createdAt,
+    String? updatedAt,
+  }) => KnowledgeBaseRow(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    description: description.present ? description.value : this.description,
+    enabled: enabled ?? this.enabled,
+    sortOrder: sortOrder ?? this.sortOrder,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  KnowledgeBaseRow copyWithCompanion(KnowledgeBaseRowsCompanion data) {
+    return KnowledgeBaseRow(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      description: data.description.present
+          ? data.description.value
+          : this.description,
+      enabled: data.enabled.present ? data.enabled.value : this.enabled,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('KnowledgeBaseRow(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('description: $description, ')
+          ..write('enabled: $enabled, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    name,
+    description,
+    enabled,
+    sortOrder,
+    createdAt,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is KnowledgeBaseRow &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.description == this.description &&
+          other.enabled == this.enabled &&
+          other.sortOrder == this.sortOrder &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class KnowledgeBaseRowsCompanion extends UpdateCompanion<KnowledgeBaseRow> {
+  final Value<String> id;
+  final Value<String> name;
+  final Value<String?> description;
+  final Value<bool> enabled;
+  final Value<int> sortOrder;
+  final Value<String> createdAt;
+  final Value<String> updatedAt;
+  final Value<int> rowid;
+  const KnowledgeBaseRowsCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.description = const Value.absent(),
+    this.enabled = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  KnowledgeBaseRowsCompanion.insert({
+    required String id,
+    required String name,
+    this.description = const Value.absent(),
+    this.enabled = const Value.absent(),
+    required int sortOrder,
+    required String createdAt,
+    required String updatedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       name = Value(name),
+       sortOrder = Value(sortOrder),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<KnowledgeBaseRow> custom({
+    Expression<String>? id,
+    Expression<String>? name,
+    Expression<String>? description,
+    Expression<bool>? enabled,
+    Expression<int>? sortOrder,
+    Expression<String>? createdAt,
+    Expression<String>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (description != null) 'description': description,
+      if (enabled != null) 'enabled': enabled,
+      if (sortOrder != null) 'sort_order': sortOrder,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  KnowledgeBaseRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? name,
+    Value<String?>? description,
+    Value<bool>? enabled,
+    Value<int>? sortOrder,
+    Value<String>? createdAt,
+    Value<String>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return KnowledgeBaseRowsCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      description: description ?? this.description,
+      enabled: enabled ?? this.enabled,
+      sortOrder: sortOrder ?? this.sortOrder,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (description.present) {
+      map['description'] = Variable<String>(description.value);
+    }
+    if (enabled.present) {
+      map['enabled'] = Variable<bool>(enabled.value);
+    }
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<String>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('KnowledgeBaseRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('description: $description, ')
+          ..write('enabled: $enabled, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $KnowledgeCategoryRowsTable extends KnowledgeCategoryRows
+    with TableInfo<$KnowledgeCategoryRowsTable, KnowledgeCategoryRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $KnowledgeCategoryRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _knowledgeBaseIdMeta = const VerificationMeta(
+    'knowledgeBaseId',
+  );
+  @override
+  late final GeneratedColumn<String> knowledgeBaseId = GeneratedColumn<String>(
+    'knowledge_base_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints:
+        'NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE',
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _aliasMeta = const VerificationMeta('alias');
+  @override
+  late final GeneratedColumn<String> alias = GeneratedColumn<String>(
+    'alias',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints:
+        'NOT NULL UNIQUE CHECK (alias GLOB \'[a-z]*\' AND length(alias) BETWEEN 1 AND 32 AND alias NOT GLOB \'*[^a-z0-9_-]*\')',
+  );
+  static const VerificationMeta _descriptionMeta = const VerificationMeta(
+    'description',
+  );
+  @override
+  late final GeneratedColumn<String> description = GeneratedColumn<String>(
+    'description',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _annotationRuleMeta = const VerificationMeta(
+    'annotationRule',
+  );
+  @override
+  late final GeneratedColumn<String> annotationRule = GeneratedColumn<String>(
+    'annotation_rule',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _explanationPromptMeta = const VerificationMeta(
+    'explanationPrompt',
+  );
+  @override
+  late final GeneratedColumn<String> explanationPrompt =
+      GeneratedColumn<String>(
+        'explanation_prompt',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+      );
+  static const VerificationMeta _colorValueMeta = const VerificationMeta(
+    'colorValue',
+  );
+  @override
+  late final GeneratedColumn<int> colorValue = GeneratedColumn<int>(
+    'color_value',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _autoAnnotateMeta = const VerificationMeta(
+    'autoAnnotate',
+  );
+  @override
+  late final GeneratedColumn<bool> autoAnnotate = GeneratedColumn<bool>(
+    'auto_annotate',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("auto_annotate" IN (0, 1))',
+    ),
+  );
+  static const VerificationMeta _modelConfigIdMeta = const VerificationMeta(
+    'modelConfigId',
+  );
+  @override
+  late final GeneratedColumn<String> modelConfigId = GeneratedColumn<String>(
+    'model_config_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _isDefaultMeta = const VerificationMeta(
+    'isDefault',
+  );
+  @override
+  late final GeneratedColumn<bool> isDefault = GeneratedColumn<bool>(
+    'is_default',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_default" IN (0, 1))',
+    ),
+  );
+  static const VerificationMeta _enabledMeta = const VerificationMeta(
+    'enabled',
+  );
+  @override
+  late final GeneratedColumn<bool> enabled = GeneratedColumn<bool>(
+    'enabled',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("enabled" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _sortOrderMeta = const VerificationMeta(
+    'sortOrder',
+  );
+  @override
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+    'sort_order',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<String> createdAt = GeneratedColumn<String>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    knowledgeBaseId,
+    name,
+    alias,
+    description,
+    annotationRule,
+    explanationPrompt,
+    colorValue,
+    autoAnnotate,
+    modelConfigId,
+    isDefault,
+    enabled,
+    sortOrder,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'knowledge_categories';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<KnowledgeCategoryRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('knowledge_base_id')) {
+      context.handle(
+        _knowledgeBaseIdMeta,
+        knowledgeBaseId.isAcceptableOrUnknown(
+          data['knowledge_base_id']!,
+          _knowledgeBaseIdMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_knowledgeBaseIdMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('alias')) {
+      context.handle(
+        _aliasMeta,
+        alias.isAcceptableOrUnknown(data['alias']!, _aliasMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_aliasMeta);
+    }
+    if (data.containsKey('description')) {
+      context.handle(
+        _descriptionMeta,
+        description.isAcceptableOrUnknown(
+          data['description']!,
+          _descriptionMeta,
+        ),
+      );
+    }
+    if (data.containsKey('annotation_rule')) {
+      context.handle(
+        _annotationRuleMeta,
+        annotationRule.isAcceptableOrUnknown(
+          data['annotation_rule']!,
+          _annotationRuleMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_annotationRuleMeta);
+    }
+    if (data.containsKey('explanation_prompt')) {
+      context.handle(
+        _explanationPromptMeta,
+        explanationPrompt.isAcceptableOrUnknown(
+          data['explanation_prompt']!,
+          _explanationPromptMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_explanationPromptMeta);
+    }
+    if (data.containsKey('color_value')) {
+      context.handle(
+        _colorValueMeta,
+        colorValue.isAcceptableOrUnknown(data['color_value']!, _colorValueMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_colorValueMeta);
+    }
+    if (data.containsKey('auto_annotate')) {
+      context.handle(
+        _autoAnnotateMeta,
+        autoAnnotate.isAcceptableOrUnknown(
+          data['auto_annotate']!,
+          _autoAnnotateMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_autoAnnotateMeta);
+    }
+    if (data.containsKey('model_config_id')) {
+      context.handle(
+        _modelConfigIdMeta,
+        modelConfigId.isAcceptableOrUnknown(
+          data['model_config_id']!,
+          _modelConfigIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('is_default')) {
+      context.handle(
+        _isDefaultMeta,
+        isDefault.isAcceptableOrUnknown(data['is_default']!, _isDefaultMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_isDefaultMeta);
+    }
+    if (data.containsKey('enabled')) {
+      context.handle(
+        _enabledMeta,
+        enabled.isAcceptableOrUnknown(data['enabled']!, _enabledMeta),
+      );
+    }
+    if (data.containsKey('sort_order')) {
+      context.handle(
+        _sortOrderMeta,
+        sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sortOrderMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  KnowledgeCategoryRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return KnowledgeCategoryRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      knowledgeBaseId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}knowledge_base_id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      alias: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}alias'],
+      )!,
+      description: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}description'],
+      ),
+      annotationRule: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}annotation_rule'],
+      )!,
+      explanationPrompt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}explanation_prompt'],
+      )!,
+      colorValue: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}color_value'],
+      )!,
+      autoAnnotate: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}auto_annotate'],
+      )!,
+      modelConfigId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}model_config_id'],
+      ),
+      isDefault: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_default'],
+      )!,
+      enabled: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}enabled'],
+      )!,
+      sortOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sort_order'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $KnowledgeCategoryRowsTable createAlias(String alias) {
+    return $KnowledgeCategoryRowsTable(attachedDatabase, alias);
+  }
+}
+
+class KnowledgeCategoryRow extends DataClass
+    implements Insertable<KnowledgeCategoryRow> {
+  final String id;
+  final String knowledgeBaseId;
+  final String name;
+  final String alias;
+  final String? description;
+  final String annotationRule;
+  final String explanationPrompt;
+  final int colorValue;
+  final bool autoAnnotate;
+  final String? modelConfigId;
+  final bool isDefault;
+  final bool enabled;
+  final int sortOrder;
+  final String createdAt;
+  final String updatedAt;
+  const KnowledgeCategoryRow({
+    required this.id,
+    required this.knowledgeBaseId,
+    required this.name,
+    required this.alias,
+    this.description,
+    required this.annotationRule,
+    required this.explanationPrompt,
+    required this.colorValue,
+    required this.autoAnnotate,
+    this.modelConfigId,
+    required this.isDefault,
+    required this.enabled,
+    required this.sortOrder,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['knowledge_base_id'] = Variable<String>(knowledgeBaseId);
+    map['name'] = Variable<String>(name);
+    map['alias'] = Variable<String>(alias);
+    if (!nullToAbsent || description != null) {
+      map['description'] = Variable<String>(description);
+    }
+    map['annotation_rule'] = Variable<String>(annotationRule);
+    map['explanation_prompt'] = Variable<String>(explanationPrompt);
+    map['color_value'] = Variable<int>(colorValue);
+    map['auto_annotate'] = Variable<bool>(autoAnnotate);
+    if (!nullToAbsent || modelConfigId != null) {
+      map['model_config_id'] = Variable<String>(modelConfigId);
+    }
+    map['is_default'] = Variable<bool>(isDefault);
+    map['enabled'] = Variable<bool>(enabled);
+    map['sort_order'] = Variable<int>(sortOrder);
+    map['created_at'] = Variable<String>(createdAt);
+    map['updated_at'] = Variable<String>(updatedAt);
+    return map;
+  }
+
+  KnowledgeCategoryRowsCompanion toCompanion(bool nullToAbsent) {
+    return KnowledgeCategoryRowsCompanion(
+      id: Value(id),
+      knowledgeBaseId: Value(knowledgeBaseId),
+      name: Value(name),
+      alias: Value(alias),
+      description: description == null && nullToAbsent
+          ? const Value.absent()
+          : Value(description),
+      annotationRule: Value(annotationRule),
+      explanationPrompt: Value(explanationPrompt),
+      colorValue: Value(colorValue),
+      autoAnnotate: Value(autoAnnotate),
+      modelConfigId: modelConfigId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(modelConfigId),
+      isDefault: Value(isDefault),
+      enabled: Value(enabled),
+      sortOrder: Value(sortOrder),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory KnowledgeCategoryRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return KnowledgeCategoryRow(
+      id: serializer.fromJson<String>(json['id']),
+      knowledgeBaseId: serializer.fromJson<String>(json['knowledgeBaseId']),
+      name: serializer.fromJson<String>(json['name']),
+      alias: serializer.fromJson<String>(json['alias']),
+      description: serializer.fromJson<String?>(json['description']),
+      annotationRule: serializer.fromJson<String>(json['annotationRule']),
+      explanationPrompt: serializer.fromJson<String>(json['explanationPrompt']),
+      colorValue: serializer.fromJson<int>(json['colorValue']),
+      autoAnnotate: serializer.fromJson<bool>(json['autoAnnotate']),
+      modelConfigId: serializer.fromJson<String?>(json['modelConfigId']),
+      isDefault: serializer.fromJson<bool>(json['isDefault']),
+      enabled: serializer.fromJson<bool>(json['enabled']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
+      createdAt: serializer.fromJson<String>(json['createdAt']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'knowledgeBaseId': serializer.toJson<String>(knowledgeBaseId),
+      'name': serializer.toJson<String>(name),
+      'alias': serializer.toJson<String>(alias),
+      'description': serializer.toJson<String?>(description),
+      'annotationRule': serializer.toJson<String>(annotationRule),
+      'explanationPrompt': serializer.toJson<String>(explanationPrompt),
+      'colorValue': serializer.toJson<int>(colorValue),
+      'autoAnnotate': serializer.toJson<bool>(autoAnnotate),
+      'modelConfigId': serializer.toJson<String?>(modelConfigId),
+      'isDefault': serializer.toJson<bool>(isDefault),
+      'enabled': serializer.toJson<bool>(enabled),
+      'sortOrder': serializer.toJson<int>(sortOrder),
+      'createdAt': serializer.toJson<String>(createdAt),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+    };
+  }
+
+  KnowledgeCategoryRow copyWith({
+    String? id,
+    String? knowledgeBaseId,
+    String? name,
+    String? alias,
+    Value<String?> description = const Value.absent(),
+    String? annotationRule,
+    String? explanationPrompt,
+    int? colorValue,
+    bool? autoAnnotate,
+    Value<String?> modelConfigId = const Value.absent(),
+    bool? isDefault,
+    bool? enabled,
+    int? sortOrder,
+    String? createdAt,
+    String? updatedAt,
+  }) => KnowledgeCategoryRow(
+    id: id ?? this.id,
+    knowledgeBaseId: knowledgeBaseId ?? this.knowledgeBaseId,
+    name: name ?? this.name,
+    alias: alias ?? this.alias,
+    description: description.present ? description.value : this.description,
+    annotationRule: annotationRule ?? this.annotationRule,
+    explanationPrompt: explanationPrompt ?? this.explanationPrompt,
+    colorValue: colorValue ?? this.colorValue,
+    autoAnnotate: autoAnnotate ?? this.autoAnnotate,
+    modelConfigId: modelConfigId.present
+        ? modelConfigId.value
+        : this.modelConfigId,
+    isDefault: isDefault ?? this.isDefault,
+    enabled: enabled ?? this.enabled,
+    sortOrder: sortOrder ?? this.sortOrder,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  KnowledgeCategoryRow copyWithCompanion(KnowledgeCategoryRowsCompanion data) {
+    return KnowledgeCategoryRow(
+      id: data.id.present ? data.id.value : this.id,
+      knowledgeBaseId: data.knowledgeBaseId.present
+          ? data.knowledgeBaseId.value
+          : this.knowledgeBaseId,
+      name: data.name.present ? data.name.value : this.name,
+      alias: data.alias.present ? data.alias.value : this.alias,
+      description: data.description.present
+          ? data.description.value
+          : this.description,
+      annotationRule: data.annotationRule.present
+          ? data.annotationRule.value
+          : this.annotationRule,
+      explanationPrompt: data.explanationPrompt.present
+          ? data.explanationPrompt.value
+          : this.explanationPrompt,
+      colorValue: data.colorValue.present
+          ? data.colorValue.value
+          : this.colorValue,
+      autoAnnotate: data.autoAnnotate.present
+          ? data.autoAnnotate.value
+          : this.autoAnnotate,
+      modelConfigId: data.modelConfigId.present
+          ? data.modelConfigId.value
+          : this.modelConfigId,
+      isDefault: data.isDefault.present ? data.isDefault.value : this.isDefault,
+      enabled: data.enabled.present ? data.enabled.value : this.enabled,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('KnowledgeCategoryRow(')
+          ..write('id: $id, ')
+          ..write('knowledgeBaseId: $knowledgeBaseId, ')
+          ..write('name: $name, ')
+          ..write('alias: $alias, ')
+          ..write('description: $description, ')
+          ..write('annotationRule: $annotationRule, ')
+          ..write('explanationPrompt: $explanationPrompt, ')
+          ..write('colorValue: $colorValue, ')
+          ..write('autoAnnotate: $autoAnnotate, ')
+          ..write('modelConfigId: $modelConfigId, ')
+          ..write('isDefault: $isDefault, ')
+          ..write('enabled: $enabled, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    knowledgeBaseId,
+    name,
+    alias,
+    description,
+    annotationRule,
+    explanationPrompt,
+    colorValue,
+    autoAnnotate,
+    modelConfigId,
+    isDefault,
+    enabled,
+    sortOrder,
+    createdAt,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is KnowledgeCategoryRow &&
+          other.id == this.id &&
+          other.knowledgeBaseId == this.knowledgeBaseId &&
+          other.name == this.name &&
+          other.alias == this.alias &&
+          other.description == this.description &&
+          other.annotationRule == this.annotationRule &&
+          other.explanationPrompt == this.explanationPrompt &&
+          other.colorValue == this.colorValue &&
+          other.autoAnnotate == this.autoAnnotate &&
+          other.modelConfigId == this.modelConfigId &&
+          other.isDefault == this.isDefault &&
+          other.enabled == this.enabled &&
+          other.sortOrder == this.sortOrder &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class KnowledgeCategoryRowsCompanion
+    extends UpdateCompanion<KnowledgeCategoryRow> {
+  final Value<String> id;
+  final Value<String> knowledgeBaseId;
+  final Value<String> name;
+  final Value<String> alias;
+  final Value<String?> description;
+  final Value<String> annotationRule;
+  final Value<String> explanationPrompt;
+  final Value<int> colorValue;
+  final Value<bool> autoAnnotate;
+  final Value<String?> modelConfigId;
+  final Value<bool> isDefault;
+  final Value<bool> enabled;
+  final Value<int> sortOrder;
+  final Value<String> createdAt;
+  final Value<String> updatedAt;
+  final Value<int> rowid;
+  const KnowledgeCategoryRowsCompanion({
+    this.id = const Value.absent(),
+    this.knowledgeBaseId = const Value.absent(),
+    this.name = const Value.absent(),
+    this.alias = const Value.absent(),
+    this.description = const Value.absent(),
+    this.annotationRule = const Value.absent(),
+    this.explanationPrompt = const Value.absent(),
+    this.colorValue = const Value.absent(),
+    this.autoAnnotate = const Value.absent(),
+    this.modelConfigId = const Value.absent(),
+    this.isDefault = const Value.absent(),
+    this.enabled = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  KnowledgeCategoryRowsCompanion.insert({
+    required String id,
+    required String knowledgeBaseId,
+    required String name,
+    required String alias,
+    this.description = const Value.absent(),
+    required String annotationRule,
+    required String explanationPrompt,
+    required int colorValue,
+    required bool autoAnnotate,
+    this.modelConfigId = const Value.absent(),
+    required bool isDefault,
+    this.enabled = const Value.absent(),
+    required int sortOrder,
+    required String createdAt,
+    required String updatedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       knowledgeBaseId = Value(knowledgeBaseId),
+       name = Value(name),
+       alias = Value(alias),
+       annotationRule = Value(annotationRule),
+       explanationPrompt = Value(explanationPrompt),
+       colorValue = Value(colorValue),
+       autoAnnotate = Value(autoAnnotate),
+       isDefault = Value(isDefault),
+       sortOrder = Value(sortOrder),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<KnowledgeCategoryRow> custom({
+    Expression<String>? id,
+    Expression<String>? knowledgeBaseId,
+    Expression<String>? name,
+    Expression<String>? alias,
+    Expression<String>? description,
+    Expression<String>? annotationRule,
+    Expression<String>? explanationPrompt,
+    Expression<int>? colorValue,
+    Expression<bool>? autoAnnotate,
+    Expression<String>? modelConfigId,
+    Expression<bool>? isDefault,
+    Expression<bool>? enabled,
+    Expression<int>? sortOrder,
+    Expression<String>? createdAt,
+    Expression<String>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (knowledgeBaseId != null) 'knowledge_base_id': knowledgeBaseId,
+      if (name != null) 'name': name,
+      if (alias != null) 'alias': alias,
+      if (description != null) 'description': description,
+      if (annotationRule != null) 'annotation_rule': annotationRule,
+      if (explanationPrompt != null) 'explanation_prompt': explanationPrompt,
+      if (colorValue != null) 'color_value': colorValue,
+      if (autoAnnotate != null) 'auto_annotate': autoAnnotate,
+      if (modelConfigId != null) 'model_config_id': modelConfigId,
+      if (isDefault != null) 'is_default': isDefault,
+      if (enabled != null) 'enabled': enabled,
+      if (sortOrder != null) 'sort_order': sortOrder,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  KnowledgeCategoryRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? knowledgeBaseId,
+    Value<String>? name,
+    Value<String>? alias,
+    Value<String?>? description,
+    Value<String>? annotationRule,
+    Value<String>? explanationPrompt,
+    Value<int>? colorValue,
+    Value<bool>? autoAnnotate,
+    Value<String?>? modelConfigId,
+    Value<bool>? isDefault,
+    Value<bool>? enabled,
+    Value<int>? sortOrder,
+    Value<String>? createdAt,
+    Value<String>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return KnowledgeCategoryRowsCompanion(
+      id: id ?? this.id,
+      knowledgeBaseId: knowledgeBaseId ?? this.knowledgeBaseId,
+      name: name ?? this.name,
+      alias: alias ?? this.alias,
+      description: description ?? this.description,
+      annotationRule: annotationRule ?? this.annotationRule,
+      explanationPrompt: explanationPrompt ?? this.explanationPrompt,
+      colorValue: colorValue ?? this.colorValue,
+      autoAnnotate: autoAnnotate ?? this.autoAnnotate,
+      modelConfigId: modelConfigId ?? this.modelConfigId,
+      isDefault: isDefault ?? this.isDefault,
+      enabled: enabled ?? this.enabled,
+      sortOrder: sortOrder ?? this.sortOrder,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (knowledgeBaseId.present) {
+      map['knowledge_base_id'] = Variable<String>(knowledgeBaseId.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (alias.present) {
+      map['alias'] = Variable<String>(alias.value);
+    }
+    if (description.present) {
+      map['description'] = Variable<String>(description.value);
+    }
+    if (annotationRule.present) {
+      map['annotation_rule'] = Variable<String>(annotationRule.value);
+    }
+    if (explanationPrompt.present) {
+      map['explanation_prompt'] = Variable<String>(explanationPrompt.value);
+    }
+    if (colorValue.present) {
+      map['color_value'] = Variable<int>(colorValue.value);
+    }
+    if (autoAnnotate.present) {
+      map['auto_annotate'] = Variable<bool>(autoAnnotate.value);
+    }
+    if (modelConfigId.present) {
+      map['model_config_id'] = Variable<String>(modelConfigId.value);
+    }
+    if (isDefault.present) {
+      map['is_default'] = Variable<bool>(isDefault.value);
+    }
+    if (enabled.present) {
+      map['enabled'] = Variable<bool>(enabled.value);
+    }
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<String>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('KnowledgeCategoryRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('knowledgeBaseId: $knowledgeBaseId, ')
+          ..write('name: $name, ')
+          ..write('alias: $alias, ')
+          ..write('description: $description, ')
+          ..write('annotationRule: $annotationRule, ')
+          ..write('explanationPrompt: $explanationPrompt, ')
+          ..write('colorValue: $colorValue, ')
+          ..write('autoAnnotate: $autoAnnotate, ')
+          ..write('modelConfigId: $modelConfigId, ')
+          ..write('isDefault: $isDefault, ')
+          ..write('enabled: $enabled, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $KnowledgeSettingsRowsTable extends KnowledgeSettingsRows
+    with TableInfo<$KnowledgeSettingsRowsTable, KnowledgeSettingsRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $KnowledgeSettingsRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _defaultKnowledgeBaseIdMeta =
+      const VerificationMeta('defaultKnowledgeBaseId');
+  @override
+  late final GeneratedColumn<String> defaultKnowledgeBaseId =
+      GeneratedColumn<String>(
+        'default_knowledge_base_id',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+        $customConstraints:
+            'NULL REFERENCES knowledge_bases(id) ON DELETE SET NULL',
+      );
+  static const VerificationMeta _defaultCategoryIdMeta = const VerificationMeta(
+    'defaultCategoryId',
+  );
+  @override
+  late final GeneratedColumn<String> defaultCategoryId =
+      GeneratedColumn<String>(
+        'default_category_id',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+        $customConstraints:
+            'NULL REFERENCES knowledge_categories(id) ON DELETE SET NULL',
+      );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    defaultKnowledgeBaseId,
+    defaultCategoryId,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'knowledge_settings';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<KnowledgeSettingsRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('default_knowledge_base_id')) {
+      context.handle(
+        _defaultKnowledgeBaseIdMeta,
+        defaultKnowledgeBaseId.isAcceptableOrUnknown(
+          data['default_knowledge_base_id']!,
+          _defaultKnowledgeBaseIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('default_category_id')) {
+      context.handle(
+        _defaultCategoryIdMeta,
+        defaultCategoryId.isAcceptableOrUnknown(
+          data['default_category_id']!,
+          _defaultCategoryIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  KnowledgeSettingsRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return KnowledgeSettingsRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      defaultKnowledgeBaseId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}default_knowledge_base_id'],
+      ),
+      defaultCategoryId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}default_category_id'],
+      ),
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $KnowledgeSettingsRowsTable createAlias(String alias) {
+    return $KnowledgeSettingsRowsTable(attachedDatabase, alias);
+  }
+}
+
+class KnowledgeSettingsRow extends DataClass
+    implements Insertable<KnowledgeSettingsRow> {
+  final int id;
+  final String? defaultKnowledgeBaseId;
+  final String? defaultCategoryId;
+  final String updatedAt;
+  const KnowledgeSettingsRow({
+    required this.id,
+    this.defaultKnowledgeBaseId,
+    this.defaultCategoryId,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    if (!nullToAbsent || defaultKnowledgeBaseId != null) {
+      map['default_knowledge_base_id'] = Variable<String>(
+        defaultKnowledgeBaseId,
+      );
+    }
+    if (!nullToAbsent || defaultCategoryId != null) {
+      map['default_category_id'] = Variable<String>(defaultCategoryId);
+    }
+    map['updated_at'] = Variable<String>(updatedAt);
+    return map;
+  }
+
+  KnowledgeSettingsRowsCompanion toCompanion(bool nullToAbsent) {
+    return KnowledgeSettingsRowsCompanion(
+      id: Value(id),
+      defaultKnowledgeBaseId: defaultKnowledgeBaseId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(defaultKnowledgeBaseId),
+      defaultCategoryId: defaultCategoryId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(defaultCategoryId),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory KnowledgeSettingsRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return KnowledgeSettingsRow(
+      id: serializer.fromJson<int>(json['id']),
+      defaultKnowledgeBaseId: serializer.fromJson<String?>(
+        json['defaultKnowledgeBaseId'],
+      ),
+      defaultCategoryId: serializer.fromJson<String?>(
+        json['defaultCategoryId'],
+      ),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'defaultKnowledgeBaseId': serializer.toJson<String?>(
+        defaultKnowledgeBaseId,
+      ),
+      'defaultCategoryId': serializer.toJson<String?>(defaultCategoryId),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+    };
+  }
+
+  KnowledgeSettingsRow copyWith({
+    int? id,
+    Value<String?> defaultKnowledgeBaseId = const Value.absent(),
+    Value<String?> defaultCategoryId = const Value.absent(),
+    String? updatedAt,
+  }) => KnowledgeSettingsRow(
+    id: id ?? this.id,
+    defaultKnowledgeBaseId: defaultKnowledgeBaseId.present
+        ? defaultKnowledgeBaseId.value
+        : this.defaultKnowledgeBaseId,
+    defaultCategoryId: defaultCategoryId.present
+        ? defaultCategoryId.value
+        : this.defaultCategoryId,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  KnowledgeSettingsRow copyWithCompanion(KnowledgeSettingsRowsCompanion data) {
+    return KnowledgeSettingsRow(
+      id: data.id.present ? data.id.value : this.id,
+      defaultKnowledgeBaseId: data.defaultKnowledgeBaseId.present
+          ? data.defaultKnowledgeBaseId.value
+          : this.defaultKnowledgeBaseId,
+      defaultCategoryId: data.defaultCategoryId.present
+          ? data.defaultCategoryId.value
+          : this.defaultCategoryId,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('KnowledgeSettingsRow(')
+          ..write('id: $id, ')
+          ..write('defaultKnowledgeBaseId: $defaultKnowledgeBaseId, ')
+          ..write('defaultCategoryId: $defaultCategoryId, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(id, defaultKnowledgeBaseId, defaultCategoryId, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is KnowledgeSettingsRow &&
+          other.id == this.id &&
+          other.defaultKnowledgeBaseId == this.defaultKnowledgeBaseId &&
+          other.defaultCategoryId == this.defaultCategoryId &&
+          other.updatedAt == this.updatedAt);
+}
+
+class KnowledgeSettingsRowsCompanion
+    extends UpdateCompanion<KnowledgeSettingsRow> {
+  final Value<int> id;
+  final Value<String?> defaultKnowledgeBaseId;
+  final Value<String?> defaultCategoryId;
+  final Value<String> updatedAt;
+  const KnowledgeSettingsRowsCompanion({
+    this.id = const Value.absent(),
+    this.defaultKnowledgeBaseId = const Value.absent(),
+    this.defaultCategoryId = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+  });
+  KnowledgeSettingsRowsCompanion.insert({
+    this.id = const Value.absent(),
+    this.defaultKnowledgeBaseId = const Value.absent(),
+    this.defaultCategoryId = const Value.absent(),
+    required String updatedAt,
+  }) : updatedAt = Value(updatedAt);
+  static Insertable<KnowledgeSettingsRow> custom({
+    Expression<int>? id,
+    Expression<String>? defaultKnowledgeBaseId,
+    Expression<String>? defaultCategoryId,
+    Expression<String>? updatedAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (defaultKnowledgeBaseId != null)
+        'default_knowledge_base_id': defaultKnowledgeBaseId,
+      if (defaultCategoryId != null) 'default_category_id': defaultCategoryId,
+      if (updatedAt != null) 'updated_at': updatedAt,
+    });
+  }
+
+  KnowledgeSettingsRowsCompanion copyWith({
+    Value<int>? id,
+    Value<String?>? defaultKnowledgeBaseId,
+    Value<String?>? defaultCategoryId,
+    Value<String>? updatedAt,
+  }) {
+    return KnowledgeSettingsRowsCompanion(
+      id: id ?? this.id,
+      defaultKnowledgeBaseId:
+          defaultKnowledgeBaseId ?? this.defaultKnowledgeBaseId,
+      defaultCategoryId: defaultCategoryId ?? this.defaultCategoryId,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (defaultKnowledgeBaseId.present) {
+      map['default_knowledge_base_id'] = Variable<String>(
+        defaultKnowledgeBaseId.value,
+      );
+    }
+    if (defaultCategoryId.present) {
+      map['default_category_id'] = Variable<String>(defaultCategoryId.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('KnowledgeSettingsRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('defaultKnowledgeBaseId: $defaultKnowledgeBaseId, ')
+          ..write('defaultCategoryId: $defaultCategoryId, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $KnowledgeEntryRowsTable extends KnowledgeEntryRows
+    with TableInfo<$KnowledgeEntryRowsTable, KnowledgeEntryRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $KnowledgeEntryRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _knowledgeBaseIdMeta = const VerificationMeta(
+    'knowledgeBaseId',
+  );
+  @override
+  late final GeneratedColumn<String> knowledgeBaseId = GeneratedColumn<String>(
+    'knowledge_base_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints:
+        'NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE',
+  );
+  static const VerificationMeta _categoryIdMeta = const VerificationMeta(
+    'categoryId',
+  );
+  @override
+  late final GeneratedColumn<String> categoryId = GeneratedColumn<String>(
+    'category_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    $customConstraints:
+        'NULL REFERENCES knowledge_categories(id) ON DELETE SET NULL',
+  );
+  static const VerificationMeta _titleMeta = const VerificationMeta('title');
+  @override
+  late final GeneratedColumn<String> title = GeneratedColumn<String>(
+    'title',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _contentMeta = const VerificationMeta(
+    'content',
+  );
+  @override
+  late final GeneratedColumn<String> content = GeneratedColumn<String>(
+    'content',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _enabledMeta = const VerificationMeta(
+    'enabled',
+  );
+  @override
+  late final GeneratedColumn<bool> enabled = GeneratedColumn<bool>(
+    'enabled',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("enabled" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _sortOrderMeta = const VerificationMeta(
+    'sortOrder',
+  );
+  @override
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+    'sort_order',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<String> createdAt = GeneratedColumn<String>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    knowledgeBaseId,
+    categoryId,
+    title,
+    content,
+    enabled,
+    sortOrder,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'knowledge_entries';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<KnowledgeEntryRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('knowledge_base_id')) {
+      context.handle(
+        _knowledgeBaseIdMeta,
+        knowledgeBaseId.isAcceptableOrUnknown(
+          data['knowledge_base_id']!,
+          _knowledgeBaseIdMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_knowledgeBaseIdMeta);
+    }
+    if (data.containsKey('category_id')) {
+      context.handle(
+        _categoryIdMeta,
+        categoryId.isAcceptableOrUnknown(data['category_id']!, _categoryIdMeta),
+      );
+    }
+    if (data.containsKey('title')) {
+      context.handle(
+        _titleMeta,
+        title.isAcceptableOrUnknown(data['title']!, _titleMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_titleMeta);
+    }
+    if (data.containsKey('content')) {
+      context.handle(
+        _contentMeta,
+        content.isAcceptableOrUnknown(data['content']!, _contentMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_contentMeta);
+    }
+    if (data.containsKey('enabled')) {
+      context.handle(
+        _enabledMeta,
+        enabled.isAcceptableOrUnknown(data['enabled']!, _enabledMeta),
+      );
+    }
+    if (data.containsKey('sort_order')) {
+      context.handle(
+        _sortOrderMeta,
+        sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sortOrderMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  KnowledgeEntryRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return KnowledgeEntryRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      knowledgeBaseId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}knowledge_base_id'],
+      )!,
+      categoryId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}category_id'],
+      ),
+      title: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}title'],
+      )!,
+      content: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}content'],
+      )!,
+      enabled: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}enabled'],
+      )!,
+      sortOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sort_order'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $KnowledgeEntryRowsTable createAlias(String alias) {
+    return $KnowledgeEntryRowsTable(attachedDatabase, alias);
+  }
+}
+
+class KnowledgeEntryRow extends DataClass
+    implements Insertable<KnowledgeEntryRow> {
+  final String id;
+  final String knowledgeBaseId;
+  final String? categoryId;
+  final String title;
+  final String content;
+  final bool enabled;
+  final int sortOrder;
+  final String createdAt;
+  final String updatedAt;
+  const KnowledgeEntryRow({
+    required this.id,
+    required this.knowledgeBaseId,
+    this.categoryId,
+    required this.title,
+    required this.content,
+    required this.enabled,
+    required this.sortOrder,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['knowledge_base_id'] = Variable<String>(knowledgeBaseId);
+    if (!nullToAbsent || categoryId != null) {
+      map['category_id'] = Variable<String>(categoryId);
+    }
+    map['title'] = Variable<String>(title);
+    map['content'] = Variable<String>(content);
+    map['enabled'] = Variable<bool>(enabled);
+    map['sort_order'] = Variable<int>(sortOrder);
+    map['created_at'] = Variable<String>(createdAt);
+    map['updated_at'] = Variable<String>(updatedAt);
+    return map;
+  }
+
+  KnowledgeEntryRowsCompanion toCompanion(bool nullToAbsent) {
+    return KnowledgeEntryRowsCompanion(
+      id: Value(id),
+      knowledgeBaseId: Value(knowledgeBaseId),
+      categoryId: categoryId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(categoryId),
+      title: Value(title),
+      content: Value(content),
+      enabled: Value(enabled),
+      sortOrder: Value(sortOrder),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory KnowledgeEntryRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return KnowledgeEntryRow(
+      id: serializer.fromJson<String>(json['id']),
+      knowledgeBaseId: serializer.fromJson<String>(json['knowledgeBaseId']),
+      categoryId: serializer.fromJson<String?>(json['categoryId']),
+      title: serializer.fromJson<String>(json['title']),
+      content: serializer.fromJson<String>(json['content']),
+      enabled: serializer.fromJson<bool>(json['enabled']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
+      createdAt: serializer.fromJson<String>(json['createdAt']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'knowledgeBaseId': serializer.toJson<String>(knowledgeBaseId),
+      'categoryId': serializer.toJson<String?>(categoryId),
+      'title': serializer.toJson<String>(title),
+      'content': serializer.toJson<String>(content),
+      'enabled': serializer.toJson<bool>(enabled),
+      'sortOrder': serializer.toJson<int>(sortOrder),
+      'createdAt': serializer.toJson<String>(createdAt),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+    };
+  }
+
+  KnowledgeEntryRow copyWith({
+    String? id,
+    String? knowledgeBaseId,
+    Value<String?> categoryId = const Value.absent(),
+    String? title,
+    String? content,
+    bool? enabled,
+    int? sortOrder,
+    String? createdAt,
+    String? updatedAt,
+  }) => KnowledgeEntryRow(
+    id: id ?? this.id,
+    knowledgeBaseId: knowledgeBaseId ?? this.knowledgeBaseId,
+    categoryId: categoryId.present ? categoryId.value : this.categoryId,
+    title: title ?? this.title,
+    content: content ?? this.content,
+    enabled: enabled ?? this.enabled,
+    sortOrder: sortOrder ?? this.sortOrder,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  KnowledgeEntryRow copyWithCompanion(KnowledgeEntryRowsCompanion data) {
+    return KnowledgeEntryRow(
+      id: data.id.present ? data.id.value : this.id,
+      knowledgeBaseId: data.knowledgeBaseId.present
+          ? data.knowledgeBaseId.value
+          : this.knowledgeBaseId,
+      categoryId: data.categoryId.present
+          ? data.categoryId.value
+          : this.categoryId,
+      title: data.title.present ? data.title.value : this.title,
+      content: data.content.present ? data.content.value : this.content,
+      enabled: data.enabled.present ? data.enabled.value : this.enabled,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('KnowledgeEntryRow(')
+          ..write('id: $id, ')
+          ..write('knowledgeBaseId: $knowledgeBaseId, ')
+          ..write('categoryId: $categoryId, ')
+          ..write('title: $title, ')
+          ..write('content: $content, ')
+          ..write('enabled: $enabled, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    knowledgeBaseId,
+    categoryId,
+    title,
+    content,
+    enabled,
+    sortOrder,
+    createdAt,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is KnowledgeEntryRow &&
+          other.id == this.id &&
+          other.knowledgeBaseId == this.knowledgeBaseId &&
+          other.categoryId == this.categoryId &&
+          other.title == this.title &&
+          other.content == this.content &&
+          other.enabled == this.enabled &&
+          other.sortOrder == this.sortOrder &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class KnowledgeEntryRowsCompanion extends UpdateCompanion<KnowledgeEntryRow> {
+  final Value<String> id;
+  final Value<String> knowledgeBaseId;
+  final Value<String?> categoryId;
+  final Value<String> title;
+  final Value<String> content;
+  final Value<bool> enabled;
+  final Value<int> sortOrder;
+  final Value<String> createdAt;
+  final Value<String> updatedAt;
+  final Value<int> rowid;
+  const KnowledgeEntryRowsCompanion({
+    this.id = const Value.absent(),
+    this.knowledgeBaseId = const Value.absent(),
+    this.categoryId = const Value.absent(),
+    this.title = const Value.absent(),
+    this.content = const Value.absent(),
+    this.enabled = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  KnowledgeEntryRowsCompanion.insert({
+    required String id,
+    required String knowledgeBaseId,
+    this.categoryId = const Value.absent(),
+    required String title,
+    required String content,
+    this.enabled = const Value.absent(),
+    required int sortOrder,
+    required String createdAt,
+    required String updatedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       knowledgeBaseId = Value(knowledgeBaseId),
+       title = Value(title),
+       content = Value(content),
+       sortOrder = Value(sortOrder),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<KnowledgeEntryRow> custom({
+    Expression<String>? id,
+    Expression<String>? knowledgeBaseId,
+    Expression<String>? categoryId,
+    Expression<String>? title,
+    Expression<String>? content,
+    Expression<bool>? enabled,
+    Expression<int>? sortOrder,
+    Expression<String>? createdAt,
+    Expression<String>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (knowledgeBaseId != null) 'knowledge_base_id': knowledgeBaseId,
+      if (categoryId != null) 'category_id': categoryId,
+      if (title != null) 'title': title,
+      if (content != null) 'content': content,
+      if (enabled != null) 'enabled': enabled,
+      if (sortOrder != null) 'sort_order': sortOrder,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  KnowledgeEntryRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? knowledgeBaseId,
+    Value<String?>? categoryId,
+    Value<String>? title,
+    Value<String>? content,
+    Value<bool>? enabled,
+    Value<int>? sortOrder,
+    Value<String>? createdAt,
+    Value<String>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return KnowledgeEntryRowsCompanion(
+      id: id ?? this.id,
+      knowledgeBaseId: knowledgeBaseId ?? this.knowledgeBaseId,
+      categoryId: categoryId ?? this.categoryId,
+      title: title ?? this.title,
+      content: content ?? this.content,
+      enabled: enabled ?? this.enabled,
+      sortOrder: sortOrder ?? this.sortOrder,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (knowledgeBaseId.present) {
+      map['knowledge_base_id'] = Variable<String>(knowledgeBaseId.value);
+    }
+    if (categoryId.present) {
+      map['category_id'] = Variable<String>(categoryId.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (content.present) {
+      map['content'] = Variable<String>(content.value);
+    }
+    if (enabled.present) {
+      map['enabled'] = Variable<bool>(enabled.value);
+    }
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<String>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('KnowledgeEntryRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('knowledgeBaseId: $knowledgeBaseId, ')
+          ..write('categoryId: $categoryId, ')
+          ..write('title: $title, ')
+          ..write('content: $content, ')
+          ..write('enabled: $enabled, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $KnowledgeSourceRowsTable extends KnowledgeSourceRows
+    with TableInfo<$KnowledgeSourceRowsTable, KnowledgeSourceRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $KnowledgeSourceRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _knowledgeBaseIdMeta = const VerificationMeta(
+    'knowledgeBaseId',
+  );
+  @override
+  late final GeneratedColumn<String> knowledgeBaseId = GeneratedColumn<String>(
+    'knowledge_base_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints:
+        'NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE',
+  );
+  static const VerificationMeta _entryIdMeta = const VerificationMeta(
+    'entryId',
+  );
+  @override
+  late final GeneratedColumn<String> entryId = GeneratedColumn<String>(
+    'entry_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints:
+        'NOT NULL REFERENCES knowledge_entries(id) ON DELETE CASCADE',
+  );
+  static const VerificationMeta _titleMeta = const VerificationMeta('title');
+  @override
+  late final GeneratedColumn<String> title = GeneratedColumn<String>(
+    'title',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _urlMeta = const VerificationMeta('url');
+  @override
+  late final GeneratedColumn<String> url = GeneratedColumn<String>(
+    'url',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _noteMeta = const VerificationMeta('note');
+  @override
+  late final GeneratedColumn<String> note = GeneratedColumn<String>(
+    'note',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _sortOrderMeta = const VerificationMeta(
+    'sortOrder',
+  );
+  @override
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+    'sort_order',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<String> createdAt = GeneratedColumn<String>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    knowledgeBaseId,
+    entryId,
+    title,
+    url,
+    note,
+    sortOrder,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'knowledge_sources';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<KnowledgeSourceRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('knowledge_base_id')) {
+      context.handle(
+        _knowledgeBaseIdMeta,
+        knowledgeBaseId.isAcceptableOrUnknown(
+          data['knowledge_base_id']!,
+          _knowledgeBaseIdMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_knowledgeBaseIdMeta);
+    }
+    if (data.containsKey('entry_id')) {
+      context.handle(
+        _entryIdMeta,
+        entryId.isAcceptableOrUnknown(data['entry_id']!, _entryIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_entryIdMeta);
+    }
+    if (data.containsKey('title')) {
+      context.handle(
+        _titleMeta,
+        title.isAcceptableOrUnknown(data['title']!, _titleMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_titleMeta);
+    }
+    if (data.containsKey('url')) {
+      context.handle(
+        _urlMeta,
+        url.isAcceptableOrUnknown(data['url']!, _urlMeta),
+      );
+    }
+    if (data.containsKey('note')) {
+      context.handle(
+        _noteMeta,
+        note.isAcceptableOrUnknown(data['note']!, _noteMeta),
+      );
+    }
+    if (data.containsKey('sort_order')) {
+      context.handle(
+        _sortOrderMeta,
+        sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sortOrderMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  KnowledgeSourceRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return KnowledgeSourceRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      knowledgeBaseId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}knowledge_base_id'],
+      )!,
+      entryId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}entry_id'],
+      )!,
+      title: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}title'],
+      )!,
+      url: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}url'],
+      ),
+      note: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}note'],
+      ),
+      sortOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sort_order'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $KnowledgeSourceRowsTable createAlias(String alias) {
+    return $KnowledgeSourceRowsTable(attachedDatabase, alias);
+  }
+}
+
+class KnowledgeSourceRow extends DataClass
+    implements Insertable<KnowledgeSourceRow> {
+  final String id;
+  final String knowledgeBaseId;
+  final String entryId;
+  final String title;
+  final String? url;
+  final String? note;
+  final int sortOrder;
+  final String createdAt;
+  final String updatedAt;
+  const KnowledgeSourceRow({
+    required this.id,
+    required this.knowledgeBaseId,
+    required this.entryId,
+    required this.title,
+    this.url,
+    this.note,
+    required this.sortOrder,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['knowledge_base_id'] = Variable<String>(knowledgeBaseId);
+    map['entry_id'] = Variable<String>(entryId);
+    map['title'] = Variable<String>(title);
+    if (!nullToAbsent || url != null) {
+      map['url'] = Variable<String>(url);
+    }
+    if (!nullToAbsent || note != null) {
+      map['note'] = Variable<String>(note);
+    }
+    map['sort_order'] = Variable<int>(sortOrder);
+    map['created_at'] = Variable<String>(createdAt);
+    map['updated_at'] = Variable<String>(updatedAt);
+    return map;
+  }
+
+  KnowledgeSourceRowsCompanion toCompanion(bool nullToAbsent) {
+    return KnowledgeSourceRowsCompanion(
+      id: Value(id),
+      knowledgeBaseId: Value(knowledgeBaseId),
+      entryId: Value(entryId),
+      title: Value(title),
+      url: url == null && nullToAbsent ? const Value.absent() : Value(url),
+      note: note == null && nullToAbsent ? const Value.absent() : Value(note),
+      sortOrder: Value(sortOrder),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory KnowledgeSourceRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return KnowledgeSourceRow(
+      id: serializer.fromJson<String>(json['id']),
+      knowledgeBaseId: serializer.fromJson<String>(json['knowledgeBaseId']),
+      entryId: serializer.fromJson<String>(json['entryId']),
+      title: serializer.fromJson<String>(json['title']),
+      url: serializer.fromJson<String?>(json['url']),
+      note: serializer.fromJson<String?>(json['note']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
+      createdAt: serializer.fromJson<String>(json['createdAt']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'knowledgeBaseId': serializer.toJson<String>(knowledgeBaseId),
+      'entryId': serializer.toJson<String>(entryId),
+      'title': serializer.toJson<String>(title),
+      'url': serializer.toJson<String?>(url),
+      'note': serializer.toJson<String?>(note),
+      'sortOrder': serializer.toJson<int>(sortOrder),
+      'createdAt': serializer.toJson<String>(createdAt),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+    };
+  }
+
+  KnowledgeSourceRow copyWith({
+    String? id,
+    String? knowledgeBaseId,
+    String? entryId,
+    String? title,
+    Value<String?> url = const Value.absent(),
+    Value<String?> note = const Value.absent(),
+    int? sortOrder,
+    String? createdAt,
+    String? updatedAt,
+  }) => KnowledgeSourceRow(
+    id: id ?? this.id,
+    knowledgeBaseId: knowledgeBaseId ?? this.knowledgeBaseId,
+    entryId: entryId ?? this.entryId,
+    title: title ?? this.title,
+    url: url.present ? url.value : this.url,
+    note: note.present ? note.value : this.note,
+    sortOrder: sortOrder ?? this.sortOrder,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  KnowledgeSourceRow copyWithCompanion(KnowledgeSourceRowsCompanion data) {
+    return KnowledgeSourceRow(
+      id: data.id.present ? data.id.value : this.id,
+      knowledgeBaseId: data.knowledgeBaseId.present
+          ? data.knowledgeBaseId.value
+          : this.knowledgeBaseId,
+      entryId: data.entryId.present ? data.entryId.value : this.entryId,
+      title: data.title.present ? data.title.value : this.title,
+      url: data.url.present ? data.url.value : this.url,
+      note: data.note.present ? data.note.value : this.note,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('KnowledgeSourceRow(')
+          ..write('id: $id, ')
+          ..write('knowledgeBaseId: $knowledgeBaseId, ')
+          ..write('entryId: $entryId, ')
+          ..write('title: $title, ')
+          ..write('url: $url, ')
+          ..write('note: $note, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    knowledgeBaseId,
+    entryId,
+    title,
+    url,
+    note,
+    sortOrder,
+    createdAt,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is KnowledgeSourceRow &&
+          other.id == this.id &&
+          other.knowledgeBaseId == this.knowledgeBaseId &&
+          other.entryId == this.entryId &&
+          other.title == this.title &&
+          other.url == this.url &&
+          other.note == this.note &&
+          other.sortOrder == this.sortOrder &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class KnowledgeSourceRowsCompanion extends UpdateCompanion<KnowledgeSourceRow> {
+  final Value<String> id;
+  final Value<String> knowledgeBaseId;
+  final Value<String> entryId;
+  final Value<String> title;
+  final Value<String?> url;
+  final Value<String?> note;
+  final Value<int> sortOrder;
+  final Value<String> createdAt;
+  final Value<String> updatedAt;
+  final Value<int> rowid;
+  const KnowledgeSourceRowsCompanion({
+    this.id = const Value.absent(),
+    this.knowledgeBaseId = const Value.absent(),
+    this.entryId = const Value.absent(),
+    this.title = const Value.absent(),
+    this.url = const Value.absent(),
+    this.note = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  KnowledgeSourceRowsCompanion.insert({
+    required String id,
+    required String knowledgeBaseId,
+    required String entryId,
+    required String title,
+    this.url = const Value.absent(),
+    this.note = const Value.absent(),
+    required int sortOrder,
+    required String createdAt,
+    required String updatedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       knowledgeBaseId = Value(knowledgeBaseId),
+       entryId = Value(entryId),
+       title = Value(title),
+       sortOrder = Value(sortOrder),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<KnowledgeSourceRow> custom({
+    Expression<String>? id,
+    Expression<String>? knowledgeBaseId,
+    Expression<String>? entryId,
+    Expression<String>? title,
+    Expression<String>? url,
+    Expression<String>? note,
+    Expression<int>? sortOrder,
+    Expression<String>? createdAt,
+    Expression<String>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (knowledgeBaseId != null) 'knowledge_base_id': knowledgeBaseId,
+      if (entryId != null) 'entry_id': entryId,
+      if (title != null) 'title': title,
+      if (url != null) 'url': url,
+      if (note != null) 'note': note,
+      if (sortOrder != null) 'sort_order': sortOrder,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  KnowledgeSourceRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? knowledgeBaseId,
+    Value<String>? entryId,
+    Value<String>? title,
+    Value<String?>? url,
+    Value<String?>? note,
+    Value<int>? sortOrder,
+    Value<String>? createdAt,
+    Value<String>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return KnowledgeSourceRowsCompanion(
+      id: id ?? this.id,
+      knowledgeBaseId: knowledgeBaseId ?? this.knowledgeBaseId,
+      entryId: entryId ?? this.entryId,
+      title: title ?? this.title,
+      url: url ?? this.url,
+      note: note ?? this.note,
+      sortOrder: sortOrder ?? this.sortOrder,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (knowledgeBaseId.present) {
+      map['knowledge_base_id'] = Variable<String>(knowledgeBaseId.value);
+    }
+    if (entryId.present) {
+      map['entry_id'] = Variable<String>(entryId.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (url.present) {
+      map['url'] = Variable<String>(url.value);
+    }
+    if (note.present) {
+      map['note'] = Variable<String>(note.value);
+    }
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<String>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('KnowledgeSourceRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('knowledgeBaseId: $knowledgeBaseId, ')
+          ..write('entryId: $entryId, ')
+          ..write('title: $title, ')
+          ..write('url: $url, ')
+          ..write('note: $note, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $KnowledgeExplanationRowsTable extends KnowledgeExplanationRows
+    with TableInfo<$KnowledgeExplanationRowsTable, KnowledgeExplanationRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $KnowledgeExplanationRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _knowledgeBaseIdMeta = const VerificationMeta(
+    'knowledgeBaseId',
+  );
+  @override
+  late final GeneratedColumn<String> knowledgeBaseId = GeneratedColumn<String>(
+    'knowledge_base_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints:
+        'NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE',
+  );
+  static const VerificationMeta _entryIdMeta = const VerificationMeta(
+    'entryId',
+  );
+  @override
+  late final GeneratedColumn<String> entryId = GeneratedColumn<String>(
+    'entry_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints:
+        'NOT NULL REFERENCES knowledge_entries(id) ON DELETE CASCADE',
+  );
+  static const VerificationMeta _titleMeta = const VerificationMeta('title');
+  @override
+  late final GeneratedColumn<String> title = GeneratedColumn<String>(
+    'title',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _contentMeta = const VerificationMeta(
+    'content',
+  );
+  @override
+  late final GeneratedColumn<String> content = GeneratedColumn<String>(
+    'content',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sortOrderMeta = const VerificationMeta(
+    'sortOrder',
+  );
+  @override
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+    'sort_order',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<String> createdAt = GeneratedColumn<String>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    knowledgeBaseId,
+    entryId,
+    title,
+    content,
+    sortOrder,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'knowledge_explanations';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<KnowledgeExplanationRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('knowledge_base_id')) {
+      context.handle(
+        _knowledgeBaseIdMeta,
+        knowledgeBaseId.isAcceptableOrUnknown(
+          data['knowledge_base_id']!,
+          _knowledgeBaseIdMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_knowledgeBaseIdMeta);
+    }
+    if (data.containsKey('entry_id')) {
+      context.handle(
+        _entryIdMeta,
+        entryId.isAcceptableOrUnknown(data['entry_id']!, _entryIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_entryIdMeta);
+    }
+    if (data.containsKey('title')) {
+      context.handle(
+        _titleMeta,
+        title.isAcceptableOrUnknown(data['title']!, _titleMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_titleMeta);
+    }
+    if (data.containsKey('content')) {
+      context.handle(
+        _contentMeta,
+        content.isAcceptableOrUnknown(data['content']!, _contentMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_contentMeta);
+    }
+    if (data.containsKey('sort_order')) {
+      context.handle(
+        _sortOrderMeta,
+        sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sortOrderMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  KnowledgeExplanationRow map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return KnowledgeExplanationRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      knowledgeBaseId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}knowledge_base_id'],
+      )!,
+      entryId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}entry_id'],
+      )!,
+      title: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}title'],
+      )!,
+      content: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}content'],
+      )!,
+      sortOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sort_order'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $KnowledgeExplanationRowsTable createAlias(String alias) {
+    return $KnowledgeExplanationRowsTable(attachedDatabase, alias);
+  }
+}
+
+class KnowledgeExplanationRow extends DataClass
+    implements Insertable<KnowledgeExplanationRow> {
+  final String id;
+  final String knowledgeBaseId;
+  final String entryId;
+  final String title;
+  final String content;
+  final int sortOrder;
+  final String createdAt;
+  final String updatedAt;
+  const KnowledgeExplanationRow({
+    required this.id,
+    required this.knowledgeBaseId,
+    required this.entryId,
+    required this.title,
+    required this.content,
+    required this.sortOrder,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['knowledge_base_id'] = Variable<String>(knowledgeBaseId);
+    map['entry_id'] = Variable<String>(entryId);
+    map['title'] = Variable<String>(title);
+    map['content'] = Variable<String>(content);
+    map['sort_order'] = Variable<int>(sortOrder);
+    map['created_at'] = Variable<String>(createdAt);
+    map['updated_at'] = Variable<String>(updatedAt);
+    return map;
+  }
+
+  KnowledgeExplanationRowsCompanion toCompanion(bool nullToAbsent) {
+    return KnowledgeExplanationRowsCompanion(
+      id: Value(id),
+      knowledgeBaseId: Value(knowledgeBaseId),
+      entryId: Value(entryId),
+      title: Value(title),
+      content: Value(content),
+      sortOrder: Value(sortOrder),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory KnowledgeExplanationRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return KnowledgeExplanationRow(
+      id: serializer.fromJson<String>(json['id']),
+      knowledgeBaseId: serializer.fromJson<String>(json['knowledgeBaseId']),
+      entryId: serializer.fromJson<String>(json['entryId']),
+      title: serializer.fromJson<String>(json['title']),
+      content: serializer.fromJson<String>(json['content']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
+      createdAt: serializer.fromJson<String>(json['createdAt']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'knowledgeBaseId': serializer.toJson<String>(knowledgeBaseId),
+      'entryId': serializer.toJson<String>(entryId),
+      'title': serializer.toJson<String>(title),
+      'content': serializer.toJson<String>(content),
+      'sortOrder': serializer.toJson<int>(sortOrder),
+      'createdAt': serializer.toJson<String>(createdAt),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+    };
+  }
+
+  KnowledgeExplanationRow copyWith({
+    String? id,
+    String? knowledgeBaseId,
+    String? entryId,
+    String? title,
+    String? content,
+    int? sortOrder,
+    String? createdAt,
+    String? updatedAt,
+  }) => KnowledgeExplanationRow(
+    id: id ?? this.id,
+    knowledgeBaseId: knowledgeBaseId ?? this.knowledgeBaseId,
+    entryId: entryId ?? this.entryId,
+    title: title ?? this.title,
+    content: content ?? this.content,
+    sortOrder: sortOrder ?? this.sortOrder,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  KnowledgeExplanationRow copyWithCompanion(
+    KnowledgeExplanationRowsCompanion data,
+  ) {
+    return KnowledgeExplanationRow(
+      id: data.id.present ? data.id.value : this.id,
+      knowledgeBaseId: data.knowledgeBaseId.present
+          ? data.knowledgeBaseId.value
+          : this.knowledgeBaseId,
+      entryId: data.entryId.present ? data.entryId.value : this.entryId,
+      title: data.title.present ? data.title.value : this.title,
+      content: data.content.present ? data.content.value : this.content,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('KnowledgeExplanationRow(')
+          ..write('id: $id, ')
+          ..write('knowledgeBaseId: $knowledgeBaseId, ')
+          ..write('entryId: $entryId, ')
+          ..write('title: $title, ')
+          ..write('content: $content, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    knowledgeBaseId,
+    entryId,
+    title,
+    content,
+    sortOrder,
+    createdAt,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is KnowledgeExplanationRow &&
+          other.id == this.id &&
+          other.knowledgeBaseId == this.knowledgeBaseId &&
+          other.entryId == this.entryId &&
+          other.title == this.title &&
+          other.content == this.content &&
+          other.sortOrder == this.sortOrder &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class KnowledgeExplanationRowsCompanion
+    extends UpdateCompanion<KnowledgeExplanationRow> {
+  final Value<String> id;
+  final Value<String> knowledgeBaseId;
+  final Value<String> entryId;
+  final Value<String> title;
+  final Value<String> content;
+  final Value<int> sortOrder;
+  final Value<String> createdAt;
+  final Value<String> updatedAt;
+  final Value<int> rowid;
+  const KnowledgeExplanationRowsCompanion({
+    this.id = const Value.absent(),
+    this.knowledgeBaseId = const Value.absent(),
+    this.entryId = const Value.absent(),
+    this.title = const Value.absent(),
+    this.content = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  KnowledgeExplanationRowsCompanion.insert({
+    required String id,
+    required String knowledgeBaseId,
+    required String entryId,
+    required String title,
+    required String content,
+    required int sortOrder,
+    required String createdAt,
+    required String updatedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       knowledgeBaseId = Value(knowledgeBaseId),
+       entryId = Value(entryId),
+       title = Value(title),
+       content = Value(content),
+       sortOrder = Value(sortOrder),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<KnowledgeExplanationRow> custom({
+    Expression<String>? id,
+    Expression<String>? knowledgeBaseId,
+    Expression<String>? entryId,
+    Expression<String>? title,
+    Expression<String>? content,
+    Expression<int>? sortOrder,
+    Expression<String>? createdAt,
+    Expression<String>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (knowledgeBaseId != null) 'knowledge_base_id': knowledgeBaseId,
+      if (entryId != null) 'entry_id': entryId,
+      if (title != null) 'title': title,
+      if (content != null) 'content': content,
+      if (sortOrder != null) 'sort_order': sortOrder,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  KnowledgeExplanationRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? knowledgeBaseId,
+    Value<String>? entryId,
+    Value<String>? title,
+    Value<String>? content,
+    Value<int>? sortOrder,
+    Value<String>? createdAt,
+    Value<String>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return KnowledgeExplanationRowsCompanion(
+      id: id ?? this.id,
+      knowledgeBaseId: knowledgeBaseId ?? this.knowledgeBaseId,
+      entryId: entryId ?? this.entryId,
+      title: title ?? this.title,
+      content: content ?? this.content,
+      sortOrder: sortOrder ?? this.sortOrder,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (knowledgeBaseId.present) {
+      map['knowledge_base_id'] = Variable<String>(knowledgeBaseId.value);
+    }
+    if (entryId.present) {
+      map['entry_id'] = Variable<String>(entryId.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (content.present) {
+      map['content'] = Variable<String>(content.value);
+    }
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<String>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('KnowledgeExplanationRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('knowledgeBaseId: $knowledgeBaseId, ')
+          ..write('entryId: $entryId, ')
+          ..write('title: $title, ')
+          ..write('content: $content, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
@@ -21277,6 +24639,18 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
   late final $TaskListRowsTable taskListRows = $TaskListRowsTable(this);
   late final $TaskListEntryRowsTable taskListEntryRows =
       $TaskListEntryRowsTable(this);
+  late final $KnowledgeBaseRowsTable knowledgeBaseRows =
+      $KnowledgeBaseRowsTable(this);
+  late final $KnowledgeCategoryRowsTable knowledgeCategoryRows =
+      $KnowledgeCategoryRowsTable(this);
+  late final $KnowledgeSettingsRowsTable knowledgeSettingsRows =
+      $KnowledgeSettingsRowsTable(this);
+  late final $KnowledgeEntryRowsTable knowledgeEntryRows =
+      $KnowledgeEntryRowsTable(this);
+  late final $KnowledgeSourceRowsTable knowledgeSourceRows =
+      $KnowledgeSourceRowsTable(this);
+  late final $KnowledgeExplanationRowsTable knowledgeExplanationRows =
+      $KnowledgeExplanationRowsTable(this);
   late final $CalendarEventRowsTable calendarEventRows =
       $CalendarEventRowsTable(this);
   late final $AnniversaryRowsTable anniversaryRows = $AnniversaryRowsTable(
@@ -21380,6 +24754,12 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
     taskRows,
     taskListRows,
     taskListEntryRows,
+    knowledgeBaseRows,
+    knowledgeCategoryRows,
+    knowledgeSettingsRows,
+    knowledgeEntryRows,
+    knowledgeSourceRows,
+    knowledgeExplanationRows,
     calendarEventRows,
     anniversaryRows,
     roleplayScenarioRows,
@@ -21430,6 +24810,69 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
         limitUpdateKind: UpdateKind.delete,
       ),
       result: [TableUpdate('task_list_entries', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'knowledge_bases',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('knowledge_categories', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'knowledge_bases',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('knowledge_settings', kind: UpdateKind.update)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'knowledge_categories',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('knowledge_settings', kind: UpdateKind.update)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'knowledge_bases',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('knowledge_entries', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'knowledge_categories',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('knowledge_entries', kind: UpdateKind.update)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'knowledge_bases',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('knowledge_sources', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'knowledge_entries',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('knowledge_sources', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'knowledge_bases',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('knowledge_explanations', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'knowledge_entries',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('knowledge_explanations', kind: UpdateKind.delete)],
     ),
     WritePropagation(
       on: TableUpdateQuery.onTableName(
@@ -26583,6 +30026,3708 @@ typedef $$TaskListEntryRowsTableProcessedTableManager =
       (TaskListEntryRow, $$TaskListEntryRowsTableReferences),
       TaskListEntryRow,
       PrefetchHooks Function({bool taskId, bool listId})
+    >;
+typedef $$KnowledgeBaseRowsTableCreateCompanionBuilder =
+    KnowledgeBaseRowsCompanion Function({
+      required String id,
+      required String name,
+      Value<String?> description,
+      Value<bool> enabled,
+      required int sortOrder,
+      required String createdAt,
+      required String updatedAt,
+      Value<int> rowid,
+    });
+typedef $$KnowledgeBaseRowsTableUpdateCompanionBuilder =
+    KnowledgeBaseRowsCompanion Function({
+      Value<String> id,
+      Value<String> name,
+      Value<String?> description,
+      Value<bool> enabled,
+      Value<int> sortOrder,
+      Value<String> createdAt,
+      Value<String> updatedAt,
+      Value<int> rowid,
+    });
+
+final class $$KnowledgeBaseRowsTableReferences
+    extends
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $KnowledgeBaseRowsTable,
+          KnowledgeBaseRow
+        > {
+  $$KnowledgeBaseRowsTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static MultiTypedResultKey<
+    $KnowledgeCategoryRowsTable,
+    List<KnowledgeCategoryRow>
+  >
+  _knowledgeCategoryRowsRefsTable(_$StorageV2DriftDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.knowledgeCategoryRows,
+        aliasName:
+            'knowledge_bases__id__knowledge_categories__knowledge_base_id',
+      );
+
+  $$KnowledgeCategoryRowsTableProcessedTableManager
+  get knowledgeCategoryRowsRefs {
+    final manager =
+        $$KnowledgeCategoryRowsTableTableManager(
+          $_db,
+          $_db.knowledgeCategoryRows,
+        ).filter(
+          (f) => f.knowledgeBaseId.id.sqlEquals($_itemColumn<String>('id')!),
+        );
+
+    final cache = $_typedResult.readTableOrNull(
+      _knowledgeCategoryRowsRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<
+    $KnowledgeSettingsRowsTable,
+    List<KnowledgeSettingsRow>
+  >
+  _knowledgeSettingsRowsRefsTable(
+    _$StorageV2DriftDatabase db,
+  ) => MultiTypedResultKey.fromTable(
+    db.knowledgeSettingsRows,
+    aliasName:
+        'knowledge_bases__id__knowledge_settings__default_knowledge_base_id',
+  );
+
+  $$KnowledgeSettingsRowsTableProcessedTableManager
+  get knowledgeSettingsRowsRefs {
+    final manager =
+        $$KnowledgeSettingsRowsTableTableManager(
+          $_db,
+          $_db.knowledgeSettingsRows,
+        ).filter(
+          (f) => f.defaultKnowledgeBaseId.id.sqlEquals(
+            $_itemColumn<String>('id')!,
+          ),
+        );
+
+    final cache = $_typedResult.readTableOrNull(
+      _knowledgeSettingsRowsRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<$KnowledgeEntryRowsTable, List<KnowledgeEntryRow>>
+  _knowledgeEntryRowsRefsTable(_$StorageV2DriftDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.knowledgeEntryRows,
+        aliasName: 'knowledge_bases__id__knowledge_entries__knowledge_base_id',
+      );
+
+  $$KnowledgeEntryRowsTableProcessedTableManager get knowledgeEntryRowsRefs {
+    final manager =
+        $$KnowledgeEntryRowsTableTableManager(
+          $_db,
+          $_db.knowledgeEntryRows,
+        ).filter(
+          (f) => f.knowledgeBaseId.id.sqlEquals($_itemColumn<String>('id')!),
+        );
+
+    final cache = $_typedResult.readTableOrNull(
+      _knowledgeEntryRowsRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<
+    $KnowledgeSourceRowsTable,
+    List<KnowledgeSourceRow>
+  >
+  _knowledgeSourceRowsRefsTable(_$StorageV2DriftDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.knowledgeSourceRows,
+        aliasName: 'knowledge_bases__id__knowledge_sources__knowledge_base_id',
+      );
+
+  $$KnowledgeSourceRowsTableProcessedTableManager get knowledgeSourceRowsRefs {
+    final manager =
+        $$KnowledgeSourceRowsTableTableManager(
+          $_db,
+          $_db.knowledgeSourceRows,
+        ).filter(
+          (f) => f.knowledgeBaseId.id.sqlEquals($_itemColumn<String>('id')!),
+        );
+
+    final cache = $_typedResult.readTableOrNull(
+      _knowledgeSourceRowsRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<
+    $KnowledgeExplanationRowsTable,
+    List<KnowledgeExplanationRow>
+  >
+  _knowledgeExplanationRowsRefsTable(_$StorageV2DriftDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.knowledgeExplanationRows,
+        aliasName:
+            'knowledge_bases__id__knowledge_explanations__knowledge_base_id',
+      );
+
+  $$KnowledgeExplanationRowsTableProcessedTableManager
+  get knowledgeExplanationRowsRefs {
+    final manager =
+        $$KnowledgeExplanationRowsTableTableManager(
+          $_db,
+          $_db.knowledgeExplanationRows,
+        ).filter(
+          (f) => f.knowledgeBaseId.id.sqlEquals($_itemColumn<String>('id')!),
+        );
+
+    final cache = $_typedResult.readTableOrNull(
+      _knowledgeExplanationRowsRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+}
+
+class $$KnowledgeBaseRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $KnowledgeBaseRowsTable> {
+  $$KnowledgeBaseRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get description => $composableBuilder(
+    column: $table.description,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  Expression<bool> knowledgeCategoryRowsRefs(
+    Expression<bool> Function($$KnowledgeCategoryRowsTableFilterComposer f) f,
+  ) {
+    final $$KnowledgeCategoryRowsTableFilterComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.knowledgeCategoryRows,
+          getReferencedColumn: (t) => t.knowledgeBaseId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeCategoryRowsTableFilterComposer(
+                $db: $db,
+                $table: $db.knowledgeCategoryRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
+
+  Expression<bool> knowledgeSettingsRowsRefs(
+    Expression<bool> Function($$KnowledgeSettingsRowsTableFilterComposer f) f,
+  ) {
+    final $$KnowledgeSettingsRowsTableFilterComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.knowledgeSettingsRows,
+          getReferencedColumn: (t) => t.defaultKnowledgeBaseId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeSettingsRowsTableFilterComposer(
+                $db: $db,
+                $table: $db.knowledgeSettingsRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
+
+  Expression<bool> knowledgeEntryRowsRefs(
+    Expression<bool> Function($$KnowledgeEntryRowsTableFilterComposer f) f,
+  ) {
+    final $$KnowledgeEntryRowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.knowledgeEntryRows,
+      getReferencedColumn: (t) => t.knowledgeBaseId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$KnowledgeEntryRowsTableFilterComposer(
+            $db: $db,
+            $table: $db.knowledgeEntryRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> knowledgeSourceRowsRefs(
+    Expression<bool> Function($$KnowledgeSourceRowsTableFilterComposer f) f,
+  ) {
+    final $$KnowledgeSourceRowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.knowledgeSourceRows,
+      getReferencedColumn: (t) => t.knowledgeBaseId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$KnowledgeSourceRowsTableFilterComposer(
+            $db: $db,
+            $table: $db.knowledgeSourceRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> knowledgeExplanationRowsRefs(
+    Expression<bool> Function($$KnowledgeExplanationRowsTableFilterComposer f)
+    f,
+  ) {
+    final $$KnowledgeExplanationRowsTableFilterComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.knowledgeExplanationRows,
+          getReferencedColumn: (t) => t.knowledgeBaseId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeExplanationRowsTableFilterComposer(
+                $db: $db,
+                $table: $db.knowledgeExplanationRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
+}
+
+class $$KnowledgeBaseRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $KnowledgeBaseRowsTable> {
+  $$KnowledgeBaseRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get description => $composableBuilder(
+    column: $table.description,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$KnowledgeBaseRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $KnowledgeBaseRowsTable> {
+  $$KnowledgeBaseRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get description => $composableBuilder(
+    column: $table.description,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get enabled =>
+      $composableBuilder(column: $table.enabled, builder: (column) => column);
+
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
+
+  GeneratedColumn<String> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  Expression<T> knowledgeCategoryRowsRefs<T extends Object>(
+    Expression<T> Function($$KnowledgeCategoryRowsTableAnnotationComposer a) f,
+  ) {
+    final $$KnowledgeCategoryRowsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.knowledgeCategoryRows,
+          getReferencedColumn: (t) => t.knowledgeBaseId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeCategoryRowsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.knowledgeCategoryRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
+
+  Expression<T> knowledgeSettingsRowsRefs<T extends Object>(
+    Expression<T> Function($$KnowledgeSettingsRowsTableAnnotationComposer a) f,
+  ) {
+    final $$KnowledgeSettingsRowsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.knowledgeSettingsRows,
+          getReferencedColumn: (t) => t.defaultKnowledgeBaseId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeSettingsRowsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.knowledgeSettingsRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
+
+  Expression<T> knowledgeEntryRowsRefs<T extends Object>(
+    Expression<T> Function($$KnowledgeEntryRowsTableAnnotationComposer a) f,
+  ) {
+    final $$KnowledgeEntryRowsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.knowledgeEntryRows,
+          getReferencedColumn: (t) => t.knowledgeBaseId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeEntryRowsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.knowledgeEntryRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
+
+  Expression<T> knowledgeSourceRowsRefs<T extends Object>(
+    Expression<T> Function($$KnowledgeSourceRowsTableAnnotationComposer a) f,
+  ) {
+    final $$KnowledgeSourceRowsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.knowledgeSourceRows,
+          getReferencedColumn: (t) => t.knowledgeBaseId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeSourceRowsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.knowledgeSourceRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
+
+  Expression<T> knowledgeExplanationRowsRefs<T extends Object>(
+    Expression<T> Function($$KnowledgeExplanationRowsTableAnnotationComposer a)
+    f,
+  ) {
+    final $$KnowledgeExplanationRowsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.knowledgeExplanationRows,
+          getReferencedColumn: (t) => t.knowledgeBaseId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeExplanationRowsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.knowledgeExplanationRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
+}
+
+class $$KnowledgeBaseRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $KnowledgeBaseRowsTable,
+          KnowledgeBaseRow,
+          $$KnowledgeBaseRowsTableFilterComposer,
+          $$KnowledgeBaseRowsTableOrderingComposer,
+          $$KnowledgeBaseRowsTableAnnotationComposer,
+          $$KnowledgeBaseRowsTableCreateCompanionBuilder,
+          $$KnowledgeBaseRowsTableUpdateCompanionBuilder,
+          (KnowledgeBaseRow, $$KnowledgeBaseRowsTableReferences),
+          KnowledgeBaseRow,
+          PrefetchHooks Function({
+            bool knowledgeCategoryRowsRefs,
+            bool knowledgeSettingsRowsRefs,
+            bool knowledgeEntryRowsRefs,
+            bool knowledgeSourceRowsRefs,
+            bool knowledgeExplanationRowsRefs,
+          })
+        > {
+  $$KnowledgeBaseRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $KnowledgeBaseRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$KnowledgeBaseRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$KnowledgeBaseRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$KnowledgeBaseRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<String?> description = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                Value<String> createdAt = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => KnowledgeBaseRowsCompanion(
+                id: id,
+                name: name,
+                description: description,
+                enabled: enabled,
+                sortOrder: sortOrder,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String name,
+                Value<String?> description = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                required int sortOrder,
+                required String createdAt,
+                required String updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => KnowledgeBaseRowsCompanion.insert(
+                id: id,
+                name: name,
+                description: description,
+                enabled: enabled,
+                sortOrder: sortOrder,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$KnowledgeBaseRowsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback:
+              ({
+                knowledgeCategoryRowsRefs = false,
+                knowledgeSettingsRowsRefs = false,
+                knowledgeEntryRowsRefs = false,
+                knowledgeSourceRowsRefs = false,
+                knowledgeExplanationRowsRefs = false,
+              }) {
+                return PrefetchHooks(
+                  db: db,
+                  explicitlyWatchedTables: [
+                    if (knowledgeCategoryRowsRefs) db.knowledgeCategoryRows,
+                    if (knowledgeSettingsRowsRefs) db.knowledgeSettingsRows,
+                    if (knowledgeEntryRowsRefs) db.knowledgeEntryRows,
+                    if (knowledgeSourceRowsRefs) db.knowledgeSourceRows,
+                    if (knowledgeExplanationRowsRefs)
+                      db.knowledgeExplanationRows,
+                  ],
+                  addJoins: null,
+                  getPrefetchedDataCallback: (items) async {
+                    return [
+                      if (knowledgeCategoryRowsRefs)
+                        await $_getPrefetchedData<
+                          KnowledgeBaseRow,
+                          $KnowledgeBaseRowsTable,
+                          KnowledgeCategoryRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$KnowledgeBaseRowsTableReferences
+                              ._knowledgeCategoryRowsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$KnowledgeBaseRowsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).knowledgeCategoryRowsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.knowledgeBaseId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                      if (knowledgeSettingsRowsRefs)
+                        await $_getPrefetchedData<
+                          KnowledgeBaseRow,
+                          $KnowledgeBaseRowsTable,
+                          KnowledgeSettingsRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$KnowledgeBaseRowsTableReferences
+                              ._knowledgeSettingsRowsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$KnowledgeBaseRowsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).knowledgeSettingsRowsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.defaultKnowledgeBaseId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                      if (knowledgeEntryRowsRefs)
+                        await $_getPrefetchedData<
+                          KnowledgeBaseRow,
+                          $KnowledgeBaseRowsTable,
+                          KnowledgeEntryRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$KnowledgeBaseRowsTableReferences
+                              ._knowledgeEntryRowsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$KnowledgeBaseRowsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).knowledgeEntryRowsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.knowledgeBaseId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                      if (knowledgeSourceRowsRefs)
+                        await $_getPrefetchedData<
+                          KnowledgeBaseRow,
+                          $KnowledgeBaseRowsTable,
+                          KnowledgeSourceRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$KnowledgeBaseRowsTableReferences
+                              ._knowledgeSourceRowsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$KnowledgeBaseRowsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).knowledgeSourceRowsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.knowledgeBaseId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                      if (knowledgeExplanationRowsRefs)
+                        await $_getPrefetchedData<
+                          KnowledgeBaseRow,
+                          $KnowledgeBaseRowsTable,
+                          KnowledgeExplanationRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$KnowledgeBaseRowsTableReferences
+                              ._knowledgeExplanationRowsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$KnowledgeBaseRowsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).knowledgeExplanationRowsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.knowledgeBaseId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                    ];
+                  },
+                );
+              },
+        ),
+      );
+}
+
+typedef $$KnowledgeBaseRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $KnowledgeBaseRowsTable,
+      KnowledgeBaseRow,
+      $$KnowledgeBaseRowsTableFilterComposer,
+      $$KnowledgeBaseRowsTableOrderingComposer,
+      $$KnowledgeBaseRowsTableAnnotationComposer,
+      $$KnowledgeBaseRowsTableCreateCompanionBuilder,
+      $$KnowledgeBaseRowsTableUpdateCompanionBuilder,
+      (KnowledgeBaseRow, $$KnowledgeBaseRowsTableReferences),
+      KnowledgeBaseRow,
+      PrefetchHooks Function({
+        bool knowledgeCategoryRowsRefs,
+        bool knowledgeSettingsRowsRefs,
+        bool knowledgeEntryRowsRefs,
+        bool knowledgeSourceRowsRefs,
+        bool knowledgeExplanationRowsRefs,
+      })
+    >;
+typedef $$KnowledgeCategoryRowsTableCreateCompanionBuilder =
+    KnowledgeCategoryRowsCompanion Function({
+      required String id,
+      required String knowledgeBaseId,
+      required String name,
+      required String alias,
+      Value<String?> description,
+      required String annotationRule,
+      required String explanationPrompt,
+      required int colorValue,
+      required bool autoAnnotate,
+      Value<String?> modelConfigId,
+      required bool isDefault,
+      Value<bool> enabled,
+      required int sortOrder,
+      required String createdAt,
+      required String updatedAt,
+      Value<int> rowid,
+    });
+typedef $$KnowledgeCategoryRowsTableUpdateCompanionBuilder =
+    KnowledgeCategoryRowsCompanion Function({
+      Value<String> id,
+      Value<String> knowledgeBaseId,
+      Value<String> name,
+      Value<String> alias,
+      Value<String?> description,
+      Value<String> annotationRule,
+      Value<String> explanationPrompt,
+      Value<int> colorValue,
+      Value<bool> autoAnnotate,
+      Value<String?> modelConfigId,
+      Value<bool> isDefault,
+      Value<bool> enabled,
+      Value<int> sortOrder,
+      Value<String> createdAt,
+      Value<String> updatedAt,
+      Value<int> rowid,
+    });
+
+final class $$KnowledgeCategoryRowsTableReferences
+    extends
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $KnowledgeCategoryRowsTable,
+          KnowledgeCategoryRow
+        > {
+  $$KnowledgeCategoryRowsTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $KnowledgeBaseRowsTable _knowledgeBaseIdTable(
+    _$StorageV2DriftDatabase db,
+  ) => db.knowledgeBaseRows.createAlias(
+    'knowledge_categories__knowledge_base_id__knowledge_bases__id',
+  );
+
+  $$KnowledgeBaseRowsTableProcessedTableManager get knowledgeBaseId {
+    final $_column = $_itemColumn<String>('knowledge_base_id')!;
+
+    final manager = $$KnowledgeBaseRowsTableTableManager(
+      $_db,
+      $_db.knowledgeBaseRows,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_knowledgeBaseIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static MultiTypedResultKey<
+    $KnowledgeSettingsRowsTable,
+    List<KnowledgeSettingsRow>
+  >
+  _knowledgeSettingsRowsRefsTable(_$StorageV2DriftDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.knowledgeSettingsRows,
+        aliasName:
+            'knowledge_categories__id__knowledge_settings__default_category_id',
+      );
+
+  $$KnowledgeSettingsRowsTableProcessedTableManager
+  get knowledgeSettingsRowsRefs {
+    final manager =
+        $$KnowledgeSettingsRowsTableTableManager(
+          $_db,
+          $_db.knowledgeSettingsRows,
+        ).filter(
+          (f) => f.defaultCategoryId.id.sqlEquals($_itemColumn<String>('id')!),
+        );
+
+    final cache = $_typedResult.readTableOrNull(
+      _knowledgeSettingsRowsRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<$KnowledgeEntryRowsTable, List<KnowledgeEntryRow>>
+  _knowledgeEntryRowsRefsTable(_$StorageV2DriftDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.knowledgeEntryRows,
+        aliasName: 'knowledge_categories__id__knowledge_entries__category_id',
+      );
+
+  $$KnowledgeEntryRowsTableProcessedTableManager get knowledgeEntryRowsRefs {
+    final manager = $$KnowledgeEntryRowsTableTableManager(
+      $_db,
+      $_db.knowledgeEntryRows,
+    ).filter((f) => f.categoryId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(
+      _knowledgeEntryRowsRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+}
+
+class $$KnowledgeCategoryRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $KnowledgeCategoryRowsTable> {
+  $$KnowledgeCategoryRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get alias => $composableBuilder(
+    column: $table.alias,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get description => $composableBuilder(
+    column: $table.description,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get annotationRule => $composableBuilder(
+    column: $table.annotationRule,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get explanationPrompt => $composableBuilder(
+    column: $table.explanationPrompt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get colorValue => $composableBuilder(
+    column: $table.colorValue,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get autoAnnotate => $composableBuilder(
+    column: $table.autoAnnotate,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get modelConfigId => $composableBuilder(
+    column: $table.modelConfigId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isDefault => $composableBuilder(
+    column: $table.isDefault,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$KnowledgeBaseRowsTableFilterComposer get knowledgeBaseId {
+    final $$KnowledgeBaseRowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.knowledgeBaseId,
+      referencedTable: $db.knowledgeBaseRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$KnowledgeBaseRowsTableFilterComposer(
+            $db: $db,
+            $table: $db.knowledgeBaseRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  Expression<bool> knowledgeSettingsRowsRefs(
+    Expression<bool> Function($$KnowledgeSettingsRowsTableFilterComposer f) f,
+  ) {
+    final $$KnowledgeSettingsRowsTableFilterComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.knowledgeSettingsRows,
+          getReferencedColumn: (t) => t.defaultCategoryId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeSettingsRowsTableFilterComposer(
+                $db: $db,
+                $table: $db.knowledgeSettingsRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
+
+  Expression<bool> knowledgeEntryRowsRefs(
+    Expression<bool> Function($$KnowledgeEntryRowsTableFilterComposer f) f,
+  ) {
+    final $$KnowledgeEntryRowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.knowledgeEntryRows,
+      getReferencedColumn: (t) => t.categoryId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$KnowledgeEntryRowsTableFilterComposer(
+            $db: $db,
+            $table: $db.knowledgeEntryRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$KnowledgeCategoryRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $KnowledgeCategoryRowsTable> {
+  $$KnowledgeCategoryRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get alias => $composableBuilder(
+    column: $table.alias,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get description => $composableBuilder(
+    column: $table.description,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get annotationRule => $composableBuilder(
+    column: $table.annotationRule,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get explanationPrompt => $composableBuilder(
+    column: $table.explanationPrompt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get colorValue => $composableBuilder(
+    column: $table.colorValue,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get autoAnnotate => $composableBuilder(
+    column: $table.autoAnnotate,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get modelConfigId => $composableBuilder(
+    column: $table.modelConfigId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isDefault => $composableBuilder(
+    column: $table.isDefault,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$KnowledgeBaseRowsTableOrderingComposer get knowledgeBaseId {
+    final $$KnowledgeBaseRowsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.knowledgeBaseId,
+      referencedTable: $db.knowledgeBaseRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$KnowledgeBaseRowsTableOrderingComposer(
+            $db: $db,
+            $table: $db.knowledgeBaseRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$KnowledgeCategoryRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $KnowledgeCategoryRowsTable> {
+  $$KnowledgeCategoryRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get alias =>
+      $composableBuilder(column: $table.alias, builder: (column) => column);
+
+  GeneratedColumn<String> get description => $composableBuilder(
+    column: $table.description,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get annotationRule => $composableBuilder(
+    column: $table.annotationRule,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get explanationPrompt => $composableBuilder(
+    column: $table.explanationPrompt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get colorValue => $composableBuilder(
+    column: $table.colorValue,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get autoAnnotate => $composableBuilder(
+    column: $table.autoAnnotate,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get modelConfigId => $composableBuilder(
+    column: $table.modelConfigId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get isDefault =>
+      $composableBuilder(column: $table.isDefault, builder: (column) => column);
+
+  GeneratedColumn<bool> get enabled =>
+      $composableBuilder(column: $table.enabled, builder: (column) => column);
+
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
+
+  GeneratedColumn<String> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  $$KnowledgeBaseRowsTableAnnotationComposer get knowledgeBaseId {
+    final $$KnowledgeBaseRowsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.knowledgeBaseId,
+          referencedTable: $db.knowledgeBaseRows,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeBaseRowsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.knowledgeBaseRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
+
+  Expression<T> knowledgeSettingsRowsRefs<T extends Object>(
+    Expression<T> Function($$KnowledgeSettingsRowsTableAnnotationComposer a) f,
+  ) {
+    final $$KnowledgeSettingsRowsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.knowledgeSettingsRows,
+          getReferencedColumn: (t) => t.defaultCategoryId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeSettingsRowsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.knowledgeSettingsRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
+
+  Expression<T> knowledgeEntryRowsRefs<T extends Object>(
+    Expression<T> Function($$KnowledgeEntryRowsTableAnnotationComposer a) f,
+  ) {
+    final $$KnowledgeEntryRowsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.knowledgeEntryRows,
+          getReferencedColumn: (t) => t.categoryId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeEntryRowsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.knowledgeEntryRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
+}
+
+class $$KnowledgeCategoryRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $KnowledgeCategoryRowsTable,
+          KnowledgeCategoryRow,
+          $$KnowledgeCategoryRowsTableFilterComposer,
+          $$KnowledgeCategoryRowsTableOrderingComposer,
+          $$KnowledgeCategoryRowsTableAnnotationComposer,
+          $$KnowledgeCategoryRowsTableCreateCompanionBuilder,
+          $$KnowledgeCategoryRowsTableUpdateCompanionBuilder,
+          (KnowledgeCategoryRow, $$KnowledgeCategoryRowsTableReferences),
+          KnowledgeCategoryRow,
+          PrefetchHooks Function({
+            bool knowledgeBaseId,
+            bool knowledgeSettingsRowsRefs,
+            bool knowledgeEntryRowsRefs,
+          })
+        > {
+  $$KnowledgeCategoryRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $KnowledgeCategoryRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$KnowledgeCategoryRowsTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$KnowledgeCategoryRowsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$KnowledgeCategoryRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> knowledgeBaseId = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<String> alias = const Value.absent(),
+                Value<String?> description = const Value.absent(),
+                Value<String> annotationRule = const Value.absent(),
+                Value<String> explanationPrompt = const Value.absent(),
+                Value<int> colorValue = const Value.absent(),
+                Value<bool> autoAnnotate = const Value.absent(),
+                Value<String?> modelConfigId = const Value.absent(),
+                Value<bool> isDefault = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                Value<String> createdAt = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => KnowledgeCategoryRowsCompanion(
+                id: id,
+                knowledgeBaseId: knowledgeBaseId,
+                name: name,
+                alias: alias,
+                description: description,
+                annotationRule: annotationRule,
+                explanationPrompt: explanationPrompt,
+                colorValue: colorValue,
+                autoAnnotate: autoAnnotate,
+                modelConfigId: modelConfigId,
+                isDefault: isDefault,
+                enabled: enabled,
+                sortOrder: sortOrder,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String knowledgeBaseId,
+                required String name,
+                required String alias,
+                Value<String?> description = const Value.absent(),
+                required String annotationRule,
+                required String explanationPrompt,
+                required int colorValue,
+                required bool autoAnnotate,
+                Value<String?> modelConfigId = const Value.absent(),
+                required bool isDefault,
+                Value<bool> enabled = const Value.absent(),
+                required int sortOrder,
+                required String createdAt,
+                required String updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => KnowledgeCategoryRowsCompanion.insert(
+                id: id,
+                knowledgeBaseId: knowledgeBaseId,
+                name: name,
+                alias: alias,
+                description: description,
+                annotationRule: annotationRule,
+                explanationPrompt: explanationPrompt,
+                colorValue: colorValue,
+                autoAnnotate: autoAnnotate,
+                modelConfigId: modelConfigId,
+                isDefault: isDefault,
+                enabled: enabled,
+                sortOrder: sortOrder,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$KnowledgeCategoryRowsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback:
+              ({
+                knowledgeBaseId = false,
+                knowledgeSettingsRowsRefs = false,
+                knowledgeEntryRowsRefs = false,
+              }) {
+                return PrefetchHooks(
+                  db: db,
+                  explicitlyWatchedTables: [
+                    if (knowledgeSettingsRowsRefs) db.knowledgeSettingsRows,
+                    if (knowledgeEntryRowsRefs) db.knowledgeEntryRows,
+                  ],
+                  addJoins:
+                      <
+                        T extends TableManagerState<
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic
+                        >
+                      >(state) {
+                        if (knowledgeBaseId) {
+                          state =
+                              state.withJoin(
+                                    currentTable: table,
+                                    currentColumn: table.knowledgeBaseId,
+                                    referencedTable:
+                                        $$KnowledgeCategoryRowsTableReferences
+                                            ._knowledgeBaseIdTable(db),
+                                    referencedColumn:
+                                        $$KnowledgeCategoryRowsTableReferences
+                                            ._knowledgeBaseIdTable(db)
+                                            .id,
+                                  )
+                                  as T;
+                        }
+
+                        return state;
+                      },
+                  getPrefetchedDataCallback: (items) async {
+                    return [
+                      if (knowledgeSettingsRowsRefs)
+                        await $_getPrefetchedData<
+                          KnowledgeCategoryRow,
+                          $KnowledgeCategoryRowsTable,
+                          KnowledgeSettingsRow
+                        >(
+                          currentTable: table,
+                          referencedTable:
+                              $$KnowledgeCategoryRowsTableReferences
+                                  ._knowledgeSettingsRowsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$KnowledgeCategoryRowsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).knowledgeSettingsRowsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.defaultCategoryId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                      if (knowledgeEntryRowsRefs)
+                        await $_getPrefetchedData<
+                          KnowledgeCategoryRow,
+                          $KnowledgeCategoryRowsTable,
+                          KnowledgeEntryRow
+                        >(
+                          currentTable: table,
+                          referencedTable:
+                              $$KnowledgeCategoryRowsTableReferences
+                                  ._knowledgeEntryRowsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$KnowledgeCategoryRowsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).knowledgeEntryRowsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.categoryId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                    ];
+                  },
+                );
+              },
+        ),
+      );
+}
+
+typedef $$KnowledgeCategoryRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $KnowledgeCategoryRowsTable,
+      KnowledgeCategoryRow,
+      $$KnowledgeCategoryRowsTableFilterComposer,
+      $$KnowledgeCategoryRowsTableOrderingComposer,
+      $$KnowledgeCategoryRowsTableAnnotationComposer,
+      $$KnowledgeCategoryRowsTableCreateCompanionBuilder,
+      $$KnowledgeCategoryRowsTableUpdateCompanionBuilder,
+      (KnowledgeCategoryRow, $$KnowledgeCategoryRowsTableReferences),
+      KnowledgeCategoryRow,
+      PrefetchHooks Function({
+        bool knowledgeBaseId,
+        bool knowledgeSettingsRowsRefs,
+        bool knowledgeEntryRowsRefs,
+      })
+    >;
+typedef $$KnowledgeSettingsRowsTableCreateCompanionBuilder =
+    KnowledgeSettingsRowsCompanion Function({
+      Value<int> id,
+      Value<String?> defaultKnowledgeBaseId,
+      Value<String?> defaultCategoryId,
+      required String updatedAt,
+    });
+typedef $$KnowledgeSettingsRowsTableUpdateCompanionBuilder =
+    KnowledgeSettingsRowsCompanion Function({
+      Value<int> id,
+      Value<String?> defaultKnowledgeBaseId,
+      Value<String?> defaultCategoryId,
+      Value<String> updatedAt,
+    });
+
+final class $$KnowledgeSettingsRowsTableReferences
+    extends
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $KnowledgeSettingsRowsTable,
+          KnowledgeSettingsRow
+        > {
+  $$KnowledgeSettingsRowsTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $KnowledgeBaseRowsTable _defaultKnowledgeBaseIdTable(
+    _$StorageV2DriftDatabase db,
+  ) => db.knowledgeBaseRows.createAlias(
+    'knowledge_settings__default_knowledge_base_id__knowledge_bases__id',
+  );
+
+  $$KnowledgeBaseRowsTableProcessedTableManager? get defaultKnowledgeBaseId {
+    final $_column = $_itemColumn<String>('default_knowledge_base_id');
+    if ($_column == null) return null;
+    final manager = $$KnowledgeBaseRowsTableTableManager(
+      $_db,
+      $_db.knowledgeBaseRows,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(
+      _defaultKnowledgeBaseIdTable($_db),
+    );
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static $KnowledgeCategoryRowsTable _defaultCategoryIdTable(
+    _$StorageV2DriftDatabase db,
+  ) => db.knowledgeCategoryRows.createAlias(
+    'knowledge_settings__default_category_id__knowledge_categories__id',
+  );
+
+  $$KnowledgeCategoryRowsTableProcessedTableManager? get defaultCategoryId {
+    final $_column = $_itemColumn<String>('default_category_id');
+    if ($_column == null) return null;
+    final manager = $$KnowledgeCategoryRowsTableTableManager(
+      $_db,
+      $_db.knowledgeCategoryRows,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_defaultCategoryIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$KnowledgeSettingsRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $KnowledgeSettingsRowsTable> {
+  $$KnowledgeSettingsRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$KnowledgeBaseRowsTableFilterComposer get defaultKnowledgeBaseId {
+    final $$KnowledgeBaseRowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.defaultKnowledgeBaseId,
+      referencedTable: $db.knowledgeBaseRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$KnowledgeBaseRowsTableFilterComposer(
+            $db: $db,
+            $table: $db.knowledgeBaseRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$KnowledgeCategoryRowsTableFilterComposer get defaultCategoryId {
+    final $$KnowledgeCategoryRowsTableFilterComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.defaultCategoryId,
+          referencedTable: $db.knowledgeCategoryRows,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeCategoryRowsTableFilterComposer(
+                $db: $db,
+                $table: $db.knowledgeCategoryRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
+}
+
+class $$KnowledgeSettingsRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $KnowledgeSettingsRowsTable> {
+  $$KnowledgeSettingsRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$KnowledgeBaseRowsTableOrderingComposer get defaultKnowledgeBaseId {
+    final $$KnowledgeBaseRowsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.defaultKnowledgeBaseId,
+      referencedTable: $db.knowledgeBaseRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$KnowledgeBaseRowsTableOrderingComposer(
+            $db: $db,
+            $table: $db.knowledgeBaseRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$KnowledgeCategoryRowsTableOrderingComposer get defaultCategoryId {
+    final $$KnowledgeCategoryRowsTableOrderingComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.defaultCategoryId,
+          referencedTable: $db.knowledgeCategoryRows,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeCategoryRowsTableOrderingComposer(
+                $db: $db,
+                $table: $db.knowledgeCategoryRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
+}
+
+class $$KnowledgeSettingsRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $KnowledgeSettingsRowsTable> {
+  $$KnowledgeSettingsRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  $$KnowledgeBaseRowsTableAnnotationComposer get defaultKnowledgeBaseId {
+    final $$KnowledgeBaseRowsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.defaultKnowledgeBaseId,
+          referencedTable: $db.knowledgeBaseRows,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeBaseRowsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.knowledgeBaseRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
+
+  $$KnowledgeCategoryRowsTableAnnotationComposer get defaultCategoryId {
+    final $$KnowledgeCategoryRowsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.defaultCategoryId,
+          referencedTable: $db.knowledgeCategoryRows,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeCategoryRowsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.knowledgeCategoryRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
+}
+
+class $$KnowledgeSettingsRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $KnowledgeSettingsRowsTable,
+          KnowledgeSettingsRow,
+          $$KnowledgeSettingsRowsTableFilterComposer,
+          $$KnowledgeSettingsRowsTableOrderingComposer,
+          $$KnowledgeSettingsRowsTableAnnotationComposer,
+          $$KnowledgeSettingsRowsTableCreateCompanionBuilder,
+          $$KnowledgeSettingsRowsTableUpdateCompanionBuilder,
+          (KnowledgeSettingsRow, $$KnowledgeSettingsRowsTableReferences),
+          KnowledgeSettingsRow,
+          PrefetchHooks Function({
+            bool defaultKnowledgeBaseId,
+            bool defaultCategoryId,
+          })
+        > {
+  $$KnowledgeSettingsRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $KnowledgeSettingsRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$KnowledgeSettingsRowsTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$KnowledgeSettingsRowsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$KnowledgeSettingsRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<String?> defaultKnowledgeBaseId = const Value.absent(),
+                Value<String?> defaultCategoryId = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+              }) => KnowledgeSettingsRowsCompanion(
+                id: id,
+                defaultKnowledgeBaseId: defaultKnowledgeBaseId,
+                defaultCategoryId: defaultCategoryId,
+                updatedAt: updatedAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<String?> defaultKnowledgeBaseId = const Value.absent(),
+                Value<String?> defaultCategoryId = const Value.absent(),
+                required String updatedAt,
+              }) => KnowledgeSettingsRowsCompanion.insert(
+                id: id,
+                defaultKnowledgeBaseId: defaultKnowledgeBaseId,
+                defaultCategoryId: defaultCategoryId,
+                updatedAt: updatedAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$KnowledgeSettingsRowsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback:
+              ({defaultKnowledgeBaseId = false, defaultCategoryId = false}) {
+                return PrefetchHooks(
+                  db: db,
+                  explicitlyWatchedTables: [],
+                  addJoins:
+                      <
+                        T extends TableManagerState<
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic
+                        >
+                      >(state) {
+                        if (defaultKnowledgeBaseId) {
+                          state =
+                              state.withJoin(
+                                    currentTable: table,
+                                    currentColumn: table.defaultKnowledgeBaseId,
+                                    referencedTable:
+                                        $$KnowledgeSettingsRowsTableReferences
+                                            ._defaultKnowledgeBaseIdTable(db),
+                                    referencedColumn:
+                                        $$KnowledgeSettingsRowsTableReferences
+                                            ._defaultKnowledgeBaseIdTable(db)
+                                            .id,
+                                  )
+                                  as T;
+                        }
+                        if (defaultCategoryId) {
+                          state =
+                              state.withJoin(
+                                    currentTable: table,
+                                    currentColumn: table.defaultCategoryId,
+                                    referencedTable:
+                                        $$KnowledgeSettingsRowsTableReferences
+                                            ._defaultCategoryIdTable(db),
+                                    referencedColumn:
+                                        $$KnowledgeSettingsRowsTableReferences
+                                            ._defaultCategoryIdTable(db)
+                                            .id,
+                                  )
+                                  as T;
+                        }
+
+                        return state;
+                      },
+                  getPrefetchedDataCallback: (items) async {
+                    return [];
+                  },
+                );
+              },
+        ),
+      );
+}
+
+typedef $$KnowledgeSettingsRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $KnowledgeSettingsRowsTable,
+      KnowledgeSettingsRow,
+      $$KnowledgeSettingsRowsTableFilterComposer,
+      $$KnowledgeSettingsRowsTableOrderingComposer,
+      $$KnowledgeSettingsRowsTableAnnotationComposer,
+      $$KnowledgeSettingsRowsTableCreateCompanionBuilder,
+      $$KnowledgeSettingsRowsTableUpdateCompanionBuilder,
+      (KnowledgeSettingsRow, $$KnowledgeSettingsRowsTableReferences),
+      KnowledgeSettingsRow,
+      PrefetchHooks Function({
+        bool defaultKnowledgeBaseId,
+        bool defaultCategoryId,
+      })
+    >;
+typedef $$KnowledgeEntryRowsTableCreateCompanionBuilder =
+    KnowledgeEntryRowsCompanion Function({
+      required String id,
+      required String knowledgeBaseId,
+      Value<String?> categoryId,
+      required String title,
+      required String content,
+      Value<bool> enabled,
+      required int sortOrder,
+      required String createdAt,
+      required String updatedAt,
+      Value<int> rowid,
+    });
+typedef $$KnowledgeEntryRowsTableUpdateCompanionBuilder =
+    KnowledgeEntryRowsCompanion Function({
+      Value<String> id,
+      Value<String> knowledgeBaseId,
+      Value<String?> categoryId,
+      Value<String> title,
+      Value<String> content,
+      Value<bool> enabled,
+      Value<int> sortOrder,
+      Value<String> createdAt,
+      Value<String> updatedAt,
+      Value<int> rowid,
+    });
+
+final class $$KnowledgeEntryRowsTableReferences
+    extends
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $KnowledgeEntryRowsTable,
+          KnowledgeEntryRow
+        > {
+  $$KnowledgeEntryRowsTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $KnowledgeBaseRowsTable _knowledgeBaseIdTable(
+    _$StorageV2DriftDatabase db,
+  ) => db.knowledgeBaseRows.createAlias(
+    'knowledge_entries__knowledge_base_id__knowledge_bases__id',
+  );
+
+  $$KnowledgeBaseRowsTableProcessedTableManager get knowledgeBaseId {
+    final $_column = $_itemColumn<String>('knowledge_base_id')!;
+
+    final manager = $$KnowledgeBaseRowsTableTableManager(
+      $_db,
+      $_db.knowledgeBaseRows,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_knowledgeBaseIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static $KnowledgeCategoryRowsTable _categoryIdTable(
+    _$StorageV2DriftDatabase db,
+  ) => db.knowledgeCategoryRows.createAlias(
+    'knowledge_entries__category_id__knowledge_categories__id',
+  );
+
+  $$KnowledgeCategoryRowsTableProcessedTableManager? get categoryId {
+    final $_column = $_itemColumn<String>('category_id');
+    if ($_column == null) return null;
+    final manager = $$KnowledgeCategoryRowsTableTableManager(
+      $_db,
+      $_db.knowledgeCategoryRows,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_categoryIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static MultiTypedResultKey<
+    $KnowledgeSourceRowsTable,
+    List<KnowledgeSourceRow>
+  >
+  _knowledgeSourceRowsRefsTable(_$StorageV2DriftDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.knowledgeSourceRows,
+        aliasName: 'knowledge_entries__id__knowledge_sources__entry_id',
+      );
+
+  $$KnowledgeSourceRowsTableProcessedTableManager get knowledgeSourceRowsRefs {
+    final manager = $$KnowledgeSourceRowsTableTableManager(
+      $_db,
+      $_db.knowledgeSourceRows,
+    ).filter((f) => f.entryId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(
+      _knowledgeSourceRowsRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<
+    $KnowledgeExplanationRowsTable,
+    List<KnowledgeExplanationRow>
+  >
+  _knowledgeExplanationRowsRefsTable(_$StorageV2DriftDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.knowledgeExplanationRows,
+        aliasName: 'knowledge_entries__id__knowledge_explanations__entry_id',
+      );
+
+  $$KnowledgeExplanationRowsTableProcessedTableManager
+  get knowledgeExplanationRowsRefs {
+    final manager = $$KnowledgeExplanationRowsTableTableManager(
+      $_db,
+      $_db.knowledgeExplanationRows,
+    ).filter((f) => f.entryId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(
+      _knowledgeExplanationRowsRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+}
+
+class $$KnowledgeEntryRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $KnowledgeEntryRowsTable> {
+  $$KnowledgeEntryRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get content => $composableBuilder(
+    column: $table.content,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$KnowledgeBaseRowsTableFilterComposer get knowledgeBaseId {
+    final $$KnowledgeBaseRowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.knowledgeBaseId,
+      referencedTable: $db.knowledgeBaseRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$KnowledgeBaseRowsTableFilterComposer(
+            $db: $db,
+            $table: $db.knowledgeBaseRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$KnowledgeCategoryRowsTableFilterComposer get categoryId {
+    final $$KnowledgeCategoryRowsTableFilterComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.categoryId,
+          referencedTable: $db.knowledgeCategoryRows,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeCategoryRowsTableFilterComposer(
+                $db: $db,
+                $table: $db.knowledgeCategoryRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
+
+  Expression<bool> knowledgeSourceRowsRefs(
+    Expression<bool> Function($$KnowledgeSourceRowsTableFilterComposer f) f,
+  ) {
+    final $$KnowledgeSourceRowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.knowledgeSourceRows,
+      getReferencedColumn: (t) => t.entryId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$KnowledgeSourceRowsTableFilterComposer(
+            $db: $db,
+            $table: $db.knowledgeSourceRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> knowledgeExplanationRowsRefs(
+    Expression<bool> Function($$KnowledgeExplanationRowsTableFilterComposer f)
+    f,
+  ) {
+    final $$KnowledgeExplanationRowsTableFilterComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.knowledgeExplanationRows,
+          getReferencedColumn: (t) => t.entryId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeExplanationRowsTableFilterComposer(
+                $db: $db,
+                $table: $db.knowledgeExplanationRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
+}
+
+class $$KnowledgeEntryRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $KnowledgeEntryRowsTable> {
+  $$KnowledgeEntryRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get content => $composableBuilder(
+    column: $table.content,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$KnowledgeBaseRowsTableOrderingComposer get knowledgeBaseId {
+    final $$KnowledgeBaseRowsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.knowledgeBaseId,
+      referencedTable: $db.knowledgeBaseRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$KnowledgeBaseRowsTableOrderingComposer(
+            $db: $db,
+            $table: $db.knowledgeBaseRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$KnowledgeCategoryRowsTableOrderingComposer get categoryId {
+    final $$KnowledgeCategoryRowsTableOrderingComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.categoryId,
+          referencedTable: $db.knowledgeCategoryRows,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeCategoryRowsTableOrderingComposer(
+                $db: $db,
+                $table: $db.knowledgeCategoryRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
+}
+
+class $$KnowledgeEntryRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $KnowledgeEntryRowsTable> {
+  $$KnowledgeEntryRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get title =>
+      $composableBuilder(column: $table.title, builder: (column) => column);
+
+  GeneratedColumn<String> get content =>
+      $composableBuilder(column: $table.content, builder: (column) => column);
+
+  GeneratedColumn<bool> get enabled =>
+      $composableBuilder(column: $table.enabled, builder: (column) => column);
+
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
+
+  GeneratedColumn<String> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  $$KnowledgeBaseRowsTableAnnotationComposer get knowledgeBaseId {
+    final $$KnowledgeBaseRowsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.knowledgeBaseId,
+          referencedTable: $db.knowledgeBaseRows,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeBaseRowsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.knowledgeBaseRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
+
+  $$KnowledgeCategoryRowsTableAnnotationComposer get categoryId {
+    final $$KnowledgeCategoryRowsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.categoryId,
+          referencedTable: $db.knowledgeCategoryRows,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeCategoryRowsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.knowledgeCategoryRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
+
+  Expression<T> knowledgeSourceRowsRefs<T extends Object>(
+    Expression<T> Function($$KnowledgeSourceRowsTableAnnotationComposer a) f,
+  ) {
+    final $$KnowledgeSourceRowsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.knowledgeSourceRows,
+          getReferencedColumn: (t) => t.entryId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeSourceRowsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.knowledgeSourceRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
+
+  Expression<T> knowledgeExplanationRowsRefs<T extends Object>(
+    Expression<T> Function($$KnowledgeExplanationRowsTableAnnotationComposer a)
+    f,
+  ) {
+    final $$KnowledgeExplanationRowsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.knowledgeExplanationRows,
+          getReferencedColumn: (t) => t.entryId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeExplanationRowsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.knowledgeExplanationRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
+}
+
+class $$KnowledgeEntryRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $KnowledgeEntryRowsTable,
+          KnowledgeEntryRow,
+          $$KnowledgeEntryRowsTableFilterComposer,
+          $$KnowledgeEntryRowsTableOrderingComposer,
+          $$KnowledgeEntryRowsTableAnnotationComposer,
+          $$KnowledgeEntryRowsTableCreateCompanionBuilder,
+          $$KnowledgeEntryRowsTableUpdateCompanionBuilder,
+          (KnowledgeEntryRow, $$KnowledgeEntryRowsTableReferences),
+          KnowledgeEntryRow,
+          PrefetchHooks Function({
+            bool knowledgeBaseId,
+            bool categoryId,
+            bool knowledgeSourceRowsRefs,
+            bool knowledgeExplanationRowsRefs,
+          })
+        > {
+  $$KnowledgeEntryRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $KnowledgeEntryRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$KnowledgeEntryRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$KnowledgeEntryRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$KnowledgeEntryRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> knowledgeBaseId = const Value.absent(),
+                Value<String?> categoryId = const Value.absent(),
+                Value<String> title = const Value.absent(),
+                Value<String> content = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                Value<String> createdAt = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => KnowledgeEntryRowsCompanion(
+                id: id,
+                knowledgeBaseId: knowledgeBaseId,
+                categoryId: categoryId,
+                title: title,
+                content: content,
+                enabled: enabled,
+                sortOrder: sortOrder,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String knowledgeBaseId,
+                Value<String?> categoryId = const Value.absent(),
+                required String title,
+                required String content,
+                Value<bool> enabled = const Value.absent(),
+                required int sortOrder,
+                required String createdAt,
+                required String updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => KnowledgeEntryRowsCompanion.insert(
+                id: id,
+                knowledgeBaseId: knowledgeBaseId,
+                categoryId: categoryId,
+                title: title,
+                content: content,
+                enabled: enabled,
+                sortOrder: sortOrder,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$KnowledgeEntryRowsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback:
+              ({
+                knowledgeBaseId = false,
+                categoryId = false,
+                knowledgeSourceRowsRefs = false,
+                knowledgeExplanationRowsRefs = false,
+              }) {
+                return PrefetchHooks(
+                  db: db,
+                  explicitlyWatchedTables: [
+                    if (knowledgeSourceRowsRefs) db.knowledgeSourceRows,
+                    if (knowledgeExplanationRowsRefs)
+                      db.knowledgeExplanationRows,
+                  ],
+                  addJoins:
+                      <
+                        T extends TableManagerState<
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic
+                        >
+                      >(state) {
+                        if (knowledgeBaseId) {
+                          state =
+                              state.withJoin(
+                                    currentTable: table,
+                                    currentColumn: table.knowledgeBaseId,
+                                    referencedTable:
+                                        $$KnowledgeEntryRowsTableReferences
+                                            ._knowledgeBaseIdTable(db),
+                                    referencedColumn:
+                                        $$KnowledgeEntryRowsTableReferences
+                                            ._knowledgeBaseIdTable(db)
+                                            .id,
+                                  )
+                                  as T;
+                        }
+                        if (categoryId) {
+                          state =
+                              state.withJoin(
+                                    currentTable: table,
+                                    currentColumn: table.categoryId,
+                                    referencedTable:
+                                        $$KnowledgeEntryRowsTableReferences
+                                            ._categoryIdTable(db),
+                                    referencedColumn:
+                                        $$KnowledgeEntryRowsTableReferences
+                                            ._categoryIdTable(db)
+                                            .id,
+                                  )
+                                  as T;
+                        }
+
+                        return state;
+                      },
+                  getPrefetchedDataCallback: (items) async {
+                    return [
+                      if (knowledgeSourceRowsRefs)
+                        await $_getPrefetchedData<
+                          KnowledgeEntryRow,
+                          $KnowledgeEntryRowsTable,
+                          KnowledgeSourceRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$KnowledgeEntryRowsTableReferences
+                              ._knowledgeSourceRowsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$KnowledgeEntryRowsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).knowledgeSourceRowsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.entryId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                      if (knowledgeExplanationRowsRefs)
+                        await $_getPrefetchedData<
+                          KnowledgeEntryRow,
+                          $KnowledgeEntryRowsTable,
+                          KnowledgeExplanationRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$KnowledgeEntryRowsTableReferences
+                              ._knowledgeExplanationRowsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$KnowledgeEntryRowsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).knowledgeExplanationRowsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.entryId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                    ];
+                  },
+                );
+              },
+        ),
+      );
+}
+
+typedef $$KnowledgeEntryRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $KnowledgeEntryRowsTable,
+      KnowledgeEntryRow,
+      $$KnowledgeEntryRowsTableFilterComposer,
+      $$KnowledgeEntryRowsTableOrderingComposer,
+      $$KnowledgeEntryRowsTableAnnotationComposer,
+      $$KnowledgeEntryRowsTableCreateCompanionBuilder,
+      $$KnowledgeEntryRowsTableUpdateCompanionBuilder,
+      (KnowledgeEntryRow, $$KnowledgeEntryRowsTableReferences),
+      KnowledgeEntryRow,
+      PrefetchHooks Function({
+        bool knowledgeBaseId,
+        bool categoryId,
+        bool knowledgeSourceRowsRefs,
+        bool knowledgeExplanationRowsRefs,
+      })
+    >;
+typedef $$KnowledgeSourceRowsTableCreateCompanionBuilder =
+    KnowledgeSourceRowsCompanion Function({
+      required String id,
+      required String knowledgeBaseId,
+      required String entryId,
+      required String title,
+      Value<String?> url,
+      Value<String?> note,
+      required int sortOrder,
+      required String createdAt,
+      required String updatedAt,
+      Value<int> rowid,
+    });
+typedef $$KnowledgeSourceRowsTableUpdateCompanionBuilder =
+    KnowledgeSourceRowsCompanion Function({
+      Value<String> id,
+      Value<String> knowledgeBaseId,
+      Value<String> entryId,
+      Value<String> title,
+      Value<String?> url,
+      Value<String?> note,
+      Value<int> sortOrder,
+      Value<String> createdAt,
+      Value<String> updatedAt,
+      Value<int> rowid,
+    });
+
+final class $$KnowledgeSourceRowsTableReferences
+    extends
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $KnowledgeSourceRowsTable,
+          KnowledgeSourceRow
+        > {
+  $$KnowledgeSourceRowsTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $KnowledgeBaseRowsTable _knowledgeBaseIdTable(
+    _$StorageV2DriftDatabase db,
+  ) => db.knowledgeBaseRows.createAlias(
+    'knowledge_sources__knowledge_base_id__knowledge_bases__id',
+  );
+
+  $$KnowledgeBaseRowsTableProcessedTableManager get knowledgeBaseId {
+    final $_column = $_itemColumn<String>('knowledge_base_id')!;
+
+    final manager = $$KnowledgeBaseRowsTableTableManager(
+      $_db,
+      $_db.knowledgeBaseRows,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_knowledgeBaseIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static $KnowledgeEntryRowsTable _entryIdTable(_$StorageV2DriftDatabase db) =>
+      db.knowledgeEntryRows.createAlias(
+        'knowledge_sources__entry_id__knowledge_entries__id',
+      );
+
+  $$KnowledgeEntryRowsTableProcessedTableManager get entryId {
+    final $_column = $_itemColumn<String>('entry_id')!;
+
+    final manager = $$KnowledgeEntryRowsTableTableManager(
+      $_db,
+      $_db.knowledgeEntryRows,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_entryIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$KnowledgeSourceRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $KnowledgeSourceRowsTable> {
+  $$KnowledgeSourceRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get url => $composableBuilder(
+    column: $table.url,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get note => $composableBuilder(
+    column: $table.note,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$KnowledgeBaseRowsTableFilterComposer get knowledgeBaseId {
+    final $$KnowledgeBaseRowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.knowledgeBaseId,
+      referencedTable: $db.knowledgeBaseRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$KnowledgeBaseRowsTableFilterComposer(
+            $db: $db,
+            $table: $db.knowledgeBaseRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$KnowledgeEntryRowsTableFilterComposer get entryId {
+    final $$KnowledgeEntryRowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.entryId,
+      referencedTable: $db.knowledgeEntryRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$KnowledgeEntryRowsTableFilterComposer(
+            $db: $db,
+            $table: $db.knowledgeEntryRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$KnowledgeSourceRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $KnowledgeSourceRowsTable> {
+  $$KnowledgeSourceRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get url => $composableBuilder(
+    column: $table.url,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get note => $composableBuilder(
+    column: $table.note,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$KnowledgeBaseRowsTableOrderingComposer get knowledgeBaseId {
+    final $$KnowledgeBaseRowsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.knowledgeBaseId,
+      referencedTable: $db.knowledgeBaseRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$KnowledgeBaseRowsTableOrderingComposer(
+            $db: $db,
+            $table: $db.knowledgeBaseRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$KnowledgeEntryRowsTableOrderingComposer get entryId {
+    final $$KnowledgeEntryRowsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.entryId,
+      referencedTable: $db.knowledgeEntryRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$KnowledgeEntryRowsTableOrderingComposer(
+            $db: $db,
+            $table: $db.knowledgeEntryRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$KnowledgeSourceRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $KnowledgeSourceRowsTable> {
+  $$KnowledgeSourceRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get title =>
+      $composableBuilder(column: $table.title, builder: (column) => column);
+
+  GeneratedColumn<String> get url =>
+      $composableBuilder(column: $table.url, builder: (column) => column);
+
+  GeneratedColumn<String> get note =>
+      $composableBuilder(column: $table.note, builder: (column) => column);
+
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
+
+  GeneratedColumn<String> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  $$KnowledgeBaseRowsTableAnnotationComposer get knowledgeBaseId {
+    final $$KnowledgeBaseRowsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.knowledgeBaseId,
+          referencedTable: $db.knowledgeBaseRows,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeBaseRowsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.knowledgeBaseRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
+
+  $$KnowledgeEntryRowsTableAnnotationComposer get entryId {
+    final $$KnowledgeEntryRowsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.entryId,
+          referencedTable: $db.knowledgeEntryRows,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeEntryRowsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.knowledgeEntryRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
+}
+
+class $$KnowledgeSourceRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $KnowledgeSourceRowsTable,
+          KnowledgeSourceRow,
+          $$KnowledgeSourceRowsTableFilterComposer,
+          $$KnowledgeSourceRowsTableOrderingComposer,
+          $$KnowledgeSourceRowsTableAnnotationComposer,
+          $$KnowledgeSourceRowsTableCreateCompanionBuilder,
+          $$KnowledgeSourceRowsTableUpdateCompanionBuilder,
+          (KnowledgeSourceRow, $$KnowledgeSourceRowsTableReferences),
+          KnowledgeSourceRow,
+          PrefetchHooks Function({bool knowledgeBaseId, bool entryId})
+        > {
+  $$KnowledgeSourceRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $KnowledgeSourceRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$KnowledgeSourceRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$KnowledgeSourceRowsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$KnowledgeSourceRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> knowledgeBaseId = const Value.absent(),
+                Value<String> entryId = const Value.absent(),
+                Value<String> title = const Value.absent(),
+                Value<String?> url = const Value.absent(),
+                Value<String?> note = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                Value<String> createdAt = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => KnowledgeSourceRowsCompanion(
+                id: id,
+                knowledgeBaseId: knowledgeBaseId,
+                entryId: entryId,
+                title: title,
+                url: url,
+                note: note,
+                sortOrder: sortOrder,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String knowledgeBaseId,
+                required String entryId,
+                required String title,
+                Value<String?> url = const Value.absent(),
+                Value<String?> note = const Value.absent(),
+                required int sortOrder,
+                required String createdAt,
+                required String updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => KnowledgeSourceRowsCompanion.insert(
+                id: id,
+                knowledgeBaseId: knowledgeBaseId,
+                entryId: entryId,
+                title: title,
+                url: url,
+                note: note,
+                sortOrder: sortOrder,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$KnowledgeSourceRowsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({knowledgeBaseId = false, entryId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (knowledgeBaseId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.knowledgeBaseId,
+                                referencedTable:
+                                    $$KnowledgeSourceRowsTableReferences
+                                        ._knowledgeBaseIdTable(db),
+                                referencedColumn:
+                                    $$KnowledgeSourceRowsTableReferences
+                                        ._knowledgeBaseIdTable(db)
+                                        .id,
+                              )
+                              as T;
+                    }
+                    if (entryId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.entryId,
+                                referencedTable:
+                                    $$KnowledgeSourceRowsTableReferences
+                                        ._entryIdTable(db),
+                                referencedColumn:
+                                    $$KnowledgeSourceRowsTableReferences
+                                        ._entryIdTable(db)
+                                        .id,
+                              )
+                              as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$KnowledgeSourceRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $KnowledgeSourceRowsTable,
+      KnowledgeSourceRow,
+      $$KnowledgeSourceRowsTableFilterComposer,
+      $$KnowledgeSourceRowsTableOrderingComposer,
+      $$KnowledgeSourceRowsTableAnnotationComposer,
+      $$KnowledgeSourceRowsTableCreateCompanionBuilder,
+      $$KnowledgeSourceRowsTableUpdateCompanionBuilder,
+      (KnowledgeSourceRow, $$KnowledgeSourceRowsTableReferences),
+      KnowledgeSourceRow,
+      PrefetchHooks Function({bool knowledgeBaseId, bool entryId})
+    >;
+typedef $$KnowledgeExplanationRowsTableCreateCompanionBuilder =
+    KnowledgeExplanationRowsCompanion Function({
+      required String id,
+      required String knowledgeBaseId,
+      required String entryId,
+      required String title,
+      required String content,
+      required int sortOrder,
+      required String createdAt,
+      required String updatedAt,
+      Value<int> rowid,
+    });
+typedef $$KnowledgeExplanationRowsTableUpdateCompanionBuilder =
+    KnowledgeExplanationRowsCompanion Function({
+      Value<String> id,
+      Value<String> knowledgeBaseId,
+      Value<String> entryId,
+      Value<String> title,
+      Value<String> content,
+      Value<int> sortOrder,
+      Value<String> createdAt,
+      Value<String> updatedAt,
+      Value<int> rowid,
+    });
+
+final class $$KnowledgeExplanationRowsTableReferences
+    extends
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $KnowledgeExplanationRowsTable,
+          KnowledgeExplanationRow
+        > {
+  $$KnowledgeExplanationRowsTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $KnowledgeBaseRowsTable _knowledgeBaseIdTable(
+    _$StorageV2DriftDatabase db,
+  ) => db.knowledgeBaseRows.createAlias(
+    'knowledge_explanations__knowledge_base_id__knowledge_bases__id',
+  );
+
+  $$KnowledgeBaseRowsTableProcessedTableManager get knowledgeBaseId {
+    final $_column = $_itemColumn<String>('knowledge_base_id')!;
+
+    final manager = $$KnowledgeBaseRowsTableTableManager(
+      $_db,
+      $_db.knowledgeBaseRows,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_knowledgeBaseIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static $KnowledgeEntryRowsTable _entryIdTable(_$StorageV2DriftDatabase db) =>
+      db.knowledgeEntryRows.createAlias(
+        'knowledge_explanations__entry_id__knowledge_entries__id',
+      );
+
+  $$KnowledgeEntryRowsTableProcessedTableManager get entryId {
+    final $_column = $_itemColumn<String>('entry_id')!;
+
+    final manager = $$KnowledgeEntryRowsTableTableManager(
+      $_db,
+      $_db.knowledgeEntryRows,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_entryIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$KnowledgeExplanationRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $KnowledgeExplanationRowsTable> {
+  $$KnowledgeExplanationRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get content => $composableBuilder(
+    column: $table.content,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$KnowledgeBaseRowsTableFilterComposer get knowledgeBaseId {
+    final $$KnowledgeBaseRowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.knowledgeBaseId,
+      referencedTable: $db.knowledgeBaseRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$KnowledgeBaseRowsTableFilterComposer(
+            $db: $db,
+            $table: $db.knowledgeBaseRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$KnowledgeEntryRowsTableFilterComposer get entryId {
+    final $$KnowledgeEntryRowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.entryId,
+      referencedTable: $db.knowledgeEntryRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$KnowledgeEntryRowsTableFilterComposer(
+            $db: $db,
+            $table: $db.knowledgeEntryRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$KnowledgeExplanationRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $KnowledgeExplanationRowsTable> {
+  $$KnowledgeExplanationRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get content => $composableBuilder(
+    column: $table.content,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$KnowledgeBaseRowsTableOrderingComposer get knowledgeBaseId {
+    final $$KnowledgeBaseRowsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.knowledgeBaseId,
+      referencedTable: $db.knowledgeBaseRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$KnowledgeBaseRowsTableOrderingComposer(
+            $db: $db,
+            $table: $db.knowledgeBaseRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$KnowledgeEntryRowsTableOrderingComposer get entryId {
+    final $$KnowledgeEntryRowsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.entryId,
+      referencedTable: $db.knowledgeEntryRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$KnowledgeEntryRowsTableOrderingComposer(
+            $db: $db,
+            $table: $db.knowledgeEntryRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$KnowledgeExplanationRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $KnowledgeExplanationRowsTable> {
+  $$KnowledgeExplanationRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get title =>
+      $composableBuilder(column: $table.title, builder: (column) => column);
+
+  GeneratedColumn<String> get content =>
+      $composableBuilder(column: $table.content, builder: (column) => column);
+
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
+
+  GeneratedColumn<String> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  $$KnowledgeBaseRowsTableAnnotationComposer get knowledgeBaseId {
+    final $$KnowledgeBaseRowsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.knowledgeBaseId,
+          referencedTable: $db.knowledgeBaseRows,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeBaseRowsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.knowledgeBaseRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
+
+  $$KnowledgeEntryRowsTableAnnotationComposer get entryId {
+    final $$KnowledgeEntryRowsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.entryId,
+          referencedTable: $db.knowledgeEntryRows,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$KnowledgeEntryRowsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.knowledgeEntryRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
+}
+
+class $$KnowledgeExplanationRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $KnowledgeExplanationRowsTable,
+          KnowledgeExplanationRow,
+          $$KnowledgeExplanationRowsTableFilterComposer,
+          $$KnowledgeExplanationRowsTableOrderingComposer,
+          $$KnowledgeExplanationRowsTableAnnotationComposer,
+          $$KnowledgeExplanationRowsTableCreateCompanionBuilder,
+          $$KnowledgeExplanationRowsTableUpdateCompanionBuilder,
+          (KnowledgeExplanationRow, $$KnowledgeExplanationRowsTableReferences),
+          KnowledgeExplanationRow,
+          PrefetchHooks Function({bool knowledgeBaseId, bool entryId})
+        > {
+  $$KnowledgeExplanationRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $KnowledgeExplanationRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$KnowledgeExplanationRowsTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$KnowledgeExplanationRowsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$KnowledgeExplanationRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> knowledgeBaseId = const Value.absent(),
+                Value<String> entryId = const Value.absent(),
+                Value<String> title = const Value.absent(),
+                Value<String> content = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                Value<String> createdAt = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => KnowledgeExplanationRowsCompanion(
+                id: id,
+                knowledgeBaseId: knowledgeBaseId,
+                entryId: entryId,
+                title: title,
+                content: content,
+                sortOrder: sortOrder,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String knowledgeBaseId,
+                required String entryId,
+                required String title,
+                required String content,
+                required int sortOrder,
+                required String createdAt,
+                required String updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => KnowledgeExplanationRowsCompanion.insert(
+                id: id,
+                knowledgeBaseId: knowledgeBaseId,
+                entryId: entryId,
+                title: title,
+                content: content,
+                sortOrder: sortOrder,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$KnowledgeExplanationRowsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({knowledgeBaseId = false, entryId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (knowledgeBaseId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.knowledgeBaseId,
+                                referencedTable:
+                                    $$KnowledgeExplanationRowsTableReferences
+                                        ._knowledgeBaseIdTable(db),
+                                referencedColumn:
+                                    $$KnowledgeExplanationRowsTableReferences
+                                        ._knowledgeBaseIdTable(db)
+                                        .id,
+                              )
+                              as T;
+                    }
+                    if (entryId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.entryId,
+                                referencedTable:
+                                    $$KnowledgeExplanationRowsTableReferences
+                                        ._entryIdTable(db),
+                                referencedColumn:
+                                    $$KnowledgeExplanationRowsTableReferences
+                                        ._entryIdTable(db)
+                                        .id,
+                              )
+                              as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$KnowledgeExplanationRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $KnowledgeExplanationRowsTable,
+      KnowledgeExplanationRow,
+      $$KnowledgeExplanationRowsTableFilterComposer,
+      $$KnowledgeExplanationRowsTableOrderingComposer,
+      $$KnowledgeExplanationRowsTableAnnotationComposer,
+      $$KnowledgeExplanationRowsTableCreateCompanionBuilder,
+      $$KnowledgeExplanationRowsTableUpdateCompanionBuilder,
+      (KnowledgeExplanationRow, $$KnowledgeExplanationRowsTableReferences),
+      KnowledgeExplanationRow,
+      PrefetchHooks Function({bool knowledgeBaseId, bool entryId})
     >;
 typedef $$CalendarEventRowsTableCreateCompanionBuilder =
     CalendarEventRowsCompanion Function({
@@ -34307,6 +41452,21 @@ class $StorageV2DriftDatabaseManager {
       $$TaskListRowsTableTableManager(_db, _db.taskListRows);
   $$TaskListEntryRowsTableTableManager get taskListEntryRows =>
       $$TaskListEntryRowsTableTableManager(_db, _db.taskListEntryRows);
+  $$KnowledgeBaseRowsTableTableManager get knowledgeBaseRows =>
+      $$KnowledgeBaseRowsTableTableManager(_db, _db.knowledgeBaseRows);
+  $$KnowledgeCategoryRowsTableTableManager get knowledgeCategoryRows =>
+      $$KnowledgeCategoryRowsTableTableManager(_db, _db.knowledgeCategoryRows);
+  $$KnowledgeSettingsRowsTableTableManager get knowledgeSettingsRows =>
+      $$KnowledgeSettingsRowsTableTableManager(_db, _db.knowledgeSettingsRows);
+  $$KnowledgeEntryRowsTableTableManager get knowledgeEntryRows =>
+      $$KnowledgeEntryRowsTableTableManager(_db, _db.knowledgeEntryRows);
+  $$KnowledgeSourceRowsTableTableManager get knowledgeSourceRows =>
+      $$KnowledgeSourceRowsTableTableManager(_db, _db.knowledgeSourceRows);
+  $$KnowledgeExplanationRowsTableTableManager get knowledgeExplanationRows =>
+      $$KnowledgeExplanationRowsTableTableManager(
+        _db,
+        _db.knowledgeExplanationRows,
+      );
   $$CalendarEventRowsTableTableManager get calendarEventRows =>
       $$CalendarEventRowsTableTableManager(_db, _db.calendarEventRows);
   $$AnniversaryRowsTableTableManager get anniversaryRows =>

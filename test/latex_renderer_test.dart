@@ -40,6 +40,23 @@ void main() {
     expect(href, 'https://dart.dev');
   });
 
+  testWidgets('MarkdownWithLatex keeps the default selection menu', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: MarkdownWithLatex(content: '可选择文本')),
+      ),
+    );
+
+    expect(
+      tester
+          .widget<SelectionArea>(find.byType(SelectionArea))
+          .contextMenuBuilder,
+      isNotNull,
+    );
+  });
+
   testWidgets('MarkdownWithLatex renders parenthesized inline latex', (
     WidgetTester tester,
   ) async {
@@ -51,6 +68,157 @@ void main() {
 
     expect(find.byType(Math), findsOneWidget);
     expect(find.textContaining(r'\(x^2 + 1\)'), findsNothing);
+  });
+
+  testWidgets(
+    'knowledge annotation resolves alias and reports final category',
+    (WidgetTester tester) async {
+      KnowledgeAnnotationRenderData? tapped;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MarkdownWithLatex(
+              content: '认识 [[person:张三]]',
+              knowledgeCategoryResolver: (value) =>
+                  value == 'person' ? 'people' : null,
+              onTapKnowledgeAnnotation: (value) => tapped = value,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('张三'), findsOneWidget);
+      expect(find.textContaining('[[person:张三]]'), findsNothing);
+      await tester.tap(find.text('张三'));
+      expect(tapped?.sourceCategory, 'person');
+      expect(tapped?.category, 'people');
+      expect(tapped?.text, '张三');
+    },
+  );
+
+  testWidgets('unknown annotation resolves the default category alias', (
+    WidgetTester tester,
+  ) async {
+    KnowledgeAnnotationRenderData? tapped;
+    final resolved = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MarkdownWithLatex(
+            content: '[[unknown:条目]]',
+            defaultKnowledgeCategory: 'general-alias',
+            knowledgeCategoryResolver: (value) {
+              resolved.add(value);
+              return value == 'general-alias' ? 'general' : null;
+            },
+            onTapKnowledgeAnnotation: (value) => tapped = value,
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('条目'));
+    expect(resolved, ['unknown', 'general-alias']);
+    expect(tapped?.category, 'general');
+  });
+
+  testWidgets('knowledge annotation uses the final category color', (
+    WidgetTester tester,
+  ) async {
+    const categoryColor = Color(0xFF7C3AED);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MarkdownWithLatex(
+            content: '[[person:张三]]',
+            knowledgeCategoryResolver: (value) => 'person-id',
+            knowledgeCategoryColorResolver: (value) =>
+                value == 'person-id' ? categoryColor : null,
+          ),
+        ),
+      ),
+    );
+
+    final text = tester.widget<Text>(find.text('张三'));
+    expect(text.style?.color, categoryColor);
+    expect(text.style?.decorationStyle, TextDecorationStyle.dotted);
+    final decoration =
+        tester
+                .widget<DecoratedBox>(
+                  find
+                      .ancestor(
+                        of: find.text('张三'),
+                        matching: find.byType(DecoratedBox),
+                      )
+                      .first,
+                )
+                .decoration
+            as BoxDecoration;
+    expect(decoration.color, categoryColor.withValues(alpha: 0.1));
+  });
+
+  testWidgets('knowledge annotations ignore code and keep streaming source', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: MarkdownWithLatex(
+            content:
+                '`[[person:inline]]`\n\n```text\n[[person:block]]\n```\n\n[[person:unfinished',
+          ),
+        ),
+      ),
+    );
+
+    expect(find.textContaining('[[person:inline]]'), findsWidgets);
+    expect(find.textContaining('[[person:block]]'), findsWidgets);
+    expect(find.textContaining('[[person:unfinished'), findsWidgets);
+    expect(find.text('inline'), findsNothing);
+    expect(find.text('block'), findsNothing);
+  });
+
+  testWidgets('pipe annotation variants remain literal text', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: MarkdownWithLatex(
+            content: '[[张三|person]] [[person|张三]] [[person:张三|李四]]',
+          ),
+        ),
+      ),
+    );
+
+    expect(find.textContaining('[[张三|person]]'), findsWidgets);
+    expect(find.textContaining('[[person|张三]]'), findsWidgets);
+    expect(find.textContaining('[[person:张三|李四]]'), findsWidgets);
+    expect(find.text('张三'), findsNothing);
+  });
+
+  testWidgets('zero knowledge category color falls back to theme primary', (
+    WidgetTester tester,
+  ) async {
+    const primary = Color(0xFF2468AC);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: primary)),
+        home: Scaffold(
+          body: MarkdownWithLatex(
+            content: '[[person:张三]]',
+            knowledgeCategoryResolver: (_) => 'person-id',
+            knowledgeCategoryColorResolver: (_) => null,
+          ),
+        ),
+      ),
+    );
+
+    final context = tester.element(find.text('张三'));
+    expect(
+      tester.widget<Text>(find.text('张三')).style?.color,
+      Theme.of(context).colorScheme.primary,
+    );
   });
 
   testWidgets('MarkdownWithLatex edit callback keeps block source range', (

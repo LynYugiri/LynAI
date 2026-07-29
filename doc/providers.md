@@ -399,3 +399,6 @@ roleplay, tasks, settings, models, then plugins, and reloads providers in the
 same deterministic sequence after a successful switch. Failed target activation
 rolls back to the previous dataset and leaves the target user unpublished.
 `AccountProvider.reconfigureBackend` is the coordinated backend configuration entry point. It awaits device/settings persistence, activates the local dataset and unbinds session-scoped sync state, then changes `BackendClient`; callers must await it before running backend-dependent model synchronization. Session invalidation callbacks are generation-checked so an older refresh rejection cannot clear a newer login.
+# KnowledgeProvider
+
+`KnowledgeProvider` 是知识库、类别、条目、来源和解释的唯一内存所有者。公开写操作串行执行，每次先捕获完整内存快照，再更新内存、通知 UI 并持久化；持久化失败时恢复快照、再次通知并向调用方抛出错误，因而单次 mutation 不会留下只存在于内存的状态。它提供默认类别和 alias 查询、聊天标注 prompt 快照、行级 CRUD、完整分区替换及 `flushPendingSaves()`。删除知识库时会显式删除全部子行，以便云和 LAN 同步生成完整 tombstone，而不只依赖 SQLite cascade。

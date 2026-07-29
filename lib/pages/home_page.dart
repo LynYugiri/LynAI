@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
+import '../widgets/chat_composer_keyboard.dart';
 import 'community_page.dart';
 import 'feature_page.dart';
 import 'chat_page.dart';
@@ -239,46 +240,48 @@ class _HomePageState extends State<HomePage> {
       ),
     );
 
-    if (!hasImage) return scaffold;
-
-    final transparentScaffold = Theme(
-      data: Theme.of(
-        context,
-      ).copyWith(scaffoldBackgroundColor: Colors.transparent),
-      child: scaffold,
-    );
-
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Image.file(
-          File(settings.backgroundImagePath!),
-          fit: BoxFit.cover,
-          errorBuilder: (_, _, _) => const SizedBox.shrink(),
-        ),
-        if (settings.blurEnabled)
-          Positioned.fill(
-            child: BackdropFilter(
-              filter: ui.ImageFilter.blur(
-                sigmaX: settings.blurAmount,
-                sigmaY: settings.blurAmount,
+    final page = !hasImage
+        ? scaffold
+        : Stack(
+            fit: StackFit.expand,
+            children: [
+              Image.file(
+                File(settings.backgroundImagePath!),
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => const SizedBox.shrink(),
               ),
-              child: Container(
-                color: (isDark ? Colors.black : Colors.white).withValues(
-                  alpha: 0.3,
+              if (settings.blurEnabled)
+                Positioned.fill(
+                  child: BackdropFilter(
+                    filter: ui.ImageFilter.blur(
+                      sigmaX: settings.blurAmount,
+                      sigmaY: settings.blurAmount,
+                    ),
+                    child: Container(
+                      color: (isDark ? Colors.black : Colors.white).withValues(
+                        alpha: 0.3,
+                      ),
+                    ),
+                  ),
+                ),
+              Positioned.fill(
+                child: Container(
+                  color: (isDark ? Colors.black : Colors.white).withValues(
+                    alpha: settings.blurEnabled ? 0.2 : 0.55,
+                  ),
                 ),
               ),
-            ),
-          ),
-        Positioned.fill(
-          child: Container(
-            color: (isDark ? Colors.black : Colors.white).withValues(
-              alpha: settings.blurEnabled ? 0.2 : 0.55,
-            ),
-          ),
-        ),
-        transparentScaffold,
-      ],
+              Theme(
+                data: Theme.of(
+                  context,
+                ).copyWith(scaffoldBackgroundColor: Colors.transparent),
+                child: scaffold,
+              ),
+            ],
+          );
+    return DesktopEscapeBackScope(
+      onBack: () => _handleRootBack(false),
+      child: page,
     );
   }
 }

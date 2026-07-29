@@ -125,6 +125,10 @@ void main() {
     try {
       await StorageV2UpgradeService(storageV2: storage).ensureReady();
       await storage.activateSyncScope('user-1', deviceId: 'device-1');
+      await storage.acknowledgeSyncOutbox(
+        'user-1',
+        await storage.loadSyncOutbox('user-1'),
+      );
       final repository = ModelConfigRepository(
         storageV2: storage,
         secretStore: InMemorySecretStore(),
@@ -430,7 +434,7 @@ void main() {
                   ),
                 )
                 as Map<String, dynamic>;
-        expect(jsonFile('manifest.json')['schemaVersion'], 10);
+        expect(jsonFile('manifest.json')['schemaVersion'], 12);
         final manifest = jsonFile('manifest.json');
         expect(jsonEncode(manifest), isNot(contains(root.path)));
         expect(jsonEncode(manifest), isNot(contains('originalPath')));

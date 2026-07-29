@@ -76,6 +76,7 @@ class LanSyncCoordinator {
     required this.confirmPairing,
     required this.confirmPolicyProposal,
     required this.readModels,
+    this.beforeLocalSnapshot,
     this.beforeRemoteApply,
     this.onRemoteApplied,
     RemoteApplyCoordinator? remoteApplyCoordinator,
@@ -95,6 +96,7 @@ class LanSyncCoordinator {
   LanPairingConfirmation confirmPairing;
   LanPolicyConfirmation confirmPolicyProposal;
   final LanModelReader readModels;
+  final Future<void> Function()? beforeLocalSnapshot;
   final Future<void> Function()? beforeRemoteApply;
   final Future<void> Function()? onRemoteApplied;
   final RemoteApplyCoordinator remoteApplyCoordinator;
@@ -1176,6 +1178,7 @@ class LanSyncCoordinator {
     SyncDataSelection selection, {
     required bool initiator,
   }) async {
+    await beforeLocalSnapshot?.call();
     if (initiator) {
       await _sendChanges(transport, peerDeviceId, selection);
       await _receiveChanges(transport, peerDeviceId, selection);

@@ -540,6 +540,7 @@ class _LanSyncPageState extends State<LanSyncPage> {
     SyncDataCategory.conversations => '对话与附件元数据',
     SyncDataCategory.notes => '笔记',
     SyncDataCategory.tasks => '任务',
+    SyncDataCategory.knowledge => '知识库',
     SyncDataCategory.calendar => '日历',
     SyncDataCategory.roleplay => '角色扮演',
     SyncDataCategory.settings => '设置',

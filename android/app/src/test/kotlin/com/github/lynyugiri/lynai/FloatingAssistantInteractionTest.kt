@@ -3,8 +3,74 @@ package com.github.lynyugiri.lynai
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import android.view.KeyEvent
 
 class FloatingAssistantInteractionTest {
+    @Test
+    fun backOnlyCollapsesPanelAfterKeyboardIsClosed() {
+        assertEquals(
+            false,
+            FloatingAssistantInteraction.shouldCollapsePanelOnBack(
+                KeyEvent.ACTION_UP,
+                imeVisible = true
+            )
+        )
+        assertEquals(
+            true,
+            FloatingAssistantInteraction.shouldCollapsePanelOnBack(
+                KeyEvent.ACTION_UP,
+                imeVisible = false
+            )
+        )
+        assertEquals(
+            false,
+            FloatingAssistantInteraction.shouldCollapsePanelOnBack(
+                KeyEvent.ACTION_DOWN,
+                imeVisible = false
+            )
+        )
+    }
+
+    @Test
+    fun floatingComposerOnlySendsOnControlEnterKeyDown() {
+        assertEquals(
+            true,
+            FloatingAssistantInteraction.shouldSendComposerKey(
+                KeyEvent.KEYCODE_ENTER,
+                KeyEvent.ACTION_DOWN,
+                controlPressed = true,
+                composing = false
+            )
+        )
+        assertEquals(
+            false,
+            FloatingAssistantInteraction.shouldSendComposerKey(
+                KeyEvent.KEYCODE_ENTER,
+                KeyEvent.ACTION_DOWN,
+                controlPressed = false,
+                composing = false
+            )
+        )
+        assertEquals(
+            false,
+            FloatingAssistantInteraction.shouldSendComposerKey(
+                KeyEvent.KEYCODE_ENTER,
+                KeyEvent.ACTION_DOWN,
+                controlPressed = true,
+                composing = true
+            )
+        )
+        assertEquals(
+            false,
+            FloatingAssistantInteraction.shouldSendComposerKey(
+                KeyEvent.KEYCODE_ENTER,
+                KeyEvent.ACTION_UP,
+                controlPressed = true,
+                composing = false
+            )
+        )
+    }
+
     @Test
     fun buildsNormalizedTextAndChoiceAnswers() {
         assertEquals(

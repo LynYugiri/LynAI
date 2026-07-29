@@ -1,5 +1,4 @@
-import 'dart:io' show Platform;
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -19,12 +18,15 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final provider = context.watch<SettingsProvider>();
     final settings = provider.settings.floatingAssistant;
+    final isAndroid =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+    final enabled = isAndroid && settings.enabled;
     return Scaffold(
       appBar: AppBar(title: const Text('悬浮窗'), centerTitle: true),
       body: ListView(
         padding: const EdgeInsets.symmetric(vertical: 8),
         children: [
-          if (!Platform.isAndroid) const _UnsupportedPlatformCard(),
+          if (!isAndroid) const _UnsupportedPlatformCard(),
           _section(
             context,
             '基础',
@@ -32,8 +34,8 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
               SwitchListTile(
                 title: const Text('启用悬浮助手'),
                 subtitle: const Text('仅 Android 支持系统级悬浮窗'),
-                value: settings.enabled && Platform.isAndroid,
-                onChanged: Platform.isAndroid
+                value: enabled,
+                onChanged: isAndroid
                     ? (value) =>
                           _update(context, settings.copyWith(enabled: value))
                     : null,
@@ -42,7 +44,7 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
                 title: const Text('后台显示悬浮球'),
                 subtitle: const Text('LynAI 退到后台后显示可拖拽入口'),
                 value: settings.showBubbleInBackground,
-                onChanged: settings.enabled
+                onChanged: enabled
                     ? (value) => _update(
                         context,
                         settings.copyWith(showBubbleInBackground: value),
@@ -53,7 +55,7 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
                 title: const Text('显示 Agent 任务面板'),
                 subtitle: const Text('仅 Agent 执行时展示 Plan；暂停时才显示继续'),
                 value: settings.showAgentPlan,
-                onChanged: settings.enabled
+                onChanged: enabled
                     ? (value) => _update(
                         context,
                         settings.copyWith(showAgentPlan: value),
@@ -71,18 +73,16 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
                 title: const Text('悬浮窗权限'),
                 subtitle: const Text('允许 LynAI 在其他应用上方显示悬浮球和面板'),
                 trailing: const Icon(Icons.open_in_new),
-                enabled: Platform.isAndroid,
-                onTap: Platform.isAndroid
-                    ? () => _openDeviceSettings('overlay')
-                    : null,
+                enabled: isAndroid,
+                onTap: isAndroid ? () => _openDeviceSettings('overlay') : null,
               ),
               ListTile(
                 leading: const Icon(Icons.accessibility_new_outlined),
                 title: const Text('无障碍服务'),
                 subtitle: const Text('模型按需读取当前页面和屏幕翻译需要开启'),
                 trailing: const Icon(Icons.open_in_new),
-                enabled: Platform.isAndroid,
-                onTap: Platform.isAndroid
+                enabled: isAndroid,
+                onTap: isAndroid
                     ? () => _openDeviceSettings('accessibility')
                     : null,
               ),
@@ -96,7 +96,7 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
                 title: const Text('允许模型按需读取当前页面'),
                 subtitle: const Text('悬浮聊天中，模型只在问题依赖当前页面时调用读取接口'),
                 value: settings.allowScreenContext,
-                onChanged: settings.enabled
+                onChanged: enabled
                     ? (value) => _update(
                         context,
                         settings.copyWith(allowScreenContext: value),
@@ -110,7 +110,7 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
                   FloatingAssistantSettings.screenContextManual: '手动附带',
                   FloatingAssistantSettings.screenContextDisabled: '关闭',
                 },
-                enabled: settings.enabled && settings.allowScreenContext,
+                enabled: enabled && settings.allowScreenContext,
                 onChanged: (value) => _update(
                   context,
                   settings.copyWith(screenContextMode: value),
@@ -124,7 +124,7 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
                   FloatingAssistantSettings.voiceInputServer: '服务端语音转文字',
                   FloatingAssistantSettings.voiceInputDisabled: '关闭',
                 },
-                enabled: settings.enabled,
+                enabled: enabled,
                 onChanged: (value) =>
                     _update(context, settings.copyWith(voiceInputMode: value)),
               ),
@@ -138,7 +138,7 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
                 title: const Text('显示屏幕翻译模式'),
                 subtitle: const Text('提供一次翻译和停止滚动后自动翻译'),
                 value: settings.showMangaTranslationAction,
-                onChanged: settings.enabled
+                onChanged: enabled
                     ? (value) => _update(
                         context,
                         settings.copyWith(showMangaTranslationAction: value),
@@ -159,8 +159,7 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
                   'es': 'Español',
                   'ru': 'Русский',
                 },
-                enabled:
-                    settings.enabled && settings.showMangaTranslationAction,
+                enabled: enabled && settings.showMangaTranslationAction,
                 onChanged: (value) => _update(
                   context,
                   settings.copyWith(mangaTargetLanguage: value),
@@ -174,8 +173,7 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
                   FloatingAssistantSettings.mangaLayoutHorizontal: '横排优先',
                   FloatingAssistantSettings.mangaLayoutVertical: '竖排优先',
                 },
-                enabled:
-                    settings.enabled && settings.showMangaTranslationAction,
+                enabled: enabled && settings.showMangaTranslationAction,
                 onChanged: (value) =>
                     _update(context, settings.copyWith(mangaLayoutMode: value)),
               ),
@@ -188,8 +186,7 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
                   FloatingAssistantSettings.mangaOverlayDark: '黑底白字',
                   FloatingAssistantSettings.mangaOverlayStroke: '透明描边',
                 },
-                enabled:
-                    settings.enabled && settings.showMangaTranslationAction,
+                enabled: enabled && settings.showMangaTranslationAction,
                 onChanged: (value) => _update(
                   context,
                   settings.copyWith(mangaOverlayStyle: value),
@@ -203,8 +200,7 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
                   max: 1.0,
                   divisions: 8,
                   label: '${(settings.mangaOverlayOpacity * 100).round()}%',
-                  onChanged:
-                      settings.enabled && settings.showMangaTranslationAction
+                  onChanged: enabled && settings.showMangaTranslationAction
                       ? (value) => _update(
                           context,
                           settings.copyWith(mangaOverlayOpacity: value),
@@ -212,7 +208,7 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
                       : null,
                 ),
               ),
-              _TranslationModelTile(settings),
+              _TranslationModelTile(settings, platformEnabled: enabled),
               ListTile(
                 leading: const Icon(Icons.block),
                 title: const Text('屏蔽应用包名'),
@@ -221,22 +217,17 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
                       ? '不屏蔽任何应用'
                       : '已屏蔽 ${settings.blockedPackages.length} 个应用',
                 ),
-                enabled:
-                    Platform.isAndroid &&
-                    settings.enabled &&
-                    settings.showMangaTranslationAction,
-                onTap: Platform.isAndroid
+                enabled: enabled && settings.showMangaTranslationAction,
+                onTap: enabled && settings.showMangaTranslationAction
                     ? () => _editBlockedPackages(context, settings)
                     : null,
               ),
               ListTile(
                 leading: const Icon(Icons.history),
                 title: const Text('翻译历史'),
-                subtitle: Text(
-                  Platform.isAndroid ? '查看最近的屏幕翻译记录' : '仅 Android 可用',
-                ),
-                enabled: Platform.isAndroid,
-                onTap: Platform.isAndroid ? () => _openHistory(context) : null,
+                subtitle: Text(isAndroid ? '查看最近的屏幕翻译记录' : '仅 Android 可用'),
+                enabled: isAndroid,
+                onTap: isAndroid ? () => _openHistory(context) : null,
               ),
             ],
           ),
@@ -248,8 +239,8 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
                 leading: const Icon(Icons.restart_alt),
                 title: const Text('重置悬浮窗位置'),
                 subtitle: const Text('清除记住的气泡和面板位置，恢复默认'),
-                enabled: Platform.isAndroid,
-                onTap: Platform.isAndroid
+                enabled: isAndroid,
+                onTap: isAndroid
                     ? () => _update(
                         context,
                         settings.copyWith(
@@ -384,9 +375,10 @@ class FloatingAssistantSettingsPage extends StatelessWidget {
 }
 
 class _TranslationModelTile extends StatelessWidget {
-  const _TranslationModelTile(this.settings);
+  const _TranslationModelTile(this.settings, {required this.platformEnabled});
 
   final FloatingAssistantSettings settings;
+  final bool platformEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -400,7 +392,7 @@ class _TranslationModelTile extends StatelessWidget {
     final selected = currentId == null || currentId.isEmpty
         ? null
         : chatModels.firstWhere((m) => m.id == currentId);
-    final enabled = settings.enabled && settings.showMangaTranslationAction;
+    final enabled = platformEnabled && settings.showMangaTranslationAction;
     return ListTile(
       leading: const Icon(Icons.translate),
       title: const Text('翻译模型'),

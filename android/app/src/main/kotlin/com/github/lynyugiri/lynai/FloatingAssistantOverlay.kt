@@ -22,14 +22,30 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.text.Editable
+import android.text.Selection
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.TextPaint
 import android.text.TextWatcher
+import android.text.InputType
+import android.text.method.LinkMovementMethod
+import android.text.style.BackgroundColorSpan
+import android.text.style.ClickableSpan
+import android.text.style.ForegroundColorSpan
+import android.text.style.UnderlineSpan
+import android.view.ActionMode
 import android.view.Gravity
+import android.view.Menu
+import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.KeyEvent
 import android.view.WindowManager
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.inputmethod.InputMethodManager
+import android.view.inputmethod.BaseInputConnection
+import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -38,12 +54,16 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.min
 
 object FloatingAssistantOverlay {
+    private const val EXPLAIN_SELECTION_ITEM_ID = 0x4C594E
+
     private var activity: Activity? = null
     private var channel: MethodChannel? = null
     private var bubble: TextView? = null
@@ -401,7 +421,7 @@ object FloatingAssistantOverlay {
     fun restoreAfterScreenTranslation() = restoreAfterTranslationCapture()
 
     private fun buildPanel(ctx: Context): LinearLayout {
-        val root = SuppressingLinearLayout(ctx).apply {
+        val root = SuppressingLinearLayout(ctx) { hidePanel() }.apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(0xF0FFFFFF.toInt(), dp(ctx, 24), 0x1F0F172A, 1)
             elevation = dp(ctx, 18).toFloat()
@@ -579,6 +599,8 @@ object FloatingAssistantOverlay {
             textSize = 14f
             minLines = 1
             maxLines = 4
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            imeOptions = EditorInfo.IME_FLAG_NO_ENTER_ACTION
             setTextColor(0xFF0F172A.toInt())
             setHintTextColor(0xFF94A3B8.toInt())
             background = null
@@ -591,6 +613,20 @@ object FloatingAssistantOverlay {
                 }
                 override fun afterTextChanged(text: Editable?) = Unit
             })
+            setOnKeyListener { _, keyCode, event ->
+                val composing = BaseInputConnection.getComposingSpanStart(text) >= 0
+                if (FloatingAssistantInteraction.shouldSendComposerKey(
+                        keyCode,
+                        event.action,
+                        event.isCtrlPressed,
+                        composing
+                    )) {
+                    sendChatMessage()
+                    true
+                } else {
+                    false
+                }
+            }
         }.also { composer.addView(it, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)) }
         if (voiceInputMode != "disabled") {
             val voiceLabel = when {
@@ -609,15 +645,18 @@ object FloatingAssistantOverlay {
             if (streaming) {
                 channel?.invokeMethod("stopGeneration", emptyMap<String, Any>())
             } else {
-                val text = inputEdit?.text?.toString().orEmpty().trim()
-                if (text.isNotEmpty()) {
-                    channel?.invokeMethod("sendMessage", mapOf("text" to text))
-                    chatInputDraft = ""
-                    inputEdit?.setText("")
-                }
+                sendChatMessage()
             }
         }.also { composer.addView(it) }
         content.addView(composer)
+    }
+
+    private fun sendChatMessage() {
+        val text = inputEdit?.text?.toString().orEmpty().trim()
+        if (text.isEmpty()) return
+        channel?.invokeMethod("sendMessage", mapOf("text" to text))
+        chatInputDraft = ""
+        inputEdit?.setText("")
     }
 
     private fun buildUserInteraction(
@@ -1038,11 +1077,21 @@ object FloatingAssistantOverlay {
         messages.takeLast(24).forEach { message ->
             val content = message["content"]?.toString().orEmpty().trim()
             if (content.isNotEmpty()) {
-                container.addView(messageBubble(ctx, message["role"]?.toString() == "user", content))
+                container.addView(
+                    messageBubble(
+                        ctx,
+                        message["role"]?.toString() == "user",
+                        content,
+                        message["id"]?.toString(),
+                        enableExplanation = message["role"]?.toString() == "assistant"
+                    )
+                )
             }
         }
         val draft = chatState["draft"]?.toString().orEmpty().trim()
-        if (draft.isNotEmpty()) container.addView(messageBubble(ctx, false, draft))
+        if (draft.isNotEmpty()) {
+            container.addView(messageBubble(ctx, false, draft, null, enableExplanation = false))
+        }
     }
 
     private fun emptyHint(ctx: Context): TextView {
@@ -1059,9 +1108,15 @@ object FloatingAssistantOverlay {
         }
     }
 
-    private fun messageBubble(ctx: Context, user: Boolean, content: String): TextView {
+    private fun messageBubble(
+        ctx: Context,
+        user: Boolean,
+        content: String,
+        messageId: String?,
+        enableExplanation: Boolean
+    ): TextView {
         return TextView(ctx).apply {
-            text = content
+            text = if (enableExplanation) annotatedText(content, messageId) else content
             textSize = 14f
             setTextColor(if (user) Color.WHITE else 0xFF0F172A.toInt())
             setPadding(dp(ctx, 12), dp(ctx, 9), dp(ctx, 12), dp(ctx, 9))
@@ -1075,11 +1130,118 @@ object FloatingAssistantOverlay {
                 width = min(ctx.resources.displayMetrics.widthPixels - dp(ctx, 96), dp(ctx, 300))
             }
             layoutParams = lp
-            setOnLongClickListener {
-                copyToClipboard(ctx, content, "消息已复制")
-                true
+            if (enableExplanation) {
+                setTextIsSelectable(true)
+                movementMethod = LinkMovementMethod.getInstance()
+                customSelectionActionModeCallback = explanationSelectionCallback(this, content, messageId)
+            } else {
+                setOnLongClickListener {
+                    copyToClipboard(ctx, content, "消息已复制")
+                    true
+                }
             }
         }
+    }
+
+    private fun annotatedText(content: String, messageId: String?): CharSequence {
+        val output = SpannableStringBuilder()
+        var cursor = 0
+        FloatingKnowledgeAnnotationParser.parse(content).forEach { annotation ->
+            output.append(content, cursor, annotation.start)
+            val resolvedCategory = resolveKnowledgeCategory(annotation.category)
+            val color = resolvedCategory.second ?: 0xFF2563EB.toInt()
+            val start = output.length
+            output.append(annotation.text)
+            val end = output.length
+            output.setSpan(ForegroundColorSpan(color), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            output.setSpan(BackgroundColorSpan(Color.argb(24, Color.red(color), Color.green(color), Color.blue(color))), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            output.setSpan(UnderlineSpan(), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            output.setSpan(object : ClickableSpan() {
+                override fun updateDrawState(ds: TextPaint) {
+                    ds.color = color
+                    ds.isUnderlineText = true
+                }
+
+                override fun onClick(widget: View) {
+                    requestKnowledgeExplanation(
+                        text = annotation.text,
+                        categoryId = resolvedCategory.first,
+                        sourceContext = content,
+                        messageId = messageId,
+                        saveAutomatically = true
+                    )
+                }
+            }, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            cursor = annotation.end
+        }
+        output.append(content, cursor, content.length)
+        return output
+    }
+
+    private fun resolveKnowledgeCategory(category: String): Pair<String?, Int?> {
+        val defaultId = chatState["defaultKnowledgeCategory"]?.toString()
+        val categories = mapValue(chatState["knowledgeCategories"]).mapValues { (_, value) ->
+            mapValue(value)
+        }
+        val resolved = FloatingKnowledgeCategoryResolver.resolve(
+            category = category,
+            defaultId = defaultId,
+            categories = categories
+        )
+        return Pair(resolved.id, resolved.colorValue)
+    }
+
+    private fun explanationSelectionCallback(view: TextView, sourceContext: String, messageId: String?): ActionMode.Callback {
+        return object : ActionMode.Callback {
+            override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
+                menu.add(0, EXPLAIN_SELECTION_ITEM_ID, 0, "AI 释义")
+                return true
+            }
+
+            override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean = false
+
+            override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
+                if (item.itemId != EXPLAIN_SELECTION_ITEM_ID) return false
+                val start = Selection.getSelectionStart(view.text)
+                val end = Selection.getSelectionEnd(view.text)
+                if (start < 0 || end <= start) return false
+                requestKnowledgeExplanation(
+                    text = view.text.subSequence(start, end).toString(),
+                    categoryId = null,
+                    sourceContext = sourceContext,
+                    messageId = messageId,
+                    saveAutomatically = false
+                )
+                mode.finish()
+                return true
+            }
+
+            override fun onDestroyActionMode(mode: ActionMode) = Unit
+        }
+    }
+
+    private fun requestKnowledgeExplanation(
+        text: String,
+        categoryId: String?,
+        sourceContext: String,
+        messageId: String?,
+        saveAutomatically: Boolean
+    ) {
+        openLynAI(notifyFlutter = false)
+        channel?.invokeMethod(
+            "explainKnowledge",
+            mapOf(
+                "text" to text,
+                "categoryId" to categoryId,
+                "sourceContext" to sourceContext,
+                "sourceTitle" to chatState["title"]?.toString().orEmpty(),
+                "sourceUrl" to buildString {
+                    append("lynai://conversation/${chatState["conversationId"] ?: ""}")
+                    if (!messageId.isNullOrBlank()) append("/message/$messageId")
+                },
+                "saveAutomatically" to saveAutomatically
+            )
+        )
     }
 
     private fun copyToClipboard(ctx: Context, text: String, label: String) {
@@ -1299,7 +1461,7 @@ object FloatingAssistantOverlay {
         edit.setSelection(edit.text.length)
     }
 
-    private fun openLynAI() {
+    private fun openLynAI(notifyFlutter: Boolean = true) {
         val ctx = activity ?: return
         hidePanel()
         TranslationOverlayHost.clear()
@@ -1307,7 +1469,9 @@ object FloatingAssistantOverlay {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         }
         ctx.startActivity(intent)
-        channel?.invokeMethod("openConversation", emptyMap<String, Any>())
+        if (notifyFlutter) {
+            channel?.invokeMethod("openConversation", emptyMap<String, Any>())
+        }
     }
 
     private fun buildBubble(ctx: Context, layoutParams: WindowManager.LayoutParams): TextView {
@@ -1461,12 +1625,29 @@ object FloatingAssistantOverlay {
 
     private class SpaceView(ctx: Context) : FrameLayout(ctx)
 
-    private class SuppressingLinearLayout(ctx: Context) : LinearLayout(ctx) {
+    private class SuppressingLinearLayout(
+        ctx: Context,
+        private val onBack: () -> Unit
+    ) : LinearLayout(ctx) {
         override fun dispatchTouchEvent(event: MotionEvent): Boolean {
             if (event.actionMasked == MotionEvent.ACTION_DOWN) {
                 LynAIAccessibilityService.instance?.suppressOwnTouch()
             }
             return super.dispatchTouchEvent(event)
+        }
+
+        override fun dispatchKeyEventPreIme(event: KeyEvent): Boolean {
+            val imeVisible = ViewCompat.getRootWindowInsets(this)
+                ?.isVisible(WindowInsetsCompat.Type.ime()) == true
+            if (event.keyCode == KeyEvent.KEYCODE_BACK &&
+                FloatingAssistantInteraction.shouldCollapsePanelOnBack(
+                    event.action,
+                    imeVisible
+                )) {
+                onBack()
+                return true
+            }
+            return super.dispatchKeyEventPreIme(event)
         }
     }
 

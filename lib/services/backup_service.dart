@@ -18,6 +18,12 @@ import '../models/calendar_event.dart';
 import '../models/chat_role.dart';
 import '../models/conversation.dart';
 import '../models/local_date.dart';
+import '../models/knowledge_base.dart';
+import '../models/knowledge_category.dart';
+import '../models/knowledge_entry.dart';
+import '../models/knowledge_explanation.dart';
+import '../models/knowledge_source.dart';
+import '../models/knowledge_settings.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
 import '../models/note.dart';
@@ -31,6 +37,7 @@ import '../providers/calendar_provider.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
+import '../providers/knowledge_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
@@ -55,6 +62,7 @@ class BackupService {
     required this.featureProvider,
     required this.roleplayProvider,
     TaskProvider? taskProvider,
+    this.knowledgeProvider,
     CalendarProvider? calendarProvider,
     this.pluginProvider,
     PluginRepository? pluginRepository,
@@ -75,6 +83,7 @@ class BackupService {
   final FeatureProvider featureProvider;
   final RoleplayProvider roleplayProvider;
   final TaskProvider taskProvider;
+  final KnowledgeProvider? knowledgeProvider;
   final CalendarProvider calendarProvider;
   final PluginProvider? pluginProvider;
   final StorageV2Service? storageV2;
@@ -83,7 +92,7 @@ class BackupService {
   final Future<String> Function()? _appVersionLoader;
   final _uuid = const Uuid();
 
-  static const currentSchemaVersion = 10;
+  static const currentSchemaVersion = 12;
   static const oldestCompatibleSchemaVersion = 1;
   static const maxBackupZipInputBytes = 512 * 1024 * 1024;
   static const maxBackupZipEntries = 10000;
@@ -503,6 +512,43 @@ class BackupService {
         'listCount': lists.length,
       };
     }
+    if (selection.contains(BackupSection.knowledge) &&
+        knowledgeProvider != null) {
+      final baseIds = selection.knowledgeBaseIds;
+      final bases = knowledgeProvider!.knowledgeBases
+          .where((item) => baseIds.contains(item.id))
+          .toList();
+      final categories = knowledgeProvider!.categories
+          .where((item) => baseIds.contains(item.knowledgeBaseId))
+          .toList();
+      final entries = knowledgeProvider!.entries
+          .where((item) => baseIds.contains(item.knowledgeBaseId))
+          .toList();
+      final entryIds = entries.map((item) => item.id).toSet();
+      final sources = knowledgeProvider!.sources
+          .where((item) => entryIds.contains(item.entryId))
+          .toList();
+      final explanations = knowledgeProvider!.explanations
+          .where((item) => entryIds.contains(item.entryId))
+          .toList();
+      addJson(
+        'knowledge.json',
+        _knowledgePartition(
+          bases,
+          categories,
+          entries,
+          sources,
+          explanations,
+          _settingsForExport(knowledgeProvider!.settings, baseIds),
+        ),
+      );
+      sections[BackupSection.knowledge.key] = {
+        'enabled': true,
+        'files': ['knowledge.json'],
+        'knowledgeBaseCount': bases.length,
+        'entryCount': entries.length,
+      };
+    }
     if (selection.contains(BackupSection.calendar)) {
       final events = calendarProvider.events
           .where((item) => selection.calendarEventIds.contains(item.id))
@@ -765,6 +811,7 @@ class BackupService {
         ? readMap('todo_lists.json')
         : null;
     final tasksJson = readMap('tasks.json');
+    final knowledgeJson = readMap('knowledge.json');
     final calendarJson = readMap('calendar.json');
     final roleplayJson = readMap('roleplay_scenarios.json');
     final roleplayThreadsJson = readMap('roleplay_threads.json');
@@ -788,6 +835,7 @@ class BackupService {
       schedulesJson: schedulesJson,
       todoListsJson: todoListsJson,
       tasksJson: tasksJson,
+      knowledgeJson: knowledgeJson,
       calendarJson: calendarJson,
       roleplayJson: roleplayJson,
       roleplayThreadsJson: roleplayThreadsJson,
@@ -976,6 +1024,41 @@ class BackupService {
         tasks: planning.tasks,
         taskLists: planning.lists,
         taskEntries: planning.entries,
+        knowledgeBases: _parseList(
+          knowledgeJson?['knowledgeBases'],
+          KnowledgeBase.fromJson,
+          warnings,
+          '知识库',
+        ),
+        knowledgeCategories: _parseList(
+          knowledgeJson?['categories'],
+          KnowledgeCategory.fromJson,
+          warnings,
+          '知识类别',
+        ),
+        knowledgeEntries: _parseList(
+          knowledgeJson?['entries'],
+          KnowledgeEntry.fromJson,
+          warnings,
+          '知识条目',
+        ),
+        knowledgeSources: _parseList(
+          knowledgeJson?['sources'],
+          KnowledgeSource.fromJson,
+          warnings,
+          '知识来源',
+        ),
+        knowledgeExplanations: _parseList(
+          knowledgeJson?['explanations'],
+          KnowledgeExplanation.fromJson,
+          warnings,
+          '知识解释',
+        ),
+        knowledgeSettings: knowledgeJson?['settings'] is Map
+            ? KnowledgeSettings.fromJson(
+                Map<String, dynamic>.from(knowledgeJson!['settings'] as Map),
+              )
+            : null,
         calendarEvents: planning.events,
         anniversaries: planning.anniversaries,
         roleplaySessions: _parseList(
@@ -1102,6 +1185,7 @@ class BackupService {
     required Map<String, dynamic>? schedulesJson,
     required Map<String, dynamic>? todoListsJson,
     required Map<String, dynamic>? tasksJson,
+    required Map<String, dynamic>? knowledgeJson,
     required Map<String, dynamic>? calendarJson,
     required Map<String, dynamic>? roleplayJson,
     required Map<String, dynamic>? roleplayThreadsJson,
@@ -1153,6 +1237,16 @@ class BackupService {
       require('tasks.json', tasksJson, 'tasks', List);
       require('tasks.json', tasksJson, 'lists', List);
       require('tasks.json', tasksJson, 'entries', List);
+      if (schemaVersion >= 11) {
+        require('knowledge.json', knowledgeJson, 'knowledgeBases', List);
+        require('knowledge.json', knowledgeJson, 'categories', List);
+        require('knowledge.json', knowledgeJson, 'entries', List);
+        require('knowledge.json', knowledgeJson, 'sources', List);
+        require('knowledge.json', knowledgeJson, 'explanations', List);
+        if (schemaVersion >= 12) {
+          require('knowledge.json', knowledgeJson, 'settings', Map);
+        }
+      }
       require('calendar.json', calendarJson, 'events', List);
       require('calendar.json', calendarJson, 'anniversaries', List);
     }
@@ -1969,6 +2063,106 @@ class BackupService {
         .toList(),
   };
 
+  static Map<String, dynamic> _knowledgePartition(
+    List<KnowledgeBase> bases,
+    List<KnowledgeCategory> categories,
+    List<KnowledgeEntry> entries,
+    List<KnowledgeSource> sources,
+    List<KnowledgeExplanation> explanations,
+    KnowledgeSettings settings,
+  ) => {
+    'knowledgeBases': bases.map((item) => item.toJson()).toList(),
+    'categories': categories.map((item) => item.toJson()).toList(),
+    'entries': entries.map((item) => item.toJson()).toList(),
+    'sources': sources.map((item) => item.toJson()).toList(),
+    'explanations': explanations.map((item) => item.toJson()).toList(),
+    'settings': settings.toJson(),
+  };
+
+  static KnowledgeSettings _settingsForExport(
+    KnowledgeSettings settings,
+    Set<String> baseIds,
+  ) {
+    final includeDefault =
+        settings.defaultKnowledgeBaseId != null &&
+        baseIds.contains(settings.defaultKnowledgeBaseId);
+    return KnowledgeSettings(
+      defaultKnowledgeBaseId: includeDefault
+          ? settings.defaultKnowledgeBaseId
+          : null,
+      defaultCategoryId: includeDefault ? settings.defaultCategoryId : null,
+      updatedAt: settings.updatedAt,
+    );
+  }
+
+  static void _validateKnowledgeGraph({
+    required List<KnowledgeBase> bases,
+    required List<KnowledgeCategory> categories,
+    required List<KnowledgeEntry> entries,
+    required List<KnowledgeSource> sources,
+    required List<KnowledgeExplanation> explanations,
+    required KnowledgeSettings settings,
+  }) {
+    void requireUnique(String label, Iterable<String> values) {
+      final seen = <String>{};
+      for (final value in values) {
+        if (value.isEmpty || !seen.add(value)) {
+          throw FormatException('$label ID 为空或重复：$value');
+        }
+      }
+    }
+
+    requireUnique('知识库', bases.map((item) => item.id));
+    requireUnique('知识类别', categories.map((item) => item.id));
+    requireUnique('知识条目', entries.map((item) => item.id));
+    requireUnique('知识来源', sources.map((item) => item.id));
+    requireUnique('知识解释', explanations.map((item) => item.id));
+    final baseIds = bases.map((item) => item.id).toSet();
+    final categoryById = {for (final item in categories) item.id: item};
+    final entryById = {for (final item in entries) item.id: item};
+    final aliases = <String>{};
+    for (final category in categories) {
+      if (!baseIds.contains(category.knowledgeBaseId)) {
+        throw FormatException('知识类别引用不存在的知识库：${category.id}');
+      }
+      if (!aliases.add(category.alias)) {
+        throw FormatException('知识类别标识符冲突：${category.alias}');
+      }
+    }
+    for (final entry in entries) {
+      if (!baseIds.contains(entry.knowledgeBaseId)) {
+        throw FormatException('知识条目引用不存在的知识库：${entry.id}');
+      }
+      final category = entry.categoryId == null
+          ? null
+          : categoryById[entry.categoryId];
+      if (entry.categoryId != null &&
+          (category == null ||
+              category.knowledgeBaseId != entry.knowledgeBaseId)) {
+        throw FormatException('知识条目跨知识库引用类别：${entry.id}');
+      }
+    }
+    for (final item in <dynamic>[...sources, ...explanations]) {
+      final entry = entryById[item.entryId];
+      if (entry == null || entry.knowledgeBaseId != item.knowledgeBaseId) {
+        throw FormatException('知识子记录跨知识库引用条目：${item.id}');
+      }
+    }
+    final defaultBaseId = settings.defaultKnowledgeBaseId;
+    final defaultCategoryId = settings.defaultCategoryId;
+    if ((defaultBaseId == null) != (defaultCategoryId == null)) {
+      throw const FormatException('知识设置默认知识库和类别必须同时为空或同时存在');
+    }
+    if (defaultBaseId != null) {
+      final category = categoryById[defaultCategoryId];
+      if (!baseIds.contains(defaultBaseId) ||
+          category == null ||
+          category.knowledgeBaseId != defaultBaseId) {
+        throw const FormatException('知识设置引用无效的默认知识库或类别');
+      }
+    }
+  }
+
   static Map<String, dynamic> _calendarPartition(
     List<CalendarEvent> events,
     List<Anniversary> anniversaries,
@@ -2261,6 +2455,13 @@ class BackupService {
       }
       if (plan.sections.contains(BackupSection.tasks)) {
         final result = await _applyTasks(data, plan);
+        added += result.added;
+        replaced += result.replaced;
+        skipped += result.skipped;
+      }
+      if (plan.sections.contains(BackupSection.knowledge) &&
+          knowledgeProvider != null) {
+        final result = await _applyKnowledge(data, plan);
         added += result.added;
         replaced += result.replaced;
         skipped += result.skipped;
@@ -2966,6 +3167,173 @@ class BackupService {
     return ImportResult(added: added, replaced: replaced, skipped: skipped);
   }
 
+  Future<ImportResult> _applyKnowledge(BackupData data, ImportPlan plan) async {
+    final provider = knowledgeProvider!;
+    final incomingBases = data.knowledgeBases;
+    if (incomingBases == null) {
+      return const ImportResult(added: 0, replaced: 0, skipped: 0);
+    }
+    _validateKnowledgeGraph(
+      bases: incomingBases,
+      categories: data.knowledgeCategories ?? const <KnowledgeCategory>[],
+      entries: data.knowledgeEntries ?? const <KnowledgeEntry>[],
+      sources: data.knowledgeSources ?? const <KnowledgeSource>[],
+      explanations:
+          data.knowledgeExplanations ?? const <KnowledgeExplanation>[],
+      settings:
+          data.knowledgeSettings ?? KnowledgeSettings(updatedAt: DateTime(0)),
+    );
+    final incomingBaseIds = incomingBases.map((item) => item.id).toSet();
+    final replacing = plan.mode == ImportMode.replaceSection;
+    final bases = provider.knowledgeBases
+        .where((item) => !replacing || !incomingBaseIds.contains(item.id))
+        .toList();
+    final categories = provider.categories
+        .where(
+          (item) =>
+              !replacing || !incomingBaseIds.contains(item.knowledgeBaseId),
+        )
+        .toList();
+    final entries = provider.entries
+        .where(
+          (item) =>
+              !replacing || !incomingBaseIds.contains(item.knowledgeBaseId),
+        )
+        .toList();
+    final retainedEntryIds = entries.map((item) => item.id).toSet();
+    final sources = provider.sources
+        .where((item) => retainedEntryIds.contains(item.entryId))
+        .toList();
+    final explanations = provider.explanations
+        .where((item) => retainedEntryIds.contains(item.entryId))
+        .toList();
+    var added = 0;
+    var replaced = 0;
+    var skipped = 0;
+    final baseActions = <String, ImportConflictAction>{};
+    final acceptedBaseVersions = <String>{};
+    for (final incoming in incomingBases) {
+      final index = bases.indexWhere((item) => item.id == incoming.id);
+      if (index < 0) {
+        bases.add(incoming);
+        baseActions[incoming.id] = ImportConflictAction.replaceLocal;
+        acceptedBaseVersions.add(incoming.id);
+        added++;
+      } else if (_sameJson(bases[index], incoming)) {
+        baseActions[incoming.id] = ImportConflictAction.keepLocal;
+        acceptedBaseVersions.add(incoming.id);
+        skipped++;
+      } else if (plan.mode == ImportMode.addOnly) {
+        baseActions[incoming.id] = ImportConflictAction.keepLocal;
+        skipped++;
+      } else {
+        final action = replacing
+            ? ImportConflictAction.replaceLocal
+            : plan.actionFor(_conflictId(BackupSection.knowledge, incoming.id));
+        baseActions[incoming.id] = action;
+        if (action == ImportConflictAction.replaceLocal) {
+          bases[index] = incoming;
+          acceptedBaseVersions.add(incoming.id);
+          replaced++;
+        } else {
+          skipped++;
+        }
+      }
+    }
+
+    final acceptedCategoryVersions = <String>{};
+    void mergeChildren<T>(
+      List<T> local,
+      Iterable<T> incoming, {
+      required String Function(T item) idOf,
+      required String Function(T item) baseIdOf,
+      Set<String>? acceptedVersions,
+    }) {
+      for (final item in incoming) {
+        final id = idOf(item);
+        final index = local.indexWhere((value) => idOf(value) == id);
+        if (index < 0) {
+          local.add(item);
+          acceptedVersions?.add(id);
+        } else if (_sameJson(local[index] as Object, item as Object)) {
+          acceptedVersions?.add(id);
+        } else if (plan.mode != ImportMode.addOnly &&
+            baseActions[baseIdOf(item)] == ImportConflictAction.replaceLocal) {
+          local[index] = item;
+          acceptedVersions?.add(id);
+        }
+      }
+    }
+
+    mergeChildren(
+      categories,
+      data.knowledgeCategories ?? const <KnowledgeCategory>[],
+      idOf: (item) => item.id,
+      baseIdOf: (item) => item.knowledgeBaseId,
+      acceptedVersions: acceptedCategoryVersions,
+    );
+    mergeChildren(
+      entries,
+      data.knowledgeEntries ?? const <KnowledgeEntry>[],
+      idOf: (item) => item.id,
+      baseIdOf: (item) => item.knowledgeBaseId,
+    );
+    mergeChildren(
+      sources,
+      data.knowledgeSources ?? const <KnowledgeSource>[],
+      idOf: (item) => item.id,
+      baseIdOf: (item) => item.knowledgeBaseId,
+    );
+    mergeChildren(
+      explanations,
+      data.knowledgeExplanations ?? const <KnowledgeExplanation>[],
+      idOf: (item) => item.id,
+      baseIdOf: (item) => item.knowledgeBaseId,
+    );
+
+    final incomingSettings = data.knowledgeSettings;
+    final incomingDefaultBaseId = incomingSettings?.defaultKnowledgeBaseId;
+    final incomingDefaultCategoryId = incomingSettings?.defaultCategoryId;
+    final defaultBase = incomingDefaultBaseId == null
+        ? null
+        : _findById(bases, incomingDefaultBaseId);
+    final defaultCategory = incomingDefaultCategoryId == null
+        ? null
+        : _findById(categories, incomingDefaultCategoryId);
+    final adoptIncomingSettings =
+        plan.mode != ImportMode.addOnly &&
+        incomingDefaultBaseId != null &&
+        incomingDefaultCategoryId != null &&
+        acceptedBaseVersions.contains(incomingDefaultBaseId) &&
+        acceptedCategoryVersions.contains(incomingDefaultCategoryId) &&
+        defaultBase?.enabled == true &&
+        defaultCategory?.knowledgeBaseId == incomingDefaultBaseId &&
+        defaultCategory?.enabled == true &&
+        defaultCategory?.autoAnnotate == true;
+    final settings = adoptIncomingSettings
+        ? incomingSettings!
+        : provider.settings;
+    _validateKnowledgeGraph(
+      bases: bases,
+      categories: categories,
+      entries: entries,
+      sources: sources,
+      explanations: explanations,
+      settings: adoptIncomingSettings
+          ? settings
+          : KnowledgeSettings(updatedAt: settings.updatedAt),
+    );
+    await provider.replaceAll(
+      knowledgeBases: bases,
+      categories: categories,
+      entries: entries,
+      sources: sources,
+      explanations: explanations,
+      settings: settings,
+    );
+    return ImportResult(added: added, replaced: replaced, skipped: skipped);
+  }
+
   Future<ImportResult> _applyCalendar(BackupData data, ImportPlan plan) async {
     final incoming = <Object>[...?data.calendarEvents, ...?data.anniversaries];
     if (data.calendarEvents == null && data.anniversaries == null) {
@@ -3440,6 +3808,23 @@ class BackupService {
               id: _conflictId(BackupSection.tasks, 'task:${incoming.id}'),
               section: BackupSection.tasks,
               title: incoming.title,
+              localSummary: _formatUpdated(local.updatedAt),
+              incomingSummary: _formatUpdated(incoming.updatedAt),
+            ),
+          );
+        }
+      }
+    }
+    if (sections.contains(BackupSection.knowledge) &&
+        knowledgeProvider != null) {
+      for (final incoming in data.knowledgeBases ?? const <KnowledgeBase>[]) {
+        final local = _findById(knowledgeProvider!.knowledgeBases, incoming.id);
+        if (local != null && !_sameJson(local, incoming)) {
+          conflicts.add(
+            ImportConflict(
+              id: _conflictId(BackupSection.knowledge, incoming.id),
+              section: BackupSection.knowledge,
+              title: incoming.name,
               localSummary: _formatUpdated(local.updatedAt),
               incomingSummary: _formatUpdated(incoming.updatedAt),
             ),
@@ -4290,6 +4675,12 @@ class BackupService {
       tasks: data.tasks,
       taskLists: data.taskLists,
       taskEntries: data.taskEntries,
+      knowledgeBases: data.knowledgeBases,
+      knowledgeCategories: data.knowledgeCategories,
+      knowledgeEntries: data.knowledgeEntries,
+      knowledgeSources: data.knowledgeSources,
+      knowledgeExplanations: data.knowledgeExplanations,
+      knowledgeSettings: data.knowledgeSettings,
       calendarEvents: data.calendarEvents,
       anniversaries: data.anniversaries,
       roleplaySessions: data.roleplaySessions,
@@ -4587,6 +4978,49 @@ class BackupService {
                 selection.taskListIds.contains(item.taskListId),
           )
           .toList(),
+      knowledgeBases: data.knowledgeBases
+          ?.where((item) => selection.knowledgeBaseIds.contains(item.id))
+          .toList(),
+      knowledgeCategories: data.knowledgeCategories
+          ?.where(
+            (item) => selection.knowledgeBaseIds.contains(item.knowledgeBaseId),
+          )
+          .toList(),
+      knowledgeEntries: data.knowledgeEntries
+          ?.where(
+            (item) => selection.knowledgeBaseIds.contains(item.knowledgeBaseId),
+          )
+          .toList(),
+      knowledgeSources: data.knowledgeSources
+          ?.where(
+            (item) =>
+                selection.knowledgeBaseIds.contains(item.knowledgeBaseId) &&
+                (data.knowledgeEntries?.any(
+                      (entry) =>
+                          entry.knowledgeBaseId == item.knowledgeBaseId &&
+                          entry.id == item.entryId,
+                    ) ??
+                    false),
+          )
+          .toList(),
+      knowledgeExplanations: data.knowledgeExplanations
+          ?.where(
+            (item) =>
+                selection.knowledgeBaseIds.contains(item.knowledgeBaseId) &&
+                (data.knowledgeEntries?.any(
+                      (entry) =>
+                          entry.knowledgeBaseId == item.knowledgeBaseId &&
+                          entry.id == item.entryId,
+                    ) ??
+                    false),
+          )
+          .toList(),
+      knowledgeSettings: data.knowledgeSettings == null
+          ? null
+          : _settingsForExport(
+              data.knowledgeSettings!,
+              selection.knowledgeBaseIds,
+            ),
       calendarEvents: data.calendarEvents
           ?.where((item) => selection.calendarEventIds.contains(item.id))
           .toList(),
@@ -4686,6 +5120,8 @@ class BackupService {
         return '${data.notes?.length ?? 0} 篇笔记$pageDetail，${data.noteFolders?.length ?? 0} 个文件夹';
       case BackupSection.tasks:
         return '${data.tasks?.length ?? 0} 个任务，${data.taskLists?.length ?? 0} 个清单';
+      case BackupSection.knowledge:
+        return '${data.knowledgeBases?.length ?? 0} 个知识库，${data.knowledgeEntries?.length ?? 0} 条知识';
       case BackupSection.calendar:
         return '${data.calendarEvents?.length ?? 0} 个事件，${data.anniversaries?.length ?? 0} 个纪念日';
       case BackupSection.roleplay:

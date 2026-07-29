@@ -628,3 +628,6 @@ unscoped protected store. `DeviceSettingsService` persists the backend bootstrap
 URL outside account datasets. Backup construction reuses the active storage and
 plugin roots, so it exports and restores only the selected dataset.
 `DatasetRuntimeBarrier` provides the exclusive physical-dataset switch boundary. `DatasetRuntimeCoordinator` quiesces Agent, MCP, cloud, LAN, resource queues and provider saves before activation, reloads the target, reconciles durable Agent state, and synchronizes the calendar platform projection after both success and rollback. Retired `StorageV2Database` leases reject later operations instead of remaining writable.
+# 知识解释
+
+`KnowledgeExplanationService` 使用类别专用模型或聊天模型生成解释。点击 `[[category:text]]` 标注时，已有解释优先本地读取；否则自动生成并保存到类别绑定的知识库。关闭弹窗后晚到结果被忽略。普通文字选区使用相同服务，但由用户决定是否保存。`knowledge.json` 是备份、Repository 和同步使用的逻辑分区，包含全局 `settings`；结构化权威仍是 `storage_v2/app.db`。云和 LAN 同步把设置投影为固定 `recordId=global` 的 `knowledge_settings` 行，依赖排序位于知识库和类别之后、条目之前。

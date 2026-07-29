@@ -2,6 +2,12 @@ import 'app_settings.dart';
 import 'anniversary.dart';
 import 'calendar_event.dart';
 import 'conversation.dart';
+import 'knowledge_base.dart';
+import 'knowledge_category.dart';
+import 'knowledge_entry.dart';
+import 'knowledge_explanation.dart';
+import 'knowledge_source.dart';
+import 'knowledge_settings.dart';
 import 'model_config.dart';
 import 'merge_models.dart';
 import 'note.dart';
@@ -25,6 +31,9 @@ enum BackupSection {
 
   /// 任务。
   tasks,
+
+  /// 知识库。
+  knowledge,
 
   /// 日历。
   calendar,
@@ -83,6 +92,8 @@ extension BackupSectionInfo on BackupSection {
         return 'notes';
       case BackupSection.tasks:
         return 'tasks';
+      case BackupSection.knowledge:
+        return 'knowledge';
       case BackupSection.calendar:
         return 'calendar';
       case BackupSection.roleplay:
@@ -103,6 +114,8 @@ extension BackupSectionInfo on BackupSection {
         return '笔记';
       case BackupSection.tasks:
         return '任务';
+      case BackupSection.knowledge:
+        return '知识库';
       case BackupSection.calendar:
         return '日历';
       case BackupSection.roleplay:
@@ -135,6 +148,8 @@ class BackupSelection {
   /// 选中的任务清单 ID 集合。
   final Set<String> taskListIds;
 
+  final Set<String> knowledgeBaseIds;
+
   /// 选中的日历事件 ID 集合。
   final Set<String> calendarEventIds;
 
@@ -155,6 +170,7 @@ class BackupSelection {
     this.noteIds = const {},
     this.taskIds = const {},
     this.taskListIds = const {},
+    this.knowledgeBaseIds = const {},
     this.calendarEventIds = const {},
     this.anniversaryIds = const {},
     this.roleplaySessionIds = const {},
@@ -190,6 +206,8 @@ class BackupSelection {
       noteIds: data.notes?.map((item) => item.id).toSet() ?? const {},
       taskIds: data.tasks?.map((item) => item.id).toSet() ?? const {},
       taskListIds: data.taskLists?.map((item) => item.id).toSet() ?? const {},
+      knowledgeBaseIds:
+          data.knowledgeBases?.map((item) => item.id).toSet() ?? const {},
       calendarEventIds:
           data.calendarEvents?.map((item) => item.id).toSet() ?? const {},
       anniversaryIds:
@@ -212,6 +230,7 @@ class BackupSelection {
     Set<String>? noteIds,
     Set<String>? taskIds,
     Set<String>? taskListIds,
+    Set<String>? knowledgeBaseIds,
     Set<String>? calendarEventIds,
     Set<String>? anniversaryIds,
     Set<String>? roleplaySessionIds,
@@ -224,6 +243,7 @@ class BackupSelection {
       noteIds: noteIds ?? this.noteIds,
       taskIds: taskIds ?? this.taskIds,
       taskListIds: taskListIds ?? this.taskListIds,
+      knowledgeBaseIds: knowledgeBaseIds ?? this.knowledgeBaseIds,
       calendarEventIds: calendarEventIds ?? this.calendarEventIds,
       anniversaryIds: anniversaryIds ?? this.anniversaryIds,
       roleplaySessionIds: roleplaySessionIds ?? this.roleplaySessionIds,
@@ -419,6 +439,13 @@ class BackupData {
   /// 任务清单归属和顺序条目。
   final List<TaskListEntry>? taskEntries;
 
+  final List<KnowledgeBase>? knowledgeBases;
+  final List<KnowledgeCategory>? knowledgeCategories;
+  final List<KnowledgeEntry>? knowledgeEntries;
+  final List<KnowledgeSource>? knowledgeSources;
+  final List<KnowledgeExplanation>? knowledgeExplanations;
+  final KnowledgeSettings? knowledgeSettings;
+
   /// 日历事件列表。
   final List<CalendarEvent>? calendarEvents;
 
@@ -449,6 +476,12 @@ class BackupData {
     this.tasks,
     this.taskLists,
     this.taskEntries,
+    this.knowledgeBases,
+    this.knowledgeCategories,
+    this.knowledgeEntries,
+    this.knowledgeSources,
+    this.knowledgeExplanations,
+    this.knowledgeSettings,
     this.calendarEvents,
     this.anniversaries,
     this.roleplaySessions,
@@ -471,6 +504,13 @@ class BackupData {
             noteEditProposals != null;
       case BackupSection.tasks:
         return tasks != null || taskLists != null || taskEntries != null;
+      case BackupSection.knowledge:
+        return knowledgeBases != null ||
+            knowledgeCategories != null ||
+            knowledgeEntries != null ||
+            knowledgeSources != null ||
+            knowledgeExplanations != null ||
+            knowledgeSettings != null;
       case BackupSection.calendar:
         return calendarEvents != null || anniversaries != null;
       case BackupSection.roleplay:

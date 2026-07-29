@@ -144,6 +144,10 @@ void main() {
     const scope = 'server|calendar-provider';
     try {
       await storage.activateSyncScope(scope, deviceId: 'device-calendar');
+      await storage.acknowledgeSyncOutbox(
+        scope,
+        await storage.loadSyncOutbox(scope),
+      );
       final provider = CalendarProvider(
         storageV2: storage,
         recycleBinRepository: _RecycleBinRepository(),

@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/model_config.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/calendar_provider.dart';
+import 'package:lynai/providers/knowledge_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
 import 'package:lynai/providers/plugin_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
@@ -48,6 +49,7 @@ FloatingChatSessionController _chat(SettingsProvider settings) {
     conversations: memoryConversationProvider(),
     models: memoryModelConfigProvider(),
     features: FeatureProvider(),
+    knowledge: KnowledgeProvider(),
     tasks: TaskProvider(),
     calendar: CalendarProvider(),
     plugins: PluginProvider(),

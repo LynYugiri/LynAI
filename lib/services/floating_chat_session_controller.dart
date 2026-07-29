@@ -13,6 +13,7 @@ import '../models/model_config.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/calendar_provider.dart';
 import '../providers/feature_provider.dart';
+import '../providers/knowledge_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
@@ -25,6 +26,7 @@ import 'agent_tool_result_sanitizer.dart';
 import 'agent_tool_execution_service.dart';
 import 'agent_user_interaction_broker.dart';
 import 'backend_client.dart';
+import 'knowledge_annotation_prompt.dart';
 import 'stream_chunk_agent_adapter.dart';
 import 'storage_v2_service.dart';
 import 'tool_call_service.dart';
@@ -36,6 +38,7 @@ class FloatingChatSessionController extends ChangeNotifier {
     required ConversationProvider conversations,
     required ModelConfigProvider models,
     required FeatureProvider features,
+    required KnowledgeProvider knowledge,
     required TaskProvider tasks,
     required CalendarProvider calendar,
     required PluginProvider plugins,
@@ -51,6 +54,7 @@ class FloatingChatSessionController extends ChangeNotifier {
        _conversations = conversations,
        _models = models,
        _features = features,
+       _knowledge = knowledge,
        _tasks = tasks,
        _calendar = calendar,
        _plugins = plugins,
@@ -74,6 +78,7 @@ class FloatingChatSessionController extends ChangeNotifier {
   final ConversationProvider _conversations;
   final ModelConfigProvider _models;
   final FeatureProvider _features;
+  final KnowledgeProvider _knowledge;
   final TaskProvider _tasks;
   final CalendarProvider _calendar;
   final PluginProvider _plugins;
@@ -100,6 +105,7 @@ class FloatingChatSessionController extends ChangeNotifier {
   int _generation = 0;
 
   String? get conversationId => _conversationId;
+  ApiService get api => _api;
   bool get isStreaming => _streaming;
   bool get screenContextToolAllowed => _screenContextToolAllowed;
   AgentUserInteractionBroker get userInteractionBroker =>
@@ -120,6 +126,13 @@ class FloatingChatSessionController extends ChangeNotifier {
         ? null
         : _conversations.getConversation(_conversationId!);
     final messages = conversation?.messages ?? const <Message>[];
+    final annotationCategories = _knowledge.categories.where(
+      (category) =>
+          category.enabled &&
+          category.autoAnnotate &&
+          _knowledge.knowledgeBaseById(category.knowledgeBaseId)?.enabled ==
+              true,
+    );
     return {
       'conversationId': _conversationId,
       'title': conversation?.title ?? '悬浮对话',
@@ -128,6 +141,16 @@ class FloatingChatSessionController extends ChangeNotifier {
       'error': _error,
       'draft': _draftContent,
       'thinking': _draftThinking,
+      'defaultKnowledgeCategory': _knowledge.defaultAnnotationCategory?.id,
+      'knowledgeCategories': {
+        for (final category in annotationCategories) ...{
+          category.id: {'id': category.id, 'colorValue': category.colorValue},
+          category.alias: {
+            'id': category.id,
+            'colorValue': category.colorValue,
+          },
+        },
+      },
       'screenContextEnabled': _screenContextToolAllowed,
       if (_pendingUserInteraction != null)
         'pendingUserInteraction': _pendingUserInteraction!.toJson(),
@@ -136,6 +159,7 @@ class FloatingChatSessionController extends ChangeNotifier {
           .take(40)
           .map(
             (message) => {
+              'id': message.id,
               'role': message.role,
               'content': message.content,
               if (message.thinkingContent != null)
@@ -179,6 +203,9 @@ class FloatingChatSessionController extends ChangeNotifier {
     }
 
     final settings = _conversationSettings(model);
+    final annotationPrompt = const KnowledgeAnnotationPromptFormatter().format(
+      _knowledge.annotationPromptSnapshot,
+    );
     final roleId = _settings.settings.currentRoleId;
     final isNewConversation = _conversationId == null;
     if (isNewConversation) {
@@ -206,6 +233,7 @@ class FloatingChatSessionController extends ChangeNotifier {
     final messages = _buildApiMessages(
       conversation,
       enableTools: _supportsNativeTools(model),
+      annotationPrompt: annotationPrompt,
     );
     _streamTurn(
       model,
@@ -402,6 +430,7 @@ class FloatingChatSessionController extends ChangeNotifier {
   List<Map<String, dynamic>> _buildApiMessages(
     Conversation conversation, {
     required bool enableTools,
+    required String annotationPrompt,
   }) {
     final messages = <Map<String, dynamic>>[];
     final promptContent = conversation.settings.systemPrompt;
@@ -419,18 +448,14 @@ class FloatingChatSessionController extends ChangeNotifier {
       if (agentContext.isNotEmpty) agentContext,
       if (screenPrompt.isNotEmpty) screenPrompt,
     ].join('\n\n');
-    if (promptContent.isNotEmpty) {
-      messages.add({
-        'role': 'system',
-        'content': enableTools
-            ? '$promptContent\n\n$fullToolPrompt\n\n${ToolCallService.currentTimeContext()}'
-            : promptContent,
-      });
-    } else if (enableTools) {
-      messages.add({
-        'role': 'system',
-        'content': '$fullToolPrompt\n\n${ToolCallService.currentTimeContext()}',
-      });
+    final systemParts = <String>[
+      if (promptContent.isNotEmpty) promptContent,
+      if (enableTools) fullToolPrompt,
+      if (enableTools) ToolCallService.currentTimeContext(),
+      if (annotationPrompt.isNotEmpty) annotationPrompt,
+    ];
+    if (systemParts.isNotEmpty) {
+      messages.add({'role': 'system', 'content': systemParts.join('\n\n')});
     }
     for (final message in conversation.messages) {
       if (message.role == 'assistant' && message.content.isEmpty) continue;

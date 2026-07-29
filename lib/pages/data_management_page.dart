@@ -7,6 +7,7 @@ import '../models/cloud_data.dart';
 import '../models/anniversary.dart';
 import '../models/calendar_event.dart';
 import '../models/conversation.dart';
+import '../models/knowledge_base.dart';
 import '../models/note.dart';
 import '../models/plugin.dart';
 import '../models/roleplay.dart';
@@ -18,6 +19,7 @@ import '../providers/account_provider.dart';
 import '../providers/cloud_data_provider.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
+import '../providers/knowledge_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/roleplay_provider.dart';
@@ -64,6 +66,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       roleplayProvider: context.read<RoleplayProvider>(),
       taskProvider: context.read<TaskProvider>(),
       calendarProvider: context.read<CalendarProvider>(),
+      knowledgeProvider: context.read<KnowledgeProvider>(),
       pluginProvider: context.read<PluginProvider>(),
       storageV2: context.read<StorageV2Service>(),
     );
@@ -81,6 +84,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
     final tasks = context.read<TaskProvider>();
     final calendar = context.read<CalendarProvider>();
     final roleplays = context.read<RoleplayProvider>().scenarios;
+    final knowledgeBases = context.read<KnowledgeProvider>().knowledgeBases;
     final plugins = context.read<PluginProvider>().plugins;
     return BackupSelection(
       Set.of(BackupSection.values),
@@ -89,6 +93,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       noteIds: features.notes.map((item) => item.id).toSet(),
       taskIds: tasks.tasks.map((item) => item.id).toSet(),
       taskListIds: tasks.lists.map((item) => item.id).toSet(),
+      knowledgeBaseIds: knowledgeBases.map((item) => item.id).toSet(),
       calendarEventIds: calendar.events.map((item) => item.id).toSet(),
       anniversaryIds: calendar.anniversaries.map((item) => item.id).toSet(),
       roleplaySessionIds: roleplays.map((item) => item.id).toSet(),
@@ -955,6 +960,7 @@ String _syncDataCategoryLabel(SyncDataCategory category) => switch (category) {
   SyncDataCategory.conversations => '对话',
   SyncDataCategory.notes => '笔记',
   SyncDataCategory.tasks => '任务',
+  SyncDataCategory.knowledge => '知识库',
   SyncDataCategory.calendar => '日历',
   SyncDataCategory.roleplay => '情景演绎',
   SyncDataCategory.settings => '设置',
@@ -1029,6 +1035,7 @@ class _ExportCard extends StatelessWidget {
     final tasks = context.watch<TaskProvider>();
     final calendar = context.watch<CalendarProvider>();
     final roleplays = context.watch<RoleplayProvider>().scenarios;
+    final knowledgeBases = context.watch<KnowledgeProvider>().knowledgeBases;
     final plugins = context.watch<PluginProvider>().plugins;
     return Card(
       child: Padding(
@@ -1045,6 +1052,7 @@ class _ExportCard extends StatelessWidget {
               notes: features.notes,
               tasks: tasks.tasks,
               taskLists: tasks.lists,
+              knowledgeBases: knowledgeBases,
               calendarEvents: calendar.events,
               anniversaries: calendar.anniversaries,
               roleplays: roleplays,
@@ -1140,6 +1148,7 @@ class _ImportCard extends StatelessWidget {
                 notes: archive.data.notes ?? const [],
                 tasks: archive.data.tasks ?? const [],
                 taskLists: archive.data.taskLists ?? const [],
+                knowledgeBases: archive.data.knowledgeBases ?? const [],
                 calendarEvents: archive.data.calendarEvents ?? const [],
                 anniversaries: archive.data.anniversaries ?? const [],
                 roleplays: archive.data.roleplaySessions ?? const [],
@@ -1225,6 +1234,7 @@ class _SelectionTree extends StatelessWidget {
     required this.notes,
     required this.tasks,
     required this.taskLists,
+    required this.knowledgeBases,
     required this.calendarEvents,
     required this.anniversaries,
     required this.roleplays,
@@ -1239,6 +1249,7 @@ class _SelectionTree extends StatelessWidget {
   final List<Note> notes;
   final List<Task> tasks;
   final List<TaskList> taskLists;
+  final List<KnowledgeBase> knowledgeBases;
   final List<CalendarEvent> calendarEvents;
   final List<Anniversary> anniversaries;
   final List<RoleplayScenario> roleplays;
@@ -1335,6 +1346,20 @@ class _SelectionTree extends StatelessWidget {
               update: (value, ids) => value.copyWith(anniversaryIds: ids),
             ),
           ],
+          busy: busy,
+          onChanged: onChanged,
+        ),
+        _ItemSelectionTile<KnowledgeBase>(
+          section: BackupSection.knowledge,
+          selection: selection,
+          enabled: availableSections.contains(BackupSection.knowledge),
+          items: knowledgeBases,
+          selectedIds: selection.knowledgeBaseIds,
+          idFor: (item) => item.id,
+          titleFor: (item) => item.name,
+          subtitleFor: (item) => _formatDate(item.updatedAt),
+          copyWithIds: (ids, sections) =>
+              selection.copyWith(sections: sections, knowledgeBaseIds: ids),
           busy: busy,
           onChanged: onChanged,
         ),

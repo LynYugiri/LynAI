@@ -2,6 +2,7 @@ enum SyncDataCategory {
   conversations,
   notes,
   tasks,
+  knowledge,
   calendar,
   roleplay,
   settings,
@@ -19,6 +20,7 @@ class SyncDataSelection {
     SyncDataCategory.conversations,
     SyncDataCategory.notes,
     SyncDataCategory.tasks,
+    SyncDataCategory.knowledge,
     SyncDataCategory.calendar,
     SyncDataCategory.roleplay,
     SyncDataCategory.settings,
@@ -83,6 +85,12 @@ class SyncDataRegistry {
     'note_page_heads' ||
     'note_page_tombstones' => SyncDataCategory.notes,
     'tasks' || 'task_lists' || 'task_list_entries' => SyncDataCategory.tasks,
+    'knowledge_bases' ||
+    'knowledge_categories' ||
+    'knowledge_entries' ||
+    'knowledge_sources' ||
+    'knowledge_explanations' ||
+    'knowledge_settings' => SyncDataCategory.knowledge,
     'calendar_events' || 'anniversaries' => SyncDataCategory.calendar,
     'roleplay_scenarios' || 'roleplay_threads' => SyncDataCategory.roleplay,
     'shared_settings' => SyncDataCategory.settings,

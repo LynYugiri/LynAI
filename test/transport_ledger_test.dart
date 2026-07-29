@@ -133,6 +133,13 @@ PRAGMA user_version = 23;
         'https://cloud.example|user-a',
         deviceId: 'device-a',
       );
+      final initialCloud = await database.loadSyncOutbox(
+        'https://cloud.example|user-a',
+      );
+      await database.acknowledgeSyncOutbox(
+        'https://cloud.example|user-a',
+        initialCloud,
+      );
     });
 
     tearDown(() async {
@@ -152,7 +159,9 @@ PRAGMA user_version = 23;
           ),
         ]);
 
-        final lan = await database.loadTransportHeadsForPeer('peer-b');
+        final lan = (await database.loadTransportHeadsForPeer(
+          'peer-b',
+        )).where((entry) => entry.table == 'tasks').toList();
         final cloud = await database.loadSyncOutbox(
           'https://cloud.example|user-a',
         );
@@ -176,7 +185,9 @@ PRAGMA user_version = 23;
         isEmpty,
       );
       expect(
-        (await database.loadTransportHeadsForPeer('peer-b')).single.changeId,
+        (await database.loadTransportHeadsForPeer(
+          'peer-b',
+        )).singleWhere((entry) => entry.changeId == 'cloud-change').changeId,
         'cloud-change',
       );
     });
@@ -198,9 +209,16 @@ PRAGMA user_version = 23;
           'https://cloud.example|user-a',
         );
         expect(cloud.single.changeId, 'flow-a-b-c');
-        expect(await database.loadTransportHeadsForPeer('peer-a'), isEmpty);
         expect(
-          (await database.loadTransportHeadsForPeer('peer-c')).single.changeId,
+          (await database.loadTransportHeadsForPeer(
+            'peer-a',
+          )).where((entry) => entry.changeId == 'flow-a-b-c'),
+          isEmpty,
+        );
+        expect(
+          (await database.loadTransportHeadsForPeer(
+            'peer-c',
+          )).singleWhere((entry) => entry.changeId == 'flow-a-b-c').changeId,
           'flow-a-b-c',
         );
 
@@ -312,7 +330,12 @@ PRAGMA user_version = 23;
         )).single.changeId,
         'lan-conflict',
       );
-      expect(await database.loadTransportHeadsForPeer('peer-a'), isEmpty);
+      expect(
+        (await database.loadTransportHeadsForPeer(
+          'peer-a',
+        )).where((entry) => entry.changeId == 'lan-conflict'),
+        isEmpty,
+      );
     });
   });
 }

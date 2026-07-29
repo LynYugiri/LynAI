@@ -25,13 +25,19 @@ void main() {
       await database.writeDataFile('tasks.json', {
         'tasks': [_task('t1', 'first')],
       });
-      final first = await database.loadSyncOutbox('server|user-a');
-      final retry = await database.loadSyncOutbox('server|user-a');
+      final first = _withoutKnowledgeSettings(
+        await database.loadSyncOutbox('server|user-a'),
+      );
+      final retry = _withoutKnowledgeSettings(
+        await database.loadSyncOutbox('server|user-a'),
+      );
 
       await database.writeDataFile('tasks.json', {
         'tasks': [_task('t1', 'second', updatedAt: '2026-01-01T00:00:01Z')],
       });
-      final folded = await database.loadSyncOutbox('server|user-a');
+      final folded = _withoutKnowledgeSettings(
+        await database.loadSyncOutbox('server|user-a'),
+      );
       await database.activateSyncScope('server|user-b', deviceId: _deviceId);
       final otherScope = await database.loadSyncOutbox('server|user-b');
 
@@ -51,6 +57,10 @@ void main() {
     test('loads bounded outbox windows in dependency order', () async {
       const scope = 'server|user-a';
       await database.activateSyncScope(scope, deviceId: _deviceId);
+      await database.acknowledgeSyncOutbox(
+        scope,
+        await database.loadSyncOutbox(scope),
+      );
       await database.batchIncremental([
         (table: 'tasks', op: 'upsert', data: _task('t1', 'task'), change: null),
         (
@@ -91,7 +101,9 @@ void main() {
         database = StorageV2Database(Directory('${root.path}/storage_v2'));
         await database.activateSyncScope(scope, deviceId: _deviceId);
 
-        final outbox = await database.loadSyncOutbox(scope);
+        final outbox = _withoutKnowledgeSettings(
+          await database.loadSyncOutbox(scope),
+        );
         expect(outbox, hasLength(1));
         expect(outbox.single.op, 'upsert');
         expect(outbox.single.data?['title'], 'while inactive');
@@ -177,12 +189,18 @@ void main() {
         'tasks': [_task('t1', 'active only')],
       });
 
-      expect(await database.loadSyncOutbox(inactiveScope), isEmpty);
-      expect(await database.loadSyncOutbox(activeScope), hasLength(1));
+      expect(
+        _withoutKnowledgeSettings(await database.loadSyncOutbox(inactiveScope)),
+        isEmpty,
+      );
+      expect(
+        _withoutKnowledgeSettings(await database.loadSyncOutbox(activeScope)),
+        hasLength(1),
+      );
 
       await database.activateSyncScope(inactiveScope, deviceId: _deviceId);
       final caughtUp = await database.loadSyncOutbox(inactiveScope);
-      expect(caughtUp, isEmpty);
+      expect(_withoutKnowledgeSettings(caughtUp), isEmpty);
     });
 
     test('remote apply under B never enters A outbox', () async {
@@ -274,7 +292,10 @@ void main() {
           'remote-only',
         );
         expect(await database.syncSince(scope), 7);
-        expect(await database.loadSyncOutbox(scope), isEmpty);
+        expect(
+          _withoutKnowledgeSettings(await database.loadSyncOutbox(scope)),
+          isEmpty,
+        );
         final conflicts = await database.loadSyncConflicts(scope);
         expect(conflicts, hasLength(1));
         expect(conflicts.single.localData?['title'], 'local');
@@ -316,7 +337,9 @@ void main() {
         SyncConflictResolution.keepLocal,
       );
 
-      final outbox = await database.loadSyncOutbox(scope);
+      final outbox = _withoutKnowledgeSettings(
+        await database.loadSyncOutbox(scope),
+      );
       expect(outbox, hasLength(1));
       expect(outbox.single.data?['title'], 'local');
     });
@@ -414,7 +437,10 @@ void main() {
           'remote',
         );
         expect((tasks?['entries'] as List).single['sortOrder'], 1);
-        expect(await database.loadSyncOutbox(scope), isEmpty);
+        expect(
+          _withoutKnowledgeSettings(await database.loadSyncOutbox(scope)),
+          isEmpty,
+        );
         expect(await database.loadSyncConflicts(scope), isEmpty);
       },
     );
@@ -582,6 +608,22 @@ void main() {
       }
     });
 
+    test('full reseed includes cleared knowledge settings', () async {
+      const scope = 'https://cloud.example|knowledge-settings';
+      await database.loadDataFile('knowledge.json');
+      await database.activateSyncScope(scope, deviceId: _deviceId);
+      await database.resetCloudSyncScope(scope, 1);
+
+      await database.prepareFullSyncSnapshot(scope, 1);
+
+      final settings = (await database.loadSyncOutbox(
+        scope,
+      )).singleWhere((entry) => entry.table == 'knowledge_settings');
+      expect(settings.recordId, 'global');
+      expect(settings.op, 'upsert');
+      expect(settings.data, {'id': 'global', 'updatedAt': isA<String>()});
+    });
+
     test(
       'full reseed preserves deletes and blocks remote resurrection',
       () async {
@@ -591,11 +633,18 @@ void main() {
         });
         await database.activateSyncScope(scope, deviceId: _deviceId);
         await database.writeDataFile('tasks.json', {'tasks': <Object>[]});
-        expect((await database.loadSyncOutbox(scope)).single.op, 'delete');
+        expect(
+          _withoutKnowledgeSettings(
+            await database.loadSyncOutbox(scope),
+          ).single.op,
+          'delete',
+        );
 
         await database.resetCloudSyncScope(scope, 2);
         await database.prepareFullSyncSnapshot(scope, 2);
-        final outbox = await database.loadSyncOutbox(scope);
+        final outbox = _withoutKnowledgeSettings(
+          await database.loadSyncOutbox(scope),
+        );
         expect(outbox, hasLength(1));
         expect(outbox.single.op, 'delete');
         expect(outbox.single.recordId, 'deleted-task');
@@ -615,7 +664,12 @@ void main() {
           nextSince: 1,
         );
         expect((await database.loadDataFile('tasks.json'))?['tasks'], isEmpty);
-        expect((await database.loadSyncOutbox(scope)).single.op, 'delete');
+        expect(
+          _withoutKnowledgeSettings(
+            await database.loadSyncOutbox(scope),
+          ).single.op,
+          'delete',
+        );
       },
     );
 
@@ -708,9 +762,140 @@ void main() {
       final data = await database.loadDataFile('resources.json');
       expect(data?['resources'], hasLength(1));
       expect((data?['resources'] as List).single['id'], 'remote');
-      expect(await database.loadSyncOutbox(scope), isEmpty);
+      expect(
+        _withoutKnowledgeSettings(await database.loadSyncOutbox(scope)),
+        isEmpty,
+      );
       expect(await database.syncSince(scope), 4);
     });
+
+    test(
+      'remote knowledge entry upsert then delete keeps the largest seq',
+      () async {
+        const scope = 'server|knowledge-upsert-delete';
+        await database.batchIncremental(
+          [
+            ..._knowledgeParents(seq: 1),
+            _remote(
+              'knowledge_entries',
+              'entry-1',
+              _knowledgeEntry('entry-1', 'removed'),
+              seq: 3,
+            ),
+            _remoteDelete('knowledge_entries', 'entry-1', seq: 4),
+          ],
+          remote: true,
+          scope: scope,
+          nextSince: 4,
+        );
+
+        final knowledge = await database.loadDataFile('knowledge.json');
+        expect(knowledge?['entries'], isEmpty);
+        expect(await database.syncSince(scope), 4);
+        await _expectReceipts(root, {
+          'change-1',
+          'change-2',
+          'change-3',
+          'change-4',
+        });
+      },
+    );
+
+    test(
+      'LAN knowledge entry delete then upsert keeps the largest seq',
+      () async {
+        const scope = 'lan:v1';
+        await database.batchIncremental(
+          [
+            ..._knowledgeParents(seq: 1),
+            _remoteDelete('knowledge_entries', 'entry-1', seq: 4),
+            _remote(
+              'knowledge_entries',
+              'entry-1',
+              _knowledgeEntry('entry-1', 'restored'),
+              seq: 3,
+            ),
+          ],
+          remote: true,
+          scope: scope,
+          nextSince: 0,
+          appliedSource: 'lan',
+          appliedSourcePeer: 'peer-a',
+        );
+
+        final entries =
+            (await database.loadDataFile('knowledge.json'))?['entries'] as List;
+        expect(entries.single['title'], 'restored');
+        expect(await database.syncSince(scope), 0);
+        await _expectReceipts(root, {
+          'change-1',
+          'change-2',
+          'change-3',
+          'change-4',
+        });
+        await database.close();
+        final raw = sqlite3.open('${root.path}/storage_v2/app.db');
+        try {
+          expect(
+            raw
+                .select(
+                  "SELECT change_id FROM transport_peer_acks WHERE peer_device_id = 'peer-a'",
+                )
+                .map((row) => row['change_id']),
+            containsAll({'change-1', 'change-2', 'change-3', 'change-4'}),
+          );
+        } finally {
+          raw.close();
+        }
+      },
+    );
+
+    test(
+      'remote knowledge identity folding preserves parent child order',
+      () async {
+        const scope = 'server|knowledge-parent-child';
+        await database.batchIncremental(
+          [
+            _remoteDelete('knowledge_categories', 'category-1', seq: 1),
+            _remote(
+              'knowledge_entries',
+              'entry-1',
+              _knowledgeEntry('entry-1', 'child'),
+              seq: 4,
+            ),
+            _remote('knowledge_bases', 'base-1', _knowledgeBase(), seq: 2),
+            _remote(
+              'knowledge_categories',
+              'category-1',
+              _knowledgeCategory(),
+              seq: 3,
+            ),
+            _remote(
+              'knowledge_sources',
+              'source-1',
+              _knowledgeSource(),
+              seq: 5,
+            ),
+          ],
+          remote: true,
+          scope: scope,
+          nextSince: 5,
+        );
+
+        final knowledge = await database.loadDataFile('knowledge.json');
+        expect((knowledge?['categories'] as List).single['id'], 'category-1');
+        expect((knowledge?['entries'] as List).single['id'], 'entry-1');
+        expect((knowledge?['sources'] as List).single['entryId'], 'entry-1');
+        expect(await database.syncSince(scope), 5);
+        await _expectReceipts(root, {
+          'change-1',
+          'change-2',
+          'change-3',
+          'change-4',
+          'change-5',
+        });
+      },
+    );
 
     test('change ids are global and payload reuse fails atomically', () async {
       const scopeA = 'https://a.example|user';
@@ -850,7 +1035,7 @@ PRAGMA user_version = 16;
       await database.close();
       final migrated = sqlite3.open('${storageRoot.path}/app.db');
       try {
-        expect(migrated.userVersion, 24);
+        expect(migrated.userVersion, 26);
         expect(
           migrated
               .select(
@@ -943,6 +1128,99 @@ SyncRemoteOperation _remote(
     data: data,
   ),
 );
+
+SyncRemoteOperation _remoteDelete(
+  String table,
+  String recordId, {
+  required int seq,
+}) => (
+  table: table,
+  op: 'delete',
+  data: {'id': recordId},
+  change: SyncChange(
+    seq: seq,
+    changeId: 'change-$seq',
+    deviceId: _deviceId,
+    clientCreatedAt: DateTime.utc(2026, 7, 16),
+    table: table,
+    op: 'delete',
+    recordId: recordId,
+  ),
+);
+
+List<SyncRemoteOperation> _knowledgeParents({required int seq}) => [
+  _remote('knowledge_bases', 'base-1', _knowledgeBase(), seq: seq),
+  _remote(
+    'knowledge_categories',
+    'category-1',
+    _knowledgeCategory(),
+    seq: seq + 1,
+  ),
+];
+
+Map<String, dynamic> _knowledgeBase() => {
+  'id': 'base-1',
+  'name': 'Base',
+  'enabled': true,
+  'sortOrder': 0,
+  'createdAt': '2026-01-01T00:00:00Z',
+  'updatedAt': '2026-01-01T00:00:00Z',
+};
+
+Map<String, dynamic> _knowledgeCategory() => {
+  'id': 'category-1',
+  'knowledgeBaseId': 'base-1',
+  'name': 'Category',
+  'alias': 'category_1',
+  'annotationRule': '',
+  'explanationPrompt': '',
+  'colorValue': 0,
+  'autoAnnotate': false,
+  'isDefault': false,
+  'enabled': true,
+  'sortOrder': 0,
+  'createdAt': '2026-01-01T00:00:00Z',
+  'updatedAt': '2026-01-01T00:00:00Z',
+};
+
+Map<String, dynamic> _knowledgeEntry(String id, String title) => {
+  'id': id,
+  'knowledgeBaseId': 'base-1',
+  'categoryId': 'category-1',
+  'title': title,
+  'content': '',
+  'enabled': true,
+  'sortOrder': 0,
+  'createdAt': '2026-01-01T00:00:00Z',
+  'updatedAt': '2026-01-01T00:00:00Z',
+};
+
+Map<String, dynamic> _knowledgeSource() => {
+  'id': 'source-1',
+  'knowledgeBaseId': 'base-1',
+  'entryId': 'entry-1',
+  'title': 'Source',
+  'sortOrder': 0,
+  'createdAt': '2026-01-01T00:00:00Z',
+  'updatedAt': '2026-01-01T00:00:00Z',
+};
+
+Future<void> _expectReceipts(Directory root, Set<String> changeIds) async {
+  final raw = sqlite3.open('${root.path}/storage_v2/app.db');
+  try {
+    final received = raw
+        .select('SELECT change_id FROM transport_change_receipts')
+        .map((row) => row['change_id'] as String)
+        .toSet();
+    expect(received, containsAll(changeIds));
+  } finally {
+    raw.close();
+  }
+}
+
+List<SyncOutboxEntry> _withoutKnowledgeSettings(List<SyncOutboxEntry> entries) {
+  return entries.where((entry) => entry.table != 'knowledge_settings').toList();
+}
 
 Map<String, dynamic> _task(
   String id,

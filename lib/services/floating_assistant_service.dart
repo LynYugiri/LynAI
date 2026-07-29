@@ -8,6 +8,7 @@ import '../providers/settings_provider.dart';
 import '../providers/calendar_provider.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
+import '../providers/knowledge_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/task_provider.dart';
@@ -24,6 +25,7 @@ import 'floating_assistant_bridge.dart';
 import 'floating_chat_session_controller.dart';
 import 'floating_translation_controller.dart';
 import 'web_search_service.dart';
+import '../widgets/knowledge_explanation_dialog.dart';
 
 class FloatingAssistantService with WidgetsBindingObserver {
   FloatingAssistantService._();
@@ -31,6 +33,7 @@ class FloatingAssistantService with WidgetsBindingObserver {
   static final FloatingAssistantService instance = FloatingAssistantService._();
 
   SettingsProvider? _settings;
+  KnowledgeProvider? _knowledge;
   ConversationProvider? _conversations;
   FloatingChatSessionController? _chat;
   FloatingTranslationController? _translation;
@@ -46,6 +49,7 @@ class FloatingAssistantService with WidgetsBindingObserver {
     required ConversationProvider conversations,
     required ModelConfigProvider models,
     required FeatureProvider features,
+    required KnowledgeProvider knowledge,
     required TaskProvider tasks,
     required CalendarProvider calendar,
     required PluginProvider plugins,
@@ -59,12 +63,14 @@ class FloatingAssistantService with WidgetsBindingObserver {
     if (_started || !Platform.isAndroid) return;
     _started = true;
     _settings = settings;
+    _knowledge = knowledge;
     _conversations = conversations;
     _chat = FloatingChatSessionController(
       settings: settings,
       conversations: conversations,
       models: models,
       features: features,
+      knowledge: knowledge,
       tasks: tasks,
       calendar: calendar,
       plugins: plugins,
@@ -85,6 +91,7 @@ class FloatingAssistantService with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     settings.addListener(_sync);
     conversations.addListener(_syncChatState);
+    knowledge.addListener(_syncChatState);
     DeviceRunController.instance.addListener(_sync);
     FloatingAssistantBridge.instance.setHandler(_handleCall);
     DeviceControlService.instance.onTranslationScrollSettled = _onScrollSettled;
@@ -104,6 +111,7 @@ class FloatingAssistantService with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _settings?.removeListener(_sync);
     _conversations?.removeListener(_syncChatState);
+    _knowledge?.removeListener(_syncChatState);
     _chat?.removeListener(_syncChatState);
     _translation?.removeListener(_syncTranslationState);
     DeviceRunController.instance.removeListener(_sync);
@@ -116,6 +124,7 @@ class FloatingAssistantService with WidgetsBindingObserver {
     _chat = null;
     _translation = null;
     _settings = null;
+    _knowledge = null;
     _conversations = null;
     unawaited(FloatingAssistantBridge.instance.hideBubble());
   }
@@ -142,6 +151,30 @@ class FloatingAssistantService with WidgetsBindingObserver {
       case 'sendMessage':
         final text = _callArgs(call)['text']?.toString() ?? '';
         unawaited(_chat?.send(text));
+        return {'ok': true};
+      case 'explainKnowledge':
+        final args = _callArgs(call);
+        final text = args['text']?.toString().trim() ?? '';
+        if (text.isEmpty) return {'ok': false, 'error': '释义文本为空'};
+        final context = _navigatorContext();
+        final chat = _chat;
+        final knowledge = _knowledge;
+        if (context == null || chat == null || knowledge == null) {
+          return {'ok': false, 'error': 'LynAI 界面尚未就绪'};
+        }
+        unawaited(
+          showKnowledgeExplanationDialog(
+            context: context,
+            api: chat.api,
+            text: text,
+            categoryId: args['categoryId']?.toString(),
+            sourceContext: args['sourceContext']?.toString() ?? '',
+            sourceTitle: args['sourceTitle']?.toString() ?? '',
+            sourceUrl: args['sourceUrl']?.toString() ?? '',
+            saveAutomatically: args['saveAutomatically'] != false,
+            knowledge: knowledge,
+          ),
+        );
         return {'ok': true};
       case 'stopGeneration':
         _chat?.stop();
@@ -251,6 +284,21 @@ class FloatingAssistantService with WidgetsBindingObserver {
           'Unknown floating assistant call: ${call.method}',
         );
     }
+  }
+
+  BuildContext? _navigatorContext() {
+    BuildContext? result;
+    void visit(Element element) {
+      if (result != null) return;
+      if (element.widget is Navigator) {
+        result = element;
+        return;
+      }
+      element.visitChildElements(visit);
+    }
+
+    WidgetsBinding.instance.rootElement?.visitChildElements(visit);
+    return result;
   }
 
   void _persistPosition({

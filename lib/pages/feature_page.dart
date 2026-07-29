@@ -15,6 +15,7 @@ import 'package:screenshot/screenshot.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:super_clipboard/super_clipboard.dart';
 import 'package:uuid/uuid.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'latex_formula_editor_page.dart';
 import 'role_management_page.dart';
 import '../models/chat_role.dart';
@@ -24,6 +25,11 @@ import '../models/calendar_event.dart';
 import '../models/calendar_occurrence.dart';
 import '../models/conversation.dart';
 import '../models/item_reminder.dart';
+import '../models/knowledge_base.dart';
+import '../models/knowledge_category.dart';
+import '../models/knowledge_entry.dart';
+import '../models/knowledge_explanation.dart';
+import '../models/knowledge_source.dart';
 import '../models/local_date.dart';
 import '../models/local_time.dart';
 import '../models/model_config.dart';
@@ -37,6 +43,7 @@ import '../models/task_list.dart';
 import '../providers/calendar_provider.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
+import '../providers/knowledge_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/roleplay_provider.dart';
@@ -46,6 +53,7 @@ import '../services/attachment_storage_service.dart';
 import '../services/api_service.dart';
 import '../services/backend_client.dart';
 import '../services/calendar_platform_bridge.dart';
+import '../services/knowledge_annotation_prompt.dart';
 import '../services/reminder_notification_permission_service.dart';
 import '../services/roleplay_service.dart';
 import '../services/storage_v2_service.dart';
@@ -57,16 +65,19 @@ import '../utils/chat_search_matcher.dart';
 import '../utils/share_image_utils.dart';
 import '../utils/snackbar_utils.dart';
 import '../widgets/latex_renderer.dart';
+import '../widgets/knowledge_explanation_dialog.dart';
 import '../widgets/model_config_picker.dart';
 import '../widgets/note_page_merge_resolver.dart';
 import '../widgets/plugin_feature_webview.dart';
 import '../widgets/plugin_icon.dart';
 import '../widgets/text_editing_controller_host.dart';
+import '../widgets/chat_composer_keyboard.dart';
 import '../utils/file_picker_io_utils.dart';
 import '../utils/reminder_editor.dart';
 part 'features/shared.dart';
 part 'features/feature_shell.dart';
 part 'features/dashboard.dart';
+part 'features/knowledge_page.dart';
 part 'features/schedule_page.dart';
 part 'features/notes_page.dart';
 part 'features/todo_lists_page.dart';
@@ -278,10 +289,12 @@ class _FeaturePageState extends State<FeaturePage> {
     'notes',
     'todos',
     'roleplay',
+    'knowledge',
   };
 
   final _searchController = TextEditingController();
   final _noteDetailKey = GlobalKey<_NoteDetailState>();
+  final _knowledgePageKey = GlobalKey<_KnowledgePageState>();
   String _searchQuery = '';
   String? _selectedNoteId;
   bool _noteEditing = false;
@@ -301,13 +314,17 @@ class _FeaturePageState extends State<FeaturePage> {
     widget.onDashboardHandlerChanged?.call(_goToDashboard);
   }
 
-  // 返回键处理：先尝试关闭笔记详情，再尝试返回功能仪表盘。
+  // 返回键处理：先尝试关闭功能内详情，再尝试返回功能仪表盘。
   bool _handleBack() {
     if (_selectedNoteId != null) {
       _closeSelectedNote();
       return true;
     }
     final feature = context.read<SettingsProvider>().settings.lastFeature;
+    if (feature == 'knowledge' &&
+        (_knowledgePageKey.currentState?.handleBack() ?? false)) {
+      return true;
+    }
     if (_isContentFeature(feature)) {
       _goToDashboard();
       return true;
@@ -405,6 +422,7 @@ class _FeaturePageState extends State<FeaturePage> {
           onRoleChanged: widget.onRoleChanged,
         ),
         'roleplay' => _RoleplayPage(active: widget.active),
+        'knowledge' => _KnowledgePage(key: _knowledgePageKey),
         _ when pluginFeature != null && widget.active => PluginFeatureWebView(
           plugin: pluginFeature.plugin,
           page: pluginFeature.page,
@@ -431,6 +449,7 @@ class _FeaturePageState extends State<FeaturePage> {
       'todos' => '任务',
       'history' => '对话历史',
       'roleplay' => '情景演绎',
+      'knowledge' => '知识库',
       _ => _pluginFeatureFor(feature, plugins)?.page.title ?? '功能',
     };
   }

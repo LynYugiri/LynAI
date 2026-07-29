@@ -11,7 +11,7 @@ class CalendarPlatformBridge {
   final MethodChannel _channel;
 
   Future<void> syncProjection(CalendarPlatformProjection projection) async {
-    if (defaultTargetPlatform != TargetPlatform.android) return;
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
     await _channel.invokeMethod<void>('syncProjection', {
       'projection': projection.toJson(),
     });
@@ -19,7 +19,7 @@ class CalendarPlatformBridge {
 
   /// 只能由明确的用户操作调用；投影同步绝不隐式弹出通知权限。
   Future<void> requestNotificationPermission() async {
-    if (defaultTargetPlatform != TargetPlatform.android) return;
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
     await _channel.invokeMethod<void>('requestNotificationPermission');
   }
 }

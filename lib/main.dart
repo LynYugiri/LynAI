@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import 'providers/conversation_provider.dart';
 import 'providers/calendar_provider.dart';
 import 'providers/feature_provider.dart';
+import 'providers/knowledge_provider.dart';
 import 'providers/model_config_provider.dart';
 import 'providers/mcp_provider.dart';
 import 'providers/plugin_provider.dart';
@@ -80,6 +81,14 @@ const _featureSyncTables = {
 const _calendarSyncTables = {'calendar_events', 'anniversaries'};
 const _roleplaySyncTables = {'roleplay_scenarios', 'roleplay_threads'};
 const _taskSyncTables = {'tasks', 'task_lists', 'task_list_entries'};
+const _knowledgeSyncTables = {
+  'knowledge_bases',
+  'knowledge_categories',
+  'knowledge_entries',
+  'knowledge_sources',
+  'knowledge_explanations',
+  'knowledge_settings',
+};
 const _settingsSyncTables = {'shared_settings', 'resources'};
 const _pluginSyncTables = {'plugin_files', 'plugin_settings', 'plugin_config'};
 const _calendarProjectionSyncTables = {
@@ -192,6 +201,10 @@ Future<void> main() async {
         ),
         ChangeNotifierProvider(
           create: (ctx) =>
+              KnowledgeProvider(storageV2: ctx.read<StorageV2Service>()),
+        ),
+        ChangeNotifierProvider(
+          create: (ctx) =>
               CalendarProvider(storageV2: ctx.read<StorageV2Service>()),
         ),
         ChangeNotifierProvider(
@@ -282,6 +295,7 @@ Future<void> main() async {
                 final calendar = ctx.read<CalendarProvider>();
                 final roleplay = ctx.read<RoleplayProvider>();
                 final tasks = ctx.read<TaskProvider>();
+                final knowledge = ctx.read<KnowledgeProvider>();
                 final settings = ctx.read<SettingsProvider>();
                 final models = ctx.read<ModelConfigProvider>();
                 final plugins = ctx.read<PluginProvider>();
@@ -294,6 +308,7 @@ Future<void> main() async {
                   (name: 'calendar', flush: calendar.flushPendingSaves),
                   (name: 'roleplay', flush: roleplay.flushPendingSaves),
                   (name: 'tasks', flush: tasks.flushPendingSaves),
+                  (name: 'knowledge', flush: knowledge.flushPendingSaves),
                   (name: 'settings', flush: settings.flushPendingSaves),
                   (name: 'models', flush: models.flushPendingSaves),
                 ]);
@@ -305,6 +320,7 @@ Future<void> main() async {
                 final calendar = ctx.read<CalendarProvider>();
                 final roleplay = ctx.read<RoleplayProvider>();
                 final tasks = ctx.read<TaskProvider>();
+                final knowledge = ctx.read<KnowledgeProvider>();
                 final settings = ctx.read<SettingsProvider>();
                 final models = ctx.read<ModelConfigProvider>();
                 final plugins = ctx.read<PluginProvider>();
@@ -324,6 +340,8 @@ Future<void> main() async {
                     (name: 'roleplay', flush: roleplay.flushPendingSaves),
                   if (all || tables.any(_taskSyncTables.contains))
                     (name: 'tasks', flush: tasks.flushPendingSaves),
+                  if (all || tables.any(_knowledgeSyncTables.contains))
+                    (name: 'knowledge', flush: knowledge.flushPendingSaves),
                   if (all || tables.any(_settingsSyncTables.contains))
                     (name: 'settings', flush: settings.flushPendingSaves),
                   if (all || tables.contains('synced_model_configs'))
@@ -341,6 +359,7 @@ Future<void> main() async {
                 final calendar = ctx.read<CalendarProvider>();
                 final roleplay = ctx.read<RoleplayProvider>();
                 final tasks = ctx.read<TaskProvider>();
+                final knowledge = ctx.read<KnowledgeProvider>();
                 final recycleBin = ctx.read<RecycleBinProvider>();
                 final settings = ctx.read<SettingsProvider>();
                 final models = ctx.read<ModelConfigProvider>();
@@ -358,6 +377,8 @@ Future<void> main() async {
                   if (tables.any(_roleplaySyncTables.contains))
                     roleplay.loadSessions(),
                   if (tables.any(_taskSyncTables.contains)) tasks.load(),
+                  if (tables.any(_knowledgeSyncTables.contains))
+                    knowledge.load(),
                   if (tables.contains('recycle_bin')) recycleBin.load(),
                   if (tables.any(_settingsSyncTables.contains))
                     settings.loadSettings(),
@@ -409,6 +430,7 @@ Future<void> main() async {
               final calendar = ctx.read<CalendarProvider>();
               final roleplay = ctx.read<RoleplayProvider>();
               final tasks = ctx.read<TaskProvider>();
+              final knowledge = ctx.read<KnowledgeProvider>();
               final settings = ctx.read<SettingsProvider>();
               final models = ctx.read<ModelConfigProvider>();
               final plugins = ctx.read<PluginProvider>();
@@ -418,6 +440,7 @@ Future<void> main() async {
                 (name: 'calendar', flush: calendar.flushPendingSaves),
                 (name: 'roleplay', flush: roleplay.flushPendingSaves),
                 (name: 'tasks', flush: tasks.flushPendingSaves),
+                (name: 'knowledge', flush: knowledge.flushPendingSaves),
                 (name: 'settings', flush: settings.flushPendingSaves),
                 (name: 'models', flush: models.flushPendingSaves),
               ]);
@@ -432,6 +455,7 @@ Future<void> main() async {
               final calendar = ctx.read<CalendarProvider>();
               final roleplay = ctx.read<RoleplayProvider>();
               final tasks = ctx.read<TaskProvider>();
+              final knowledge = ctx.read<KnowledgeProvider>();
               final recycleBin = ctx.read<RecycleBinProvider>();
               final settings = ctx.read<SettingsProvider>();
               final models = ctx.read<ModelConfigProvider>();
@@ -444,6 +468,7 @@ Future<void> main() async {
                 calendar.load(),
                 roleplay.loadSessions(),
                 tasks.load(),
+                knowledge.load(),
                 recycleBin.load(),
                 settings.loadSettings(),
                 models.loadModels(),
@@ -499,6 +524,7 @@ Future<void> main() async {
               readModels: () => ctx.read<ModelConfigProvider>().models,
               confirmPairing: (_) async => const LanPairingDecision.rejected(),
               confirmPolicyProposal: (_, _, _) async => null,
+              beforeLocalSnapshot: beforeRemoteApply,
               beforeRemoteApply: beforeRemoteApply,
               onRemoteApplied: onRemoteApplied,
               remoteApplyCoordinator: ctx.read<RemoteApplyCoordinator>(),
@@ -537,6 +563,7 @@ Future<void> main() async {
               calendar: ctx.read<CalendarProvider>(),
               roleplay: roleplay,
               tasks: ctx.read<TaskProvider>(),
+              knowledge: ctx.read<KnowledgeProvider>(),
               recycleBin: ctx.read<RecycleBinProvider>(),
               settings: settings,
               models: models,
@@ -625,6 +652,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   CalendarProvider? _calendarProvider;
   RoleplayProvider? _roleplayProvider;
   TaskProvider? _taskProvider;
+  KnowledgeProvider? _knowledgeProvider;
   SettingsProvider? _settingsProvider;
   ModelConfigProvider? _modelProvider;
   SyncProvider? _syncProvider;
@@ -655,6 +683,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
     _calendarProvider ??= context.read<CalendarProvider>();
     _roleplayProvider ??= context.read<RoleplayProvider>();
     _taskProvider ??= context.read<TaskProvider>();
+    _knowledgeProvider ??= context.read<KnowledgeProvider>();
     _settingsProvider ??= context.read<SettingsProvider>();
     _modelProvider ??= context.read<ModelConfigProvider>();
     _syncProvider ??= context.read<SyncProvider>();
@@ -708,6 +737,8 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
                 (name: 'roleplay', flush: provider.flushPendingSaves),
               if (_taskProvider case final provider?)
                 (name: 'tasks', flush: provider.flushPendingSaves),
+              if (_knowledgeProvider case final provider?)
+                (name: 'knowledge', flush: provider.flushPendingSaves),
               if (_settingsProvider case final provider?)
                 (name: 'settings', flush: provider.flushPendingSaves),
               if (_modelProvider case final provider?)
@@ -762,6 +793,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       final recycleBinProvider = context.read<RecycleBinProvider>();
       final roleplayProvider = context.read<RoleplayProvider>();
       final taskProvider = context.read<TaskProvider>();
+      final knowledgeProvider = context.read<KnowledgeProvider>();
       final backendClient = context.read<BackendClient>();
       final deviceIdentityService = context.read<DeviceIdentityService>();
       final storageV2 = context.read<StorageV2Service>();
@@ -802,6 +834,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         recycleBinProvider.load(),
         roleplayProvider.loadSessions(),
         taskProvider.load(),
+        knowledgeProvider.load(),
         modelProvider.loadModels(),
         if (mcpProvider != null) mcpProvider.load(),
       ]);
@@ -827,6 +860,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         conversations: conversationProvider,
         models: modelProvider,
         features: featureProvider,
+        knowledge: knowledgeProvider,
         tasks: taskProvider,
         calendar: calendarProvider,
         plugins: pluginProvider,
