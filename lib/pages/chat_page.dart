@@ -301,6 +301,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   final _msgCtrl = TextEditingController();
   final _searchCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
+  late final ScrollController _historyScrollController;
   final _focusNode = FocusNode();
   final _searchFocusNode = FocusNode();
   final _screenshotCtrl = ScreenshotController();
@@ -354,6 +355,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   String _lastSearchSignature = '';
   String _lastSearchQuery = '';
   String? _searchRegexError;
+  double _historyScrollOffset = 0;
+  final Set<String> _collapsedHistoryRoleIds = {};
+  int _historyScrollRestoreGeneration = 0;
 
   int _streamGen = 0;
   String? _streamingConvId;
@@ -390,6 +394,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    _historyScrollController = ScrollController(keepScrollOffset: false)
+      ..addListener(_rememberHistoryScrollOffset);
     _attachmentStorage = AttachmentStorageService(
       storageV2: context.read<StorageV2Service>(),
     );
@@ -716,6 +722,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _searchCtrl.dispose();
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
+    _historyScrollRestoreGeneration++;
+    _historyScrollController.removeListener(_rememberHistoryScrollOffset);
+    _historyScrollController.dispose();
     _focusNode.dispose();
     _searchFocusNode.dispose();
     if (_ownsApi) _api.dispose();
@@ -3034,6 +3043,49 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     Navigator.pop(context);
   }
 
+  void _rememberHistoryScrollOffset() {
+    if (!_historyScrollController.hasClients) return;
+    final position = _historyScrollController.position;
+    if (!position.hasContentDimensions) return;
+    _historyScrollOffset = position.pixels
+        .clamp(position.minScrollExtent, position.maxScrollExtent)
+        .toDouble();
+  }
+
+  void _scheduleHistoryScrollRestore() {
+    final generation = ++_historyScrollRestoreGeneration;
+    _restoreHistoryScrollOffset(generation, 4);
+  }
+
+  void _restoreHistoryScrollOffset(int generation, int attemptsLeft) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || generation != _historyScrollRestoreGeneration) return;
+      if (!_historyScrollController.hasClients ||
+          !_historyScrollController.position.hasContentDimensions) {
+        if (attemptsLeft > 1) {
+          _restoreHistoryScrollOffset(generation, attemptsLeft - 1);
+        }
+        return;
+      }
+      final position = _historyScrollController.position;
+      final target = _historyScrollOffset
+          .clamp(position.minScrollExtent, position.maxScrollExtent)
+          .toDouble();
+      _historyScrollOffset = target;
+      if ((position.pixels - target).abs() > 0.5) {
+        _historyScrollController.jumpTo(target);
+      }
+    });
+  }
+
+  void _toggleHistoryRole(String roleId) {
+    setState(() {
+      if (!_collapsedHistoryRoleIds.add(roleId)) {
+        _collapsedHistoryRoleIds.remove(roleId);
+      }
+    });
+  }
+
   void _startNewConversation() {
     // Bottom-nav double tap and the app-bar action both route here. Keep all
     // transient chat modes in one place so a new chat cannot inherit selection,
@@ -3098,6 +3150,13 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         }
       },
       child: Scaffold(
+        onDrawerChanged: (opened) {
+          if (opened) {
+            _scheduleHistoryScrollRestore();
+          } else {
+            _rememberHistoryScrollOffset();
+          }
+        },
         appBar: AppBar(
           leading: _shareSelecting
               ? IconButton(
@@ -3165,7 +3224,13 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   }
 
   Widget _drawer(BuildContext ctx) => Drawer(
-    child: _HistoryDrawer(onSelect: _selectHistory, currentConvId: _convId),
+    child: _HistoryDrawer(
+      onSelect: _selectHistory,
+      currentConvId: _convId,
+      scrollController: _historyScrollController,
+      collapsedRoleIds: Set.unmodifiable(_collapsedHistoryRoleIds),
+      onToggleRole: _toggleHistoryRole,
+    ),
   );
 
   Widget _body(Conversation? conv, ModelConfig? model, ModelConfigProvider mp) {

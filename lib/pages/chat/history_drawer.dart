@@ -4,9 +4,19 @@ part of '../chat_page.dart';
 ///
 /// 按角色分组展示对话记录，支持搜索、置顶和管理操作。
 class _HistoryDrawer extends StatefulWidget {
-  final void Function(String) onSelect;
+  final ValueChanged<String> onSelect;
   final String? currentConvId;
-  const _HistoryDrawer({required this.onSelect, this.currentConvId});
+  final ScrollController scrollController;
+  final Set<String> collapsedRoleIds;
+  final ValueChanged<String> onToggleRole;
+
+  const _HistoryDrawer({
+    required this.onSelect,
+    required this.scrollController,
+    required this.collapsedRoleIds,
+    required this.onToggleRole,
+    this.currentConvId,
+  });
 
   @override
   State<_HistoryDrawer> createState() => _HistoryDrawerState();
@@ -15,11 +25,19 @@ class _HistoryDrawer extends StatefulWidget {
 sealed class _HistoryListItem {}
 
 class _HistoryRoleHeaderItem extends _HistoryListItem {
+  final String roleId;
   final String name;
   final Color? color;
-  final String? roleId;
+  final bool isCurrent;
+  final bool isCollapsed;
 
-  _HistoryRoleHeaderItem(this.name, this.color, {this.roleId});
+  _HistoryRoleHeaderItem({
+    required this.roleId,
+    required this.name,
+    required this.color,
+    required this.isCurrent,
+    required this.isCollapsed,
+  });
 }
 
 class _HistoryEmptyItem extends _HistoryListItem {
@@ -34,6 +52,22 @@ class _HistoryConversationItem extends _HistoryListItem {
   final ConversationSearchResult? result;
 
   _HistoryConversationItem(this.conversation, this.roleColor, {this.result});
+}
+
+class _HistoryRoleGroup {
+  final String roleId;
+  final String name;
+  final Color? color;
+  final bool isCurrent;
+  final List<ConversationSearchResult> results;
+
+  const _HistoryRoleGroup({
+    required this.roleId,
+    required this.name,
+    required this.color,
+    required this.isCurrent,
+    required this.results,
+  });
 }
 
 class _HistoryDrawerState extends State<_HistoryDrawer> {
@@ -76,47 +110,46 @@ class _HistoryDrawerState extends State<_HistoryDrawer> {
         .map((r) => r.conversation.roleId)
         .toSet()
         .toList();
-    final items = <_HistoryListItem>[
-      _HistoryRoleHeaderItem(currentRole.name, currentRole.themeColor),
-      if (currentResults.isEmpty)
-        _HistoryEmptyItem(_q.isEmpty ? '当前角色暂无对话' : '未找到匹配的对话'),
-      for (final result in currentResults)
-        _HistoryConversationItem(
-          result.conversation,
-          currentRole.themeColor,
-          result: result,
-        ),
-      for (final roleId in otherRoleIds) ...[
+    final groups = <_HistoryRoleGroup>[
+      _HistoryRoleGroup(
+        roleId: currentRoleId,
+        name: currentRole.name,
+        color: currentRole.themeColor,
+        isCurrent: true,
+        results: currentResults,
+      ),
+      for (final roleId in otherRoleIds)
+        _historyRoleGroup(roles, otherResults, roleId),
+    ];
+    final isSearching = _q.trim().isNotEmpty;
+    final items = <_HistoryListItem>[];
+    for (final group in groups) {
+      final isCollapsed =
+          !isSearching && widget.collapsedRoleIds.contains(group.roleId);
+      items.add(
         _HistoryRoleHeaderItem(
-          roles
-              .firstWhere(
-                (role) => role.id == roleId,
-                orElse: () => ChatRole.defaultRole().copyWith(name: roleId),
-              )
-              .name,
-          roles
-              .firstWhere(
-                (role) => role.id == roleId,
-                orElse: () => ChatRole.defaultRole().copyWith(name: roleId),
-              )
-              .themeColor,
-          roleId: roleId,
+          roleId: group.roleId,
+          name: group.name,
+          color: group.color,
+          isCurrent: group.isCurrent,
+          isCollapsed: isCollapsed,
         ),
-        for (final result in otherResults.where(
-          (r) => r.conversation.roleId == roleId,
-        ))
+      );
+      if (isCollapsed) continue;
+      if (group.results.isEmpty) {
+        items.add(_HistoryEmptyItem(_q.isEmpty ? '当前角色暂无对话' : '未找到匹配的对话'));
+        continue;
+      }
+      for (final result in group.results) {
+        items.add(
           _HistoryConversationItem(
             result.conversation,
-            roles
-                .firstWhere(
-                  (role) => role.id == roleId,
-                  orElse: () => ChatRole.defaultRole().copyWith(name: roleId),
-                )
-                .themeColor,
+            group.color,
             result: result,
           ),
-      ],
-    ];
+        );
+      }
+    }
     return Column(
       children: [
         Container(
@@ -185,20 +218,12 @@ class _HistoryDrawerState extends State<_HistoryDrawer> {
                   ),
                 )
               : ListView.builder(
+                  controller: widget.scrollController,
                   itemCount: items.length,
                   itemBuilder: (context, index) {
                     final item = items[index];
                     if (item is _HistoryRoleHeaderItem) {
-                      final header = _roleHeader(
-                        context,
-                        item.name,
-                        item.color,
-                      );
-                      if (item.roleId == null) return header;
-                      return InkWell(
-                        onTap: () => sp.selectRole(item.roleId!),
-                        child: header,
-                      );
+                      return _roleHeader(context, item, enabled: !isSearching);
                     }
                     if (item is _HistoryEmptyItem) {
                       return ListTile(
@@ -220,14 +245,64 @@ class _HistoryDrawerState extends State<_HistoryDrawer> {
     );
   }
 
-  Widget _roleHeader(BuildContext context, String name, Color? color) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
-      child: Text(
-        name,
-        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-          color: color ?? Theme.of(context).colorScheme.primary,
-          fontWeight: FontWeight.w700,
+  _HistoryRoleGroup _historyRoleGroup(
+    List<ChatRole> roles,
+    List<ConversationSearchResult> results,
+    String roleId,
+  ) {
+    final role = roles.firstWhere(
+      (value) => value.id == roleId,
+      orElse: () => ChatRole.defaultRole().copyWith(id: roleId, name: roleId),
+    );
+    return _HistoryRoleGroup(
+      roleId: roleId,
+      name: role.name,
+      color: role.themeColor,
+      isCurrent: false,
+      results: results
+          .where((result) => result.conversation.roleId == roleId)
+          .toList(),
+    );
+  }
+
+  Widget _roleHeader(
+    BuildContext context,
+    _HistoryRoleHeaderItem item, {
+    required bool enabled,
+  }) {
+    final color = item.color ?? Theme.of(context).colorScheme.primary;
+    return InkWell(
+      key: ValueKey('history-role-header-${item.roleId}'),
+      onTap: enabled ? () => widget.onToggleRole(item.roleId) : null,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 10, 16, 2),
+        child: Row(
+          children: [
+            Icon(
+              item.isCollapsed
+                  ? Icons.keyboard_arrow_right
+                  : Icons.keyboard_arrow_down,
+              key: ValueKey('history-role-toggle-${item.roleId}'),
+              color: color,
+            ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text(
+                item.name,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            if (item.isCurrent)
+              Text(
+                '当前',
+                style: Theme.of(
+                  context,
+                ).textTheme.labelSmall?.copyWith(color: color),
+              ),
+          ],
         ),
       ),
     );

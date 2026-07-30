@@ -92,6 +92,38 @@ void main() {
     expect(find.text('完成我'), findsOneWidget);
     expect(find.text('1 项，已完成 1 项'), findsOneWidget);
   });
+
+  testWidgets('opening an existing task does not focus its title', (
+    tester,
+  ) async {
+    final provider = _taskProvider();
+    await provider.addTask(title: '查看任务');
+    await _pumpTasks(tester, provider);
+
+    await tester.tap(find.text('未完成 1'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('查看任务'));
+    await tester.pumpAndSettle();
+
+    final titleField = find.widgetWithText(TextField, '标题');
+    final editableFinder = find.descendant(
+      of: titleField,
+      matching: find.byType(EditableText),
+    );
+    expect(
+      tester.widget<EditableText>(editableFinder).focusNode.hasFocus,
+      isFalse,
+    );
+    expect(tester.testTextInput.isVisible, isFalse);
+
+    await tester.tap(titleField);
+    await tester.pump();
+    expect(
+      tester.widget<EditableText>(editableFinder).focusNode.hasFocus,
+      isTrue,
+    );
+    expect(tester.testTextInput.isVisible, isTrue);
+  });
 }
 
 TaskProvider _taskProvider() {

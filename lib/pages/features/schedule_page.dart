@@ -441,49 +441,50 @@ class _SchedulePageState extends State<_SchedulePage> {
     final completed = occurrences
         .where((value) => _isTask(value) && value.isCompleted)
         .toList();
-    return Container(
-      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-      decoration: BoxDecoration(
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      child: Material(
         color: Theme.of(
           context,
         ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
         borderRadius: BorderRadius.circular(16),
-      ),
-      child: ListView(
-        padding: const EdgeInsets.all(12),
-        children: [
-          Text(
-            '${date.year}-${_two(date.month)}-${_two(date.day)}  周${_weekday(date.weekday)}',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          if (occurrences.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 28),
-              child: Center(child: Text('这一天没有事项')),
+        clipBehavior: Clip.antiAlias,
+        child: ListView(
+          padding: const EdgeInsets.all(12),
+          children: [
+            Text(
+              '${date.year}-${_two(date.month)}-${_two(date.day)}  周${_weekday(date.weekday)}',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
-          _detailGroup(
-            '纪念日',
-            Icons.cake_outlined,
-            anniversaries,
-            calendar,
-            tasks,
-          ),
-          _detailGroup('全天 / 跨日', Icons.event_note, allDay, calendar, tasks),
-          _detailGroup('定时事件', Icons.schedule, timed, calendar, tasks),
-          _detailGroup('未完成任务', Icons.task_alt, incomplete, calendar, tasks),
-          if (completed.isNotEmpty)
-            ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              initiallyExpanded: _completedExpanded,
-              onExpansionChanged: (value) => _completedExpanded = value,
-              title: Text('已完成 (${completed.length})'),
-              children: completed
-                  .map((value) => _occurrenceTile(value, calendar, tasks))
-                  .toList(),
+            if (occurrences.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 28),
+                child: Center(child: Text('这一天没有事项')),
+              ),
+            _detailGroup(
+              '纪念日',
+              Icons.cake_outlined,
+              anniversaries,
+              calendar,
+              tasks,
             ),
-        ],
+            _detailGroup('全天 / 跨日', Icons.event_note, allDay, calendar, tasks),
+            _detailGroup('定时事件', Icons.schedule, timed, calendar, tasks),
+            _detailGroup('未完成任务', Icons.task_alt, incomplete, calendar, tasks),
+            if (completed.isNotEmpty)
+              ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                initiallyExpanded: _completedExpanded,
+                onExpansionChanged: (value) => _completedExpanded = value,
+                title: Text('已完成 (${completed.length})'),
+                children: completed
+                    .map((value) => _occurrenceTile(value, calendar, tasks))
+                    .toList(),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -1342,7 +1343,6 @@ class _SchedulePageState extends State<_SchedulePage> {
               const SizedBox(height: 14),
               TextField(
                 controller: titleController,
-                autofocus: true,
                 decoration: const InputDecoration(
                   labelText: '标题',
                   border: OutlineInputBorder(),

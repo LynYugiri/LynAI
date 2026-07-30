@@ -800,7 +800,6 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
               const SizedBox(height: 16),
               TextField(
                 controller: _titleController,
-                autofocus: true,
                 decoration: const InputDecoration(labelText: '标题'),
               ),
               const SizedBox(height: 12),
