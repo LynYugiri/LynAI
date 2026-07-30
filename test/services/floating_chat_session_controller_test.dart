@@ -173,7 +173,6 @@ void main() {
             annotationRule: '标注人物名',
             colorValue: 0xFF7C3AED,
             autoAnnotate: true,
-            isDefault: true,
             enabled: true,
             sortOrder: 0,
             createdAt: now,
@@ -186,7 +185,6 @@ void main() {
             alias: 'zero_color',
             colorValue: 0,
             autoAnnotate: true,
-            isDefault: false,
             enabled: true,
             sortOrder: 1,
             createdAt: now,
@@ -198,7 +196,6 @@ void main() {
             name: '手动',
             alias: 'manual',
             autoAnnotate: false,
-            isDefault: false,
             enabled: true,
             sortOrder: 2,
             createdAt: now,
@@ -210,7 +207,6 @@ void main() {
             name: '禁用',
             alias: 'disabled',
             autoAnnotate: true,
-            isDefault: false,
             enabled: false,
             sortOrder: 3,
             createdAt: now,
@@ -222,7 +218,6 @@ void main() {
             name: '禁用知识库',
             alias: 'disabled_base',
             autoAnnotate: true,
-            isDefault: false,
             enabled: true,
             sortOrder: 0,
             createdAt: now,
@@ -254,11 +249,16 @@ void main() {
         expect(systemMessages, hasLength(1));
         expect(systemMessages.single['content'], contains('[[category:text]]'));
         expect(systemMessages.single['content'], contains('person'));
-        expect(controller.stateJson()['defaultKnowledgeCategory'], 'person-id');
+        expect(
+          controller.stateJson()['fallbackKnowledgeCategory'],
+          KnowledgeProvider.builtInProperNounCategoryId,
+        );
         final categories =
             controller.stateJson()['knowledgeCategories']
                 as Map<String, dynamic>;
         expect(categories.keys, {
+          KnowledgeProvider.builtInProperNounCategoryId,
+          KnowledgeProvider.properNounAlias,
           'person-id',
           'person',
           'zero-color-id',

@@ -96,7 +96,7 @@ void main() {
     },
   );
 
-  testWidgets('unknown annotation resolves the default category alias', (
+  testWidgets('unknown annotation resolves the fallback category alias', (
     WidgetTester tester,
   ) async {
     KnowledgeAnnotationRenderData? tapped;
@@ -106,7 +106,7 @@ void main() {
         home: Scaffold(
           body: MarkdownWithLatex(
             content: '[[unknown:条目]]',
-            defaultKnowledgeCategory: 'general-alias',
+            fallbackKnowledgeCategory: 'general-alias',
             knowledgeCategoryResolver: (value) {
               resolved.add(value);
               return value == 'general-alias' ? 'general' : null;

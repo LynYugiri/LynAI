@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/knowledge_base.dart';
 import 'package:lynai/models/knowledge_category.dart';
-import 'package:lynai/models/knowledge_settings.dart';
 import 'package:lynai/models/model_config.dart';
 import 'package:lynai/providers/knowledge_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
@@ -121,7 +120,6 @@ Future<KnowledgeProvider> _knowledge({_Repository? repository}) async {
         name: '第一类',
         alias: 'first',
         explanationPrompt: '第一',
-        isDefault: false,
         enabled: true,
         sortOrder: 0,
         createdAt: now,
@@ -133,7 +131,6 @@ Future<KnowledgeProvider> _knowledge({_Repository? repository}) async {
         name: '第二类',
         alias: 'second',
         explanationPrompt: '第二',
-        isDefault: false,
         enabled: true,
         sortOrder: 1,
         createdAt: now,
@@ -203,7 +200,6 @@ class _Repository extends KnowledgeRepository {
     Iterable<String> deleteSourceIds = const [],
     Iterable upsertExplanations = const [],
     Iterable<String> deleteExplanationIds = const [],
-    KnowledgeSettings? settings,
   }) async {
     if (upsertExplanations.isNotEmpty) bundleWrites++;
   }

@@ -31,7 +31,16 @@ class LanFrameException implements Exception {
   String toString() => 'LanFrameException: $message';
 }
 
-class LanSecureTransport {
+abstract interface class LanFrameTransport {
+  Future<void> send(String type, Map<String, dynamic> body);
+
+  Future<LanFrame> receive({
+    required Set<String> expectedTypes,
+    Set<String>? expectedPurposes,
+  });
+}
+
+class LanSecureTransport implements LanFrameTransport {
   static const blobChunkBytes = 384 * 1024;
   static const defaultMaxFrameBytes = 1024 * 1024;
   static const defaultMaxBodyBytes = 768 * 1024;
@@ -163,6 +172,7 @@ class LanSecureTransport {
     return frame;
   }
 
+  @override
   Future<void> send(String type, Map<String, dynamic> body) async {
     final sessionId = _sessionId;
     final purpose = _purpose;
@@ -188,6 +198,7 @@ class LanSecureTransport {
     await socket.flush().timeout(writeTimeout);
   }
 
+  @override
   Future<LanFrame> receive({
     required Set<String> expectedTypes,
     Set<String>? expectedPurposes,

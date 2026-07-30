@@ -9289,20 +9289,6 @@ class $KnowledgeCategoryRowsTable extends KnowledgeCategoryRows
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
-  static const VerificationMeta _isDefaultMeta = const VerificationMeta(
-    'isDefault',
-  );
-  @override
-  late final GeneratedColumn<bool> isDefault = GeneratedColumn<bool>(
-    'is_default',
-    aliasedName,
-    false,
-    type: DriftSqlType.bool,
-    requiredDuringInsert: true,
-    defaultConstraints: GeneratedColumn.constraintIsAlways(
-      'CHECK ("is_default" IN (0, 1))',
-    ),
-  );
   static const VerificationMeta _enabledMeta = const VerificationMeta(
     'enabled',
   );
@@ -9363,7 +9349,6 @@ class $KnowledgeCategoryRowsTable extends KnowledgeCategoryRows
     colorValue,
     autoAnnotate,
     modelConfigId,
-    isDefault,
     enabled,
     sortOrder,
     createdAt,
@@ -9472,14 +9457,6 @@ class $KnowledgeCategoryRowsTable extends KnowledgeCategoryRows
         ),
       );
     }
-    if (data.containsKey('is_default')) {
-      context.handle(
-        _isDefaultMeta,
-        isDefault.isAcceptableOrUnknown(data['is_default']!, _isDefaultMeta),
-      );
-    } else if (isInserting) {
-      context.missing(_isDefaultMeta);
-    }
     if (data.containsKey('enabled')) {
       context.handle(
         _enabledMeta,
@@ -9559,10 +9536,6 @@ class $KnowledgeCategoryRowsTable extends KnowledgeCategoryRows
         DriftSqlType.string,
         data['${effectivePrefix}model_config_id'],
       ),
-      isDefault: attachedDatabase.typeMapping.read(
-        DriftSqlType.bool,
-        data['${effectivePrefix}is_default'],
-      )!,
       enabled: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
         data['${effectivePrefix}enabled'],
@@ -9600,7 +9573,6 @@ class KnowledgeCategoryRow extends DataClass
   final int colorValue;
   final bool autoAnnotate;
   final String? modelConfigId;
-  final bool isDefault;
   final bool enabled;
   final int sortOrder;
   final String createdAt;
@@ -9616,7 +9588,6 @@ class KnowledgeCategoryRow extends DataClass
     required this.colorValue,
     required this.autoAnnotate,
     this.modelConfigId,
-    required this.isDefault,
     required this.enabled,
     required this.sortOrder,
     required this.createdAt,
@@ -9639,7 +9610,6 @@ class KnowledgeCategoryRow extends DataClass
     if (!nullToAbsent || modelConfigId != null) {
       map['model_config_id'] = Variable<String>(modelConfigId);
     }
-    map['is_default'] = Variable<bool>(isDefault);
     map['enabled'] = Variable<bool>(enabled);
     map['sort_order'] = Variable<int>(sortOrder);
     map['created_at'] = Variable<String>(createdAt);
@@ -9663,7 +9633,6 @@ class KnowledgeCategoryRow extends DataClass
       modelConfigId: modelConfigId == null && nullToAbsent
           ? const Value.absent()
           : Value(modelConfigId),
-      isDefault: Value(isDefault),
       enabled: Value(enabled),
       sortOrder: Value(sortOrder),
       createdAt: Value(createdAt),
@@ -9687,7 +9656,6 @@ class KnowledgeCategoryRow extends DataClass
       colorValue: serializer.fromJson<int>(json['colorValue']),
       autoAnnotate: serializer.fromJson<bool>(json['autoAnnotate']),
       modelConfigId: serializer.fromJson<String?>(json['modelConfigId']),
-      isDefault: serializer.fromJson<bool>(json['isDefault']),
       enabled: serializer.fromJson<bool>(json['enabled']),
       sortOrder: serializer.fromJson<int>(json['sortOrder']),
       createdAt: serializer.fromJson<String>(json['createdAt']),
@@ -9708,7 +9676,6 @@ class KnowledgeCategoryRow extends DataClass
       'colorValue': serializer.toJson<int>(colorValue),
       'autoAnnotate': serializer.toJson<bool>(autoAnnotate),
       'modelConfigId': serializer.toJson<String?>(modelConfigId),
-      'isDefault': serializer.toJson<bool>(isDefault),
       'enabled': serializer.toJson<bool>(enabled),
       'sortOrder': serializer.toJson<int>(sortOrder),
       'createdAt': serializer.toJson<String>(createdAt),
@@ -9727,7 +9694,6 @@ class KnowledgeCategoryRow extends DataClass
     int? colorValue,
     bool? autoAnnotate,
     Value<String?> modelConfigId = const Value.absent(),
-    bool? isDefault,
     bool? enabled,
     int? sortOrder,
     String? createdAt,
@@ -9745,7 +9711,6 @@ class KnowledgeCategoryRow extends DataClass
     modelConfigId: modelConfigId.present
         ? modelConfigId.value
         : this.modelConfigId,
-    isDefault: isDefault ?? this.isDefault,
     enabled: enabled ?? this.enabled,
     sortOrder: sortOrder ?? this.sortOrder,
     createdAt: createdAt ?? this.createdAt,
@@ -9777,7 +9742,6 @@ class KnowledgeCategoryRow extends DataClass
       modelConfigId: data.modelConfigId.present
           ? data.modelConfigId.value
           : this.modelConfigId,
-      isDefault: data.isDefault.present ? data.isDefault.value : this.isDefault,
       enabled: data.enabled.present ? data.enabled.value : this.enabled,
       sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
@@ -9798,7 +9762,6 @@ class KnowledgeCategoryRow extends DataClass
           ..write('colorValue: $colorValue, ')
           ..write('autoAnnotate: $autoAnnotate, ')
           ..write('modelConfigId: $modelConfigId, ')
-          ..write('isDefault: $isDefault, ')
           ..write('enabled: $enabled, ')
           ..write('sortOrder: $sortOrder, ')
           ..write('createdAt: $createdAt, ')
@@ -9819,7 +9782,6 @@ class KnowledgeCategoryRow extends DataClass
     colorValue,
     autoAnnotate,
     modelConfigId,
-    isDefault,
     enabled,
     sortOrder,
     createdAt,
@@ -9839,7 +9801,6 @@ class KnowledgeCategoryRow extends DataClass
           other.colorValue == this.colorValue &&
           other.autoAnnotate == this.autoAnnotate &&
           other.modelConfigId == this.modelConfigId &&
-          other.isDefault == this.isDefault &&
           other.enabled == this.enabled &&
           other.sortOrder == this.sortOrder &&
           other.createdAt == this.createdAt &&
@@ -9858,7 +9819,6 @@ class KnowledgeCategoryRowsCompanion
   final Value<int> colorValue;
   final Value<bool> autoAnnotate;
   final Value<String?> modelConfigId;
-  final Value<bool> isDefault;
   final Value<bool> enabled;
   final Value<int> sortOrder;
   final Value<String> createdAt;
@@ -9875,7 +9835,6 @@ class KnowledgeCategoryRowsCompanion
     this.colorValue = const Value.absent(),
     this.autoAnnotate = const Value.absent(),
     this.modelConfigId = const Value.absent(),
-    this.isDefault = const Value.absent(),
     this.enabled = const Value.absent(),
     this.sortOrder = const Value.absent(),
     this.createdAt = const Value.absent(),
@@ -9893,7 +9852,6 @@ class KnowledgeCategoryRowsCompanion
     required int colorValue,
     required bool autoAnnotate,
     this.modelConfigId = const Value.absent(),
-    required bool isDefault,
     this.enabled = const Value.absent(),
     required int sortOrder,
     required String createdAt,
@@ -9907,7 +9865,6 @@ class KnowledgeCategoryRowsCompanion
        explanationPrompt = Value(explanationPrompt),
        colorValue = Value(colorValue),
        autoAnnotate = Value(autoAnnotate),
-       isDefault = Value(isDefault),
        sortOrder = Value(sortOrder),
        createdAt = Value(createdAt),
        updatedAt = Value(updatedAt);
@@ -9922,7 +9879,6 @@ class KnowledgeCategoryRowsCompanion
     Expression<int>? colorValue,
     Expression<bool>? autoAnnotate,
     Expression<String>? modelConfigId,
-    Expression<bool>? isDefault,
     Expression<bool>? enabled,
     Expression<int>? sortOrder,
     Expression<String>? createdAt,
@@ -9940,7 +9896,6 @@ class KnowledgeCategoryRowsCompanion
       if (colorValue != null) 'color_value': colorValue,
       if (autoAnnotate != null) 'auto_annotate': autoAnnotate,
       if (modelConfigId != null) 'model_config_id': modelConfigId,
-      if (isDefault != null) 'is_default': isDefault,
       if (enabled != null) 'enabled': enabled,
       if (sortOrder != null) 'sort_order': sortOrder,
       if (createdAt != null) 'created_at': createdAt,
@@ -9960,7 +9915,6 @@ class KnowledgeCategoryRowsCompanion
     Value<int>? colorValue,
     Value<bool>? autoAnnotate,
     Value<String?>? modelConfigId,
-    Value<bool>? isDefault,
     Value<bool>? enabled,
     Value<int>? sortOrder,
     Value<String>? createdAt,
@@ -9978,7 +9932,6 @@ class KnowledgeCategoryRowsCompanion
       colorValue: colorValue ?? this.colorValue,
       autoAnnotate: autoAnnotate ?? this.autoAnnotate,
       modelConfigId: modelConfigId ?? this.modelConfigId,
-      isDefault: isDefault ?? this.isDefault,
       enabled: enabled ?? this.enabled,
       sortOrder: sortOrder ?? this.sortOrder,
       createdAt: createdAt ?? this.createdAt,
@@ -10020,9 +9973,6 @@ class KnowledgeCategoryRowsCompanion
     if (modelConfigId.present) {
       map['model_config_id'] = Variable<String>(modelConfigId.value);
     }
-    if (isDefault.present) {
-      map['is_default'] = Variable<bool>(isDefault.value);
-    }
     if (enabled.present) {
       map['enabled'] = Variable<bool>(enabled.value);
     }
@@ -10054,349 +10004,11 @@ class KnowledgeCategoryRowsCompanion
           ..write('colorValue: $colorValue, ')
           ..write('autoAnnotate: $autoAnnotate, ')
           ..write('modelConfigId: $modelConfigId, ')
-          ..write('isDefault: $isDefault, ')
           ..write('enabled: $enabled, ')
           ..write('sortOrder: $sortOrder, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
-          ..write(')'))
-        .toString();
-  }
-}
-
-class $KnowledgeSettingsRowsTable extends KnowledgeSettingsRows
-    with TableInfo<$KnowledgeSettingsRowsTable, KnowledgeSettingsRow> {
-  @override
-  final GeneratedDatabase attachedDatabase;
-  final String? _alias;
-  $KnowledgeSettingsRowsTable(this.attachedDatabase, [this._alias]);
-  static const VerificationMeta _idMeta = const VerificationMeta('id');
-  @override
-  late final GeneratedColumn<int> id = GeneratedColumn<int>(
-    'id',
-    aliasedName,
-    false,
-    type: DriftSqlType.int,
-    requiredDuringInsert: false,
-  );
-  static const VerificationMeta _defaultKnowledgeBaseIdMeta =
-      const VerificationMeta('defaultKnowledgeBaseId');
-  @override
-  late final GeneratedColumn<String> defaultKnowledgeBaseId =
-      GeneratedColumn<String>(
-        'default_knowledge_base_id',
-        aliasedName,
-        true,
-        type: DriftSqlType.string,
-        requiredDuringInsert: false,
-        $customConstraints:
-            'NULL REFERENCES knowledge_bases(id) ON DELETE SET NULL',
-      );
-  static const VerificationMeta _defaultCategoryIdMeta = const VerificationMeta(
-    'defaultCategoryId',
-  );
-  @override
-  late final GeneratedColumn<String> defaultCategoryId =
-      GeneratedColumn<String>(
-        'default_category_id',
-        aliasedName,
-        true,
-        type: DriftSqlType.string,
-        requiredDuringInsert: false,
-        $customConstraints:
-            'NULL REFERENCES knowledge_categories(id) ON DELETE SET NULL',
-      );
-  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
-    'updatedAt',
-  );
-  @override
-  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
-    'updated_at',
-    aliasedName,
-    false,
-    type: DriftSqlType.string,
-    requiredDuringInsert: true,
-  );
-  @override
-  List<GeneratedColumn> get $columns => [
-    id,
-    defaultKnowledgeBaseId,
-    defaultCategoryId,
-    updatedAt,
-  ];
-  @override
-  String get aliasedName => _alias ?? actualTableName;
-  @override
-  String get actualTableName => $name;
-  static const String $name = 'knowledge_settings';
-  @override
-  VerificationContext validateIntegrity(
-    Insertable<KnowledgeSettingsRow> instance, {
-    bool isInserting = false,
-  }) {
-    final context = VerificationContext();
-    final data = instance.toColumns(true);
-    if (data.containsKey('id')) {
-      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
-    }
-    if (data.containsKey('default_knowledge_base_id')) {
-      context.handle(
-        _defaultKnowledgeBaseIdMeta,
-        defaultKnowledgeBaseId.isAcceptableOrUnknown(
-          data['default_knowledge_base_id']!,
-          _defaultKnowledgeBaseIdMeta,
-        ),
-      );
-    }
-    if (data.containsKey('default_category_id')) {
-      context.handle(
-        _defaultCategoryIdMeta,
-        defaultCategoryId.isAcceptableOrUnknown(
-          data['default_category_id']!,
-          _defaultCategoryIdMeta,
-        ),
-      );
-    }
-    if (data.containsKey('updated_at')) {
-      context.handle(
-        _updatedAtMeta,
-        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
-      );
-    } else if (isInserting) {
-      context.missing(_updatedAtMeta);
-    }
-    return context;
-  }
-
-  @override
-  Set<GeneratedColumn> get $primaryKey => {id};
-  @override
-  KnowledgeSettingsRow map(Map<String, dynamic> data, {String? tablePrefix}) {
-    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return KnowledgeSettingsRow(
-      id: attachedDatabase.typeMapping.read(
-        DriftSqlType.int,
-        data['${effectivePrefix}id'],
-      )!,
-      defaultKnowledgeBaseId: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}default_knowledge_base_id'],
-      ),
-      defaultCategoryId: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}default_category_id'],
-      ),
-      updatedAt: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}updated_at'],
-      )!,
-    );
-  }
-
-  @override
-  $KnowledgeSettingsRowsTable createAlias(String alias) {
-    return $KnowledgeSettingsRowsTable(attachedDatabase, alias);
-  }
-}
-
-class KnowledgeSettingsRow extends DataClass
-    implements Insertable<KnowledgeSettingsRow> {
-  final int id;
-  final String? defaultKnowledgeBaseId;
-  final String? defaultCategoryId;
-  final String updatedAt;
-  const KnowledgeSettingsRow({
-    required this.id,
-    this.defaultKnowledgeBaseId,
-    this.defaultCategoryId,
-    required this.updatedAt,
-  });
-  @override
-  Map<String, Expression> toColumns(bool nullToAbsent) {
-    final map = <String, Expression>{};
-    map['id'] = Variable<int>(id);
-    if (!nullToAbsent || defaultKnowledgeBaseId != null) {
-      map['default_knowledge_base_id'] = Variable<String>(
-        defaultKnowledgeBaseId,
-      );
-    }
-    if (!nullToAbsent || defaultCategoryId != null) {
-      map['default_category_id'] = Variable<String>(defaultCategoryId);
-    }
-    map['updated_at'] = Variable<String>(updatedAt);
-    return map;
-  }
-
-  KnowledgeSettingsRowsCompanion toCompanion(bool nullToAbsent) {
-    return KnowledgeSettingsRowsCompanion(
-      id: Value(id),
-      defaultKnowledgeBaseId: defaultKnowledgeBaseId == null && nullToAbsent
-          ? const Value.absent()
-          : Value(defaultKnowledgeBaseId),
-      defaultCategoryId: defaultCategoryId == null && nullToAbsent
-          ? const Value.absent()
-          : Value(defaultCategoryId),
-      updatedAt: Value(updatedAt),
-    );
-  }
-
-  factory KnowledgeSettingsRow.fromJson(
-    Map<String, dynamic> json, {
-    ValueSerializer? serializer,
-  }) {
-    serializer ??= driftRuntimeOptions.defaultSerializer;
-    return KnowledgeSettingsRow(
-      id: serializer.fromJson<int>(json['id']),
-      defaultKnowledgeBaseId: serializer.fromJson<String?>(
-        json['defaultKnowledgeBaseId'],
-      ),
-      defaultCategoryId: serializer.fromJson<String?>(
-        json['defaultCategoryId'],
-      ),
-      updatedAt: serializer.fromJson<String>(json['updatedAt']),
-    );
-  }
-  @override
-  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
-    serializer ??= driftRuntimeOptions.defaultSerializer;
-    return <String, dynamic>{
-      'id': serializer.toJson<int>(id),
-      'defaultKnowledgeBaseId': serializer.toJson<String?>(
-        defaultKnowledgeBaseId,
-      ),
-      'defaultCategoryId': serializer.toJson<String?>(defaultCategoryId),
-      'updatedAt': serializer.toJson<String>(updatedAt),
-    };
-  }
-
-  KnowledgeSettingsRow copyWith({
-    int? id,
-    Value<String?> defaultKnowledgeBaseId = const Value.absent(),
-    Value<String?> defaultCategoryId = const Value.absent(),
-    String? updatedAt,
-  }) => KnowledgeSettingsRow(
-    id: id ?? this.id,
-    defaultKnowledgeBaseId: defaultKnowledgeBaseId.present
-        ? defaultKnowledgeBaseId.value
-        : this.defaultKnowledgeBaseId,
-    defaultCategoryId: defaultCategoryId.present
-        ? defaultCategoryId.value
-        : this.defaultCategoryId,
-    updatedAt: updatedAt ?? this.updatedAt,
-  );
-  KnowledgeSettingsRow copyWithCompanion(KnowledgeSettingsRowsCompanion data) {
-    return KnowledgeSettingsRow(
-      id: data.id.present ? data.id.value : this.id,
-      defaultKnowledgeBaseId: data.defaultKnowledgeBaseId.present
-          ? data.defaultKnowledgeBaseId.value
-          : this.defaultKnowledgeBaseId,
-      defaultCategoryId: data.defaultCategoryId.present
-          ? data.defaultCategoryId.value
-          : this.defaultCategoryId,
-      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
-    );
-  }
-
-  @override
-  String toString() {
-    return (StringBuffer('KnowledgeSettingsRow(')
-          ..write('id: $id, ')
-          ..write('defaultKnowledgeBaseId: $defaultKnowledgeBaseId, ')
-          ..write('defaultCategoryId: $defaultCategoryId, ')
-          ..write('updatedAt: $updatedAt')
-          ..write(')'))
-        .toString();
-  }
-
-  @override
-  int get hashCode =>
-      Object.hash(id, defaultKnowledgeBaseId, defaultCategoryId, updatedAt);
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      (other is KnowledgeSettingsRow &&
-          other.id == this.id &&
-          other.defaultKnowledgeBaseId == this.defaultKnowledgeBaseId &&
-          other.defaultCategoryId == this.defaultCategoryId &&
-          other.updatedAt == this.updatedAt);
-}
-
-class KnowledgeSettingsRowsCompanion
-    extends UpdateCompanion<KnowledgeSettingsRow> {
-  final Value<int> id;
-  final Value<String?> defaultKnowledgeBaseId;
-  final Value<String?> defaultCategoryId;
-  final Value<String> updatedAt;
-  const KnowledgeSettingsRowsCompanion({
-    this.id = const Value.absent(),
-    this.defaultKnowledgeBaseId = const Value.absent(),
-    this.defaultCategoryId = const Value.absent(),
-    this.updatedAt = const Value.absent(),
-  });
-  KnowledgeSettingsRowsCompanion.insert({
-    this.id = const Value.absent(),
-    this.defaultKnowledgeBaseId = const Value.absent(),
-    this.defaultCategoryId = const Value.absent(),
-    required String updatedAt,
-  }) : updatedAt = Value(updatedAt);
-  static Insertable<KnowledgeSettingsRow> custom({
-    Expression<int>? id,
-    Expression<String>? defaultKnowledgeBaseId,
-    Expression<String>? defaultCategoryId,
-    Expression<String>? updatedAt,
-  }) {
-    return RawValuesInsertable({
-      if (id != null) 'id': id,
-      if (defaultKnowledgeBaseId != null)
-        'default_knowledge_base_id': defaultKnowledgeBaseId,
-      if (defaultCategoryId != null) 'default_category_id': defaultCategoryId,
-      if (updatedAt != null) 'updated_at': updatedAt,
-    });
-  }
-
-  KnowledgeSettingsRowsCompanion copyWith({
-    Value<int>? id,
-    Value<String?>? defaultKnowledgeBaseId,
-    Value<String?>? defaultCategoryId,
-    Value<String>? updatedAt,
-  }) {
-    return KnowledgeSettingsRowsCompanion(
-      id: id ?? this.id,
-      defaultKnowledgeBaseId:
-          defaultKnowledgeBaseId ?? this.defaultKnowledgeBaseId,
-      defaultCategoryId: defaultCategoryId ?? this.defaultCategoryId,
-      updatedAt: updatedAt ?? this.updatedAt,
-    );
-  }
-
-  @override
-  Map<String, Expression> toColumns(bool nullToAbsent) {
-    final map = <String, Expression>{};
-    if (id.present) {
-      map['id'] = Variable<int>(id.value);
-    }
-    if (defaultKnowledgeBaseId.present) {
-      map['default_knowledge_base_id'] = Variable<String>(
-        defaultKnowledgeBaseId.value,
-      );
-    }
-    if (defaultCategoryId.present) {
-      map['default_category_id'] = Variable<String>(defaultCategoryId.value);
-    }
-    if (updatedAt.present) {
-      map['updated_at'] = Variable<String>(updatedAt.value);
-    }
-    return map;
-  }
-
-  @override
-  String toString() {
-    return (StringBuffer('KnowledgeSettingsRowsCompanion(')
-          ..write('id: $id, ')
-          ..write('defaultKnowledgeBaseId: $defaultKnowledgeBaseId, ')
-          ..write('defaultCategoryId: $defaultCategoryId, ')
-          ..write('updatedAt: $updatedAt')
           ..write(')'))
         .toString();
   }
@@ -24643,8 +24255,6 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
       $KnowledgeBaseRowsTable(this);
   late final $KnowledgeCategoryRowsTable knowledgeCategoryRows =
       $KnowledgeCategoryRowsTable(this);
-  late final $KnowledgeSettingsRowsTable knowledgeSettingsRows =
-      $KnowledgeSettingsRowsTable(this);
   late final $KnowledgeEntryRowsTable knowledgeEntryRows =
       $KnowledgeEntryRowsTable(this);
   late final $KnowledgeSourceRowsTable knowledgeSourceRows =
@@ -24756,7 +24366,6 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
     taskListEntryRows,
     knowledgeBaseRows,
     knowledgeCategoryRows,
-    knowledgeSettingsRows,
     knowledgeEntryRows,
     knowledgeSourceRows,
     knowledgeExplanationRows,
@@ -24817,20 +24426,6 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
         limitUpdateKind: UpdateKind.delete,
       ),
       result: [TableUpdate('knowledge_categories', kind: UpdateKind.delete)],
-    ),
-    WritePropagation(
-      on: TableUpdateQuery.onTableName(
-        'knowledge_bases',
-        limitUpdateKind: UpdateKind.delete,
-      ),
-      result: [TableUpdate('knowledge_settings', kind: UpdateKind.update)],
-    ),
-    WritePropagation(
-      on: TableUpdateQuery.onTableName(
-        'knowledge_categories',
-        limitUpdateKind: UpdateKind.delete,
-      ),
-      result: [TableUpdate('knowledge_settings', kind: UpdateKind.update)],
     ),
     WritePropagation(
       on: TableUpdateQuery.onTableName(
@@ -30092,38 +29687,6 @@ final class $$KnowledgeBaseRowsTableReferences
     );
   }
 
-  static MultiTypedResultKey<
-    $KnowledgeSettingsRowsTable,
-    List<KnowledgeSettingsRow>
-  >
-  _knowledgeSettingsRowsRefsTable(
-    _$StorageV2DriftDatabase db,
-  ) => MultiTypedResultKey.fromTable(
-    db.knowledgeSettingsRows,
-    aliasName:
-        'knowledge_bases__id__knowledge_settings__default_knowledge_base_id',
-  );
-
-  $$KnowledgeSettingsRowsTableProcessedTableManager
-  get knowledgeSettingsRowsRefs {
-    final manager =
-        $$KnowledgeSettingsRowsTableTableManager(
-          $_db,
-          $_db.knowledgeSettingsRows,
-        ).filter(
-          (f) => f.defaultKnowledgeBaseId.id.sqlEquals(
-            $_itemColumn<String>('id')!,
-          ),
-        );
-
-    final cache = $_typedResult.readTableOrNull(
-      _knowledgeSettingsRowsRefsTable($_db),
-    );
-    return ProcessedTableManager(
-      manager.$state.copyWith(prefetchedData: cache),
-    );
-  }
-
   static MultiTypedResultKey<$KnowledgeEntryRowsTable, List<KnowledgeEntryRow>>
   _knowledgeEntryRowsRefsTable(_$StorageV2DriftDatabase db) =>
       MultiTypedResultKey.fromTable(
@@ -30266,32 +29829,6 @@ class $$KnowledgeBaseRowsTableFilterComposer
               }) => $$KnowledgeCategoryRowsTableFilterComposer(
                 $db: $db,
                 $table: $db.knowledgeCategoryRows,
-                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-                joinBuilder: joinBuilder,
-                $removeJoinBuilderFromRootComposer:
-                    $removeJoinBuilderFromRootComposer,
-              ),
-        );
-    return f(composer);
-  }
-
-  Expression<bool> knowledgeSettingsRowsRefs(
-    Expression<bool> Function($$KnowledgeSettingsRowsTableFilterComposer f) f,
-  ) {
-    final $$KnowledgeSettingsRowsTableFilterComposer composer =
-        $composerBuilder(
-          composer: this,
-          getCurrentColumn: (t) => t.id,
-          referencedTable: $db.knowledgeSettingsRows,
-          getReferencedColumn: (t) => t.defaultKnowledgeBaseId,
-          builder:
-              (
-                joinBuilder, {
-                $addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer,
-              }) => $$KnowledgeSettingsRowsTableFilterComposer(
-                $db: $db,
-                $table: $db.knowledgeSettingsRows,
                 $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
                 joinBuilder: joinBuilder,
                 $removeJoinBuilderFromRootComposer:
@@ -30482,32 +30019,6 @@ class $$KnowledgeBaseRowsTableAnnotationComposer
     return f(composer);
   }
 
-  Expression<T> knowledgeSettingsRowsRefs<T extends Object>(
-    Expression<T> Function($$KnowledgeSettingsRowsTableAnnotationComposer a) f,
-  ) {
-    final $$KnowledgeSettingsRowsTableAnnotationComposer composer =
-        $composerBuilder(
-          composer: this,
-          getCurrentColumn: (t) => t.id,
-          referencedTable: $db.knowledgeSettingsRows,
-          getReferencedColumn: (t) => t.defaultKnowledgeBaseId,
-          builder:
-              (
-                joinBuilder, {
-                $addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer,
-              }) => $$KnowledgeSettingsRowsTableAnnotationComposer(
-                $db: $db,
-                $table: $db.knowledgeSettingsRows,
-                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-                joinBuilder: joinBuilder,
-                $removeJoinBuilderFromRootComposer:
-                    $removeJoinBuilderFromRootComposer,
-              ),
-        );
-    return f(composer);
-  }
-
   Expression<T> knowledgeEntryRowsRefs<T extends Object>(
     Expression<T> Function($$KnowledgeEntryRowsTableAnnotationComposer a) f,
   ) {
@@ -30603,7 +30114,6 @@ class $$KnowledgeBaseRowsTableTableManager
           KnowledgeBaseRow,
           PrefetchHooks Function({
             bool knowledgeCategoryRowsRefs,
-            bool knowledgeSettingsRowsRefs,
             bool knowledgeEntryRowsRefs,
             bool knowledgeSourceRowsRefs,
             bool knowledgeExplanationRowsRefs,
@@ -30676,7 +30186,6 @@ class $$KnowledgeBaseRowsTableTableManager
           prefetchHooksCallback:
               ({
                 knowledgeCategoryRowsRefs = false,
-                knowledgeSettingsRowsRefs = false,
                 knowledgeEntryRowsRefs = false,
                 knowledgeSourceRowsRefs = false,
                 knowledgeExplanationRowsRefs = false,
@@ -30685,7 +30194,6 @@ class $$KnowledgeBaseRowsTableTableManager
                   db: db,
                   explicitlyWatchedTables: [
                     if (knowledgeCategoryRowsRefs) db.knowledgeCategoryRows,
-                    if (knowledgeSettingsRowsRefs) db.knowledgeSettingsRows,
                     if (knowledgeEntryRowsRefs) db.knowledgeEntryRows,
                     if (knowledgeSourceRowsRefs) db.knowledgeSourceRows,
                     if (knowledgeExplanationRowsRefs)
@@ -30712,27 +30220,6 @@ class $$KnowledgeBaseRowsTableTableManager
                           referencedItemsForCurrentItem:
                               (item, referencedItems) => referencedItems.where(
                                 (e) => e.knowledgeBaseId == item.id,
-                              ),
-                          typedResults: items,
-                        ),
-                      if (knowledgeSettingsRowsRefs)
-                        await $_getPrefetchedData<
-                          KnowledgeBaseRow,
-                          $KnowledgeBaseRowsTable,
-                          KnowledgeSettingsRow
-                        >(
-                          currentTable: table,
-                          referencedTable: $$KnowledgeBaseRowsTableReferences
-                              ._knowledgeSettingsRowsRefsTable(db),
-                          managerFromTypedResult: (p0) =>
-                              $$KnowledgeBaseRowsTableReferences(
-                                db,
-                                table,
-                                p0,
-                              ).knowledgeSettingsRowsRefs,
-                          referencedItemsForCurrentItem:
-                              (item, referencedItems) => referencedItems.where(
-                                (e) => e.defaultKnowledgeBaseId == item.id,
                               ),
                           typedResults: items,
                         ),
@@ -30821,7 +30308,6 @@ typedef $$KnowledgeBaseRowsTableProcessedTableManager =
       KnowledgeBaseRow,
       PrefetchHooks Function({
         bool knowledgeCategoryRowsRefs,
-        bool knowledgeSettingsRowsRefs,
         bool knowledgeEntryRowsRefs,
         bool knowledgeSourceRowsRefs,
         bool knowledgeExplanationRowsRefs,
@@ -30839,7 +30325,6 @@ typedef $$KnowledgeCategoryRowsTableCreateCompanionBuilder =
       required int colorValue,
       required bool autoAnnotate,
       Value<String?> modelConfigId,
-      required bool isDefault,
       Value<bool> enabled,
       required int sortOrder,
       required String createdAt,
@@ -30858,7 +30343,6 @@ typedef $$KnowledgeCategoryRowsTableUpdateCompanionBuilder =
       Value<int> colorValue,
       Value<bool> autoAnnotate,
       Value<String?> modelConfigId,
-      Value<bool> isDefault,
       Value<bool> enabled,
       Value<int> sortOrder,
       Value<String> createdAt,
@@ -30896,35 +30380,6 @@ final class $$KnowledgeCategoryRowsTableReferences
     if (item == null) return manager;
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: [item]),
-    );
-  }
-
-  static MultiTypedResultKey<
-    $KnowledgeSettingsRowsTable,
-    List<KnowledgeSettingsRow>
-  >
-  _knowledgeSettingsRowsRefsTable(_$StorageV2DriftDatabase db) =>
-      MultiTypedResultKey.fromTable(
-        db.knowledgeSettingsRows,
-        aliasName:
-            'knowledge_categories__id__knowledge_settings__default_category_id',
-      );
-
-  $$KnowledgeSettingsRowsTableProcessedTableManager
-  get knowledgeSettingsRowsRefs {
-    final manager =
-        $$KnowledgeSettingsRowsTableTableManager(
-          $_db,
-          $_db.knowledgeSettingsRows,
-        ).filter(
-          (f) => f.defaultCategoryId.id.sqlEquals($_itemColumn<String>('id')!),
-        );
-
-    final cache = $_typedResult.readTableOrNull(
-      _knowledgeSettingsRowsRefsTable($_db),
-    );
-    return ProcessedTableManager(
-      manager.$state.copyWith(prefetchedData: cache),
     );
   }
 
@@ -31004,11 +30459,6 @@ class $$KnowledgeCategoryRowsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<bool> get isDefault => $composableBuilder(
-    column: $table.isDefault,
-    builder: (column) => ColumnFilters(column),
-  );
-
   ColumnFilters<bool> get enabled => $composableBuilder(
     column: $table.enabled,
     builder: (column) => ColumnFilters(column),
@@ -31050,32 +30500,6 @@ class $$KnowledgeCategoryRowsTableFilterComposer
           ),
     );
     return composer;
-  }
-
-  Expression<bool> knowledgeSettingsRowsRefs(
-    Expression<bool> Function($$KnowledgeSettingsRowsTableFilterComposer f) f,
-  ) {
-    final $$KnowledgeSettingsRowsTableFilterComposer composer =
-        $composerBuilder(
-          composer: this,
-          getCurrentColumn: (t) => t.id,
-          referencedTable: $db.knowledgeSettingsRows,
-          getReferencedColumn: (t) => t.defaultCategoryId,
-          builder:
-              (
-                joinBuilder, {
-                $addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer,
-              }) => $$KnowledgeSettingsRowsTableFilterComposer(
-                $db: $db,
-                $table: $db.knowledgeSettingsRows,
-                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-                joinBuilder: joinBuilder,
-                $removeJoinBuilderFromRootComposer:
-                    $removeJoinBuilderFromRootComposer,
-              ),
-        );
-    return f(composer);
   }
 
   Expression<bool> knowledgeEntryRowsRefs(
@@ -31155,11 +30579,6 @@ class $$KnowledgeCategoryRowsTableOrderingComposer
 
   ColumnOrderings<String> get modelConfigId => $composableBuilder(
     column: $table.modelConfigId,
-    builder: (column) => ColumnOrderings(column),
-  );
-
-  ColumnOrderings<bool> get isDefault => $composableBuilder(
-    column: $table.isDefault,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -31255,9 +30674,6 @@ class $$KnowledgeCategoryRowsTableAnnotationComposer
     builder: (column) => column,
   );
 
-  GeneratedColumn<bool> get isDefault =>
-      $composableBuilder(column: $table.isDefault, builder: (column) => column);
-
   GeneratedColumn<bool> get enabled =>
       $composableBuilder(column: $table.enabled, builder: (column) => column);
 
@@ -31292,32 +30708,6 @@ class $$KnowledgeCategoryRowsTableAnnotationComposer
               ),
         );
     return composer;
-  }
-
-  Expression<T> knowledgeSettingsRowsRefs<T extends Object>(
-    Expression<T> Function($$KnowledgeSettingsRowsTableAnnotationComposer a) f,
-  ) {
-    final $$KnowledgeSettingsRowsTableAnnotationComposer composer =
-        $composerBuilder(
-          composer: this,
-          getCurrentColumn: (t) => t.id,
-          referencedTable: $db.knowledgeSettingsRows,
-          getReferencedColumn: (t) => t.defaultCategoryId,
-          builder:
-              (
-                joinBuilder, {
-                $addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer,
-              }) => $$KnowledgeSettingsRowsTableAnnotationComposer(
-                $db: $db,
-                $table: $db.knowledgeSettingsRows,
-                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-                joinBuilder: joinBuilder,
-                $removeJoinBuilderFromRootComposer:
-                    $removeJoinBuilderFromRootComposer,
-              ),
-        );
-    return f(composer);
   }
 
   Expression<T> knowledgeEntryRowsRefs<T extends Object>(
@@ -31362,7 +30752,6 @@ class $$KnowledgeCategoryRowsTableTableManager
           KnowledgeCategoryRow,
           PrefetchHooks Function({
             bool knowledgeBaseId,
-            bool knowledgeSettingsRowsRefs,
             bool knowledgeEntryRowsRefs,
           })
         > {
@@ -31400,7 +30789,6 @@ class $$KnowledgeCategoryRowsTableTableManager
                 Value<int> colorValue = const Value.absent(),
                 Value<bool> autoAnnotate = const Value.absent(),
                 Value<String?> modelConfigId = const Value.absent(),
-                Value<bool> isDefault = const Value.absent(),
                 Value<bool> enabled = const Value.absent(),
                 Value<int> sortOrder = const Value.absent(),
                 Value<String> createdAt = const Value.absent(),
@@ -31417,7 +30805,6 @@ class $$KnowledgeCategoryRowsTableTableManager
                 colorValue: colorValue,
                 autoAnnotate: autoAnnotate,
                 modelConfigId: modelConfigId,
-                isDefault: isDefault,
                 enabled: enabled,
                 sortOrder: sortOrder,
                 createdAt: createdAt,
@@ -31436,7 +30823,6 @@ class $$KnowledgeCategoryRowsTableTableManager
                 required int colorValue,
                 required bool autoAnnotate,
                 Value<String?> modelConfigId = const Value.absent(),
-                required bool isDefault,
                 Value<bool> enabled = const Value.absent(),
                 required int sortOrder,
                 required String createdAt,
@@ -31453,7 +30839,6 @@ class $$KnowledgeCategoryRowsTableTableManager
                 colorValue: colorValue,
                 autoAnnotate: autoAnnotate,
                 modelConfigId: modelConfigId,
-                isDefault: isDefault,
                 enabled: enabled,
                 sortOrder: sortOrder,
                 createdAt: createdAt,
@@ -31469,15 +30854,10 @@ class $$KnowledgeCategoryRowsTableTableManager
               )
               .toList(),
           prefetchHooksCallback:
-              ({
-                knowledgeBaseId = false,
-                knowledgeSettingsRowsRefs = false,
-                knowledgeEntryRowsRefs = false,
-              }) {
+              ({knowledgeBaseId = false, knowledgeEntryRowsRefs = false}) {
                 return PrefetchHooks(
                   db: db,
                   explicitlyWatchedTables: [
-                    if (knowledgeSettingsRowsRefs) db.knowledgeSettingsRows,
                     if (knowledgeEntryRowsRefs) db.knowledgeEntryRows,
                   ],
                   addJoins:
@@ -31516,28 +30896,6 @@ class $$KnowledgeCategoryRowsTableTableManager
                       },
                   getPrefetchedDataCallback: (items) async {
                     return [
-                      if (knowledgeSettingsRowsRefs)
-                        await $_getPrefetchedData<
-                          KnowledgeCategoryRow,
-                          $KnowledgeCategoryRowsTable,
-                          KnowledgeSettingsRow
-                        >(
-                          currentTable: table,
-                          referencedTable:
-                              $$KnowledgeCategoryRowsTableReferences
-                                  ._knowledgeSettingsRowsRefsTable(db),
-                          managerFromTypedResult: (p0) =>
-                              $$KnowledgeCategoryRowsTableReferences(
-                                db,
-                                table,
-                                p0,
-                              ).knowledgeSettingsRowsRefs,
-                          referencedItemsForCurrentItem:
-                              (item, referencedItems) => referencedItems.where(
-                                (e) => e.defaultCategoryId == item.id,
-                              ),
-                          typedResults: items,
-                        ),
                       if (knowledgeEntryRowsRefs)
                         await $_getPrefetchedData<
                           KnowledgeCategoryRow,
@@ -31582,429 +30940,7 @@ typedef $$KnowledgeCategoryRowsTableProcessedTableManager =
       KnowledgeCategoryRow,
       PrefetchHooks Function({
         bool knowledgeBaseId,
-        bool knowledgeSettingsRowsRefs,
         bool knowledgeEntryRowsRefs,
-      })
-    >;
-typedef $$KnowledgeSettingsRowsTableCreateCompanionBuilder =
-    KnowledgeSettingsRowsCompanion Function({
-      Value<int> id,
-      Value<String?> defaultKnowledgeBaseId,
-      Value<String?> defaultCategoryId,
-      required String updatedAt,
-    });
-typedef $$KnowledgeSettingsRowsTableUpdateCompanionBuilder =
-    KnowledgeSettingsRowsCompanion Function({
-      Value<int> id,
-      Value<String?> defaultKnowledgeBaseId,
-      Value<String?> defaultCategoryId,
-      Value<String> updatedAt,
-    });
-
-final class $$KnowledgeSettingsRowsTableReferences
-    extends
-        BaseReferences<
-          _$StorageV2DriftDatabase,
-          $KnowledgeSettingsRowsTable,
-          KnowledgeSettingsRow
-        > {
-  $$KnowledgeSettingsRowsTableReferences(
-    super.$_db,
-    super.$_table,
-    super.$_typedResult,
-  );
-
-  static $KnowledgeBaseRowsTable _defaultKnowledgeBaseIdTable(
-    _$StorageV2DriftDatabase db,
-  ) => db.knowledgeBaseRows.createAlias(
-    'knowledge_settings__default_knowledge_base_id__knowledge_bases__id',
-  );
-
-  $$KnowledgeBaseRowsTableProcessedTableManager? get defaultKnowledgeBaseId {
-    final $_column = $_itemColumn<String>('default_knowledge_base_id');
-    if ($_column == null) return null;
-    final manager = $$KnowledgeBaseRowsTableTableManager(
-      $_db,
-      $_db.knowledgeBaseRows,
-    ).filter((f) => f.id.sqlEquals($_column));
-    final item = $_typedResult.readTableOrNull(
-      _defaultKnowledgeBaseIdTable($_db),
-    );
-    if (item == null) return manager;
-    return ProcessedTableManager(
-      manager.$state.copyWith(prefetchedData: [item]),
-    );
-  }
-
-  static $KnowledgeCategoryRowsTable _defaultCategoryIdTable(
-    _$StorageV2DriftDatabase db,
-  ) => db.knowledgeCategoryRows.createAlias(
-    'knowledge_settings__default_category_id__knowledge_categories__id',
-  );
-
-  $$KnowledgeCategoryRowsTableProcessedTableManager? get defaultCategoryId {
-    final $_column = $_itemColumn<String>('default_category_id');
-    if ($_column == null) return null;
-    final manager = $$KnowledgeCategoryRowsTableTableManager(
-      $_db,
-      $_db.knowledgeCategoryRows,
-    ).filter((f) => f.id.sqlEquals($_column));
-    final item = $_typedResult.readTableOrNull(_defaultCategoryIdTable($_db));
-    if (item == null) return manager;
-    return ProcessedTableManager(
-      manager.$state.copyWith(prefetchedData: [item]),
-    );
-  }
-}
-
-class $$KnowledgeSettingsRowsTableFilterComposer
-    extends Composer<_$StorageV2DriftDatabase, $KnowledgeSettingsRowsTable> {
-  $$KnowledgeSettingsRowsTableFilterComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  ColumnFilters<int> get id => $composableBuilder(
-    column: $table.id,
-    builder: (column) => ColumnFilters(column),
-  );
-
-  ColumnFilters<String> get updatedAt => $composableBuilder(
-    column: $table.updatedAt,
-    builder: (column) => ColumnFilters(column),
-  );
-
-  $$KnowledgeBaseRowsTableFilterComposer get defaultKnowledgeBaseId {
-    final $$KnowledgeBaseRowsTableFilterComposer composer = $composerBuilder(
-      composer: this,
-      getCurrentColumn: (t) => t.defaultKnowledgeBaseId,
-      referencedTable: $db.knowledgeBaseRows,
-      getReferencedColumn: (t) => t.id,
-      builder:
-          (
-            joinBuilder, {
-            $addJoinBuilderToRootComposer,
-            $removeJoinBuilderFromRootComposer,
-          }) => $$KnowledgeBaseRowsTableFilterComposer(
-            $db: $db,
-            $table: $db.knowledgeBaseRows,
-            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-            joinBuilder: joinBuilder,
-            $removeJoinBuilderFromRootComposer:
-                $removeJoinBuilderFromRootComposer,
-          ),
-    );
-    return composer;
-  }
-
-  $$KnowledgeCategoryRowsTableFilterComposer get defaultCategoryId {
-    final $$KnowledgeCategoryRowsTableFilterComposer composer =
-        $composerBuilder(
-          composer: this,
-          getCurrentColumn: (t) => t.defaultCategoryId,
-          referencedTable: $db.knowledgeCategoryRows,
-          getReferencedColumn: (t) => t.id,
-          builder:
-              (
-                joinBuilder, {
-                $addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer,
-              }) => $$KnowledgeCategoryRowsTableFilterComposer(
-                $db: $db,
-                $table: $db.knowledgeCategoryRows,
-                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-                joinBuilder: joinBuilder,
-                $removeJoinBuilderFromRootComposer:
-                    $removeJoinBuilderFromRootComposer,
-              ),
-        );
-    return composer;
-  }
-}
-
-class $$KnowledgeSettingsRowsTableOrderingComposer
-    extends Composer<_$StorageV2DriftDatabase, $KnowledgeSettingsRowsTable> {
-  $$KnowledgeSettingsRowsTableOrderingComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  ColumnOrderings<int> get id => $composableBuilder(
-    column: $table.id,
-    builder: (column) => ColumnOrderings(column),
-  );
-
-  ColumnOrderings<String> get updatedAt => $composableBuilder(
-    column: $table.updatedAt,
-    builder: (column) => ColumnOrderings(column),
-  );
-
-  $$KnowledgeBaseRowsTableOrderingComposer get defaultKnowledgeBaseId {
-    final $$KnowledgeBaseRowsTableOrderingComposer composer = $composerBuilder(
-      composer: this,
-      getCurrentColumn: (t) => t.defaultKnowledgeBaseId,
-      referencedTable: $db.knowledgeBaseRows,
-      getReferencedColumn: (t) => t.id,
-      builder:
-          (
-            joinBuilder, {
-            $addJoinBuilderToRootComposer,
-            $removeJoinBuilderFromRootComposer,
-          }) => $$KnowledgeBaseRowsTableOrderingComposer(
-            $db: $db,
-            $table: $db.knowledgeBaseRows,
-            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-            joinBuilder: joinBuilder,
-            $removeJoinBuilderFromRootComposer:
-                $removeJoinBuilderFromRootComposer,
-          ),
-    );
-    return composer;
-  }
-
-  $$KnowledgeCategoryRowsTableOrderingComposer get defaultCategoryId {
-    final $$KnowledgeCategoryRowsTableOrderingComposer composer =
-        $composerBuilder(
-          composer: this,
-          getCurrentColumn: (t) => t.defaultCategoryId,
-          referencedTable: $db.knowledgeCategoryRows,
-          getReferencedColumn: (t) => t.id,
-          builder:
-              (
-                joinBuilder, {
-                $addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer,
-              }) => $$KnowledgeCategoryRowsTableOrderingComposer(
-                $db: $db,
-                $table: $db.knowledgeCategoryRows,
-                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-                joinBuilder: joinBuilder,
-                $removeJoinBuilderFromRootComposer:
-                    $removeJoinBuilderFromRootComposer,
-              ),
-        );
-    return composer;
-  }
-}
-
-class $$KnowledgeSettingsRowsTableAnnotationComposer
-    extends Composer<_$StorageV2DriftDatabase, $KnowledgeSettingsRowsTable> {
-  $$KnowledgeSettingsRowsTableAnnotationComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  GeneratedColumn<int> get id =>
-      $composableBuilder(column: $table.id, builder: (column) => column);
-
-  GeneratedColumn<String> get updatedAt =>
-      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
-
-  $$KnowledgeBaseRowsTableAnnotationComposer get defaultKnowledgeBaseId {
-    final $$KnowledgeBaseRowsTableAnnotationComposer composer =
-        $composerBuilder(
-          composer: this,
-          getCurrentColumn: (t) => t.defaultKnowledgeBaseId,
-          referencedTable: $db.knowledgeBaseRows,
-          getReferencedColumn: (t) => t.id,
-          builder:
-              (
-                joinBuilder, {
-                $addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer,
-              }) => $$KnowledgeBaseRowsTableAnnotationComposer(
-                $db: $db,
-                $table: $db.knowledgeBaseRows,
-                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-                joinBuilder: joinBuilder,
-                $removeJoinBuilderFromRootComposer:
-                    $removeJoinBuilderFromRootComposer,
-              ),
-        );
-    return composer;
-  }
-
-  $$KnowledgeCategoryRowsTableAnnotationComposer get defaultCategoryId {
-    final $$KnowledgeCategoryRowsTableAnnotationComposer composer =
-        $composerBuilder(
-          composer: this,
-          getCurrentColumn: (t) => t.defaultCategoryId,
-          referencedTable: $db.knowledgeCategoryRows,
-          getReferencedColumn: (t) => t.id,
-          builder:
-              (
-                joinBuilder, {
-                $addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer,
-              }) => $$KnowledgeCategoryRowsTableAnnotationComposer(
-                $db: $db,
-                $table: $db.knowledgeCategoryRows,
-                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-                joinBuilder: joinBuilder,
-                $removeJoinBuilderFromRootComposer:
-                    $removeJoinBuilderFromRootComposer,
-              ),
-        );
-    return composer;
-  }
-}
-
-class $$KnowledgeSettingsRowsTableTableManager
-    extends
-        RootTableManager<
-          _$StorageV2DriftDatabase,
-          $KnowledgeSettingsRowsTable,
-          KnowledgeSettingsRow,
-          $$KnowledgeSettingsRowsTableFilterComposer,
-          $$KnowledgeSettingsRowsTableOrderingComposer,
-          $$KnowledgeSettingsRowsTableAnnotationComposer,
-          $$KnowledgeSettingsRowsTableCreateCompanionBuilder,
-          $$KnowledgeSettingsRowsTableUpdateCompanionBuilder,
-          (KnowledgeSettingsRow, $$KnowledgeSettingsRowsTableReferences),
-          KnowledgeSettingsRow,
-          PrefetchHooks Function({
-            bool defaultKnowledgeBaseId,
-            bool defaultCategoryId,
-          })
-        > {
-  $$KnowledgeSettingsRowsTableTableManager(
-    _$StorageV2DriftDatabase db,
-    $KnowledgeSettingsRowsTable table,
-  ) : super(
-        TableManagerState(
-          db: db,
-          table: table,
-          createFilteringComposer: () =>
-              $$KnowledgeSettingsRowsTableFilterComposer(
-                $db: db,
-                $table: table,
-              ),
-          createOrderingComposer: () =>
-              $$KnowledgeSettingsRowsTableOrderingComposer(
-                $db: db,
-                $table: table,
-              ),
-          createComputedFieldComposer: () =>
-              $$KnowledgeSettingsRowsTableAnnotationComposer(
-                $db: db,
-                $table: table,
-              ),
-          updateCompanionCallback:
-              ({
-                Value<int> id = const Value.absent(),
-                Value<String?> defaultKnowledgeBaseId = const Value.absent(),
-                Value<String?> defaultCategoryId = const Value.absent(),
-                Value<String> updatedAt = const Value.absent(),
-              }) => KnowledgeSettingsRowsCompanion(
-                id: id,
-                defaultKnowledgeBaseId: defaultKnowledgeBaseId,
-                defaultCategoryId: defaultCategoryId,
-                updatedAt: updatedAt,
-              ),
-          createCompanionCallback:
-              ({
-                Value<int> id = const Value.absent(),
-                Value<String?> defaultKnowledgeBaseId = const Value.absent(),
-                Value<String?> defaultCategoryId = const Value.absent(),
-                required String updatedAt,
-              }) => KnowledgeSettingsRowsCompanion.insert(
-                id: id,
-                defaultKnowledgeBaseId: defaultKnowledgeBaseId,
-                defaultCategoryId: defaultCategoryId,
-                updatedAt: updatedAt,
-              ),
-          withReferenceMapper: (p0) => p0
-              .map(
-                (e) => (
-                  e.readTable(table),
-                  $$KnowledgeSettingsRowsTableReferences(db, table, e),
-                ),
-              )
-              .toList(),
-          prefetchHooksCallback:
-              ({defaultKnowledgeBaseId = false, defaultCategoryId = false}) {
-                return PrefetchHooks(
-                  db: db,
-                  explicitlyWatchedTables: [],
-                  addJoins:
-                      <
-                        T extends TableManagerState<
-                          dynamic,
-                          dynamic,
-                          dynamic,
-                          dynamic,
-                          dynamic,
-                          dynamic,
-                          dynamic,
-                          dynamic,
-                          dynamic,
-                          dynamic,
-                          dynamic
-                        >
-                      >(state) {
-                        if (defaultKnowledgeBaseId) {
-                          state =
-                              state.withJoin(
-                                    currentTable: table,
-                                    currentColumn: table.defaultKnowledgeBaseId,
-                                    referencedTable:
-                                        $$KnowledgeSettingsRowsTableReferences
-                                            ._defaultKnowledgeBaseIdTable(db),
-                                    referencedColumn:
-                                        $$KnowledgeSettingsRowsTableReferences
-                                            ._defaultKnowledgeBaseIdTable(db)
-                                            .id,
-                                  )
-                                  as T;
-                        }
-                        if (defaultCategoryId) {
-                          state =
-                              state.withJoin(
-                                    currentTable: table,
-                                    currentColumn: table.defaultCategoryId,
-                                    referencedTable:
-                                        $$KnowledgeSettingsRowsTableReferences
-                                            ._defaultCategoryIdTable(db),
-                                    referencedColumn:
-                                        $$KnowledgeSettingsRowsTableReferences
-                                            ._defaultCategoryIdTable(db)
-                                            .id,
-                                  )
-                                  as T;
-                        }
-
-                        return state;
-                      },
-                  getPrefetchedDataCallback: (items) async {
-                    return [];
-                  },
-                );
-              },
-        ),
-      );
-}
-
-typedef $$KnowledgeSettingsRowsTableProcessedTableManager =
-    ProcessedTableManager<
-      _$StorageV2DriftDatabase,
-      $KnowledgeSettingsRowsTable,
-      KnowledgeSettingsRow,
-      $$KnowledgeSettingsRowsTableFilterComposer,
-      $$KnowledgeSettingsRowsTableOrderingComposer,
-      $$KnowledgeSettingsRowsTableAnnotationComposer,
-      $$KnowledgeSettingsRowsTableCreateCompanionBuilder,
-      $$KnowledgeSettingsRowsTableUpdateCompanionBuilder,
-      (KnowledgeSettingsRow, $$KnowledgeSettingsRowsTableReferences),
-      KnowledgeSettingsRow,
-      PrefetchHooks Function({
-        bool defaultKnowledgeBaseId,
-        bool defaultCategoryId,
       })
     >;
 typedef $$KnowledgeEntryRowsTableCreateCompanionBuilder =
@@ -41456,8 +40392,6 @@ class $StorageV2DriftDatabaseManager {
       $$KnowledgeBaseRowsTableTableManager(_db, _db.knowledgeBaseRows);
   $$KnowledgeCategoryRowsTableTableManager get knowledgeCategoryRows =>
       $$KnowledgeCategoryRowsTableTableManager(_db, _db.knowledgeCategoryRows);
-  $$KnowledgeSettingsRowsTableTableManager get knowledgeSettingsRows =>
-      $$KnowledgeSettingsRowsTableTableManager(_db, _db.knowledgeSettingsRows);
   $$KnowledgeEntryRowsTableTableManager get knowledgeEntryRows =>
       $$KnowledgeEntryRowsTableTableManager(_db, _db.knowledgeEntryRows);
   $$KnowledgeSourceRowsTableTableManager get knowledgeSourceRows =>

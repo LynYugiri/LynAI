@@ -89,8 +89,7 @@ class SyncDataRegistry {
     'knowledge_categories' ||
     'knowledge_entries' ||
     'knowledge_sources' ||
-    'knowledge_explanations' ||
-    'knowledge_settings' => SyncDataCategory.knowledge,
+    'knowledge_explanations' => SyncDataCategory.knowledge,
     'calendar_events' || 'anniversaries' => SyncDataCategory.calendar,
     'roleplay_scenarios' || 'roleplay_threads' => SyncDataCategory.roleplay,
     'shared_settings' => SyncDataCategory.settings,

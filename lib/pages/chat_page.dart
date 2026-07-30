@@ -1574,7 +1574,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       return;
     }
     final annotationPrompt = const KnowledgeAnnotationPromptFormatter().format(
-      context.read<KnowledgeProvider>().annotationPromptSnapshot,
+      context.read<KnowledgeProvider>().knowledgeAnnotationPromptSnapshot,
     );
     final msgs = _buildApiMessages(
       conv,
@@ -3744,7 +3744,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final streaming = draft != null;
     final displayContent = streaming ? draft.content : msg.content;
     final knowledge = context.read<KnowledgeProvider>();
-    final defaultKnowledgeCategory = knowledge.defaultAnnotationCategory?.alias;
+    final fallbackKnowledgeCategory =
+        knowledge.annotationFallbackCategory?.alias;
     final showImages = msg.images.isNotEmpty;
     final hasSearchMatch = _showSearch && _messageHasSearchMatch(msg.id);
     final currentSearchMessage = _isCurrentSearchMessage(msg.id);
@@ -3814,7 +3815,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                 MarkdownWithLatex(
                   content: displayContent,
                   renderMermaid: !streaming,
-                  defaultKnowledgeCategory: defaultKnowledgeCategory,
+                  fallbackKnowledgeCategory: fallbackKnowledgeCategory,
                   knowledgeCategoryResolver:
                       knowledge.resolveAnnotationCategory,
                   knowledgeCategoryColorResolver: (id) {

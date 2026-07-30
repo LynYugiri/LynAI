@@ -7,7 +7,6 @@ import 'knowledge_category.dart';
 import 'knowledge_entry.dart';
 import 'knowledge_explanation.dart';
 import 'knowledge_source.dart';
-import 'knowledge_settings.dart';
 import 'model_config.dart';
 import 'merge_models.dart';
 import 'note.dart';
@@ -444,7 +443,6 @@ class BackupData {
   final List<KnowledgeEntry>? knowledgeEntries;
   final List<KnowledgeSource>? knowledgeSources;
   final List<KnowledgeExplanation>? knowledgeExplanations;
-  final KnowledgeSettings? knowledgeSettings;
 
   /// 日历事件列表。
   final List<CalendarEvent>? calendarEvents;
@@ -481,7 +479,6 @@ class BackupData {
     this.knowledgeEntries,
     this.knowledgeSources,
     this.knowledgeExplanations,
-    this.knowledgeSettings,
     this.calendarEvents,
     this.anniversaries,
     this.roleplaySessions,
@@ -509,8 +506,7 @@ class BackupData {
             knowledgeCategories != null ||
             knowledgeEntries != null ||
             knowledgeSources != null ||
-            knowledgeExplanations != null ||
-            knowledgeSettings != null;
+            knowledgeExplanations != null;
       case BackupSection.calendar:
         return calendarEvents != null || anniversaries != null;
       case BackupSection.roleplay:

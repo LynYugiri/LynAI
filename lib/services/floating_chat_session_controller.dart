@@ -141,7 +141,7 @@ class FloatingChatSessionController extends ChangeNotifier {
       'error': _error,
       'draft': _draftContent,
       'thinking': _draftThinking,
-      'defaultKnowledgeCategory': _knowledge.defaultAnnotationCategory?.id,
+      'fallbackKnowledgeCategory': _knowledge.annotationFallbackCategory?.id,
       'knowledgeCategories': {
         for (final category in annotationCategories) ...{
           category.id: {'id': category.id, 'colorValue': category.colorValue},
@@ -204,7 +204,7 @@ class FloatingChatSessionController extends ChangeNotifier {
 
     final settings = _conversationSettings(model);
     final annotationPrompt = const KnowledgeAnnotationPromptFormatter().format(
-      _knowledge.annotationPromptSnapshot,
+      _knowledge.knowledgeAnnotationPromptSnapshot,
     );
     final roleId = _settings.settings.currentRoleId;
     final isNewConversation = _conversationId == null;

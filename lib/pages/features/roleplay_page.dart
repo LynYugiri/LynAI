@@ -50,7 +50,7 @@ class _RoleplayPageState extends State<_RoleplayPage> {
       api: _api,
       knowledgeAnnotationPrompt: () =>
           const KnowledgeAnnotationPromptFormatter().format(
-            context.read<KnowledgeProvider>().annotationPromptSnapshot,
+            context.read<KnowledgeProvider>().knowledgeAnnotationPromptSnapshot,
           ),
     );
   }
@@ -393,7 +393,7 @@ class _RoleplayPageState extends State<_RoleplayPage> {
     required bool enableExplanation,
   }) {
     final knowledge = context.read<KnowledgeProvider>();
-    final defaultCategory = knowledge.defaultAnnotationCategory?.alias;
+    final fallbackCategory = knowledge.annotationFallbackCategory?.alias;
 
     Future<void> explain(String text, {String? categoryId}) {
       return showKnowledgeExplanationDialog(
@@ -410,7 +410,7 @@ class _RoleplayPageState extends State<_RoleplayPage> {
 
     return MarkdownWithLatex(
       content: content,
-      defaultKnowledgeCategory: defaultCategory,
+      fallbackKnowledgeCategory: fallbackCategory,
       knowledgeCategoryResolver: knowledge.resolveAnnotationCategory,
       knowledgeCategoryColorResolver: (id) {
         final category = knowledge.categoryById(id);
@@ -3095,7 +3095,7 @@ class _ExportBubble extends StatelessWidget {
     final isPlayer = message.kind == RoleplayMessageKind.player;
     final isNarrator = message.kind == RoleplayMessageKind.narrator;
     final knowledge = context.read<KnowledgeProvider>();
-    final defaultCategory = knowledge.defaultAnnotationCategory?.alias;
+    final fallbackCategory = knowledge.annotationFallbackCategory?.alias;
 
     Color? resolveCategoryColor(String id) {
       final category = knowledge.categoryById(id);
@@ -3117,7 +3117,7 @@ class _ExportBubble extends StatelessWidget {
           content: message.content,
           selectable: false,
           wrapCodeBlocks: true,
-          defaultKnowledgeCategory: defaultCategory,
+          fallbackKnowledgeCategory: fallbackCategory,
           knowledgeCategoryResolver: knowledge.resolveAnnotationCategory,
           knowledgeCategoryColorResolver: resolveCategoryColor,
           textStyle: TextStyle(
@@ -3165,7 +3165,7 @@ class _ExportBubble extends StatelessWidget {
                   content: message.content.trim(),
                   selectable: false,
                   wrapCodeBlocks: true,
-                  defaultKnowledgeCategory: defaultCategory,
+                  fallbackKnowledgeCategory: fallbackCategory,
                   knowledgeCategoryResolver:
                       knowledge.resolveAnnotationCategory,
                   knowledgeCategoryColorResolver: resolveCategoryColor,

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lynai/models/knowledge_category.dart';
 import 'package:lynai/models/sync_change.dart';
 import 'package:lynai/services/storage_v2_database.dart';
 import 'package:sqlite3/sqlite3.dart';
@@ -608,7 +609,7 @@ void main() {
       }
     });
 
-    test('full reseed includes cleared knowledge settings', () async {
+    test('full reseed omits legacy knowledge settings', () async {
       const scope = 'https://cloud.example|knowledge-settings';
       await database.loadDataFile('knowledge.json');
       await database.activateSyncScope(scope, deviceId: _deviceId);
@@ -616,12 +617,12 @@ void main() {
 
       await database.prepareFullSyncSnapshot(scope, 1);
 
-      final settings = (await database.loadSyncOutbox(
-        scope,
-      )).singleWhere((entry) => entry.table == 'knowledge_settings');
-      expect(settings.recordId, 'global');
-      expect(settings.op, 'upsert');
-      expect(settings.data, {'id': 'global', 'updatedAt': isA<String>()});
+      expect(
+        (await database.loadSyncOutbox(
+          scope,
+        )).where((entry) => entry.table == 'knowledge_settings'),
+        isEmpty,
+      );
     });
 
     test(
@@ -897,6 +898,91 @@ void main() {
       },
     );
 
+    test(
+      'cloud remote apply materializes conflicting knowledge aliases',
+      () async {
+        const scope = 'server|knowledge-aliases';
+        await database.writeDataFile('knowledge.json', {
+          'knowledgeBases': [
+            _knowledgeBase(
+              id: builtInProperNounKnowledgeBaseModelId,
+              name: 'Built-in base',
+            ),
+          ],
+          'categories': [
+            _knowledgeCategory(
+              id: builtInProperNounCategoryModelId,
+              baseId: builtInProperNounKnowledgeBaseModelId,
+              name: 'Built-in category',
+              alias: properNounKnowledgeCategoryAlias,
+            ),
+          ],
+        });
+
+        await database.batchIncremental(
+          [
+            _remote(
+              'knowledge_bases',
+              'remote-base',
+              _knowledgeBase(id: 'remote-base', name: 'Remote base'),
+              seq: 1,
+            ),
+            _remote(
+              'knowledge_categories',
+              'remote-z',
+              _knowledgeCategory(
+                id: 'remote-z',
+                baseId: 'remote-base',
+                name: 'Remote Z',
+                alias: properNounKnowledgeCategoryAlias,
+                updatedAt: '2026-01-02T00:00:00Z',
+              ),
+              seq: 2,
+            ),
+            _remote(
+              'knowledge_categories',
+              'remote-a',
+              _knowledgeCategory(
+                id: 'remote-a',
+                baseId: 'remote-base',
+                name: 'Remote A',
+                alias: properNounKnowledgeCategoryAlias,
+                updatedAt: '2026-01-03T00:00:00Z',
+              ),
+              seq: 3,
+            ),
+          ],
+          remote: true,
+          scope: scope,
+          nextSince: 3,
+        );
+
+        final categories =
+            ((await database.loadDataFile('knowledge.json'))?['categories']
+                    as List)
+                .cast<Map>();
+        Map category(String id) =>
+            categories.singleWhere((row) => row['id'] == id);
+        expect(
+          category(builtInProperNounCategoryModelId)['alias'],
+          properNounKnowledgeCategoryAlias,
+        );
+        expect(category('remote-a'), containsPair('name', 'Remote A'));
+        expect(
+          category('remote-a'),
+          containsPair('knowledgeBaseId', 'remote-base'),
+        );
+        expect(
+          category('remote-a'),
+          containsPair('updatedAt', '2026-01-03T00:00:00Z'),
+        );
+        expect(category('remote-a')['alias'], 'proper_noun_remote_a');
+        expect(category('remote-z')['alias'], 'proper_noun_remote_z');
+        expect(await database.syncSince(scope), 3);
+        await _expectReceipts(root, {'change-1', 'change-2', 'change-3'});
+      },
+    );
+
     test('change ids are global and payload reuse fails atomically', () async {
       const scopeA = 'https://a.example|user';
       const scopeB = 'https://b.example|user';
@@ -1035,7 +1121,7 @@ PRAGMA user_version = 16;
       await database.close();
       final migrated = sqlite3.open('${storageRoot.path}/app.db');
       try {
-        expect(migrated.userVersion, 26);
+        expect(migrated.userVersion, 27);
         expect(
           migrated
               .select(
@@ -1158,29 +1244,37 @@ List<SyncRemoteOperation> _knowledgeParents({required int seq}) => [
   ),
 ];
 
-Map<String, dynamic> _knowledgeBase() => {
-  'id': 'base-1',
-  'name': 'Base',
+Map<String, dynamic> _knowledgeBase({
+  String id = 'base-1',
+  String name = 'Base',
+}) => {
+  'id': id,
+  'name': name,
   'enabled': true,
   'sortOrder': 0,
   'createdAt': '2026-01-01T00:00:00Z',
   'updatedAt': '2026-01-01T00:00:00Z',
 };
 
-Map<String, dynamic> _knowledgeCategory() => {
-  'id': 'category-1',
-  'knowledgeBaseId': 'base-1',
-  'name': 'Category',
-  'alias': 'category_1',
+Map<String, dynamic> _knowledgeCategory({
+  String id = 'category-1',
+  String baseId = 'base-1',
+  String name = 'Category',
+  String alias = 'category_1',
+  String updatedAt = '2026-01-01T00:00:00Z',
+}) => {
+  'id': id,
+  'knowledgeBaseId': baseId,
+  'name': name,
+  'alias': alias,
   'annotationRule': '',
   'explanationPrompt': '',
   'colorValue': 0,
   'autoAnnotate': false,
-  'isDefault': false,
   'enabled': true,
-  'sortOrder': 0,
+  'sortOrder': 7,
   'createdAt': '2026-01-01T00:00:00Z',
-  'updatedAt': '2026-01-01T00:00:00Z',
+  'updatedAt': updatedAt,
 };
 
 Map<String, dynamic> _knowledgeEntry(String id, String title) => {
@@ -1218,9 +1312,9 @@ Future<void> _expectReceipts(Directory root, Set<String> changeIds) async {
   }
 }
 
-List<SyncOutboxEntry> _withoutKnowledgeSettings(List<SyncOutboxEntry> entries) {
-  return entries.where((entry) => entry.table != 'knowledge_settings').toList();
-}
+List<SyncOutboxEntry> _withoutKnowledgeSettings(
+  List<SyncOutboxEntry> entries,
+) => entries;
 
 Map<String, dynamic> _task(
   String id,

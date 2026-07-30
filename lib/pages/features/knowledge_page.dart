@@ -107,8 +107,7 @@ class _KnowledgePageState extends State<_KnowledgePage> {
       final value = provider.knowledgeBaseById(selected);
       if (value != null) return value;
     }
-    return provider.defaultKnowledgeBase ??
-        (bases.isEmpty ? null : bases.first);
+    return bases.isEmpty ? null : bases.first;
   }
 
   String? _resolveCategoryFilter(List<KnowledgeCategory> categories) {
@@ -147,20 +146,10 @@ class _KnowledgePageState extends State<_KnowledgePage> {
         _paneHeader(
           context,
           title: '知识库',
-          action: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                tooltip: '新建知识库',
-                icon: const Icon(Icons.add),
-                onPressed: () => _createBase(provider),
-              ),
-              IconButton(
-                tooltip: '默认设置',
-                icon: const Icon(Icons.tune),
-                onPressed: () => _showDefaultSettings(provider),
-              ),
-            ],
+          action: IconButton(
+            tooltip: '新建知识库',
+            icon: const Icon(Icons.add),
+            onPressed: () => _createBase(provider),
           ),
         ),
         Expanded(
@@ -184,10 +173,24 @@ class _KnowledgePageState extends State<_KnowledgePage> {
                               ? Icons.local_library_outlined
                               : Icons.visibility_off_outlined,
                         ),
-                        title: Text(
-                          base.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        title: Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                base.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (provider.isBuiltInKnowledgeBase(base))
+                              const Padding(
+                                padding: EdgeInsets.only(left: 8),
+                                child: Chip(
+                                  label: Text('内置'),
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                              ),
+                          ],
                         ),
                         subtitle: Text(
                           '${provider.entriesForBase(base.id).length} 个条目',
@@ -206,8 +209,8 @@ class _KnowledgePageState extends State<_KnowledgePage> {
                                   ),
                                 );
                                 break;
-                              case 'default':
-                                unawaited(_setDefaultBase(provider, base));
+                              case 'restore':
+                                unawaited(_restoreBuiltInBase(provider));
                                 break;
                               case 'delete':
                                 unawaited(_deleteBase(provider, base));
@@ -223,15 +226,18 @@ class _KnowledgePageState extends State<_KnowledgePage> {
                               value: 'toggle',
                               child: Text(base.enabled ? '停用' : '启用'),
                             ),
-                            const PopupMenuItem(
-                              value: 'default',
-                              child: Text('设为默认'),
-                            ),
-                            const PopupMenuDivider(),
-                            const PopupMenuItem(
-                              value: 'delete',
-                              child: Text('删除知识库'),
-                            ),
+                            if (provider.isBuiltInKnowledgeBase(base))
+                              const PopupMenuItem(
+                                value: 'restore',
+                                child: Text('恢复默认'),
+                              )
+                            else ...[
+                              const PopupMenuDivider(),
+                              const PopupMenuItem(
+                                value: 'delete',
+                                child: Text('删除知识库'),
+                              ),
+                            ],
                           ],
                         ),
                         onTap: () => setState(() {
@@ -325,14 +331,8 @@ class _KnowledgePageState extends State<_KnowledgePage> {
                     final category = entry.categoryId == null
                         ? null
                         : provider.categoryById(entry.categoryId!);
-                    final active = selected?.id == entry.id;
                     return Card(
-                      elevation: active ? 1 : 0,
-                      color: active
-                          ? Theme.of(context).colorScheme.secondaryContainer
-                          : null,
                       child: ListTile(
-                        selected: active,
                         leading: CircleAvatar(
                           child: Icon(
                             entry.enabled
@@ -539,11 +539,6 @@ class _KnowledgePageState extends State<_KnowledgePage> {
               icon: const Icon(Icons.more_vert),
               onPressed: () => _showBaseActions(provider, selected),
             ),
-          IconButton(
-            tooltip: '默认设置',
-            icon: const Icon(Icons.tune),
-            onPressed: () => _showDefaultSettings(provider),
-          ),
         ],
       ),
     );
@@ -832,14 +827,6 @@ class _KnowledgePageState extends State<_KnowledgePage> {
   Future<void> _updateBase(KnowledgeProvider provider, KnowledgeBase base) =>
       _runOperation(() => provider.updateKnowledgeBase(base), '更新知识库失败');
 
-  Future<void> _setDefaultBase(
-    KnowledgeProvider provider,
-    KnowledgeBase base,
-  ) => _runOperation(
-    () => provider.setDefaultKnowledgeBase(base.id),
-    '设置默认知识库失败',
-  );
-
   Future<void> _deleteBase(
     KnowledgeProvider provider,
     KnowledgeBase base,
@@ -876,8 +863,7 @@ class _KnowledgePageState extends State<_KnowledgePage> {
   ) async {
     final titleController = TextEditingController(text: entry?.title ?? '');
     final contentController = TextEditingController(text: entry?.content ?? '');
-    String? categoryId =
-        entry?.categoryId ?? provider.defaultCategory(base.id)?.id;
+    String? categoryId = entry?.categoryId;
     var enabled = entry?.enabled ?? true;
     final result = await showDialog<(String, String, String?, bool)>(
       context: context,
@@ -1052,16 +1038,18 @@ class _KnowledgePageState extends State<_KnowledgePage> {
               title: Text(base.enabled ? '停用知识库' : '启用知识库'),
               onTap: () => Navigator.pop(context, 'toggle'),
             ),
-            ListTile(
-              leading: const Icon(Icons.star_outline),
-              title: const Text('设为默认'),
-              onTap: () => Navigator.pop(context, 'default'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline),
-              title: const Text('删除知识库'),
-              onTap: () => Navigator.pop(context, 'delete'),
-            ),
+            if (provider.isBuiltInKnowledgeBase(base))
+              ListTile(
+                leading: const Icon(Icons.restore),
+                title: const Text('恢复默认'),
+                onTap: () => Navigator.pop(context, 'restore'),
+              )
+            else
+              ListTile(
+                leading: const Icon(Icons.delete_outline),
+                title: const Text('删除知识库'),
+                onTap: () => Navigator.pop(context, 'delete'),
+              ),
           ],
         ),
       ),
@@ -1073,8 +1061,8 @@ class _KnowledgePageState extends State<_KnowledgePage> {
       case 'toggle':
         await _updateBase(provider, base.copyWith(enabled: !base.enabled));
         break;
-      case 'default':
-        await _setDefaultBase(provider, base);
+      case 'restore':
+        await _restoreBuiltInBase(provider);
         break;
       case 'delete':
         await _deleteBase(provider, base);
@@ -1084,130 +1072,8 @@ class _KnowledgePageState extends State<_KnowledgePage> {
     }
   }
 
-  Future<void> _showDefaultSettings(KnowledgeProvider provider) async {
-    var baseId = provider.settings.defaultKnowledgeBaseId;
-    var categoryId = provider.settings.defaultCategoryId;
-    await showDialog<void>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          final eligibleBases = provider.knowledgeBases
-              .where(
-                (base) =>
-                    base.enabled &&
-                    provider
-                        .categoriesForBase(base.id)
-                        .any(
-                          (category) =>
-                              category.enabled && category.autoAnnotate,
-                        ),
-              )
-              .toList();
-          if (!eligibleBases.any((base) => base.id == baseId)) {
-            baseId = eligibleBases.isEmpty ? null : eligibleBases.first.id;
-          }
-          final eligibleCategories = baseId == null
-              ? const <KnowledgeCategory>[]
-              : provider
-                    .categoriesForBase(baseId!)
-                    .where(
-                      (category) => category.enabled && category.autoAnnotate,
-                    )
-                    .toList();
-          if (!eligibleCategories.any(
-            (category) => category.id == categoryId,
-          )) {
-            categoryId = eligibleCategories.isEmpty
-                ? null
-                : eligibleCategories.first.id;
-          }
-          return AlertDialog(
-            title: const Text('默认知识设置'),
-            content: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: 460,
-                maxHeight: MediaQuery.sizeOf(context).height * .7,
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text('默认类别必须启用自动标注，并属于已启用的默认知识库。'),
-                    ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      key: ValueKey('default-base-$baseId'),
-                      initialValue: baseId,
-                      decoration: const InputDecoration(
-                        labelText: '默认知识库',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: [
-                        for (final base in eligibleBases)
-                          DropdownMenuItem(
-                            value: base.id,
-                            child: Text(base.name),
-                          ),
-                      ],
-                      onChanged: (value) => setDialogState(() {
-                        baseId = value;
-                        categoryId = null;
-                      }),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      key: ValueKey('default-category-$baseId-$categoryId'),
-                      initialValue: categoryId,
-                      decoration: const InputDecoration(
-                        labelText: '默认类别',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: [
-                        for (final category in eligibleCategories)
-                          DropdownMenuItem(
-                            value: category.id,
-                            child: Text(category.name),
-                          ),
-                      ],
-                      onChanged: (value) =>
-                          setDialogState(() => categoryId = value),
-                    ),
-                    if (eligibleBases.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 12),
-                        child: Text('请先启用一个知识库，并创建启用自动标注的类别。'),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('取消'),
-              ),
-              FilledButton(
-                onPressed: categoryId == null
-                    ? null
-                    : () async {
-                        final succeeded = await _runOperation(
-                          () => provider.setDefaultCategory(categoryId!),
-                          '保存默认设置失败',
-                        );
-                        if (succeeded && context.mounted) {
-                          Navigator.pop(context);
-                        }
-                      },
-                child: const Text('保存'),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
+  Future<void> _restoreBuiltInBase(KnowledgeProvider provider) =>
+      _runOperation(provider.restoreBuiltInKnowledgeBase, '恢复内置知识库失败');
 
   Future<void> _openSource(String value) async {
     try {
@@ -1328,11 +1194,11 @@ class _KnowledgeCategoryManagerDialogState
                     title: Row(
                       children: [
                         Flexible(child: Text(category.name)),
-                        if (category.isDefault)
+                        if (widget.provider.isBuiltInCategory(category))
                           const Padding(
                             padding: EdgeInsets.only(left: 8),
                             child: Chip(
-                              label: Text('默认'),
+                              label: Text('内置'),
                               visualDensity: VisualDensity.compact,
                             ),
                           ),
@@ -1355,11 +1221,18 @@ class _KnowledgeCategoryManagerDialogState
                           icon: const Icon(Icons.edit_outlined),
                           onPressed: () => _editCategory(category),
                         ),
-                        IconButton(
-                          tooltip: '删除',
-                          icon: const Icon(Icons.delete_outline),
-                          onPressed: () => _deleteCategory(category),
-                        ),
+                        if (widget.provider.isBuiltInCategory(category))
+                          IconButton(
+                            tooltip: '恢复默认',
+                            icon: const Icon(Icons.restore),
+                            onPressed: () => _restoreCategory(),
+                          )
+                        else
+                          IconButton(
+                            tooltip: '删除',
+                            icon: const Icon(Icons.delete_outline),
+                            onPressed: () => _deleteCategory(category),
+                          ),
                       ],
                     ),
                     onTap: () => _editCategory(category),
@@ -1378,15 +1251,9 @@ class _KnowledgeCategoryManagerDialogState
 
   Future<void> _editCategory([KnowledgeCategory? category]) async {
     final original = category == null ? null : _categoryData(category);
-    final creatingDefault =
-        category == null && widget.provider.defaultCategory() == null;
     final nameController = TextEditingController(text: category?.name ?? '');
     final aliasController = TextEditingController(text: original?.alias ?? '');
-    final ruleController = TextEditingController(
-      text:
-          original?.rule ??
-          (creatingDefault ? KnowledgeProvider.defaultAnnotationRule : ''),
-    );
+    final ruleController = TextEditingController(text: original?.rule ?? '');
     final promptController = TextEditingController(
       text: original?.prompt ?? '',
     );
@@ -1400,8 +1267,7 @@ class _KnowledgeCategoryManagerDialogState
         modelProvider?.enabledModelsByCategory(ModelConfig.categoryChat) ??
         const <ModelConfig>[];
     var color = original?.color ?? _colors.first;
-    var isDefault = category?.isDefault ?? creatingDefault;
-    var autoAnnotate = original?.autoAnnotate ?? creatingDefault;
+    var autoAnnotate = original?.autoAnnotate ?? false;
     var enabled = category?.enabled ?? true;
     var modelConfigId = category?.modelConfigId;
     String? formError;
@@ -1511,32 +1377,16 @@ class _KnowledgeCategoryManagerDialogState
                   ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('默认类别'),
-                    subtitle: const Text('默认类别必须启用并开启自动标注'),
-                    value: isDefault,
-                    onChanged: (value) => setDialogState(() {
-                      isDefault = value;
-                      if (value) {
-                        enabled = true;
-                        autoAnnotate = true;
-                      }
-                    }),
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
                     title: const Text('自动标注'),
                     value: autoAnnotate,
-                    onChanged: isDefault
-                        ? null
-                        : (value) => setDialogState(() => autoAnnotate = value),
+                    onChanged: (value) =>
+                        setDialogState(() => autoAnnotate = value),
                   ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('启用'),
                     value: enabled,
-                    onChanged: isDefault
-                        ? null
-                        : (value) => setDialogState(() => enabled = value),
+                    onChanged: (value) => setDialogState(() => enabled = value),
                   ),
                   if (formError != null)
                     Padding(
@@ -1594,7 +1444,6 @@ class _KnowledgeCategoryManagerDialogState
                             annotationRule: ruleController.text.trim(),
                             explanationPrompt: promptController.text.trim(),
                             colorValue: _parseColor(color).toARGB32(),
-                            isDefault: isDefault,
                             autoAnnotate: autoAnnotate,
                             enabled: enabled,
                             modelConfigId: modelConfigId,
@@ -1607,7 +1456,6 @@ class _KnowledgeCategoryManagerDialogState
                               annotationRule: ruleController.text.trim(),
                               explanationPrompt: promptController.text.trim(),
                               colorValue: _parseColor(color).toARGB32(),
-                              isDefault: isDefault,
                               autoAnnotate: autoAnnotate,
                               enabled: enabled,
                               modelConfigId: modelConfigId,
@@ -1679,6 +1527,18 @@ class _KnowledgeCategoryManagerDialogState
     if (mounted) setState(() {});
   }
 
+  Future<void> _restoreCategory() async {
+    try {
+      await widget.provider.restoreBuiltInCategory();
+    } catch (error, stackTrace) {
+      if (mounted) {
+        showErrorSnackBar(context, '恢复内置类别失败', details: '$error\n$stackTrace');
+      }
+      return;
+    }
+    if (mounted) setState(() {});
+  }
+
   _KnowledgeCategoryFormData _categoryData(KnowledgeCategory category) {
     return _KnowledgeCategoryFormData(
       name: category.name,
@@ -1687,7 +1547,6 @@ class _KnowledgeCategoryManagerDialogState
       prompt: category.explanationPrompt,
       color:
           '#${(category.colorValue & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}',
-      isDefault: category.isDefault,
       autoAnnotate: category.autoAnnotate,
       enabled: category.enabled,
     );
@@ -1709,7 +1568,6 @@ class _KnowledgeCategoryFormData {
     required this.rule,
     required this.prompt,
     required this.color,
-    required this.isDefault,
     required this.autoAnnotate,
     required this.enabled,
   });
@@ -1719,7 +1577,6 @@ class _KnowledgeCategoryFormData {
   final String rule;
   final String prompt;
   final String color;
-  final bool isDefault;
   final bool autoAnnotate;
   final bool enabled;
 }

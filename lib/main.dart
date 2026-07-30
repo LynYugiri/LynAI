@@ -87,7 +87,6 @@ const _knowledgeSyncTables = {
   'knowledge_entries',
   'knowledge_sources',
   'knowledge_explanations',
-  'knowledge_settings',
 };
 const _settingsSyncTables = {'shared_settings', 'resources'};
 const _pluginSyncTables = {'plugin_files', 'plugin_settings', 'plugin_config'};

@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 
 import '../models/cloud_data.dart';
 import '../models/agent_persistence.dart';
+import '../models/knowledge_category.dart';
 import '../models/model_config.dart';
 import '../models/merge_models.dart';
 import '../models/shared_sync_models.dart';
@@ -368,40 +369,10 @@ class KnowledgeCategoryRows extends Table {
   IntColumn get colorValue => integer().named('color_value')();
   BoolColumn get autoAnnotate => boolean().named('auto_annotate')();
   TextColumn get modelConfigId => text().named('model_config_id').nullable()();
-  BoolColumn get isDefault => boolean().named('is_default')();
   BoolColumn get enabled => boolean().withDefault(const Constant(true))();
   IntColumn get sortOrder => integer().named('sort_order')();
   TextColumn get createdAt => text().named('created_at')();
   TextColumn get updatedAt => text().named('updated_at')();
-
-  @override
-  Set<Column> get primaryKey => {id};
-}
-
-class KnowledgeSettingsRows extends Table {
-  @override
-  String get tableName => 'knowledge_settings';
-
-  IntColumn get id => integer()();
-  TextColumn get defaultKnowledgeBaseId => text()
-      .named('default_knowledge_base_id')
-      .nullable()
-      .customConstraint(
-        'NULL REFERENCES knowledge_bases(id) ON DELETE SET NULL',
-      )();
-  TextColumn get defaultCategoryId => text()
-      .named('default_category_id')
-      .nullable()
-      .customConstraint(
-        'NULL REFERENCES knowledge_categories(id) ON DELETE SET NULL',
-      )();
-  TextColumn get updatedAt => text().named('updated_at')();
-
-  @override
-  List<String> get customConstraints => [
-    'CHECK (id = 1)',
-    'CHECK ((default_knowledge_base_id IS NULL) = (default_category_id IS NULL))',
-  ];
 
   @override
   Set<Column> get primaryKey => {id};
@@ -1009,7 +980,6 @@ class SyncScopeState {
     TaskListEntryRows,
     KnowledgeBaseRows,
     KnowledgeCategoryRows,
-    KnowledgeSettingsRows,
     KnowledgeEntryRows,
     KnowledgeSourceRows,
     KnowledgeExplanationRows,
@@ -1043,6 +1013,8 @@ class SyncScopeState {
 class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
   StorageV2DriftDatabase(File file) : super(_open(file));
 
+  static const currentSchemaVersion = 27;
+
   bool needsTransportHeadBackfill = false;
 
   static QueryExecutor _open(File file) {
@@ -1055,16 +1027,14 @@ class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
   /// This is separate from [StorageV2Service.currentLayoutVersion], which
   /// describes the storage_v2 directory layout.
   @override
-  int get schemaVersion => 26;
+  int get schemaVersion => currentSchemaVersion;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) async {
       await m.createAll();
       await _createPermissionPolicyIndex();
-      await _createKnowledgeDefaultCategoryIndex();
       await _createKnowledgeAliasIndex();
-      await _migrateKnowledgeSettingsV26();
     },
     beforeOpen: (details) async {
       await customStatement('PRAGMA journal_mode = WAL');
@@ -1294,12 +1264,10 @@ SET captures_local = active
         await m.createTable(knowledgeEntryRows);
         await m.createTable(knowledgeSourceRows);
         await m.createTable(knowledgeExplanationRows);
-        await _createKnowledgeDefaultCategoryIndex();
         await _createKnowledgeAliasIndex();
       }
-      if (from < 26) {
-        await m.createTable(knowledgeSettingsRows);
-        await _migrateKnowledgeSettingsV26();
+      if (from < 27) {
+        await _migrateKnowledgeSchemaV27();
       }
       await _ensureCloudDataColumns();
     },
@@ -1312,62 +1280,101 @@ SET captures_local = active
     );
   }
 
-  Future<void> _createKnowledgeDefaultCategoryIndex() async {
-    await customStatement(
-      'DROP INDEX IF EXISTS idx_knowledge_categories_default',
-    );
-    await customStatement('''
-UPDATE knowledge_categories
-SET is_default = 0
-WHERE is_default = 1
-  AND id <> COALESCE((
-    SELECT id FROM knowledge_categories
-    WHERE is_default = 1
-    ORDER BY sort_order, created_at, id
-    LIMIT 1
-  ), '')
-''');
-    await customStatement(
-      'CREATE UNIQUE INDEX idx_knowledge_categories_default '
-      'ON knowledge_categories(is_default) WHERE is_default = 1',
-    );
-  }
-
   Future<void> _createKnowledgeAliasIndex() => customStatement(
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_categories_alias '
     'ON knowledge_categories(alias)',
   );
 
-  Future<void> _migrateKnowledgeSettingsV26() async {
-    final now = DateTime.now().toUtc().toIso8601String();
-    await customStatement(
-      '''
-INSERT OR REPLACE INTO knowledge_settings(
-  id, default_knowledge_base_id, default_category_id, updated_at
+  Future<void> _migrateKnowledgeSchemaV27() async {
+    await customStatement('DROP TABLE IF EXISTS knowledge_settings');
+    final categoryColumns = await customSelect(
+      'PRAGMA table_info(knowledge_categories)',
+    ).get();
+    if (categoryColumns.any((row) => row.data['name'] == 'is_default')) {
+      await customStatement('''
+CREATE TEMP TABLE knowledge_entry_categories_v27 AS
+SELECT id, category_id FROM knowledge_entries WHERE category_id IS NOT NULL
+''');
+      await customStatement(
+        'DROP INDEX IF EXISTS idx_knowledge_categories_default',
+      );
+      await customStatement('''
+CREATE TABLE knowledge_categories_v27 (
+  id TEXT NOT NULL PRIMARY KEY,
+  knowledge_base_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  alias TEXT NOT NULL UNIQUE CHECK (alias GLOB '[a-z]*' AND length(alias) BETWEEN 1 AND 32 AND alias NOT GLOB '*[^a-z0-9_-]*'),
+  description TEXT,
+  annotation_rule TEXT NOT NULL,
+  explanation_prompt TEXT NOT NULL,
+  color_value INTEGER NOT NULL,
+  auto_annotate INTEGER NOT NULL CHECK (auto_annotate IN (0, 1)),
+  model_config_id TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+  sort_order INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 )
-SELECT 1, selected.knowledge_base_id, selected.id, ?
-FROM (
-  SELECT category.id, category.knowledge_base_id
-  FROM knowledge_categories AS category
-  JOIN knowledge_bases AS base ON base.id = category.knowledge_base_id
-  WHERE base.enabled = 1
-    AND category.enabled = 1
-    AND category.auto_annotate = 1
-  ORDER BY category.is_default DESC, base.sort_order, category.sort_order,
-           category.created_at, category.id
-  LIMIT 1
-) AS selected
+''');
+      await customStatement('''
+INSERT INTO knowledge_categories_v27(
+  id, knowledge_base_id, name, alias, description, annotation_rule,
+  explanation_prompt, color_value, auto_annotate, model_config_id, enabled,
+  sort_order, created_at, updated_at
+)
+SELECT id, knowledge_base_id, name, alias, description, annotation_rule,
+       explanation_prompt, color_value, auto_annotate, model_config_id, enabled,
+       sort_order, created_at, updated_at
+FROM knowledge_categories
+''');
+      await customStatement('DROP TABLE knowledge_categories');
+      await customStatement(
+        'ALTER TABLE knowledge_categories_v27 RENAME TO knowledge_categories',
+      );
+      await customStatement('''
+UPDATE knowledge_entries
+SET category_id = (
+  SELECT category_id FROM knowledge_entry_categories_v27
+  WHERE knowledge_entry_categories_v27.id = knowledge_entries.id
+)
+WHERE id IN (SELECT id FROM knowledge_entry_categories_v27)
+''');
+      await customStatement('DROP TABLE knowledge_entry_categories_v27');
+      await _createKnowledgeAliasIndex();
+    }
+    for (final table in [
+      'sync_outbox',
+      'sync_conflicts',
+      'sync_scope_baselines',
+      'transport_change_heads',
+    ]) {
+      if (await _tableExists(table)) {
+        await customStatement(
+          "DELETE FROM $table WHERE table_name = 'knowledge_settings'",
+        );
+      }
+    }
+    if (await _tableExists('cloud_index_objects')) {
+      await customStatement(
+        "DELETE FROM cloud_index_objects WHERE category = 'knowledge' AND object_id = 'global'",
+      );
+    }
+    if (await _tableExists('cloud_index_category_stats')) {
+      await customStatement(
+        "DELETE FROM cloud_index_category_stats WHERE category = 'knowledge'",
+      );
+    }
+    if (await _tableExists('sync_state')) {
+      await customStatement(
+        '''
+UPDATE sync_state
+SET full_reseed_required = 1,
+    updated_at = ?
+WHERE initialized = 1 AND scope NOT LIKE 'lan:%'
 ''',
-      [now],
-    );
-    await customStatement(
-      '''
-INSERT OR IGNORE INTO knowledge_settings(
-  id, default_knowledge_base_id, default_category_id, updated_at
-) VALUES (1, NULL, NULL, ?)
-''',
-      [now],
-    );
+        [DateTime.now().toUtc().toIso8601String()],
+      );
+    }
   }
 
   Future<void> _migrateTransportLedgerV24() async {
@@ -2554,13 +2561,7 @@ WHERE id IN (${List.filled(runIds.length, '?').join(', ')})
     String id, {
     StorageV2DriftDatabase? transactionDb,
   }) async {
-    if (transactionDb == null) {
-      final db = await _open();
-      await db.transaction(() => deleteKnowledgeBaseRow(id, transactionDb: db));
-      return;
-    }
-    final db = transactionDb;
-    await _clearKnowledgeSettingsForDefault(db, knowledgeBaseId: id);
+    final db = transactionDb ?? await _open();
     await (db.delete(
       db.knowledgeBaseRows,
     )..where((row) => row.id.equals(id))).go();
@@ -2575,12 +2576,6 @@ WHERE id IN (${List.filled(runIds.length, '?').join(', ')})
     if (id == null || id.isEmpty) return;
     final baseId = json['knowledgeBaseId'] as String? ?? '';
     final enabled = json['enabled'] as bool? ?? true;
-    final isDefault = (json['isDefault'] as bool? ?? false) && enabled;
-    if (isDefault) {
-      await (db.update(db.knowledgeCategoryRows)
-            ..where((row) => row.id.equals(id).not()))
-          .write(const KnowledgeCategoryRowsCompanion(isDefault: Value(false)));
-    }
     await db
         .into(db.knowledgeCategoryRows)
         .insertOnConflictUpdate(
@@ -2595,7 +2590,6 @@ WHERE id IN (${List.filled(runIds.length, '?').join(', ')})
             colorValue: (json['colorValue'] as num?)?.toInt() ?? 0,
             autoAnnotate: json['autoAnnotate'] as bool? ?? false,
             modelConfigId: Value(json['modelConfigId'] as String?),
-            isDefault: isDefault,
             enabled: Value(enabled),
             sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
             createdAt: json['createdAt'] as String? ?? '',
@@ -2608,103 +2602,10 @@ WHERE id IN (${List.filled(runIds.length, '?').join(', ')})
     String id, {
     StorageV2DriftDatabase? transactionDb,
   }) async {
-    if (transactionDb == null) {
-      final db = await _open();
-      await db.transaction(
-        () => deleteKnowledgeCategoryRow(id, transactionDb: db),
-      );
-      return;
-    }
-    final db = transactionDb;
-    await _clearKnowledgeSettingsForDefault(db, categoryId: id);
+    final db = transactionDb ?? await _open();
     await (db.delete(
       db.knowledgeCategoryRows,
     )..where((row) => row.id.equals(id))).go();
-  }
-
-  Future<void> _clearKnowledgeSettingsForDefault(
-    StorageV2DriftDatabase db, {
-    String? knowledgeBaseId,
-    String? categoryId,
-  }) async {
-    final matchesDefault = knowledgeBaseId != null
-        ? db.knowledgeSettingsRows.defaultKnowledgeBaseId.equals(
-            knowledgeBaseId,
-          )
-        : db.knowledgeSettingsRows.defaultCategoryId.equals(categoryId!);
-    await (db.update(
-      db.knowledgeSettingsRows,
-    )..where((_) => matchesDefault)).write(
-      KnowledgeSettingsRowsCompanion(
-        defaultKnowledgeBaseId: const Value(null),
-        defaultCategoryId: const Value(null),
-        updatedAt: Value(DateTime.now().toUtc().toIso8601String()),
-      ),
-    );
-  }
-
-  Future<void> writeKnowledgeSettings(Map<String, dynamic> json) async {
-    final db = await _open();
-    await _upsertKnowledgeSettings(db, json);
-  }
-
-  Future<void> deleteKnowledgeSettings({
-    StorageV2DriftDatabase? transactionDb,
-  }) async {
-    final db = transactionDb ?? await _open();
-    await db.delete(db.knowledgeSettingsRows).go();
-  }
-
-  Future<void> _upsertKnowledgeSettings(
-    StorageV2DriftDatabase db,
-    Map<String, dynamic> json,
-  ) async {
-    final baseId = json['defaultKnowledgeBaseId'] as String?;
-    final categoryId = json['defaultCategoryId'] as String?;
-    if (baseId != null || categoryId != null) {
-      if (baseId == null ||
-          categoryId == null ||
-          !await _knowledgeCategoryIsEligibleDefault(db, categoryId, baseId)) {
-        throw StateError('Knowledge settings default category is invalid');
-      }
-    }
-    await db
-        .into(db.knowledgeSettingsRows)
-        .insertOnConflictUpdate(
-          KnowledgeSettingsRowsCompanion.insert(
-            id: const Value(1),
-            defaultKnowledgeBaseId: Value(baseId),
-            defaultCategoryId: Value(categoryId),
-            updatedAt:
-                json['updatedAt'] as String? ??
-                DateTime.now().toUtc().toIso8601String(),
-          ),
-        );
-  }
-
-  Future<bool> _knowledgeCategoryIsEligibleDefault(
-    StorageV2DriftDatabase db,
-    String categoryId,
-    String baseId,
-  ) async {
-    final row = await db
-        .customSelect(
-          '''
-SELECT 1
-FROM knowledge_categories AS category
-JOIN knowledge_bases AS base ON base.id = category.knowledge_base_id
-WHERE category.id = ? AND category.knowledge_base_id = ?
-  AND category.enabled = 1 AND category.auto_annotate = 1
-  AND base.enabled = 1
-LIMIT 1
-''',
-          variables: [
-            Variable.withString(categoryId),
-            Variable.withString(baseId),
-          ],
-        )
-        .getSingleOrNull();
-    return row != null;
   }
 
   Future<void> upsertKnowledgeEntryRow(
@@ -3662,8 +3563,6 @@ ORDER BY CASE
   WHEN table_name = 'task_list_entries' THEN 2
   WHEN table_name = 'knowledge_bases' AND op <> 'delete' THEN 0
   WHEN table_name = 'knowledge_categories' AND op <> 'delete' THEN 1
-  WHEN table_name = 'knowledge_settings' AND op = 'delete' THEN 0
-  WHEN table_name = 'knowledge_settings' THEN 2
   WHEN table_name = 'knowledge_entries' AND op <> 'delete' THEN 3
   WHEN table_name IN ('knowledge_sources', 'knowledge_explanations') AND op = 'delete' THEN 0
   WHEN table_name IN ('knowledge_sources', 'knowledge_explanations') THEN 4
@@ -3735,8 +3634,6 @@ ORDER BY CASE
   WHEN h.table_name = 'task_list_entries' THEN 2
   WHEN h.table_name = 'knowledge_bases' AND h.op <> 'delete' THEN 0
   WHEN h.table_name = 'knowledge_categories' AND h.op <> 'delete' THEN 1
-  WHEN h.table_name = 'knowledge_settings' AND h.op = 'delete' THEN 0
-  WHEN h.table_name = 'knowledge_settings' THEN 2
   WHEN h.table_name = 'knowledge_entries' AND h.op <> 'delete' THEN 3
   WHEN h.table_name IN ('knowledge_sources', 'knowledge_explanations') AND h.op = 'delete' THEN 0
   WHEN h.table_name IN ('knowledge_sources', 'knowledge_explanations') THEN 4
@@ -4118,6 +4015,9 @@ END, h.client_created_at, h.updated_at, h.table_name, h.record_id
           return (a.change?.seq ?? 0).compareTo(b.change?.seq ?? 0);
         });
       }
+      final normalizedKnowledgeCategoryAliases = remote
+          ? await _normalizedRemoteKnowledgeCategoryAliases(db, orderedOps)
+          : const <String, String>{};
       for (final op in orderedOps) {
         if (remote && _legacyPlanningSyncTableNames.contains(op.table)) {
           throw StateError(
@@ -4282,9 +4182,13 @@ END, h.client_created_at, h.updated_at, h.table_name, h.record_id
             continue;
           }
         }
+        final materializedData =
+            remote && op.table == 'knowledge_categories' && op.op == 'upsert'
+            ? {...op.data!, 'alias': normalizedKnowledgeCategoryAliases[id]!}
+            : op.data!;
         final selectionData = op.op == 'delete'
             ? await _selectionDataForRow(db, op.table, id)
-            : op.data;
+            : materializedData;
         switch (op.table) {
           case 'resources':
             if (op.op == 'upsert' && op.data != null) {
@@ -4357,7 +4261,10 @@ END, h.client_created_at, h.updated_at, h.table_name, h.record_id
             }
           case 'knowledge_categories':
             if (op.op == 'upsert' && op.data != null) {
-              await upsertKnowledgeCategoryRow(op.data!, transactionDb: db);
+              await upsertKnowledgeCategoryRow(
+                materializedData,
+                transactionDb: db,
+              );
             } else if (op.op == 'delete') {
               await deleteKnowledgeCategoryRow(
                 op.data!['id'] as String,
@@ -4395,11 +4302,8 @@ END, h.client_created_at, h.updated_at, h.table_name, h.record_id
             if (id != 'global') {
               throw StateError('knowledge_settings record id must be global');
             }
-            if (op.op == 'upsert' && op.data != null) {
-              await _upsertKnowledgeSettings(db, op.data!);
-            } else if (op.op == 'delete') {
-              await deleteKnowledgeSettings(transactionDb: db);
-            }
+            // Legacy settings changes are intentionally acknowledged as no-op.
+            break;
           case 'calendar_events':
             if (op.op == 'upsert' && op.data != null) {
               await upsertCalendarEventRow(op.data!, transactionDb: db);
@@ -4515,7 +4419,7 @@ END, h.client_created_at, h.updated_at, h.table_name, h.record_id
             op.table,
             id,
             op.op,
-            op.op == 'upsert' ? op.data : null,
+            op.op == 'upsert' ? materializedData : null,
             selectionData: selectionData,
             deviceId: targetDeviceId ?? op.change?.deviceId,
             changeId: changeId,
@@ -4564,6 +4468,31 @@ END, h.client_created_at, h.updated_at, h.table_name, h.record_id
         await _setSyncSince(db, scope, nextSince);
       }
     });
+  }
+
+  Future<Map<String, String>> _normalizedRemoteKnowledgeCategoryAliases(
+    StorageV2DriftDatabase db,
+    List<SyncRemoteOperation> ops,
+  ) async {
+    final categoryOps = ops
+        .where((op) => op.table == 'knowledge_categories')
+        .toList(growable: false);
+    if (categoryOps.isEmpty) return const {};
+
+    final touchedIds = categoryOps
+        .map((op) => op.data?['id'])
+        .whereType<String>()
+        .toSet();
+    final categories = <({String id, String alias})>[
+      for (final row in await db.select(db.knowledgeCategoryRows).get())
+        if (!touchedIds.contains(row.id)) (id: row.id, alias: row.alias),
+      for (final op in categoryOps)
+        if (op.op == 'upsert' &&
+            op.data?['id'] is String &&
+            op.data?['alias'] is String)
+          (id: op.data!['id'] as String, alias: op.data!['alias'] as String),
+    ];
+    return normalizeKnowledgeCategoryAliases(categories);
   }
 
   Future<void> _recordTransportReceipt(
@@ -5091,7 +5020,7 @@ END, h.client_created_at, h.updated_at, h.table_name, h.record_id
       'task_list_entries' => op == 'delete' ? 0 : 2,
       'knowledge_bases' => op == 'delete' ? 9 : 0,
       'knowledge_categories' => op == 'delete' ? 8 : 1,
-      'knowledge_settings' => op == 'delete' ? 0 : 2,
+      'knowledge_settings' => 2,
       'knowledge_entries' => op == 'delete' ? 7 : 3,
       'knowledge_sources' || 'knowledge_explanations' => op == 'delete' ? 0 : 4,
       'note_pages' => 3,
@@ -5523,36 +5452,14 @@ CREATE TABLE IF NOT EXISTS knowledge_categories (
   color_value INTEGER NOT NULL,
   auto_annotate INTEGER NOT NULL,
   model_config_id TEXT,
-  is_default INTEGER NOT NULL,
   enabled INTEGER NOT NULL DEFAULT 1,
   sort_order INTEGER NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   FOREIGN KEY (knowledge_base_id) REFERENCES knowledge_bases(id) ON DELETE CASCADE
 );
-DROP INDEX IF EXISTS idx_knowledge_categories_default;
-UPDATE knowledge_categories
-SET is_default = 0
-WHERE is_default = 1
-  AND id <> COALESCE((
-    SELECT id FROM knowledge_categories
-    WHERE is_default = 1
-    ORDER BY sort_order, created_at, id
-    LIMIT 1
-  ), '');
-CREATE UNIQUE INDEX idx_knowledge_categories_default
-  ON knowledge_categories(is_default) WHERE is_default = 1;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_categories_alias
   ON knowledge_categories(alias);
-CREATE TABLE IF NOT EXISTS knowledge_settings (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
-  default_knowledge_base_id TEXT,
-  default_category_id TEXT,
-  updated_at TEXT NOT NULL,
-  CHECK ((default_knowledge_base_id IS NULL) = (default_category_id IS NULL)),
-  FOREIGN KEY (default_knowledge_base_id) REFERENCES knowledge_bases(id) ON DELETE SET NULL,
-  FOREIGN KEY (default_category_id) REFERENCES knowledge_categories(id) ON DELETE SET NULL
-);
 CREATE TABLE IF NOT EXISTS knowledge_entries (
   id TEXT PRIMARY KEY,
   knowledge_base_id TEXT NOT NULL,
@@ -6113,9 +6020,6 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
   }
 
   Future<Map<String, dynamic>> _loadKnowledge(StorageV2DriftDatabase db) async {
-    final settings = await (db.select(
-      db.knowledgeSettingsRows,
-    )..where((row) => row.id.equals(1))).getSingleOrNull();
     final bases =
         (await (db.select(
               db.knowledgeBaseRows,
@@ -6151,7 +6055,6 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
                 'autoAnnotate': row.autoAnnotate,
                 if (row.modelConfigId != null)
                   'modelConfigId': row.modelConfigId,
-                'isDefault': row.isDefault,
                 'enabled': row.enabled,
                 'sortOrder': row.sortOrder,
                 'createdAt': row.createdAt,
@@ -6219,14 +6122,6 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
             )
             .toList();
     return {
-      if (settings != null)
-        'settings': {
-          if (settings.defaultKnowledgeBaseId != null)
-            'defaultKnowledgeBaseId': settings.defaultKnowledgeBaseId,
-          if (settings.defaultCategoryId != null)
-            'defaultCategoryId': settings.defaultCategoryId,
-          'updatedAt': settings.updatedAt,
-        },
       'knowledgeBases': bases,
       'categories': categories,
       'entries': entries,
@@ -6816,7 +6711,6 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
     StorageV2DriftDatabase db,
     Map<String, dynamic> data,
   ) async {
-    await db.delete(db.knowledgeSettingsRows).go();
     await db.delete(db.knowledgeSourceRows).go();
     await db.delete(db.knowledgeExplanationRows).go();
     await db.delete(db.knowledgeEntryRows).go();
@@ -6871,34 +6765,6 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
         );
       }
     }
-    final rawSettings = data['settings'];
-    if (rawSettings is Map) {
-      await _upsertKnowledgeSettings(
-        db,
-        Map<String, dynamic>.from(rawSettings),
-      );
-    } else {
-      await _deriveKnowledgeSettings(db);
-    }
-  }
-
-  Future<void> _deriveKnowledgeSettings(StorageV2DriftDatabase db) async {
-    final row = await db.customSelect('''
-SELECT category.id AS category_id, category.knowledge_base_id AS base_id
-FROM knowledge_categories AS category
-JOIN knowledge_bases AS base ON base.id = category.knowledge_base_id
-WHERE base.enabled = 1
-  AND category.enabled = 1
-  AND category.auto_annotate = 1
-ORDER BY category.is_default DESC, base.sort_order, category.sort_order,
-         category.created_at, category.id
-LIMIT 1
-''').getSingleOrNull();
-    await _upsertKnowledgeSettings(db, {
-      if (row != null) 'defaultKnowledgeBaseId': row.data['base_id'],
-      if (row != null) 'defaultCategoryId': row.data['category_id'],
-      'updatedAt': DateTime.now().toUtc().toIso8601String(),
-    });
   }
 
   Future<void> _replaceCalendar(
@@ -7060,7 +6926,6 @@ LIMIT 1
       'knowledge_entries',
       'knowledge_sources',
       'knowledge_explanations',
-      'knowledge_settings',
     },
     'calendar.json' => {'calendar_events', 'anniversaries'},
     'roleplay_scenarios.json' => {'roleplay_scenarios'},
@@ -7164,7 +7029,6 @@ LIMIT 1
         'knowledge_entries',
         'knowledge_sources',
         'knowledge_explanations',
-        'knowledge_settings',
       }.contains,
     )) {
       final data = await _loadKnowledge(db);
@@ -7173,12 +7037,6 @@ LIMIT 1
       add('knowledge_entries', data['entries'] as List);
       add('knowledge_sources', data['sources'] as List);
       add('knowledge_explanations', data['explanations'] as List);
-      final settings = data['settings'];
-      if (settings is Map) {
-        add('knowledge_settings', [
-          {'id': 'global', ...Map<String, dynamic>.from(settings)},
-        ]);
-      }
     }
     if (tables.any({'calendar_events', 'anniversaries'}.contains)) {
       final data = await _loadCalendar(db);
@@ -7526,7 +7384,6 @@ LIMIT 1
         table == 'knowledge_entries' ||
         table == 'knowledge_sources' ||
         table == 'knowledge_explanations' ||
-        table == 'knowledge_settings' ||
         table == 'calendar_events' ||
         table == 'anniversaries') {
       return MergePlanner.latestWins(
@@ -7676,11 +7533,8 @@ LIMIT 1
         if (data['id'] != 'global') {
           throw StateError('knowledge_settings record id must be global');
         }
-        if (op == 'upsert') {
-          await _upsertKnowledgeSettings(db, data);
-        } else {
-          await deleteKnowledgeSettings(transactionDb: db);
-        }
+        // Legacy settings changes are intentionally acknowledged as no-op.
+        break;
       case 'calendar_events':
         if (op == 'upsert') {
           await upsertCalendarEventRow(data, transactionDb: db);

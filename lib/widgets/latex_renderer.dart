@@ -388,13 +388,13 @@ class _KnowledgeAnnotationSyntax extends md.InlineSyntax {
 }
 
 class _KnowledgeAnnotationBuilder extends MarkdownElementBuilder {
-  final String? defaultCategory;
+  final String? fallbackCategory;
   final KnowledgeCategoryResolver? resolver;
   final KnowledgeCategoryColorResolver? colorResolver;
   final KnowledgeAnnotationTapCallback? onTap;
 
   _KnowledgeAnnotationBuilder({
-    required this.defaultCategory,
+    required this.fallbackCategory,
     required this.resolver,
     required this.colorResolver,
     required this.onTap,
@@ -445,7 +445,7 @@ class _KnowledgeAnnotationBuilder extends MarkdownElementBuilder {
   String _resolveCategory(String sourceCategory) {
     final resolved = resolver?.call(sourceCategory)?.trim();
     if (resolved != null && resolved.isNotEmpty) return resolved;
-    final fallback = defaultCategory?.trim();
+    final fallback = fallbackCategory?.trim();
     if (fallback == null || fallback.isEmpty) return sourceCategory;
     final resolvedFallback = resolver?.call(fallback)?.trim();
     return resolvedFallback == null || resolvedFallback.isEmpty
@@ -468,7 +468,7 @@ class MarkdownWithLatex extends StatelessWidget {
   final MarkdownBlockEditCallback? onEditMermaidBlock;
   final MarkdownBlockEditCallback? onEditCodeBlock;
   final void Function(String text, String? href, String title)? onTapLink;
-  final String? defaultKnowledgeCategory;
+  final String? fallbackKnowledgeCategory;
   final KnowledgeCategoryResolver? knowledgeCategoryResolver;
   final KnowledgeCategoryColorResolver? knowledgeCategoryColorResolver;
   final KnowledgeAnnotationTapCallback? onTapKnowledgeAnnotation;
@@ -486,7 +486,7 @@ class MarkdownWithLatex extends StatelessWidget {
     this.onEditMermaidBlock,
     this.onEditCodeBlock,
     this.onTapLink,
-    this.defaultKnowledgeCategory,
+    this.fallbackKnowledgeCategory,
     this.knowledgeCategoryResolver,
     this.knowledgeCategoryColorResolver,
     this.onTapKnowledgeAnnotation,
@@ -551,7 +551,7 @@ class MarkdownWithLatex extends StatelessWidget {
       ),
       if (withInlineLatex) 'inlineLatex': _LatexBuilder(textStyle: textStyle),
       'knowledgeAnnotation': _KnowledgeAnnotationBuilder(
-        defaultCategory: defaultKnowledgeCategory,
+        fallbackCategory: fallbackKnowledgeCategory,
         resolver: knowledgeCategoryResolver,
         colorResolver: knowledgeCategoryColorResolver,
         onTap: onTapKnowledgeAnnotation,

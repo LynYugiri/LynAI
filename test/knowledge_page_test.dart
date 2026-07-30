@@ -5,7 +5,6 @@ import 'package:lynai/models/knowledge_category.dart';
 import 'package:lynai/models/knowledge_entry.dart';
 import 'package:lynai/models/knowledge_explanation.dart';
 import 'package:lynai/models/knowledge_source.dart';
-import 'package:lynai/models/knowledge_settings.dart';
 import 'package:lynai/pages/feature_page.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/knowledge_provider.dart';
@@ -17,14 +16,14 @@ import 'package:provider/provider.dart';
 import 'support/memory_repositories.dart';
 
 void main() {
-  testWidgets('initially selects the configured default knowledge base', (
+  testWidgets('knowledge page has no user default settings controls', (
     tester,
   ) async {
     final provider = await _knowledgeProvider(withSecondaryDefaultBase: true);
     await _pumpKnowledge(tester, provider, size: const Size(500, 800));
 
-    expect(find.text('默认知识库条目'), findsOneWidget);
-    expect(find.text('Markdown 条目'), findsNothing);
+    expect(find.byTooltip('默认设置'), findsNothing);
+    expect(find.text('设为默认'), findsNothing);
   });
 
   testWidgets('compact base selector follows an externally removed base', (
@@ -45,11 +44,6 @@ void main() {
           .toList(),
       sources: const [],
       explanations: const [],
-      settings: KnowledgeSettings(
-        defaultKnowledgeBaseId: 'base',
-        defaultCategoryId: 'person',
-        updatedAt: DateTime(2026, 7, 30),
-      ),
     );
     await tester.pumpAndSettle();
 
@@ -59,21 +53,6 @@ void main() {
     );
     expect(dropdown.initialValue, 'base');
     expect(find.text('Markdown 条目'), findsOneWidget);
-  });
-
-  testWidgets('default settings only offers eligible base and category', (
-    tester,
-  ) async {
-    final provider = await _knowledgeProvider();
-    await _pumpKnowledge(tester, provider);
-
-    await tester.tap(find.byTooltip('默认设置'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('默认知识设置'), findsOneWidget);
-    expect(find.text('默认类别必须启用自动标注，并属于已启用的默认知识库。'), findsOneWidget);
-    expect(find.text('停用类别'), findsNothing);
-    expect(find.widgetWithText(FilledButton, '保存'), findsOneWidget);
   });
 
   testWidgets('duplicate alias validation keeps category form open', (
@@ -94,7 +73,7 @@ void main() {
 
     expect(find.text('alias 已被其他类别使用'), findsOneWidget);
     expect(find.text('新建类别'), findsOneWidget);
-    expect(provider.categories, hasLength(2));
+    expect(provider.categories, hasLength(3));
   });
 
   testWidgets('compact detail has explicit return to entry list', (
@@ -170,7 +149,6 @@ void main() {
       ],
       sources: provider.sources,
       explanations: provider.explanations,
-      settings: provider.settings.copyWith(updatedAt: now),
     );
     await tester.pumpAndSettle();
 
@@ -194,6 +172,25 @@ void main() {
     expect(provider.entries.single.title, '编辑后的条目');
     expect(provider.entries.single.enabled, isFalse);
     expect(find.text('编辑后的条目'), findsWidgets);
+  });
+
+  testWidgets('entry selection keeps details without selected card styling', (
+    tester,
+  ) async {
+    final provider = await _knowledgeProvider();
+    await _pumpKnowledge(tester, provider, size: const Size(1200, 800));
+
+    await tester.tap(find.text('Markdown 条目').first);
+    await tester.pumpAndSettle();
+
+    final tile = tester.widget<ListTile>(
+      find.ancestor(
+        of: find.text('Markdown 条目').first,
+        matching: find.byType(ListTile),
+      ),
+    );
+    expect(tile.selected, isFalse);
+    expect(find.text('来源'), findsOneWidget);
   });
 }
 
@@ -232,7 +229,6 @@ Future<KnowledgeProvider> _knowledgeProvider({
         alias: 'person',
         annotationRule: '标注人物名称',
         autoAnnotate: true,
-        isDefault: true,
         enabled: true,
         sortOrder: 0,
         createdAt: now,
@@ -245,7 +241,6 @@ Future<KnowledgeProvider> _knowledgeProvider({
           name: '默认类别',
           alias: 'default-category',
           autoAnnotate: true,
-          isDefault: true,
           enabled: true,
           sortOrder: 0,
           createdAt: now,
@@ -257,7 +252,6 @@ Future<KnowledgeProvider> _knowledgeProvider({
         name: '停用类别',
         alias: 'disabled',
         autoAnnotate: true,
-        isDefault: false,
         enabled: false,
         sortOrder: 1,
         createdAt: now,
@@ -291,15 +285,6 @@ Future<KnowledgeProvider> _knowledgeProvider({
     ],
     sources: const [],
     explanations: const [],
-    settings: KnowledgeSettings(
-      defaultKnowledgeBaseId: withSecondaryDefaultBase
-          ? 'default-base'
-          : 'base',
-      defaultCategoryId: withSecondaryDefaultBase
-          ? 'default-category'
-          : 'person',
-      updatedAt: now,
-    ),
   );
   return provider;
 }
@@ -382,6 +367,5 @@ final class _MemoryKnowledgeRepository extends KnowledgeRepository {
     Iterable<String> deleteSourceIds = const [],
     Iterable<KnowledgeExplanation> upsertExplanations = const [],
     Iterable<String> deleteExplanationIds = const [],
-    KnowledgeSettings? settings,
   }) async {}
 }

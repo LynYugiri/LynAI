@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lynai/services/storage_v2_database.dart';
 import 'package:lynai/services/storage_v2_service.dart';
 import 'package:sqlite3/sqlite3.dart';
 
@@ -43,7 +44,10 @@ PRAGMA user_version = 11;
             .single;
         expect(row['local_head_id'], 'local');
         expect(row['incoming_head_id'], 'incoming');
-        expect(migrated.userVersion, 26);
+        expect(
+          migrated.userVersion,
+          StorageV2DriftDatabase.currentSchemaVersion,
+        );
       } finally {
         migrated.close();
       }

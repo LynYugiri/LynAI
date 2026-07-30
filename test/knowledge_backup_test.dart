@@ -1,12 +1,13 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/backup_models.dart';
 import 'package:lynai/models/knowledge_base.dart';
 import 'package:lynai/models/knowledge_category.dart';
 import 'package:lynai/models/knowledge_entry.dart';
 import 'package:lynai/models/knowledge_explanation.dart';
-import 'package:lynai/models/knowledge_settings.dart';
 import 'package:lynai/models/knowledge_source.dart';
 import 'package:lynai/providers/calendar_provider.dart';
 import 'package:lynai/providers/conversation_provider.dart';
@@ -21,7 +22,7 @@ import 'package:lynai/services/storage_v2_service.dart';
 
 void main() {
   test(
-    'schema 12 round-trips settings and imports children for equal base',
+    'schema 13 omits defaults and imports children for equal base',
     () async {
       final sourceRoot = await Directory.systemTemp.createTemp(
         'lynai_knowledge_backup_source_',
@@ -47,7 +48,6 @@ void main() {
           name: 'Default',
           alias: 'default',
           autoAnnotate: true,
-          isDefault: true,
           enabled: true,
           sortOrder: 0,
           createdAt: now,
@@ -64,11 +64,6 @@ void main() {
           createdAt: now,
           updatedAt: now,
         );
-        final settings = KnowledgeSettings(
-          defaultKnowledgeBaseId: base.id,
-          defaultCategoryId: category.id,
-          updatedAt: now,
-        );
         final sourceKnowledge = KnowledgeProvider(storageV2: sourceStorage);
         await sourceKnowledge.replaceAll(
           knowledgeBases: [base],
@@ -76,7 +71,6 @@ void main() {
           entries: [entry],
           sources: const [],
           explanations: const [],
-          settings: settings,
         );
         final source = _service(sourceStorage, sourceKnowledge);
         final selection = BackupSelection(
@@ -86,8 +80,11 @@ void main() {
         final archive = await source.readZipBytes(
           await source.exportZipBytes(selection),
         );
-        expect(archive.manifest['schemaVersion'], 12);
-        expect(archive.data.knowledgeSettings?.toJson(), settings.toJson());
+        expect(archive.manifest['schemaVersion'], 13);
+        expect(
+          archive.data.knowledgeCategories?.single.toJson(),
+          isNot(contains('isDefault')),
+        );
 
         final targetKnowledge = KnowledgeProvider(storageV2: targetStorage);
         await targetKnowledge.replaceAll(
@@ -101,15 +98,85 @@ void main() {
           archive,
           ImportPlan(selection: selection, mode: ImportMode.addOnly),
         );
-        expect(targetKnowledge.categories.single.id, category.id);
-        expect(targetKnowledge.entries.single.id, entry.id);
-        expect(targetKnowledge.settings.defaultKnowledgeBaseId, base.id);
-        expect(targetKnowledge.settings.defaultCategoryId, category.id);
+        expect(targetKnowledge.categoryById(category.id), isNotNull);
+        expect(targetKnowledge.entryById(entry.id), isNotNull);
       } finally {
         await sourceStorage.close();
         await targetStorage.close();
         if (await sourceRoot.exists()) await sourceRoot.delete(recursive: true);
         if (await targetRoot.exists()) await targetRoot.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'schema 11 and 12 import proper_noun conflicts through provider normalization',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'lynai_knowledge_backup_legacy_defaults_',
+      );
+      final storage = StorageV2Service(rootDirectory: root);
+      try {
+        final now = DateTime.utc(2026, 7, 29);
+        final base = _base('base', now);
+        final category = _category('category', base.id, now);
+        final knowledge = KnowledgeProvider(storageV2: storage);
+        await knowledge.replaceAll(
+          knowledgeBases: [base],
+          categories: [category],
+          entries: const [],
+          sources: const [],
+          explanations: const [],
+        );
+        final service = _service(storage, knowledge);
+        final bytes = await service.exportZipBytes(
+          _knowledgeSelection(base.id),
+        );
+        for (final schemaVersion in [11, 12]) {
+          final archive = await service.readZipBytes(
+            _withLegacyKnowledgeDefaults(
+              bytes,
+              schemaVersion,
+              alias: KnowledgeProvider.properNounAlias,
+            ),
+          );
+          expect(archive.data.knowledgeCategories?.single.id, category.id);
+          expect(
+            archive.data.knowledgeCategories?.single.toJson(),
+            isNot(contains('isDefault')),
+          );
+          final targetRoot = await Directory.systemTemp.createTemp(
+            'lynai_knowledge_backup_legacy_target_',
+          );
+          final targetStorage = StorageV2Service(rootDirectory: targetRoot);
+          try {
+            final targetKnowledge = KnowledgeProvider(storageV2: targetStorage);
+            await targetKnowledge.load();
+            await _service(targetStorage, targetKnowledge).importArchive(
+              archive,
+              ImportPlan(
+                selection: _knowledgeSelection(base.id),
+                mode: ImportMode.addOnly,
+              ),
+            );
+            expect(
+              targetKnowledge.categoryById(category.id)?.alias,
+              'proper_noun_category',
+            );
+            expect(
+              targetKnowledge.categoryById(category.id)?.updatedAt,
+              category.updatedAt,
+            );
+          } finally {
+            await targetStorage.close();
+            if (await targetRoot.exists()) {
+              await targetRoot.delete(recursive: true);
+            }
+          }
+        }
+      } finally {
+        await storage.close();
+        if (await root.exists()) await root.delete(recursive: true);
       }
     },
   );
@@ -151,11 +218,6 @@ void main() {
           now,
           title: 'Local',
         );
-        final localSettings = KnowledgeSettings(
-          defaultKnowledgeBaseId: base.id,
-          defaultCategoryId: localCategory.id,
-          updatedAt: now,
-        );
         final knowledge = KnowledgeProvider(storageV2: storage);
         await knowledge.replaceAll(
           knowledgeBases: [base],
@@ -163,7 +225,6 @@ void main() {
           entries: [localEntry],
           sources: [localSource],
           explanations: [localExplanation],
-          settings: localSettings,
         );
         final newCategory = _category(
           'new-category',
@@ -203,11 +264,6 @@ void main() {
               title: 'New',
             ),
           ],
-          settings: KnowledgeSettings(
-            defaultKnowledgeBaseId: base.id,
-            defaultCategoryId: localCategory.id,
-            updatedAt: now.add(const Duration(hours: 1)),
-          ),
         );
 
         await _service(storage, knowledge).importArchive(
@@ -235,7 +291,6 @@ void main() {
           containsAll(['explanation', 'new-explanation']),
         );
         expect(knowledge.explanations.first.title, 'Local');
-        expect(knowledge.settings.toJson(), localSettings.toJson());
       } finally {
         await storage.close();
         if (await root.exists()) await root.delete(recursive: true);
@@ -243,139 +298,110 @@ void main() {
     },
   );
 
-  test(
-    'merge keepLocal preserves conflicts, adds children, and keeps settings',
-    () async {
-      final root = await Directory.systemTemp.createTemp(
-        'lynai_knowledge_backup_keep_local_',
+  test('merge keepLocal preserves conflicts and adds children', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_knowledge_backup_keep_local_',
+    );
+    final storage = StorageV2Service(rootDirectory: root);
+    try {
+      final now = DateTime.utc(2026, 7, 29);
+      final localBase = _base('base', now, name: 'Local');
+      final localCategory = _category('category', localBase.id, now);
+      final localEntry = _entry(
+        'entry',
+        localBase.id,
+        localCategory.id,
+        now,
+        title: 'Local',
       );
-      final storage = StorageV2Service(rootDirectory: root);
-      try {
-        final now = DateTime.utc(2026, 7, 29);
-        final localBase = _base('base', now, name: 'Local');
-        final localCategory = _category('category', localBase.id, now);
-        final localEntry = _entry(
-          'entry',
-          localBase.id,
-          localCategory.id,
-          now,
-          title: 'Local',
-        );
-        final localSettings = KnowledgeSettings(
-          defaultKnowledgeBaseId: localBase.id,
-          defaultCategoryId: localCategory.id,
-          updatedAt: now,
-        );
-        final knowledge = KnowledgeProvider(storageV2: storage);
-        await knowledge.replaceAll(
-          knowledgeBases: [localBase],
-          categories: [localCategory],
-          entries: [localEntry],
-          sources: const [],
-          explanations: const [],
-          settings: localSettings,
-        );
-        final incomingBase = localBase.copyWith(name: 'Incoming');
-        final newEntry = _entry(
-          'new-entry',
-          localBase.id,
-          localCategory.id,
-          now,
-          title: 'New',
-        );
-        final archive = _archive(
-          bases: [incomingBase],
-          categories: [localCategory.copyWith(name: 'Incoming')],
-          entries: [
-            localEntry.copyWith(title: 'Incoming'),
-            newEntry,
-          ],
-          settings: KnowledgeSettings(
-            defaultKnowledgeBaseId: incomingBase.id,
-            defaultCategoryId: localCategory.id,
-            updatedAt: now.add(const Duration(hours: 1)),
-          ),
-        );
-
-        await _service(storage, knowledge).importArchive(
-          archive,
-          ImportPlan(
-            selection: _knowledgeSelection(localBase.id),
-            mode: ImportMode.merge,
-            conflictActions: const {
-              'knowledge:base': ImportConflictAction.keepLocal,
-            },
-          ),
-        );
-
-        expect(knowledge.knowledgeBases.single.name, 'Local');
-        expect(knowledge.categories.single.name, 'Default');
-        expect(knowledge.entryById('entry')?.title, 'Local');
-        expect(knowledge.entryById('new-entry')?.title, 'New');
-        expect(knowledge.settings.toJson(), localSettings.toJson());
-      } finally {
-        await storage.close();
-        if (await root.exists()) await root.delete(recursive: true);
-      }
-    },
-  );
-
-  test(
-    'partial knowledge backup with empty settings keeps local defaults',
-    () async {
-      final root = await Directory.systemTemp.createTemp(
-        'lynai_knowledge_backup_partial_settings_',
+      final knowledge = KnowledgeProvider(storageV2: storage);
+      await knowledge.replaceAll(
+        knowledgeBases: [localBase],
+        categories: [localCategory],
+        entries: [localEntry],
+        sources: const [],
+        explanations: const [],
       );
-      final storage = StorageV2Service(rootDirectory: root);
-      try {
-        final now = DateTime.utc(2026, 7, 29);
-        final localBase = _base('local', now);
-        final localCategory = _category('local-category', localBase.id, now);
-        final incomingBase = _base('incoming', now);
-        final incomingCategory = _category(
-          'incoming-category',
-          incomingBase.id,
-          now,
-          alias: 'incoming',
-        );
-        final localSettings = KnowledgeSettings(
-          defaultKnowledgeBaseId: localBase.id,
-          defaultCategoryId: localCategory.id,
-          updatedAt: now,
-        );
-        final knowledge = KnowledgeProvider(storageV2: storage);
-        await knowledge.replaceAll(
-          knowledgeBases: [localBase],
-          categories: [localCategory],
-          entries: const [],
-          sources: const [],
-          explanations: const [],
-          settings: localSettings,
-        );
+      final incomingBase = localBase.copyWith(name: 'Incoming');
+      final newEntry = _entry(
+        'new-entry',
+        localBase.id,
+        localCategory.id,
+        now,
+        title: 'New',
+      );
+      final archive = _archive(
+        bases: [incomingBase],
+        categories: [localCategory.copyWith(name: 'Incoming')],
+        entries: [
+          localEntry.copyWith(title: 'Incoming'),
+          newEntry,
+        ],
+      );
 
-        await _service(storage, knowledge).importArchive(
-          _archive(
-            bases: [incomingBase],
-            categories: [incomingCategory],
-            settings: KnowledgeSettings(updatedAt: now),
-          ),
-          ImportPlan(
-            selection: _knowledgeSelection(incomingBase.id),
-            mode: ImportMode.replaceSection,
-          ),
-        );
+      await _service(storage, knowledge).importArchive(
+        archive,
+        ImportPlan(
+          selection: _knowledgeSelection(localBase.id),
+          mode: ImportMode.merge,
+          conflictActions: const {
+            'knowledge:base': ImportConflictAction.keepLocal,
+          },
+        ),
+      );
 
-        expect(knowledge.settings.toJson(), localSettings.toJson());
-        expect(
-          knowledge.knowledgeBases.map((item) => item.id),
-          containsAll(['local', 'incoming']),
-        );
-      } finally {
-        await storage.close();
-        if (await root.exists()) await root.delete(recursive: true);
-      }
-    },
-  );
+      expect(knowledge.knowledgeBaseById(localBase.id)?.name, 'Local');
+      expect(knowledge.categoryById(localCategory.id)?.name, 'Default');
+      expect(knowledge.entryById('entry')?.title, 'Local');
+      expect(knowledge.entryById('new-entry')?.title, 'New');
+    } finally {
+      await storage.close();
+      if (await root.exists()) await root.delete(recursive: true);
+    }
+  });
+
+  test('partial knowledge backup replaces only selected bases', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_knowledge_backup_partial_settings_',
+    );
+    final storage = StorageV2Service(rootDirectory: root);
+    try {
+      final now = DateTime.utc(2026, 7, 29);
+      final localBase = _base('local', now);
+      final localCategory = _category('local-category', localBase.id, now);
+      final incomingBase = _base('incoming', now);
+      final incomingCategory = _category(
+        'incoming-category',
+        incomingBase.id,
+        now,
+        alias: 'incoming',
+      );
+      final knowledge = KnowledgeProvider(storageV2: storage);
+      await knowledge.replaceAll(
+        knowledgeBases: [localBase],
+        categories: [localCategory],
+        entries: const [],
+        sources: const [],
+        explanations: const [],
+      );
+
+      await _service(storage, knowledge).importArchive(
+        _archive(bases: [incomingBase], categories: [incomingCategory]),
+        ImportPlan(
+          selection: _knowledgeSelection(incomingBase.id),
+          mode: ImportMode.replaceSection,
+        ),
+      );
+
+      expect(
+        knowledge.knowledgeBases.map((item) => item.id),
+        containsAll(['local', 'incoming']),
+      );
+    } finally {
+      await storage.close();
+      if (await root.exists()) await root.delete(recursive: true);
+    }
+  });
 
   test(
     'invalid cross-base knowledge archive fails before replacement',
@@ -412,7 +438,6 @@ void main() {
           knowledgeBaseId: otherBase.id,
           name: 'Invalid',
           alias: 'invalid',
-          isDefault: false,
           enabled: true,
           sortOrder: 0,
           createdAt: now,
@@ -445,7 +470,6 @@ void main() {
             knowledgeEntries: [invalidEntry],
             knowledgeSources: const [],
             knowledgeExplanations: const [],
-            knowledgeSettings: KnowledgeSettings(updatedAt: now),
           ),
         );
         final selection = BackupSelection(
@@ -459,8 +483,8 @@ void main() {
           ),
           throwsFormatException,
         );
-        expect(knowledge.knowledgeBases.single.id, localBase.id);
-        expect(knowledge.categories, isEmpty);
+        expect(knowledge.knowledgeBaseById(localBase.id), isNotNull);
+        expect(knowledge.categoryById('category'), isNull);
       } finally {
         await storage.close();
         if (await root.exists()) await root.delete(recursive: true);
@@ -491,7 +515,6 @@ KnowledgeCategory _category(
   name: name,
   alias: alias,
   autoAnnotate: true,
-  isDefault: true,
   enabled: true,
   sortOrder: 0,
   createdAt: now,
@@ -560,7 +583,6 @@ BackupArchiveData _archive({
   List<KnowledgeEntry> entries = const [],
   List<KnowledgeSource> sources = const [],
   List<KnowledgeExplanation> explanations = const [],
-  KnowledgeSettings? settings,
 }) => BackupArchiveData(
   manifest: const {
     'schemaVersion': 12,
@@ -577,9 +599,41 @@ BackupArchiveData _archive({
     knowledgeEntries: entries,
     knowledgeSources: sources,
     knowledgeExplanations: explanations,
-    knowledgeSettings: settings,
   ),
 );
+
+List<int> _withLegacyKnowledgeDefaults(
+  List<int> bytes,
+  int schemaVersion, {
+  String? alias,
+}) {
+  final source = ZipDecoder().decodeBytes(bytes);
+  final archive = Archive();
+  for (final file in source.files) {
+    var content = List<int>.from(file.content as List);
+    if (file.name == 'manifest.json') {
+      final manifest = jsonDecode(utf8.decode(content)) as Map<String, dynamic>;
+      manifest['schemaVersion'] = schemaVersion;
+      content = utf8.encode(jsonEncode(manifest));
+    } else if (file.name == 'knowledge.json') {
+      final knowledge =
+          jsonDecode(utf8.decode(content)) as Map<String, dynamic>;
+      for (final category
+          in (knowledge['categories'] as List).whereType<Map>()) {
+        category['isDefault'] = true;
+        if (alias != null) category['alias'] = alias;
+      }
+      knowledge['settings'] = {
+        'defaultKnowledgeBaseId': 'base',
+        'defaultCategoryId': 'category',
+        'updatedAt': '2026-07-29T00:00:00Z',
+      };
+      content = utf8.encode(jsonEncode(knowledge));
+    }
+    archive.addFile(ArchiveFile(file.name, content.length, content));
+  }
+  return ZipEncoder().encode(archive);
+}
 
 BackupService _service(StorageV2Service storage, KnowledgeProvider knowledge) =>
     BackupService(

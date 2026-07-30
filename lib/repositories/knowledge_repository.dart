@@ -5,7 +5,6 @@ import '../models/knowledge_category.dart';
 import '../models/knowledge_entry.dart';
 import '../models/knowledge_explanation.dart';
 import '../models/knowledge_source.dart';
-import '../models/knowledge_settings.dart';
 import '../services/storage_v2_service.dart';
 
 final class KnowledgeLoadResult {
@@ -15,7 +14,6 @@ final class KnowledgeLoadResult {
     required this.entries,
     required this.sources,
     required this.explanations,
-    this.settings,
   });
 
   final List<KnowledgeBase> bases;
@@ -23,7 +21,6 @@ final class KnowledgeLoadResult {
   final List<KnowledgeEntry> entries;
   final List<KnowledgeSource> sources;
   final List<KnowledgeExplanation> explanations;
-  final KnowledgeSettings? settings;
 }
 
 class KnowledgeRepository {
@@ -49,7 +46,6 @@ class KnowledgeRepository {
         KnowledgeExplanation.fromJson,
         '知识解释',
       ),
-      settings: _decodeSettings(data['settings']),
     );
   }
 
@@ -62,7 +58,6 @@ class KnowledgeRepository {
         'explanations': value.explanations
             .map((item) => item.toJson())
             .toList(),
-        if (value.settings != null) 'settings': value.settings!.toJson(),
       });
 
   Future<void> saveChanges({
@@ -76,7 +71,6 @@ class KnowledgeRepository {
     Iterable<String> deleteSourceIds = const [],
     Iterable<KnowledgeExplanation> upsertExplanations = const [],
     Iterable<String> deleteExplanationIds = const [],
-    KnowledgeSettings? settings,
   }) async {
     final operations = [
       for (final id in deleteSourceIds)
@@ -128,13 +122,6 @@ class KnowledgeRepository {
           data: item.toJson(),
           change: null,
         ),
-      if (settings != null)
-        (
-          table: 'knowledge_settings',
-          op: 'upsert',
-          data: {'id': 'global', ...settings.toJson()},
-          change: null,
-        ),
       for (final item in upsertEntries)
         (
           table: 'knowledge_entries',
@@ -158,16 +145,6 @@ class KnowledgeRepository {
         ),
     ];
     await _storageV2.applyLocalRowChanges(operations);
-  }
-}
-
-KnowledgeSettings? _decodeSettings(Object? raw) {
-  if (raw is! Map) return null;
-  try {
-    return KnowledgeSettings.fromJson(Map<String, dynamic>.from(raw));
-  } catch (error) {
-    debugPrint('跳过损坏的知识库设置: $error');
-    return null;
   }
 }
 

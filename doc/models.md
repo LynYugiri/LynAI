@@ -378,4 +378,4 @@ truncation. Dataset metadata repeats and validates this identity to fail closed
 on directory or registry ownership mismatch.
 # 知识库与标注
 
-知识库数据由 `KnowledgeBase`、`KnowledgeCategory`、`KnowledgeEntry`、`KnowledgeSource` 和 `KnowledgeExplanation` 组成；`KnowledgeSettings` 单独表达全局默认知识库、默认类别和更新时间，不归属于某个知识库。类别使用全局唯一的稳定 `alias`，配置标注规则、解释提示词、颜色、自动标注状态及目标知识库；默认关系的权威源是 `KnowledgeSettings`，类别中的历史默认字段只用于旧数据兼容。聊天和情景演绎角色回复只使用 `[[category:text]]`，不接受管道分隔的 Wiki 链接语法；未知类别统一回落到用户的有效默认类别。用户点击标注后自动解释，成功结果保存为知识条目、来源和解释；普通选区释义由用户决定是否保存。记忆卡片尚无持久化契约，因此知识页面不展示未实现入口。
+知识库数据由 `KnowledgeBase`、`KnowledgeCategory`、`KnowledgeEntry`、`KnowledgeSource` 和 `KnowledgeExplanation` 组成。类别使用全局唯一的稳定 `alias`，配置标注规则、解释提示词、颜色、自动标注状态及目标知识库；模型不再包含 `isDefault`，客户端也没有用户可配置的默认知识库或默认类别。固定 ID 的内置“专有名词知识库”和“专有名词”类别使用 `proper_noun` alias，首次加载或完整替换后幂等补齐，已有内置行不覆盖用户修改；alias 冲突时保留内置 alias，并按稳定类别 ID 确定性重命名冲突项。聊天和情景演绎角色回复只使用 `[[category:text]]`，不接受管道分隔的 Wiki 链接语法；未知 alias 仅在该内置类别及其知识库启用且类别开启自动标注时回落。内置行可编辑和停用、不可删除，恢复模板时保留启用状态、排序、创建时间及所有用户条目、来源和解释。用户点击标注后自动解释，成功结果保存为知识条目、来源和解释；普通选区释义由用户决定是否保存。记忆卡片尚无持久化契约，因此知识页面不展示未实现入口。

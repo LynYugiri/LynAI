@@ -6,13 +6,18 @@ import '../models/knowledge_category.dart';
 import '../models/knowledge_entry.dart';
 import '../models/knowledge_explanation.dart';
 import '../models/knowledge_source.dart';
-import '../models/knowledge_settings.dart';
 import '../repositories/knowledge_repository.dart';
 import '../services/knowledge_annotation_prompt.dart';
 import '../services/storage_v2_service.dart';
 
 class KnowledgeProvider extends ChangeNotifier {
+  static const builtInProperNounKnowledgeBaseId =
+      builtInProperNounKnowledgeBaseModelId;
+  static const builtInProperNounCategoryId =
+      builtInProperNounCategoryModelId;
+  static const properNounAlias = properNounKnowledgeCategoryAlias;
   static const defaultAnnotationRule = '标注专有名词';
+  static final builtInInitialTime = DateTime.utc(2026, 7, 30);
 
   KnowledgeProvider({
     StorageV2Service? storageV2,
@@ -26,9 +31,6 @@ class KnowledgeProvider extends ChangeNotifier {
   List<KnowledgeEntry> _entries = [];
   List<KnowledgeSource> _sources = [];
   List<KnowledgeExplanation> _explanations = [];
-  KnowledgeSettings _settings = KnowledgeSettings(
-    updatedAt: DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
-  );
   Future<void> _saveQueue = Future.value();
   Future<void> _pendingSave = Future.value();
   int _mutationGeneration = 0;
@@ -39,30 +41,25 @@ class KnowledgeProvider extends ChangeNotifier {
   List<KnowledgeSource> get sources => List.unmodifiable(_sources);
   List<KnowledgeExplanation> get explanations =>
       List.unmodifiable(_explanations);
-  KnowledgeSettings get settings => _settings;
-  KnowledgeBase? get defaultKnowledgeBase =>
-      _settings.defaultKnowledgeBaseId == null
-      ? null
-      : knowledgeBaseById(_settings.defaultKnowledgeBaseId!);
 
   Future<void> load() async {
     final generation = _mutationGeneration;
     await flushPendingSaves();
     final value = await _repository.load();
     if (generation != _mutationGeneration) return;
-    final originalBaseId = value.settings?.defaultKnowledgeBaseId;
-    final originalCategoryId = value.settings?.defaultCategoryId;
-    final changedCategories = _setData(value);
+    final snapshot = _KnowledgeMutationSnapshot.capture(this);
+    final normalized = _setData(value);
     notifyListeners();
-    if (changedCategories.isNotEmpty ||
-        originalBaseId != _settings.defaultKnowledgeBaseId ||
-        originalCategoryId != _settings.defaultCategoryId) {
-      await _queueSave(
-        () => _repository.saveChanges(
-          upsertCategories: changedCategories,
-          settings: _settings,
-        ),
-      );
+    if (normalized.changed) {
+      try {
+        await _queueSave(() => _repository.replace(normalized.value));
+      } catch (error, stackTrace) {
+        if (_mutationGeneration == generation) {
+          snapshot.restore(this);
+          notifyListeners();
+        }
+        Error.throwWithStackTrace(error, stackTrace);
+      }
     }
   }
 
@@ -72,7 +69,6 @@ class KnowledgeProvider extends ChangeNotifier {
     required List<KnowledgeEntry> entries,
     required List<KnowledgeSource> sources,
     required List<KnowledgeExplanation> explanations,
-    KnowledgeSettings? settings,
   }) => _runMutation(() {
     _setData(
       KnowledgeLoadResult(
@@ -81,7 +77,6 @@ class KnowledgeProvider extends ChangeNotifier {
         entries: entries,
         sources: sources,
         explanations: explanations,
-        settings: settings,
       ),
     );
     final replacement = KnowledgeLoadResult(
@@ -90,7 +85,6 @@ class KnowledgeProvider extends ChangeNotifier {
       entries: List.of(_entries),
       sources: List.of(_sources),
       explanations: List.of(_explanations),
-      settings: _settings,
     );
     return (result: null, persist: () => _repository.replace(replacement));
   });
@@ -109,33 +103,14 @@ class KnowledgeProvider extends ChangeNotifier {
         _categories.where((item) => item.knowledgeBaseId == knowledgeBaseId),
       );
 
-  KnowledgeCategory? defaultCategory([String? knowledgeBaseId]) {
-    final selectedId = _settings.defaultCategoryId;
-    final selected = selectedId == null ? null : categoryById(selectedId);
-    if (selected != null &&
-        (knowledgeBaseId == null ||
-            selected.knowledgeBaseId == knowledgeBaseId) &&
-        _isDefaultCandidate(selected)) {
-      return selected;
-    }
-    return _first(
-      _categories,
-      (item) =>
-          (knowledgeBaseId == null ||
-              item.knowledgeBaseId == knowledgeBaseId) &&
-          _isDefaultCandidate(item),
-    );
-  }
-
-  KnowledgeCategory? defaultCategoryForBase(String knowledgeBaseId) =>
-      defaultCategory(knowledgeBaseId);
-
   List<KnowledgeCategory> get explanationCategories =>
       List.unmodifiable(_categories.where(isExplanationCategoryEnabled));
 
   KnowledgeCategory? get defaultExplanationCategory {
-    final preferredId = _settings.defaultCategoryId;
-    return _first(explanationCategories, (item) => item.id == preferredId) ??
+    return _first(
+          explanationCategories,
+          (item) => item.id == builtInProperNounCategoryId,
+        ) ??
         (explanationCategories.isEmpty ? null : explanationCategories.first);
   }
 
@@ -143,50 +118,11 @@ class KnowledgeProvider extends ChangeNotifier {
       category.enabled &&
       knowledgeBaseById(category.knowledgeBaseId)?.enabled == true;
 
-  Future<void> setDefaultKnowledgeBase(String knowledgeBaseId) async {
-    final base = knowledgeBaseById(knowledgeBaseId);
-    final category = _first(
-      _categories,
-      (item) =>
-          item.knowledgeBaseId == knowledgeBaseId && _isDefaultCandidate(item),
-    );
-    if (base?.enabled != true || category == null) {
-      throw ArgumentError.value(
-        knowledgeBaseId,
-        'knowledgeBaseId',
-        '默认知识库必须启用且包含已启用自动标注类别',
-      );
-    }
-    await setDefaultCategory(category.id);
-  }
-
-  Future<void> setDefaultCategory(String categoryId) => _runMutation(() {
-    final category = categoryById(categoryId);
-    if (category == null || !_isDefaultCandidate(category)) {
-      throw ArgumentError.value(
-        categoryId,
-        'categoryId',
-        '默认类别必须属于已启用知识库且已启用自动标注',
-      );
-    }
-    final changed = _reconcileDefault(preferredId: categoryId);
-    final savedSettings = _settings;
-    return (
-      result: null,
-      persist: () => _repository.saveChanges(
-        upsertCategories: changed,
-        settings: savedSettings,
-      ),
-    );
-  });
-
-  KnowledgeCategory? get defaultAnnotationCategory {
-    final candidates = _categories.where(_isValidAnnotationCategory);
-    return _first(
-          candidates,
-          (item) => item.id == _settings.defaultCategoryId,
-        ) ??
-        (candidates.isEmpty ? null : candidates.first);
+  KnowledgeCategory? get annotationFallbackCategory {
+    final category = categoryById(builtInProperNounCategoryId);
+    return category != null && _isValidAnnotationCategory(category)
+        ? category
+        : null;
   }
 
   String? resolveAnnotationCategory(String alias) {
@@ -195,12 +131,12 @@ class KnowledgeProvider extends ChangeNotifier {
       _categories,
       (item) => item.alias == value && _isValidAnnotationCategory(item),
     );
-    return (category ?? defaultAnnotationCategory)?.id;
+    return (category ?? annotationFallbackCategory)?.id;
   }
 
-  KnowledgeAnnotationPromptSnapshot get annotationPromptSnapshot =>
+  KnowledgeAnnotationPromptSnapshot get knowledgeAnnotationPromptSnapshot =>
       KnowledgeAnnotationPromptSnapshot(
-        defaultCategory: defaultAnnotationCategory?.alias ?? '',
+        fallbackCategory: annotationFallbackCategory?.alias ?? '',
         categories: _categories
             .where(_isValidAnnotationCategory)
             .map(
@@ -266,20 +202,17 @@ class KnowledgeProvider extends ChangeNotifier {
         updatedAt: DateTime.now(),
       );
       _bases[currentIndex] = updated;
-      final changedCategories = _reconcileDefault();
-      final savedSettings = _settings;
       return (
         result: null,
-        persist: () => _repository.saveChanges(
-          upsertBases: [updated],
-          upsertCategories: changedCategories,
-          settings: savedSettings,
-        ),
+        persist: () => _repository.saveChanges(upsertBases: [updated]),
       );
     });
   }
 
   Future<void> deleteKnowledgeBase(String id) async {
+    if (id == builtInProperNounKnowledgeBaseId) {
+      throw ArgumentError.value(id, 'id', '内置知识库不可删除');
+    }
     if (knowledgeBaseById(id) == null) return;
     await _runMutation(() {
       final categoryIds = _categories
@@ -304,9 +237,7 @@ class KnowledgeProvider extends ChangeNotifier {
       _categories.removeWhere((item) => item.knowledgeBaseId == id);
       _bases.removeWhere((item) => item.id == id);
       _normalizeBases();
-      final changedCategories = _reconcileDefault();
       final savedBases = List<KnowledgeBase>.of(_bases);
-      final savedSettings = _settings;
       return (
         result: null,
         persist: () => _repository.saveChanges(
@@ -316,8 +247,6 @@ class KnowledgeProvider extends ChangeNotifier {
           deleteCategoryIds: categoryIds,
           deleteBaseIds: [id],
           upsertBases: savedBases,
-          upsertCategories: changedCategories,
-          settings: savedSettings,
         ),
       );
     });
@@ -333,7 +262,6 @@ class KnowledgeProvider extends ChangeNotifier {
     int colorValue = 0,
     bool autoAnnotate = false,
     String? modelConfigId,
-    bool isDefault = false,
     bool enabled = true,
   }) => _runMutation(() {
     _requireBase(knowledgeBaseId);
@@ -350,24 +278,15 @@ class KnowledgeProvider extends ChangeNotifier {
       colorValue: colorValue,
       autoAnnotate: autoAnnotate,
       modelConfigId: modelConfigId,
-      isDefault: isDefault,
       enabled: enabled,
       sortOrder: categoriesForBase(knowledgeBaseId).length,
       createdAt: now,
       updatedAt: now,
     );
     _categories.add(item);
-    final changed = _reconcileDefault(preferredId: isDefault ? item.id : null);
-    if (!changed.any((value) => value.id == item.id)) {
-      changed.add(categoryById(item.id)!);
-    }
-    final savedSettings = _settings;
     return (
       result: item.id,
-      persist: () => _repository.saveChanges(
-        upsertCategories: changed,
-        settings: savedSettings,
-      ),
+      persist: () => _repository.saveChanges(upsertCategories: [item]),
     );
   });
 
@@ -391,24 +310,18 @@ class KnowledgeProvider extends ChangeNotifier {
         createdAt: previous.createdAt,
         updatedAt: DateTime.now(),
       );
-      final changed = _reconcileDefault(
-        preferredId: value.isDefault ? value.id : null,
-      );
-      if (!changed.any((item) => item.id == value.id)) {
-        changed.add(categoryById(value.id)!);
-      }
-      final savedSettings = _settings;
+      final updated = _categories[currentIndex];
       return (
         result: null,
-        persist: () => _repository.saveChanges(
-          upsertCategories: changed,
-          settings: savedSettings,
-        ),
+        persist: () => _repository.saveChanges(upsertCategories: [updated]),
       );
     });
   }
 
   Future<void> deleteCategory(String id) async {
+    if (id == builtInProperNounCategoryId) {
+      throw ArgumentError.value(id, 'id', '内置类别不可删除');
+    }
     final category = categoryById(id);
     if (category == null) return;
     await _runMutation(() {
@@ -424,32 +337,69 @@ class KnowledgeProvider extends ChangeNotifier {
       }
       _categories.removeWhere((item) => item.id == id);
       _normalizeCategories(current.knowledgeBaseId);
-      final changedCategories = _reconcileDefault();
       final normalizedCategories = categoriesForBase(
         current.knowledgeBaseId,
       ).toList();
-      for (final item in changedCategories) {
-        final index = normalizedCategories.indexWhere(
-          (value) => value.id == item.id,
-        );
-        if (index < 0) {
-          normalizedCategories.add(item);
-        } else {
-          normalizedCategories[index] = item;
-        }
-      }
-      final savedSettings = _settings;
       return (
         result: null,
         persist: () => _repository.saveChanges(
           deleteCategoryIds: [id],
           upsertCategories: normalizedCategories,
           upsertEntries: changedEntries,
-          settings: savedSettings,
         ),
       );
     });
   }
+
+  bool isBuiltInKnowledgeBase(KnowledgeBase value) =>
+      value.id == builtInProperNounKnowledgeBaseId;
+
+  bool isBuiltInCategory(KnowledgeCategory value) =>
+      value.id == builtInProperNounCategoryId;
+
+  Future<void> restoreBuiltInKnowledgeBase() => _runMutation(() {
+    final index = _bases.indexWhere(
+      (item) => item.id == builtInProperNounKnowledgeBaseId,
+    );
+    if (index < 0) throw StateError('内置知识库不存在');
+    final current = _bases[index];
+    final restored = _builtInKnowledgeBase.copyWith(
+      enabled: current.enabled,
+      sortOrder: current.sortOrder,
+      createdAt: current.createdAt,
+      updatedAt: DateTime.now(),
+    );
+    _bases[index] = restored;
+    return (
+      result: null,
+      persist: () => _repository.saveChanges(upsertBases: [restored]),
+    );
+  });
+
+  Future<void> restoreBuiltInCategory() => _runMutation(() {
+    final index = _categories.indexWhere(
+      (item) => item.id == builtInProperNounCategoryId,
+    );
+    if (index < 0) throw StateError('内置类别不存在');
+    final current = _categories[index];
+    final renamed = _renameAliasConflicts(
+      properNounAlias,
+      excludingId: current.id,
+    );
+    final restored = _builtInProperNounCategory.copyWith(
+      enabled: current.enabled,
+      sortOrder: current.sortOrder,
+      createdAt: current.createdAt,
+      updatedAt: DateTime.now(),
+    );
+    _categories[index] = restored;
+    _sortAll();
+    return (
+      result: null,
+      persist: () =>
+          _repository.saveChanges(upsertCategories: [...renamed, restored]),
+    );
+  });
 
   Future<String> addEntry({
     required String knowledgeBaseId,
@@ -782,32 +732,54 @@ class KnowledgeProvider extends ChangeNotifier {
     return next;
   }
 
-  List<KnowledgeCategory> _setData(KnowledgeLoadResult value) {
+  ({KnowledgeLoadResult value, bool changed}) _setData(
+    KnowledgeLoadResult value,
+  ) {
+    final original = value;
     _bases = List.of(value.bases);
-    _settings =
-        value.settings ??
-        KnowledgeSettings(
-          updatedAt: DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
-        );
+    if (!_bases.any((item) => item.id == builtInProperNounKnowledgeBaseId)) {
+      _bases.add(_builtInKnowledgeBase);
+    }
     final baseIds = _bases.map((item) => item.id).toSet();
     _categories = value.categories
-        .where((item) => baseIds.contains(item.knowledgeBaseId))
+        .where(
+          (item) =>
+              item.id == builtInProperNounCategoryId ||
+              baseIds.contains(item.knowledgeBaseId),
+        )
         .toList();
-    final aliases = <String>{};
-    for (final category in _categories) {
-      if (!aliases.add(category.alias)) {
-        throw StateError('知识类别 alias 重复: ${category.alias}');
+    final builtInIndex = _categories.indexWhere(
+      (item) => item.id == builtInProperNounCategoryId,
+    );
+    if (builtInIndex < 0) {
+      _renameAliasConflicts(properNounAlias);
+      _categories.add(_builtInProperNounCategory);
+    } else {
+      final builtIn = _categories[builtInIndex];
+      if (builtIn.knowledgeBaseId != builtInProperNounKnowledgeBaseId) {
+        _categories[builtInIndex] = builtIn.copyWith(
+          knowledgeBaseId: builtInProperNounKnowledgeBaseId,
+        );
       }
+      _renameAliasConflicts(
+        _categories[builtInIndex].alias,
+        excludingId: builtInProperNounCategoryId,
+      );
     }
-    final categoryIds = _categories.map((item) => item.id).toSet();
+    _renameDuplicateAliases();
+    final categoryById = {for (final item in _categories) item.id: item};
     _entries = value.entries
         .where((item) => baseIds.contains(item.knowledgeBaseId))
-        .map(
-          (item) =>
-              item.categoryId == null || categoryIds.contains(item.categoryId)
+        .map((item) {
+          final category = item.categoryId == null
+              ? null
+              : categoryById[item.categoryId];
+          return item.categoryId == null ||
+                  (category != null &&
+                      category.knowledgeBaseId == item.knowledgeBaseId)
               ? item
-              : item.copyWith(categoryId: null),
-        )
+              : item.copyWith(categoryId: null);
+        })
         .toList();
     final entryIds = _entries.map((item) => item.id).toSet();
     _sources = value.sources
@@ -825,59 +797,42 @@ class KnowledgeProvider extends ChangeNotifier {
         )
         .toList();
     _sortAll();
-    return _reconcileDefault(
-      preferredId: _settings.defaultCategoryId,
-      legacyPreferredId: value.settings == null
-          ? _first(_categories, (item) => item.isDefault)?.id
-          : null,
+    final normalized = KnowledgeLoadResult(
+      bases: List.of(_bases),
+      categories: List.of(_categories),
+      entries: List.of(_entries),
+      sources: List.of(_sources),
+      explanations: List.of(_explanations),
     );
+    return (value: normalized, changed: !_sameLoadResult(original, normalized));
   }
 
-  List<KnowledgeCategory> _reconcileDefault({
-    String? preferredId,
-    String? legacyPreferredId,
+  List<KnowledgeCategory> _renameAliasConflicts(
+    String alias, {
+    String? excludingId,
   }) {
-    final preferred = preferredId == null ? null : categoryById(preferredId);
-    final legacy = legacyPreferredId == null
-        ? null
-        : categoryById(legacyPreferredId);
-    final selected =
-        (preferred != null && _isDefaultCandidate(preferred)
-            ? preferred.id
-            : null) ??
-        (legacy != null && _isDefaultCandidate(legacy) ? legacy.id : null) ??
-        _first(_categories, _isDefaultCandidate)?.id;
-    final selectedCategory = selected == null ? null : categoryById(selected);
-    final selectedBaseId = selectedCategory?.knowledgeBaseId;
-    if (_settings.defaultKnowledgeBaseId != selectedBaseId ||
-        _settings.defaultCategoryId != selectedCategory?.id) {
-      _settings = KnowledgeSettings(
-        defaultKnowledgeBaseId: selectedBaseId,
-        defaultCategoryId: selectedCategory?.id,
-        updatedAt: DateTime.now().toUtc(),
-      );
-    }
+    return _normalizeCategoryAliases();
+  }
+
+  List<KnowledgeCategory> _renameDuplicateAliases() {
+    return _normalizeCategoryAliases();
+  }
+
+  List<KnowledgeCategory> _normalizeCategoryAliases() {
+    final aliases = normalizeKnowledgeCategoryAliases(
+      _categories.map((item) => (id: item.id, alias: item.alias)),
+    );
     final changed = <KnowledgeCategory>[];
-    for (final item in List<KnowledgeCategory>.of(_categories)) {
-      final isDefault = item.id == selected;
-      final next = item.copyWith(isDefault: isDefault);
-      final index = _categories.indexWhere((value) => value.id == item.id);
-      if (next.isDefault != item.isDefault) {
-        changed.add(next);
-      }
-      _categories[index] = next;
-    }
-    if (changed.isEmpty && preferredId != null) {
-      final item = categoryById(preferredId);
-      if (item != null) changed.add(item);
+    for (var index = 0; index < _categories.length; index++) {
+      final category = _categories[index];
+      final alias = aliases[category.id]!;
+      if (alias == category.alias) continue;
+      final renamed = category.copyWith(alias: alias);
+      _categories[index] = renamed;
+      changed.add(renamed);
     }
     return changed;
   }
-
-  bool _isDefaultCandidate(KnowledgeCategory category) =>
-      category.enabled &&
-      category.autoAnnotate &&
-      knowledgeBaseById(category.knowledgeBaseId)?.enabled == true;
 
   void _normalizeBases({bool touch = false}) {
     final now = DateTime.now();
@@ -968,6 +923,26 @@ class KnowledgeProvider extends ChangeNotifier {
   }
 }
 
+bool _sameLoadResult(KnowledgeLoadResult a, KnowledgeLoadResult b) =>
+    _sameJsonLists(a.bases, b.bases) &&
+    _sameJsonLists(a.categories, b.categories) &&
+    _sameJsonLists(a.entries, b.entries) &&
+    _sameJsonLists(a.sources, b.sources) &&
+    _sameJsonLists(a.explanations, b.explanations);
+
+bool _sameJsonLists(List<dynamic> a, List<dynamic> b) {
+  if (a.length != b.length) return false;
+  for (var index = 0; index < a.length; index++) {
+    if (!mapEquals(
+      a[index].toJson() as Map<String, dynamic>,
+      b[index].toJson() as Map<String, dynamic>,
+    )) {
+      return false;
+    }
+  }
+  return true;
+}
+
 final class _KnowledgeMutationSnapshot {
   _KnowledgeMutationSnapshot({
     required this.bases,
@@ -975,7 +950,6 @@ final class _KnowledgeMutationSnapshot {
     required this.entries,
     required this.sources,
     required this.explanations,
-    required this.settings,
     required this.generation,
   });
 
@@ -986,7 +960,6 @@ final class _KnowledgeMutationSnapshot {
         entries: List.of(provider._entries),
         sources: List.of(provider._sources),
         explanations: List.of(provider._explanations),
-        settings: provider._settings,
         generation: provider._mutationGeneration,
       );
 
@@ -995,7 +968,6 @@ final class _KnowledgeMutationSnapshot {
   final List<KnowledgeEntry> entries;
   final List<KnowledgeSource> sources;
   final List<KnowledgeExplanation> explanations;
-  final KnowledgeSettings settings;
   final int generation;
 
   void restore(KnowledgeProvider provider) {
@@ -1004,7 +976,6 @@ final class _KnowledgeMutationSnapshot {
     provider._entries = List.of(entries);
     provider._sources = List.of(sources);
     provider._explanations = List.of(explanations);
-    provider._settings = settings;
     provider._mutationGeneration = generation;
   }
 }
@@ -1018,3 +989,29 @@ T? _first<T>(Iterable<T> values, bool Function(T) matches) {
 
 bool _validMove(int length, int oldIndex, int newIndex) =>
     oldIndex >= 0 && oldIndex < length && newIndex >= 0 && newIndex < length;
+
+final _builtInKnowledgeBase = KnowledgeBase(
+  id: KnowledgeProvider.builtInProperNounKnowledgeBaseId,
+  name: '专有名词知识库',
+  description: '用于保存对话中识别和解释的专有名词。',
+  enabled: true,
+  sortOrder: 0,
+  createdAt: KnowledgeProvider.builtInInitialTime,
+  updatedAt: KnowledgeProvider.builtInInitialTime,
+);
+
+final _builtInProperNounCategory = KnowledgeCategory(
+  id: KnowledgeProvider.builtInProperNounCategoryId,
+  knowledgeBaseId: KnowledgeProvider.builtInProperNounKnowledgeBaseId,
+  name: '专有名词',
+  alias: KnowledgeProvider.properNounAlias,
+  description: '人物、地点、组织、作品、产品及其他需要解释的专有名称。',
+  annotationRule: KnowledgeProvider.defaultAnnotationRule,
+  explanationPrompt: '结合上下文解释该专有名词，并给出简洁、准确的背景信息。',
+  colorValue: 0xFF5B8DEF,
+  autoAnnotate: true,
+  enabled: true,
+  sortOrder: 0,
+  createdAt: KnowledgeProvider.builtInInitialTime,
+  updatedAt: KnowledgeProvider.builtInInitialTime,
+);

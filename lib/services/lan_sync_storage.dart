@@ -208,6 +208,15 @@ class LanSyncStorage {
     final changes = peerChanges ?? (peerOrChanges as List<SyncChange>);
     final normalized = <SyncRemoteOperation>[];
     for (final change in changes) {
+      if (change.table == 'knowledge_settings' && change.recordId == 'global') {
+        normalized.add((
+          table: change.table,
+          op: change.op,
+          data: change.op == 'delete' ? const {'id': 'global'} : change.data,
+          change: change,
+        ));
+        continue;
+      }
       validatePluginSyncChange(change);
       var data = change.op == 'delete'
           ? <String, dynamic>{'id': change.recordId}
@@ -254,7 +263,6 @@ class LanSyncStorage {
     'knowledge_entries',
     'knowledge_sources',
     'knowledge_explanations',
-    'knowledge_settings',
     'calendar_events',
     'anniversaries',
     'roleplay_scenarios',

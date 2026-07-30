@@ -1260,6 +1260,7 @@ class SyncProvider extends ChangeNotifier {
       'knowledge_entries',
       'knowledge_sources',
       'knowledge_explanations',
+      // Accepted only so legacy remote changes can advance the cursor.
       'knowledge_settings',
       'calendar_events',
       'anniversaries',
@@ -1456,7 +1457,6 @@ class SyncProvider extends ChangeNotifier {
     'knowledge_entries',
     'knowledge_sources',
     'knowledge_explanations',
-    'knowledge_settings',
     'calendar_events',
     'anniversaries',
     'roleplay_scenarios',

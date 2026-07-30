@@ -23,7 +23,6 @@ import '../models/knowledge_category.dart';
 import '../models/knowledge_entry.dart';
 import '../models/knowledge_explanation.dart';
 import '../models/knowledge_source.dart';
-import '../models/knowledge_settings.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
 import '../models/note.dart';
@@ -92,7 +91,7 @@ class BackupService {
   final Future<String> Function()? _appVersionLoader;
   final _uuid = const Uuid();
 
-  static const currentSchemaVersion = 12;
+  static const currentSchemaVersion = 13;
   static const oldestCompatibleSchemaVersion = 1;
   static const maxBackupZipInputBytes = 512 * 1024 * 1024;
   static const maxBackupZipEntries = 10000;
@@ -533,14 +532,7 @@ class BackupService {
           .toList();
       addJson(
         'knowledge.json',
-        _knowledgePartition(
-          bases,
-          categories,
-          entries,
-          sources,
-          explanations,
-          _settingsForExport(knowledgeProvider!.settings, baseIds),
-        ),
+        _knowledgePartition(bases, categories, entries, sources, explanations),
       );
       sections[BackupSection.knowledge.key] = {
         'enabled': true,
@@ -1031,7 +1023,7 @@ class BackupService {
           '知识库',
         ),
         knowledgeCategories: _parseList(
-          knowledgeJson?['categories'],
+          _withoutLegacyKnowledgeDefaults(knowledgeJson?['categories']),
           KnowledgeCategory.fromJson,
           warnings,
           '知识类别',
@@ -1054,11 +1046,6 @@ class BackupService {
           warnings,
           '知识解释',
         ),
-        knowledgeSettings: knowledgeJson?['settings'] is Map
-            ? KnowledgeSettings.fromJson(
-                Map<String, dynamic>.from(knowledgeJson!['settings'] as Map),
-              )
-            : null,
         calendarEvents: planning.events,
         anniversaries: planning.anniversaries,
         roleplaySessions: _parseList(
@@ -1243,7 +1230,7 @@ class BackupService {
         require('knowledge.json', knowledgeJson, 'entries', List);
         require('knowledge.json', knowledgeJson, 'sources', List);
         require('knowledge.json', knowledgeJson, 'explanations', List);
-        if (schemaVersion >= 12) {
+        if (schemaVersion == 12) {
           require('knowledge.json', knowledgeJson, 'settings', Map);
         }
       }
@@ -2069,31 +2056,13 @@ class BackupService {
     List<KnowledgeEntry> entries,
     List<KnowledgeSource> sources,
     List<KnowledgeExplanation> explanations,
-    KnowledgeSettings settings,
   ) => {
     'knowledgeBases': bases.map((item) => item.toJson()).toList(),
     'categories': categories.map((item) => item.toJson()).toList(),
     'entries': entries.map((item) => item.toJson()).toList(),
     'sources': sources.map((item) => item.toJson()).toList(),
     'explanations': explanations.map((item) => item.toJson()).toList(),
-    'settings': settings.toJson(),
   };
-
-  static KnowledgeSettings _settingsForExport(
-    KnowledgeSettings settings,
-    Set<String> baseIds,
-  ) {
-    final includeDefault =
-        settings.defaultKnowledgeBaseId != null &&
-        baseIds.contains(settings.defaultKnowledgeBaseId);
-    return KnowledgeSettings(
-      defaultKnowledgeBaseId: includeDefault
-          ? settings.defaultKnowledgeBaseId
-          : null,
-      defaultCategoryId: includeDefault ? settings.defaultCategoryId : null,
-      updatedAt: settings.updatedAt,
-    );
-  }
 
   static void _validateKnowledgeGraph({
     required List<KnowledgeBase> bases,
@@ -2101,7 +2070,6 @@ class BackupService {
     required List<KnowledgeEntry> entries,
     required List<KnowledgeSource> sources,
     required List<KnowledgeExplanation> explanations,
-    required KnowledgeSettings settings,
   }) {
     void requireUnique(String label, Iterable<String> values) {
       final seen = <String>{};
@@ -2120,13 +2088,9 @@ class BackupService {
     final baseIds = bases.map((item) => item.id).toSet();
     final categoryById = {for (final item in categories) item.id: item};
     final entryById = {for (final item in entries) item.id: item};
-    final aliases = <String>{};
     for (final category in categories) {
       if (!baseIds.contains(category.knowledgeBaseId)) {
         throw FormatException('知识类别引用不存在的知识库：${category.id}');
-      }
-      if (!aliases.add(category.alias)) {
-        throw FormatException('知识类别标识符冲突：${category.alias}');
       }
     }
     for (final entry in entries) {
@@ -2146,19 +2110,6 @@ class BackupService {
       final entry = entryById[item.entryId];
       if (entry == null || entry.knowledgeBaseId != item.knowledgeBaseId) {
         throw FormatException('知识子记录跨知识库引用条目：${item.id}');
-      }
-    }
-    final defaultBaseId = settings.defaultKnowledgeBaseId;
-    final defaultCategoryId = settings.defaultCategoryId;
-    if ((defaultBaseId == null) != (defaultCategoryId == null)) {
-      throw const FormatException('知识设置默认知识库和类别必须同时为空或同时存在');
-    }
-    if (defaultBaseId != null) {
-      final category = categoryById[defaultCategoryId];
-      if (!baseIds.contains(defaultBaseId) ||
-          category == null ||
-          category.knowledgeBaseId != defaultBaseId) {
-        throw const FormatException('知识设置引用无效的默认知识库或类别');
       }
     }
   }
@@ -3180,8 +3131,6 @@ class BackupService {
       sources: data.knowledgeSources ?? const <KnowledgeSource>[],
       explanations:
           data.knowledgeExplanations ?? const <KnowledgeExplanation>[],
-      settings:
-          data.knowledgeSettings ?? KnowledgeSettings(updatedAt: DateTime(0)),
     );
     final incomingBaseIds = incomingBases.map((item) => item.id).toSet();
     final replacing = plan.mode == ImportMode.replaceSection;
@@ -3241,26 +3190,21 @@ class BackupService {
       }
     }
 
-    final acceptedCategoryVersions = <String>{};
     void mergeChildren<T>(
       List<T> local,
       Iterable<T> incoming, {
       required String Function(T item) idOf,
       required String Function(T item) baseIdOf,
-      Set<String>? acceptedVersions,
     }) {
       for (final item in incoming) {
         final id = idOf(item);
         final index = local.indexWhere((value) => idOf(value) == id);
         if (index < 0) {
           local.add(item);
-          acceptedVersions?.add(id);
         } else if (_sameJson(local[index] as Object, item as Object)) {
-          acceptedVersions?.add(id);
         } else if (plan.mode != ImportMode.addOnly &&
             baseActions[baseIdOf(item)] == ImportConflictAction.replaceLocal) {
           local[index] = item;
-          acceptedVersions?.add(id);
         }
       }
     }
@@ -3270,7 +3214,6 @@ class BackupService {
       data.knowledgeCategories ?? const <KnowledgeCategory>[],
       idOf: (item) => item.id,
       baseIdOf: (item) => item.knowledgeBaseId,
-      acceptedVersions: acceptedCategoryVersions,
     );
     mergeChildren(
       entries,
@@ -3291,37 +3234,12 @@ class BackupService {
       baseIdOf: (item) => item.knowledgeBaseId,
     );
 
-    final incomingSettings = data.knowledgeSettings;
-    final incomingDefaultBaseId = incomingSettings?.defaultKnowledgeBaseId;
-    final incomingDefaultCategoryId = incomingSettings?.defaultCategoryId;
-    final defaultBase = incomingDefaultBaseId == null
-        ? null
-        : _findById(bases, incomingDefaultBaseId);
-    final defaultCategory = incomingDefaultCategoryId == null
-        ? null
-        : _findById(categories, incomingDefaultCategoryId);
-    final adoptIncomingSettings =
-        plan.mode != ImportMode.addOnly &&
-        incomingDefaultBaseId != null &&
-        incomingDefaultCategoryId != null &&
-        acceptedBaseVersions.contains(incomingDefaultBaseId) &&
-        acceptedCategoryVersions.contains(incomingDefaultCategoryId) &&
-        defaultBase?.enabled == true &&
-        defaultCategory?.knowledgeBaseId == incomingDefaultBaseId &&
-        defaultCategory?.enabled == true &&
-        defaultCategory?.autoAnnotate == true;
-    final settings = adoptIncomingSettings
-        ? incomingSettings!
-        : provider.settings;
     _validateKnowledgeGraph(
       bases: bases,
       categories: categories,
       entries: entries,
       sources: sources,
       explanations: explanations,
-      settings: adoptIncomingSettings
-          ? settings
-          : KnowledgeSettings(updatedAt: settings.updatedAt),
     );
     await provider.replaceAll(
       knowledgeBases: bases,
@@ -3329,7 +3247,6 @@ class BackupService {
       entries: entries,
       sources: sources,
       explanations: explanations,
-      settings: settings,
     );
     return ImportResult(added: added, replaced: replaced, skipped: skipped);
   }
@@ -4680,7 +4597,6 @@ class BackupService {
       knowledgeEntries: data.knowledgeEntries,
       knowledgeSources: data.knowledgeSources,
       knowledgeExplanations: data.knowledgeExplanations,
-      knowledgeSettings: data.knowledgeSettings,
       calendarEvents: data.calendarEvents,
       anniversaries: data.anniversaries,
       roleplaySessions: data.roleplaySessions,
@@ -5015,12 +4931,6 @@ class BackupService {
                     false),
           )
           .toList(),
-      knowledgeSettings: data.knowledgeSettings == null
-          ? null
-          : _settingsForExport(
-              data.knowledgeSettings!,
-              selection.knowledgeBaseIds,
-            ),
       calendarEvents: data.calendarEvents
           ?.where((item) => selection.calendarEventIds.contains(item.id))
           .toList(),
@@ -5182,6 +5092,17 @@ class BackupService {
       }
     }
     return items;
+  }
+
+  static Object? _withoutLegacyKnowledgeDefaults(Object? raw) {
+    if (raw is! List) return raw;
+    return raw
+        .map(
+          (item) => item is Map
+              ? (Map<String, dynamic>.from(item)..remove('isDefault'))
+              : item,
+        )
+        .toList(growable: false);
   }
 
   static List<Map<String, dynamic>>? _parseRawMapList(

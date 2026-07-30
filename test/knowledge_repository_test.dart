@@ -6,7 +6,6 @@ import 'package:lynai/models/knowledge_category.dart';
 import 'package:lynai/models/knowledge_entry.dart';
 import 'package:lynai/models/knowledge_explanation.dart';
 import 'package:lynai/models/knowledge_source.dart';
-import 'package:lynai/models/knowledge_settings.dart';
 import 'package:lynai/repositories/knowledge_repository.dart';
 import 'package:lynai/models/sync_change.dart';
 import 'package:lynai/services/storage_v2_database.dart';
@@ -29,131 +28,131 @@ void main() {
     expect(DateTime.parse(json['createdAt'] as String).isUtc, isTrue);
   });
 
-  test('knowledge.json round-trips settings and canonical row types', () async {
-    final root = await Directory.systemTemp.createTemp('lynai_knowledge_repo_');
-    final storage = StorageV2Service(rootDirectory: root);
-    try {
-      final repository = KnowledgeRepository(storageV2: storage);
-      final now = DateTime(2026, 7, 29, 10);
-      final base = KnowledgeBase(
-        id: 'base',
-        name: 'Base',
-        enabled: true,
-        sortOrder: 0,
-        createdAt: now,
-        updatedAt: now,
+  test(
+    'knowledge repository ignores legacy settings and writes row types',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'lynai_knowledge_repo_',
       );
-      final category = KnowledgeCategory(
-        id: 'category',
-        knowledgeBaseId: base.id,
-        name: 'Default',
-        alias: 'default',
-        annotationRule: '标注稳定事实',
-        explanationPrompt: '解释该事实',
-        colorValue: 0xff336699,
-        autoAnnotate: true,
-        modelConfigId: 'model-1',
-        isDefault: true,
-        enabled: true,
-        sortOrder: 0,
-        createdAt: now,
-        updatedAt: now,
-      );
-      final entry = KnowledgeEntry(
-        id: 'entry',
-        knowledgeBaseId: base.id,
-        categoryId: category.id,
-        title: 'Fact',
-        content: 'Content',
-        enabled: true,
-        sortOrder: 0,
-        createdAt: now,
-        updatedAt: now,
-      );
-      final source = KnowledgeSource(
-        id: 'source',
-        knowledgeBaseId: base.id,
-        entryId: entry.id,
-        title: 'Web',
-        url: 'https://example.com',
-        sortOrder: 0,
-        createdAt: now,
-        updatedAt: now,
-      );
-      final explanation = KnowledgeExplanation(
-        id: 'explanation',
-        knowledgeBaseId: base.id,
-        entryId: entry.id,
-        title: 'Why',
-        content: 'Because',
-        sortOrder: 0,
-        createdAt: now,
-        updatedAt: now,
-      );
-      final settings = KnowledgeSettings(
-        defaultKnowledgeBaseId: base.id,
-        defaultCategoryId: category.id,
-        updatedAt: now,
-      );
+      final storage = StorageV2Service(rootDirectory: root);
+      try {
+        final repository = KnowledgeRepository(storageV2: storage);
+        final now = DateTime(2026, 7, 29, 10);
+        final base = KnowledgeBase(
+          id: 'base',
+          name: 'Base',
+          enabled: true,
+          sortOrder: 0,
+          createdAt: now,
+          updatedAt: now,
+        );
+        final category = KnowledgeCategory(
+          id: 'category',
+          knowledgeBaseId: base.id,
+          name: 'Default',
+          alias: 'default',
+          annotationRule: '标注稳定事实',
+          explanationPrompt: '解释该事实',
+          colorValue: 0xff336699,
+          autoAnnotate: true,
+          modelConfigId: 'model-1',
+          enabled: true,
+          sortOrder: 0,
+          createdAt: now,
+          updatedAt: now,
+        );
+        final entry = KnowledgeEntry(
+          id: 'entry',
+          knowledgeBaseId: base.id,
+          categoryId: category.id,
+          title: 'Fact',
+          content: 'Content',
+          enabled: true,
+          sortOrder: 0,
+          createdAt: now,
+          updatedAt: now,
+        );
+        final source = KnowledgeSource(
+          id: 'source',
+          knowledgeBaseId: base.id,
+          entryId: entry.id,
+          title: 'Web',
+          url: 'https://example.com',
+          sortOrder: 0,
+          createdAt: now,
+          updatedAt: now,
+        );
+        final explanation = KnowledgeExplanation(
+          id: 'explanation',
+          knowledgeBaseId: base.id,
+          entryId: entry.id,
+          title: 'Why',
+          content: 'Because',
+          sortOrder: 0,
+          createdAt: now,
+          updatedAt: now,
+        );
+        await repository.replace(
+          KnowledgeLoadResult(
+            bases: [base],
+            categories: [category],
+            entries: [entry],
+            sources: [source],
+            explanations: [explanation],
+          ),
+        );
 
-      await repository.replace(
-        KnowledgeLoadResult(
-          bases: [base],
-          categories: [category],
-          entries: [entry],
-          sources: [source],
-          explanations: [explanation],
-          settings: settings,
-        ),
-      );
+        final loaded = await repository.load();
+        expect(loaded.bases.single.toJson(), base.toJson());
+        expect(loaded.categories.single.toJson(), category.toJson());
+        expect(loaded.entries.single.toJson(), entry.toJson());
+        expect(loaded.sources.single.toJson(), source.toJson());
+        expect(loaded.explanations.single.toJson(), explanation.toJson());
+        expect(
+          (await storage.loadDataFile(
+            'knowledge.json',
+          )).containsKey('settings'),
+          isFalse,
+        );
 
-      final loaded = await repository.load();
-      expect(loaded.bases.single.toJson(), base.toJson());
-      expect(loaded.categories.single.toJson(), category.toJson());
-      expect(loaded.entries.single.toJson(), entry.toJson());
-      expect(loaded.sources.single.toJson(), source.toJson());
-      expect(loaded.explanations.single.toJson(), explanation.toJson());
-      expect(loaded.settings?.toJson(), settings.toJson());
+        await storage.activateSyncScope('cloud:test', deviceId: 'device-1');
+        await repository.saveChanges(
+          upsertCategories: [category.copyWith(annotationRule: '更新规则')],
+          upsertSources: [source],
+          upsertExplanations: [explanation],
+        );
+        final outbox = await storage.loadSyncOutbox('cloud:test');
+        final categoryChange = outbox.singleWhere(
+          (item) => item.table == 'knowledge_categories',
+        );
+        expect(categoryChange.data, containsPair('alias', 'default'));
+        expect(categoryChange.data, containsPair('annotationRule', '更新规则'));
+        expect(categoryChange.data, containsPair('explanationPrompt', '解释该事实'));
+        expect(categoryChange.data, containsPair('colorValue', 0xff336699));
+        expect(categoryChange.data, containsPair('autoAnnotate', true));
+        expect(categoryChange.data, containsPair('modelConfigId', 'model-1'));
+        expect(
+          outbox.singleWhere((item) => item.table == 'knowledge_sources').data,
+          containsPair('knowledgeBaseId', base.id),
+        );
+        expect(
+          outbox
+              .singleWhere((item) => item.table == 'knowledge_explanations')
+              .data,
+          containsPair('knowledgeBaseId', base.id),
+        );
+        expect(
+          outbox.where((item) => item.table == 'knowledge_settings'),
+          isEmpty,
+        );
+      } finally {
+        await storage.close();
+        if (await root.exists()) await root.delete(recursive: true);
+      }
+    },
+  );
 
-      await storage.activateSyncScope('cloud:test', deviceId: 'device-1');
-      await repository.saveChanges(
-        upsertCategories: [category.copyWith(annotationRule: '更新规则')],
-        upsertSources: [source],
-        upsertExplanations: [explanation],
-        settings: settings,
-      );
-      final outbox = await storage.loadSyncOutbox('cloud:test');
-      final categoryChange = outbox.singleWhere(
-        (item) => item.table == 'knowledge_categories',
-      );
-      expect(categoryChange.data, containsPair('alias', 'default'));
-      expect(categoryChange.data, containsPair('annotationRule', '更新规则'));
-      expect(categoryChange.data, containsPair('explanationPrompt', '解释该事实'));
-      expect(categoryChange.data, containsPair('colorValue', 0xff336699));
-      expect(categoryChange.data, containsPair('autoAnnotate', true));
-      expect(categoryChange.data, containsPair('modelConfigId', 'model-1'));
-      expect(
-        outbox.singleWhere((item) => item.table == 'knowledge_sources').data,
-        containsPair('knowledgeBaseId', base.id),
-      );
-      expect(
-        outbox
-            .singleWhere((item) => item.table == 'knowledge_explanations')
-            .data,
-        containsPair('knowledgeBaseId', base.id),
-      );
-      final settingsChange = outbox.singleWhere(
-        (item) => item.table == 'knowledge_settings',
-      );
-      expect(settingsChange.recordId, 'global');
-      expect(settingsChange.data, {'id': 'global', ...settings.toJson()});
-    } finally {
-      await storage.close();
-      if (await root.exists()) await root.delete(recursive: true);
-    }
-  });
-
-  test('remote settings apply after their base and category', () async {
+  test('legacy remote defaults are ignored while cursor advances', () async {
     final root = await Directory.systemTemp.createTemp(
       'lynai_knowledge_settings_',
     );
@@ -210,10 +209,13 @@ void main() {
         }, 1),
       ], 3);
 
-      final settings =
-          (await storage.loadDataFile('knowledge.json'))['settings'] as Map;
-      expect(settings['defaultKnowledgeBaseId'], 'base');
-      expect(settings['defaultCategoryId'], 'category');
+      final knowledge = await storage.loadDataFile('knowledge.json');
+      expect(knowledge, isNot(contains('settings')));
+      expect(
+        (knowledge['categories'] as List).single,
+        isNot(contains('isDefault')),
+      );
+      expect(await storage.syncSince('scope'), 3);
     } finally {
       await storage.close();
       if (await root.exists()) await root.delete(recursive: true);

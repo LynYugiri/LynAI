@@ -3,7 +3,6 @@ import 'package:lynai/models/knowledge_base.dart';
 import 'package:lynai/models/knowledge_category.dart';
 import 'package:lynai/models/knowledge_entry.dart';
 import 'package:lynai/models/knowledge_explanation.dart';
-import 'package:lynai/models/knowledge_settings.dart';
 import 'package:lynai/providers/knowledge_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
@@ -56,7 +55,6 @@ void main() {
             knowledgeBaseId: 'base',
             name: '概念',
             alias: 'concept',
-            isDefault: true,
             enabled: true,
             sortOrder: 0,
             createdAt: now,
@@ -121,7 +119,6 @@ void main() {
           knowledgeBaseId: 'base',
           name: '概念',
           alias: 'concept',
-          isDefault: false,
           enabled: true,
           sortOrder: 0,
           createdAt: now,
@@ -187,7 +184,6 @@ class _KnowledgeRepository extends KnowledgeRepository {
     Iterable<String> deleteSourceIds = const [],
     Iterable upsertExplanations = const [],
     Iterable<String> deleteExplanationIds = const [],
-    KnowledgeSettings? settings,
   }) async {
     saveCalls++;
     lastUpsertEntries = upsertEntries.toList();

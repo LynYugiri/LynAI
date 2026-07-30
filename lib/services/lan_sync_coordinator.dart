@@ -1324,7 +1324,7 @@ class LanSyncCoordinator {
   };
 
   Future<void> _receiveChanges(
-    LanSecureTransport transport,
+    LanFrameTransport transport,
     String peerDeviceId,
     SyncDataSelection selection,
   ) async {
@@ -1335,7 +1335,7 @@ class LanSyncCoordinator {
   }
 
   Future<bool> _receiveChangePage(
-    LanSecureTransport transport,
+    LanFrameTransport transport,
     String peerDeviceId,
     SyncDataSelection selection,
   ) async {
@@ -1358,8 +1358,9 @@ class LanSyncCoordinator {
     if (changes.length != rawChanges.length) {
       throw StateError('invalid LAN change manifest');
     }
-    _validateChanges(changes);
+    validateInboundChanges(changes);
     for (final change in changes) {
+      if (_isLegacyKnowledgeSettingsChange(change)) continue;
       final selectionData = await syncStorage.selectionDataForChange(change);
       if (!SyncDataRegistry.allowsChange(
         selection,
@@ -1531,6 +1532,12 @@ class LanSyncCoordinator {
     return more;
   }
 
+  Future<bool> receiveChangePageForTest(
+    LanFrameTransport transport,
+    String peerDeviceId,
+    SyncDataSelection selection,
+  ) => _receiveChangePage(transport, peerDeviceId, selection);
+
   Map<String, dynamic> _entryJson(dynamic entry) => {
     'changeId': entry.changeId,
     'deviceId': entry.deviceId,
@@ -1642,15 +1649,17 @@ class LanSyncCoordinator {
     return result.then((_) => value);
   }
 
-  void _validateChanges(List<SyncChange> changes) {
+  static void validateInboundChanges(List<SyncChange> changes) {
     final ids = <String>{};
     for (final change in changes) {
+      final legacyKnowledgeSettings = _isLegacyKnowledgeSettingsChange(change);
       if (!ids.add(change.changeId) ||
           change.changeId.length > 128 ||
           change.recordId.isEmpty ||
           change.recordId.length > 512 ||
           !const {'upsert', 'delete'}.contains(change.op) ||
-          !LanSyncStorage.ordinaryLanTables.contains(change.table)) {
+          (!LanSyncStorage.ordinaryLanTables.contains(change.table) &&
+              !legacyKnowledgeSettings)) {
         throw StateError('invalid LAN change manifest');
       }
       if (change.op == 'upsert' && change.data?['id'] != change.recordId) {
@@ -1662,6 +1671,9 @@ class LanSyncCoordinator {
       validatePluginSyncChange(change);
     }
   }
+
+  static bool _isLegacyKnowledgeSettingsChange(SyncChange change) =>
+      change.table == 'knowledge_settings' && change.recordId == 'global';
 
   void _requireExactKeys(Map<String, dynamic> value, Set<String> keys) {
     if (value.length != keys.length || !value.keys.toSet().containsAll(keys)) {
