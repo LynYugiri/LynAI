@@ -262,7 +262,6 @@ String _noteLineDiffSummary(String before, String after) {
 class FeaturePage extends StatefulWidget {
   final bool active;
   final void Function(String conversationId) onConversationTap;
-  final VoidCallback onRoleChanged;
   final void Function(bool Function() handler)? onBackHandlerChanged;
   final void Function(Future<void> Function() handler)?
   onDashboardHandlerChanged;
@@ -271,7 +270,6 @@ class FeaturePage extends StatefulWidget {
     super.key,
     this.active = true,
     required this.onConversationTap,
-    required this.onRoleChanged,
     this.onBackHandlerChanged,
     this.onDashboardHandlerChanged,
   });
@@ -419,7 +417,6 @@ class _FeaturePageState extends State<FeaturePage> {
           searchQuery: _searchQuery,
           onSearchChanged: (v) => setState(() => _searchQuery = v),
           onConversationTap: widget.onConversationTap,
-          onRoleChanged: widget.onRoleChanged,
         ),
         'roleplay' => _RoleplayPage(active: widget.active),
         'knowledge' => _KnowledgePage(key: _knowledgePageKey),

@@ -119,9 +119,7 @@ Future<void> _pumpSchedule(
         ChangeNotifierProvider(create: (_) => FeatureProvider()),
         ChangeNotifierProvider(create: (_) => PluginProvider()),
       ],
-      child: MaterialApp(
-        home: FeaturePage(onConversationTap: (_) {}, onRoleChanged: () {}),
-      ),
+      child: MaterialApp(home: FeaturePage(onConversationTap: (_) {})),
     ),
   );
   await tester.pump();

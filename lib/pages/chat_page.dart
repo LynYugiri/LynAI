@@ -267,7 +267,6 @@ enum _PreviewImageAction { save, copyImage, share, close }
 class ChatPage extends StatefulWidget {
   final String? conversationId;
   final ApiService? api;
-  final int roleChangeSerial;
   final bool active;
   final VoidCallback? onConversationLoaded;
   final void Function(bool Function() handler)? onBackHandlerChanged;
@@ -277,7 +276,6 @@ class ChatPage extends StatefulWidget {
     super.key,
     this.conversationId,
     this.api,
-    this.roleChangeSerial = 0,
     this.active = true,
     this.onConversationLoaded,
     this.onBackHandlerChanged,
@@ -647,16 +645,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       widget.onConversationLoaded?.call();
       _closeSearch();
       _scheduleJumpToBottom(unfocusInput: true, waitForStableLayout: true);
-    } else if (widget.roleChangeSerial != old.roleChangeSerial) {
-      if (_streaming) _stopStreaming();
-      _sendGen++;
-      setState(() {
-        _preparingSend = false;
-        _convId = null;
-        _clearPendingState();
-        _clearRetryState();
-      });
-      _closeSearch();
     } else if (widget.active && !old.active) {
       _scheduleJumpToBottom(unfocusInput: true, waitForStableLayout: true);
     }

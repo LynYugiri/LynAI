@@ -334,7 +334,6 @@ Future<void> _pumpKnowledge(
           },
           child: FeaturePage(
             onConversationTap: (_) {},
-            onRoleChanged: () {},
             onBackHandlerChanged: (handler) {
               backHandler = handler;
               onBackHandlerChanged?.call(handler);

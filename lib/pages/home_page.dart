@@ -55,7 +55,6 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   late AppTab _currentTab;
   String? _targetConversationId;
-  int _roleChangeSerial = 0;
   String? _cachedImagePath;
   bool _cachedImageExists = false;
   bool Function()? _featureBackHandler;
@@ -93,14 +92,6 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       _currentTab = AppTab.settings;
       _targetConversationId = null;
-    });
-  }
-
-  void _roleChanged() {
-    setState(() {
-      _currentTab = AppTab.chat;
-      _targetConversationId = null;
-      _roleChangeSerial++;
     });
   }
 
@@ -200,14 +191,12 @@ class _HomePageState extends State<HomePage> {
             FeaturePage(
               active: _currentTab == AppTab.feature,
               onConversationTap: _navigateToChat,
-              onRoleChanged: _roleChanged,
               onBackHandlerChanged: _setFeatureBackHandler,
               onDashboardHandlerChanged: _setFeatureDashboardHandler,
             ),
             const PluginMarketPage(),
             ChatPage(
               conversationId: _targetConversationId,
-              roleChangeSerial: _roleChangeSerial,
               active: _currentTab == AppTab.chat,
               onBackHandlerChanged: _setChatBackHandler,
               onBackAvailabilityChanged: _setChatBackAvailability,

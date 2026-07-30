@@ -163,9 +163,7 @@ void main() {
         ),
         storage: storage,
       );
-      final oldDebugPrint = debugPrint;
-      debugPrint = (String? message, {int? wrapWidth}) {};
-      addTearDown(() => debugPrint = oldDebugPrint);
+      _silenceDebugPrint();
 
       await provider.bindScope('user-1');
       await provider.autoDownload();
@@ -178,9 +176,7 @@ void main() {
       final entry = _entry('m1', version: 3);
       final storage = _FakeSyncStorage(outbox: [entry]);
       final service = _FakeSyncService(uploadError: Exception('offline'));
-      final oldDebugPrint = debugPrint;
-      debugPrint = (String? message, {int? wrapWidth}) {};
-      addTearDown(() => debugPrint = oldDebugPrint);
+      _silenceDebugPrint();
       final provider = SyncProvider(service: service, storage: storage);
 
       await provider.bindScope('user-1');
@@ -242,9 +238,7 @@ void main() {
         ),
         storage: storage,
       );
-      final oldDebugPrint = debugPrint;
-      debugPrint = (String? message, {int? wrapWidth}) {};
-      addTearDown(() => debugPrint = oldDebugPrint);
+      _silenceDebugPrint();
 
       await provider.bindScope('user-1');
       await provider.flushUpload();
@@ -270,9 +264,7 @@ void main() {
           ),
           storage: storage,
         );
-        final oldDebugPrint = debugPrint;
-        debugPrint = (String? message, {int? wrapWidth}) {};
-        addTearDown(() => debugPrint = oldDebugPrint);
+        _silenceDebugPrint();
 
         await provider.bindScope('user-1');
         await provider.flushUpload();
@@ -524,9 +516,7 @@ void main() {
           ),
           storage: storage,
         );
-        final oldDebugPrint = debugPrint;
-        debugPrint = (String? message, {int? wrapWidth}) {};
-        addTearDown(() => debugPrint = oldDebugPrint);
+        _silenceDebugPrint();
 
         await provider.bindScope('user-1');
         await provider.autoDownload();
@@ -818,9 +808,7 @@ void main() {
           limits: const SyncLimits(maxChangeDataBytes: 64),
         );
         final provider = SyncProvider(service: service, storage: storage);
-        final oldDebugPrint = debugPrint;
-        debugPrint = (String? message, {int? wrapWidth}) {};
-        addTearDown(() => debugPrint = oldDebugPrint);
+        _silenceDebugPrint();
 
         await provider.bindScope('user-1');
         await provider.flushUpload();
@@ -845,9 +833,7 @@ void main() {
         ),
       );
       final provider = SyncProvider(service: service, storage: storage);
-      final oldDebugPrint = debugPrint;
-      debugPrint = (String? message, {int? wrapWidth}) {};
-      addTearDown(() => debugPrint = oldDebugPrint);
+      _silenceDebugPrint();
 
       await provider.bindScope('user-1');
       await provider.flushUpload();
@@ -868,9 +854,7 @@ void main() {
         limits: const SyncLimits(maxBlobBytes: 2, maxBlobsPageSize: 9),
       );
       final provider = SyncProvider(service: service, storage: storage);
-      final oldDebugPrint = debugPrint;
-      debugPrint = (String? message, {int? wrapWidth}) {};
-      addTearDown(() => debugPrint = oldDebugPrint);
+      _silenceDebugPrint();
 
       await provider.bindScope('user-1');
       await provider.flushUpload();
@@ -957,9 +941,7 @@ void main() {
           },
         );
         final provider = SyncProvider(service: service, storage: storage);
-        final oldDebugPrint = debugPrint;
-        debugPrint = (String? message, {int? wrapWidth}) {};
-        addTearDown(() => debugPrint = oldDebugPrint);
+        _silenceDebugPrint();
 
         await provider.bindScope('user-1');
         await provider.autoDownload();
@@ -982,9 +964,7 @@ void main() {
           },
         );
         final provider = SyncProvider(service: service, storage: storage);
-        final oldDebugPrint = debugPrint;
-        debugPrint = (String? message, {int? wrapWidth}) {};
-        addTearDown(() => debugPrint = oldDebugPrint);
+        _silenceDebugPrint();
 
         await provider.bindScope('user-1');
         await provider.autoDownload();
@@ -1029,9 +1009,7 @@ void main() {
         hasPluginBlob: (_) async => false,
         installPluginBlob: (_, _) async {},
       );
-      final oldDebugPrint = debugPrint;
-      debugPrint = (String? message, {int? wrapWidth}) {};
-      addTearDown(() => debugPrint = oldDebugPrint);
+      _silenceDebugPrint();
 
       await provider.bindScope('user-1');
       await provider.autoDownload();
@@ -1078,9 +1056,7 @@ void main() {
         hasPluginBlob: (_) async => false,
         installPluginBlob: (_, _) async {},
       );
-      final oldDebugPrint = debugPrint;
-      debugPrint = (String? message, {int? wrapWidth}) {};
-      addTearDown(() => debugPrint = oldDebugPrint);
+      _silenceDebugPrint();
 
       await provider.bindScope('user-1');
       await provider.autoDownload();
@@ -1097,9 +1073,7 @@ void main() {
         downloadError: Exception('blob missing'),
       );
       final provider = SyncProvider(service: service, storage: storage);
-      final oldDebugPrint = debugPrint;
-      debugPrint = (String? message, {int? wrapWidth}) {};
-      addTearDown(() => debugPrint = oldDebugPrint);
+      _silenceDebugPrint();
 
       await provider.bindScope('user-1');
       await provider.autoDownload();
@@ -1115,9 +1089,7 @@ void main() {
         service: _FakeSyncService(pages: [_invalidPage(table: 'unknown')]),
         storage: storage,
       );
-      final oldDebugPrint = debugPrint;
-      debugPrint = (String? message, {int? wrapWidth}) {};
-      addTearDown(() => debugPrint = oldDebugPrint);
+      _silenceDebugPrint();
 
       await provider.bindScope('user-1');
       await provider.autoDownload();
@@ -1132,9 +1104,7 @@ void main() {
         service: _FakeSyncService(pages: [_invalidPage(dataId: 'other')]),
         storage: storage,
       );
-      final oldDebugPrint = debugPrint;
-      debugPrint = (String? message, {int? wrapWidth}) {};
-      addTearDown(() => debugPrint = oldDebugPrint);
+      _silenceDebugPrint();
 
       await provider.bindScope('user-1');
       await provider.autoDownload();
@@ -1161,9 +1131,7 @@ void main() {
         ),
         storage: storage,
       );
-      final oldDebugPrint = debugPrint;
-      debugPrint = (String? message, {int? wrapWidth}) {};
-      addTearDown(() => debugPrint = oldDebugPrint);
+      _silenceDebugPrint();
 
       await provider.bindScope('user-1');
       await provider.autoDownload();
@@ -1191,9 +1159,7 @@ void main() {
         ),
         storage: storage,
       );
-      final oldDebugPrint = debugPrint;
-      debugPrint = (String? message, {int? wrapWidth}) {};
-      addTearDown(() => debugPrint = oldDebugPrint);
+      _silenceDebugPrint();
 
       await provider.bindScope('user-1');
       await provider.autoDownload();
@@ -1218,9 +1184,7 @@ void main() {
         ),
         storage: storage,
       );
-      final oldDebugPrint = debugPrint;
-      debugPrint = (String? message, {int? wrapWidth}) {};
-      addTearDown(() => debugPrint = oldDebugPrint);
+      _silenceDebugPrint();
 
       await provider.bindScope('user-1');
       await provider.autoDownload();
@@ -1230,6 +1194,12 @@ void main() {
       expect(storage.sinceByScope[provider.scope], 0);
     });
   });
+}
+
+void _silenceDebugPrint() {
+  final previous = debugPrint;
+  debugPrint = (String? message, {int? wrapWidth}) {};
+  addTearDown(() => debugPrint = previous);
 }
 
 const _hashA =

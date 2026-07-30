@@ -4077,7 +4077,6 @@ END, h.client_created_at, h.updated_at, h.table_name, h.record_id
     int? nextSince,
     String appliedSource = 'cloud',
     String? appliedSourcePeer,
-    Map<String, dynamic>? knowledgeSettings,
   }) async {
     if (remote && (scope == null || scope.isEmpty)) {
       throw ArgumentError.value(scope, 'scope', 'remote scope is required');
@@ -4560,9 +4559,6 @@ END, h.client_created_at, h.updated_at, h.table_name, h.record_id
                 mode: InsertMode.insertOrIgnore,
               );
         }
-      }
-      if (!remote && knowledgeSettings != null) {
-        await _upsertKnowledgeSettings(db, knowledgeSettings);
       }
       if (remote && scope != null && nextSince != null) {
         await _setSyncSince(db, scope, nextSince);

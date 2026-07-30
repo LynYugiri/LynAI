@@ -59,14 +59,12 @@ class _HistoryList extends StatelessWidget {
   final String searchQuery;
   final ValueChanged<String> onSearchChanged;
   final void Function(String conversationId) onConversationTap;
-  final VoidCallback onRoleChanged;
 
   const _HistoryList({
     required this.searchController,
     required this.searchQuery,
     required this.onSearchChanged,
     required this.onConversationTap,
-    required this.onRoleChanged,
   });
 
   @override

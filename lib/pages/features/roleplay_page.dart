@@ -330,18 +330,11 @@ class _RoleplayPageState extends State<_RoleplayPage> {
                 ),
                 if (message.content.isNotEmpty) ...[
                   const SizedBox(height: 4),
-                  if (isPlayer)
-                    _characterMarkdown(
-                      thread: thread,
-                      content: message.content,
-                      enableExplanation: true,
-                    )
-                  else
-                    _characterMarkdown(
-                      thread: thread,
-                      content: message.content,
-                      enableExplanation: true,
-                    ),
+                  _characterMarkdown(
+                    thread: thread,
+                    content: message.content,
+                    enableExplanation: true,
+                  ),
                 ],
                 if (message.attachments.isNotEmpty) ...[
                   const SizedBox(height: 8),
@@ -1181,40 +1174,11 @@ class _RoleplayPageState extends State<_RoleplayPage> {
   }
 
   void _renameThread(RoleplayThread thread) {
-    final ctrl = TextEditingController(text: thread.title);
-    showDialog(
+    _showRenameRoleplayThreadDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('重命名演绎'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          maxLength: 40,
-          decoration: const InputDecoration(
-            labelText: '标题',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () {
-              context.read<RoleplayProvider>().renameThread(
-                thread.id,
-                ctrl.text,
-              );
-              Navigator.pop(ctx);
-            },
-            child: const Text('保存'),
-          ),
-        ],
-      ),
-    ).then((_) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => ctrl.dispose());
-    });
+      thread: thread,
+      onRename: context.read<RoleplayProvider>().renameThread,
+    );
   }
 
   Future<void> _openThreadSettings(RoleplayThread thread) async {
@@ -1432,14 +1396,6 @@ class _RoleplayPendingAttachment {
 
   MessageImage toMessageImage() =>
       MessageImage(path: path, name: name, size: size, mimeType: mimeType);
-}
-
-/// 为 [Iterable] 提供安全的首元素访问。
-extension _FirstOrNull<T> on Iterable<T> {
-  T? get firstOrNull {
-    final iterator = this.iterator;
-    return iterator.moveNext() ? iterator.current : null;
-  }
 }
 
 /// 情景演绎左侧历史抽屉。
@@ -1680,37 +1636,11 @@ class _RoleplayHistoryDrawerState extends State<_RoleplayHistoryDrawer> {
   }
 
   void _renameThread(RoleplayProvider provider, RoleplayThread thread) {
-    final ctrl = TextEditingController(text: thread.title);
-    showDialog(
+    _showRenameRoleplayThreadDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('重命名演绎'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          maxLength: 40,
-          decoration: const InputDecoration(
-            labelText: '标题',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () {
-              provider.renameThread(thread.id, ctrl.text);
-              Navigator.pop(ctx);
-            },
-            child: const Text('保存'),
-          ),
-        ],
-      ),
-    ).then((_) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => ctrl.dispose());
-    });
+      thread: thread,
+      onRename: provider.renameThread,
+    );
   }
 
   void _deleteThread(RoleplayProvider provider, RoleplayThread thread) {
@@ -2860,7 +2790,7 @@ class _RoleplayParticipantDialogState
   }
 }
 
-class _RoleplayModelSelector extends StatefulWidget {
+class _RoleplayModelSelector extends StatelessWidget {
   final RoleplayModelSelection value;
   final ValueChanged<RoleplayModelSelection> onChanged;
   final bool showNoneOption;
@@ -2876,28 +2806,23 @@ class _RoleplayModelSelector extends StatefulWidget {
   });
 
   @override
-  State<_RoleplayModelSelector> createState() => _RoleplayModelSelectorState();
-}
-
-class _RoleplayModelSelectorState extends State<_RoleplayModelSelector> {
-  @override
   Widget build(BuildContext context) {
     return ModelConfigPicker(
-      title: widget.boxLabel,
+      title: boxLabel,
       category: ModelConfig.categoryChat,
       value: _pickerValue,
-      allowClear: widget.showNoneOption,
-      emptyLabel: widget.showNoneOption ? widget.noneLabel : '无可用模型',
-      onChanged: (value) => widget.onChanged(_roleplayValue(value)),
+      allowClear: showNoneOption,
+      emptyLabel: showNoneOption ? noneLabel : '无可用模型',
+      onChanged: (value) => onChanged(_roleplayValue(value)),
     );
   }
 
   ModelSelectionValue? get _pickerValue {
-    final modelId = widget.value.modelId;
+    final modelId = value.modelId;
     if (modelId == null || modelId.isEmpty) return null;
     return ModelSelectionValue(
       modelId: modelId,
-      modelName: widget.value.modelName,
+      modelName: value.modelName,
       category: ModelConfig.categoryChat,
     );
   }
@@ -2909,6 +2834,44 @@ class _RoleplayModelSelectorState extends State<_RoleplayModelSelector> {
       modelName: value.modelName,
     );
   }
+}
+
+Future<void> _showRenameRoleplayThreadDialog({
+  required BuildContext context,
+  required RoleplayThread thread,
+  required void Function(String threadId, String title) onRename,
+}) {
+  return showDialog<void>(
+    context: context,
+    builder: (dialogContext) => TextEditingControllerHost(
+      initialTexts: [thread.title],
+      builder: (context, controllers) => AlertDialog(
+        title: const Text('重命名演绎'),
+        content: TextField(
+          controller: controllers.single,
+          autofocus: true,
+          maxLength: 40,
+          decoration: const InputDecoration(
+            labelText: '标题',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () {
+              onRename(thread.id, controllers.single.text);
+              Navigator.pop(dialogContext);
+            },
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _RoleplayShareImage extends StatelessWidget {

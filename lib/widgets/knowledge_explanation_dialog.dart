@@ -277,10 +277,6 @@ class _KnowledgeExplanationDialogState
 
   @override
   Widget build(BuildContext context) {
-    return _buildDialog(context);
-  }
-
-  Widget _buildDialog(BuildContext context) {
     final categories = _categories;
     final validCategoryIds = categories.map((item) => item.id).toSet();
     final selectedCategory = validCategoryIds.contains(_categoryId)
