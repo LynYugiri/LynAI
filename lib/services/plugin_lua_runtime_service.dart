@@ -609,6 +609,7 @@ class PluginLuaRuntimeService {
         pushCommand(ls, 'device.app.open', args);
         return 1;
       },
+      'listApps': noArgs('device.app.list'),
       'sleep': (LuaState ls) {
         final raw = _readJsonValue(ls, 1);
         pushCommand(ls, 'device.sleep', {'ms': raw is Map ? raw['ms'] : raw});

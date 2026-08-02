@@ -436,6 +436,7 @@ class LynAIFunctionService {
           call.arguments,
         ),
         'device.app.open' => await _openApp(call.arguments),
+        'device.app.list' => await _listApps(),
         String name when name.startsWith('device.') =>
           await DeviceControlService.instance.execute(name, call.arguments),
         _ => _error('未知 LynAI function: ${call.name}'),
@@ -2737,6 +2738,25 @@ class LynAIFunctionService {
       {'packageName': packageName},
     );
     return result ?? {'ok': false, 'error': '平台无返回'};
+  }
+
+  Future<Map<String, dynamic>> _listApps() async {
+    if (!Platform.isAndroid) return _error('device.app.list 仅支持 Android');
+    final result = await _nativeToolsChannel.invokeMapMethod<String, dynamic>(
+      'queryApps',
+    );
+    if (result == null) return {'ok': false, 'error': '平台无返回'};
+    if (result['ok'] != true) {
+      return {
+        'ok': false,
+        'error': (result['error'] as String? ?? '查询应用列表失败'),
+      };
+    }
+    final apps = (result['apps'] as List<dynamic>? ?? const [])
+        .whereType<Map>()
+        .map((app) => Map<String, dynamic>.from(app))
+        .toList(growable: false);
+    return {'ok': true, 'apps': apps};
   }
 
   List<ModelRecognitionFileInput> _recognitionFiles(

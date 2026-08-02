@@ -636,7 +636,7 @@ ${lines.join('\n')}$more''';
         'type': 'function',
         'function': {
           'name': 'open_app',
-          'description': '在安卓端通过包名打开已安装应用。',
+          'description': '在安卓端通过包名打开已安装应用。调用前可用 list_apps 查询包名。',
           'parameters': {
             'type': 'object',
             'properties': {
@@ -644,6 +644,14 @@ ${lines.join('\n')}$more''';
             },
             'required': ['packageName'],
           },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'list_apps',
+          'description': '列出安卓端已安装且可启动的应用，返回包名和显示名称。',
+          'parameters': {'type': 'object', 'properties': <String, dynamic>{}},
         },
       },
       ..._canonicalOrganizerTools,
@@ -1487,6 +1495,7 @@ ${lines.join('\n')}$more''';
       'save_plugin_skill' => const [LynAIPermissions.pluginSkillFilesWrite],
       'get_current_screen' => const [LynAIPermissions.deviceScreenRead],
       'open_app' => const [LynAIPermissions.deviceControl],
+      'list_apps' => const [LynAIPermissions.deviceControl],
       'generate_image' => const [LynAIPermissions.modelGenerateImage],
       'execute_lua' => const [LynAIPermissions.luaExecute],
       'call_plugin_function' => const [LynAIPermissions.pluginCallFunction],
@@ -1780,6 +1789,7 @@ ${lines.join('\n')}$more''';
       'web_fetch' => _webFetch(call, context.cancellationToken, identity),
       'get_location' => _nativeLocation(),
       'open_app' => _registeredOpenApp(call, identity, permissions, context),
+      'list_apps' => _registeredListApps(call, identity, permissions, context),
       'get_current_screen' => _registeredCurrentScreen(
         call,
         identity,
@@ -1863,6 +1873,22 @@ ${lines.join('\n')}$more''';
       permissions,
       context,
       arguments: {'packageName': packageName},
+    );
+  }
+
+  Future<Map<String, dynamic>> _registeredListApps(
+    ChatToolCall call,
+    LynAICallIdentity identity,
+    AgentPermissionSnapshot permissions,
+    AgentToolExecutionContext context,
+  ) {
+    return _registeredFunction(
+      call,
+      'device.app.list',
+      identity,
+      permissions,
+      context,
+      arguments: const {},
     );
   }
 
@@ -2052,6 +2078,12 @@ ${lines.join('\n')}$more''';
             'packageName': packageName,
           });
           return {'ok': true, ...result};
+        case 'list_apps':
+          if (_agentEnabled) {
+            return _executeLynAIFunction(call, 'device.app.list', const {});
+          }
+          final appsResult = await _invokeNative('queryApps');
+          return {'ok': true, ...appsResult};
         case 'get_current_screen':
           if (!_allowScreenContextTool) {
             return _error('当前对话未允许模型读取当前页面');
@@ -3244,6 +3276,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
           'web_fetch',
           'get_location',
           'open_app',
+          'list_apps',
           'get_current_screen',
           'call_plugin_function',
           'execute_lua',

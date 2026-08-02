@@ -166,6 +166,7 @@ Agent Lua 可以通过 `lynai.call()` 调用这些函数，也可以用 `lynai.d
 | 通道 | 方法 | 平台 | 说明 |
 |------|------|------|------|
 | `lynai/native_tools` | `openApp` | Android | 按包名打开应用。 |
+| `lynai/native_tools` | `queryApps` | Android | 列出已安装且可启动的应用，返回 `{packageName, label}`（按 label 排序，上限 500）；manifest 已声明 `QUERY_ALL_PACKAGES`。Agent 工具 `list_apps` 与 Lua `lynai.device.listApps` 均复用此通道，`open_app` 描述引导先查询包名。 |
 | `lynai/native_tools` | `getLocation` | Android | 请求定位并读取最近位置。 |
 | `lynai/native_tools` | `saveImageToGallery` | Android | 保存 PNG 到图库。 |
 | `lynai/calendar_platform` | `syncProjection` | Android | 持久化版本化的任务/日历完整投影，重新安排非精确通知并刷新小组件；不会请求通知权限。 |
@@ -175,7 +176,7 @@ Agent Lua 可以通过 `lynai.call()` 调用这些函数，也可以用 `lynai.d
 | `lynai/floating_assistant` | showBubble/hideBubble/configure/updateChatState/updateTranslationState/updateAgentPlan | Android | 系统级悬浮助手。原生面板分为 Chat、Translation、Agent 三种模式，并把发送、停止生成、手动/自动翻译、暂停/继续/停止 Agent 等事件回调给 Dart。 |
 | `lynai/screen_translation` | captureAndRecognize/showTranslations/clearTranslations/scrollSceneBy | Android | 屏幕翻译专用通道。Android 原生隐藏悬浮层后截屏并直接运行 PPOCRv5，只把 OCR 文本组和坐标返回 Dart；译文由单个透明 Canvas Window 绘制。 |
 
-读屏类函数 `device.screen.query`、`device.screen.waitText`、`device.screen.readVisibleText`、`device.screen.extractMessages`、`device.node.find`、`device.node.findAll` 和 `device.waitForNode` 需要 `device:screen:read`。动作类函数如 `device.app.open`、`device.screen.clickText`、`device.screen.waitAndClick`、`device.screen.inputText`、`device.screen.scrollUntil`、`device.tap`、`device.swipe`、`device.inputText` 和 `device.node.action` 需要 `device:control`。
+读屏类函数 `device.screen.query`、`device.screen.waitText`、`device.screen.readVisibleText`、`device.screen.extractMessages`、`device.node.find`、`device.node.findAll` 和 `device.waitForNode` 需要 `device:screen:read`。动作类函数如 `device.app.open`、`device.app.list`、`device.screen.clickText`、`device.screen.waitAndClick`、`device.screen.inputText`、`device.screen.scrollUntil`、`device.tap`、`device.swipe`、`device.inputText` 和 `device.node.action` 需要 `device:control`。
 
 `CalendarPlatformProjectionService` 使用 `CalendarOccurrenceService` 投影未来 18 个月的小组件发生记录，并把每个显式 `ItemReminder` 展开为独立触发器。日期型锚点采用 `dateOnlyTime`，未设置时默认本地 09:00；已完成任务不产生通知。版本 2 投影为 UTC 定时事件额外保存小组件起止和提醒的 epoch 毫秒，时区变化后仍表示同一绝对时刻；任务、全天事件、纪念日及本地定时事件继续使用本地日期时间。Android 只读取自己的投影 SharedPreferences，开机、日期、时间和时区变化后按上述语义重新建立既有非精确 AlarmManager 闹钟，并兼容读取版本 1 投影。
 

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/agent_runtime.dart';
 import 'package:lynai/models/agent_trace.dart';
@@ -220,6 +221,18 @@ void main() {
     expect(webFetch['description'], contains('GET'));
     expect(webFetch['parameters'], isA<Map>());
     expect((webFetch['parameters'] as Map)['required'], contains('url'));
+  });
+
+  test('list_apps is exposed and open_app points at it for package names', () {
+    final functions = ToolCallService.openAITools()
+        .map((tool) => tool['function'])
+        .whereType<Map>()
+        .toList();
+    final listApps = functions.firstWhere((f) => f['name'] == 'list_apps');
+    final openApp = functions.firstWhere((f) => f['name'] == 'open_app');
+
+    expect(listApps['parameters'], isA<Map>());
+    expect(openApp['description'], contains('list_apps'));
   });
 
   test('foundation catalog has exactly four logical names', () {
@@ -703,8 +716,59 @@ void main() {
         agentOpenApp['error'].toString(),
         contains(LynAIPermissions.deviceControl),
       );
+      final agentListApps = await ToolCallService(
+        features,
+        settings: settings,
+        conversations: conversations,
+        conversationId: cid,
+      ).execute(
+        const ChatToolCall(id: 'list-apps', name: 'list_apps', arguments: {}),
+        const [],
+      );
+      expect(agentListApps['ok'], isFalse);
+      expect(
+        agentListApps['error'].toString(),
+        contains(LynAIPermissions.deviceControl),
+      );
     },
   );
+
+  test('list_apps returns apps when deviceControl is granted', () async {
+    const channel = MethodChannel('lynai/native_tools');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'queryApps') {
+        return {
+          'ok': true,
+          'apps': [
+            {'packageName': 'com.tencent.mm', 'label': '微信'},
+            {'packageName': 'com.android.chrome', 'label': 'Chrome'},
+          ],
+        };
+      }
+      return null;
+    });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null),
+    );
+
+    final service = ToolCallService(
+      FeatureProvider(),
+      agentIdentity: const LynAICallIdentity(type: LynAICallerType.system),
+      permissionSnapshot: AgentPermissionSnapshot(
+        permissions: const [LynAIPermissions.deviceControl],
+      ),
+    );
+    final result = await service.execute(
+      const ChatToolCall(id: 'list-apps', name: 'list_apps', arguments: {}),
+      const [],
+    );
+
+    expect(result['ok'], isTrue);
+    expect(result['apps'], hasLength(2));
+    expect((result['apps'] as List).first['packageName'], 'com.tencent.mm');
+  });
 
   test('invalid core tool arguments are blocked before dispatch', () async {
     final result = await ToolCallService(FeatureProvider()).execute(
@@ -1239,6 +1303,50 @@ void main() {
         expect(result['truncated'], isTrue);
         expect(result['contentType'], contains('text/plain'));
         expect(methods, ['GET']);
+      } finally {
+        await server?.close(force: true);
+      }
+    }, createHttpClient: _RealHttpOverrides().createHttpClient);
+  });
+
+  test('web_fetch falls back when the first resolved address is unreachable',
+      () async {
+    HttpServer? server;
+    await HttpOverrides.runZoned(() async {
+      try {
+        server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        server!.listen((request) async {
+          request.response.headers.contentType = ContentType.text;
+          request.response.write('ok');
+          await request.response.close();
+        });
+
+        final service = ToolCallService(
+          FeatureProvider(),
+          agentIdentity: const LynAICallIdentity(type: LynAICallerType.system),
+          outboundHttpClient: BoundedOutboundHttpClient(
+            policy: OutboundNetworkPolicy(
+              allowedHttpOrigins: {'http://127.0.0.1:${server!.port}'},
+              allowPrivateNetwork: true,
+              hostResolver: (host) async => ['127.0.0.2', '127.0.0.1'],
+            ),
+          ),
+          allowPlaintextHttpFetch: true,
+        );
+        final result = await service.execute(
+          ChatToolCall(
+            id: 'fetch-fallback',
+            name: 'web_fetch',
+            arguments: {
+              'url': 'http://127.0.0.1:${server!.port}/page',
+            },
+          ),
+          const [],
+        );
+
+        expect(result['ok'], isTrue);
+        expect(result['status'], 200);
+        expect(result['body'], 'ok');
       } finally {
         await server?.close(force: true);
       }

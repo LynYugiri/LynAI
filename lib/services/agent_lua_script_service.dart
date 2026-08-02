@@ -880,6 +880,7 @@ class AgentLuaScriptService {
             : {'packageName': raw?.toString() ?? ''};
         return callDevice(ls, 'device.app.open', args);
       },
+      'listApps': noArgs('device.app.list'),
       'sleep': (LuaState ls) {
         final raw = _readJsonValue(ls, 1);
         return callDevice(ls, 'device.sleep', {

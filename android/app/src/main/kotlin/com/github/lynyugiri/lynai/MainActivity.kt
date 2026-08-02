@@ -91,6 +91,7 @@ class MainActivity : FlutterActivity() {
                     val packageName = call.argument<String>("packageName").orEmpty()
                     result.success(openApp(packageName))
                 }
+                "queryApps" -> result.success(queryApps())
                 "getLocation" -> getLocation(result)
                 "saveImageToGallery" -> {
                     val bytes = call.argument<ByteArray>("bytes")
@@ -164,6 +165,32 @@ class MainActivity : FlutterActivity() {
             arrayOf(Manifest.permission.POST_NOTIFICATIONS),
             NOTIFICATION_REQUEST_CODE
         )
+    }
+
+    private fun queryApps(): Map<String, Any> {
+        return try {
+            val resolveInfos = packageManager.queryIntentActivities(
+                Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER),
+                0
+            )
+            val apps = resolveInfos
+                .mapNotNull { resolveInfo ->
+                    val packageName = resolveInfo.activityInfo?.packageName.orEmpty()
+                    if (packageName.isBlank()) {
+                        null
+                    } else {
+                        val label = resolveInfo.loadLabel(packageManager)?.toString()
+                            ?: packageName
+                        mapOf("packageName" to packageName, "label" to label)
+                    }
+                }
+                .distinctBy { it["packageName"] }
+                .sortedBy { it["label"].toString().lowercase() }
+                .take(MAX_QUERY_APPS)
+            mapOf("ok" to true, "apps" to apps)
+        } catch (e: Exception) {
+            mapOf("ok" to false, "error" to (e.message ?: e.toString()))
+        }
     }
 
     private fun openApp(packageName: String): Map<String, Any> {
@@ -304,5 +331,6 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val LOCATION_REQUEST_CODE = 7811
         private const val NOTIFICATION_REQUEST_CODE = 7812
+        private const val MAX_QUERY_APPS = 500
     }
 }
