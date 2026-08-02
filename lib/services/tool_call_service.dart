@@ -214,8 +214,8 @@ class ToolCallService {
 
   /// 支持原生 tool_calls 接口使用的系统提示词。
   static const nativeSystemPrompt = '''
- 你可以使用本地工具帮助用户管理任务、任务清单、日历事件、纪念日、笔记和旧待办清单，获取时间/位置和创建对话标题。
- 需要调用工具时使用接口提供的 tool_calls；不需要工具时直接正常回答，不要提及工具。
+你可以使用本地工具帮助用户管理任务、任务清单、日历事件、纪念日、笔记和旧待办清单，获取时间/位置和创建对话标题。
+需要调用工具时使用接口提供的 tool_calls；不需要工具时直接正常回答，不要提及工具。
 收到工具结果后，再用自然语言给用户最终回复。
 未配置网页搜索服务时，可用 web_fetch 抓取搜索引擎结果页或已知 URL 检索信息。
 创建或修改数据前，应从用户输入中提取明确字段；缺少关键字段时先追问。
@@ -233,9 +233,9 @@ Plan 创建和更新不需要权限，只用于当前对话的可视化状态。
 如果需要了解可用插件函数，先调用 list_plugin_functions。
 未配置网页搜索服务时，可用 web_fetch 抓取搜索引擎结果页或已知 URL 检索信息。
 如果需要调用插件函数，先调用 list_plugin_functions 查看可用函数，再用 call_plugin_function。该能力需要 plugins.callFunction 权限。
- 如果需要了解可用插件 Skill，先调用 list_plugin_skills；Skill 摘要不是完整说明，执行相关流程前调用 load_plugin_skill 加载正文。加载 Skill 不需要额外权限；需要按用户要求沉淀或修正可编辑 Skill 时，在已授权 plugins.skills.files:write 后调用 save_plugin_skill 保存正文。
- 如需运行 Lua 或手机自动化，调用 execute_lua；沙箱能力、可用函数与设备 API 用法见该工具的说明，确定步骤尽量在一次脚本内线性编排。
- 如果手机自动化子任务会产生很多中间屏幕信息，优先调用 run_subagent。Subagent 使用独立上下文执行多轮工具，只把最终结构化结果返回当前对话。需要读取聊天上下文再生成回复时，先让 Subagent 返回 peer、messages、summary、confidence；用户已经明确要求发送且目标明确时，可让 Subagent/Lua 直接发送，不要二次确认。
+如果需要了解可用插件 Skill，先调用 list_plugin_skills；Skill 摘要不是完整说明，执行相关流程前调用 load_plugin_skill 加载正文。加载 Skill 不需要额外权限；需要按用户要求沉淀或修正可编辑 Skill 时，在已授权 plugins.skills.files:write 后调用 save_plugin_skill 保存正文。
+如需运行 Lua 或手机自动化，调用 execute_lua；沙箱能力、可用函数与设备 API 用法见该工具的说明，确定步骤尽量在一次脚本内线性编排。
+如果手机自动化子任务会产生很多中间屏幕信息，优先调用 run_subagent。Subagent 使用独立上下文执行多轮工具，只把最终结构化结果返回当前对话。需要读取聊天上下文再生成回复时，先让 Subagent 返回 peer、messages、summary、confidence；用户已经明确要求发送且目标明确时，可让 Subagent/Lua 直接发送，不要二次确认。
 Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:false,error:{code,message,details?}}；读取数据时优先看 result。
 可以输出简短的中间说明，但不要把工具 JSON 原样展示给用户；最终回复应汇总执行结果。
 ''';
@@ -1270,7 +1270,7 @@ ${lines.join('\n')}$more''';
     if (permissions.contains(LynAICapabilities.luaExecute)) {
       add(
         'execute_lua',
-        '执行 LynAI Agent Lua 脚本。脚本运行在受限 lua_dardo 沙箱中：禁用 os、io、package、require、dofile、loadfile；不能访问本地文件系统或执行系统命令；所有 LynAI 能力可通过 lynai.call(name, args) 调用，设备能力优先用 lynai.device.*；脚本最后必须 return 一个 JSON 可序列化 table。支持同步读取函数、plugins.functions.list、plugins.callFunction、agent.plan.update、agent.memory.read、agent.memory.update、agent.note.add、model.chat、model.ocr、model.recognizeFile、model.generateImage、device.app.open、device.*、device.waitForNode 和 lynai.device.status/query/wait/clickFirst/waitAndClick/inputInto/scrollUntil/readVisibleText/extractMessages。device.* 支持异步线性执行；同一应用内的打开、查找、点击、滚动、读取、输入、发送等确定性步骤，能合并就优先放进一次 execute_lua 线性编排。打开已安装 Android 应用时调用 lynai.device.openApp("目标包名")；复杂屏幕操控优先使用 lynai.device.query、lynai.device.waitAndClick、lynai.device.inputInto、lynai.device.scrollUntil；读取 QQ/消息应用优先使用 device.screen.extractMessages 或 lynai.device.extractMessages，不足时再截图配合 model.ocr/model.recognizeFile。截图 base64 只作为 OCR/识图输入，不要返回给模型。关键调用应检查 ok，失败时 return { ok = false, error = result.error }。示例：local opened = lynai.device.openApp("com.example.app"); if not opened.ok then return opened end; local clicked = lynai.device.waitAndClick({ text = "发送", clickable = true, timeoutMs = 5000 }); if not clicked.ok then return clicked end; return { ok = true, summary = "已点击发送" }',
+        '执行 LynAI Agent Lua 脚本。脚本运行在受限 lua_dardo 沙箱中：禁用 os、io、package、require、dofile、loadfile；不能访问本地文件系统或执行系统命令；所有 LynAI 能力可通过 lynai.call(name, args) 调用，设备能力优先用 lynai.device.*；脚本最后必须 return 一个 JSON 可序列化 table。支持同步读取函数、plugins.functions.list、plugins.callFunction、agent.plan.update、agent.memory.read、agent.memory.update、agent.note.add、model.chat、model.ocr、model.recognizeFile、model.generateImage、device.app.open、device.app.list、device.*、device.waitForNode 和 lynai.device.status/query/wait/clickFirst/waitAndClick/inputInto/scrollUntil/readVisibleText/extractMessages/listApps。device.* 支持异步线性执行；同一应用内的打开、查找、点击、滚动、读取、输入、发送等确定性步骤，能合并就优先放进一次 execute_lua 线性编排。打开已安装 Android 应用时先用 lynai.device.listApps 查询已安装应用包名，再调用 lynai.device.openApp("目标包名")；复杂屏幕操控优先使用 lynai.device.query、lynai.device.waitAndClick、lynai.device.inputInto、lynai.device.scrollUntil；读取 QQ/消息应用优先使用 device.screen.extractMessages 或 lynai.device.extractMessages，不足时再截图配合 model.ocr/model.recognizeFile。截图 base64 只作为 OCR/识图输入，不要返回给模型。关键调用应检查 ok，失败时 return { ok = false, error = result.error }。示例：local opened = lynai.device.openApp("com.example.app"); if not opened.ok then return opened end; local clicked = lynai.device.waitAndClick({ text = "发送", clickable = true, timeoutMs = 5000 }); if not clicked.ok then return clicked end; return { ok = true, summary = "已点击发送" }',
         {
           'type': 'object',
           'properties': {
