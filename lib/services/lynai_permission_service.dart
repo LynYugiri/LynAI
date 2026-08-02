@@ -21,6 +21,7 @@ class LynAIPermissionService {
     return switch (identity.type) {
       LynAICallerType.system => true,
       LynAICallerType.agent ||
+      LynAICallerType.assistantTool ||
       LynAICallerType.agentLua ||
       LynAICallerType.lua =>
         agentPermissionSnapshot?.contains(permission) ??

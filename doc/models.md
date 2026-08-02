@@ -22,7 +22,7 @@
 
 `WebSearchRequest` 是 provider 无关的公开输入，只包含定长 query、1-10 的结果上限、可选 BCP 47 风格语言标签和 `day`/`month`/`year` 时间范围，不包含 URL、header 或 credential。`WebSearchRoute` 区分 `client`、`backend` 和 `auto`，`WebSearchClientProvider` 只允许已实现的 Tavily/SearXNG 选择。`WebSearchResult` 统一标题、HTTP(S) URL、摘要、可选 score 和发布时间；`WebSearchResponse` 记录实际使用的 provider/route 和规范化结果。provider endpoint 和 secret 属于服务层可信配置，不进入这些模型。
 
-`AppSettings` 保存新对话默认的 `agentEnabledByDefault`、权限列表、网页搜索 route、客户端首选 provider、非秘密 SearXNG endpoint，以及默认关闭的 SearXNG HTTP 精确-origin 明文授权。每个 `ConversationSettings` 在创建时复制 Agent enabled 和权限；之后设置页改默认值不会改写历史对话，当前对话设置弹窗只编辑该对话快照。Tavily key 和 SearXNG bearer token 不属于 `AppSettings`。
+`AppSettings` 保存新对话默认的 `agentEnabledByDefault`、权限列表、网页搜索 route、客户端首选 provider、非秘密 SearXNG endpoint，以及默认关闭的 SearXNG HTTP 精确-origin 明文授权。主聊天和悬浮聊天创建新对话时把 Agent enabled 与权限复制进 `ConversationSettings`；未发送草稿可由输入区 Agent 按钮和对话权限弹窗覆盖这些初值，首次发送时固化草稿快照。之后设置页改默认值不会改写历史对话，当前对话设置弹窗只编辑该对话的权限快照。Tavily key 和 SearXNG bearer token 不属于 `AppSettings`。
 
 ## Message 与附件
 
@@ -62,7 +62,9 @@
 | `roleId` | 当前角色 ID，用于历史分组。 |
 | `createdAt` / `updatedAt` | 创建和更新时间。 |
 
-`ConversationSettings` 保存发送对话所需的模型、系统提示词、OCR、文件识别、图片生成和语音配置。`selectedSystemPromptId` 只保留来源标识，`systemPrompt` 保存选择当时的实际正文；发送历史对话时必须直接使用该正文快照，不能按当前全局模板重新解析。历史对话也不能反向覆盖全局设置。
+`ConversationSettings` 保存发送对话所需的模型、系统提示词、OCR、文件识别、图片生成、语音、Agent 模式和权限配置。`selectedSystemPromptId` 只保留来源标识，`systemPrompt` 保存选择当时的实际正文；发送历史对话时必须直接使用该正文和权限快照，不能按当前全局模板或默认权限重新解析。历史对话也不能反向覆盖全局设置。
+
+`agentPermissionsOverride` 区分对话权限的两种来源：`false`（默认，新对话）表示该对话跟随全局“对话权限”默认列表，`_effectivePermissionSnapshot()` 实时读取全局设置；`true` 表示使用对话自身的 `agentGrantedPermissions` 快照，全局默认变化不影响它。旧数据 `fromJson` 缺失该字段时按 `true` 处理以保留显式快照语义；迁移会把 v0 快照和与全局列表相同的 v1 快照收敛为跟随全局，其余保持。设置弹窗两态切换：自定义时预填当前全局列表，恢复时重置为跟随全局。
 
 反序列化时坏消息、坏 Agent 计划或坏工作记忆会被跳过；如果整条对话结构损坏，则由 Provider 跳过该对话。
 

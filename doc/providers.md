@@ -333,7 +333,7 @@ purge 先由页面请求 preview 并确认，Provider 提交签名写后立即�
 
 ### 权限模型
 
-插件需在 `plugin.json` 中声明权限，用户安装后可在管理页修改授予范围。实际执行时 `PluginLuaRuntimeService` 会根据授予权限裁剪沙箱 API。内置 `mobile-agent-skills` 是纯 Skill 插件，不声明权限，不执行工具，只为 Agent 提供工作流说明。当前 15 个 skill：`android_accessibility`（无障碍原语）、`messaging`（消息应用通用流程）、`qq`（QQ 自动回复）、`wechat`（微信会话自动化）、`system_settings`（系统设置开关）、`browser_search`（浏览器搜索与信息采集）、`camera_ocr_scan`（拍照与 OCR 扫描）、`contacts_phone`（通讯录与电话）、`clock_alarm`（系统闹钟与倒计时）、`map_navigation`（地图导航）、`media_share`（系统分享与跨应用转发）、`study_problem_solving`（题目解答与错题本沉淀）、`study_research_qa`（开放问题检索综述）、`note_taking`（笔记方法论与新建/编辑/归档）、`note_capture_to_kb`（对话沉淀到知识库）。Skill 正文可编辑性由 `PluginSkillDefinition.editable` 和 `editableFiles/defaultPath` overlay 决定；内置 Skill 的模板放在 `defaults/skills/`，用户/模型写入的 `skills/` 文件会在同步内置插件时保留。
+插件需在 `plugin.json` 中声明权限，用户安装后可在管理页修改授予范围。实际执行时 `PluginLuaRuntimeService` 会根据授予权限裁剪沙箱 API。内置 `mobile-agent-skills` 是纯 Skill 插件，不声明权限，不执行工具，只为 Agent 提供工作流说明。当前 14 个 skill：`android_accessibility`（无障碍原语）、`messaging`（消息应用通用流程）、`qq`（QQ 自动回复）、`wechat`（微信会话自动化）、`system_settings`（系统设置开关）、`camera_ocr_scan`（拍照与 OCR 扫描）、`contacts_phone`（通讯录与电话）、`clock_alarm`（系统闹钟与倒计时）、`map_navigation`（地图导航）、`media_share`（系统分享与跨应用转发）、`study_problem_solving`（题目解答与错题本沉淀）、`study_research_qa`（开放问题检索综述）、`note_taking`（笔记方法论与新建/编辑/归档）、`note_capture_to_kb`（对话沉淀到知识库）。Skill 正文可编辑性由 `PluginSkillDefinition.editable` 和 `editableFiles/defaultPath` overlay 决定；内置 Skill 的模板放在 `defaults/skills/`，用户/模型写入的 `skills/` 文件会在同步内置插件时保留。
 
 | 权限 | 控制的能力 |
 |------|-----------|
@@ -388,7 +388,13 @@ LAN conflicts are loaded from the `lan:v1` scope and resolved through the same s
 Startup loads `SettingsProvider` before `ConversationProvider`, then calls the
 idempotent conversation permission migration. Only settings with a missing
 snapshot version are updated, and the full conversation replacement is written
-in the existing storage transaction before normal startup continues.
+in the existing storage transaction before normal startup continues. Migration
+also normalizes permission inheritance: legacy v0 snapshots and v1 snapshots
+whose list equals the current global defaults are rewritten to
+`agentPermissionsOverride=false` (follow globals), while genuinely custom
+snapshots keep their explicit list. Unmigrated old rows without the field
+default to `true` in `fromJson`, preserving the historical explicit-snapshot
+semantics.
 ## Account dataset binding
 
 `AccountProvider` invokes dataset activation before publishing a restored,

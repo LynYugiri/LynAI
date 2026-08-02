@@ -15,6 +15,7 @@ import 'package:lynai/providers/plugin_provider.dart';
 import 'package:lynai/providers/task_provider.dart';
 import 'package:lynai/services/api_service.dart';
 import 'package:lynai/services/backend_client.dart';
+import 'package:lynai/services/lynai_permission_definitions.dart';
 import 'package:lynai/services/storage_v2_service.dart';
 import 'package:lynai/services/storage_v2_upgrade_service.dart';
 import 'package:lynai/services/tool_call_service.dart';
@@ -269,4 +270,104 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
     await conversations.flushPendingSaves();
   });
+
+  testWidgets(
+    'conversation permissions customize and restore follow globals',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final conversations = memoryConversationProvider();
+      final settings = memorySettingsProvider();
+      await settings.replaceSettings(
+        AppSettings.defaults().copyWith(
+          agentEnabledByDefault: true,
+          agentGrantedPermissions: const [LynAIPermissions.networkAccess],
+        ),
+      );
+      final models = memoryModelConfigProvider()
+        ..addModel(
+          ModelConfig(
+            id: 'm1',
+            name: 'test',
+            endpoint: 'https://example.test',
+            apiKey: '',
+            modelName: 'model',
+            apiType: 'openai',
+            priority: 0,
+          ),
+        );
+      final conversationId = conversations.createConversation(
+        ConversationSettings(
+          modelId: 'm1',
+          agentEnabled: false,
+          agentGrantedPermissions: const [LynAIPermissions.notesRead],
+        ),
+      );
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: conversations),
+            ChangeNotifierProvider.value(value: settings),
+            ChangeNotifierProvider.value(value: models),
+            ChangeNotifierProvider(create: (_) => FeatureProvider()),
+            ChangeNotifierProvider(create: (_) => TaskProvider()),
+            ChangeNotifierProvider(create: (_) => CalendarProvider()),
+            ChangeNotifierProvider(create: (_) => PluginProvider()),
+            ChangeNotifierProvider(create: (_) => KnowledgeProvider()),
+            ChangeNotifierProvider(create: (_) => BackendClient()),
+            Provider.value(value: storage),
+          ],
+          child: MaterialApp(home: ChatPage(conversationId: conversationId)),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byIcon(Icons.account_tree_outlined), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.tune));
+      await tester.pumpAndSettle();
+      expect(find.text('对话权限'), findsOneWidget);
+      expect(find.text('启用 Agent 模式'), findsNothing);
+      expect(find.text('读取回收站'), findsNothing);
+
+      // 继承态：显示跟随全局，不显示权限明细。
+      expect(find.text('跟随全局默认权限'), findsOneWidget);
+      expect(find.text('权限明细'), findsNothing);
+
+      // 自定义本对话权限：预填全局列表。
+      await tester.ensureVisible(find.text('自定义本对话权限'));
+      await tester.tap(find.text('自定义本对话权限'));
+      await tester.pumpAndSettle();
+      expect(find.text('权限明细'), findsOneWidget);
+      await tester.ensureVisible(find.text('权限明细'));
+      await tester.tap(find.text('权限明细'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('读取待办'));
+      await tester.tap(find.text('读取待办'));
+      await tester.pump();
+
+      var conversation = conversations.getConversation(conversationId)!;
+      expect(conversation.settings.agentEnabled, isFalse);
+      expect(conversation.settings.agentPermissionsOverride, isTrue);
+      expect(
+        conversation.settings.agentGrantedPermissions.toSet(),
+        {LynAIPermissions.networkAccess, LynAIPermissions.todosRead},
+      );
+      expect(settings.settings.agentEnabledByDefault, isTrue);
+      expect(settings.settings.agentGrantedPermissions, const [
+        LynAIPermissions.networkAccess,
+      ]);
+
+      // 恢复跟随全局：权限列表重置为全局镜像。
+      await tester.ensureVisible(find.text('恢复跟随全局默认'));
+      await tester.tap(find.text('恢复跟随全局默认'));
+      await tester.pump();
+      conversation = conversations.getConversation(conversationId)!;
+      expect(conversation.settings.agentPermissionsOverride, isFalse);
+      expect(conversation.settings.agentGrantedPermissions, const [
+        LynAIPermissions.networkAccess,
+      ]);
+      await conversations.flushPendingSaves();
+      await settings.flushPendingSaves();
+    },
+  );
 }

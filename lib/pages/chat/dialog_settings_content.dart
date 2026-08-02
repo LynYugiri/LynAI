@@ -210,7 +210,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
               ],
               const SizedBox(height: 20),
               Text(
-                'Agent 设置',
+                '对话权限',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
@@ -918,47 +918,79 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
 
   Widget _agentSettings() {
     final scheme = Theme.of(context).colorScheme;
+    final globalPermissions =
+        context.watch<SettingsProvider>().settings.agentGrantedPermissions;
+    final inherited = _settings.inheritsAgentPermissions;
     return Container(
       decoration: BoxDecoration(
         border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.3)),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SwitchListTile(
-            dense: true,
-            value: _settings.agentEnabled,
-            title: const Text('启用 Agent 模式'),
-            subtitle: const Text('允许模型创建 Plan，并按步骤调用工具完成复杂任务。'),
-            onChanged: (value) =>
-                _updateSettings(_settings.copyWith(agentEnabled: value)),
-          ),
-          const Divider(height: 1),
-          ExpansionTile(
-            tilePadding: const EdgeInsets.symmetric(horizontal: 16),
-            childrenPadding: const EdgeInsets.only(bottom: 8),
-            initiallyExpanded: false,
-            title: Text(
-              '当前对话权限',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: scheme.onSurfaceVariant,
+          if (inherited) ...[
+            ListTile(
+              dense: true,
+              leading: Icon(Icons.sync_alt, size: 18, color: scheme.outline),
+              title: const Text('跟随全局默认权限'),
+              subtitle: Text(
+                '当前使用设置页中的新对话默认权限（${globalPermissions.length} 项）。全局默认变更会自动应用到本对话。',
               ),
             ),
-            children: [
-              _agentPermissionTile(
-                const LynAIPermissionDefinition(
-                  id: '__info__',
-                  title: '仅修改当前对话快照',
-                  description: '不会改变设置页中的新对话默认权限，也不会改写其他历史对话。',
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+              child: OutlinedButton.icon(
+                onPressed: () => _updateSettings(
+                  _settings.copyWith(
+                    agentPermissionsOverride: true,
+                    agentGrantedPermissions: globalPermissions,
+                  ),
                 ),
-                informational: true,
+                icon: const Icon(Icons.tune, size: 16),
+                label: const Text('自定义本对话权限'),
               ),
-              for (final definition in lynaiPermissionDefinitions)
-                _agentPermissionTile(definition),
-            ],
-          ),
+            ),
+          ] else ...[
+            ExpansionTile(
+              tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+              childrenPadding: const EdgeInsets.only(bottom: 8),
+              initiallyExpanded: false,
+              title: Text(
+                '权限明细',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              children: [
+                _agentPermissionTile(
+                  const LynAIPermissionDefinition(
+                    id: '__info__',
+                    title: '仅修改当前对话快照',
+                    description: '不会改变设置页中的新对话默认权限，也不会改写其他历史对话。',
+                  ),
+                  informational: true,
+                ),
+                for (final definition in agentAssignablePermissionDefinitions)
+                  _agentPermissionTile(definition),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+              child: OutlinedButton.icon(
+                onPressed: () => _updateSettings(
+                  _settings.copyWith(
+                    agentPermissionsOverride: false,
+                    agentGrantedPermissions: globalPermissions,
+                  ),
+                ),
+                icon: const Icon(Icons.sync_alt, size: 16),
+                label: const Text('恢复跟随全局默认'),
+              ),
+            ),
+          ],
         ],
       ),
     );

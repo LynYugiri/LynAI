@@ -131,7 +131,7 @@ class _SettingsPageState extends State<SettingsPage> {
           _buildItem(
             context,
             Icons.smart_toy_outlined,
-            '新对话 Agent 默认值',
+            '对话权限',
             settings.agentEnabledByDefault
                 ? '默认启用 · ${settings.agentGrantedPermissions.length} 项权限'
                 : '默认关闭 · ${settings.agentGrantedPermissions.length} 项权限',

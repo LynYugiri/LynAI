@@ -57,6 +57,15 @@ class ConversationSettings {
   /// 当前对话授予 Agent 的扩展权限。
   final List<String> agentGrantedPermissions;
 
+  /// 是否为权限列表显式自定义（true 表示不再跟随全局默认）。
+  ///
+  /// 为 false 时权限列表跟随全局默认，写入的是当前全局的镜像副本。
+  /// 从 JSON 读取时缺失该字段的旧数据按 true 处理，保持原显式语义不变。
+  final bool agentPermissionsOverride;
+
+  /// 权限列表是否跟随全局默认。
+  bool get inheritsAgentPermissions => !agentPermissionsOverride;
+
   /// 创建一个对话设置快照实例。
   ConversationSettings({
     required this.modelId,
@@ -74,6 +83,7 @@ class ConversationSettings {
     this.imageGenerationModelId,
     this.imageGenerationEnabled = false,
     this.agentEnabled = false,
+    this.agentPermissionsOverride = false,
     Iterable<String> agentGrantedPermissions = const [],
   }) : agentGrantedPermissions = List.unmodifiable(agentGrantedPermissions);
 
@@ -101,6 +111,7 @@ class ConversationSettings {
     Object? imageGenerationModelId = _sentinel,
     bool? imageGenerationEnabled,
     bool? agentEnabled,
+    bool? agentPermissionsOverride,
     List<String>? agentGrantedPermissions,
   }) {
     return ConversationSettings(
@@ -135,6 +146,8 @@ class ConversationSettings {
       imageGenerationEnabled:
           imageGenerationEnabled ?? this.imageGenerationEnabled,
       agentEnabled: agentEnabled ?? this.agentEnabled,
+      agentPermissionsOverride:
+          agentPermissionsOverride ?? this.agentPermissionsOverride,
       agentGrantedPermissions:
           agentGrantedPermissions ?? this.agentGrantedPermissions,
     );
@@ -167,6 +180,8 @@ class ConversationSettings {
       imageGenerationModelId: json['imageGenerationModelId'] as String?,
       imageGenerationEnabled: json['imageGenerationEnabled'] as bool? ?? false,
       agentEnabled: json['agentEnabled'] as bool? ?? false,
+      agentPermissionsOverride:
+          json['agentPermissionsOverride'] as bool? ?? true,
       agentGrantedPermissions:
           (json['agentGrantedPermissions'] as List<dynamic>? ?? const [])
               .map((item) => item.toString())
@@ -196,6 +211,7 @@ class ConversationSettings {
         'imageGenerationModelId': imageGenerationModelId,
       'imageGenerationEnabled': imageGenerationEnabled,
       'agentEnabled': agentEnabled,
+      'agentPermissionsOverride': agentPermissionsOverride,
       'agentGrantedPermissions': agentGrantedPermissions,
     };
   }

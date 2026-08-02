@@ -18,7 +18,6 @@ import '../models/agent_plan.dart';
 import '../models/agent_runtime.dart';
 import '../models/agent_user_interaction.dart';
 import '../models/agent_trace.dart';
-import '../models/agent_working_memory.dart';
 import '../models/conversation.dart';
 import '../models/chat_role.dart';
 import '../models/message.dart';
@@ -1582,7 +1581,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       enableTools: _supportsNativeTools(model),
       annotationPrompt: annotationPrompt,
     );
-    _doStream(model, cid, msgs, createTitle: createTitle);
+    unawaited(_doStream(model, cid, msgs, createTitle: createTitle));
   }
 
   Future<void> _sendRetry(String text) async {
@@ -1735,13 +1734,34 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     } catch (_) {}
   }
 
-  void _doStream(
+  Future<void> _doStream(
     ModelConfig model,
     String cid,
     List<Map<String, dynamic>> msgs, {
     bool createTitle = false,
-  }) {
+  }) async {
     if (!mounted) return;
+    final sendGen = _sendGen;
+    bool webSearchConfigured = false;
+    try {
+      webSearchConfigured =
+          await (_webSearch?.isConfigured() ?? Future.value(false));
+    } catch (error) {
+      debugPrint('查询网页搜索配置失败，按未配置处理: $error');
+    }
+    if (!mounted) return;
+    if (!_streaming || _streamingConvId != cid || sendGen != _sendGen) {
+      final conv = context.read<ConversationProvider>().getConversation(cid);
+      final last = conv?.messages.lastOrNull;
+      if (last != null && last.role == 'assistant' && last.content.isEmpty) {
+        context.read<ConversationProvider>().updateMessageContent(
+          cid,
+          last.id,
+          '已停止生成',
+        );
+      }
+      return;
+    }
     final allowTools = _supportsNativeTools(model);
     final cp = context.read<ConversationProvider>();
     final streamSettings = cp.getConversation(cid)?.settings;
@@ -1777,6 +1797,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final externalToolSnapshot = _externalToolRegistry?.snapshot();
     final storage = context.read<StorageV2Service>();
     _agentMessageId = cp.getConversation(cid)?.messages.lastOrNull?.id;
+    final resolvedPermissionSnapshot =
+        streamSettings?.inheritsAgentPermissions == true
+            ? context.read<SettingsProvider>().settings.agentPermissionSnapshot
+            : streamSettings?.permissionSnapshot;
     final toolService = ToolCallService(
       context.read<FeatureProvider>(),
       tasks: context.read<TaskProvider>(),
@@ -1795,7 +1819,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       toolResultProcessor: _agentToolResultProcessor,
       userInteractionBroker: _userInteractionBroker,
       webSearch: _webSearch,
-      permissionSnapshot: streamSettings?.permissionSnapshot,
+      webSearchConfigured: webSearchConfigured,
+      permissionSnapshot: resolvedPermissionSnapshot,
     );
     final runSnapshot = toolService.createRunSnapshot(
       agentEnabled: streamSettings?.agentEnabled == true,
@@ -1813,7 +1838,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       toolResultProcessor: _agentToolResultProcessor,
       persistenceMetadata: AgentRunPersistenceMetadata(
         conversationId: cid,
-        permissionPolicy: streamSettings?.permissionSnapshot,
+        permissionPolicy: resolvedPermissionSnapshot,
       ),
       model: (request) => const StreamChunkAgentAdapter().adapt(
         _api.sendStreamRequest(
@@ -3276,9 +3301,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           ),
         ),
         if (conv?.agentPlan != null) _agentPlanPanel(conv!.agentPlan!),
-        if (conv?.agentWorkingMemory != null &&
-            !conv!.agentWorkingMemory!.isEmpty)
-          _agentMemoryPanel(conv.agentWorkingMemory!),
         _inputArea(model, mp),
       ],
     );
@@ -3515,64 +3537,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     );
   }
 
-  Widget _agentMemoryPanel(AgentWorkingMemory memory) {
-    final scheme = Theme.of(context).colorScheme;
-    final recent = memory.entries.length > 3
-        ? memory.entries.sublist(memory.entries.length - 3)
-        : memory.entries;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 0, 14, 2),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-        decoration: BoxDecoration(
-          color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: scheme.outlineVariant.withValues(alpha: 0.45),
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.psychology_alt, size: 15, color: scheme.primary),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    memory.goal.trim().isEmpty
-                        ? 'Agent 工作记忆 · ${memory.entries.length} 条'
-                        : 'Agent 工作记忆：${memory.goal.trim()}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            for (final entry in recent)
-              Padding(
-                padding: const EdgeInsets.only(top: 3, left: 21),
-                child: Text(
-                  '${entry.kind}: ${entry.content}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: scheme.onSurfaceVariant.withValues(alpha: 0.72),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
+
 
   Widget _empty() => Center(
     child: Column(

@@ -286,6 +286,7 @@ class AgentLuaScriptService {
       final permitted = const LynAIPermissionService().canUseCapability(
         identity: callIdentity,
         capability: LynAICapabilities.pluginCallFunction,
+        agentPermissionSnapshot: permissionSnapshot,
         appSettings: settings?.settings,
       );
       if (!permitted) {

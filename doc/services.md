@@ -12,7 +12,7 @@
 
 `OutboundNetworkPolicy` 和 `BoundedOutboundHttpClient` 是通用出站网络安全基础。默认只允许无 URL 凭据的 HTTPS 公网目标，请求和每次重定向前都重新检查 host 与 DNS 结果；`dart:io` transport 随后直接连接该次校验通过的 IP，同时仍使用原始 URI host 生成 HTTP Host，并由 `HttpClient` 对原始 hostname 执行 HTTPS SNI 与证书校验。每个 redirect hop 都重新解析、校验和 pin，不复用上一跳地址。HTTP 或私网只能由可信应用配置显式开启。通用客户端限制请求/响应字节数、超时和重定向次数，跨重定向删除 Authorization、proxy authorization 和 API-key header，并通过关闭请求专用 `http.Client` 主动取消进行中的连接。Web/stub 平台保留相同策略校验，但底层浏览器 transport 无法接收应用指定的连接 IP。`McpHttpTransport` 复用相同的 resolver 和 pinned native client factory，为每个请求及 redirect hop 创建独立 pin，同时保留 MCP 的 POST redirect、credential/session header、SSE、错误和大小限制行为。
 
-`WebSearchService` 提供聊天工具使用的双模式搜索基础。模型只能传入规范化的 `WebSearchRequest`（query、1-10 结果数、可选语言和 `day`/`month`/`year` 时间范围），不能传 route、provider、endpoint、header 或 credential。production composition 每次执行从可信 `AppSettings` 读取 route 和客户端首选 provider：client 模式支持固定 HTTPS Tavily endpoint 和用户配置的 SearXNG endpoint；backend 模式使用当前 `BackendClient` 的固定 `/search/web` 路径；auto 模式按首选 client、其余已配置 client、LynAI backend 的顺序回退。主聊天、悬浮聊天和 Subagent 复用同一个 production service，Subagent 不能覆盖策略。Tavily API key 和可选 SearXNG bearer token 只从 `SecretStore` 读取；Tavily 因 key 位于请求 body 而禁止重定向。SearXNG 使用 HTTP 时必须保存显式用户授权，该授权只加入当前配置 endpoint 的精确 origin；Bearer token 仅在此授权存在时可发往该明文 origin，任何 redirect 都不转发 bearer，且跳转到其他 HTTP origin 会被拒绝。异常不包含响应 body 或 secret。
+`WebSearchService` 提供聊天工具使用的双模式搜索基础。模型只能传入规范化的 `WebSearchRequest`（query、1-10 结果数、可选语言和 `day`/`month`/`year` 时间范围），不能传 route、provider、endpoint、header 或 credential。production composition 每次执行从可信 `AppSettings` 读取 route 和客户端首选 provider：client 模式支持固定 HTTPS Tavily endpoint 和用户配置的 SearXNG endpoint；backend 模式使用当前 `BackendClient` 的固定 `/search/web` 路径；auto 模式按首选 client、其余已配置 client、LynAI backend 的顺序回退。主聊天、悬浮聊天和 Subagent 复用同一个 production service，Subagent 不能覆盖策略。`isConfigured()` 按 route 候选（client 模式检查已配置 client provider，backend 检查当前后端，auto 检查两者）判断是否存在可用 adapter；`ToolCallService` 在没有任何候选可用时不注册 `web_search` 工具，系统提示词改为引导模型用 `web_fetch` 抓取搜索引擎结果页或已知 URL 检索。Tavily API key 和可选 SearXNG bearer token 只从 `SecretStore` 读取；Tavily 因 key 位于请求 body 而禁止重定向。SearXNG 使用 HTTP 时必须保存显式用户授权，该授权只加入当前配置 endpoint 的精确 origin；Bearer token 仅在此授权存在时可发往该明文 origin，任何 redirect 都不转发 bearer，且跳转到其他 HTTP origin 会被拒绝。异常不包含响应 body 或 secret。
 
 同步服务只上传两个版本化配置投影：单例 `SharedSettingsV1` 和逐 Provider 的 `SyncedModelConfigV1`。前者不包含后端连接、登录/changelog、最近功能、悬浮助手、权限和本地路径；后者仅接受用户明确开启同步的非托管 Provider，并删除 API key、secure-store 引用、URL userinfo 及疑似凭证的嵌套参数。远端写入使用 storage_v2 的现有 Outbox/conflict 事务，存在本地 pending mutation 时不覆盖本地值。
 
@@ -96,7 +96,7 @@ OCR 和文件识别是发送前处理。处理结果会替换历史附件并标�
 
 文件：`lib/services/tool_call_service.dart`
 
-`ToolCallService` 把模型请求转成本地动作。生产聊天和 Agent 只接受接口原生 tool calls，不提供非原生 JSON fallback。Run 开始时捕获 immutable model schema/permission snapshot；执行由 `AgentToolExecutionService` 完成 schema 校验、授权和调度，独立注入的 `AgentToolResultProcessor` 负责终态 sanitizer。插件的自定义工具由已捕获 handler 转交给 `PluginLuaRuntimeService` 在 Lua 沙箱中执行；MCP schema 固定但执行查询实时 registry 并在不可用时 fail closed。
+`ToolCallService` 把模型请求转成本地动作。生产聊天和 Agent 只接受接口原生 tool calls，不提供非原生 JSON fallback。Run 开始时捕获 immutable model schema/permission snapshot；执行由 `AgentToolExecutionService` 完成 schema 校验、授权和调度，独立注入的 `AgentToolResultProcessor` 负责终态 sanitizer。插件的自定义工具由已捕获 handler 转交给 `PluginLuaRuntimeService` 在 Lua 沙箱中执行；MCP schema 固定但执行查询实时 registry 并在不可用时 fail closed。Run 的身份在首次创建 snapshot 时按该对话的 Agent 模式固定（`runAgentEnabled`），run 中途切换对话 Agent 模式不改变已捕获 snapshot 的身份与权限；非 Agent run 调用原生工具使用 `LynAICallerType.assistantTool`，仍按对话快照域评估权限而不是一律拒绝。`web_search` 仅在 `WebSearchService.isConfigured()` 为真时注册，未配置时由提示词引导改用 `web_fetch` 兜底。
 
 模型多轮控制不再由页面或 `ToolCallService` 自己维护。主对话、悬浮聊天和 Subagent 都由 `AgentLoopRuntime` 驱动；`ToolCallService.executeSequentialCompatibility()` 是具体工具执行适配器，并通过 `AgentToolScheduler(maxConcurrency: 1)` 调用 MCP 等外部 registry 工具。统一运行时、上下文和取消边界见 [Agent Runtime](agent-runtime.md)。
 
@@ -145,6 +145,8 @@ OCR 和文件识别是发送前处理。处理结果会替换历史附件并标�
 | `agent.memory.update` | Agent Lua 更新当前对话共享工作记忆。 |
 
 Agent Lua 可以通过 `lynai.call()` 调用这些函数，也可以用 `lynai.device.*` 便捷接口编排手机自动化。Lua 源码不做固定长度截断，`lynai.call` 不做固定次数硬限制；设备任务依赖悬浮层和 `DeviceRunController` 的暂停/停止机制中断。手机复杂操作优先使用 `lynai.device.query`、`lynai.device.waitAndClick`、`lynai.device.inputInto`、`lynai.device.scrollUntil` 或底层 `device.screen.query` 查找任务相关节点；确实需要完整结构时再读取 `device.screen.snapshot`。消息应用和 QQ 上下文优先通过 `device.screen.extractMessages` 从无障碍节点读取可见文本，无法读取图片、语音或自绘内容时再调用 `device.screen.screenshot`。截图 base64 只能作为 `model.ocr` 或 `model.recognizeFile` 的输入，回传模型的 tool result 会剥离二进制字段，只保留 OCR/识图文本和截图元数据。
+
+模型来源的 Agent Lua 必须携带不可变 Run 权限快照和取消令牌。同步 `lynai.call()` 预检、异步 command、插件函数调用及 continuation 都使用同一快照；运行期间修改全局新对话默认权限不能扩大或缩小该 Run。调用插件函数还必须同时满足插件安装级启用、插件自身授权和逐函数开关，任一层拒绝都不能执行插件副作用。
 
 ### 工具调用策略
 

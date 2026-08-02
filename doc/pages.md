@@ -52,6 +52,8 @@ HomePage
 
 `ChatPage` 协调模型选择、附件、语音、文件识别、OCR、工具调用、Agent/Subagent、Agent 工作记忆、流式响应、失败恢复和分享。模型 turn 与工具 continuation 统一交给 `AgentLoopRuntime`，页面只订阅 run event 更新草稿并在停止、重试或销毁时取消 handle。停止会等待 runtime 的 bounded terminal result，把跨 turn 聚合的 partial content 与 reasoning 保存到最后一条 assistant 消息；失败提示也保留该聚合内容，而不是只使用当前 turn 的 UI buffer。悬浮聊天采用相同语义。
 
+输入区的 Agent 按钮是当前对话或未发送草稿切换 Agent 模式的唯一入口。新草稿从全局“对话权限”读取默认状态，按钮修改后由草稿覆盖该初值；已有对话始终使用自己的 `ConversationSettings.agentEnabled`。对话设置弹窗中的“对话权限”只编辑当前对话或草稿的权限快照，不再提供重复的 Agent 开关，也不修改全局默认或其他历史对话。
+
 打开历史对话只加载该对话自己的设置快照，不把模型、提示词或识别设置写回全局设置。历史请求直接使用快照中的系统提示词正文；即使全局同 ID 提示词后来被编辑，旧会话上下文也保持不变。连续工具调用达到 `ToolCallService.maxToolRounds` 后，页面要求模型基于已有结果结束，并拒绝继续执行工具。
 
 左侧历史抽屉在页面生命周期内保留滚动位置和角色折叠状态。点击“默认”或其他角色标题只折叠/展开该组，点击具体对话才切换到其所属角色；搜索期间临时展开命中分组，清空搜索后恢复原折叠状态。
@@ -206,7 +208,7 @@ HomePage
 | 背景 | `background_page.dart` | 背景图、清除背景、模糊开关和强度。 |
 | API | `api_models_page.dart` | 模型配置分类、编辑、排序和模型拉取。 |
 | 网页搜索 | `web_search_settings_page.dart` | 管理 client/backend/auto 路由、Tavily/SearXNG 首选项和 SearXNG endpoint；Tavily key 与 SearXNG bearer token 只写入 `SecretStore`。SearXNG HTTP 必须显式勾选精确 origin 明文授权，保存 Bearer token 时再次显示明文确认。 |
-| 新对话 Agent 默认值 | `agent_defaults_settings_page.dart` | 控制之后创建的主聊天和悬浮聊天是否默认启用 Agent 及其权限。历史对话不随默认值变化；对话设置弹窗只编辑当前对话快照。 |
+| 对话权限 | `agent_defaults_settings_page.dart` | 控制之后创建的主聊天和悬浮聊天是否默认启用 Agent 及其默认权限。历史对话不随默认值变化；对话设置弹窗只编辑当前对话权限，Agent 模式由输入区按钮切换。 |
 | 悬浮窗 | `floating_assistant_settings_page.dart` | Android 系统悬浮助手设置。原生面板分为 Chat、Translation、Agent；翻译支持一次翻译和停止滚动后自动翻译，Agent 模式展示运行状态与完整 Plan。 |
 | 翻译历史 | `translation_history_page.dart` | 浏览悬浮窗屏幕翻译历史记录（时间/原文/译文/应用包名），长按复制、一键清空。 |
 | 主题 | `theme_page.dart` | 预设色、HSV 调色板、浅色/深色/跟随系统。 |

@@ -53,7 +53,6 @@ class PluginRepository {
       'defaults/skills/qq.md',
       'defaults/skills/wechat.md',
       'defaults/skills/system_settings.md',
-      'defaults/skills/browser_search.md',
       'defaults/skills/camera_ocr_scan.md',
       'defaults/skills/contacts_phone.md',
       'defaults/skills/clock_alarm.md',

@@ -226,3 +226,8 @@ const lynaiPermissionDefinitions = <LynAIPermissionDefinition>[
 final lynaiPermissionDefinitionById = {
   for (final item in lynaiPermissionDefinitions) item.id: item,
 };
+
+final agentAssignablePermissionDefinitions = LynAIPermissions.agentAssignable
+    .map((permission) => lynaiPermissionDefinitionById[permission])
+    .whereType<LynAIPermissionDefinition>()
+    .toList(growable: false);

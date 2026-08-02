@@ -131,6 +131,7 @@ class ToolCallService {
     bool allowScreenContextTool = false,
     bool allowSubagents = true,
     int subagentDepth = 0,
+    bool webSearchConfigured = true,
   }) : _tasks = tasks,
        _calendar = calendar,
        _plugins = plugins,
@@ -159,10 +160,11 @@ class ToolCallService {
                  )),
        _outboundHttpClient = outboundHttpClient ?? BoundedOutboundHttpClient(),
        _allowPlaintextHttpFetch = allowPlaintextHttpFetch,
-       _permissionSnapshot = permissionSnapshot,
-       _allowScreenContextTool = allowScreenContextTool,
-       _allowSubagents = allowSubagents,
-       _subagentDepth = subagentDepth;
+        _permissionSnapshot = permissionSnapshot,
+        _allowScreenContextTool = allowScreenContextTool,
+        _allowSubagents = allowSubagents,
+        _subagentDepth = subagentDepth,
+        _webSearchConfigured = webSearchConfigured;
 
   static const _channel = MethodChannel('lynai/native_tools');
   static const _webFetchDefaultMaxChars = 12000;
@@ -196,6 +198,9 @@ class ToolCallService {
   final AgentUserInteractionBroker? _userInteractionBroker;
   final AgentUserInteractionSurface _interactionSurface;
   final WebSearchService? _webSearch;
+
+  /// 当前 run 是否存在可用的网页搜索服务（未配置时 web_search 不注册）。
+  final bool _webSearchConfigured;
   final BoundedOutboundHttpClient _outboundHttpClient;
   final bool _allowPlaintextHttpFetch;
   final AgentPermissionSnapshot? _permissionSnapshot;
@@ -209,9 +214,10 @@ class ToolCallService {
 
   /// 支持原生 tool_calls 接口使用的系统提示词。
   static const nativeSystemPrompt = '''
-你可以使用本地工具帮助用户管理任务、任务清单、日历事件、纪念日、笔记和旧待办清单，获取时间/位置、打开安卓应用和创建对话标题。
+ 你可以使用本地工具帮助用户管理任务、任务清单、日历事件、纪念日、笔记和旧待办清单，获取时间/位置、打开安卓应用和创建对话标题。
 需要调用工具时使用接口提供的 tool_calls；不需要工具时直接正常回答，不要提及工具。
 收到工具结果后，再用自然语言给用户最终回复。
+未配置网页搜索服务时，可用 web_fetch 抓取搜索引擎结果页或已知 URL 检索信息。
 创建或修改数据前，应从用户输入中提取明确字段；缺少关键字段时先追问。
 需要查看笔记内容时，先用 list_notes 查找笔记 id，再用 read_note 读取完整内容；多分页笔记先用 list_note_pages 查看分页，read_note/save_note/edit_note/propose_note_edit 可用 pageId 或 pageTitle 指定分页。小范围修改笔记时，先 read_note，再用 propose_note_edit 按行提交 edits 让用户逐行确认；用户明确要求直接修改时才用 edit_note。创建、追加或整篇替换时用 save_note。笔记可通过 list_note_folders/save_note_folder 管理文件夹，通过 save_note_page 创建、重命名、删除或上移/下移分页。
 一个用户任务只调用一次 create_task，不要同时创建旧待办项或日历事件。需要按清单组织任务时先用 list_task_lists 查找清单，必要时用 create_task_list 创建；未指定 listId 的任务仍可创建，并会显示在未完成或已完成视图。任务的 plannedDate/dueDate、全天事件日期和纪念日 date 必须使用 YYYY-MM-DD；任务时间和日期型提醒的 dateOnlyTime 使用 HH:mm。reminders 的 offsetMinutes 为相对 anchor 的有符号分钟数，例如“截止前 30 分钟提醒”使用 taskDue 和 -30。定时日历事件使用带时区偏移的 ISO-8601 字符串；用户说“今天/明天”时必须先结合 get_current_time 的 iso 与 timezoneOffsetMinutes 换算成本地日期时间。
@@ -225,6 +231,7 @@ class ToolCallService {
 Plan 创建和更新不需要权限，只用于当前对话的可视化状态。
 工作记忆是当前对话内持久保存的共享上下文。跨主 Agent、Subagent 和 Lua 协作的目标、关键事实、决策、已加载 Skill、子任务结果应写入工作记忆；不要把长屏幕快照或截图写入记忆。
 如果需要了解可用插件函数，先调用 list_plugin_functions。
+未配置网页搜索服务时，可用 web_fetch 抓取搜索引擎结果页或已知 URL 检索信息。
 如果需要调用插件函数，先调用 list_plugin_functions 查看可用函数，再用 call_plugin_function。该能力需要 plugins.callFunction 权限。
 如果需要了解可用插件 Skill，先调用 list_plugin_skills；Skill 摘要不是完整说明，执行相关流程前调用 load_plugin_skill 加载正文。加载 Skill 不需要额外权限；需要按用户要求沉淀或修正可编辑 Skill 时，在已授权 plugins.skills.files:write 后调用 save_plugin_skill 保存正文。
 如果需要运行 Lua，调用 execute_lua。Lua 运行在受限沙箱中：禁用 os/io/package/require/dofile/loadfile，不能访问文件系统或系统命令；所有 LynAI 能力可通过 lynai.call(name, args) 调用，设备能力优先用 lynai.device.* 便捷接口；脚本最后必须 return 一个 JSON 可序列化 table。Agent Lua 支持同步读取函数、plugins.functions.list、plugins.callFunction、agent.plan.update、agent.memory.read、agent.memory.update、agent.note.add、model.chat、model.ocr、model.recognizeFile、model.generateImage、device.app.open、device.* 和 lynai.device.status/query/wait/clickFirst/waitAndClick/inputInto/scrollUntil/readVisibleText/extractMessages。插件函数调用需要 plugins.callFunction 权限。同一应用内的打开、查找、点击、滚动、读取、输入、发送等确定性步骤，能合并就优先放进一次 execute_lua 线性编排，不要拆成多轮工具调用。打开已安装 Android 应用时在 Lua 中调用 lynai.device.openApp("目标包名")。复杂屏幕操控优先使用 lynai.device.query、lynai.device.waitAndClick、lynai.device.inputInto、lynai.device.scrollUntil 和 device.screen.extractMessages；必要时才用坐标 tap/swipe。读取 QQ/消息应用时优先用无障碍节点和 device.screen.extractMessages，不足时再截图配合 OCR/识图。关键调用后检查 ok，失败时返回结构化 error。截图只能作为 OCR/识图输入，不要把截图 base64 返回给模型。
@@ -1349,6 +1356,7 @@ ${lines.join('\n')}$more''';
   static void _appendFoundationTools(
     List<Map<String, dynamic>> tools,
     bool agentEnabled,
+    bool webSearchConfigured,
   ) {
     final names = tools
         .map((tool) => tool['function']?['name']?.toString())
@@ -1394,16 +1402,18 @@ ${lines.join('\n')}$more''';
         'required': ['kind', 'prompt'],
       });
     }
-    add('web_search', '搜索互联网并返回规范化的标题、链接和摘要。', {
-      'type': 'object',
-      'properties': {
-        'query': {'type': 'string'},
-        'maxResults': {'type': 'integer'},
-        'language': {'type': 'string'},
-        'timeRange': {'type': 'string'},
-      },
-      'required': ['query'],
-    });
+    if (webSearchConfigured) {
+      add('web_search', '搜索互联网并返回规范化的标题、链接和摘要。', {
+        'type': 'object',
+        'properties': {
+          'query': {'type': 'string'},
+          'maxResults': {'type': 'integer'},
+          'language': {'type': 'string'},
+          'timeRange': {'type': 'string'},
+        },
+        'required': ['query'],
+      });
+    }
     add('read_attachment', '按当前对话的 messageId 和附件序号安全读取附件。', {
       'type': 'object',
       'properties': {
@@ -1604,15 +1614,9 @@ ${lines.join('\n')}$more''';
     required bool agentEnabled,
     required bool imageGenerationEnabled,
   }) {
+    _runAgentEnabled = agentEnabled;
     final permissions =
-        _permissionSnapshot ??
-        (_conversationId == null
-            ? _settings?.settings.agentPermissionSnapshot
-            : _conversations
-                      ?.getConversation(_conversationId)
-                      ?.settings
-                      .permissionSnapshot ??
-                  _settings?.settings.agentPermissionSnapshot) ??
+        _effectivePermissionSnapshot() ??
         AgentPermissionSnapshot(permissions: const []);
     final registry = AgentToolRegistry();
     final definitions = openAITools(
@@ -1622,7 +1626,7 @@ ${lines.join('\n')}$more''';
       imageGenerationEnabled,
       _allowScreenContextTool,
     );
-    _appendFoundationTools(definitions, agentEnabled);
+    _appendFoundationTools(definitions, agentEnabled, _webSearchConfigured);
     for (final definition in definitions) {
       final function = definition['function'];
       if (function is! Map) continue;
@@ -1659,6 +1663,7 @@ ${lines.join('\n')}$more''';
           context,
           permissions,
           pluginBinding: pluginBinding,
+          runAgentEnabled: agentEnabled,
         ),
       );
     }
@@ -1729,6 +1734,7 @@ ${lines.join('\n')}$more''';
     AgentToolExecutionContext context,
     AgentPermissionSnapshot permissions, {
     (InstalledPlugin, PluginToolDefinition)? pluginBinding,
+    bool? runAgentEnabled,
   }) async {
     final call = ChatToolCall(
       id: invocation.id,
@@ -1758,7 +1764,9 @@ ${lines.join('\n')}$more''';
       );
     }
     final identity = LynAICallIdentity(
-      type: _agentEnabled ? LynAICallerType.agent : LynAICallerType.assistant,
+      type: (runAgentEnabled ?? _agentEnabled)
+          ? LynAICallerType.agent
+          : LynAICallerType.assistantTool,
       conversationId: _conversationId,
       runId: context.identity.runId,
       turnId: context.identity.turnId,
@@ -1950,7 +1958,7 @@ ${lines.join('\n')}$more''';
               .child(
                 type: _agentEnabled
                     ? LynAICallerType.agent
-                    : LynAICallerType.assistant,
+                    : LynAICallerType.assistantTool,
                 runId: identity.runId,
                 turnId: identity.turnId,
               ),
@@ -2344,8 +2352,7 @@ ${lines.join('\n')}$more''';
     final messageId = call.arguments['messageId']?.toString() ?? '';
     final index = (call.arguments['attachmentIndex'] as num?)?.toInt() ?? -1;
     final mode = call.arguments['mode']?.toString() ?? 'metadata';
-    final permissions =
-        _permissionSnapshot ?? _conversationSettings?.permissionSnapshot;
+    final permissions = _effectivePermissionSnapshot();
     if (mode == 'ocr' &&
         permissions?.contains(LynAIPermissions.modelOcr) != true) {
       return _agentError(
@@ -2436,8 +2443,7 @@ ${lines.join('\n')}$more''';
         final permission = call.arguments['mode'] == 'ocr'
             ? LynAIPermissions.modelOcr
             : LynAIPermissions.modelRecognizeFile;
-        final permissions =
-            _permissionSnapshot ?? _conversationSettings?.permissionSnapshot;
+        final permissions = _effectivePermissionSnapshot();
         if (permissions?.contains(permission) != true) {
           return _agentError('permission_denied', '缺少 $permission 权限');
         }
@@ -2575,6 +2581,7 @@ ${lines.join('\n')}$more''';
       permissionSnapshot: _permissionSnapshot,
       allowSubagents: _subagentDepth + 1 < maxSubagentDepth,
       subagentDepth: _subagentDepth + 1,
+      webSearchConfigured: _webSearchConfigured,
     );
     final working = <Map<String, dynamic>>[
       {
@@ -3132,11 +3139,32 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     }
   }
 
+  bool? _runAgentEnabled;
+
   bool get _agentEnabled {
     final cid = _conversationId;
     final conversations = _conversations;
     if (cid == null || conversations == null) return false;
     return conversations.getConversation(cid)?.settings.agentEnabled == true;
+  }
+
+  /// 当前 run 开始时固定的 Agent 开关，取不到 run 快照时回退实时值。
+  bool get _runAgentActive => _runAgentEnabled ?? _agentEnabled;
+
+  /// 生效权限快照：注入快照 > 对话继承时实时全局快照/显式对话快照 > 全局默认。
+  AgentPermissionSnapshot? _effectivePermissionSnapshot() {
+    if (_permissionSnapshot != null) return _permissionSnapshot;
+    final conversation = _conversationId == null
+        ? null
+        : _conversations?.getConversation(_conversationId);
+    if (conversation == null) {
+      return _settings?.settings.agentPermissionSnapshot;
+    }
+    final settings = conversation.settings;
+    if (settings.inheritsAgentPermissions) {
+      return _settings?.settings.agentPermissionSnapshot;
+    }
+    return settings.permissionSnapshot;
   }
 
   LynAICallIdentity get _agentIdentity =>
@@ -3154,6 +3182,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     }
     if (provided != null &&
         (provided.type == LynAICallerType.agent ||
+            provided.type == LynAICallerType.assistantTool ||
             provided.type == LynAICallerType.agentLua ||
             provided.type == LynAICallerType.lua)) {
       return provided.child(
@@ -3162,24 +3191,11 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
         toolName: call.name,
       );
     }
-    if (!_agentEnabled) {
-      return LynAICallIdentity(
-        type: LynAICallerType.assistant,
-        conversationId: _conversationId,
-        toolCallId: call.id,
-        toolName: call.name,
-      );
-    }
-    if (provided == null) {
-      return LynAICallIdentity(
-        type: LynAICallerType.assistant,
-        conversationId: _conversationId,
-        toolCallId: call.id,
-        toolName: call.name,
-      );
-    }
-    return provided.child(
-      type: LynAICallerType.agent,
+    return LynAICallIdentity(
+      type: _runAgentActive
+          ? LynAICallerType.agent
+          : LynAICallerType.assistantTool,
+      conversationId: _conversationId,
       toolCallId: call.id,
       toolName: call.name,
     );
@@ -3195,8 +3211,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
       functionName,
       arguments,
       identity: _identityForToolCall(call),
-      permissions:
-          _permissionSnapshot ?? _conversationSettings?.permissionSnapshot,
+      permissions: _effectivePermissionSnapshot(),
     );
   }
 
@@ -3297,10 +3312,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     return _permissionService.canUseCapability(
       identity: identity ?? _agentIdentity,
       capability: capability,
-      agentPermissionSnapshot:
-          permissions ??
-          _permissionSnapshot ??
-          _conversationSettings?.permissionSnapshot,
+      agentPermissionSnapshot: permissions ?? _effectivePermissionSnapshot(),
       appSettings: _settings?.settings,
     );
   }
@@ -3381,7 +3393,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     )) {
       final result = _agentError(
         'permission_denied',
-        'Agent 未授权 plugins.callFunction。请请求用户在 Agent 设置中开启“调用插件函数”。',
+        'Agent 未授权 plugins.callFunction。请请求用户在当前对话的“对话权限”中开启“调用插件函数”。',
       );
       _appendAgentTrace(
         AgentTraceEvent.error,
@@ -3507,7 +3519,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     )) {
       final result = _agentError(
         'permission_denied',
-        'Agent 未授权 lua.execute。请请求用户在 Agent 设置中开启“执行 Lua 脚本”。',
+        'Agent 未授权 lua.execute。请请求用户在当前对话的“对话权限”中开启“执行 Lua 脚本”。',
       );
       _appendAgentTrace(
         AgentTraceEvent.error,
@@ -3537,10 +3549,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
         toolCallId: call.id,
         toolName: 'execute_lua',
       ),
-      permissionSnapshot:
-          permissions ??
-          _permissionSnapshot ??
-          conv!.settings.permissionSnapshot,
+      permissionSnapshot: permissions ?? _effectivePermissionSnapshot(),
       cancellationToken: cancellationToken,
       backend: _backend,
     );
@@ -3615,9 +3624,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
           ),
           LynAIFunctionContext(
             identity: identity ?? _identityForToolCall(call),
-            agentPermissionSnapshot:
-                _permissionSnapshot ??
-                _conversationSettings?.permissionSnapshot,
+            agentPermissionSnapshot: _effectivePermissionSnapshot(),
             features: _features,
             tasks: _tasks,
             calendar: _calendar,

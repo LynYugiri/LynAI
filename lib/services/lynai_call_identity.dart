@@ -1,5 +1,7 @@
 enum LynAICallerType {
   assistant,
+  /// 非 Agent 模式下模型发起的原生工具调用，权限按对话权限快照评估。
+  assistantTool,
   agent,
   agentLua,
   lua,

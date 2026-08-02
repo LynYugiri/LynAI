@@ -13,20 +13,24 @@ class AgentDefaultsSettingsPage extends StatelessWidget {
     final settings = provider.settings;
     final permissions = settings.agentGrantedPermissions.toSet();
     return Scaffold(
-      appBar: AppBar(title: const Text('新对话 Agent 默认值')),
+      appBar: AppBar(title: const Text('对话权限')),
       body: ListView(
         children: [
           SwitchListTile(
             value: settings.agentEnabledByDefault,
             title: const Text('新对话默认启用 Agent'),
-            subtitle: const Text('只影响之后创建的对话；历史对话保留自己的快照。'),
+            subtitle: const Text('只影响之后创建的对话；历史对话保留自己的开关。'),
             onChanged: (value) => provider.updateAgentDefaults(
               enabled: value,
               permissions: settings.agentGrantedPermissions,
             ),
           ),
           const Divider(height: 1),
-          for (final definition in lynaiPermissionDefinitions)
+          const ListTile(
+            title: Text('新对话默认权限'),
+            subtitle: Text('修改立即作用于所有未自定义的对话；已自定义权限的对话保持不变。'),
+          ),
+          for (final definition in agentAssignablePermissionDefinitions)
             CheckboxListTile(
               value: permissions.contains(definition.id),
               title: Text(definition.title),

@@ -51,7 +51,7 @@ void main() {
   );
 
   test(
-    'legacy permission snapshot copies current defaults exactly once',
+    'legacy permission snapshots migrate to inherit and stay idempotent',
     () async {
       final root = await Directory.systemTemp.createTemp(
         'lynai_conversation_permission_',
@@ -69,6 +69,38 @@ void main() {
               'settings': {
                 'modelId': 'model',
                 'agentGrantedPermissions': [LynAIPermissions.notesWrite],
+              },
+              'roleId': 'default',
+              'createdAt': now,
+              'updatedAt': now,
+            },
+            {
+              'id': 'customized',
+              'title': 'Customized',
+              'modelId': 'model',
+              'settings': {
+                'modelId': 'model',
+                'permissionSnapshotVersion':
+                    AgentPermissionSnapshot.currentVersion,
+                'agentPermissionsOverride': true,
+                'agentGrantedPermissions': [LynAIPermissions.notesWrite],
+              },
+              'roleId': 'default',
+              'createdAt': now,
+              'updatedAt': now,
+            },
+            {
+              'id': 'mirror',
+              'title': 'Mirror',
+              'modelId': 'model',
+              'settings': {
+                'modelId': 'model',
+                'permissionSnapshotVersion':
+                    AgentPermissionSnapshot.currentVersion,
+                'agentGrantedPermissions': [
+                  LynAIPermissions.networkAccess,
+                  LynAIPermissions.todosRead,
+                ],
               },
               'roleId': 'default',
               'createdAt': now,
@@ -96,10 +128,26 @@ void main() {
           await provider.migrateLegacyPermissionSnapshots(defaults),
           isTrue,
         );
-        expect(
-          provider.getConversation('legacy')!.settings.agentGrantedPermissions,
-          defaults,
-        );
+
+        // v0 历史数据直接转为跟随全局，列表写入当前全局镜像。
+        final legacy = provider.getConversation('legacy')!.settings;
+        expect(legacy.permissionSnapshotVersion,
+            AgentPermissionSnapshot.currentVersion);
+        expect(legacy.agentPermissionsOverride, isFalse);
+        expect(legacy.agentGrantedPermissions, defaults);
+
+        // 已显式自定义的对话保持覆盖，不动。
+        final customized = provider.getConversation('customized')!.settings;
+        expect(customized.agentPermissionsOverride, isTrue);
+        expect(customized.agentGrantedPermissions, const [
+          LynAIPermissions.notesWrite,
+        ]);
+
+        // v1 且列表与全局一致（无 override 字段的旧数据）自动转为继承。
+        final mirror = provider.getConversation('mirror')!.settings;
+        expect(mirror.agentPermissionsOverride, isFalse);
+
+        // 幂等：再次迁移无变化。
         expect(
           await provider.migrateLegacyPermissionSnapshots(const [
             LynAIPermissions.deviceControl,
@@ -111,19 +159,26 @@ void main() {
 
         final db = sqlite3.open('${root.path}/storage_v2/app.db');
         try {
-          final settings =
-              jsonDecode(
-                    db
-                            .select('SELECT settings_json FROM conversations')
-                            .single['settings_json']
-                        as String,
-                  )
-                  as Map<String, dynamic>;
+          final rows = db.select(
+            'SELECT id, settings_json FROM conversations ORDER BY id',
+          );
+          final byId = {
+            for (final row in rows) row['id'] as String: row['settings_json'] as String,
+          };
+          final legacyJson =
+              jsonDecode(byId['legacy']!) as Map<String, dynamic>;
           expect(
-            settings['permissionSnapshotVersion'],
+            legacyJson['permissionSnapshotVersion'],
             AgentPermissionSnapshot.currentVersion,
           );
-          expect(settings['agentGrantedPermissions'], defaults);
+          expect(legacyJson['agentPermissionsOverride'], isFalse);
+          expect(legacyJson['agentGrantedPermissions'], defaults);
+          final mirrorJson =
+              jsonDecode(byId['mirror']!) as Map<String, dynamic>;
+          expect(mirrorJson['agentPermissionsOverride'], isFalse);
+          final customizedJson =
+              jsonDecode(byId['customized']!) as Map<String, dynamic>;
+          expect(customizedJson['agentPermissionsOverride'], isTrue);
         } finally {
           db.close();
         }

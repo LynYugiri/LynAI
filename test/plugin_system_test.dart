@@ -56,7 +56,6 @@ void main() {
         'defaults/skills/qq.md',
         'defaults/skills/wechat.md',
         'defaults/skills/system_settings.md',
-        'defaults/skills/browser_search.md',
         'defaults/skills/camera_ocr_scan.md',
         'defaults/skills/contacts_phone.md',
         'defaults/skills/clock_alarm.md',
@@ -68,10 +67,15 @@ void main() {
         'defaults/skills/note_capture_to_kb.md',
       ]),
     );
+    expect(
+      PluginRepository.builtInPluginFiles['mobile-agent-skills'],
+      isNot(contains('defaults/skills/browser_search.md')),
+      reason: 'browser_search skill 已移除',
+    );
   });
 
   test(
-    'mobile-agent-skills manifest lists 15 skills with matching files',
+    'mobile-agent-skills manifest lists 14 skills with matching files',
     () async {
       const pluginId = 'mobile-agent-skills';
       const manifestPath = 'assets/plugins/$pluginId/plugin.json';
@@ -81,8 +85,26 @@ void main() {
       final editables = (manifest['editableFiles'] as List)
           .cast<Map<String, dynamic>>();
 
-      expect(skills.length, 15, reason: 'mobile-agent-skills 应有 15 个 skill');
-      expect(editables.length, 15, reason: 'editableFiles 应与 skills 数量一致');
+      expect(skills.length, 14, reason: 'mobile-agent-skills 应有 14 个 skill');
+      expect(editables.length, 14, reason: 'editableFiles 应与 skills 数量一致');
+      expect(
+        skills.map((s) => s['name']),
+        isNot(contains('browser_search')),
+        reason: 'browser_search skill 已移除',
+      );
+      expect(
+        await File('assets/plugins/$pluginId/defaults/skills/browser_search.md')
+            .exists(),
+        isFalse,
+        reason: 'browser_search.md 资源文件应已删除',
+      );
+      final version = manifest['version'] as String;
+      expect(version, '1.2.0', reason: '移除 skill 后版本应提升');
+      expect(
+        manifest['description'] as String,
+        isNot(contains('浏览器')),
+        reason: 'manifest description 不应再提及浏览器搜索',
+      );
 
       final pathPattern = RegExp(r'^skills/([A-Za-z0-9_-]{1,64})\.md$');
       final savedFiles = PluginRepository.builtInPluginFiles[pluginId]!
@@ -977,9 +999,17 @@ end
       await plugins.setFunctionEnabled('agent_function_plugin', 'lookup', true);
       final conversations = memoryConversationProvider();
       final settings = memorySettingsProvider();
-      final cid = conversations.createConversation(
-        ConversationSettings(modelId: 'm1', agentEnabled: true),
+      await settings.replaceSettings(
+        settings.settings.copyWith(agentGrantedPermissions: const []),
       );
+      final cid = conversations.createConversation(
+        ConversationSettings(
+          modelId: 'm1',
+          agentEnabled: true,
+          agentGrantedPermissions: const [],
+        ),
+      );
+      final cancellation = AgentCancellationSource();
 
       final result = await AgentLuaScriptService().execute(
         purpose: 'call plugin',
@@ -987,6 +1017,11 @@ end
         settings: settings,
         conversations: conversations,
         conversationId: cid,
+        identity: const LynAICallIdentity(type: LynAICallerType.agentLua),
+        permissionSnapshot: AgentPermissionSnapshot(
+          permissions: const [LynAIPermissions.pluginCallFunction],
+        ),
+        cancellationToken: cancellation.token,
         code: r'''
 function after_lookup(response, request)
   return { ok = response.ok, summary = response.value, requested = request.functionName }
@@ -1085,17 +1120,29 @@ return lynai.call("plugins.callFunction", {
       final conversations = memoryConversationProvider();
       final settings = memorySettingsProvider();
       await settings.replaceSettings(
-        settings.settings.copyWith(agentGrantedPermissions: const []),
+        settings.settings.copyWith(
+          agentGrantedPermissions: const [LynAIPermissions.pluginCallFunction],
+        ),
       );
       final cid = conversations.createConversation(
-        ConversationSettings(modelId: 'm1', agentEnabled: true),
+        ConversationSettings(
+          modelId: 'm1',
+          agentEnabled: true,
+          agentGrantedPermissions: const [LynAIPermissions.pluginCallFunction],
+        ),
       );
+      final cancellation = AgentCancellationSource();
 
       final result = await AgentLuaScriptService().execute(
         purpose: 'call plugin without permission',
         settings: settings,
         conversations: conversations,
         conversationId: cid,
+        identity: const LynAICallIdentity(type: LynAICallerType.agentLua),
+        permissionSnapshot: AgentPermissionSnapshot(
+          permissions: const [LynAIPermissions.luaExecute],
+        ),
+        cancellationToken: cancellation.token,
         code: r'''
 return lynai.call("plugins.callFunction", {
   pluginId = "missing",

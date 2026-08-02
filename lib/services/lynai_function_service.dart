@@ -590,6 +590,7 @@ class LynAIFunctionService {
   ) {
     final caller = context.identity.type;
     if (caller != LynAICallerType.agent &&
+        caller != LynAICallerType.assistantTool &&
         caller != LynAICallerType.agentLua &&
         caller != LynAICallerType.lua) {
       return false;
@@ -598,6 +599,8 @@ class LynAIFunctionService {
       'notes.delete' ||
       'calendar.delete' ||
       'anniversaries.delete' ||
+      'tasks.delete' ||
+      'taskLists.delete' ||
       'todos.deleteList' ||
       'schedules.delete' ||
       'plugin.file.delete' ||

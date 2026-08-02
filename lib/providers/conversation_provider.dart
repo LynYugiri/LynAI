@@ -173,19 +173,40 @@ class ConversationProvider extends ChangeNotifier {
     return true;
   }
 
+  /// 迁移旧对话的权限快照为继承式语义。
+  ///
+  /// - v0 历史数据：从未自定义过权限，直接转为跟随全局（override=false）。
+  /// - v1 且自定义列表与当前全局一致：无实际自定义，自动转为跟随全局。
+  /// - v1 且列表与全局不同：保持显式覆盖，幂等。
   Future<bool> migrateLegacyPermissionSnapshots(
     Iterable<String> currentGlobalDefaults,
   ) async {
+    final normalizedDefaults = currentGlobalDefaults.toSet();
     var changed = false;
     _conversations = _conversations
         .map((conversation) {
-          if (conversation.settings.permissionSnapshotVersion != 0) {
+          final settings = conversation.settings;
+          if (settings.permissionSnapshotVersion != 0) {
+            if (settings.agentPermissionsOverride &&
+                settings.agentGrantedPermissions.length ==
+                    normalizedDefaults.length &&
+                settings.agentGrantedPermissions
+                    .toSet()
+                    .containsAll(normalizedDefaults)) {
+              changed = true;
+              return conversation.copyWith(
+                settings: settings.copyWith(
+                  agentPermissionsOverride: false,
+                ),
+              );
+            }
             return conversation;
           }
           changed = true;
           return conversation.copyWith(
-            settings: conversation.settings.copyWith(
+            settings: settings.copyWith(
               permissionSnapshotVersion: AgentPermissionSnapshot.currentVersion,
+              agentPermissionsOverride: false,
               agentGrantedPermissions: List<String>.from(currentGlobalDefaults),
             ),
           );

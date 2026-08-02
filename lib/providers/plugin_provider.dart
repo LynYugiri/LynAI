@@ -619,6 +619,7 @@ class PluginProvider extends ChangeNotifier {
         return _withBuiltInSource(pluginId, (sourceDir) async {
           final plugin = await _repository.importDirectory(sourceDir.path);
           await _upsert(plugin);
+          await _cleanStaleBuiltInFiles(pluginId);
           return plugin;
         });
       });
@@ -629,9 +630,24 @@ class PluginProvider extends ChangeNotifier {
         return _withBuiltInSource(pluginId, (sourceDir) async {
           final plugin = await _repository.syncDirectory(sourceDir.path);
           await _upsert(plugin);
+          await _cleanStaleBuiltInFiles(pluginId);
           return pluginById(plugin.id) ?? plugin;
         });
       });
+
+  /// 清理已移除的内置插件残留文件（升级对账）。
+  Future<void> _cleanStaleBuiltInFiles(String pluginId) async {
+    if (pluginId != 'mobile-agent-skills') return;
+    try {
+      final dir = await _repository.pluginDirectory(pluginId);
+      final stale = File('${dir.path}/skills/browser_search.md');
+      if (await stale.exists()) {
+        await stale.delete();
+      }
+    } catch (_) {
+      // 清理失败不阻断内置插件安装。
+    }
+  }
 
   /// 从应用资源包提取内置插件源码并执行操作，完成后清理临时目录。
   Future<T> _withBuiltInSource<T>(

@@ -64,6 +64,8 @@ start
 
 MCP 工具发给模型的 descriptor/schema 在 Run 开始时固定；执行时按 canonical name 查询实时 registry。server 在模型返回 tool call 前断开、禁用或刷新时，旧 schema 不会改写，但调用会 fail closed；它不会调用已释放连接，也不会悄悄绑定非 MCP 的同名 registration。插件和内置工具仍执行各自捕获的 handler。
 
+Run 同时固定当前对话的权限快照。后续模型 turn、Agent Lua 同步预检、异步插件函数执行和 Lua continuation 都沿用该快照，不重新读取全局“对话权限”的新对话默认值。全局默认不能扩大或缩小进行中的 Run；模型来源 Agent Lua 缺少快照或取消令牌时继续 fail closed。插件函数还要通过插件自身的安装级授权，因此最终能力是 Run 权限与实时插件可用性的交集。
+
 ## 上下文预算
 
 `AgentContextBuilder` 当前使用 JSON 字符数除以 `charactersPerToken` 估算 token，不调用具体模型 tokenizer。默认预算保留输出空间，并分别限制单个 tool result 与 compaction checkpoint。
@@ -137,13 +139,13 @@ is supplied it takes precedence over mutable application settings.
 - Tool-call batches execute through `AgentToolExecutionService` and `AgentToolScheduler`. `ToolCallService.executeSequentialCompatibility` remains only for legacy tests/adapters and has no production caller.
 - Tool results are sanitized before they enter durable tool-call rows or model continuation messages. Large or binary values are offloaded to local-only resources.
 - Subagents receive a filtered child snapshot, inherit the parent cancellation token, cannot expose `ask_user`, and cannot recurse beyond the configured depth policy. Parent cancellation prevents late memory or trace merges.
-- The public foundation catalog has exactly four logical names: `ask_user`, `web_search`, `read_attachment`, and `resource`. `resource.operation` is one of `metadata`, `search`, `read`, or `recognize`; execution performs cross-field validation before dispatch. Attachment and resource metadata/search/read/recognition are restricted to resources referenced by the active conversation, so an ID from another conversation resolves as not found.
+- The public foundation catalog has exactly four logical names: `ask_user`, `web_search`, `read_attachment`, and `resource`. `web_search` is registered only when at least one candidate adapter (configured client providers or backend route) reports `isConfigured()`; when unconfigured the system prompts instruct the model to fall back to `web_fetch` on known URLs or search-engine result pages. `resource.operation` is one of `metadata`, `search`, `read`, or `recognize`; execution performs cross-field validation before dispatch. Attachment and resource metadata/search/read/recognition are restricted to resources referenced by the active conversation, so an ID from another conversation resolves as not found.
 ## Tool Security Boundaries
 
 - Model-visible plugin tools use `AgentToolNameCodec` canonical names scoped by plugin ID. A run snapshot captures the plugin, raw handler name, and validated schema together; later manifest refreshes do not retarget an in-flight run. Canonical-name collisions fail registration explicitly.
 - Production snapshot handlers call concrete built-in, LynAI function, plugin, or captured external handlers directly. They do not re-enter `ToolCallService.execute`, rediscover a plugin by raw model name, or re-snapshot an external registry.
-- Model-reachable LynAI function calls require an explicit caller identity. Only explicit trusted host code may use `LynAICallerType.system`; missing or assistant identity fails permission checks closed.
-- Delete policy is semantic: Agent callers are rejected before mutation for delete functions, note page/folder and todo-item `delete=true`, and todo replacement lists that omit existing item IDs.
+- Model-reachable LynAI function calls require an explicit caller identity. Only explicit trusted host code may use `LynAICallerType.system`; missing or assistant identity fails permission checks closed. Non-Agent runs call native tools with `LynAICallerType.assistantTool`, which is evaluated against the captured conversation permission snapshot just like an Agent call — it is not a blanket rejection.
+- Delete policy is semantic: all model-driven callers (Agent, `assistantTool`, and Lua) are rejected before mutation for delete functions, note page/folder and todo-item `delete=true`, and todo replacement lists that omit existing item IDs. This covers `tasks.delete`, `taskLists.delete`, `todos.deleteList`, `notes.delete`, `calendar.delete`, `anniversaries.delete`, `schedules.delete`, `plugin.file.delete`, `recycleBin.deleteForever`, and `plugin.restore`.
 - `save_plugin_skill` requires the dedicated `plugins.skills.files:write` permission rather than notes or broad file-write permission.
 - `http.fetch` and `web_fetch` use `BoundedOutboundHttpClient`, including destination and redirect revalidation, URL credential rejection, public-network defaults, request/streamed-response byte limits, timeout, and active cancellation.
 All main chat, floating chat and Subagent `AgentLoopRuntime` handles are registered with the active physical-dataset barrier. A dataset switch cancels these runs and awaits their terminal result before changing storage, and no new dataset-bound run is admitted until reload and platform projection finish.

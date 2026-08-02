@@ -439,6 +439,69 @@ void main() {
       expect(requests.single.headers['Authorization'], 'Bearer secret');
     },
   );
+
+  test('Tavily isConfigured requires a stored API key', () async {
+    final adapter = TavilyWebSearchAdapter(
+      secretStore: InMemorySecretStore(),
+      httpClient: BoundedOutboundHttpClient(),
+    );
+    expect(await adapter.isConfigured(), isFalse);
+    final configured = TavilyWebSearchAdapter(
+      secretStore: InMemorySecretStore({
+        TavilyWebSearchAdapter.apiKeySecretKey: 'secret',
+      }),
+      httpClient: BoundedOutboundHttpClient(),
+    );
+    expect(await configured.isConfigured(), isTrue);
+  });
+
+  test('isConfigured reports whether any candidate adapter is available', (
+    ) async {
+    final none = WebSearchService(
+      clientAdapters: [
+        _FakeAdapter(
+          id: 'tavily',
+          provider: WebSearchClientProvider.tavily,
+          configured: false,
+          onSearch: () => const [],
+        ),
+      ],
+    );
+    expect(await none.isConfigured(), isFalse);
+    expect(await none.isConfigured(route: WebSearchRoute.backend), isFalse);
+
+    final some = WebSearchService(
+      clientAdapters: [
+        _FakeAdapter(
+          id: 'tavily',
+          provider: WebSearchClientProvider.tavily,
+          configured: false,
+          onSearch: () => const [],
+        ),
+        _FakeAdapter(
+          id: 'searxng',
+          provider: WebSearchClientProvider.searxng,
+          configured: true,
+          onSearch: () => const [],
+        ),
+      ],
+      backendAdapter: _FakeAdapter(
+        id: 'lynai_backend',
+        provider: null,
+        configured: false,
+        onSearch: () => const [],
+      ),
+    );
+    expect(await some.isConfigured(), isTrue);
+    expect(
+      await some.isConfigured(
+        route: WebSearchRoute.client,
+        preferredClientProvider: WebSearchClientProvider.tavily,
+      ),
+      isTrue,
+    );
+    expect(await some.isConfigured(route: WebSearchRoute.backend), isFalse);
+  });
 }
 
 class _HandlerClient extends http.BaseClient {

@@ -259,6 +259,25 @@ class WebSearchService {
   final List<WebSearchAdapter> _clientAdapters;
   final WebSearchAdapter? _backendAdapter;
 
+  /// 是否存在至少一个可用的搜索适配器（未配置返回 false）。
+  Future<bool> isConfigured({
+    WebSearchRoute route = WebSearchRoute.auto,
+    WebSearchClientProvider? preferredClientProvider,
+  }) async {
+    final candidates = switch (route) {
+      WebSearchRoute.client => _orderedClients(preferredClientProvider),
+      WebSearchRoute.backend => [?_backendAdapter],
+      WebSearchRoute.auto => [
+        ..._orderedClients(preferredClientProvider),
+        ?_backendAdapter,
+      ],
+    };
+    for (final adapter in candidates) {
+      if (await adapter.isConfigured()) return true;
+    }
+    return false;
+  }
+
   factory WebSearchService.production({
     required SettingsProvider settings,
     required SecretStore secretStore,
@@ -346,6 +365,45 @@ class _PolicyWebSearchService extends WebSearchService {
   final SecretStore secretStore;
   final BackendClient backend;
   final BoundedOutboundHttpClient? httpClient;
+
+  @override
+  Future<bool> isConfigured({
+    WebSearchRoute route = WebSearchRoute.auto,
+    WebSearchClientProvider? preferredClientProvider,
+  }) {
+    final policy = settings.settings;
+    final endpoint = Uri.tryParse(policy.searxngEndpoint ?? '');
+    final defaultClient = httpClient ?? BoundedOutboundHttpClient();
+    final clients = <WebSearchAdapter>[
+      TavilyWebSearchAdapter(
+        secretStore: secretStore,
+        httpClient: defaultClient,
+      ),
+      if (endpoint != null && endpoint.host.isNotEmpty)
+        SearxngWebSearchAdapter(
+          endpoint: endpoint,
+          secretStore: secretStore,
+          httpClient: httpClient ??
+              BoundedOutboundHttpClient(
+                policy: OutboundNetworkPolicy(
+                  allowedHttpOrigins:
+                      endpoint.scheme == 'http' && policy.searxngAllowHttp
+                      ? {outboundOrigin(endpoint)}
+                      : const {},
+                ),
+              ),
+          allowPlaintextHttp:
+              endpoint.scheme == 'http' && policy.searxngAllowHttp,
+        ),
+    ];
+    return WebSearchService(
+      clientAdapters: clients,
+      backendAdapter: LynaiBackendWebSearchAdapter(backend: backend),
+    ).isConfigured(
+      route: policy.webSearchRoute,
+      preferredClientProvider: policy.webSearchClientProvider,
+    );
+  }
 
   @override
   Future<WebSearchResponse> search(

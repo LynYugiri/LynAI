@@ -871,6 +871,233 @@ void main() {
     },
   );
 
+  test(
+    'non-Agent run executes organizer tools against the permission snapshot',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'lynai_non_agent_tools_',
+      );
+      try {
+        final storage = await _readyStorageV2(root);
+        final features = FeatureProvider(storageV2: storage);
+        final tasks = TaskProvider(storageV2: storage);
+        final calendar = CalendarProvider(storageV2: storage);
+        await Future.wait([features.load(), tasks.load(), calendar.load()]);
+        SharedPreferences.setMockInitialValues({});
+        final conversations = memoryConversationProvider();
+        final settings = memorySettingsProvider();
+        await settings.replaceSettings(
+          AppSettings.defaults().copyWith(
+            agentGrantedPermissions: const [LynAIPermissions.todosWrite],
+          ),
+        );
+        final cid = conversations.createConversation(
+          ConversationSettings(
+            modelId: 'm1',
+            agentEnabled: false,
+            agentGrantedPermissions: const [LynAIPermissions.todosWrite],
+          ),
+        );
+        final service = ToolCallService(
+          features,
+          tasks: tasks,
+          calendar: calendar,
+          conversations: conversations,
+          conversationId: cid,
+          settings: settings,
+        );
+        final snapshot = service.createRunSnapshot(
+          agentEnabled: false,
+          imageGenerationEnabled: false,
+        );
+        expect(snapshot.tools['ask_user'], isNull);
+        expect(snapshot.tools['create_task'], isNotNull);
+
+        final cancellation = AgentCancellationSource();
+        final created = await service.executeCapturedBatch(
+          snapshot,
+          [
+            AgentToolInvocation(
+              id: 'non-agent-task',
+              name: 'create_task',
+              arguments: const {
+                'title': '非 Agent 创建',
+                'plannedDate': '2026-07-23',
+              },
+            ),
+          ],
+          identity: const AgentTurnIdentity(
+            runId: 'run',
+            turnId: 'turn',
+            turnIndex: 0,
+          ),
+          cancellationToken: cancellation.token,
+        );
+        expect((created.single.value as Map)['ok'], isTrue);
+        expect(tasks.tasks, hasLength(1));
+
+        // 删除类操作对所有模型驱动调用拒绝。
+        final denied = await service.executeCapturedBatch(
+          snapshot,
+          [
+            AgentToolInvocation(
+              id: 'non-agent-delete',
+              name: 'delete_task',
+              arguments: {'id': tasks.tasks.single.id},
+            ),
+          ],
+          identity: const AgentTurnIdentity(
+            runId: 'run',
+            turnId: 'turn-2',
+            turnIndex: 1,
+          ),
+          cancellationToken: cancellation.token,
+        );
+        expect((denied.single.value as Map)['ok'], isFalse);
+        expect(tasks.tasks, hasLength(1));
+      } finally {
+        await root.delete(recursive: true);
+      }
+    },
+  );
+
+  test('run identity stays fixed when conversation toggles mid-run', () async {
+    SharedPreferences.setMockInitialValues({});
+    final root = await Directory.systemTemp.createTemp('lynai_test_run_identity_');
+    final storage = StorageV2Service(rootDirectory: root);
+    await StorageV2UpgradeService(storageV2: storage).ensureReady();
+    final features = FeatureProvider(storageV2: storage);
+    final tasks = TaskProvider(storageV2: storage);
+    final calendar = CalendarProvider(storageV2: storage);
+    await Future.wait([features.load(), tasks.load(), calendar.load()]);
+    final conversations = memoryConversationProvider();
+    final settings = memorySettingsProvider();
+    await settings.replaceSettings(
+      AppSettings.defaults().copyWith(
+        agentGrantedPermissions: const [LynAIPermissions.todosWrite],
+      ),
+    );
+    final cid = conversations.createConversation(
+      ConversationSettings(
+        modelId: 'm1',
+        agentEnabled: false,
+        agentGrantedPermissions: const [LynAIPermissions.todosWrite],
+      ),
+    );
+    final service = ToolCallService(
+      features,
+      tasks: tasks,
+      calendar: calendar,
+      conversations: conversations,
+      conversationId: cid,
+      settings: settings,
+    );
+    final snapshot = service.createRunSnapshot(
+      agentEnabled: false,
+      imageGenerationEnabled: false,
+    );
+    conversations.updateConversationSettings(
+      cid,
+      conversations
+          .getConversation(cid)!
+          .settings
+          .copyWith(agentEnabled: true),
+    );
+    final cancellation = AgentCancellationSource();
+    try {
+      final created = await service.executeCapturedBatch(
+        snapshot,
+        [
+          AgentToolInvocation(
+            id: 'fixed-run-task',
+            name: 'create_task',
+            arguments: const {
+              'title': '固定 run 身份',
+              'plannedDate': '2026-07-23',
+            },
+          ),
+        ],
+        identity: const AgentTurnIdentity(
+          runId: 'run',
+          turnId: 'turn',
+          turnIndex: 0,
+        ),
+        cancellationToken: cancellation.token,
+      );
+      expect((created.single.value as Map)['ok'], isTrue);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('permission inheritance resolves global defaults live', () async {
+    SharedPreferences.setMockInitialValues({});
+    final conversations = memoryConversationProvider();
+    final settings = memorySettingsProvider();
+    await settings.replaceSettings(
+      AppSettings.defaults().copyWith(
+        agentGrantedPermissions: const [LynAIPermissions.todosWrite],
+      ),
+    );
+    // 继承态对话：忽略镜像列表，实时跟随全局。
+    final cid = conversations.createConversation(
+      ConversationSettings(
+        modelId: 'm1',
+        agentEnabled: true,
+        agentGrantedPermissions: const [],
+      ),
+    );
+    final service = ToolCallService(
+      FeatureProvider(),
+      conversations: conversations,
+      conversationId: cid,
+      settings: settings,
+    );
+    final snapshot = service.createRunSnapshot(
+      agentEnabled: true,
+      imageGenerationEnabled: false,
+    );
+    expect(snapshot.tools['create_task'], isNotNull);
+
+    // 显式覆盖态对话：空列表 = 显式全部拒绝，全局变化不影响。
+    final customId = conversations.createConversation(
+      ConversationSettings(
+        modelId: 'm1',
+        agentEnabled: true,
+        agentPermissionsOverride: true,
+        agentGrantedPermissions: const [],
+      ),
+    );
+    final custom = ToolCallService(
+      FeatureProvider(),
+      conversations: conversations,
+      conversationId: customId,
+      settings: settings,
+    );
+    final customSnapshot = custom.createRunSnapshot(
+      agentEnabled: true,
+      imageGenerationEnabled: false,
+    );
+    expect(customSnapshot.tools['create_task'], isNull);
+  });
+
+  test('web_search is not registered when web search is not configured', () {
+    final service = ToolCallService(
+      FeatureProvider(),
+      webSearchConfigured: false,
+      permissionSnapshot: AgentPermissionSnapshot(
+        permissions: const [LynAIPermissions.networkAccess],
+      ),
+    );
+    final snapshot = service.createRunSnapshot(
+      agentEnabled: true,
+      imageGenerationEnabled: false,
+    );
+    expect(snapshot.tools['web_search'], isNull);
+    expect(snapshot.tools['web_fetch'], isNotNull);
+    expect(snapshot.tools['ask_user'], isNotNull);
+  });
+
   test('get_current_screen is exposed only for floating screen context', () {
     final regularTools = ToolCallService.openAITools();
     final floatingTools = ToolCallService.openAITools(
