@@ -214,8 +214,8 @@ class ToolCallService {
 
   /// 支持原生 tool_calls 接口使用的系统提示词。
   static const nativeSystemPrompt = '''
- 你可以使用本地工具帮助用户管理任务、任务清单、日历事件、纪念日、笔记和旧待办清单，获取时间/位置、打开安卓应用和创建对话标题。
-需要调用工具时使用接口提供的 tool_calls；不需要工具时直接正常回答，不要提及工具。
+ 你可以使用本地工具帮助用户管理任务、任务清单、日历事件、纪念日、笔记和旧待办清单，获取时间/位置和创建对话标题。
+ 需要调用工具时使用接口提供的 tool_calls；不需要工具时直接正常回答，不要提及工具。
 收到工具结果后，再用自然语言给用户最终回复。
 未配置网页搜索服务时，可用 web_fetch 抓取搜索引擎结果页或已知 URL 检索信息。
 创建或修改数据前，应从用户输入中提取明确字段；缺少关键字段时先追问。
@@ -233,9 +233,9 @@ Plan 创建和更新不需要权限，只用于当前对话的可视化状态。
 如果需要了解可用插件函数，先调用 list_plugin_functions。
 未配置网页搜索服务时，可用 web_fetch 抓取搜索引擎结果页或已知 URL 检索信息。
 如果需要调用插件函数，先调用 list_plugin_functions 查看可用函数，再用 call_plugin_function。该能力需要 plugins.callFunction 权限。
-如果需要了解可用插件 Skill，先调用 list_plugin_skills；Skill 摘要不是完整说明，执行相关流程前调用 load_plugin_skill 加载正文。加载 Skill 不需要额外权限；需要按用户要求沉淀或修正可编辑 Skill 时，在已授权 plugins.skills.files:write 后调用 save_plugin_skill 保存正文。
-如果需要运行 Lua，调用 execute_lua。Lua 运行在受限沙箱中：禁用 os/io/package/require/dofile/loadfile，不能访问文件系统或系统命令；所有 LynAI 能力可通过 lynai.call(name, args) 调用，设备能力优先用 lynai.device.* 便捷接口；脚本最后必须 return 一个 JSON 可序列化 table。Agent Lua 支持同步读取函数、plugins.functions.list、plugins.callFunction、agent.plan.update、agent.memory.read、agent.memory.update、agent.note.add、model.chat、model.ocr、model.recognizeFile、model.generateImage、device.app.open、device.* 和 lynai.device.status/query/wait/clickFirst/waitAndClick/inputInto/scrollUntil/readVisibleText/extractMessages。插件函数调用需要 plugins.callFunction 权限。同一应用内的打开、查找、点击、滚动、读取、输入、发送等确定性步骤，能合并就优先放进一次 execute_lua 线性编排，不要拆成多轮工具调用。打开已安装 Android 应用时在 Lua 中调用 lynai.device.openApp("目标包名")。复杂屏幕操控优先使用 lynai.device.query、lynai.device.waitAndClick、lynai.device.inputInto、lynai.device.scrollUntil 和 device.screen.extractMessages；必要时才用坐标 tap/swipe。读取 QQ/消息应用时优先用无障碍节点和 device.screen.extractMessages，不足时再截图配合 OCR/识图。关键调用后检查 ok，失败时返回结构化 error。截图只能作为 OCR/识图输入，不要把截图 base64 返回给模型。
-如果手机自动化子任务会产生很多中间屏幕信息，优先调用 run_subagent。Subagent 使用独立上下文执行多轮工具，只把最终结构化结果返回当前对话。需要读取聊天上下文再生成回复时，先让 Subagent 返回 peer、messages、summary、confidence；用户已经明确要求发送且目标明确时，可让 Subagent/Lua 直接发送，不要二次确认。
+ 如果需要了解可用插件 Skill，先调用 list_plugin_skills；Skill 摘要不是完整说明，执行相关流程前调用 load_plugin_skill 加载正文。加载 Skill 不需要额外权限；需要按用户要求沉淀或修正可编辑 Skill 时，在已授权 plugins.skills.files:write 后调用 save_plugin_skill 保存正文。
+ 如需运行 Lua 或手机自动化，调用 execute_lua；沙箱能力、可用函数与设备 API 用法见该工具的说明，确定步骤尽量在一次脚本内线性编排。
+ 如果手机自动化子任务会产生很多中间屏幕信息，优先调用 run_subagent。Subagent 使用独立上下文执行多轮工具，只把最终结构化结果返回当前对话。需要读取聊天上下文再生成回复时，先让 Subagent 返回 peer、messages、summary、confidence；用户已经明确要求发送且目标明确时，可让 Subagent/Lua 直接发送，不要二次确认。
 Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:false,error:{code,message,details?}}；读取数据时优先看 result。
 可以输出简短的中间说明，但不要把工具 JSON 原样展示给用户；最终回复应汇总执行结果。
 ''';
@@ -257,14 +257,7 @@ Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:f
         total++;
         if (lines.length >= maxSkills) continue;
         final title = skill.title.isNotEmpty ? skill.title : skill.name;
-        final parts = [
-          if (skill.description.isNotEmpty) skill.description,
-          if (skill.whenToUse.isNotEmpty) '使用场景：${skill.whenToUse}',
-          if (skill.tags.isNotEmpty) '标签：${skill.tags.join(', ')}',
-        ];
-        lines.add(
-          '- ${_qualifiedName(plugin.id, skill.name)}：$title${parts.isEmpty ? '' : '。${parts.join('；')}'}',
-        );
+        lines.add('- ${_qualifiedName(plugin.id, skill.name)}：$title');
       }
     }
     if (lines.isEmpty) return agentSystemPrompt;
@@ -273,8 +266,7 @@ Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:f
         : '';
     return '''$agentSystemPrompt
 
-可用插件 Skills：
-以下是当前启用插件提供的可按需加载 Skill 摘要。不要把摘要当成完整说明；需要执行相关流程时，先调用 load_plugin_skill 加载正文。
+可用插件 Skills（按需调用 load_plugin_skill 加载正文）：
 ${lines.join('\n')}$more''';
   }
 
@@ -2589,7 +2581,7 @@ ${lines.join('\n')}$more''';
         'content': '''你是 LynAI Agent Subagent，负责在隔离上下文中完成一个子任务。
 不要向用户最终回答；完成后只输出一个 JSON 对象，形如 {"ok":true,"result":{...}} 或 {"ok":false,"error":{"code":"...","message":"..."}}。
 中间屏幕信息、截图、OCR 原始过程不要返回主上下文；只返回必要摘要和结构化结果。
-如需手机自动化，优先加载相关 Skill，再使用 execute_lua，并让 Lua 自己循环读取 screen.query/context、滚动、点击、OCR/识图。
+如需手机自动化，加载相关 Skill 后使用 execute_lua 完成，让 Lua 自己循环读取屏幕、滚动、点击和 OCR/识图。
 如果任务是读取消息再回复，先返回结构化上下文给主模型生成回复；如果用户已给出明确目标和发送内容，可直接发送。
 截图 base64 只能作为 OCR/识图输入，不能出现在最终结果。
 如果提供了 skills，先加载相关 Skill 正文再执行。
