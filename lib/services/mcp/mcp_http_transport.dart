@@ -12,7 +12,10 @@ import 'mcp_protocol.dart';
 import 'mcp_transport.dart';
 import 'mcp_transport_secrets.dart';
 
-typedef McpHttpClientFactory = http.Client Function(String? address);
+typedef McpHttpClientFactory = http.Client Function(List<String>? addresses);
+
+http.Client _defaultOutboundClientFactory(List<String>? addresses) =>
+    createOutboundHttpClient(addresses ?? const []);
 
 class McpHttpTransport implements McpTransport {
   final McpServerConfig config;
@@ -36,7 +39,7 @@ class McpHttpTransport implements McpTransport {
     required this.credentials,
     http.Client? client,
     bool closeClient = false,
-    McpHttpClientFactory clientFactory = createOutboundHttpClient,
+    McpHttpClientFactory clientFactory = _defaultOutboundClientFactory,
     McpHostResolver hostResolver = resolveMcpHost,
   }) : _client = client,
        _closeClient = closeClient,
@@ -182,7 +185,7 @@ class McpHttpTransport implements McpTransport {
     var includeSensitiveHeaders = true;
     for (var redirect = 0; redirect <= 3; redirect++) {
       cancellation?.throwIfCancelled();
-      final address = await _validateUri(uri);
+      final addresses = await _validateUri(uri);
       cancellation?.throwIfCancelled();
       if (_disposed && method != 'DELETE') {
         throw const McpTransportException('HTTP transport is disposed');
@@ -199,7 +202,7 @@ class McpHttpTransport implements McpTransport {
         request.headers['Content-Type'] = 'application/json';
         request.bodyBytes = body;
       }
-      final client = _client ?? _clientFactory(address);
+      final client = _client ?? _clientFactory(addresses);
       _activeClients.add(client);
       late final http.StreamedResponse response;
       try {
@@ -240,7 +243,7 @@ class McpHttpTransport implements McpTransport {
     throw const McpTransportException('MCP HTTP redirect exceeds the limit');
   }
 
-  Future<String?> _validateUri(Uri uri) async {
+  Future<List<String>?> _validateUri(Uri uri) async {
     if (uri.userInfo.isNotEmpty) {
       throw const McpTransportException(
         'MCP endpoint must not contain URL credentials',
@@ -262,7 +265,7 @@ class McpHttpTransport implements McpTransport {
         'MCP endpoint resolves to a non-public address',
       );
     }
-    return addresses?.first;
+    return addresses;
   }
 
   void _releaseClient(http.Client client) {

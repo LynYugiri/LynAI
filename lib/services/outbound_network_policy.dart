@@ -9,10 +9,12 @@ enum OutboundNetworkRejection {
 }
 
 class OutboundConnectionTarget {
-  const OutboundConnectionTarget({required this.uri, this.address});
+  const OutboundConnectionTarget({required this.uri, required this.addresses});
 
   final Uri uri;
-  final String? address;
+
+  /// 全部已通过公网校验的解析地址，连接时按 IPv4 优先逐个尝试。
+  final List<String> addresses;
 }
 
 class OutboundNetworkPolicyException implements Exception {
@@ -69,7 +71,7 @@ class OutboundNetworkPolicy {
         OutboundNetworkRejection.nonPublicAddress,
       );
     }
-    return OutboundConnectionTarget(uri: uri, address: addresses.first);
+    return OutboundConnectionTarget(uri: uri, addresses: addresses);
   }
 
   Future<void> validate(Uri uri) async {

@@ -491,7 +491,7 @@ class _ConcurrentSseServer {
   final Map<String, _AbortableClient> _clients = {};
   final Map<String, Completer<void>> _started = {};
 
-  http.Client createClient(String? address) => _AbortableClient(_handle);
+  http.Client createClient(List<String>? addresses) => _AbortableClient(_handle);
 
   Future<http.StreamedResponse> _handle(
     http.BaseRequest request,

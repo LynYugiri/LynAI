@@ -1,3 +1,3 @@
 import 'package:http/http.dart' as http;
 
-http.Client createOutboundHttpClient(String? address) => http.Client();
+http.Client createOutboundHttpClient(List<String> addresses) => http.Client();
