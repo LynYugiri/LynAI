@@ -9,6 +9,11 @@ import 'package:lynai/models/agent_trace.dart';
 import 'package:lynai/models/agent_user_interaction.dart';
 import 'package:lynai/models/app_settings.dart';
 import 'package:lynai/models/conversation.dart';
+import 'package:lynai/models/knowledge_base.dart';
+import 'package:lynai/models/knowledge_category.dart';
+import 'package:lynai/models/knowledge_entry.dart';
+import 'package:lynai/models/knowledge_explanation.dart';
+import 'package:lynai/models/knowledge_source.dart';
 import 'package:lynai/models/message.dart';
 import 'package:lynai/models/model_config.dart';
 import 'package:lynai/models/plugin.dart';
@@ -20,6 +25,7 @@ import 'package:lynai/providers/model_config_provider.dart';
 import 'package:lynai/providers/plugin_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/providers/task_provider.dart';
+import 'package:lynai/repositories/knowledge_repository.dart';
 import 'package:lynai/repositories/plugin_repository.dart';
 import 'package:lynai/services/device_control_service.dart';
 import 'package:lynai/services/agent_cancellation.dart';
@@ -279,6 +285,402 @@ void main() {
     expect(webProperties, isNot(contains('route')));
     expect(webProperties, isNot(contains('provider')));
   });
+
+  test('knowledge_search registration requires knowledge and storage read', () {
+    final knowledge = KnowledgeProvider(
+      repository: _MemoryKnowledgeRepository(),
+    );
+    final withoutKnowledge = ToolCallService(
+      FeatureProvider(),
+      permissionSnapshot: AgentPermissionSnapshot(
+        permissions: const [LynAIPermissions.storageRead],
+      ),
+    ).createRunSnapshot(agentEnabled: true, imageGenerationEnabled: false);
+    final denied = ToolCallService(
+      FeatureProvider(),
+      knowledge: knowledge,
+      permissionSnapshot: AgentPermissionSnapshot(permissions: const []),
+    ).createRunSnapshot(agentEnabled: true, imageGenerationEnabled: false);
+    final allowed = ToolCallService(
+      FeatureProvider(),
+      knowledge: knowledge,
+      permissionSnapshot: AgentPermissionSnapshot(
+        permissions: const [LynAIPermissions.storageRead],
+      ),
+    ).createRunSnapshot(agentEnabled: true, imageGenerationEnabled: false);
+
+    expect(withoutKnowledge.tools['knowledge_search'], isNull);
+    expect(denied.tools['knowledge_search'], isNull);
+    final registration = allowed.tools['knowledge_search'];
+    expect(registration, isNotNull);
+    expect(registration!.descriptor.sideEffect, AgentToolSideEffect.read);
+    expect(
+      registration.descriptor.concurrency,
+      AgentToolConcurrency.parallelSafe,
+    );
+    expect(registration.spec.semantics.operation, AgentToolOperation.read);
+    expect(registration.spec.semantics.risk, AgentToolRisk.low);
+    expect(registration.spec.permissionRequirements.permissions, [
+      LynAIPermissions.storageRead,
+    ]);
+    final schema = registration.descriptor.parameters;
+    expect(schema['required'], contains('query'));
+    final properties = schema['properties'] as Map;
+    expect(
+      properties.keys,
+      containsAll([
+        'query',
+        'knowledgeBaseId',
+        'categoryId',
+        'limit',
+        'includeContent',
+      ]),
+    );
+    expect((properties['query'] as Map)['maxLength'], 256);
+    expect((properties['knowledgeBaseId'] as Map)['maxLength'], 128);
+    expect((properties['categoryId'] as Map)['maxLength'], 128);
+  });
+
+  test('knowledge_search rejects arguments above schema limits', () async {
+    final service = ToolCallService(
+      FeatureProvider(),
+      knowledge: KnowledgeProvider(repository: _MemoryKnowledgeRepository()),
+    );
+
+    final longQuery = await service.execute(
+      ChatToolCall(
+        id: 'long-query',
+        name: 'knowledge_search',
+        arguments: {'query': 'q' * 257},
+      ),
+      const [],
+    );
+    final longBaseId = await service.execute(
+      ChatToolCall(
+        id: 'long-base-id',
+        name: 'knowledge_search',
+        arguments: {'query': 'q', 'knowledgeBaseId': 'b' * 129},
+      ),
+      const [],
+    );
+
+    expect(longQuery['ok'], isFalse);
+    expect(longBaseId['ok'], isFalse);
+  });
+
+  test(
+    'knowledge_search ranks titles and filters disabled knowledge data',
+    () async {
+      final now = DateTime.utc(2026, 8, 9);
+      final knowledge = KnowledgeProvider(
+        repository: _MemoryKnowledgeRepository(),
+      );
+      await knowledge.replaceAll(
+        knowledgeBases: [
+          _knowledgeBase('base-enabled', 'Enabled', now),
+          _knowledgeBase('base-disabled', 'Disabled', now, enabled: false),
+        ],
+        categories: [
+          _knowledgeCategory('category-enabled', 'base-enabled', now),
+          _knowledgeCategory(
+            'category-disabled',
+            'base-enabled',
+            now,
+            enabled: false,
+          ),
+        ],
+        entries: [
+          _knowledgeEntry(
+            'title-match',
+            'base-enabled',
+            'category-enabled',
+            'Flutter handbook',
+            'secondary text',
+            now,
+            sortOrder: 5,
+          ),
+          _knowledgeEntry(
+            'content-match',
+            'base-enabled',
+            'category-enabled',
+            'Reference',
+            'Flutter appears in the body',
+            now,
+            sortOrder: 0,
+          ),
+          _knowledgeEntry(
+            'uncategorized',
+            'base-enabled',
+            null,
+            'Uncategorized Flutter',
+            'available without a category',
+            now,
+          ),
+          _knowledgeEntry(
+            'disabled-entry',
+            'base-enabled',
+            'category-enabled',
+            'Flutter disabled entry',
+            'hidden',
+            now,
+            enabled: false,
+          ),
+          _knowledgeEntry(
+            'disabled-category-entry',
+            'base-enabled',
+            'category-disabled',
+            'Flutter disabled category',
+            'hidden',
+            now,
+          ),
+          _knowledgeEntry(
+            'disabled-base-entry',
+            'base-disabled',
+            null,
+            'Flutter disabled base',
+            'hidden',
+            now,
+          ),
+        ],
+        sources: const <KnowledgeSource>[],
+        explanations: const <KnowledgeExplanation>[],
+      );
+      final service = ToolCallService(FeatureProvider(), knowledge: knowledge);
+
+      final result = await service.execute(
+        const ChatToolCall(
+          id: 'knowledge-search',
+          name: 'knowledge_search',
+          arguments: {'query': 'flutter'},
+        ),
+        const [],
+      );
+      final results = result['results'] as List;
+
+      expect(result['ok'], isTrue);
+      expect(results.map((item) => item['id']), [
+        'uncategorized',
+        'title-match',
+        'content-match',
+      ]);
+      expect(results.last['matchedIn'], 'content');
+      expect(results.first, isNot(contains('content')));
+    },
+  );
+
+  test('knowledge_search applies filters limit and bounded content', () async {
+    final now = DateTime.utc(2026, 8, 9);
+    final knowledge = KnowledgeProvider(
+      repository: _MemoryKnowledgeRepository(),
+    );
+    await knowledge.replaceAll(
+      knowledgeBases: [
+        _knowledgeBase('base', 'Base', now),
+        _knowledgeBase('other-base', 'Other Base', now),
+      ],
+      categories: [
+        _knowledgeCategory('category', 'base', now),
+        _knowledgeCategory('other-category', 'base', now),
+      ],
+      entries: List.generate(
+        12,
+        (index) => _knowledgeEntry(
+          'entry-$index',
+          'base',
+          index == 11 ? 'other-category' : 'category',
+          'Query $index',
+          index == 0
+              ? '${List.filled(600, 'x').join()}query${List.filled(2200, 'y').join()}'
+              : 'query body $index',
+          now,
+          sortOrder: index,
+        ),
+      ),
+      sources: const <KnowledgeSource>[],
+      explanations: const <KnowledgeExplanation>[],
+    );
+    await knowledge.replaceAll(
+      knowledgeBases: knowledge.knowledgeBases,
+      categories: knowledge.categories,
+      entries: [
+        ...knowledge.entries,
+        _knowledgeEntry(
+          'beyond-scan-limit',
+          'base',
+          'category',
+          'No title match',
+          '${'x' * 20000}query',
+          now,
+          sortOrder: 20,
+        ),
+      ],
+      sources: knowledge.sources,
+      explanations: knowledge.explanations,
+    );
+    final service = ToolCallService(FeatureProvider(), knowledge: knowledge);
+
+    final previewOnly = await service.execute(
+      const ChatToolCall(
+        id: 'preview',
+        name: 'knowledge_search',
+        arguments: {'query': 'query', 'categoryId': 'category', 'limit': 2},
+      ),
+      const [],
+    );
+    final withContent = await service.execute(
+      const ChatToolCall(
+        id: 'content',
+        name: 'knowledge_search',
+        arguments: {
+          'query': 'query',
+          'knowledgeBaseId': 'base',
+          'categoryId': 'category',
+          'limit': 10,
+          'includeContent': true,
+        },
+      ),
+      const [],
+    );
+    final missing = await service.execute(
+      const ChatToolCall(
+        id: 'missing',
+        name: 'knowledge_search',
+        arguments: {'query': 'query', 'categoryId': 'missing'},
+      ),
+      const [],
+    );
+    final mismatch = await service.execute(
+      const ChatToolCall(
+        id: 'mismatch',
+        name: 'knowledge_search',
+        arguments: {
+          'query': 'query',
+          'knowledgeBaseId': 'other-base',
+          'categoryId': 'category',
+        },
+      ),
+      const [],
+    );
+
+    expect(previewOnly['count'], 2);
+    expect((previewOnly['results'] as List).first, isNot(contains('content')));
+    expect(
+      ((previewOnly['results'] as List).first['preview'] as String).length,
+      lessThanOrEqualTo(506),
+    );
+    expect(withContent['count'], 10);
+    expect(
+      (withContent['results'] as List).map((item) => item['id']),
+      isNot(contains('beyond-scan-limit')),
+    );
+    expect(
+      ((withContent['results'] as List).first['content'] as String).length,
+      lessThanOrEqualTo(2003),
+    );
+    expect((withContent['results'] as List).first['contentTruncated'], isTrue);
+    expect(missing['reason'], 'category_not_found');
+    expect(missing['results'], isEmpty);
+    expect(mismatch['reason'], 'category_base_mismatch');
+    expect(mismatch['message'], contains('other-base'));
+    expect(ToolCallService.nativeSystemPrompt, contains('检索已启用的本地知识库'));
+  });
+
+  test('knowledge_search captured execution honors pre-cancellation', () async {
+    final knowledge = KnowledgeProvider(
+      repository: _MemoryKnowledgeRepository(),
+    );
+    final service = ToolCallService(
+      FeatureProvider(),
+      knowledge: knowledge,
+      permissionSnapshot: AgentPermissionSnapshot(
+        permissions: const [LynAIPermissions.storageRead],
+      ),
+    );
+    final snapshot = service.createRunSnapshot(
+      agentEnabled: true,
+      imageGenerationEnabled: false,
+    );
+    final cancellation = AgentCancellationSource()..cancel();
+
+    final results = await service.executeCapturedBatch(
+      snapshot,
+      [
+        AgentToolInvocation(
+          id: 'knowledge-pre-cancelled',
+          name: 'knowledge_search',
+          arguments: const {'query': 'query'},
+        ),
+      ],
+      identity: const AgentTurnIdentity(
+        runId: 'run',
+        turnId: 'turn',
+        turnIndex: 0,
+      ),
+      cancellationToken: cancellation.token,
+    );
+
+    expect(results.single.status, AgentToolResultStatus.cancelled);
+  });
+
+  test(
+    'knowledge_search captured execution yields and cancels a large scan',
+    () async {
+      final now = DateTime.utc(2026, 8, 9);
+      final knowledge = KnowledgeProvider(
+        repository: _MemoryKnowledgeRepository(),
+      );
+      await knowledge.replaceAll(
+        knowledgeBases: [_knowledgeBase('base', 'Base', now)],
+        categories: const [],
+        entries: List.generate(
+          10000,
+          (index) => _knowledgeEntry(
+            'entry-$index',
+            'base',
+            null,
+            'Entry $index',
+            'unmatched body',
+            now,
+          ),
+        ),
+        sources: const [],
+        explanations: const [],
+      );
+      final service = ToolCallService(
+        FeatureProvider(),
+        knowledge: knowledge,
+        permissionSnapshot: AgentPermissionSnapshot(
+          permissions: const [LynAIPermissions.storageRead],
+        ),
+      );
+      final snapshot = service.createRunSnapshot(
+        agentEnabled: true,
+        imageGenerationEnabled: false,
+      );
+      final cancellation = AgentCancellationSource();
+      final execution = service.executeCapturedBatch(
+        snapshot,
+        [
+          AgentToolInvocation(
+            id: 'knowledge-cancelled-mid-scan',
+            name: 'knowledge_search',
+            arguments: const {'query': 'missing'},
+          ),
+        ],
+        identity: const AgentTurnIdentity(
+          runId: 'run',
+          turnId: 'turn',
+          turnIndex: 0,
+        ),
+        cancellationToken: cancellation.token,
+      );
+      Timer.run(cancellation.cancel);
+
+      final results = await execution;
+
+      expect(results.single.status, AgentToolResultStatus.cancelled);
+    },
+  );
 
   test(
     'ask_user run cancellation removes only its exact broker request',
@@ -716,15 +1118,20 @@ void main() {
         agentOpenApp['error'].toString(),
         contains(LynAIPermissions.deviceControl),
       );
-      final agentListApps = await ToolCallService(
-        features,
-        settings: settings,
-        conversations: conversations,
-        conversationId: cid,
-      ).execute(
-        const ChatToolCall(id: 'list-apps', name: 'list_apps', arguments: {}),
-        const [],
-      );
+      final agentListApps =
+          await ToolCallService(
+            features,
+            settings: settings,
+            conversations: conversations,
+            conversationId: cid,
+          ).execute(
+            const ChatToolCall(
+              id: 'list-apps',
+              name: 'list_apps',
+              arguments: {},
+            ),
+            const [],
+          );
       expect(agentListApps['ok'], isFalse);
       expect(
         agentListApps['error'].toString(),
@@ -737,17 +1144,17 @@ void main() {
     const channel = MethodChannel('lynai/native_tools');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
-      if (call.method == 'queryApps') {
-        return {
-          'ok': true,
-          'apps': [
-            {'packageName': 'com.tencent.mm', 'label': '微信'},
-            {'packageName': 'com.android.chrome', 'label': 'Chrome'},
-          ],
-        };
-      }
-      return null;
-    });
+          if (call.method == 'queryApps') {
+            return {
+              'ok': true,
+              'apps': [
+                {'packageName': 'com.tencent.mm', 'label': '微信'},
+                {'packageName': 'com.android.chrome', 'label': 'Chrome'},
+              ],
+            };
+          }
+          return null;
+        });
     addTearDown(
       () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, null),
@@ -1027,7 +1434,9 @@ void main() {
 
   test('run identity stays fixed when conversation toggles mid-run', () async {
     SharedPreferences.setMockInitialValues({});
-    final root = await Directory.systemTemp.createTemp('lynai_test_run_identity_');
+    final root = await Directory.systemTemp.createTemp(
+      'lynai_test_run_identity_',
+    );
     final storage = StorageV2Service(rootDirectory: root);
     await StorageV2UpgradeService(storageV2: storage).ensureReady();
     final features = FeatureProvider(storageV2: storage);
@@ -1062,10 +1471,7 @@ void main() {
     );
     conversations.updateConversationSettings(
       cid,
-      conversations
-          .getConversation(cid)!
-          .settings
-          .copyWith(agentEnabled: true),
+      conversations.getConversation(cid)!.settings.copyWith(agentEnabled: true),
     );
     final cancellation = AgentCancellationSource();
     try {
@@ -1309,49 +1715,51 @@ void main() {
     }, createHttpClient: _RealHttpOverrides().createHttpClient);
   });
 
-  test('web_fetch falls back when the first resolved address is unreachable',
-      () async {
-    HttpServer? server;
-    await HttpOverrides.runZoned(() async {
-      try {
-        server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-        server!.listen((request) async {
-          request.response.headers.contentType = ContentType.text;
-          request.response.write('ok');
-          await request.response.close();
-        });
+  test(
+    'web_fetch falls back when the first resolved address is unreachable',
+    () async {
+      HttpServer? server;
+      await HttpOverrides.runZoned(() async {
+        try {
+          server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+          server!.listen((request) async {
+            request.response.headers.contentType = ContentType.text;
+            request.response.write('ok');
+            await request.response.close();
+          });
 
-        final service = ToolCallService(
-          FeatureProvider(),
-          agentIdentity: const LynAICallIdentity(type: LynAICallerType.system),
-          outboundHttpClient: BoundedOutboundHttpClient(
-            policy: OutboundNetworkPolicy(
-              allowedHttpOrigins: {'http://127.0.0.1:${server!.port}'},
-              allowPrivateNetwork: true,
-              hostResolver: (host) async => ['127.0.0.2', '127.0.0.1'],
+          final service = ToolCallService(
+            FeatureProvider(),
+            agentIdentity: const LynAICallIdentity(
+              type: LynAICallerType.system,
             ),
-          ),
-          allowPlaintextHttpFetch: true,
-        );
-        final result = await service.execute(
-          ChatToolCall(
-            id: 'fetch-fallback',
-            name: 'web_fetch',
-            arguments: {
-              'url': 'http://127.0.0.1:${server!.port}/page',
-            },
-          ),
-          const [],
-        );
+            outboundHttpClient: BoundedOutboundHttpClient(
+              policy: OutboundNetworkPolicy(
+                allowedHttpOrigins: {'http://127.0.0.1:${server!.port}'},
+                allowPrivateNetwork: true,
+                hostResolver: (host) async => ['127.0.0.2', '127.0.0.1'],
+              ),
+            ),
+            allowPlaintextHttpFetch: true,
+          );
+          final result = await service.execute(
+            ChatToolCall(
+              id: 'fetch-fallback',
+              name: 'web_fetch',
+              arguments: {'url': 'http://127.0.0.1:${server!.port}/page'},
+            ),
+            const [],
+          );
 
-        expect(result['ok'], isTrue);
-        expect(result['status'], 200);
-        expect(result['body'], 'ok');
-      } finally {
-        await server?.close(force: true);
-      }
-    }, createHttpClient: _RealHttpOverrides().createHttpClient);
-  });
+          expect(result['ok'], isTrue);
+          expect(result['status'], 200);
+          expect(result['body'], 'ok');
+        } finally {
+          await server?.close(force: true);
+        }
+      }, createHttpClient: _RealHttpOverrides().createHttpClient);
+    },
+  );
 
   test('modelVisibleToolResult strips nested binary payloads', () {
     final visible =
@@ -1933,3 +2341,88 @@ return {
     }, createHttpClient: _RealHttpOverrides().createHttpClient);
   });
 }
+
+class _MemoryKnowledgeRepository extends KnowledgeRepository {
+  KnowledgeLoadResult _value = const KnowledgeLoadResult(
+    bases: [],
+    categories: [],
+    entries: [],
+    sources: [],
+    explanations: [],
+  );
+
+  @override
+  Future<KnowledgeLoadResult> load() async => _value;
+
+  @override
+  Future<void> replace(KnowledgeLoadResult value) async {
+    _value = value;
+  }
+
+  @override
+  Future<void> saveChanges({
+    Iterable<KnowledgeBase> upsertBases = const [],
+    Iterable<String> deleteBaseIds = const [],
+    Iterable<KnowledgeCategory> upsertCategories = const [],
+    Iterable<String> deleteCategoryIds = const [],
+    Iterable<KnowledgeEntry> upsertEntries = const [],
+    Iterable<String> deleteEntryIds = const [],
+    Iterable<KnowledgeSource> upsertSources = const [],
+    Iterable<String> deleteSourceIds = const [],
+    Iterable<KnowledgeExplanation> upsertExplanations = const [],
+    Iterable<String> deleteExplanationIds = const [],
+  }) async {}
+}
+
+KnowledgeBase _knowledgeBase(
+  String id,
+  String name,
+  DateTime now, {
+  bool enabled = true,
+  int sortOrder = 0,
+}) => KnowledgeBase(
+  id: id,
+  name: name,
+  enabled: enabled,
+  sortOrder: sortOrder,
+  createdAt: now,
+  updatedAt: now,
+);
+
+KnowledgeCategory _knowledgeCategory(
+  String id,
+  String knowledgeBaseId,
+  DateTime now, {
+  bool enabled = true,
+  int sortOrder = 0,
+}) => KnowledgeCategory(
+  id: id,
+  knowledgeBaseId: knowledgeBaseId,
+  name: id,
+  alias: id.replaceAll('-', '_'),
+  enabled: enabled,
+  sortOrder: sortOrder,
+  createdAt: now,
+  updatedAt: now,
+);
+
+KnowledgeEntry _knowledgeEntry(
+  String id,
+  String knowledgeBaseId,
+  String? categoryId,
+  String title,
+  String content,
+  DateTime now, {
+  bool enabled = true,
+  int sortOrder = 0,
+}) => KnowledgeEntry(
+  id: id,
+  knowledgeBaseId: knowledgeBaseId,
+  categoryId: categoryId,
+  title: title,
+  content: content,
+  enabled: enabled,
+  sortOrder: sortOrder,
+  createdAt: now,
+  updatedAt: now,
+);

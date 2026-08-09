@@ -1,3 +1,4 @@
+/// 关联到知识条目的解释文本。
 final class KnowledgeExplanation {
   const KnowledgeExplanation({
     required this.id,

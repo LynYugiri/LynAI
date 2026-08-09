@@ -1,5 +1,6 @@
 const _knowledgeCategoryUnset = Object();
 
+/// 知识类别别名允许的稳定标识格式。
 final knowledgeCategoryAliasPattern = RegExp(r'^[a-z][a-z0-9_-]{0,31}$');
 
 const builtInProperNounKnowledgeBaseModelId =
@@ -7,9 +8,11 @@ const builtInProperNounKnowledgeBaseModelId =
 const builtInProperNounCategoryModelId = 'builtin-proper-noun-category';
 const properNounKnowledgeCategoryAlias = 'proper_noun';
 
+/// 判断类别别名是否可用于持久化和提示词引用。
 bool isValidKnowledgeCategoryAlias(String value) =>
     knowledgeCategoryAliasPattern.hasMatch(value);
 
+/// 确定性消解重复别名，且内置专有名词类别优先保留原别名。
 Map<String, String> normalizeKnowledgeCategoryAliases(
   Iterable<({String id, String alias})> categories,
 ) {
@@ -22,16 +25,16 @@ Map<String, String> normalizeKnowledgeCategoryAliases(
     for (final category in values) category.id: category.alias,
   };
   final used = values.map((category) => category.alias).toSet();
-  final duplicateAliases = groups.entries
-      .where((entry) => entry.value.length > 1)
-      .toList()
-    ..sort((a, b) => a.key.compareTo(b.key));
+  final duplicateAliases =
+      groups.entries.where((entry) => entry.value.length > 1).toList()
+        ..sort((a, b) => a.key.compareTo(b.key));
   for (final entry in duplicateAliases) {
-    final ids = entry.value..sort((a, b) {
-      if (a == builtInProperNounCategoryModelId) return -1;
-      if (b == builtInProperNounCategoryModelId) return 1;
-      return a.compareTo(b);
-    });
+    final ids = entry.value
+      ..sort((a, b) {
+        if (a == builtInProperNounCategoryModelId) return -1;
+        if (b == builtInProperNounCategoryModelId) return 1;
+        return a.compareTo(b);
+      });
     for (final id in ids.skip(1)) {
       final alias = _availableKnowledgeCategoryAlias(entry.key, id, used);
       result[id] = alias;
@@ -64,6 +67,7 @@ String _availableKnowledgeCategoryAlias(
   return candidate;
 }
 
+/// 知识库中的类别及其自动标注和解释配置。
 final class KnowledgeCategory {
   KnowledgeCategory({
     required this.id,

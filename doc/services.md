@@ -96,7 +96,7 @@ OCR 和文件识别是发送前处理。处理结果会替换历史附件并标�
 
 文件：`lib/services/tool_call_service.dart`
 
-`ToolCallService` 把模型请求转成本地动作。生产聊天和 Agent 只接受接口原生 tool calls，不提供非原生 JSON fallback。Run 开始时捕获 immutable model schema/permission snapshot；执行由 `AgentToolExecutionService` 完成 schema 校验、授权和调度，独立注入的 `AgentToolResultProcessor` 负责终态 sanitizer。插件的自定义工具由已捕获 handler 转交给 `PluginLuaRuntimeService` 在 Lua 沙箱中执行；MCP schema 固定但执行查询实时 registry 并在不可用时 fail closed。Run 的身份在首次创建 snapshot 时按该对话的 Agent 模式固定（`runAgentEnabled`），run 中途切换对话 Agent 模式不改变已捕获 snapshot 的身份与权限；非 Agent run 调用原生工具使用 `LynAICallerType.assistantTool`，仍按对话快照域评估权限而不是一律拒绝。`web_search` 仅在 `WebSearchService.isConfigured()` 为真时注册，未配置时由提示词引导改用 `web_fetch` 兜底。
+`ToolCallService` 把模型请求转成本地动作。生产聊天和 Agent 只接受接口原生 tool calls，不提供非原生 JSON fallback。Run 开始时捕获 immutable model schema/permission snapshot；执行由 `AgentToolExecutionService` 完成 schema 校验、授权和调度，独立注入的 `AgentToolResultProcessor` 负责终态 sanitizer。插件的自定义工具由已捕获 handler 转交给 `PluginLuaRuntimeService` 在 Lua 沙箱中执行；MCP schema 固定但执行查询实时 registry 并在不可用时 fail closed。Run 的身份在首次创建 snapshot 时按该对话的 Agent 模式固定（`runAgentEnabled`），run 中途切换对话 Agent 模式不改变已捕获 snapshot 的身份与权限；非 Agent run 调用原生工具使用 `LynAICallerType.assistantTool`，仍按对话快照域评估权限而不是一律拒绝。`web_search` 仅在 `WebSearchService.isConfigured()` 为真时注册，未配置时由提示词引导改用 `web_fetch` 兜底；`knowledge_search` 仅在注入 `KnowledgeProvider` 时注册，并要求 `storage.read`。检索会先捕获 Provider 列表快照，随后分批扫描并在批次间检查取消和 deadline、让出事件循环；每条正文只扫描有界前缀。
 
 模型多轮控制不再由页面或 `ToolCallService` 自己维护。主对话、悬浮聊天和 Subagent 都由 `AgentLoopRuntime` 驱动；`ToolCallService.executeSequentialCompatibility()` 是具体工具执行适配器，并通过 `AgentToolScheduler(maxConcurrency: 1)` 调用 MCP 等外部 registry 工具。统一运行时、上下文和取消边界见 [Agent Runtime](agent-runtime.md)。
 
@@ -107,6 +107,7 @@ OCR 和文件识别是发送前处理。处理结果会替换历史附件并标�
 | `get_current_time` | 无，返回当前时间和时区。 |
 | `get_current_screen` | 只读。仅在悬浮聊天且用户授权当前页面上下文时暴露，读取 Android 前台页面文本和节点摘要。 |
 | `web_fetch` | 发起只读 GET 请求，读取 http/https URL 的响应正文并按长度限制返回。 |
+| `knowledge_search` | 只读检索已启用的本地知识库、类别和条目；标题命中优先，最多返回 10 条，参数、正文扫描前缀及 preview/content 均有长度上限，并支持协作取消。 |
 | `get_location` | Android 请求定位权限并返回位置。 |
 | `open_app` | Android 打开指定包名应用。 |
 | `list_tasks` | 只读，列出规范 `Task`，可按文本、完成状态和清单过滤。 |

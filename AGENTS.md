@@ -18,8 +18,18 @@
 - 工具 schema 注册时和执行前都必须通过 `AgentJsonSchemaValidator` 支持子集校验。插件或 MCP 的不兼容 schema 必须显式失败或禁用，不能静默放宽关键约束。
 - `AgentToolRegistry.snapshot()` 是模型 turn 的不可变目录快照。动态注册、插件更新、MCP 刷新或断连不得把旧调用悄悄绑定到新实现。
 - Agent 工具调用必须携带 Agent 身份及 run/turn/toolCall correlation；不得通过 `LynAICallerType.system` 绕过 Agent 权限。
+- 内置 `knowledge_search` 是 `ToolCallService` 的本地只读工具，只在注入 `KnowledgeProvider` 且 run snapshot 具有 `storage:read` 时注册。它必须只检索启用的库、类别和条目，保持查询/schema、扫描正文、结果数量及返回正文边界，并在分批扫描间检查取消和 deadline；不得改成不可取消的同步全表扫描，也不得自动把完整知识库注入每轮上下文。
 - Drift 的 `runs`、`turns`、`items`、`tool_calls`、`snapshots` 仅记录本机 durable run graph，并经 `AgentPersistenceRepository` CAS 迁移。它们不进入普通/加密备份、云同步或 LAN 同步；重启只对账为 interrupted，不自动重放。
 - `storage_v2/app.db` 是结构化数据权威源。长期附件和大工具结果使用现有私有 Resource/Blob 机制，不在模型上下文或运行记录中保存原始 base64。
+
+## 知识库
+
+- `KnowledgeProvider` 是知识库、类别、条目、来源和解释的唯一内存所有者。它因类型化 mutation、完整快照回滚和调用方错误传播语义保留独立串行队列，不接入通用 `SerializedSaveQueue`。
+- `KnowledgeRepository` 可跳过列表内单条损坏记录；顶层集合字段缺失或 `null` 可视为空，但存在且不是列表时必须失败，禁止把结构损坏误判为空数据后由 `load()` 规范化回写。
+- 类别 alias 全局唯一且符合模型正则；内置专有名词库和类别固定 ID、不可删除。完整加载或替换后的 alias 冲突、跨库引用和悬空子记录继续由 Provider 确定性规范化。
+- 知识页支持库、类别和条目的自定义顺序。`ReorderableListView` 的删除前插入槽位必须在 Page 边界转换成 Provider 使用的删除后目标索引；搜索、过滤或派生排序时不得允许条目拖拽。
+- 解释生成和自动保存必须防止晚到结果覆盖用户后续编辑。页面生成期间按条目去重并在写入前复核条目、类别、来源和原解释快照；释义弹窗保存期间禁止切换类别，类别被停用或删除时在当前保存终态后再切换。
+- 来源只允许打开和保存 `http`/`https` URL；复制来源时保留完整 URL，而显示层可仅展示 host。知识条目、解释和来源正文继续使用共享 `MarkdownWithLatex`，不要另建 Markdown 渲染路径。
 
 ## MCP
 
@@ -33,4 +43,5 @@
 
 - Agent loop、取消、上下文、hooks、run graph 或工具注册变化更新 `doc/agent-runtime.md`。
 - MCP transport、协议范围、凭据、平台门控或设置页变化更新 `doc/mcp.md`。
+- 知识模型、Provider/Repository 语义、知识页用户路径或 `knowledge_search` 行为变化分别同步检查 `doc/models.md`、`doc/providers.md`、`doc/services.md`、`doc/pages.md` 和 `doc/agent-runtime.md`。
 - canonical relay tool/reasoning/SSE 变化同步更新 `doc/protocol-v1.md` 和后端 README。

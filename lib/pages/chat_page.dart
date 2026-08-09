@@ -1759,6 +1759,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       context.read<FeatureProvider>(),
       tasks: context.read<TaskProvider>(),
       calendar: context.read<CalendarProvider>(),
+      knowledge: context.read<KnowledgeProvider>(),
       plugins: context.read<PluginProvider>(),
       modelConfigs: context.read<ModelConfigProvider>(),
       settings: context.read<SettingsProvider>(),

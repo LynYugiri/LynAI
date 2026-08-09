@@ -240,13 +240,15 @@ class FloatingChatSessionController extends ChangeNotifier {
           ? '悬浮聊天已获得用户授权：当用户问题依赖当前 Android 前台页面时，可以调用 get_current_screen 读取可见文本和节点摘要。不要无故读取。'
           : '',
     );
-    unawaited(_streamTurn(
-      model,
-      _conversationId!,
-      messages,
-      createTitle: isNewConversation,
-      allowTools: _supportsNativeTools(model),
-    ));
+    unawaited(
+      _streamTurn(
+        model,
+        _conversationId!,
+        messages,
+        createTitle: isNewConversation,
+        allowTools: _supportsNativeTools(model),
+      ),
+    );
   }
 
   void stop() {
@@ -453,11 +455,7 @@ class FloatingChatSessionController extends ChangeNotifier {
           ?.messages
           .lastOrNull;
       if (last != null && last.role == 'assistant' && last.content.isEmpty) {
-        _conversations.updateMessageContent(
-          conversationId,
-          last.id,
-          '已停止生成',
-        );
+        _conversations.updateMessageContent(conversationId, last.id, '已停止生成');
       }
       return;
     }
@@ -477,6 +475,7 @@ class FloatingChatSessionController extends ChangeNotifier {
       _features,
       tasks: _tasks,
       calendar: _calendar,
+      knowledge: _knowledge,
       plugins: _plugins,
       modelConfigs: _models,
       settings: _settings,
@@ -496,10 +495,9 @@ class FloatingChatSessionController extends ChangeNotifier {
       interactionSurface: AgentUserInteractionSurface.floatingAssistant,
       webSearch: _webSearch,
       webSearchConfigured: webSearchConfigured,
-      permissionSnapshot:
-          conversationSettings?.inheritsAgentPermissions == true
-              ? _settings.settings.agentPermissionSnapshot
-              : conversationSettings?.permissionSnapshot,
+      permissionSnapshot: conversationSettings?.inheritsAgentPermissions == true
+          ? _settings.settings.agentPermissionSnapshot
+          : conversationSettings?.permissionSnapshot,
     );
     final runSnapshot = toolService.createRunSnapshot(
       agentEnabled: conversationSettings?.agentEnabled == true,
@@ -516,10 +514,9 @@ class FloatingChatSessionController extends ChangeNotifier {
       toolResultProcessor: _toolResultProcessor,
       persistenceMetadata: AgentRunPersistenceMetadata(
         conversationId: conversationId,
-        permissionPolicy:
-            conversationSettings?.inheritsAgentPermissions == true
-                ? _settings.settings.agentPermissionSnapshot
-                : conversationSettings?.permissionSnapshot,
+        permissionPolicy: conversationSettings?.inheritsAgentPermissions == true
+            ? _settings.settings.agentPermissionSnapshot
+            : conversationSettings?.permissionSnapshot,
       ),
       model: (request) => const StreamChunkAgentAdapter().adapt(
         _api.sendStreamRequest(

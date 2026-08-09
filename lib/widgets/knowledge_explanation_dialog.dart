@@ -99,6 +99,7 @@ class _KnowledgeExplanationDialogState
   bool _saving = false;
   bool _saved = false;
   bool _active = true;
+  bool _categoryRefreshPending = false;
   int _requestGeneration = 0;
 
   List<KnowledgeCategory> get _categories =>
@@ -136,16 +137,13 @@ class _KnowledgeExplanationDialogState
       setState(() {});
       return;
     }
+    if (_saving) {
+      // 保存中的类别是本次写入契约的一部分，等写入结束后再响应外部变更。
+      _categoryRefreshPending = true;
+      return;
+    }
     final next = widget.knowledge.defaultExplanationCategory?.id;
-    _requestGeneration++;
-    _categoryId = next;
-    _content = null;
-    _error = null;
-    _loading = false;
-    _saving = false;
-    _saved = false;
-    setState(() {});
-    if (next != null) unawaited(_loadCategory(next));
+    unawaited(_loadCategory(next));
   }
 
   Future<void> _loadCategory(String? categoryId) async {
@@ -154,16 +152,10 @@ class _KnowledgeExplanationDialogState
       _categoryId = categoryId;
       _content = null;
       _saved = false;
-      _loading = true;
+      _loading = categoryId != null;
       _error = null;
     });
-    if (categoryId == null) {
-      setState(() {
-        _loading = false;
-        _error = '没有可用的知识类别';
-      });
-      return;
-    }
+    if (categoryId == null) return;
     final saved = widget.service.findSaved(
       categoryId: categoryId,
       text: widget.text,
@@ -210,10 +202,18 @@ class _KnowledgeExplanationDialogState
         _loading = false;
       });
       if (widget.saveAutomatically) {
-        await _save(generation: request, categoryId: selectedCategory);
+        await _save(
+          generation: request,
+          categoryId: selectedCategory,
+          content: content,
+        );
       }
     } catch (error) {
-      if (!_active || request != _requestGeneration) return;
+      if (!_active ||
+          request != _requestGeneration ||
+          selectedCategory != _categoryId) {
+        return;
+      }
       setState(() {
         _loading = false;
         _error = _message(error);
@@ -221,15 +221,21 @@ class _KnowledgeExplanationDialogState
     }
   }
 
-  Future<void> _save({int? generation, String? categoryId}) async {
+  Future<void> _save({
+    int? generation,
+    String? categoryId,
+    String? content,
+  }) async {
     final selectedCategory = categoryId ?? _categoryId;
-    final content = _content;
+    final selectedContent = content ?? _content;
+    final request = generation ?? _requestGeneration;
     if (selectedCategory == null ||
-        content == null ||
+        selectedContent == null ||
         _saving ||
         _saved ||
         !_active ||
-        generation != null && generation != _requestGeneration) {
+        request != _requestGeneration ||
+        selectedCategory != _categoryId) {
       return;
     }
     setState(() {
@@ -240,29 +246,40 @@ class _KnowledgeExplanationDialogState
       await widget.service.save(
         categoryId: selectedCategory,
         text: widget.text,
-        explanation: content,
+        explanation: selectedContent,
         context: widget.sourceContext,
         sourceTitle: widget.sourceTitle,
         sourceUrl: widget.sourceUrl,
       );
       if (!_active ||
+          request != _requestGeneration ||
           selectedCategory != _categoryId ||
-          generation != null && generation != _requestGeneration) {
+          selectedContent != _content) {
         return;
       }
       setState(() {
         _saving = false;
         _saved = true;
       });
+      _applyPendingCategoryRefresh();
     } catch (error) {
-      if (!_active || generation != null && generation != _requestGeneration) {
+      if (!_active ||
+          request != _requestGeneration ||
+          selectedCategory != _categoryId) {
         return;
       }
       setState(() {
         _saving = false;
         _error = _message(error);
       });
+      _applyPendingCategoryRefresh();
     }
+  }
+
+  void _applyPendingCategoryRefresh() {
+    if (!_active || !_categoryRefreshPending) return;
+    _categoryRefreshPending = false;
+    unawaited(_loadCategory(widget.knowledge.defaultExplanationCategory?.id));
   }
 
   String _message(Object error) {
@@ -298,43 +315,29 @@ class _KnowledgeExplanationDialogState
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.titleMedium,
               ),
-              if (!widget.saveAutomatically) ...[
-                const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  key: ValueKey(selectedCategory),
-                  initialValue: selectedCategory,
-                  decoration: const InputDecoration(
-                    labelText: '知识类别',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: categories
-                      .map(
-                        (category) => DropdownMenuItem(
-                          value: category.id,
-                          child: Text(category.name),
-                        ),
-                      )
-                      .toList(growable: false),
-                  onChanged: _saving
-                      ? null
-                      : (value) => unawaited(_loadCategory(value)),
-                ),
-              ],
+              const SizedBox(height: 16),
+              _buildCategorySelector(categories, selectedCategory),
               const SizedBox(height: 16),
               Flexible(
                 child: SingleChildScrollView(child: _buildBody(context)),
               ),
-              if (_saved) ...[
+              if (_saving || _saved) ...[
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    Icon(
-                      Icons.check_circle_outline,
-                      size: 18,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
+                    if (_saving)
+                      const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    else
+                      Icon(
+                        Icons.check_circle_outline,
+                        size: 18,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
                     const SizedBox(width: 8),
-                    const Text('已保存到知识库'),
+                    Text(_saving ? '正在保存到知识库...' : '已保存到知识库'),
                   ],
                 ),
               ],
@@ -361,11 +364,78 @@ class _KnowledgeExplanationDialogState
     );
   }
 
+  Widget _buildCategorySelector(
+    List<KnowledgeCategory> categories,
+    String? selectedCategory,
+  ) {
+    if (categories.length > 1) {
+      return DropdownButtonFormField<String>(
+        key: ValueKey(selectedCategory),
+        initialValue: selectedCategory,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: '知识类别',
+          border: OutlineInputBorder(),
+        ),
+        items: categories
+            .map(
+              (category) => DropdownMenuItem(
+                value: category.id,
+                child: Text(category.name, overflow: TextOverflow.ellipsis),
+              ),
+            )
+            .toList(growable: false),
+        onChanged: _saving
+            ? null
+            : (value) {
+                if (value == null || value == _categoryId) return;
+                unawaited(_loadCategory(value));
+              },
+      );
+    }
+    final name = categories.isEmpty ? '无可用类别' : categories.single.name;
+    return InputDecorator(
+      decoration: const InputDecoration(
+        labelText: '知识类别',
+        border: OutlineInputBorder(),
+      ),
+      child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+    );
+  }
+
   Widget _buildBody(BuildContext context) {
+    if (_categoryId == null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 28),
+        child: Column(
+          children: [
+            Icon(
+              Icons.category_outlined,
+              size: 36,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(height: 12),
+            const Text('没有可用的知识类别'),
+            const SizedBox(height: 4),
+            Text(
+              '请先启用一个知识库及其类别后再生成释义。',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      );
+    }
     if (_loading) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 32),
-        child: Center(child: CircularProgressIndicator()),
+        child: Column(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 12),
+            Text('正在生成释义...'),
+          ],
+        ),
       );
     }
     final error = _error;

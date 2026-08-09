@@ -7,6 +7,7 @@ import '../models/knowledge_explanation.dart';
 import '../models/knowledge_source.dart';
 import '../services/storage_v2_service.dart';
 
+/// 从持久化层一次性读取的知识数据快照。
 final class KnowledgeLoadResult {
   const KnowledgeLoadResult({
     required this.bases,
@@ -23,6 +24,7 @@ final class KnowledgeLoadResult {
   final List<KnowledgeExplanation> explanations;
 }
 
+/// 负责知识数据与 storage_v2 行存储之间的转换。
 class KnowledgeRepository {
   KnowledgeRepository({StorageV2Service? storageV2})
     : _storageV2 = storageV2 ?? StorageV2Service();
@@ -30,6 +32,10 @@ class KnowledgeRepository {
   static const fileName = 'knowledge.json';
   final StorageV2Service _storageV2;
 
+  /// 读取知识数据。
+  ///
+  /// 缺失或为 null 的顶层集合按空列表处理；存在但不是列表时抛出
+  /// [FormatException]。列表内类型错误或无法解析的记录会被跳过。
   Future<KnowledgeLoadResult> load() async {
     final data = await _storageV2.loadDataFile(fileName);
     return KnowledgeLoadResult(
@@ -49,6 +55,7 @@ class KnowledgeRepository {
     );
   }
 
+  /// 使用完整快照替换当前知识数据。
   Future<void> replace(KnowledgeLoadResult value) =>
       _storageV2.writeDataFile(fileName, {
         'knowledgeBases': value.bases.map((item) => item.toJson()).toList(),
@@ -60,6 +67,7 @@ class KnowledgeRepository {
             .toList(),
       });
 
+  /// 原子应用知识行的增量新增、更新与删除。
   Future<void> saveChanges({
     Iterable<KnowledgeBase> upsertBases = const [],
     Iterable<String> deleteBaseIds = const [],
@@ -153,8 +161,12 @@ List<T> _decode<T>(
   T Function(Map<String, dynamic>) parser,
   String label,
 ) {
+  if (raw == null) return const [];
+  if (raw is! List) {
+    throw FormatException('$label集合必须是列表');
+  }
   final values = <T>[];
-  for (final item in raw as List<dynamic>? ?? const []) {
+  for (final item in raw) {
     try {
       if (item is Map) values.add(parser(Map<String, dynamic>.from(item)));
     } catch (error) {

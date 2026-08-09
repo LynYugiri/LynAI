@@ -29,6 +29,39 @@ void main() {
   });
 
   test(
+    'knowledge repository treats missing and null collections as empty',
+    () async {
+      final repository = KnowledgeRepository(
+        storageV2: _RawKnowledgeStorage({'explanations': null}),
+      );
+
+      final loaded = await repository.load();
+
+      expect(loaded.bases, isEmpty);
+      expect(loaded.categories, isEmpty);
+      expect(loaded.entries, isEmpty);
+      expect(loaded.sources, isEmpty);
+      expect(loaded.explanations, isEmpty);
+    },
+  );
+
+  test('knowledge repository rejects non-list collection fields', () async {
+    for (final entry in <String, Object>{
+      'knowledgeBases': {'id': 'not-a-list'},
+      'categories': 'not-a-list',
+      'entries': 1,
+      'sources': true,
+      'explanations': const {},
+    }.entries) {
+      final repository = KnowledgeRepository(
+        storageV2: _RawKnowledgeStorage({entry.key: entry.value}),
+      );
+
+      await expectLater(repository.load(), throwsA(isA<FormatException>()));
+    }
+  });
+
+  test(
     'knowledge repository ignores legacy settings and writes row types',
     () async {
       final root = await Directory.systemTemp.createTemp(
@@ -302,4 +335,13 @@ void main() {
       if (await root.exists()) await root.delete(recursive: true);
     }
   });
+}
+
+final class _RawKnowledgeStorage extends StorageV2Service {
+  _RawKnowledgeStorage(this.data);
+
+  final Map<String, dynamic> data;
+
+  @override
+  Future<Map<String, dynamic>> loadDataFile(String fileName) async => data;
 }

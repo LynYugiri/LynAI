@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/knowledge_base.dart';
 import 'package:lynai/models/knowledge_category.dart';
@@ -11,6 +12,7 @@ import 'package:lynai/providers/knowledge_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
 import 'package:lynai/providers/plugin_provider.dart';
 import 'package:lynai/repositories/knowledge_repository.dart';
+import 'package:lynai/services/backend_client.dart';
 import 'package:provider/provider.dart';
 
 import 'support/memory_repositories.dart';
@@ -192,10 +194,202 @@ void main() {
     expect(tile.selected, isFalse);
     expect(find.text('来源'), findsOneWidget);
   });
+
+  testWidgets(
+    'search prioritizes title matches and keeps matching entries visible',
+    (tester) async {
+      final provider = await _knowledgeProvider(withSearchEntries: true);
+      await _pumpKnowledge(tester, provider, size: const Size(1200, 800));
+
+      await tester.enterText(
+        find.widgetWithText(TextField, '搜索标题或内容'),
+        'needle',
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('needle 标题'), findsWidgets);
+      expect(find.text('正文命中'), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text('needle 标题').first).dy,
+        lessThan(tester.getTopLeft(find.text('正文命中')).dy),
+      );
+    },
+  );
+
+  testWidgets('entry sorting exposes all options and sorts by title', (
+    tester,
+  ) async {
+    final provider = await _knowledgeProvider(withSearchEntries: true);
+    await _pumpKnowledge(tester, provider, size: const Size(1200, 800));
+
+    await tester.tap(find.byKey(const ValueKey('knowledge-entry-sort')));
+    await tester.pumpAndSettle();
+    expect(find.text('自定义顺序'), findsWidgets);
+    expect(find.text('最近更新'), findsOneWidget);
+    expect(find.text('创建时间'), findsOneWidget);
+    expect(find.text('标题'), findsOneWidget);
+    await tester.tap(find.text('标题').last);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getTopLeft(find.text('Markdown 条目').first).dy,
+      lessThan(tester.getTopLeft(find.text('needle 标题')).dy),
+    );
+    expect(
+      tester
+          .widgetList<ReorderableListView>(find.byType(ReorderableListView))
+          .where((list) => list.itemCount == 3),
+      isEmpty,
+    );
+  });
+
+  testWidgets('source editor rejects non-http urls', (tester) async {
+    final provider = await _knowledgeProvider();
+    await _pumpKnowledge(tester, provider, size: const Size(1200, 800));
+
+    await tester.tap(find.byTooltip('新增来源'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, '标题'), '危险来源');
+    await tester.enterText(
+      find.widgetWithText(TextField, 'URL（可选）'),
+      'javascript:alert(1)',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await tester.pump();
+
+    expect(find.text('URL 仅支持 http 或 https'), findsOneWidget);
+    expect(provider.sourcesForEntry('entry'), isEmpty);
+  });
+
+  testWidgets('source can be added edited and deleted', (tester) async {
+    final provider = await _knowledgeProvider();
+    await _pumpKnowledge(tester, provider, size: const Size(1200, 800));
+
+    await tester.tap(find.byTooltip('新增来源'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, '标题'), 'Flutter 文档');
+    await tester.enterText(
+      find.widgetWithText(TextField, 'URL（可选）'),
+      'https://docs.flutter.dev/reference',
+    );
+    await tester.enterText(find.widgetWithText(TextField, '备注（可选）'), '初始备注');
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await tester.pumpAndSettle();
+
+    expect(provider.sourcesForEntry('entry').single.note, '初始备注');
+    await tester.tap(find.byTooltip('来源操作'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('编辑来源'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, '备注（可选）'), '更新备注');
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await tester.pumpAndSettle();
+    expect(provider.sourcesForEntry('entry').single.note, '更新备注');
+
+    await tester.tap(find.byTooltip('来源操作'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除来源'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '删除'));
+    await tester.pumpAndSettle();
+    expect(provider.sourcesForEntry('entry'), isEmpty);
+    expect(find.text('暂无来源，可补充网页链接或文字备注。'), findsOneWidget);
+  });
+
+  testWidgets('copy source keeps the complete http url', (tester) async {
+    final provider = await _knowledgeProvider(withSource: true);
+    String? clipboardText;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          clipboardText = (call.arguments as Map)['text'] as String?;
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    await _pumpKnowledge(tester, provider, size: const Size(1200, 800));
+
+    expect(find.textContaining('example.com'), findsOneWidget);
+    expect(find.textContaining('/path?q=1'), findsNothing);
+    await tester.tap(find.byTooltip('复制来源'));
+    await tester.pump();
+
+    expect(clipboardText, contains('https://example.com/path?q=1'));
+  });
+
+  testWidgets('entry reorder normalizes Flutter downward slot index', (
+    tester,
+  ) async {
+    final provider = await _knowledgeProvider(withSearchEntries: true);
+    await _pumpKnowledge(tester, provider, size: const Size(1200, 800));
+
+    final entryList = tester
+        .widgetList<ReorderableListView>(find.byType(ReorderableListView))
+        .singleWhere((list) => list.itemCount == 3);
+    entryList.onReorderItem!(0, 2);
+    await tester.pumpAndSettle();
+
+    expect(provider.entriesForBase('base').map((entry) => entry.id), [
+      'content-match',
+      'entry',
+      'title-match',
+    ]);
+  });
+
+  testWidgets('base reorder normalizes Flutter end slot index', (tester) async {
+    final provider = await _knowledgeProvider(withSecondaryDefaultBase: true);
+    await _pumpKnowledge(tester, provider, size: const Size(1200, 800));
+    final originalIds = provider.knowledgeBases.map((base) => base.id).toList();
+
+    final baseList = tester
+        .widgetList<ReorderableListView>(find.byType(ReorderableListView))
+        .singleWhere((list) => list.itemCount == originalIds.length);
+    baseList.onReorderItem!(0, originalIds.length);
+    await tester.pumpAndSettle();
+
+    expect(provider.knowledgeBases.map((base) => base.id), [
+      ...originalIds.skip(1),
+      originalIds.first,
+    ]);
+  });
+
+  testWidgets('category reorder normalizes Flutter end slot index', (
+    tester,
+  ) async {
+    final provider = await _knowledgeProvider();
+    await _pumpKnowledge(tester, provider, size: const Size(1200, 800));
+    await tester.tap(find.byTooltip('管理类别'));
+    await tester.pumpAndSettle();
+
+    final categoryList = tester
+        .widgetList<ReorderableListView>(
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.byType(ReorderableListView),
+          ),
+        )
+        .singleWhere((list) => list.itemCount == 2);
+    categoryList.onReorderItem!(0, 2);
+    await tester.pumpAndSettle();
+
+    expect(provider.categoriesForBase('base').map((category) => category.id), [
+      'disabled',
+      'person',
+    ]);
+  });
 }
 
 Future<KnowledgeProvider> _knowledgeProvider({
   bool withSecondaryDefaultBase = false,
+  bool withSearchEntries = false,
+  bool withSource = false,
 }) async {
   final provider = KnowledgeProvider(repository: _MemoryKnowledgeRepository());
   final now = DateTime(2026, 7, 29);
@@ -270,6 +464,30 @@ Future<KnowledgeProvider> _knowledgeProvider({
         createdAt: now,
         updatedAt: now,
       ),
+      if (withSearchEntries)
+        KnowledgeEntry(
+          id: 'content-match',
+          knowledgeBaseId: 'base',
+          categoryId: 'person',
+          title: '正文命中',
+          content: '这里包含 needle 关键词',
+          enabled: true,
+          sortOrder: 1,
+          createdAt: now.add(const Duration(hours: 1)),
+          updatedAt: now.add(const Duration(hours: 2)),
+        ),
+      if (withSearchEntries)
+        KnowledgeEntry(
+          id: 'title-match',
+          knowledgeBaseId: 'base',
+          categoryId: 'person',
+          title: 'needle 标题',
+          content: '普通正文',
+          enabled: true,
+          sortOrder: 2,
+          createdAt: now.add(const Duration(hours: 2)),
+          updatedAt: now.add(const Duration(hours: 1)),
+        ),
       if (withSecondaryDefaultBase)
         KnowledgeEntry(
           id: 'default-entry',
@@ -283,7 +501,20 @@ Future<KnowledgeProvider> _knowledgeProvider({
           updatedAt: now,
         ),
     ],
-    sources: const [],
+    sources: [
+      if (withSource)
+        KnowledgeSource(
+          id: 'source',
+          knowledgeBaseId: 'base',
+          entryId: 'entry',
+          title: '完整链接来源',
+          url: 'https://example.com/path?q=1',
+          note: '来源备注',
+          sortOrder: 0,
+          createdAt: now,
+          updatedAt: now,
+        ),
+    ],
     explanations: const [],
   );
   return provider;
@@ -307,6 +538,7 @@ Future<void> _pumpKnowledge(
       providers: [
         ChangeNotifierProvider.value(value: settings),
         ChangeNotifierProvider.value(value: knowledge),
+        ChangeNotifierProvider(create: (_) => BackendClient()),
         ChangeNotifierProvider(create: (_) => ModelConfigProvider()),
         ChangeNotifierProvider(create: (_) => FeatureProvider()),
         ChangeNotifierProvider(create: (_) => PluginProvider()),

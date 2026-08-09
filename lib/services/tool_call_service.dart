@@ -12,9 +12,13 @@ import '../models/model_config.dart';
 import '../models/agent_plan.dart';
 import '../models/agent_working_memory.dart';
 import '../models/conversation.dart';
+import '../models/knowledge_base.dart';
+import '../models/knowledge_category.dart';
+import '../models/knowledge_entry.dart';
 import '../models/plugin.dart';
 import '../providers/feature_provider.dart';
 import '../providers/calendar_provider.dart';
+import '../providers/knowledge_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
@@ -108,6 +112,7 @@ class ToolCallService {
     this._features, {
     TaskProvider? tasks,
     CalendarProvider? calendar,
+    KnowledgeProvider? knowledge,
     PluginProvider? plugins,
     ModelConfigProvider? modelConfigs,
     SettingsProvider? settings,
@@ -134,6 +139,7 @@ class ToolCallService {
     bool webSearchConfigured = true,
   }) : _tasks = tasks,
        _calendar = calendar,
+       _knowledge = knowledge,
        _plugins = plugins,
        _modelConfigs = modelConfigs,
        _settings = settings,
@@ -160,16 +166,21 @@ class ToolCallService {
                  )),
        _outboundHttpClient = outboundHttpClient ?? BoundedOutboundHttpClient(),
        _allowPlaintextHttpFetch = allowPlaintextHttpFetch,
-        _permissionSnapshot = permissionSnapshot,
-        _allowScreenContextTool = allowScreenContextTool,
-        _allowSubagents = allowSubagents,
-        _subagentDepth = subagentDepth,
-        _webSearchConfigured = webSearchConfigured;
+       _permissionSnapshot = permissionSnapshot,
+       _allowScreenContextTool = allowScreenContextTool,
+       _allowSubagents = allowSubagents,
+       _subagentDepth = subagentDepth,
+       _webSearchConfigured = webSearchConfigured;
 
   static const _channel = MethodChannel('lynai/native_tools');
   static const _webFetchDefaultMaxChars = 12000;
   static const _webFetchMaxChars = 60000;
   static const _webFetchTimeout = Duration(seconds: 20);
+  static const _knowledgeSearchMaxResults = 10;
+  static const _knowledgeSearchPreviewChars = 500;
+  static const _knowledgeSearchContentChars = 2000;
+  static const _knowledgeSearchMaxScanChars = 20000;
+  static const _knowledgeSearchBatchSize = 64;
   static const maxToolRounds = 12;
   static const maxSubagentDepth = 1;
 
@@ -182,6 +193,7 @@ class ToolCallService {
   final FeatureProvider _features;
   final TaskProvider? _tasks;
   final CalendarProvider? _calendar;
+  final KnowledgeProvider? _knowledge;
   final PluginProvider? _plugins;
   final ModelConfigProvider? _modelConfigs;
   final SettingsProvider? _settings;
@@ -214,7 +226,7 @@ class ToolCallService {
 
   /// 支持原生 tool_calls 接口使用的系统提示词。
   static const nativeSystemPrompt = '''
-你可以使用本地工具帮助用户管理任务、任务清单、日历事件、纪念日、笔记和旧待办清单，获取时间/位置和创建对话标题。
+你可以使用本地工具帮助用户管理任务、任务清单、日历事件、纪念日、笔记和旧待办清单，检索已启用的本地知识库，获取时间/位置和创建对话标题。
 需要调用工具时使用接口提供的 tool_calls；不需要工具时直接正常回答，不要提及工具。
 收到工具结果后，再用自然语言给用户最终回复。
 未配置网页搜索服务时，可用 web_fetch 抓取搜索引擎结果页或已知 URL 检索信息。
@@ -1357,6 +1369,7 @@ ${lines.join('\n')}$more''';
     List<Map<String, dynamic>> tools,
     bool agentEnabled,
     bool webSearchConfigured,
+    bool knowledgeAvailable,
   ) {
     final names = tools
         .map((tool) => tool['function']?['name']?.toString())
@@ -1410,6 +1423,23 @@ ${lines.join('\n')}$more''';
           'maxResults': {'type': 'integer'},
           'language': {'type': 'string'},
           'timeRange': {'type': 'string'},
+        },
+        'required': ['query'],
+      });
+    }
+    if (knowledgeAvailable) {
+      add('knowledge_search', '检索已启用的本地知识库条目，标题匹配优先于内容匹配。', {
+        'type': 'object',
+        'properties': {
+          'query': {'type': 'string', 'minLength': 1, 'maxLength': 256},
+          'knowledgeBaseId': {'type': 'string', 'maxLength': 128},
+          'categoryId': {'type': 'string', 'maxLength': 128},
+          'limit': {
+            'type': 'integer',
+            'minimum': 1,
+            'maximum': _knowledgeSearchMaxResults,
+          },
+          'includeContent': {'type': 'boolean'},
         },
         'required': ['query'],
       });
@@ -1500,7 +1530,9 @@ ${lines.join('\n')}$more''';
       'execute_lua' => const [LynAIPermissions.luaExecute],
       'call_plugin_function' => const [LynAIPermissions.pluginCallFunction],
       'propose_note_edit' => const [LynAIPermissions.notesPropose],
-      'resource' || 'read_attachment' => const [LynAIPermissions.storageRead],
+      'resource' ||
+      'read_attachment' ||
+      'knowledge_search' => const [LynAIPermissions.storageRead],
       _ when notesRead.contains(name) => const [LynAIPermissions.notesRead],
       _ when notesWrite.contains(name) => const [LynAIPermissions.notesWrite],
       _ when todosRead.contains(name) => const [LynAIPermissions.todosRead],
@@ -1539,6 +1571,7 @@ ${lines.join('\n')}$more''';
     if (name == 'web_fetch' || name == 'web_search') {
       return AgentToolOperation.network;
     }
+    if (name == 'knowledge_search') return AgentToolOperation.read;
     if (name.startsWith('list_') ||
         name.startsWith('read_') ||
         name.startsWith('get_') ||
@@ -1627,7 +1660,12 @@ ${lines.join('\n')}$more''';
       imageGenerationEnabled,
       _allowScreenContextTool,
     );
-    _appendFoundationTools(definitions, agentEnabled, _webSearchConfigured);
+    _appendFoundationTools(
+      definitions,
+      agentEnabled,
+      _webSearchConfigured,
+      _knowledge != null,
+    );
     for (final definition in definitions) {
       final function = definition['function'];
       if (function is! Map) continue;
@@ -1714,6 +1752,7 @@ ${lines.join('\n')}$more''';
     List<AgentToolInvocation> calls, {
     required AgentTurnIdentity identity,
     required AgentRunCancellation cancellationToken,
+    DateTime? deadline,
   }) {
     if (cancellationToken is! AgentCancellationToken) {
       throw ArgumentError('Agent tool execution requires a cancellation token');
@@ -1726,6 +1765,7 @@ ${lines.join('\n')}$more''';
         permissionSnapshot: runSnapshot.permissions,
         cancellationToken: cancellationToken,
         conversationId: _conversationId,
+        deadline: deadline,
       ),
     );
   }
@@ -1829,6 +1869,11 @@ ${lines.join('\n')}$more''';
       ),
       'ask_user' => _askUser(call, context),
       'web_search' => _webSearchTool(call, context.cancellationToken),
+      'knowledge_search' => _knowledgeSearch(
+        call,
+        cancellationToken: context.cancellationToken,
+        deadline: context.deadline,
+      ),
       'read_attachment' => _readAttachment(call),
       'resource' => _resourceTool(call),
       'generate_image' => _registeredFunction(
@@ -1961,6 +2006,7 @@ ${lines.join('\n')}$more''';
       _features,
       tasks: _tasks,
       calendar: _calendar,
+      knowledge: _knowledge,
       plugins: _plugins,
       modelConfigs: _modelConfigs,
       settings: _settings,
@@ -2046,6 +2092,7 @@ ${lines.join('\n')}$more''';
     ChatToolCall call,
     List<Message> conversationMessages, {
     AgentCancellationToken? cancellationToken,
+    DateTime? deadline,
   }) async {
     try {
       cancellationToken?.throwIfCancellationRequested();
@@ -2134,6 +2181,12 @@ ${lines.join('\n')}$more''';
           final result = await _executeAgentLua(call, cancellationToken);
           _appendGeneratedImagesToConversation(result);
           return result;
+        case 'knowledge_search':
+          return _knowledgeSearch(
+            call,
+            cancellationToken: cancellationToken,
+            deadline: deadline,
+          );
         default:
           final functionName = LynAIFunctionService.aiToolAliases[call.name];
           if (functionName != null) {
@@ -2168,6 +2221,8 @@ ${lines.join('\n')}$more''';
           if (externalResult != null) return externalResult;
           return _error('未知工具: ${call.name}');
       }
+    } on AgentCancellationException {
+      rethrow;
     } on Exception catch (e, st) {
       debugPrint('工具调用失败 ${call.name}: $e\n$st');
       return _error(e.toString());
@@ -2321,6 +2376,245 @@ ${lines.join('\n')}$more''';
       return _agentError('cancelled', result.cancellationReason ?? '用户取消了回答');
     }
     return _agentOk({'answer': result.answer!.toJson()});
+  }
+
+  Future<Map<String, dynamic>> _knowledgeSearch(
+    ChatToolCall call, {
+    AgentCancellationToken? cancellationToken,
+    DateTime? deadline,
+  }) async {
+    cancellationToken?.throwIfCancellationRequested();
+    if (_knowledgeSearchDeadlineExceeded(deadline)) {
+      return _agentError('deadline_exceeded', '知识库检索超过执行时限');
+    }
+    final knowledge = _knowledge;
+    if (knowledge == null) return _error('知识库未提供给当前工具会话');
+    final query = _stringArg(call, 'query').trim();
+    if (query.isEmpty) return _error('缺少非空 query');
+    final knowledgeBaseId = _stringArg(call, 'knowledgeBaseId').trim();
+    final categoryId = _stringArg(call, 'categoryId').trim();
+    final limit = ((call.arguments['limit'] as num?)?.toInt() ?? 5)
+        .clamp(1, _knowledgeSearchMaxResults)
+        .toInt();
+    final includeContent = call.arguments['includeContent'] == true;
+    final knowledgeBases = List<KnowledgeBase>.of(knowledge.knowledgeBases);
+    final knowledgeCategories = List<KnowledgeCategory>.of(
+      knowledge.categories,
+    );
+    final knowledgeEntries = List<KnowledgeEntry>.of(knowledge.entries);
+    final bases = {for (final base in knowledgeBases) base.id: base};
+    final categories = {
+      for (final category in knowledgeCategories) category.id: category,
+    };
+
+    if (knowledgeBaseId.isNotEmpty) {
+      final base = bases[knowledgeBaseId];
+      if (base == null) {
+        return _emptyKnowledgeSearchResult(
+          query,
+          limit,
+          'knowledge_base_not_found',
+          '未找到 knowledgeBaseId=$knowledgeBaseId 的知识库',
+        );
+      }
+      if (!base.enabled) {
+        return _emptyKnowledgeSearchResult(
+          query,
+          limit,
+          'knowledge_base_disabled',
+          'knowledgeBaseId=$knowledgeBaseId 的知识库未启用',
+        );
+      }
+    }
+
+    if (categoryId.isNotEmpty) {
+      final category = categories[categoryId];
+      if (category == null) {
+        return _emptyKnowledgeSearchResult(
+          query,
+          limit,
+          'category_not_found',
+          '未找到 categoryId=$categoryId 的知识类别',
+        );
+      }
+      if (knowledgeBaseId.isNotEmpty &&
+          category.knowledgeBaseId != knowledgeBaseId) {
+        return _emptyKnowledgeSearchResult(
+          query,
+          limit,
+          'category_base_mismatch',
+          'categoryId=$categoryId 不属于 knowledgeBaseId=$knowledgeBaseId',
+        );
+      }
+      final base = bases[category.knowledgeBaseId];
+      if (base == null || !base.enabled || !category.enabled) {
+        return _emptyKnowledgeSearchResult(
+          query,
+          limit,
+          'category_disabled',
+          'categoryId=$categoryId 或其知识库未启用',
+        );
+      }
+    }
+
+    final normalizedQuery = query.toLowerCase();
+    final matches =
+        <
+          ({
+            KnowledgeEntry entry,
+            KnowledgeBase base,
+            KnowledgeCategory? category,
+            int rank,
+          })
+        >[];
+    for (
+      var start = 0;
+      start < knowledgeEntries.length;
+      start += _knowledgeSearchBatchSize
+    ) {
+      cancellationToken?.throwIfCancellationRequested();
+      if (_knowledgeSearchDeadlineExceeded(deadline)) {
+        return _agentError('deadline_exceeded', '知识库检索超过执行时限');
+      }
+      final end = (start + _knowledgeSearchBatchSize).clamp(
+        0,
+        knowledgeEntries.length,
+      );
+      for (var index = start; index < end; index++) {
+        final entry = knowledgeEntries[index];
+        if (!entry.enabled) continue;
+        final base = bases[entry.knowledgeBaseId];
+        if (base == null || !base.enabled) continue;
+        if (knowledgeBaseId.isNotEmpty && base.id != knowledgeBaseId) continue;
+        final category = entry.categoryId == null
+            ? null
+            : categories[entry.categoryId];
+        if (entry.categoryId != null &&
+            (category == null ||
+                !category.enabled ||
+                category.knowledgeBaseId != base.id)) {
+          continue;
+        }
+        if (categoryId.isNotEmpty && category?.id != categoryId) continue;
+        final titleMatches = entry.title.toLowerCase().contains(
+          normalizedQuery,
+        );
+        final searchableContent =
+            entry.content.length <= _knowledgeSearchMaxScanChars
+            ? entry.content
+            : entry.content.substring(0, _knowledgeSearchMaxScanChars);
+        final contentMatches = searchableContent.toLowerCase().contains(
+          normalizedQuery,
+        );
+        if (!titleMatches && !contentMatches) continue;
+        matches.add((
+          entry: entry,
+          base: base,
+          category: category,
+          rank: titleMatches ? 0 : 1,
+        ));
+      }
+      // 大知识库按批次让出 isolate，确保停止操作和 scheduler deadline 能及时生效。
+      await Future<void>.delayed(Duration.zero);
+    }
+    cancellationToken?.throwIfCancellationRequested();
+    if (_knowledgeSearchDeadlineExceeded(deadline)) {
+      return _agentError('deadline_exceeded', '知识库检索超过执行时限');
+    }
+    matches.sort((left, right) {
+      var compared = left.rank.compareTo(right.rank);
+      if (compared != 0) return compared;
+      compared = left.base.sortOrder.compareTo(right.base.sortOrder);
+      if (compared != 0) return compared;
+      compared = (left.category?.sortOrder ?? -1).compareTo(
+        right.category?.sortOrder ?? -1,
+      );
+      if (compared != 0) return compared;
+      compared = left.entry.sortOrder.compareTo(right.entry.sortOrder);
+      if (compared != 0) return compared;
+      return left.entry.id.compareTo(right.entry.id);
+    });
+
+    final results = matches
+        .take(limit)
+        .map((match) {
+          final content = match.entry.content;
+          final category = match.category;
+          return {
+            'id': match.entry.id,
+            'title': _boundedKnowledgeText(match.entry.title, 240),
+            'knowledgeBaseId': match.base.id,
+            'knowledgeBaseName': match.base.name,
+            if (category != null) ...{
+              'categoryId': category.id,
+              'categoryName': category.name,
+            },
+            'matchedIn': match.rank == 0 ? 'title' : 'content',
+            'preview': _knowledgePreview(content, query),
+            if (includeContent)
+              'content': _boundedKnowledgeText(
+                content,
+                _knowledgeSearchContentChars,
+              ),
+            'contentTruncated':
+                content.length >
+                (includeContent
+                    ? _knowledgeSearchContentChars
+                    : _knowledgeSearchPreviewChars),
+          };
+        })
+        .toList(growable: false);
+    return {
+      'ok': true,
+      'query': query,
+      'limit': limit,
+      'count': results.length,
+      'results': results,
+    };
+  }
+
+  static bool _knowledgeSearchDeadlineExceeded(DateTime? deadline) =>
+      deadline != null && !deadline.isAfter(DateTime.now());
+
+  static Map<String, dynamic> _emptyKnowledgeSearchResult(
+    String query,
+    int limit,
+    String reason,
+    String message,
+  ) => {
+    'ok': true,
+    'query': query,
+    'limit': limit,
+    'count': 0,
+    'results': const <Map<String, dynamic>>[],
+    'reason': reason,
+    'message': message,
+  };
+
+  static String _boundedKnowledgeText(String value, int maxChars) {
+    if (value.length <= maxChars) return value;
+    return '${value.substring(0, maxChars)}...';
+  }
+
+  static String _knowledgePreview(String content, String query) {
+    final searchableContent = content.length <= _knowledgeSearchMaxScanChars
+        ? content
+        : content.substring(0, _knowledgeSearchMaxScanChars);
+    if (searchableContent.length <= _knowledgeSearchPreviewChars) {
+      return searchableContent;
+    }
+    final match = searchableContent.toLowerCase().indexOf(query.toLowerCase());
+    if (match < 0) {
+      return _boundedKnowledgeText(
+        searchableContent,
+        _knowledgeSearchPreviewChars,
+      );
+    }
+    final start = (match - (_knowledgeSearchPreviewChars ~/ 3))
+        .clamp(0, searchableContent.length - _knowledgeSearchPreviewChars)
+        .toInt();
+    final end = start + _knowledgeSearchPreviewChars;
+    return '${start > 0 ? '...' : ''}${searchableContent.substring(start, end)}${end < searchableContent.length || searchableContent.length < content.length ? '...' : ''}';
   }
 
   Future<Map<String, dynamic>> _webSearchTool(
@@ -2585,6 +2879,7 @@ ${lines.join('\n')}$more''';
       _features,
       tasks: _tasks,
       calendar: _calendar,
+      knowledge: _knowledge,
       plugins: _plugins,
       modelConfigs: _modelConfigs,
       settings: _settings,
@@ -3280,6 +3575,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
           'get_current_screen',
           'call_plugin_function',
           'execute_lua',
+          'knowledge_search',
         }.contains(call.name) ||
         (_plugins?.plugins.any(
               (plugin) =>
@@ -3303,6 +3599,15 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
       final parameters = function['parameters'];
       if (parameters is Map) schema = Map<String, dynamic>.from(parameters);
       break;
+    }
+    if (schema == null && call.name == 'knowledge_search') {
+      final tools = <Map<String, dynamic>>[];
+      _appendFoundationTools(tools, true, true, true);
+      final function = tools
+          .map((tool) => tool['function'])
+          .whereType<Map>()
+          .firstWhere((value) => value['name'] == call.name);
+      schema = Map<String, dynamic>.from(function['parameters'] as Map);
     }
     if (schema == null) return null;
     final validation = _schemaValidator.validate(call.arguments, schema);

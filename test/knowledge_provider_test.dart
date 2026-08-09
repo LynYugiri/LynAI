@@ -285,6 +285,63 @@ void main() {
   });
 
   test(
+    'category updates keep and validate the previous knowledge base',
+    () async {
+      final repository = _KnowledgeRepository();
+      final provider = KnowledgeProvider(repository: repository);
+      final now = DateTime.utc(2026, 7, 29);
+      await provider.replaceAll(
+        knowledgeBases: [_base('base-a', now)],
+        categories: [
+          _category('category-a', 'base-a', now, alias: 'category_a'),
+        ],
+        entries: const [],
+        sources: const [],
+        explanations: const [],
+      );
+
+      final category = provider.categoryById('category-a')!;
+      await provider.updateCategory(
+        category.copyWith(knowledgeBaseId: 'missing-base', name: 'Updated'),
+      );
+
+      expect(provider.categoryById('category-a')?.knowledgeBaseId, 'base-a');
+      expect(provider.categoryById('category-a')?.name, 'Updated');
+      expect(repository.savedCategories.single.knowledgeBaseId, 'base-a');
+    },
+  );
+
+  test(
+    'entry updates reject categories outside the previous knowledge base',
+    () async {
+      final repository = _KnowledgeRepository();
+      final provider = KnowledgeProvider(repository: repository);
+      final now = DateTime.utc(2026, 7, 29);
+      await provider.replaceAll(
+        knowledgeBases: [_base('base-a', now), _base('base-b', now)],
+        categories: [
+          _category('category-b', 'base-b', now, alias: 'category_b'),
+        ],
+        entries: [_entry('entry-a', 'base-a', null, now)],
+        sources: const [],
+        explanations: const [],
+      );
+
+      final entry = provider.entryById('entry-a')!;
+      await expectLater(
+        provider.updateEntry(
+          entry.copyWith(knowledgeBaseId: 'base-b', categoryId: 'category-b'),
+        ),
+        throwsArgumentError,
+      );
+
+      expect(provider.entryById('entry-a')?.knowledgeBaseId, 'base-a');
+      expect(provider.entryById('entry-a')?.categoryId, isNull);
+      expect(repository.savedEntries, isEmpty);
+    },
+  );
+
+  test(
     'restoring built-ins preserves state, order, creation and entries',
     () async {
       final provider = KnowledgeProvider(repository: _KnowledgeRepository());
@@ -353,6 +410,7 @@ class _KnowledgeRepository extends KnowledgeRepository {
   bool failNextReplace = false;
   List<KnowledgeBase> savedBases = [];
   List<KnowledgeCategory> savedCategories = [];
+  List<KnowledgeEntry> savedEntries = [];
   KnowledgeLoadResult? replaced;
 
   @override
@@ -390,6 +448,7 @@ class _KnowledgeRepository extends KnowledgeRepository {
   }) async {
     savedBases = upsertBases.toList();
     savedCategories = upsertCategories.toList();
+    savedEntries = upsertEntries.toList();
     if (failNextSave) {
       failNextSave = false;
       throw StateError('injected save failure');

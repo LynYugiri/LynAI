@@ -1,3 +1,4 @@
+/// 关联到知识条目的外部来源或补充说明。
 final class KnowledgeSource {
   const KnowledgeSource({
     required this.id,

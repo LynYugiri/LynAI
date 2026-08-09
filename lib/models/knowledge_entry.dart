@@ -1,5 +1,6 @@
 const _knowledgeUnset = Object();
 
+/// 知识库中的正文条目，可选择归入同库类别。
 final class KnowledgeEntry {
   const KnowledgeEntry({
     required this.id,

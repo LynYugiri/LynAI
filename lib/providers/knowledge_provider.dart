@@ -10,11 +10,11 @@ import '../repositories/knowledge_repository.dart';
 import '../services/knowledge_annotation_prompt.dart';
 import '../services/storage_v2_service.dart';
 
+/// 管理知识库图的内存状态、关系校验与串行持久化。
 class KnowledgeProvider extends ChangeNotifier {
   static const builtInProperNounKnowledgeBaseId =
       builtInProperNounKnowledgeBaseModelId;
-  static const builtInProperNounCategoryId =
-      builtInProperNounCategoryModelId;
+  static const builtInProperNounCategoryId = builtInProperNounCategoryModelId;
   static const properNounAlias = properNounKnowledgeCategoryAlias;
   static const defaultAnnotationRule = '标注专有名词';
   static final builtInInitialTime = DateTime.utc(2026, 7, 30);
@@ -293,19 +293,18 @@ class KnowledgeProvider extends ChangeNotifier {
   Future<void> updateCategory(KnowledgeCategory value) async {
     final index = _categories.indexWhere((item) => item.id == value.id);
     if (index < 0) return;
-    _requireBase(value.knowledgeBaseId);
+    _requireBase(_categories[index].knowledgeBaseId);
     _validateCategoryAlias(value.alias, excludingId: value.id);
     await _runMutation(() {
       final currentIndex = _categories.indexWhere(
         (item) => item.id == value.id,
       );
       if (currentIndex < 0) throw StateError('知识类别已被删除');
-      _requireBase(value.knowledgeBaseId);
-      _validateCategoryAlias(value.alias, excludingId: value.id);
       final previous = _categories[currentIndex];
+      _requireBase(previous.knowledgeBaseId);
+      _validateCategoryAlias(value.alias, excludingId: value.id);
       _categories[currentIndex] = value.copyWith(
         knowledgeBaseId: previous.knowledgeBaseId,
-        annotationRule: value.annotationRule,
         sortOrder: previous.sortOrder,
         createdAt: previous.createdAt,
         updatedAt: DateTime.now(),
@@ -382,10 +381,6 @@ class KnowledgeProvider extends ChangeNotifier {
     );
     if (index < 0) throw StateError('内置类别不存在');
     final current = _categories[index];
-    final renamed = _renameAliasConflicts(
-      properNounAlias,
-      excludingId: current.id,
-    );
     final restored = _builtInProperNounCategory.copyWith(
       enabled: current.enabled,
       sortOrder: current.sortOrder,
@@ -393,6 +388,7 @@ class KnowledgeProvider extends ChangeNotifier {
       updatedAt: DateTime.now(),
     );
     _categories[index] = restored;
+    final renamed = _normalizeCategoryAliases();
     _sortAll();
     return (
       result: null,
@@ -431,12 +427,12 @@ class KnowledgeProvider extends ChangeNotifier {
   Future<void> updateEntry(KnowledgeEntry value) async {
     final index = _entries.indexWhere((item) => item.id == value.id);
     if (index < 0) return;
-    _requireEntryParents(value.knowledgeBaseId, value.categoryId);
+    _requireEntryParents(_entries[index].knowledgeBaseId, value.categoryId);
     await _runMutation(() {
       final currentIndex = _entries.indexWhere((item) => item.id == value.id);
       if (currentIndex < 0) throw StateError('知识条目已被删除');
-      _requireEntryParents(value.knowledgeBaseId, value.categoryId);
       final previous = _entries[currentIndex];
+      _requireEntryParents(previous.knowledgeBaseId, value.categoryId);
       final updated = value.copyWith(
         knowledgeBaseId: previous.knowledgeBaseId,
         sortOrder: previous.sortOrder,
@@ -752,7 +748,6 @@ class KnowledgeProvider extends ChangeNotifier {
       (item) => item.id == builtInProperNounCategoryId,
     );
     if (builtInIndex < 0) {
-      _renameAliasConflicts(properNounAlias);
       _categories.add(_builtInProperNounCategory);
     } else {
       final builtIn = _categories[builtInIndex];
@@ -761,12 +756,8 @@ class KnowledgeProvider extends ChangeNotifier {
           knowledgeBaseId: builtInProperNounKnowledgeBaseId,
         );
       }
-      _renameAliasConflicts(
-        _categories[builtInIndex].alias,
-        excludingId: builtInProperNounCategoryId,
-      );
     }
-    _renameDuplicateAliases();
+    _normalizeCategoryAliases();
     final categoryById = {for (final item in _categories) item.id: item};
     _entries = value.entries
         .where((item) => baseIds.contains(item.knowledgeBaseId))
@@ -805,17 +796,6 @@ class KnowledgeProvider extends ChangeNotifier {
       explanations: List.of(_explanations),
     );
     return (value: normalized, changed: !_sameLoadResult(original, normalized));
-  }
-
-  List<KnowledgeCategory> _renameAliasConflicts(
-    String alias, {
-    String? excludingId,
-  }) {
-    return _normalizeCategoryAliases();
-  }
-
-  List<KnowledgeCategory> _renameDuplicateAliases() {
-    return _normalizeCategoryAliases();
   }
 
   List<KnowledgeCategory> _normalizeCategoryAliases() {
@@ -858,26 +838,25 @@ class KnowledgeProvider extends ChangeNotifier {
   }
 
   void _sortAll() {
-    int compare(dynamic a, dynamic b) => a.sortOrder.compareTo(b.sortOrder);
-    _bases.sort(compare);
+    _bases.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
     _categories.sort(
       (a, b) => a.knowledgeBaseId == b.knowledgeBaseId
-          ? compare(a, b)
+          ? a.sortOrder.compareTo(b.sortOrder)
           : a.knowledgeBaseId.compareTo(b.knowledgeBaseId),
     );
     _entries.sort(
       (a, b) => a.knowledgeBaseId == b.knowledgeBaseId
-          ? compare(a, b)
+          ? a.sortOrder.compareTo(b.sortOrder)
           : a.knowledgeBaseId.compareTo(b.knowledgeBaseId),
     );
     _sources.sort(
       (a, b) => a.entryId == b.entryId
-          ? compare(a, b)
+          ? a.sortOrder.compareTo(b.sortOrder)
           : a.entryId.compareTo(b.entryId),
     );
     _explanations.sort(
       (a, b) => a.entryId == b.entryId
-          ? compare(a, b)
+          ? a.sortOrder.compareTo(b.sortOrder)
           : a.entryId.compareTo(b.entryId),
     );
   }

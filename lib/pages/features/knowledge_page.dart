@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:uuid/uuid.dart';
 import '../../models/knowledge_base.dart';
 import '../../models/knowledge_category.dart';
 import '../../models/knowledge_entry.dart';
@@ -12,8 +13,18 @@ import '../../models/knowledge_source.dart';
 import '../../models/model_config.dart';
 import '../../providers/knowledge_provider.dart';
 import '../../providers/model_config_provider.dart';
+import '../../providers/settings_provider.dart';
+import '../../services/api_service.dart';
+import '../../services/backend_client.dart';
+import '../../services/knowledge_explanation_service.dart';
 import '../../utils/snackbar_utils.dart';
 import '../../widgets/latex_renderer.dart';
+
+enum _EntrySort { custom, updated, created, title }
+
+// Flutter 向下拖动时返回删除前的插入槽位；Provider 接收删除后的目标索引。
+int _normalizedReorderIndex(int oldIndex, int newIndex) =>
+    oldIndex < newIndex ? newIndex - 1 : newIndex;
 
 /// 知识库页。
 ///
@@ -32,9 +43,13 @@ class KnowledgePageState extends State<KnowledgePage> {
   String? _selectedEntryId;
   String? _categoryFilterId;
   bool _compactDetail = false;
+  _EntrySort _entrySort = _EntrySort.custom;
+  final Set<String> _generatingExplanationEntryIds = {};
+  int _generation = 0;
 
   @override
   void dispose() {
+    _generation++;
     _searchController.dispose();
     super.dispose();
   }
@@ -65,7 +80,7 @@ class KnowledgePageState extends State<KnowledgePage> {
       return query.isEmpty ||
           entry.title.toLowerCase().contains(query) ||
           entry.content.toLowerCase().contains(query);
-    }).toList();
+    }).toList()..sort((a, b) => _compareEntries(a, b, query));
     final entry = _resolveEntry(provider, entries);
 
     return LayoutBuilder(
@@ -155,6 +170,25 @@ class KnowledgePageState extends State<KnowledgePage> {
     return entries.isEmpty ? null : entries.first;
   }
 
+  int _compareEntries(KnowledgeEntry a, KnowledgeEntry b, String query) {
+    if (query.isNotEmpty) {
+      final aTitle = a.title.toLowerCase().contains(query);
+      final bTitle = b.title.toLowerCase().contains(query);
+      if (aTitle != bTitle) return aTitle ? -1 : 1;
+    }
+    final primary = switch (_entrySort) {
+      _EntrySort.custom => a.sortOrder.compareTo(b.sortOrder),
+      _EntrySort.updated => b.updatedAt.compareTo(a.updatedAt),
+      _EntrySort.created => b.createdAt.compareTo(a.createdAt),
+      _EntrySort.title => a.title.toLowerCase().compareTo(
+        b.title.toLowerCase(),
+      ),
+    };
+    if (primary != 0) return primary;
+    final sortOrder = a.sortOrder.compareTo(b.sortOrder);
+    return sortOrder != 0 ? sortOrder : a.id.compareTo(b.id);
+  }
+
   Widget _basePane(
     KnowledgeProvider provider,
     List<KnowledgeBase> bases,
@@ -174,23 +208,35 @@ class KnowledgePageState extends State<KnowledgePage> {
         Expanded(
           child: bases.isEmpty
               ? _emptyBases(context, provider)
-              : ListView.builder(
+              : ReorderableListView.builder(
                   padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
                   itemCount: bases.length,
+                  buildDefaultDragHandles: false,
+                  onReorderItem: (oldIndex, newIndex) => _runOperation(
+                    () => provider.reorderKnowledgeBases(
+                      oldIndex,
+                      _normalizedReorderIndex(oldIndex, newIndex),
+                    ),
+                    '调整知识库顺序失败',
+                  ),
                   itemBuilder: (context, index) {
                     final base = bases[index];
                     final active = selected?.id == base.id;
                     return Card(
+                      key: ValueKey(base.id),
                       elevation: active ? 1 : 0,
                       color: active
                           ? Theme.of(context).colorScheme.primaryContainer
                           : null,
                       child: ListTile(
                         selected: active,
-                        leading: Icon(
-                          base.enabled
-                              ? Icons.local_library_outlined
-                              : Icons.visibility_off_outlined,
+                        leading: ReorderableDragStartListener(
+                          index: index,
+                          child: Icon(
+                            base.enabled
+                                ? Icons.drag_handle
+                                : Icons.visibility_off_outlined,
+                          ),
                         ),
                         title: Row(
                           children: [
@@ -308,33 +354,68 @@ class KnowledgePageState extends State<KnowledgePage> {
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-          child: Row(
+          child: Column(
             children: [
-              Expanded(
-                child: TextField(
-                  controller: _searchController,
-                  decoration: const InputDecoration(
-                    hintText: '搜索标题或内容',
-                    prefixIcon: Icon(Icons.search),
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                  onChanged: (_) => setState(() {}),
+              TextField(
+                controller: _searchController,
+                decoration: const InputDecoration(
+                  hintText: '搜索标题或内容',
+                  prefixIcon: Icon(Icons.search),
+                  border: OutlineInputBorder(),
+                  isDense: true,
                 ),
+                onChanged: (_) => setState(() {}),
               ),
-              const SizedBox(width: 8),
-              DropdownButton<String?>(
-                value: categoryFilterId,
-                hint: const Text('全部类别'),
-                items: [
-                  const DropdownMenuItem(value: null, child: Text('全部类别')),
-                  for (final category in categories)
-                    DropdownMenuItem(
-                      value: category.id,
-                      child: Text(category.name),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButton<String?>(
+                      value: categoryFilterId,
+                      isExpanded: true,
+                      hint: const Text('全部类别'),
+                      items: [
+                        const DropdownMenuItem(
+                          value: null,
+                          child: Text('全部类别'),
+                        ),
+                        for (final category in categories)
+                          DropdownMenuItem(
+                            value: category.id,
+                            child: Text(category.name),
+                          ),
+                      ],
+                      onChanged: (value) =>
+                          setState(() => _categoryFilterId = value),
                     ),
+                  ),
+                  const SizedBox(width: 8),
+                  DropdownButton<_EntrySort>(
+                    key: const ValueKey('knowledge-entry-sort'),
+                    value: _entrySort,
+                    items: const [
+                      DropdownMenuItem(
+                        value: _EntrySort.custom,
+                        child: Text('自定义顺序'),
+                      ),
+                      DropdownMenuItem(
+                        value: _EntrySort.updated,
+                        child: Text('最近更新'),
+                      ),
+                      DropdownMenuItem(
+                        value: _EntrySort.created,
+                        child: Text('创建时间'),
+                      ),
+                      DropdownMenuItem(
+                        value: _EntrySort.title,
+                        child: Text('标题'),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) setState(() => _entrySort = value);
+                    },
+                  ),
                 ],
-                onChanged: (value) => setState(() => _categoryFilterId = value),
               ),
             ],
           ),
@@ -342,81 +423,147 @@ class KnowledgePageState extends State<KnowledgePage> {
         Expanded(
           child: entries.isEmpty
               ? _emptyEntries(context, provider, base, categories)
-              : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
-                  itemCount: entries.length,
-                  itemBuilder: (context, index) {
-                    final entry = entries[index];
-                    final category = entry.categoryId == null
-                        ? null
-                        : provider.categoryById(entry.categoryId!);
-                    return Card(
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          child: Icon(
-                            entry.enabled
-                                ? Icons.description_outlined
-                                : Icons.visibility_off_outlined,
-                            size: 20,
-                          ),
-                        ),
-                        title: Text(
-                          entry.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Text(
-                          category?.name ?? '未分类',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        trailing: PopupMenuButton<String>(
-                          onSelected: (value) {
-                            switch (value) {
-                              case 'edit':
-                                unawaited(
-                                  _editEntry(provider, base, categories, entry),
-                                );
-                                break;
-                              case 'toggle':
-                                unawaited(
-                                  _updateEntry(
-                                    provider,
-                                    entry.copyWith(enabled: !entry.enabled),
-                                  ),
-                                );
-                                break;
-                              case 'delete':
-                                unawaited(_deleteEntry(provider, entry));
-                                break;
-                            }
-                          },
-                          itemBuilder: (_) => [
-                            const PopupMenuItem(
-                              value: 'edit',
-                              child: Text('编辑'),
-                            ),
-                            PopupMenuItem(
-                              value: 'toggle',
-                              child: Text(entry.enabled ? '停用' : '启用'),
-                            ),
-                            const PopupMenuDivider(),
-                            const PopupMenuItem(
-                              value: 'delete',
-                              child: Text('删除'),
-                            ),
-                          ],
-                        ),
-                        onTap: () => setState(() {
-                          _selectedEntryId = entry.id;
-                          _compactDetail = compact;
-                        }),
-                      ),
-                    );
-                  },
-                ),
+              : _entryList(provider, base, entries, selected, compact: compact),
         ),
       ],
+    );
+  }
+
+  Widget _entryList(
+    KnowledgeProvider provider,
+    KnowledgeBase base,
+    List<KnowledgeEntry> entries,
+    KnowledgeEntry? selected, {
+    required bool compact,
+  }) {
+    final query = _searchController.text.trim().toLowerCase();
+    final draggable =
+        _entrySort == _EntrySort.custom &&
+        query.isEmpty &&
+        _categoryFilterId == null;
+    Widget itemBuilder(BuildContext context, int index) {
+      final entry = entries[index];
+      final category = entry.categoryId == null
+          ? null
+          : provider.categoryById(entry.categoryId!);
+      final categoryColor = category == null
+          ? Theme.of(context).colorScheme.outline
+          : Color(category.colorValue == 0 ? 0xFF607D8B : category.colorValue);
+      return Card(
+        key: ValueKey(entry.id),
+        child: ListTile(
+          leading: draggable
+              ? ReorderableDragStartListener(
+                  index: index,
+                  child: const Icon(Icons.drag_handle),
+                )
+              : CircleAvatar(
+                  backgroundColor: categoryColor,
+                  foregroundColor: Colors.white,
+                  child: Icon(
+                    entry.enabled
+                        ? Icons.description_outlined
+                        : Icons.visibility_off_outlined,
+                    size: 20,
+                  ),
+                ),
+          title: _highlightText(entry.title, query, maxLines: 1),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: categoryColor,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      category?.name ?? '未分类',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              if (entry.content.trim().isNotEmpty)
+                _highlightText(
+                  _plainSummary(entry.content),
+                  query,
+                  maxLines: 2,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+            ],
+          ),
+          trailing: PopupMenuButton<String>(
+            onSelected: (value) {
+              switch (value) {
+                case 'edit':
+                  unawaited(
+                    _editEntry(
+                      provider,
+                      base,
+                      provider.categoriesForBase(base.id),
+                      entry,
+                    ),
+                  );
+                  break;
+                case 'toggle':
+                  unawaited(
+                    _updateEntry(
+                      provider,
+                      entry.copyWith(enabled: !entry.enabled),
+                    ),
+                  );
+                  break;
+                case 'delete':
+                  unawaited(_deleteEntry(provider, entry));
+                  break;
+              }
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem(value: 'edit', child: Text('编辑')),
+              PopupMenuItem(
+                value: 'toggle',
+                child: Text(entry.enabled ? '停用' : '启用'),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(value: 'delete', child: Text('删除')),
+            ],
+          ),
+          onTap: () => setState(() {
+            _selectedEntryId = entry.id;
+            _compactDetail = compact;
+          }),
+        ),
+      );
+    }
+
+    if (!draggable) {
+      return ListView.builder(
+        padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+        itemCount: entries.length,
+        itemBuilder: itemBuilder,
+      );
+    }
+    return ReorderableListView.builder(
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+      itemCount: entries.length,
+      buildDefaultDragHandles: false,
+      onReorderItem: (oldIndex, newIndex) => _runOperation(
+        () => provider.reorderEntries(
+          base.id,
+          oldIndex,
+          _normalizedReorderIndex(oldIndex, newIndex),
+        ),
+        '调整条目顺序失败',
+      ),
+      itemBuilder: itemBuilder,
     );
   }
 
@@ -435,6 +582,9 @@ class KnowledgePageState extends State<KnowledgePage> {
         : provider.categoryById(entry.categoryId!);
     final explanations = provider.explanationsForEntry(entry.id);
     final sources = provider.sourcesForEntry(entry.id);
+    final generatingExplanation = _generatingExplanationEntryIds.contains(
+      entry.id,
+    );
     return Column(
       children: [
         _paneHeader(
@@ -480,12 +630,41 @@ class KnowledgePageState extends State<KnowledgePage> {
                 context,
                 icon: Icons.auto_awesome_outlined,
                 title: '解释',
+                action: IconButton(
+                  tooltip: '重新生成解释',
+                  icon: generatingExplanation
+                      ? const SizedBox.square(
+                          dimension: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh),
+                  onPressed: generatingExplanation
+                      ? null
+                      : () => _regenerateExplanation(
+                          provider,
+                          entry,
+                          explanations.isEmpty ? null : explanations.first,
+                          sources,
+                        ),
+                ),
                 child: explanations.isEmpty
-                    ? const Text('暂无解释')
+                    ? _sectionEmptyState(
+                        icon: Icons.auto_awesome_outlined,
+                        message: '暂无解释，可使用当前条目和来源信息生成。',
+                        actionLabel: '生成解释',
+                        onPressed: generatingExplanation
+                            ? null
+                            : () => _regenerateExplanation(
+                                provider,
+                                entry,
+                                null,
+                                sources,
+                              ),
+                      )
                     : Column(
                         children: [
                           for (final explanation in explanations)
-                            _explanationTile(explanation),
+                            _explanationTile(provider, entry, explanation),
                         ],
                       ),
               ),
@@ -494,11 +673,22 @@ class KnowledgePageState extends State<KnowledgePage> {
                 context,
                 icon: Icons.link,
                 title: '来源',
+                action: IconButton(
+                  tooltip: '新增来源',
+                  icon: const Icon(Icons.add_link),
+                  onPressed: () => _editSource(provider, entry, null),
+                ),
                 child: sources.isEmpty
-                    ? const Text('暂无来源')
+                    ? _sectionEmptyState(
+                        icon: Icons.link_off,
+                        message: '暂无来源，可补充网页链接或文字备注。',
+                        actionLabel: '新增来源',
+                        onPressed: () => _editSource(provider, entry, null),
+                      )
                     : Column(
                         children: [
-                          for (final source in sources) _sourceTile(source),
+                          for (final source in sources)
+                            _sourceTile(provider, entry, source),
                         ],
                       ),
               ),
@@ -666,6 +856,7 @@ class KnowledgePageState extends State<KnowledgePage> {
     required IconData icon,
     required String title,
     required Widget child,
+    Widget? action,
   }) {
     return Card(
       child: Padding(
@@ -683,6 +874,8 @@ class KnowledgePageState extends State<KnowledgePage> {
                     context,
                   ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
                 ),
+                const Spacer(),
+                ?action,
               ],
             ),
             const SizedBox(height: 12),
@@ -693,27 +886,81 @@ class KnowledgePageState extends State<KnowledgePage> {
     );
   }
 
-  Widget _explanationTile(KnowledgeExplanation explanation) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      title: explanation.title.trim().isEmpty ? null : Text(explanation.title),
-      subtitle: MarkdownWithLatex(
-        content: explanation.content,
-        onTapKnowledgeAnnotation: null,
-        onExplainSelection: null,
+  Widget _sectionEmptyState({
+    required IconData icon,
+    required String message,
+    required String actionLabel,
+    required VoidCallback? onPressed,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Icon(icon, color: Theme.of(context).colorScheme.outline),
+          const SizedBox(width: 12),
+          Expanded(child: Text(message)),
+          TextButton(onPressed: onPressed, child: Text(actionLabel)),
+        ],
       ),
     );
   }
 
-  Widget _sourceTile(KnowledgeSource source) {
+  Widget _explanationTile(
+    KnowledgeProvider provider,
+    KnowledgeEntry entry,
+    KnowledgeExplanation explanation,
+  ) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: explanation.title.trim().isEmpty ? null : Text(explanation.title),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          MarkdownWithLatex(
+            content: explanation.content,
+            onTapKnowledgeAnnotation: null,
+            onExplainSelection: null,
+          ),
+          Text(
+            '更新于 ${_formatDateTime(explanation.updatedAt)}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+      trailing: PopupMenuButton<String>(
+        tooltip: '解释操作',
+        onSelected: (value) {
+          if (value == 'edit') {
+            unawaited(_editExplanation(provider, entry, explanation));
+          } else if (value == 'delete') {
+            unawaited(_deleteExplanation(provider, explanation));
+          }
+        },
+        itemBuilder: (_) => const [
+          PopupMenuItem(value: 'edit', child: Text('编辑解释')),
+          PopupMenuItem(value: 'delete', child: Text('删除解释')),
+        ],
+      ),
+    );
+  }
+
+  Widget _sourceTile(
+    KnowledgeProvider provider,
+    KnowledgeEntry entry,
+    KnowledgeSource source,
+  ) {
+    final uri = _httpUri(source.url ?? '');
     final details = [
-      if (source.url?.trim().isNotEmpty == true) source.url!.trim(),
+      if (uri != null) uri.host,
       if (source.note?.trim().isNotEmpty == true) source.note!.trim(),
+      '更新于 ${_formatDateTime(source.updatedAt)}',
     ];
     final url = source.url?.trim();
     final copyText = [
       source.title,
-      ...details,
+      if (uri != null) uri.toString(),
+      if (source.note?.trim().isNotEmpty == true) source.note!.trim(),
+      '更新于 ${_formatDateTime(source.updatedAt)}',
     ].where((value) => value.isNotEmpty).join('\n');
     return ListTile(
       contentPadding: EdgeInsets.zero,
@@ -726,11 +973,11 @@ class KnowledgePageState extends State<KnowledgePage> {
       trailing: Wrap(
         spacing: 4,
         children: [
-          if (url != null && url.isNotEmpty)
+          if (uri != null)
             IconButton(
               tooltip: '打开来源',
               icon: const Icon(Icons.open_in_new),
-              onPressed: () => _openSource(url),
+              onPressed: () => _openSource(uri.toString()),
             ),
           IconButton(
             tooltip: '复制来源',
@@ -750,9 +997,449 @@ class KnowledgePageState extends State<KnowledgePage> {
               }
             },
           ),
+          PopupMenuButton<String>(
+            tooltip: '来源操作',
+            onSelected: (value) {
+              if (value == 'edit') {
+                unawaited(_editSource(provider, entry, source));
+              } else if (value == 'delete') {
+                unawaited(_deleteSource(provider, source));
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'edit', child: Text('编辑来源')),
+              PopupMenuItem(value: 'delete', child: Text('删除来源')),
+            ],
+          ),
         ],
       ),
     );
+  }
+
+  Text _highlightText(
+    String value,
+    String query, {
+    int? maxLines,
+    TextStyle? style,
+  }) {
+    final normalized = value.toLowerCase();
+    if (query.isEmpty || !normalized.contains(query)) {
+      return Text(
+        value,
+        maxLines: maxLines,
+        overflow: maxLines == null ? null : TextOverflow.ellipsis,
+        style: style,
+      );
+    }
+    final spans = <TextSpan>[];
+    var start = 0;
+    while (start < value.length) {
+      final index = normalized.indexOf(query, start);
+      if (index < 0) {
+        spans.add(TextSpan(text: value.substring(start)));
+        break;
+      }
+      if (index > start) {
+        spans.add(TextSpan(text: value.substring(start, index)));
+      }
+      spans.add(
+        TextSpan(
+          text: value.substring(index, index + query.length),
+          style: TextStyle(
+            backgroundColor: Theme.of(context).colorScheme.tertiaryContainer,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      );
+      start = index + query.length;
+    }
+    return Text.rich(
+      TextSpan(children: spans),
+      maxLines: maxLines,
+      overflow: maxLines == null ? TextOverflow.clip : TextOverflow.ellipsis,
+      style: style,
+    );
+  }
+
+  String _plainSummary(String value) => value
+      .replaceAll(RegExp(r'[`*_>#\[\]()$\\|~-]+'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+
+  String _formatDateTime(DateTime value) {
+    final local = value.toLocal();
+    String two(int number) => number.toString().padLeft(2, '0');
+    return '${local.year}-${two(local.month)}-${two(local.day)} '
+        '${two(local.hour)}:${two(local.minute)}';
+  }
+
+  Uri? _httpUri(String value) {
+    final uri = Uri.tryParse(value.trim());
+    if (uri == null || !uri.hasAuthority) return null;
+    return uri.scheme == 'http' || uri.scheme == 'https' ? uri : null;
+  }
+
+  Future<void> _editExplanation(
+    KnowledgeProvider provider,
+    KnowledgeEntry entry,
+    KnowledgeExplanation explanation,
+  ) async {
+    final titleController = TextEditingController(text: explanation.title);
+    final contentController = TextEditingController(text: explanation.content);
+    var saving = false;
+    String? formError;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('编辑解释'),
+          content: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 560,
+              maxHeight: MediaQuery.sizeOf(context).height * .72,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: titleController,
+                    decoration: const InputDecoration(labelText: '标题'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: contentController,
+                    minLines: 6,
+                    maxLines: 12,
+                    decoration: const InputDecoration(
+                      labelText: 'Markdown 内容',
+                      alignLabelWithHint: true,
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  if (formError != null)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        formError!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: saving ? null : () => Navigator.pop(dialogContext),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: saving
+                  ? null
+                  : () async {
+                      final content = contentController.text.trim();
+                      if (content.isEmpty) {
+                        setDialogState(() => formError = '请输入解释内容');
+                        return;
+                      }
+                      setDialogState(() {
+                        saving = true;
+                        formError = null;
+                      });
+                      final succeeded = await _runOperation(
+                        () => provider.upsertExplanation(
+                          explanation.copyWith(
+                            title: titleController.text.trim(),
+                            content: content,
+                          ),
+                        ),
+                        '保存解释失败',
+                      );
+                      if (succeeded && dialogContext.mounted) {
+                        Navigator.pop(dialogContext);
+                      } else if (dialogContext.mounted) {
+                        setDialogState(() => saving = false);
+                      }
+                    },
+              child: saving
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('保存'),
+            ),
+          ],
+        ),
+      ),
+    );
+    _disposeControllersLater([titleController, contentController]);
+  }
+
+  Future<void> _deleteExplanation(
+    KnowledgeProvider provider,
+    KnowledgeExplanation explanation,
+  ) async {
+    final confirmed = await _confirmDelete(
+      title: '删除这条解释？',
+      message: '删除后无法撤销。',
+    );
+    if (!confirmed) return;
+    await _runOperation(
+      () => provider.deleteExplanation(explanation.id),
+      '删除解释失败',
+    );
+  }
+
+  Future<void> _regenerateExplanation(
+    KnowledgeProvider provider,
+    KnowledgeEntry entry,
+    KnowledgeExplanation? explanation,
+    List<KnowledgeSource> sources,
+  ) async {
+    if (_generatingExplanationEntryIds.contains(entry.id)) return;
+    final categoryId = entry.categoryId;
+    if (categoryId == null) {
+      showErrorSnackBar(context, '无法生成解释：条目尚未分类');
+      return;
+    }
+    final category = provider.categoryById(categoryId);
+    if (category == null || !provider.isExplanationCategoryEnabled(category)) {
+      showErrorSnackBar(context, '无法生成解释：条目类别不存在或已停用');
+      return;
+    }
+    final sourceSnapshot = _sourceGenerationSnapshot(sources);
+    final metadata = sources
+        .map((source) {
+          return [
+            if (source.title.trim().isNotEmpty) '标题：${source.title.trim()}',
+            if (source.url?.trim().isNotEmpty == true)
+              'URL：${source.url!.trim()}',
+            if (source.note?.trim().isNotEmpty == true)
+              '备注：${source.note!.trim()}',
+          ].join('\n');
+        })
+        .where((value) => value.isNotEmpty)
+        .join('\n\n');
+    final generation = _generation;
+    setState(() => _generatingExplanationEntryIds.add(entry.id));
+    await _runOperation(() async {
+      final api = ApiService(backend: context.read<BackendClient>());
+      final service = KnowledgeExplanationService(
+        api: api,
+        modelConfigs: context.read<ModelConfigProvider>(),
+        settings: context.read<SettingsProvider>(),
+        knowledge: provider,
+      );
+      try {
+        final generated = await service.generate(
+          text: entry.title,
+          categoryId: categoryId,
+          context: [
+            entry.content.trim(),
+            if (metadata.isNotEmpty) '现有来源元数据：\n$metadata',
+          ].where((value) => value.isNotEmpty).join('\n\n'),
+          sourceTitle: sources
+              .map((item) => item.title.trim())
+              .where((value) => value.isNotEmpty)
+              .join('；'),
+          sourceUrl: sources
+              .map((item) => item.url?.trim() ?? '')
+              .where((value) => value.isNotEmpty)
+              .join('；'),
+        );
+        final current = provider.entryById(entry.id);
+        KnowledgeExplanation? currentExplanation;
+        if (explanation != null) {
+          for (final item in provider.explanationsForEntry(entry.id)) {
+            if (item.id == explanation.id) {
+              currentExplanation = item;
+              break;
+            }
+          }
+        }
+        // 模型请求期间条目可能被编辑或删除，旧结果不能覆盖新的用户输入。
+        if (!mounted ||
+            generation != _generation ||
+            current == null ||
+            current.knowledgeBaseId != entry.knowledgeBaseId ||
+            current.categoryId != entry.categoryId ||
+            current.title != entry.title ||
+            current.content != entry.content ||
+            _sourceGenerationSnapshot(provider.sourcesForEntry(entry.id)) !=
+                sourceSnapshot ||
+            (explanation != null &&
+                (currentExplanation == null ||
+                    currentExplanation.title != explanation.title ||
+                    currentExplanation.content != explanation.content))) {
+          return;
+        }
+        final now = DateTime.now();
+        await provider.upsertExplanation(
+          explanation?.copyWith(content: generated) ??
+              KnowledgeExplanation(
+                id: const Uuid().v4(),
+                knowledgeBaseId: entry.knowledgeBaseId,
+                entryId: entry.id,
+                title: 'AI 释义',
+                content: generated,
+                sortOrder: provider.explanationsForEntry(entry.id).length,
+                createdAt: now,
+                updatedAt: now,
+              ),
+        );
+      } finally {
+        api.dispose();
+      }
+    }, '重新生成解释失败');
+    if (mounted && generation == _generation) {
+      setState(() => _generatingExplanationEntryIds.remove(entry.id));
+    }
+  }
+
+  String _sourceGenerationSnapshot(List<KnowledgeSource> sources) => sources
+      .map(
+        (item) =>
+            '${item.id}\u0000${item.title}\u0000${item.url}\u0000${item.note}',
+      )
+      .join('\u0001');
+
+  Future<void> _editSource(
+    KnowledgeProvider provider,
+    KnowledgeEntry entry,
+    KnowledgeSource? source,
+  ) async {
+    final titleController = TextEditingController(text: source?.title ?? '');
+    final urlController = TextEditingController(text: source?.url ?? '');
+    final noteController = TextEditingController(text: source?.note ?? '');
+    var saving = false;
+    String? formError;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(source == null ? '新增来源' : '编辑来源'),
+          content: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 520,
+              maxHeight: MediaQuery.sizeOf(context).height * .72,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: titleController,
+                    decoration: const InputDecoration(labelText: '标题'),
+                  ),
+                  TextField(
+                    controller: urlController,
+                    decoration: const InputDecoration(
+                      labelText: 'URL（可选）',
+                      hintText: 'https://example.com',
+                    ),
+                  ),
+                  TextField(
+                    controller: noteController,
+                    minLines: 3,
+                    maxLines: 6,
+                    decoration: const InputDecoration(
+                      labelText: '备注（可选）',
+                      alignLabelWithHint: true,
+                    ),
+                  ),
+                  if (formError != null)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        formError!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: saving ? null : () => Navigator.pop(dialogContext),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: saving
+                  ? null
+                  : () async {
+                      final title = titleController.text.trim();
+                      final url = urlController.text.trim();
+                      if (title.isEmpty && url.isEmpty) {
+                        setDialogState(() => formError = '请输入标题或 URL');
+                        return;
+                      }
+                      if (url.isNotEmpty && _httpUri(url) == null) {
+                        setDialogState(
+                          () => formError = 'URL 仅支持 http 或 https',
+                        );
+                        return;
+                      }
+                      setDialogState(() {
+                        saving = true;
+                        formError = null;
+                      });
+                      final now = DateTime.now();
+                      final succeeded = await _runOperation(
+                        () => provider.upsertSource(
+                          KnowledgeSource(
+                            id: source?.id ?? const Uuid().v4(),
+                            knowledgeBaseId: entry.knowledgeBaseId,
+                            entryId: entry.id,
+                            title: title.isEmpty ? url : title,
+                            url: url.isEmpty ? null : url,
+                            note: noteController.text.trim().isEmpty
+                                ? null
+                                : noteController.text.trim(),
+                            sortOrder:
+                                source?.sortOrder ??
+                                provider.sourcesForEntry(entry.id).length,
+                            createdAt: source?.createdAt ?? now,
+                            updatedAt: now,
+                          ),
+                        ),
+                        '保存来源失败',
+                      );
+                      if (succeeded && dialogContext.mounted) {
+                        Navigator.pop(dialogContext);
+                      } else if (dialogContext.mounted) {
+                        setDialogState(() => saving = false);
+                      }
+                    },
+              child: saving
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('保存'),
+            ),
+          ],
+        ),
+      ),
+    );
+    _disposeControllersLater([titleController, urlController, noteController]);
+  }
+
+  Future<void> _deleteSource(
+    KnowledgeProvider provider,
+    KnowledgeSource source,
+  ) async {
+    final confirmed = await _confirmDelete(
+      title: '删除“${source.title}”？',
+      message: '删除后无法撤销。',
+    );
+    if (!confirmed) return;
+    await _runOperation(() => provider.deleteSource(source.id), '删除来源失败');
   }
 
   Future<void> _createBase(KnowledgeProvider provider) =>
@@ -884,6 +1571,7 @@ class KnowledgePageState extends State<KnowledgePage> {
     final contentController = TextEditingController(text: entry?.content ?? '');
     String? categoryId = entry?.categoryId;
     var enabled = entry?.enabled ?? true;
+    var preview = false;
     final result = await showDialog<(String, String, String?, bool)>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -926,16 +1614,52 @@ class KnowledgePageState extends State<KnowledgePage> {
                     },
                   ),
                   const SizedBox(height: 8),
-                  TextField(
-                    controller: contentController,
-                    minLines: 5,
-                    maxLines: 10,
-                    decoration: const InputDecoration(
-                      labelText: '内容',
-                      alignLabelWithHint: true,
-                      border: OutlineInputBorder(),
-                    ),
+                  Row(
+                    children: [
+                      const Expanded(child: Text('Markdown 内容')),
+                      SegmentedButton<bool>(
+                        segments: const [
+                          ButtonSegment(value: false, label: Text('编辑')),
+                          ButtonSegment(value: true, label: Text('预览')),
+                        ],
+                        selected: {preview},
+                        onSelectionChanged: (value) =>
+                            setDialogState(() => preview = value.first),
+                      ),
+                    ],
                   ),
+                  const SizedBox(height: 8),
+                  if (preview)
+                    Container(
+                      width: double.infinity,
+                      constraints: const BoxConstraints(minHeight: 180),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.outlineVariant,
+                        ),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: contentController.text.trim().isEmpty
+                          ? const Text('暂无内容可预览')
+                          : MarkdownWithLatex(
+                              content: contentController.text,
+                              onTapKnowledgeAnnotation: null,
+                              onExplainSelection: null,
+                            ),
+                    )
+                  else
+                    TextField(
+                      controller: contentController,
+                      minLines: 5,
+                      maxLines: 10,
+                      decoration: const InputDecoration(
+                        labelText: '内容',
+                        alignLabelWithHint: true,
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (_) => setDialogState(() {}),
+                    ),
                 ],
               ),
             ),
@@ -1096,7 +1820,8 @@ class KnowledgePageState extends State<KnowledgePage> {
 
   Future<void> _openSource(String value) async {
     try {
-      final uri = Uri.parse(value);
+      final uri = _httpUri(value);
+      if (uri == null) throw StateError('来源 URL 仅支持 http 或 https');
       if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
         throw StateError('无法打开链接');
       }
@@ -1196,18 +1921,24 @@ class _KnowledgeCategoryManagerDialogState
                   label: const Text('创建第一个类别'),
                 ),
               )
-            : ListView.separated(
+            : ReorderableListView.builder(
                 itemCount: categories.length,
-                separatorBuilder: (_, _) => const Divider(height: 1),
+                buildDefaultDragHandles: false,
+                onReorderItem: (oldIndex, newIndex) =>
+                    _reorderCategories(oldIndex, newIndex),
                 itemBuilder: (context, index) {
                   final category = categories[index];
                   final data = _categoryData(category);
                   return ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: _parseColor(data.color),
-                      child: const Icon(
-                        Icons.label_outline,
-                        color: Colors.white,
+                    key: ValueKey(category.id),
+                    leading: ReorderableDragStartListener(
+                      index: index,
+                      child: CircleAvatar(
+                        backgroundColor: _parseColor(data.color),
+                        child: const Icon(
+                          Icons.drag_handle,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                     title: Row(
@@ -1554,6 +2285,21 @@ class _KnowledgeCategoryManagerDialogState
         showErrorSnackBar(context, '恢复内置类别失败', details: '$error\n$stackTrace');
       }
       return;
+    }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _reorderCategories(int oldIndex, int newIndex) async {
+    try {
+      await widget.provider.reorderCategories(
+        widget.knowledgeBase.id,
+        oldIndex,
+        _normalizedReorderIndex(oldIndex, newIndex),
+      );
+    } catch (error, stackTrace) {
+      if (mounted) {
+        showErrorSnackBar(context, '调整类别顺序失败', details: '$error\n$stackTrace');
+      }
     }
     if (mounted) setState(() {});
   }

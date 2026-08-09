@@ -1,3 +1,4 @@
+/// 一个可独立启停和排序的知识库。
 final class KnowledgeBase {
   const KnowledgeBase({
     required this.id,
