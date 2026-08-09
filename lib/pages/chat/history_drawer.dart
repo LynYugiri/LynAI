@@ -1,16 +1,26 @@
-part of '../chat_page.dart';
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../models/chat_role.dart';
+import '../../models/conversation.dart';
+import '../../providers/conversation_provider.dart';
+import '../../providers/settings_provider.dart';
+import '../../utils/chat_search_matcher.dart';
 
 /// 对话历史抽屉。
 ///
 /// 按角色分组展示对话记录，支持搜索、置顶和管理操作。
-class _HistoryDrawer extends StatefulWidget {
+class HistoryDrawer extends StatefulWidget {
   final ValueChanged<String> onSelect;
   final String? currentConvId;
   final ScrollController scrollController;
   final Set<String> collapsedRoleIds;
   final ValueChanged<String> onToggleRole;
 
-  const _HistoryDrawer({
+  const HistoryDrawer({
+    super.key,
     required this.onSelect,
     required this.scrollController,
     required this.collapsedRoleIds,
@@ -19,7 +29,7 @@ class _HistoryDrawer extends StatefulWidget {
   });
 
   @override
-  State<_HistoryDrawer> createState() => _HistoryDrawerState();
+  State<HistoryDrawer> createState() => _HistoryDrawerState();
 }
 
 sealed class _HistoryListItem {}
@@ -70,7 +80,7 @@ class _HistoryRoleGroup {
   });
 }
 
-class _HistoryDrawerState extends State<_HistoryDrawer> {
+class _HistoryDrawerState extends State<HistoryDrawer> {
   final _searchCtrl = TextEditingController();
   Timer? _searchDebounce;
   String _q = '';

@@ -10,9 +10,10 @@ import '../models/task_list.dart';
 import '../repositories/recycle_bin_repository.dart';
 import '../repositories/task_repository.dart';
 import '../services/storage_v2_service.dart';
+import 'serialized_save_queue.dart';
 
 /// 任务、清单元数据和清单归属条目的唯一内存所有者。
-class TaskProvider extends ChangeNotifier {
+class TaskProvider extends ChangeNotifier with SerializedSaveQueue {
   TaskProvider({
     StorageV2Service? storageV2,
     TaskRepository? repository,
@@ -29,10 +30,6 @@ class TaskProvider extends ChangeNotifier {
   List<TaskList> _lists = [];
   List<TaskListEntry> _entries = [];
   int _mutationGeneration = 0;
-
-  // tasks.json 的三类数据共享一条串行队列，避免旧快照覆盖连续操作的新状态。
-  Future<void> _saveQueue = Future.value();
-  Future<void> _pendingSave = Future.value();
 
   /// 完整任务快照成功持久化后触发；平台投影协调器据此串行同步。
   VoidCallback? onSnapshotPersisted;
@@ -426,8 +423,6 @@ class TaskProvider extends ChangeNotifier {
     await _queueSave(() => _repository.saveChanges(upsertLists: updatedLists));
   }
 
-  Future<void> flushPendingSaves() => _pendingSave;
-
   Future<void> _setCompleted(String id, bool completed) async {
     final index = _tasks.indexWhere((task) => task.id == id);
     if (index == -1 || _tasks[index].isCompleted == completed) return;
@@ -479,15 +474,10 @@ class TaskProvider extends ChangeNotifier {
   }
 
   Future<void> _queueSave(Future<void> Function() save) {
-    final operation = _saveQueue.then((_) async {
+    return enqueueSave(() async {
       await save();
       onSnapshotPersisted?.call();
     });
-    _pendingSave = operation;
-    _saveQueue = operation.catchError((Object error) {
-      debugPrint('保存任务分区失败: $error');
-    });
-    return operation;
   }
 }
 

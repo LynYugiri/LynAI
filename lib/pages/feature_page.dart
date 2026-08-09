@@ -1,259 +1,24 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
-import 'dart:math' as math;
-import 'package:crypto/crypto.dart';
-import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart' show FileType;
 import 'package:flutter/material.dart';
-import 'package:flutter_math_fork/flutter_math.dart';
-import 'package:flutter/services.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
-import 'package:screenshot/screenshot.dart';
-import 'package:share_plus/share_plus.dart';
-import 'package:super_clipboard/super_clipboard.dart';
-import 'package:uuid/uuid.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'latex_formula_editor_page.dart';
-import 'role_management_page.dart';
-import '../models/chat_role.dart';
-import '../models/app_settings.dart';
-import '../models/anniversary.dart';
-import '../models/calendar_event.dart';
-import '../models/calendar_occurrence.dart';
-import '../models/conversation.dart';
-import '../models/item_reminder.dart';
-import '../models/knowledge_base.dart';
-import '../models/knowledge_category.dart';
-import '../models/knowledge_entry.dart';
-import '../models/knowledge_explanation.dart';
-import '../models/knowledge_source.dart';
-import '../models/local_date.dart';
-import '../models/local_time.dart';
-import '../models/model_config.dart';
-import '../models/message.dart';
-import '../models/merge_models.dart';
-import '../models/note.dart';
-import '../models/plugin.dart';
-import '../models/roleplay.dart';
-import '../models/task.dart';
-import '../models/task_list.dart';
-import '../providers/calendar_provider.dart';
-import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
-import '../providers/knowledge_provider.dart';
-import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
-import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
-import '../services/attachment_storage_service.dart';
-import '../services/api_service.dart';
-import '../services/backend_client.dart';
-import '../services/calendar_platform_bridge.dart';
-import '../services/knowledge_annotation_prompt.dart';
-import '../services/reminder_notification_permission_service.dart';
-import '../services/roleplay_service.dart';
-import '../services/storage_v2_service.dart';
-import '../services/system_scroll_capture_service.dart';
-import '../utils/file_share_utils.dart';
-import '../utils/calendar_timeline_layout.dart';
-import '../utils/file_name_utils.dart';
-import '../utils/chat_search_matcher.dart';
-import '../utils/share_image_utils.dart';
-import '../utils/snackbar_utils.dart';
-import '../widgets/latex_renderer.dart';
-import '../widgets/knowledge_explanation_dialog.dart';
-import '../widgets/model_config_picker.dart';
-import '../widgets/note_page_merge_resolver.dart';
 import '../widgets/plugin_feature_webview.dart';
-import '../widgets/plugin_icon.dart';
 import '../widgets/text_editing_controller_host.dart';
-import '../widgets/chat_composer_keyboard.dart';
 import '../utils/file_picker_io_utils.dart';
-import '../utils/reminder_editor.dart';
-part 'features/shared.dart';
-part 'features/feature_shell.dart';
-part 'features/dashboard.dart';
-part 'features/knowledge_page.dart';
-part 'features/schedule_page.dart';
-part 'features/notes_page.dart';
-part 'features/todo_lists_page.dart';
-part 'features/note_detail_page.dart';
-part 'features/roleplay_page.dart';
-part 'features/plugin_feature_page.dart';
-
-const _exportImagePixelRatio = 2.5;
-const _exportTextChunkLength = 2800;
-const _exportTodoPageWeight = 3200;
-
-/// 搜索匹配器。
-///
-/// 支持字面搜索、正则搜索（`re:` 前缀或 `/pattern/flags` 语法），
-/// 提供 [matches] 和 [allMatches] 两个查询接口。
-class _SearchMatcher {
-  final String query;
-  final bool caseSensitive;
-  final String? regexError;
-  final RegExp? _regex;
-
-  _SearchMatcher._({
-    required this.query,
-    required this.caseSensitive,
-    required RegExp? regex,
-    required this.regexError,
-  }) : _regex = regex;
-
-  factory _SearchMatcher.literal(String query, {bool caseSensitive = false}) {
-    return _SearchMatcher._(
-      query: query,
-      caseSensitive: caseSensitive,
-      regex: null,
-      regexError: null,
-    );
-  }
-
-  // 解析 "re:" 前缀或 "/pattern/flags" 正则搜索语法。
-  factory _SearchMatcher.fromSearchSyntax(
-    String query, {
-    bool caseSensitive = false,
-  }) {
-    final parsed = _parseRegexSearch(query);
-    if (parsed == null) return _SearchMatcher.literal(query);
-    try {
-      return _SearchMatcher._(
-        query: query,
-        caseSensitive: parsed.caseSensitive ?? caseSensitive,
-        regex: RegExp(
-          parsed.pattern,
-          caseSensitive: parsed.caseSensitive ?? caseSensitive,
-          multiLine: true,
-        ),
-        regexError: null,
-      );
-    } catch (e) {
-      return _SearchMatcher._(
-        query: query,
-        caseSensitive: caseSensitive,
-        regex: null,
-        regexError: '$e',
-      );
-    }
-  }
-
-  factory _SearchMatcher.regex(String query, {required bool caseSensitive}) {
-    if (query.isEmpty) return _SearchMatcher.literal(query);
-    try {
-      return _SearchMatcher._(
-        query: query,
-        caseSensitive: caseSensitive,
-        regex: RegExp(query, caseSensitive: caseSensitive, multiLine: true),
-        regexError: null,
-      );
-    } catch (e) {
-      return _SearchMatcher._(
-        query: query,
-        caseSensitive: caseSensitive,
-        regex: null,
-        regexError: '$e',
-      );
-    }
-  }
-
-  bool get isEmpty => query.isEmpty;
-  bool get isRegex => _regex != null;
-  bool get hasError => regexError != null;
-
-  bool matches(String text) {
-    if (query.isEmpty) return true;
-    final regex = _regex;
-    if (regex != null) return regex.hasMatch(text);
-    if (regexError != null) return false;
-    if (caseSensitive) return text.contains(query);
-    return text.toLowerCase().contains(query.toLowerCase());
-  }
-
-  // 返回正则匹配迭代器：有正则以正则，否则以转义后的字面匹配。
-  Iterable<RegExpMatch> allMatches(String text) {
-    final regex = _regex;
-    if (query.isEmpty || regexError != null) return const Iterable.empty();
-    if (regex != null) return regex.allMatches(text);
-    final pattern = RegExp.escape(query);
-    return RegExp(pattern, caseSensitive: caseSensitive).allMatches(text);
-  }
-}
-
-/// 解析后的正则搜索参数。
-///
-/// 包含正则模式字符串及大小写敏感性标志。
-class _ParsedRegexSearch {
-  final String pattern;
-  final bool? caseSensitive;
-
-  const _ParsedRegexSearch(this.pattern, {this.caseSensitive});
-}
-
-_ParsedRegexSearch? _parseRegexSearch(String query) {
-  final trimmed = query.trim();
-  if (trimmed.startsWith('re:')) {
-    final pattern = trimmed.substring(3).trim();
-    return pattern.isEmpty ? null : _ParsedRegexSearch(pattern);
-  }
-  if (!trimmed.startsWith('/') || trimmed.length < 2) return null;
-  final lastSlash = trimmed.lastIndexOf('/');
-  if (lastSlash <= 0) return null;
-  final pattern = trimmed.substring(1, lastSlash);
-  if (pattern.isEmpty) return null;
-  final flags = trimmed.substring(lastSlash + 1);
-  final insensitive = flags.contains('i');
-  return _ParsedRegexSearch(pattern, caseSensitive: !insensitive);
-}
-
-String _formatNoteTime(DateTime value) {
-  final year = value.year.toString().padLeft(4, '0');
-  final month = value.month.toString().padLeft(2, '0');
-  final day = value.day.toString().padLeft(2, '0');
-  final hour = value.hour.toString().padLeft(2, '0');
-  final minute = value.minute.toString().padLeft(2, '0');
-  return '$year-$month-$day $hour:$minute';
-}
-
-_NoteDiffStats _noteDiffStats(String before, String after) {
-  final delta = NoteTextDelta.between(before, after);
-  return _NoteDiffStats(
-    addedChars: delta.insertedText.length,
-    removedChars: delta.deletedText.length,
-    addedLines: _changedLineCount(delta.insertedText),
-    removedLines: _changedLineCount(delta.deletedText),
-  );
-}
-
-int _changedLineCount(String text) {
-  if (text.isEmpty) return 0;
-  return '\n'.allMatches(text).length + 1;
-}
-
-String _noteDiffSummary(String before, String after) {
-  final stats = _noteDiffStats(before, after);
-  if (!stats.hasChanges) return '无内容变化';
-  if (stats.addedChars > 0 && stats.removedChars > 0) {
-    return '+${stats.addedChars} / -${stats.removedChars} 字符';
-  }
-  if (stats.addedChars > 0) return '+${stats.addedChars} 字符';
-  return '-${stats.removedChars} 字符';
-}
-
-String _noteLineDiffSummary(String before, String after) {
-  final stats = _noteDiffStats(before, after);
-  if (!stats.hasChanges) return '行无变化';
-  if (stats.addedLines > 0 && stats.removedLines > 0) {
-    return '+${stats.addedLines} / -${stats.removedLines} 行';
-  }
-  if (stats.addedLines > 0) return '+${stats.addedLines} 行';
-  return '-${stats.removedLines} 行';
-}
+import 'features/dashboard.dart';
+import 'features/feature_shared.dart';
+import 'features/feature_shell.dart';
+import 'features/knowledge_page.dart';
+import 'features/note_detail_page.dart';
+import 'features/notes_page.dart';
+import 'features/roleplay_page.dart';
+import 'features/schedule_page.dart';
+import 'features/todo_lists_page.dart';
 
 /// 功能页 shell。
 ///
@@ -280,7 +45,6 @@ class FeaturePage extends StatefulWidget {
 
 class _FeaturePageState extends State<FeaturePage> {
   static const _dashboardFeature = 'dashboard';
-  static const _pluginFeaturePrefix = 'plugin:';
   static const _featureValues = {
     'history',
     'schedule',
@@ -291,8 +55,8 @@ class _FeaturePageState extends State<FeaturePage> {
   };
 
   final _searchController = TextEditingController();
-  final _noteDetailKey = GlobalKey<_NoteDetailState>();
-  final _knowledgePageKey = GlobalKey<_KnowledgePageState>();
+  final _noteDetailKey = GlobalKey<NoteDetailState>();
+  final _knowledgePageKey = GlobalKey<KnowledgePageState>();
   String _searchQuery = '';
   String? _selectedNoteId;
   bool _noteEditing = false;
@@ -390,8 +154,8 @@ class _FeaturePageState extends State<FeaturePage> {
       ),
       floatingActionButton: _floatingActionButton(feature),
       body: switch (feature) {
-        'schedule' => const _SchedulePage(),
-        'notes' => _NotesPage(
+        'schedule' => const SchedulePage(),
+        'notes' => NotesPage(
           noteDetailKey: _noteDetailKey,
           selectedNoteId: _selectedNoteId,
           editing: _noteEditing,
@@ -407,25 +171,25 @@ class _FeaturePageState extends State<FeaturePage> {
           onNewNote: _newNote,
           onNewFolder: _newNoteFolder,
         ),
-        'todos' => _TodoListsPage(
+        'todos' => TodoListsPage(
           searchController: _searchController,
           searchQuery: _searchQuery,
           onSearchChanged: (v) => setState(() => _searchQuery = v),
         ),
-        'history' => _HistoryList(
+        'history' => HistoryList(
           searchController: _searchController,
           searchQuery: _searchQuery,
           onSearchChanged: (v) => setState(() => _searchQuery = v),
           onConversationTap: widget.onConversationTap,
         ),
-        'roleplay' => _RoleplayPage(active: widget.active),
-        'knowledge' => _KnowledgePage(key: _knowledgePageKey),
+        'roleplay' => RoleplayPage(active: widget.active),
+        'knowledge' => KnowledgePage(key: _knowledgePageKey),
         _ when pluginFeature != null && widget.active => PluginFeatureWebView(
           plugin: pluginFeature.plugin,
           page: pluginFeature.page,
         ),
         _ when pluginFeature != null => const SizedBox.shrink(),
-        _ => _FeatureDashboard(onFeatureSelected: _selectFeature),
+        _ => FeatureDashboard(onFeatureSelected: _selectFeature),
       },
     );
   }
@@ -453,21 +217,21 @@ class _FeaturePageState extends State<FeaturePage> {
 
   bool _isContentFeature(String feature) {
     return _featureValues.contains(feature) ||
-        _PluginFeatureRef.tryParse(feature) != null;
+        PluginFeatureRef.tryParse(feature) != null;
   }
 
-  _ResolvedPluginFeature? _pluginFeatureFor(
+  ResolvedPluginFeature? _pluginFeatureFor(
     String feature,
     PluginProvider provider,
   ) {
-    final ref = _PluginFeatureRef.tryParse(feature);
+    final ref = PluginFeatureRef.tryParse(feature);
     if (ref == null) return null;
     final plugin = provider.pluginById(ref.pluginId);
     if (plugin == null || !plugin.enabled || plugin.hasError) return null;
     if (!plugin.enabledFeaturePages.contains(ref.pageId)) return null;
     for (final page in plugin.manifest.featurePages) {
       if (page.id == ref.pageId && page.entry.trim().isNotEmpty) {
-        return _ResolvedPluginFeature(plugin: plugin, page: page);
+        return ResolvedPluginFeature(plugin: plugin, page: page);
       }
     }
     return null;
@@ -526,10 +290,10 @@ class _FeaturePageState extends State<FeaturePage> {
 
   Widget? _floatingActionButton(String feature) {
     if (feature == 'notes' && _selectedNoteId == null) {
-      return _AddMenuButton(
+      return AddMenuButton(
         items: const [
-          _AddMenuItem('note', Icons.sticky_note_2_outlined, '创建笔记'),
-          _AddMenuItem('folder', Icons.create_new_folder_outlined, '创建文件夹'),
+          AddMenuItem('note', Icons.sticky_note_2_outlined, '创建笔记'),
+          AddMenuItem('folder', Icons.create_new_folder_outlined, '创建文件夹'),
         ],
         onSelected: (value) {
           if (value == 'note') _newNote();
@@ -538,8 +302,8 @@ class _FeaturePageState extends State<FeaturePage> {
       );
     }
     if (feature == 'todos') {
-      return _AddMenuButton(
-        items: const [_AddMenuItem('todo', Icons.checklist, '新建任务清单')],
+      return AddMenuButton(
+        items: const [AddMenuItem('todo', Icons.checklist, '新建任务清单')],
         onSelected: (_) => _newTodoList(),
       );
     }

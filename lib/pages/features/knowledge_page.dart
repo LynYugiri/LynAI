@@ -1,13 +1,32 @@
-part of '../feature_page.dart';
+import 'dart:async';
+import 'dart:math' as math;
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../models/knowledge_base.dart';
+import '../../models/knowledge_category.dart';
+import '../../models/knowledge_entry.dart';
+import '../../models/knowledge_explanation.dart';
+import '../../models/knowledge_source.dart';
+import '../../models/model_config.dart';
+import '../../providers/knowledge_provider.dart';
+import '../../providers/model_config_provider.dart';
+import '../../utils/snackbar_utils.dart';
+import '../../widgets/latex_renderer.dart';
 
-class _KnowledgePage extends StatefulWidget {
-  const _KnowledgePage({super.key});
+/// 知识库页。
+///
+/// 管理条目、来源、分类与解释，支持搜索和条目详情编辑。
+class KnowledgePage extends StatefulWidget {
+  const KnowledgePage({super.key});
 
   @override
-  State<_KnowledgePage> createState() => _KnowledgePageState();
+  State<KnowledgePage> createState() => KnowledgePageState();
 }
 
-class _KnowledgePageState extends State<_KnowledgePage> {
+/// [KnowledgePage] 的状态。
+class KnowledgePageState extends State<KnowledgePage> {
   final _searchController = TextEditingController();
   String? _selectedBaseId;
   String? _selectedEntryId;

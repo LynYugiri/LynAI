@@ -14,6 +14,7 @@ import '../repositories/recycle_bin_repository.dart';
 import '../services/storage_v2_service.dart';
 import '../services/lynai_permission_definitions.dart';
 import '../utils/chat_search_matcher.dart';
+import 'serialized_save_queue.dart';
 
 enum ConversationSearchMatchType { none, title, message, attachment }
 
@@ -37,11 +38,9 @@ class ConversationSearchResult {
 ///
 /// 约定：UI 可以先看到内存更新，落盘通过串行保存队列按快照顺序执行。
 /// 这样流式刷新、停止生成、重试切换不会让较旧的异步写入覆盖新状态。
-class ConversationProvider extends ChangeNotifier {
+class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
   List<Conversation> _conversations = [];
   final _uuid = const Uuid();
-  Future<void> _saveQueue = Future.value();
-  Future<void> _pendingSave = Future.value();
   int _mutationGeneration = 0;
   Timer? _saveDebounce;
   List<Conversation>? _pendingSaveSnapshot;
@@ -107,18 +106,14 @@ class ConversationProvider extends ChangeNotifier {
     final snapshot = _pendingSaveSnapshot;
     if (snapshot == null) return;
     _pendingSaveSnapshot = null;
-    final operation = _saveQueue.then(
-      (_) => _repository.save(snapshot, usingStorageV2: _usingStorageV2),
+    enqueueSave(
+      () => _repository.save(snapshot, usingStorageV2: _usingStorageV2),
     );
-    _pendingSave = operation;
-    _saveQueue = operation.catchError((Object error) {
-      debugPrint('保存对话失败: $error');
-    });
   }
 
-  Future<void> flushPendingSaves() async {
+  @override
+  Future<void> onBeforeFlush() async {
     _enqueuePendingSave();
-    await _pendingSave;
   }
 
   Future<bool> migrateModelIds(Map<String, String> migrations) async {

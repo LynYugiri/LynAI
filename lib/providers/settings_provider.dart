@@ -8,15 +8,14 @@ import '../models/system_prompt.dart';
 import '../models/web_search.dart';
 import '../repositories/settings_repository.dart';
 import '../services/storage_v2_service.dart';
+import 'serialized_save_queue.dart';
 
 /// 管理应用级设置、角色、系统提示词和最近使用模型。
 ///
 /// 设置是跨页面共享的 UI 状态。修改后立即通知界面，并把不可变快照排入
 /// 串行保存队列；这样快速切换主题、角色或模型时不会出现旧设置覆盖新设置。
-class SettingsProvider extends ChangeNotifier {
+class SettingsProvider extends ChangeNotifier with SerializedSaveQueue {
   AppSettings _settings = AppSettings.defaults();
-  Future<void> _saveQueue = Future.value();
-  Future<void> _pendingSave = Future.value();
   int _mutationGeneration = 0;
   final SettingsRepository _repository;
   bool _usingStorageV2 = false;
@@ -28,8 +27,6 @@ class SettingsProvider extends ChangeNotifier {
 
   AppSettings get settings => _settings;
   bool get usingStorageV2 => _usingStorageV2;
-
-  Future<void> flushPendingSaves() => _pendingSave;
 
   Future<bool> migrateModelIds(Map<String, String> migrations) async {
     if (migrations.isEmpty) return false;
@@ -207,14 +204,9 @@ class SettingsProvider extends ChangeNotifier {
   Future<void> _queueSaveSettings() {
     _mutationGeneration++;
     final snapshot = _settings;
-    final operation = _saveQueue.then(
-      (_) => _repository.save(snapshot, usingStorageV2: _usingStorageV2),
+    return enqueueSave(
+      () => _repository.save(snapshot, usingStorageV2: _usingStorageV2),
     );
-    _pendingSave = operation;
-    _saveQueue = operation.catchError((Object error) {
-      debugPrint('保存设置失败: $error');
-    });
-    return operation;
   }
 
   /// 更新主题颜色
@@ -718,7 +710,7 @@ class SettingsProvider extends ChangeNotifier {
     _settings = _settings.copyWith(backendUrl: url, hasConfiguredBackend: true);
     _queueSaveSettings();
     notifyListeners();
-    await _saveQueue;
+    await pendingSaveQueue;
   }
 
   /// 标记首次登录引导已展示，避免每次启动重复弹窗。
@@ -727,6 +719,6 @@ class SettingsProvider extends ChangeNotifier {
     _settings = _settings.copyWith(hasSeenLoginGuide: true);
     _queueSaveSettings();
     notifyListeners();
-    await _saveQueue;
+    await pendingSaveQueue;
   }
 }

@@ -1,7 +1,28 @@
-part of '../feature_page.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'package:archive/archive.dart';
+import 'package:file_picker/file_picker.dart' show FileType;
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import 'package:screenshot/screenshot.dart';
+import '../../models/note.dart';
+import '../../providers/feature_provider.dart';
+import '../../utils/file_share_utils.dart';
+import '../../utils/file_name_utils.dart';
+import '../../utils/share_image_utils.dart';
+import '../../utils/snackbar_utils.dart';
+import '../../widgets/text_editing_controller_host.dart';
+import 'feature_shared.dart';
+import 'note_detail_page.dart';
+import '../../utils/file_picker_io_utils.dart';
 
-class _NotesPage extends StatefulWidget {
-  final GlobalKey<_NoteDetailState> noteDetailKey;
+/// 笔记列表页。
+///
+/// 展示文件夹与笔记时间线，支持搜索、选择与新建；笔记编辑
+/// 详情通过 [noteDetailKey] 与父页共享，避免重复构建。
+class NotesPage extends StatefulWidget {
+  final GlobalKey<NoteDetailState> noteDetailKey;
   final String? selectedNoteId;
   final bool editing;
   final ValueChanged<String> onSelect;
@@ -13,7 +34,8 @@ class _NotesPage extends StatefulWidget {
   final Future<void> Function({String? folderId}) onNewNote;
   final VoidCallback onNewFolder;
 
-  const _NotesPage({
+  const NotesPage({
+    super.key,
     required this.noteDetailKey,
     required this.selectedNoteId,
     required this.editing,
@@ -28,10 +50,11 @@ class _NotesPage extends StatefulWidget {
   });
 
   @override
-  State<_NotesPage> createState() => _NotesPageState();
+  State<NotesPage> createState() => NotesPageState();
 }
 
-class _NotesPageState extends State<_NotesPage> {
+/// [NotesPage] 的状态：持有文件夹展开集合、搜索与导出工具。
+class NotesPageState extends State<NotesPage> {
   static const _nativeTools = MethodChannel('lynai/native_tools');
 
   final _shot = ScreenshotController();
@@ -47,7 +70,7 @@ class _NotesPageState extends State<_NotesPage> {
   @override
   Widget build(BuildContext context) {
     if (widget.selectedNoteId != null) {
-      return _NoteDetail(
+      return NoteDetail(
         key: widget.noteDetailKey,
         noteId: widget.selectedNoteId!,
         editing: widget.editing,
@@ -64,7 +87,7 @@ class _NotesPageState extends State<_NotesPage> {
         children: [
           _noteSearchBox(),
           const Expanded(
-            child: _FeatureEmptyState(
+            child: FeatureEmptyState(
               icon: Icons.sticky_note_2_outlined,
               title: '暂无笔记',
               subtitle: '点击右上角 + 创建第一篇笔记，支持 Markdown 和 LaTeX 渲染。',
@@ -74,7 +97,7 @@ class _NotesPageState extends State<_NotesPage> {
       );
     }
     final query = widget.searchQuery.trim();
-    final matcher = _SearchMatcher.fromSearchSyntax(query);
+    final matcher = FeatureSearchMatcher.fromSearchSyntax(query);
     final visibleNotes = notes
         .where((note) => _matchesNote(note, matcher))
         .toList();
@@ -170,7 +193,7 @@ class _NotesPageState extends State<_NotesPage> {
     );
   }
 
-  bool _matchesNote(Note note, _SearchMatcher matcher) {
+  bool _matchesNote(Note note, FeatureSearchMatcher matcher) {
     if (matcher.isEmpty) return true;
     return matcher.matches(note.title) || matcher.matches(note.content);
   }
@@ -207,7 +230,7 @@ class _NotesPageState extends State<_NotesPage> {
   }) {
     final scheme = Theme.of(context).colorScheme;
     final expanded = query.isNotEmpty || _expandedFolderIds.contains(folder.id);
-    final matcher = _SearchMatcher.fromSearchSyntax(query);
+    final matcher = FeatureSearchMatcher.fromSearchSyntax(query);
     final folderMatches = query.isNotEmpty && matcher.matches(folder.title);
     final notes = context.watch<FeatureProvider>().notes.where((note) {
       if (note.folderId != folder.id) return false;
@@ -538,29 +561,24 @@ class _NotesPageState extends State<_NotesPage> {
 
   Future<void> _exportNoteImage(Note note) async {
     final theme = Theme.of(context);
-    final bytes = <Uint8List>[];
     final pages = splitTextForExport(
       note.content,
-      maxLength: _exportTextChunkLength,
+      maxLength: exportTextChunkLength,
     );
-    for (var i = 0; i < pages.length; i++) {
-      if (!mounted) return;
-      final image = await _shot.captureFromLongWidget(
-        _NoteShareImage(
-          title: note.title,
-          content: pages[i],
-          seedColor: theme.colorScheme.primary,
-          brightness: theme.brightness,
-          pageNumber: pages.length == 1 ? null : i + 1,
-          pageCount: pages.length == 1 ? null : pages.length,
-        ),
-        pixelRatio: _exportImagePixelRatio,
-        context: context,
-        constraints: const BoxConstraints(maxWidth: 720),
-      );
-      if (!mounted) return;
-      bytes.add(image);
-    }
+    if (!mounted) return;
+    final bytes = await captureLongImagePages(
+      pageCount: pages.length,
+      controller: _shot,
+      context: context,
+      pageBuilder: (i, pageCount) => NoteShareImage(
+        title: note.title,
+        content: pages[i],
+        seedColor: theme.colorScheme.primary,
+        brightness: theme.brightness,
+        pageNumber: pageCount == 1 ? null : i + 1,
+        pageCount: pageCount == 1 ? null : pageCount,
+      ),
+    );
     if (!mounted) return;
     await _writeNoteImage(bytes);
   }
@@ -683,7 +701,11 @@ class _NoteListEntry {
   String get id => folder?.id ?? note!.id;
 }
 
-class _NoteTimelineSheet extends StatefulWidget {
+/// 笔记修订历史底部面板。
+///
+/// 列出修订时间线与差异摘要，提供打开、对比、恢复、复制、
+/// 分支与删除操作。
+class NoteTimelineSheet extends StatefulWidget {
   final Note note;
   final FeatureProvider features;
   final void Function(NoteRevision revision, String content) onOpen;
@@ -696,7 +718,8 @@ class _NoteTimelineSheet extends StatefulWidget {
   final Future<void> Function(NoteRevision revision, int branchCount)
   onDeleteBranches;
 
-  const _NoteTimelineSheet({
+  const NoteTimelineSheet({
+    super.key,
     required this.note,
     required this.features,
     required this.onOpen,
@@ -709,14 +732,14 @@ class _NoteTimelineSheet extends StatefulWidget {
   });
 
   @override
-  State<_NoteTimelineSheet> createState() => _NoteTimelineSheetState();
+  State<NoteTimelineSheet> createState() => _NoteTimelineSheetState();
 }
 
-class _NoteTimelineSheetState extends State<_NoteTimelineSheet> {
+class _NoteTimelineSheetState extends State<NoteTimelineSheet> {
   final _searchCtrl = TextEditingController();
   final _contentCache = <String, String>{};
   final _previousContentCache = <String, String>{};
-  final _statsCache = <String, _NoteDiffStats>{};
+  final _statsCache = <String, NoteDiffStats>{};
   var _query = '';
   var _filter = _NoteTimelineFilter.all;
 
@@ -868,7 +891,7 @@ class _NoteTimelineSheetState extends State<_NoteTimelineSheet> {
   }
 
   bool _matchesQuery(NoteRevision revision, String query) {
-    final time = _formatNoteTime(revision.savedAt).toLowerCase();
+    final time = formatNoteTime(revision.savedAt).toLowerCase();
     if (time.contains(query)) return true;
     final content = _contentFor(revision).toLowerCase();
     return content.contains(query);
@@ -926,7 +949,7 @@ class _NoteTimelineSheetState extends State<_NoteTimelineSheet> {
           spacing: 8,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            Text(_formatNoteTime(revision.savedAt)),
+            Text(formatNoteTime(revision.savedAt)),
             Chip(
               visualDensity: VisualDensity.compact,
               label: Text(
@@ -940,7 +963,7 @@ class _NoteTimelineSheetState extends State<_NoteTimelineSheet> {
           ],
         ),
         subtitle: Text(
-          '${_noteDiffSummary(previous, content)} · ${_noteLineDiffSummary(previous, content)} · ${preview.isEmpty ? '空笔记' : preview}',
+          '${noteDiffSummary(previous, content)} · ${noteLineDiffSummary(previous, content)} · ${preview.isEmpty ? '空笔记' : preview}',
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
         ),
@@ -1033,11 +1056,10 @@ class _NoteTimelineSheetState extends State<_NoteTimelineSheet> {
     });
   }
 
-  _NoteDiffStats _statsFor(NoteRevision revision) {
+  NoteDiffStats _statsFor(NoteRevision revision) {
     return _statsCache.putIfAbsent(
       revision.id,
-      () =>
-          _noteDiffStats(_previousContentFor(revision), _contentFor(revision)),
+      () => noteDiffStats(_previousContentFor(revision), _contentFor(revision)),
     );
   }
 

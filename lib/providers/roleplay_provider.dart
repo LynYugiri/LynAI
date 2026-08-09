@@ -9,6 +9,7 @@ import '../models/roleplay.dart';
 import '../repositories/recycle_bin_repository.dart';
 import '../repositories/roleplay_repository.dart';
 import '../services/storage_v2_service.dart';
+import 'serialized_save_queue.dart';
 
 enum RoleplayRunState { idle, directing, speaking, waitingUser, error }
 
@@ -26,7 +27,7 @@ class RoleplaySearchResult {
   });
 }
 
-class RoleplayProvider extends ChangeNotifier {
+class RoleplayProvider extends ChangeNotifier with SerializedSaveQueue {
   RoleplayProvider({
     StorageV2Service? storageV2,
     RoleplayRepository? repository,
@@ -38,8 +39,6 @@ class RoleplayProvider extends ChangeNotifier {
   final RoleplayRepository _repository;
   final RecycleBinRepository _recycleBinRepository;
   final _uuid = const Uuid();
-  Future<void> _saveQueue = Future.value();
-  Future<void> _pendingSave = Future.value();
   int _mutationGeneration = 0;
   List<RoleplayScenario> _scenarios = [];
   List<RoleplayThread> _threads = [];
@@ -399,7 +398,7 @@ class RoleplayProvider extends ChangeNotifier {
       if (!_threads.any((item) => item.id == thread.id)) _threads.add(thread);
     }
     _queueSave();
-    await _saveQueue;
+    await pendingSaveQueue;
     notifyListeners();
   }
 
@@ -409,7 +408,7 @@ class RoleplayProvider extends ChangeNotifier {
     _threads.add(thread);
     _touchScenario(thread.scenarioId);
     _queueSave();
-    await _saveQueue;
+    await pendingSaveQueue;
     notifyListeners();
   }
 
@@ -736,21 +735,14 @@ class RoleplayProvider extends ChangeNotifier {
     _mutationGeneration++;
     final scenarios = List<RoleplayScenario>.from(_scenarios);
     final threads = List<RoleplayThread>.from(_threads);
-    final operation = _saveQueue.then(
-      (_) => _repository.save(
+    return enqueueSave(
+      () => _repository.save(
         scenarios: scenarios,
         threads: threads,
         usingStorageV2: _usingStorageV2,
       ),
     );
-    _pendingSave = operation;
-    _saveQueue = operation.catchError((Object error) {
-      debugPrint('保存情景演绎失败: $error');
-    });
-    return operation;
   }
-
-  Future<void> flushPendingSaves() => _pendingSave;
 
   String _titleFromScenario(String scenario) {
     final clean = scenario.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();

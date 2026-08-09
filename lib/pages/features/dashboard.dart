@@ -1,46 +1,51 @@
-part of '../feature_page.dart';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../../providers/plugin_provider.dart';
+import '../../../widgets/plugin_icon.dart';
+import 'feature_shared.dart';
 
 /// 功能总览仪表盘。
 ///
 /// 以自适应网格布局展示对话历史、日程、笔记、待办、知识库、情景演绎
 /// 及已启用的插件功能页入口。
-class _FeatureDashboard extends StatelessWidget {
+class FeatureDashboard extends StatelessWidget {
   final ValueChanged<String> onFeatureSelected;
 
-  const _FeatureDashboard({required this.onFeatureSelected});
+  const FeatureDashboard({super.key, required this.onFeatureSelected});
 
   static const _items = [
-    _FeatureDashboardItem(
+    FeatureDashboardItem(
       value: 'history',
       icon: Icons.history,
       title: '对话历史',
       subtitle: '按角色查看与搜索',
     ),
-    _FeatureDashboardItem(
+    FeatureDashboardItem(
       value: 'schedule',
       icon: Icons.calendar_month,
       title: '日程表',
       subtitle: '月历、日视图与年览',
     ),
-    _FeatureDashboardItem(
+    FeatureDashboardItem(
       value: 'notes',
       icon: Icons.sticky_note_2_outlined,
       title: '笔记',
       subtitle: 'Markdown/LaTeX 记录',
     ),
-    _FeatureDashboardItem(
+    FeatureDashboardItem(
       value: 'todos',
       icon: Icons.checklist,
       title: '任务',
       subtitle: '未完成汇总与可展开任务清单',
     ),
-    _FeatureDashboardItem(
+    FeatureDashboardItem(
       value: 'roleplay',
       icon: Icons.theater_comedy_outlined,
       title: '情景演绎',
       subtitle: '设定场景，多角色共演',
     ),
-    _FeatureDashboardItem(
+    FeatureDashboardItem(
       value: 'knowledge',
       icon: Icons.local_library_outlined,
       title: '知识库',
@@ -83,8 +88,8 @@ class _FeatureDashboard extends StatelessWidget {
   }
 
   // 遍历所有已启用且无错误的插件，将其已启用的功能页加入仪表盘。
-  List<_FeatureDashboardItem> _pluginItems(PluginProvider provider) {
-    final items = <_FeatureDashboardItem>[];
+  List<FeatureDashboardItem> _pluginItems(PluginProvider provider) {
+    final items = <FeatureDashboardItem>[];
     for (final plugin in provider.plugins) {
       if (!plugin.enabled || plugin.hasError) continue;
       for (final page in plugin.manifest.featurePages) {
@@ -92,8 +97,8 @@ class _FeatureDashboard extends StatelessWidget {
         if (page.entry.trim().isEmpty) continue;
         if (page.showInDashboard == false) continue;
         items.add(
-          _FeatureDashboardItem.plugin(
-            value: _PluginFeatureRef(plugin.id, page.id).key,
+          FeatureDashboardItem.plugin(
+            value: PluginFeatureRef(plugin.id, page.id).key,
             title: page.title.isEmpty ? plugin.manifest.name : page.title,
             subtitle: plugin.manifest.name,
             pluginPath: plugin.path,
@@ -125,7 +130,7 @@ class _FeatureDashboard extends StatelessWidget {
 /// 仪表盘功能项数据模型。
 ///
 /// 封装图标、标题、副标题及可选插件路径，供 [_FeatureDashboardCard] 使用。
-class _FeatureDashboardItem {
+class FeatureDashboardItem {
   final String value;
   final IconData icon;
   final String? pluginPath;
@@ -134,7 +139,7 @@ class _FeatureDashboardItem {
   final String title;
   final String subtitle;
 
-  const _FeatureDashboardItem({
+  const FeatureDashboardItem({
     required this.value,
     required this.icon,
     required this.title,
@@ -143,7 +148,7 @@ class _FeatureDashboardItem {
        iconPath = null,
        fallbackIconPath = null;
 
-  const _FeatureDashboardItem.plugin({
+  const FeatureDashboardItem.plugin({
     required this.value,
     required this.title,
     required this.subtitle,
@@ -157,7 +162,7 @@ class _FeatureDashboardItem {
 ///
 /// 根据紧凑程度调整图标大小、间距，支持显示插件自定义图标或 Material 图标。
 class _FeatureDashboardCard extends StatelessWidget {
-  final _FeatureDashboardItem item;
+  final FeatureDashboardItem item;
   final VoidCallback onTap;
 
   const _FeatureDashboardCard({required this.item, required this.onTap});

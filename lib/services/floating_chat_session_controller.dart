@@ -20,6 +20,7 @@ import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
 import 'api_service.dart';
 import 'agent_loop_runtime.dart';
+import 'api_message_builder.dart';
 import 'agent_persistence_lifecycle.dart';
 import 'agent_tool_registry.dart';
 import 'agent_tool_result_sanitizer.dart';
@@ -230,10 +231,14 @@ class FloatingChatSessionController extends ChangeNotifier {
 
     final conversation = _conversations.getConversation(_conversationId!);
     if (conversation == null) return;
-    final messages = _buildApiMessages(
+    final messages = buildApiMessages(
       conversation,
+      _plugins.plugins,
       enableTools: _supportsNativeTools(model),
       annotationPrompt: annotationPrompt,
+      extraSystemPrompt: _screenContextToolAllowed
+          ? '悬浮聊天已获得用户授权：当用户问题依赖当前 Android 前台页面时，可以调用 get_current_screen 读取可见文本和节点摘要。不要无故读取。'
+          : '',
     );
     unawaited(_streamTurn(
       model,
@@ -425,47 +430,6 @@ class FloatingChatSessionController extends ChangeNotifier {
       agentEnabled: appSettings.agentEnabledByDefault,
       agentGrantedPermissions: appSettings.agentGrantedPermissions,
     );
-  }
-
-  List<Map<String, dynamic>> _buildApiMessages(
-    Conversation conversation, {
-    required bool enableTools,
-    required String annotationPrompt,
-  }) {
-    final messages = <Map<String, dynamic>>[];
-    final promptContent = conversation.settings.systemPrompt;
-    final toolPrompt = conversation.settings.agentEnabled
-        ? '${ToolCallService.nativeSystemPrompt}\n\n${ToolCallService.agentSystemPromptWithSkills(_plugins.plugins)}'
-        : ToolCallService.nativeSystemPrompt;
-    final agentContext = conversation.settings.agentEnabled
-        ? ToolCallService.agentContextPrompt(conversation)
-        : '';
-    final screenPrompt = _screenContextToolAllowed
-        ? '悬浮聊天已获得用户授权：当用户问题依赖当前 Android 前台页面时，可以调用 get_current_screen 读取可见文本和节点摘要。不要无故读取。'
-        : '';
-    final fullToolPrompt = [
-      toolPrompt,
-      if (agentContext.isNotEmpty) agentContext,
-      if (screenPrompt.isNotEmpty) screenPrompt,
-    ].join('\n\n');
-    final systemParts = <String>[
-      if (promptContent.isNotEmpty) promptContent,
-      if (enableTools) fullToolPrompt,
-      if (enableTools) ToolCallService.currentTimeContext(),
-      if (annotationPrompt.isNotEmpty) annotationPrompt,
-    ];
-    if (systemParts.isNotEmpty) {
-      messages.add({'role': 'system', 'content': systemParts.join('\n\n')});
-    }
-    for (final message in conversation.messages) {
-      if (message.role == 'assistant' && message.content.isEmpty) continue;
-      messages.add({
-        'role': message.role,
-        'content': message.modelContextContent ?? message.content,
-        if (message.role == 'assistant') 'reasoning_content': '',
-      });
-    }
-    return messages;
   }
 
   Future<void> _streamTurn(

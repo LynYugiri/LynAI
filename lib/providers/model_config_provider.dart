@@ -8,18 +8,17 @@ import '../repositories/model_config_repository.dart';
 import '../services/backend_client.dart';
 import '../services/secret_store.dart';
 import '../services/storage_v2_service.dart';
+import 'serialized_save_queue.dart';
 
 /// 管理所有模型配置和分类内优先级。
 ///
 /// 模型按 `category` 分组，再按 `priority` 升序排列。一个 [ModelConfig]
 /// 表示一个提供商配置，内部可以包含多个可启用的子模型。
-class ModelConfigProvider extends ChangeNotifier {
+class ModelConfigProvider extends ChangeNotifier with SerializedSaveQueue {
   static const lynaiManagedIdPrefix = '__lynai_relay_';
 
   List<ModelConfig> _models = [];
   final _uuid = const Uuid();
-  Future<void> _saveQueue = Future.value();
-  Future<void> _pendingSave = Future.value();
   int _mutationGeneration = 0;
   int _managedSyncGeneration = 0;
   final ModelConfigRepository _repository;
@@ -40,8 +39,6 @@ class ModelConfigProvider extends ChangeNotifier {
   /// 所有模型配置，按分类和优先级排序。
   List<ModelConfig> get models => List.unmodifiable(_models);
   bool get usingStorageV2 => _usingStorageV2;
-
-  Future<void> flushPendingSaves() => _pendingSave;
 
   Map<String, String> peekManagedModelIdMigrations() {
     if (_pendingManagedModelIdMigrations.isEmpty) return const {};
@@ -228,18 +225,13 @@ class ModelConfigProvider extends ChangeNotifier {
     final migrationSnapshot = Map<String, String>.from(
       pendingMigrations ?? _pendingManagedModelIdMigrations,
     );
-    final operation = _saveQueue.then(
-      (_) => _repository.save(
+    return enqueueSave(
+      () => _repository.save(
         snapshot,
         usingStorageV2: _usingStorageV2,
         pendingManagedModelIdMigrations: migrationSnapshot,
       ),
     );
-    _pendingSave = operation;
-    _saveQueue = operation.catchError((Object error) {
-      debugPrint('保存模型配置失败: $error');
-    });
-    return operation;
   }
 
   /// 添加一个模型配置并按分类优先级重新排序。
@@ -437,7 +429,7 @@ class ModelConfigProvider extends ChangeNotifier {
     _models.removeWhere((model) => model.managed);
     if (_models.length == before) return;
     _queueSaveModels();
-    await _saveQueue;
+    await pendingSaveQueue;
     notifyListeners();
   }
 

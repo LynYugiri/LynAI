@@ -1385,7 +1385,7 @@ class _PluginFilesCardState extends State<_PluginFilesCard> {
       await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => PluginFileEditorPage(
+          builder: (_) => _PluginFileEditorPage(
             pluginId: widget.plugin.id,
             path: file.path,
             initialContent: content,
@@ -1650,7 +1650,7 @@ class _PluginFilesCardState extends State<_PluginFilesCard> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => PluginFileEditorPage(
+        builder: (_) => _PluginFileEditorPage(
           pluginId: widget.plugin.id,
           path: resultPath,
           initialContent: '',
@@ -1727,9 +1727,8 @@ class _PluginFilesCardState extends State<_PluginFilesCard> {
 /// 插件文件编辑器页面。
 ///
 /// 以全屏代码编辑器展示插件工作目录下的文件，支持语法高亮和保存操作。
-class PluginFileEditorPage extends StatefulWidget {
-  const PluginFileEditorPage({
-    super.key,
+class _PluginFileEditorPage extends StatefulWidget {
+  const _PluginFileEditorPage({
     required this.pluginId,
     required this.path,
     required this.initialContent,
@@ -1742,10 +1741,10 @@ class PluginFileEditorPage extends StatefulWidget {
   final bool readOnly;
 
   @override
-  State<PluginFileEditorPage> createState() => _PluginFileEditorPageState();
+  State<_PluginFileEditorPage> createState() => _PluginFileEditorPageState();
 }
 
-class _PluginFileEditorPageState extends State<PluginFileEditorPage> {
+class _PluginFileEditorPageState extends State<_PluginFileEditorPage> {
   late final _CodeEditingController _controller;
   final _scrollController = ScrollController();
   final _horizontalController = ScrollController();

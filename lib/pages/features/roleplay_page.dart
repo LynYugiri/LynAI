@@ -1,19 +1,55 @@
-part of '../feature_page.dart';
+import 'dart:async';
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:provider/provider.dart';
+import 'package:screenshot/screenshot.dart';
+import 'package:super_clipboard/super_clipboard.dart';
+import 'package:uuid/uuid.dart';
+import '../../models/chat_role.dart';
+import '../../models/app_settings.dart';
+import '../../models/model_config.dart';
+import '../../models/message.dart';
+import '../../models/roleplay.dart';
+import '../../providers/knowledge_provider.dart';
+import '../../providers/model_config_provider.dart';
+import '../../providers/roleplay_provider.dart';
+import '../../providers/settings_provider.dart';
+import '../../services/attachment_storage_service.dart';
+import '../../services/api_service.dart';
+import '../../services/backend_client.dart';
+import '../../services/knowledge_annotation_prompt.dart';
+import '../../services/roleplay_service.dart';
+import '../../services/storage_v2_service.dart';
+import '../../services/system_scroll_capture_service.dart';
+import '../../utils/file_share_utils.dart';
+import '../../utils/file_name_utils.dart';
+import '../../utils/share_image_utils.dart';
+import '../../utils/snackbar_utils.dart';
+import '../../widgets/latex_renderer.dart';
+import '../../widgets/knowledge_explanation_dialog.dart';
+import '../../widgets/model_config_picker.dart';
+import '../../widgets/text_editing_controller_host.dart';
+import '../../widgets/chat_composer_keyboard.dart';
+import '../role_management_page.dart';
+import '../../utils/file_picker_io_utils.dart';
 
 /// 情景演绎主页面。
 ///
 /// 支持多角色 AI 共演：导演模型决定发言顺序，各角色按自定义模型生成对话，
 /// 可插入附件、流式输出、导出 Markdown 或长图。
-class _RoleplayPage extends StatefulWidget {
+class RoleplayPage extends StatefulWidget {
   final bool active;
 
-  const _RoleplayPage({required this.active});
+  const RoleplayPage({super.key, required this.active});
 
   @override
-  State<_RoleplayPage> createState() => _RoleplayPageState();
+  State<RoleplayPage> createState() => RoleplayPageState();
 }
 
-class _RoleplayPageState extends State<_RoleplayPage> {
+/// [RoleplayPage] 的状态：持有场景、线程与会话输入状态。
+class RoleplayPageState extends State<RoleplayPage> {
   final _inputCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
   final _focusNode = FocusNode();
@@ -1281,20 +1317,21 @@ class _RoleplayPageState extends State<_RoleplayPage> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     try {
       final pages = _splitImagePages(thread.messages, maxWeight: 3200);
-      final images = <Uint8List>[];
-      for (var i = 0; i < pages.length; i++) {
-        final widget = RepaintBoundary(
+      final images = await captureLongImagePages(
+        pageCount: pages.length,
+        controller: _screenshotCtrl,
+        context: context,
+        pageBuilder: (i, pageCount) => RepaintBoundary(
           child: _RoleplayShareImage(
             thread: thread,
             messages: pages[i],
             seedColor: scheme.primary,
             isDark: isDark,
-            pageNumber: pages.length > 1 ? i + 1 : null,
-            pageCount: pages.length > 1 ? pages.length : null,
+            pageNumber: pageCount > 1 ? i + 1 : null,
+            pageCount: pageCount > 1 ? pageCount : null,
           ),
-        );
-        images.add(await _captureSharePageImage(widget));
-      }
+        ),
+      );
       if (!mounted) return;
       if (images.isEmpty) {
         showShortSnackBar(context, '生成长图失败，请重试');
@@ -1312,23 +1349,6 @@ class _RoleplayPageState extends State<_RoleplayPage> {
       if (mounted) showShortSnackBar(context, '导出失败: $e');
     } finally {
       if (mounted) setState(() => _exporting = false);
-    }
-  }
-
-  Future<Uint8List> _captureSharePageImage(Widget shareWidget) async {
-    try {
-      return await _screenshotCtrl.captureFromLongWidget(
-        shareWidget,
-        pixelRatio: 2.5,
-        context: context,
-        constraints: const BoxConstraints(maxWidth: 720),
-      );
-    } catch (_) {
-      return _screenshotCtrl.captureFromWidget(
-        shareWidget,
-        pixelRatio: 2.5,
-        context: context,
-      );
     }
   }
 
@@ -1574,7 +1594,7 @@ class _RoleplayHistoryDrawerState extends State<_RoleplayHistoryDrawer> {
                 provider.toggleScenarioPinned(scenario.id);
               case 'edit':
                 final page = context
-                    .findAncestorStateOfType<_RoleplayPageState>();
+                    .findAncestorStateOfType<RoleplayPageState>();
                 page?._editScenario(scenario);
               case 'delete':
                 _deleteScenario(provider, scenario);

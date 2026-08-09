@@ -1,9 +1,33 @@
-part of '../feature_page.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import 'package:screenshot/screenshot.dart';
+import 'package:uuid/uuid.dart';
+import '../../models/item_reminder.dart';
+import '../../models/local_date.dart';
+import '../../models/local_time.dart';
+import '../../models/task.dart';
+import '../../models/task_list.dart';
+import '../../providers/task_provider.dart';
+import '../../services/calendar_platform_bridge.dart';
+import '../../services/reminder_notification_permission_service.dart';
+import '../../utils/file_name_utils.dart';
+import '../../utils/share_image_utils.dart';
+import '../../utils/snackbar_utils.dart';
+import '../../widgets/text_editing_controller_host.dart';
+import 'feature_shared.dart';
+import '../../utils/file_picker_io_utils.dart';
 
 enum _TaskPageView { overview, unfinished, completed }
 
-class _TodoListsPage extends StatefulWidget {
-  const _TodoListsPage({
+/// 任务清单页。
+///
+/// 未完成汇总与可展开任务清单，支持搜索与清单管理。
+class TodoListsPage extends StatefulWidget {
+  const TodoListsPage({
+    super.key,
     required this.searchController,
     required this.searchQuery,
     required this.onSearchChanged,
@@ -14,10 +38,11 @@ class _TodoListsPage extends StatefulWidget {
   final ValueChanged<String> onSearchChanged;
 
   @override
-  State<_TodoListsPage> createState() => _TodoListsPageState();
+  State<TodoListsPage> createState() => TodoListsPageState();
 }
 
-class _TodoListsPageState extends State<_TodoListsPage> {
+/// [TodoListsPage] 的状态。
+class TodoListsPageState extends State<TodoListsPage> {
   static const _nativeTools = MethodChannel('lynai/native_tools');
 
   final _shot = ScreenshotController();
@@ -121,7 +146,7 @@ class _TodoListsPageState extends State<_TodoListsPage> {
   Widget _overview(TaskProvider provider) {
     final lists = _filteredLists(provider);
     if (provider.lists.isEmpty) {
-      return const _FeatureEmptyState(
+      return const FeatureEmptyState(
         icon: Icons.checklist,
         title: '暂无任务清单',
         subtitle: '点击右上角 + 创建第一份清单。未归入清单的任务可在状态入口中查看。',
@@ -439,7 +464,7 @@ class _TodoListsPageState extends State<_TodoListsPage> {
   }
 
   Future<void> _editTask(TaskProvider provider, Task task) async {
-    await _openCanonicalTaskEditor(context, task: task);
+    await openCanonicalTaskEditor(context, task: task);
   }
 
   Future<void> _moveTask(TaskProvider provider, Task task) async {
@@ -577,27 +602,22 @@ class _TodoListsPageState extends State<_TodoListsPage> {
     final tasks = context.read<TaskProvider>().tasksForList(list.id);
     final chunks = _taskImagePages(tasks);
     final theme = Theme.of(context);
-    final images = <Uint8List>[];
-    for (var i = 0; i < chunks.length; i++) {
-      if (!mounted) return;
-      images.add(
-        await _shot.captureFromLongWidget(
-          _TaskShareImage(
-            title: list.title,
-            tasks: chunks[i],
-            totalCount: tasks.length,
-            totalCompleted: tasks.where((task) => task.isCompleted).length,
-            seedColor: theme.colorScheme.primary,
-            brightness: theme.brightness,
-            pageNumber: chunks.length == 1 ? null : i + 1,
-            pageCount: chunks.length == 1 ? null : chunks.length,
-          ),
-          pixelRatio: _exportImagePixelRatio,
-          context: context,
-          constraints: const BoxConstraints(maxWidth: 720),
-        ),
-      );
-    }
+    if (!mounted) return;
+    final images = await captureLongImagePages(
+      pageCount: chunks.length,
+      controller: _shot,
+      context: context,
+      pageBuilder: (i, pageCount) => _TaskShareImage(
+        title: list.title,
+        tasks: chunks[i],
+        totalCount: tasks.length,
+        totalCompleted: tasks.where((task) => task.isCompleted).length,
+        seedColor: theme.colorScheme.primary,
+        brightness: theme.brightness,
+        pageNumber: pageCount == 1 ? null : i + 1,
+        pageCount: pageCount == 1 ? null : pageCount,
+      ),
+    );
     try {
       final message = await shareOrSavePngImages(
         images: images,
@@ -625,7 +645,7 @@ class _TodoListsPageState extends State<_TodoListsPage> {
     var weight = 0;
     for (final task in tasks) {
       final nextWeight = task.title.length + 120;
-      if (page.isNotEmpty && weight + nextWeight > _exportTodoPageWeight) {
+      if (page.isNotEmpty && weight + nextWeight > exportTodoPageWeight) {
         pages.add(page);
         page = <Task>[];
         weight = 0;
@@ -638,7 +658,7 @@ class _TodoListsPageState extends State<_TodoListsPage> {
   }
 }
 
-Future<void> _openCanonicalTaskEditor(
+Future<void> openCanonicalTaskEditor(
   BuildContext context, {
   Task? task,
   LocalDate? initialPlannedDate,

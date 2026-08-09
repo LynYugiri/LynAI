@@ -1,17 +1,41 @@
-part of '../feature_page.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'dart:math' as math;
+import 'package:crypto/crypto.dart';
+import 'package:archive/archive.dart';
+import 'package:file_picker/file_picker.dart' show FileType;
+import 'package:flutter/material.dart';
+import 'package:flutter_math_fork/flutter_math.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import 'package:screenshot/screenshot.dart';
+import '../../models/merge_models.dart';
+import '../../models/note.dart';
+import '../../providers/feature_provider.dart';
+import '../../services/storage_v2_service.dart';
+import '../../utils/file_share_utils.dart';
+import '../../utils/file_name_utils.dart';
+import '../../utils/share_image_utils.dart';
+import '../../utils/snackbar_utils.dart';
+import '../../widgets/latex_renderer.dart';
+import '../../widgets/note_page_merge_resolver.dart';
+import '../latex_formula_editor_page.dart';
+import 'feature_shared.dart';
+import 'notes_page.dart';
+import '../../utils/file_picker_io_utils.dart';
 
 /// 笔记详情编辑器。
 ///
 /// 支持 Markdown 实时编辑预览、多分页联动、AI 修改建议吸纳/拒绝、版本时间线
 /// 回溯对比、LaTeX 公式可视化编辑、Mermaid/代码块编辑、查找替换和导出分享。
-class _NoteDetail extends StatefulWidget {
+class NoteDetail extends StatefulWidget {
   final String noteId;
   final bool editing;
   final ValueChanged<bool> onEditingChanged;
   final VoidCallback onDeleted;
   final ValueChanged<String> onSelectNote;
 
-  const _NoteDetail({
+  const NoteDetail({
     super.key,
     required this.noteId,
     required this.editing,
@@ -21,14 +45,14 @@ class _NoteDetail extends StatefulWidget {
   });
 
   @override
-  State<_NoteDetail> createState() => _NoteDetailState();
+  State<NoteDetail> createState() => NoteDetailState();
 }
 
 /// 笔记详情编辑器的状态管理。
 ///
 /// 维护编辑栈、查找替换、LaTeX 面板、AI 建议、目录抽屉、
 /// 版本时间线、分页选择等全部编辑态。
-class _NoteDetailState extends State<_NoteDetail> {
+class NoteDetailState extends State<NoteDetail> {
   static const _nativeTools = MethodChannel('lynai/native_tools');
   static const _editHistoryLimit = 100;
 
@@ -81,7 +105,7 @@ class _NoteDetailState extends State<_NoteDetail> {
   }
 
   @override
-  void didUpdateWidget(covariant _NoteDetail oldWidget) {
+  void didUpdateWidget(covariant NoteDetail oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.noteId != widget.noteId) {
       final note = _features.getNote(widget.noteId);
@@ -1444,7 +1468,7 @@ class _NoteDetailState extends State<_NoteDetail> {
         children: [
           Expanded(
             child: Text(
-              '正在查看 ${_formatNoteTime(revision.savedAt)} 的历史版本，基于它保存会新开分支并切到新分支。',
+              '正在查看 ${formatNoteTime(revision.savedAt)} 的历史版本，基于它保存会新开分支并切到新分支。',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),
@@ -1534,7 +1558,7 @@ class _NoteDetailState extends State<_NoteDetail> {
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (context) => _NoteTimelineSheet(
+      builder: (context) => NoteTimelineSheet(
         note: note,
         features: _features,
         onOpen: (revision, content) => _openRevisionFromTimeline(
@@ -1547,7 +1571,7 @@ class _NoteDetailState extends State<_NoteDetail> {
           _showCompareDialog(
             currentLabel: '当前版本',
             currentText: note.content,
-            otherLabel: _formatNoteTime(revision.savedAt),
+            otherLabel: formatNoteTime(revision.savedAt),
             otherText: content,
           );
         },
@@ -1563,7 +1587,7 @@ class _NoteDetailState extends State<_NoteDetail> {
   }
 
   String _diffSummary(String before, String after) {
-    return '${_noteDiffSummary(before, after)} · ${_noteLineDiffSummary(before, after)}';
+    return '${noteDiffSummary(before, after)} · ${noteLineDiffSummary(before, after)}';
   }
 
   Future<void> _restoreRevisionFromTimeline(
@@ -1591,7 +1615,7 @@ class _NoteDetailState extends State<_NoteDetail> {
     NoteRevision revision,
     String content,
   ) async {
-    final title = '${note.title} ${_formatNoteTime(revision.savedAt)}';
+    final title = '${note.title} ${formatNoteTime(revision.savedAt)}';
     final id = await _features.addNoteWithContent(
       title,
       content,
@@ -1643,7 +1667,7 @@ class _NoteDetailState extends State<_NoteDetail> {
       builder: (context) => AlertDialog(
         title: const Text('删除整条支线？'),
         content: Text(
-          '将删除从 ${_formatNoteTime(revision.savedAt)} 分出的 $branchCount 个非当前路径版本，当前路径会保留。',
+          '将删除从 ${formatNoteTime(revision.savedAt)} 分出的 $branchCount 个非当前路径版本，当前路径会保留。',
         ),
         actions: [
           TextButton(
@@ -1713,13 +1737,13 @@ class _NoteDetailState extends State<_NoteDetail> {
   }
 
   String _lineChangeDetail(String before, String after) {
-    final stats = _noteDiffStats(before, after);
+    final stats = noteDiffStats(before, after);
     if (!stats.hasChanges) return '行级变化：无';
     return '行级变化：新增 ${stats.addedLines} 行，删除 ${stats.removedLines} 行';
   }
 
   // 使用 LCS 动态规划构建逐行对比结果，超长文本回退到朴素对比。
-  List<_DiffLine> _buildDiffLines(String before, String after) {
+  List<DiffLine> _buildDiffLines(String before, String after) {
     final beforeLines = before.split('\n');
     final afterLines = after.split('\n');
     final n = beforeLines.length;
@@ -1736,14 +1760,14 @@ class _NoteDetailState extends State<_NoteDetail> {
             : (dp[i + 1][j] >= dp[i][j + 1] ? dp[i + 1][j] : dp[i][j + 1]);
       }
     }
-    final lines = <_DiffLine>[];
+    final lines = <DiffLine>[];
     var i = 0;
     var j = 0;
     while (i < n && j < m) {
       if (beforeLines[i] == afterLines[j]) {
         lines.add(
-          _DiffLine(
-            type: _DiffLineType.context,
+          DiffLine(
+            type: DiffLineType.context,
             beforeLine: i + 1,
             afterLine: j + 1,
             text: beforeLines[i],
@@ -1753,8 +1777,8 @@ class _NoteDetailState extends State<_NoteDetail> {
         j++;
       } else if (dp[i + 1][j] >= dp[i][j + 1]) {
         lines.add(
-          _DiffLine(
-            type: _DiffLineType.removed,
+          DiffLine(
+            type: DiffLineType.removed,
             beforeLine: i + 1,
             afterLine: null,
             text: beforeLines[i],
@@ -1763,8 +1787,8 @@ class _NoteDetailState extends State<_NoteDetail> {
         i++;
       } else {
         lines.add(
-          _DiffLine(
-            type: _DiffLineType.added,
+          DiffLine(
+            type: DiffLineType.added,
             beforeLine: null,
             afterLine: j + 1,
             text: afterLines[j],
@@ -1775,8 +1799,8 @@ class _NoteDetailState extends State<_NoteDetail> {
     }
     while (i < n) {
       lines.add(
-        _DiffLine(
-          type: _DiffLineType.removed,
+        DiffLine(
+          type: DiffLineType.removed,
           beforeLine: i + 1,
           afterLine: null,
           text: beforeLines[i],
@@ -1786,8 +1810,8 @@ class _NoteDetailState extends State<_NoteDetail> {
     }
     while (j < m) {
       lines.add(
-        _DiffLine(
-          type: _DiffLineType.added,
+        DiffLine(
+          type: DiffLineType.added,
           beforeLine: null,
           afterLine: j + 1,
           text: afterLines[j],
@@ -1798,19 +1822,19 @@ class _NoteDetailState extends State<_NoteDetail> {
     return lines;
   }
 
-  List<_DiffLine> _fallbackDiffLines(
+  List<DiffLine> _fallbackDiffLines(
     List<String> beforeLines,
     List<String> afterLines,
   ) {
-    final lines = <_DiffLine>[];
+    final lines = <DiffLine>[];
     final shared = beforeLines.length < afterLines.length
         ? beforeLines.length
         : afterLines.length;
     for (var i = 0; i < shared; i++) {
       if (beforeLines[i] == afterLines[i]) {
         lines.add(
-          _DiffLine(
-            type: _DiffLineType.context,
+          DiffLine(
+            type: DiffLineType.context,
             beforeLine: i + 1,
             afterLine: i + 1,
             text: beforeLines[i],
@@ -1818,16 +1842,16 @@ class _NoteDetailState extends State<_NoteDetail> {
         );
       } else {
         lines.add(
-          _DiffLine(
-            type: _DiffLineType.removed,
+          DiffLine(
+            type: DiffLineType.removed,
             beforeLine: i + 1,
             afterLine: null,
             text: beforeLines[i],
           ),
         );
         lines.add(
-          _DiffLine(
-            type: _DiffLineType.added,
+          DiffLine(
+            type: DiffLineType.added,
             beforeLine: null,
             afterLine: i + 1,
             text: afterLines[i],
@@ -1837,8 +1861,8 @@ class _NoteDetailState extends State<_NoteDetail> {
     }
     for (var i = shared; i < beforeLines.length; i++) {
       lines.add(
-        _DiffLine(
-          type: _DiffLineType.removed,
+        DiffLine(
+          type: DiffLineType.removed,
           beforeLine: i + 1,
           afterLine: null,
           text: beforeLines[i],
@@ -1847,8 +1871,8 @@ class _NoteDetailState extends State<_NoteDetail> {
     }
     for (var i = shared; i < afterLines.length; i++) {
       lines.add(
-        _DiffLine(
-          type: _DiffLineType.added,
+        DiffLine(
+          type: DiffLineType.added,
           beforeLine: null,
           afterLine: i + 1,
           text: afterLines[i],
@@ -1898,7 +1922,7 @@ class _NoteDetailState extends State<_NoteDetail> {
     );
   }
 
-  Widget _diffView(List<_DiffLine> lines) {
+  Widget _diffView(List<DiffLine> lines) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
       width: double.infinity,
@@ -1949,20 +1973,20 @@ class _NoteDetailState extends State<_NoteDetail> {
     );
   }
 
-  Widget _diffRow(_DiffLine line) {
+  Widget _diffRow(DiffLine line) {
     final scheme = Theme.of(context).colorScheme;
     final rowStyle = switch (line.type) {
-      _DiffLineType.added => (
+      DiffLineType.added => (
         scheme.primaryContainer.withValues(alpha: 0.42),
         scheme.primary,
         '+',
       ),
-      _DiffLineType.removed => (
+      DiffLineType.removed => (
         scheme.errorContainer.withValues(alpha: 0.42),
         scheme.error,
         '-',
       ),
-      _DiffLineType.context => (scheme.surface, scheme.onSurfaceVariant, ' '),
+      DiffLineType.context => (scheme.surface, scheme.onSurfaceVariant, ' '),
     };
     return Container(
       color: rowStyle.$1,
@@ -2715,8 +2739,11 @@ class _NoteDetailState extends State<_NoteDetail> {
       return;
     }
     final matcher = _regexFind
-        ? _SearchMatcher.regex(query, caseSensitive: _caseSensitiveFind)
-        : _SearchMatcher.literal(query, caseSensitive: _caseSensitiveFind);
+        ? FeatureSearchMatcher.regex(query, caseSensitive: _caseSensitiveFind)
+        : FeatureSearchMatcher.literal(
+            query,
+            caseSensitive: _caseSensitiveFind,
+          );
     final matches = matcher
         .allMatches(_ctrl.text)
         .where((match) => match.end > match.start)
@@ -3550,17 +3577,15 @@ class _NoteDetailState extends State<_NoteDetail> {
     final images = await _captureNoteImages(note.title, _ctrl.text);
     if (images.isEmpty) return;
     try {
-      final dir = await getTemporaryDirectory();
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final files = <XFile>[];
-      for (var i = 0; i < images.length; i++) {
-        final file = File(
-          '${dir.path}/${numberedImageFileName('note', timestamp, i, images.length)}',
-        );
-        await file.writeAsBytes(images[i], flush: true);
-        files.add(XFile(file.path));
-      }
-      await SharePlus.instance.share(ShareParams(files: files));
+      final message = await shareOrSavePngImages(
+        images: images,
+        filePrefix: 'note',
+        nativeTools: _nativeTools,
+        clipboardMessage: '笔记图片已复制到剪贴板',
+        galleryMessage: '笔记图片已保存到图库',
+      );
+      if (!mounted || message == null) return;
+      _showImageSnack(message);
     } catch (e) {
       if (!mounted) return;
       _showImageSnack('分享失败: $e');
@@ -3572,30 +3597,21 @@ class _NoteDetailState extends State<_NoteDetail> {
     String content,
   ) async {
     final theme = Theme.of(context);
-    final pages = splitTextForExport(
-      content,
-      maxLength: _exportTextChunkLength,
+    final pages = splitTextForExport(content, maxLength: exportTextChunkLength);
+    if (!mounted) return const [];
+    return captureLongImagePages(
+      pageCount: pages.length,
+      controller: _shot,
+      context: context,
+      pageBuilder: (i, pageCount) => NoteShareImage(
+        title: title,
+        content: pages[i],
+        seedColor: theme.colorScheme.primary,
+        brightness: theme.brightness,
+        pageNumber: pageCount == 1 ? null : i + 1,
+        pageCount: pageCount == 1 ? null : pageCount,
+      ),
     );
-    final images = <Uint8List>[];
-    for (var i = 0; i < pages.length; i++) {
-      if (!mounted) return images;
-      final image = await _shot.captureFromLongWidget(
-        _NoteShareImage(
-          title: title,
-          content: pages[i],
-          seedColor: theme.colorScheme.primary,
-          brightness: theme.brightness,
-          pageNumber: pages.length == 1 ? null : i + 1,
-          pageCount: pages.length == 1 ? null : pages.length,
-        ),
-        pixelRatio: _exportImagePixelRatio,
-        context: context,
-        constraints: const BoxConstraints(maxWidth: 720),
-      );
-      if (!mounted) return images;
-      images.add(image);
-    }
-    return images;
   }
 
   void _showImageSnack(String message) {
@@ -3798,7 +3814,7 @@ const _latexArrows = [
 /// 笔记导出为长图的渲染组件。
 ///
 /// 根据当前主题色和亮度构建独立配色，生成可用于截图分享的卡片式布局。
-class _NoteShareImage extends StatelessWidget {
+class NoteShareImage extends StatelessWidget {
   final String title;
   final String content;
   final Color seedColor;
@@ -3806,7 +3822,8 @@ class _NoteShareImage extends StatelessWidget {
   final int? pageNumber;
   final int? pageCount;
 
-  const _NoteShareImage({
+  const NoteShareImage({
+    super.key,
     required this.title,
     required this.content,
     required this.seedColor,

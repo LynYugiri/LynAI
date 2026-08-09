@@ -60,6 +60,8 @@ Provider 的更新策略是：先改内存并通知 UI，再把持久化操作�
 
 这样 UI 反馈更快，连续操作也不会让旧异步写入覆盖新状态。保存失败会记录到 `debugPrint`，并由当前操作或 `flushPendingSaves()` 观察；串行尾链会恢复，后续保存仍可继续。聚合 flush 会尝试所有 Provider 并汇总失败，调用方不能在任一保存失败后继续上传或应用远端状态。
 
+串行队列由 `SerializedSaveQueue` mixin（`providers/serialized_save_queue.dart`）统一提供：`enqueueSave(saver)` 入队并返回原始操作（保留错误传播），`flushPendingSaves()` 先执行 `onBeforeFlush()` 钩子再等待队尾，`pendingSaveQueue` 等待已吞错尾链。已接入该 mixin 的 Provider：conversation、calendar、model_config、roleplay、settings、task；`ConversationProvider` 通过覆写 `onBeforeFlush()` 在 flush 前强制排空 500ms 防抖快照。`KnowledgeProvider` 因类型化 `_runMutation<T>`、失败回滚快照与静默吞错语义保留自己的实现，不接入 mixin。
+
 ## ConversationProvider
 
 文件：`lib/providers/conversation_provider.dart`

@@ -52,6 +52,8 @@ HomePage
 
 `ChatPage` 协调模型选择、附件、语音、文件识别、OCR、工具调用、Agent/Subagent、Agent 工作记忆、流式响应、失败恢复和分享。模型 turn 与工具 continuation 统一交给 `AgentLoopRuntime`，页面只订阅 run event 更新草稿并在停止、重试或销毁时取消 handle。停止会等待 runtime 的 bounded terminal result，把跨 turn 聚合的 partial content 与 reasoning 保存到最后一条 assistant 消息；失败提示也保留该聚合内容，而不是只使用当前 turn 的 UI buffer。悬浮聊天采用相同语义。
 
+对话相关组件是独立库而非 `part`：`lib/pages/chat/` 下的 `history_drawer.dart`（历史抽屉）、`dialog_settings_content.dart`（对话设置弹窗）、`prompt_role_dialogs.dart`（系统提示词编辑）、`share_conversation_image.dart`（分享长图渲染）。长图导出流程在 `chat_image_exporter.dart` 的 `ChatImageExporter` 中（分页、捕获、剪贴板/分享/图库保存），页面只负责选择状态与结果反馈。发送给模型的 API 消息统一由 `lib/services/api_message_builder.dart` 的 `buildApiMessages` 组装，主聊天与悬浮聊天共用，避免两处 wire 语义漂移。
+
 输入区的 Agent 按钮是当前对话或未发送草稿切换 Agent 模式的唯一入口。新草稿从全局“对话权限”读取默认状态，按钮修改后由草稿覆盖该初值；已有对话始终使用自己的 `ConversationSettings.agentEnabled`。对话设置弹窗中的“对话权限”只编辑当前对话或草稿的权限快照，不再提供重复的 Agent 开关，也不修改全局默认或其他历史对话。
 
 打开历史对话只加载该对话自己的设置快照，不把模型、提示词或识别设置写回全局设置。历史请求直接使用快照中的系统提示词正文；即使全局同 ID 提示词后来被编辑，旧会话上下文也保持不变。连续工具调用达到 `ToolCallService.maxToolRounds` 后，页面要求模型基于已有结果结束，并拒绝继续执行工具。
@@ -93,7 +95,7 @@ HomePage
 
 文件：`lib/pages/feature_page.dart` 和 `lib/pages/features/*.dart`
 
-功能页是一个 shell，当前子功能保存在 `AppSettings.lastFeature`。
+功能页是一个 shell，当前子功能保存在 `AppSettings.lastFeature`。`features/` 下每个页面都是独立库（`dashboard.dart`、`feature_shell.dart`、`schedule_page.dart`、`notes_page.dart`、`note_detail_page.dart`、`todo_lists_page.dart`、`roleplay_page.dart`、`knowledge_page.dart`），共享的搜索匹配器、空状态、差异统计、导出常量与插件功能页引用集中在 `features/feature_shared.dart`，不在页面之间复制。
 
 | 子功能 | 文件 | 用户能做什么 |
 |--------|------|--------------|
@@ -103,7 +105,7 @@ HomePage
 | 笔记 | `features/notes_page.dart`, `features/note_detail_page.dart` | 文件夹、Markdown/LaTeX 编辑、分页、修订时间线、导入导出。 |
 | 任务清单 | `features/todo_lists_page.dart` | 未完成/已完成聚合、可展开自定义清单、任务日期、提醒、排序、Markdown 导入导出和长图分享。 |
 | 情景演绎 | `features/roleplay_page.dart` | 情景模板、多角色线程、导演决策、玩家消息、附件和导出。 |
-| 插件 | `features/plugin_feature_page.dart` | WebView 加载插件提供的功能页面，支持跨插件导航和独立 WebView 上下文。 |
+| 插件 | `features/feature_shared.dart` | 插件功能页引用解析；实际渲染由 `PluginFeatureWebView` 完成，支持跨插件导航和独立 WebView 上下文。 |
 
 ## 对话历史
 
@@ -185,9 +187,9 @@ HomePage
 
 ## PluginFeaturePage
 
-文件：`lib/pages/features/plugin_feature_page.dart`
+文件：`lib/widgets/plugin_feature_webview.dart`（`PluginFeatureWebView`，由 `FeaturePage` 路由）
 
-`PluginFeaturePage` 是插件的功能展示页，位于 `FeaturePage` 的功能 Tab 下。它使用 WebView 加载插件提供的 `feature` 页面，每个插件拥有独立的 WebView 上下文。
+`PluginFeatureWebView` 是插件的功能展示页，位于 `FeaturePage` 的功能 Tab 下。它使用 WebView 加载插件提供的 `feature` 页面，每个插件拥有独立的 WebView 上下文。功能页引用（`plugin:<pluginId>:<pageId>` 键解析与路由）由 `lib/pages/features/feature_shared.dart` 的 `PluginFeatureRef`/`ResolvedPluginFeature` 承担。
 
 | 行为 | 说明 |
 |------|------|

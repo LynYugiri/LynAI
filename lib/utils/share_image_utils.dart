@@ -1,7 +1,9 @@
 import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:screenshot/screenshot.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:super_clipboard/super_clipboard.dart';
 
@@ -9,6 +11,7 @@ bool get isDesktopPlatform {
   return Platform.isLinux || Platform.isMacOS || Platform.isWindows;
 }
 
+/// 生成带序号后缀的导出图片文件名（单张无后缀）。
 String numberedImageFileName(
   String prefix,
   int timestamp,
@@ -19,6 +22,7 @@ String numberedImageFileName(
   return '${prefix}_$timestamp$suffix.png';
 }
 
+/// 生成“已完成共 N 张”的提示文案。
 String pluralImageDoneText(String base, int count) {
   return count == 1 ? base : '$base，共 $count 张';
 }
@@ -82,21 +86,11 @@ Future<String?> shareOrSavePngImages({
   }
 
   if (Platform.isAndroid || Platform.isIOS) {
-    for (var i = 0; i < images.length; i++) {
-      final result = await nativeTools
-          .invokeMapMethod<String, dynamic>('saveImageToGallery', {
-            'bytes': images[i],
-            'fileName': numberedImageFileName(
-              filePrefix,
-              timestamp,
-              i,
-              images.length,
-            ),
-          });
-      if (result?['ok'] != true) {
-        throw Exception(result?['error'] ?? '保存到图库失败');
-      }
-    }
+    await saveImagesToGallery(
+      images: images,
+      filePrefix: filePrefix,
+      nativeTools: nativeTools,
+    );
     return pluralImageDoneText(galleryMessage, images.length);
   }
 
@@ -111,4 +105,63 @@ Future<String?> shareOrSavePngImages({
   }
   await SharePlus.instance.share(ShareParams(files: files));
   return null;
+}
+
+/// 把 PNG 图片逐张写入系统图库（仅 Android/iOS）。
+Future<void> saveImagesToGallery({
+  required List<Uint8List> images,
+  required String filePrefix,
+  required MethodChannel nativeTools,
+}) async {
+  final timestamp = DateTime.now().millisecondsSinceEpoch;
+  for (var i = 0; i < images.length; i++) {
+    final result = await nativeTools
+        .invokeMapMethod<String, dynamic>('saveImageToGallery', {
+          'bytes': images[i],
+          'fileName': numberedImageFileName(
+            filePrefix,
+            timestamp,
+            i,
+            images.length,
+          ),
+        });
+    if (result?['ok'] != true) {
+      throw Exception(result?['error'] ?? '保存到图库失败');
+    }
+  }
+}
+
+/// 逐页渲染分享长图并捕获为 PNG 列表。
+///
+/// 每页经 [pageBuilder] 生成（接收页码与总页数），先尝试长图捕获，
+/// 失败时回退到普通捕获；720 像素宽度与 2.5 倍像素比与既有导出一致。
+Future<List<Uint8List>> captureLongImagePages({
+  required int pageCount,
+  required Widget Function(int pageIndex, int pageCount) pageBuilder,
+  required ScreenshotController controller,
+  BuildContext? context,
+  double pixelRatio = 2.5,
+}) async {
+  final images = <Uint8List>[];
+  Future<Uint8List> captureOne(Widget widget) async {
+    try {
+      return await controller.captureFromLongWidget(
+        widget,
+        pixelRatio: pixelRatio,
+        context: context,
+        constraints: const BoxConstraints(maxWidth: 720),
+      );
+    } catch (_) {
+      return controller.captureFromWidget(
+        widget,
+        pixelRatio: pixelRatio,
+        context: context,
+      );
+    }
+  }
+
+  for (var i = 0; i < pageCount; i++) {
+    images.add(await captureOne(pageBuilder(i, pageCount)));
+  }
+  return images;
 }

@@ -1,22 +1,39 @@
-part of '../chat_page.dart';
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../models/app_settings.dart';
+import '../../models/chat_role.dart';
+import '../../models/conversation.dart';
+import '../../models/model_config.dart';
+import '../../models/system_prompt.dart';
+import '../../providers/model_config_provider.dart';
+import '../../providers/settings_provider.dart';
+import '../../services/lynai_permission_definitions.dart';
+import '../../widgets/chat_role_edit_dialog.dart';
+import '../../widgets/text_editing_controller_host.dart';
+import '../role_management_page.dart';
+import 'prompt_role_dialogs.dart';
 
 /// 对话设置弹窗内容。
 ///
 /// 整合模型选择器、思维链开关、系统提示词编辑、语音和图片模型配置。
-class _DialogSettingsContent extends StatefulWidget {
+class DialogSettingsContent extends StatefulWidget {
   final ConversationSettings settings;
   final ValueChanged<ConversationSettings> onChanged;
 
-  const _DialogSettingsContent({
+  const DialogSettingsContent({
+    super.key,
     required this.settings,
     required this.onChanged,
   });
 
   @override
-  State<_DialogSettingsContent> createState() => _DialogSettingsContentState();
+  State<DialogSettingsContent> createState() => _DialogSettingsContentState();
 }
 
-class _DialogSettingsContentState extends State<_DialogSettingsContent> {
+class _DialogSettingsContentState extends State<DialogSettingsContent> {
   bool _showSpeechList = false;
   bool _showImageList = false;
   bool _showImageRecognitionList = false;
@@ -918,8 +935,10 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
 
   Widget _agentSettings() {
     final scheme = Theme.of(context).colorScheme;
-    final globalPermissions =
-        context.watch<SettingsProvider>().settings.agentGrantedPermissions;
+    final globalPermissions = context
+        .watch<SettingsProvider>()
+        .settings
+        .agentGrantedPermissions;
     final inherited = _settings.inheritsAgentPermissions;
     return Container(
       decoration: BoxDecoration(
@@ -1243,7 +1262,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
   void _addSystemPrompt() {
     showDialog(
       context: context,
-      builder: (ctx) => _SystemPromptEditDialog(
+      builder: (ctx) => SystemPromptEditDialog(
         onSave: (title, content) {
           final id = context.read<SettingsProvider>().addSystemPrompt(
             title,
@@ -1264,7 +1283,7 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
     final sp = context.read<SettingsProvider>();
     showDialog(
       context: context,
-      builder: (ctx) => _SystemPromptEditDialog(
+      builder: (ctx) => SystemPromptEditDialog(
         initialTitle: p.title,
         initialContent: p.content,
         onSave: (title, content) {
@@ -1275,5 +1294,13 @@ class _DialogSettingsContentState extends State<_DialogSettingsContent> {
         },
       ),
     );
+  }
+}
+
+ModelConfig? _findModelConfigById(List<ModelConfig> models, String id) {
+  try {
+    return models.firstWhere((m) => m.id == id);
+  } catch (_) {
+    return null;
   }
 }

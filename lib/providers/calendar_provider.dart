@@ -12,9 +12,10 @@ import '../repositories/calendar_repository.dart';
 import '../repositories/recycle_bin_repository.dart';
 import '../services/calendar_occurrence_service.dart';
 import '../services/storage_v2_service.dart';
+import 'serialized_save_queue.dart';
 
 /// 日历事件和纪念日的唯一内存权威。
-class CalendarProvider extends ChangeNotifier {
+class CalendarProvider extends ChangeNotifier with SerializedSaveQueue {
   CalendarProvider({
     StorageV2Service? storageV2,
     CalendarRepository? repository,
@@ -36,8 +37,6 @@ class CalendarProvider extends ChangeNotifier {
 
   List<CalendarEvent> _events = const [];
   List<Anniversary> _anniversaries = const [];
-  Future<void> _saveQueue = Future.value();
-  Future<void> _pendingSave = Future.value();
   bool _loading = false;
   int _mutationGeneration = 0;
 
@@ -277,24 +276,17 @@ class CalendarProvider extends ChangeNotifier {
     );
   }
 
-  Future<void> flushPendingSaves() => _pendingSave;
-
   Future<void> _queueSave(
     Future<void> Function() save, {
     Future<void> Function()? beforeSave,
     Future<void> Function()? afterSave,
   }) {
-    final operation = _saveQueue.then((_) async {
+    return enqueueSave(() async {
       await beforeSave?.call();
       await save();
       await afterSave?.call();
       onSnapshotPersisted?.call();
     });
-    _pendingSave = operation;
-    _saveQueue = operation.catchError((Object error) {
-      debugPrint('保存日历分区失败: $error');
-    });
-    return operation;
   }
 }
 

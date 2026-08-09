@@ -8,50 +8,6 @@ enum AgentItemStatus { pending, running, completed, failed, cancelled }
 
 enum AgentItemKind { message, reasoning, toolCall, toolResult }
 
-class AgentRun {
-  final String id;
-  final AgentRunStatus status;
-  final DateTime createdAt;
-  final DateTime? completedAt;
-
-  const AgentRun({
-    required this.id,
-    required this.status,
-    required this.createdAt,
-    this.completedAt,
-  });
-}
-
-class AgentTurn {
-  final String id;
-  final String runId;
-  final AgentTurnStatus status;
-  final int index;
-
-  const AgentTurn({
-    required this.id,
-    required this.runId,
-    required this.status,
-    required this.index,
-  });
-}
-
-class AgentItem {
-  final String id;
-  final String turnId;
-  final AgentItemKind kind;
-  final AgentItemStatus status;
-  final int index;
-
-  const AgentItem({
-    required this.id,
-    required this.turnId,
-    required this.kind,
-    required this.status,
-    required this.index,
-  });
-}
-
 enum AgentToolSource { builtIn, plugin, runtime, mcp }
 
 enum AgentToolSideEffect { none, read, write, external }

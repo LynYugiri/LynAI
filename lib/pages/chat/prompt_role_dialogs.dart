@@ -1,15 +1,16 @@
-part of '../chat_page.dart';
+import 'package:flutter/material.dart';
 
 /// 系统提示词编辑弹窗。
 ///
 /// 支持创建或编辑自定义系统提示词模板，含标题和内容字段。
-class _SystemPromptEditDialog extends StatefulWidget {
+class SystemPromptEditDialog extends StatefulWidget {
   final String initialTitle;
   final String initialContent;
   final void Function(String title, String content) onSave;
   final VoidCallback? onDelete;
 
-  const _SystemPromptEditDialog({
+  const SystemPromptEditDialog({
+    super.key,
     this.initialTitle = '',
     this.initialContent = '',
     required this.onSave,
@@ -17,11 +18,10 @@ class _SystemPromptEditDialog extends StatefulWidget {
   });
 
   @override
-  State<_SystemPromptEditDialog> createState() =>
-      _SystemPromptEditDialogState();
+  State<SystemPromptEditDialog> createState() => _SystemPromptEditDialogState();
 }
 
-class _SystemPromptEditDialogState extends State<_SystemPromptEditDialog> {
+class _SystemPromptEditDialogState extends State<SystemPromptEditDialog> {
   late final _titleCtrl = TextEditingController(text: widget.initialTitle);
   late final _contentCtrl = TextEditingController(text: widget.initialContent);
 

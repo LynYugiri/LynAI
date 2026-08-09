@@ -1,9 +1,14 @@
-part of '../chat_page.dart';
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+
+import '../../models/message.dart';
+import '../../widgets/latex_renderer.dart';
 
 /// 对话分享长图组件。
 ///
 /// 以卡片式布局渲染对话标题、消息气泡和附件，用于截图导出。
-class _ShareConversationImage extends StatelessWidget {
+class ShareConversationImage extends StatelessWidget {
   final String title;
   final List<Message> messages;
   final Color seedColor;
@@ -11,7 +16,8 @@ class _ShareConversationImage extends StatelessWidget {
   final int? pageNumber;
   final int? pageCount;
 
-  const _ShareConversationImage({
+  const ShareConversationImage({
+    super.key,
     required this.title,
     required this.messages,
     required this.seedColor,

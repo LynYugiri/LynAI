@@ -44,7 +44,7 @@ lib/
 ├── pages/
 │   ├── chat/
 │   ├── features/
-│   │   └── plugin_feature_page.dart
+│   │   └── feature_shared.dart
 │   ├── plugin_management_page.dart
 ├── utils/
 └── widgets/

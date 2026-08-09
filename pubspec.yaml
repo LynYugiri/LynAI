@@ -35,7 +35,6 @@ dependencies:
   flutter_localizations:
     sdk: flutter
 
-  cupertino_icons: ^1.0.8
   provider: ^6.1.2
   uuid: ^4.5.1
   image_picker: ^1.1.2
@@ -63,7 +62,6 @@ dependencies:
   package_info_plus: ^9.0.1
   webview_all: ^1.0.3
   drift: ^2.29.0
-  drift_flutter: ^0.3.0
   sqlite3: ^3.3.2
   sqlite3_flutter_libs: ^0.6.0+eol
   lua_dardo: ^0.0.5

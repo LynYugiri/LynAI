@@ -1,18 +1,33 @@
-part of '../feature_page.dart';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
-class _AddMenuItem {
+import '../../../models/chat_role.dart';
+import '../../../models/conversation.dart';
+import '../../../providers/conversation_provider.dart';
+import '../../../providers/settings_provider.dart';
+import '../../../utils/chat_search_matcher.dart';
+
+/// “新建”浮动按钮的下拉菜单项。
+class AddMenuItem {
   final String value;
   final IconData icon;
   final String label;
 
-  const _AddMenuItem(this.value, this.icon, this.label);
+  const AddMenuItem(this.value, this.icon, this.label);
 }
 
-class _AddMenuButton extends StatelessWidget {
-  final List<_AddMenuItem> items;
+/// 展开式“新建”浮动按钮。
+///
+/// 根据 [items] 弹出菜单，选中后回调 [onSelected]。
+class AddMenuButton extends StatelessWidget {
+  final List<AddMenuItem> items;
   final ValueChanged<String> onSelected;
 
-  const _AddMenuButton({required this.items, required this.onSelected});
+  const AddMenuButton({
+    super.key,
+    required this.items,
+    required this.onSelected,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -54,13 +69,17 @@ class _AddMenuButton extends StatelessWidget {
   }
 }
 
-class _HistoryList extends StatelessWidget {
+/// 功能页内的对话历史列表。
+///
+/// 按角色分组展示历史对话，支持标题/正文搜索、切换角色、重命名与删除。
+class HistoryList extends StatelessWidget {
   final TextEditingController searchController;
   final String searchQuery;
   final ValueChanged<String> onSearchChanged;
   final void Function(String conversationId) onConversationTap;
 
-  const _HistoryList({
+  const HistoryList({
+    super.key,
     required this.searchController,
     required this.searchQuery,
     required this.onSearchChanged,

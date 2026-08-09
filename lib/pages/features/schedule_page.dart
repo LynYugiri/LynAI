@@ -1,15 +1,36 @@
-part of '../feature_page.dart';
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../../models/anniversary.dart';
+import '../../models/calendar_event.dart';
+import '../../models/calendar_occurrence.dart';
+import '../../models/item_reminder.dart';
+import '../../models/local_date.dart';
+import '../../models/local_time.dart';
+import '../../models/task.dart';
+import '../../providers/calendar_provider.dart';
+import '../../providers/task_provider.dart';
+import '../../services/calendar_platform_bridge.dart';
+import '../../services/reminder_notification_permission_service.dart';
+import '../../utils/calendar_timeline_layout.dart';
+import 'feature_shell.dart';
+import 'todo_lists_page.dart';
+import '../../utils/reminder_editor.dart';
 
 enum _CalendarMode { month, day, year }
 
-class _SchedulePage extends StatefulWidget {
-  const _SchedulePage();
+/// 日程表页。
+///
+/// 月历、日视图与年览切换，整合任务与纪念日。
+class SchedulePage extends StatefulWidget {
+  const SchedulePage({super.key});
 
   @override
-  State<_SchedulePage> createState() => _SchedulePageState();
+  State<SchedulePage> createState() => SchedulePageState();
 }
 
-class _SchedulePageState extends State<_SchedulePage> {
+/// [SchedulePage] 的状态。
+class SchedulePageState extends State<SchedulePage> {
   static const _hourHeight = 56.0;
   static const _dayColumnWidth = 112.0;
   static const _timeColumnWidth = 52.0;
@@ -156,11 +177,11 @@ class _SchedulePageState extends State<_SchedulePage> {
           }),
         ),
         const SizedBox(width: 8),
-        _AddMenuButton(
+        AddMenuButton(
           items: const [
-            _AddMenuItem('event', Icons.event_outlined, '新建事件'),
-            _AddMenuItem('task', Icons.task_alt, '新建任务'),
-            _AddMenuItem('anniversary', Icons.cake_outlined, '新建纪念日'),
+            AddMenuItem('event', Icons.event_outlined, '新建事件'),
+            AddMenuItem('task', Icons.task_alt, '新建任务'),
+            AddMenuItem('anniversary', Icons.cake_outlined, '新建纪念日'),
           ],
           onSelected: (value) {
             switch (value) {
@@ -1160,7 +1181,7 @@ class _SchedulePageState extends State<_SchedulePage> {
 
   Future<void> _openTaskEditor([Task? task]) async {
     final base = _selectedDate ?? _focus;
-    await _openCanonicalTaskEditor(
+    await openCanonicalTaskEditor(
       context,
       task: task,
       initialPlannedDate: task == null ? LocalDate.fromDateTime(base) : null,

@@ -161,7 +161,7 @@ class ApiModelsPage extends StatelessWidget {
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => ApiCategoryPage(category: category),
+                  builder: (_) => _ApiCategoryPage(category: category),
                 ),
               ),
             ),
@@ -172,9 +172,9 @@ class ApiModelsPage extends StatelessWidget {
   }
 }
 
-class ApiCategoryPage extends StatelessWidget {
+class _ApiCategoryPage extends StatelessWidget {
   final ApiCategory category;
-  const ApiCategoryPage({super.key, required this.category});
+  const _ApiCategoryPage({required this.category});
 
   @override
   Widget build(BuildContext context) {
@@ -311,28 +311,27 @@ class ApiCategoryPage extends StatelessWidget {
       context,
       MaterialPageRoute(
         builder: (_) =>
-            EditModelPage(category: category, model: model, provider: provider),
+            _EditModelPage(category: category, model: model, provider: provider),
       ),
     );
   }
 }
 
-class EditModelPage extends StatefulWidget {
+class _EditModelPage extends StatefulWidget {
   final ApiCategory category;
   final ModelConfig? model;
   final ModelConfigProvider provider;
-  const EditModelPage({
-    super.key,
+  const _EditModelPage({
     required this.category,
     this.model,
     required this.provider,
   });
 
   @override
-  State<EditModelPage> createState() => _EditModelPageState();
+  State<_EditModelPage> createState() => _EditModelPageState();
 }
 
-class _EditModelPageState extends State<EditModelPage> {
+class _EditModelPageState extends State<_EditModelPage> {
   final _formKey = GlobalKey<FormState>();
   final _scrollController = ScrollController();
   final _advancedOptionsKey = GlobalKey();

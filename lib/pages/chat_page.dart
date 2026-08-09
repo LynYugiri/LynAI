@@ -22,8 +22,6 @@ import '../models/conversation.dart';
 import '../models/chat_role.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
-import '../models/app_settings.dart';
-import '../models/system_prompt.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/calendar_provider.dart';
@@ -34,6 +32,7 @@ import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
 import '../services/attachment_storage_service.dart';
+import '../services/api_message_builder.dart';
 import '../services/api_service.dart';
 import '../services/agent_loop_runtime.dart';
 import '../services/agent_persistence_lifecycle.dart';
@@ -49,7 +48,6 @@ import '../services/storage_v2_service.dart';
 import '../services/system_scroll_capture_service.dart';
 import '../services/tool_call_service.dart';
 import '../services/stream_chunk_agent_adapter.dart';
-import '../services/lynai_permission_definitions.dart';
 import '../services/web_search_service.dart';
 import '../utils/file_picker_io_utils.dart';
 import '../utils/chat_search_matcher.dart';
@@ -57,15 +55,12 @@ import '../utils/share_image_utils.dart';
 import '../utils/snackbar_utils.dart';
 import '../widgets/latex_renderer.dart';
 import '../widgets/ai_explain_selection_area.dart';
-import '../widgets/chat_role_edit_dialog.dart';
 import '../widgets/chat_composer_keyboard.dart';
 import '../widgets/knowledge_explanation_dialog.dart';
-import '../widgets/text_editing_controller_host.dart';
-import 'role_management_page.dart';
-part 'chat/share_conversation_image.dart';
-part 'chat/dialog_settings_content.dart';
-part 'chat/prompt_role_dialogs.dart';
-part 'chat/history_drawer.dart';
+import 'chat/chat_image_exporter.dart';
+import 'chat/dialog_settings_content.dart';
+import 'chat/history_drawer.dart';
+import 'chat/share_conversation_image.dart';
 
 final class _UserTextHighlight {
   const _UserTextHighlight({
@@ -301,7 +296,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   late final ScrollController _historyScrollController;
   final _focusNode = FocusNode();
   final _searchFocusNode = FocusNode();
-  final _screenshotCtrl = ScreenshotController();
   final _audioRecorder = AudioRecorder();
   final _generationBackgroundService = const GenerationBackgroundService();
   late final AttachmentStorageService _attachmentStorage;
@@ -368,9 +362,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   String? _retryMsgId;
   int _retryIdx = 0;
 
-  static const _shareImagePixelRatio = 2.5;
-  static const _sharePageMaxWeight = 3600;
-  static const _shareMessageChunkLength = 2800;
+  late final ChatImageExporter _imageExporter = ChatImageExporter(
+    controller: ScreenshotController(),
+    nativeTools: _nativeToolsChannel,
+    showSnack: _showShareImageSnack,
+  );
 
   late stt.SpeechToText _speech;
   StreamSubscription<AgentRunEvent>? _sub;
@@ -1575,8 +1571,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final annotationPrompt = const KnowledgeAnnotationPromptFormatter().format(
       context.read<KnowledgeProvider>().knowledgeAnnotationPromptSnapshot,
     );
-    final msgs = _buildApiMessages(
+    final msgs = buildApiMessages(
       conv,
+      context.read<PluginProvider>().plugins,
       lastUserContentOverride: lastUserContentOverride,
       enableTools: _supportsNativeTools(model),
       annotationPrompt: annotationPrompt,
@@ -1653,49 +1650,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       return;
     }
     _doSend(model, lastUserContentOverride: preparedUserContent.apiContent);
-  }
-
-  List<Map<String, dynamic>> _buildApiMessages(
-    Conversation conv, {
-    Object? lastUserContentOverride,
-    bool enableTools = false,
-    String annotationPrompt = '',
-  }) {
-    final msgs = <Map<String, dynamic>>[];
-    final promptContent = conv.settings.systemPrompt;
-    final toolPrompt = conv.settings.agentEnabled
-        ? '${ToolCallService.nativeSystemPrompt}\n\n${ToolCallService.agentSystemPromptWithSkills(context.read<PluginProvider>().plugins)}'
-        : ToolCallService.nativeSystemPrompt;
-    final agentContext = conv.settings.agentEnabled
-        ? ToolCallService.agentContextPrompt(conv)
-        : '';
-    final fullToolPrompt = agentContext.isEmpty
-        ? toolPrompt
-        : '$toolPrompt\n\n$agentContext';
-    final systemParts = <String>[
-      if (promptContent.isNotEmpty) promptContent,
-      if (enableTools) fullToolPrompt,
-      if (enableTools) ToolCallService.currentTimeContext(),
-      if (annotationPrompt.isNotEmpty) annotationPrompt,
-    ];
-    if (systemParts.isNotEmpty) {
-      msgs.add({'role': 'system', 'content': systemParts.join('\n\n')});
-    }
-    final lastUserIndex = lastUserContentOverride == null
-        ? -1
-        : conv.messages.lastIndexWhere((m) => m.role == 'user');
-    for (var i = 0; i < conv.messages.length; i++) {
-      final m = conv.messages[i];
-      if (m.role == 'assistant' && m.content.isEmpty) continue;
-      msgs.add({
-        'role': m.role,
-        'content': i == lastUserIndex
-            ? lastUserContentOverride
-            : (m.modelContextContent ?? m.content),
-        if (m.role == 'assistant') 'reasoning_content': '',
-      });
-    }
-    return msgs;
   }
 
   bool _supportsNativeTools(ModelConfig model) => model.supportsNativeTools;
@@ -1799,8 +1753,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _agentMessageId = cp.getConversation(cid)?.messages.lastOrNull?.id;
     final resolvedPermissionSnapshot =
         streamSettings?.inheritsAgentPermissions == true
-            ? context.read<SettingsProvider>().settings.agentPermissionSnapshot
-            : streamSettings?.permissionSnapshot;
+        ? context.read<SettingsProvider>().settings.agentPermissionSnapshot
+        : streamSettings?.permissionSnapshot;
     final toolService = ToolCallService(
       context.read<FeatureProvider>(),
       tasks: context.read<TaskProvider>(),
@@ -2197,52 +2151,25 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     if (_sharingImage || _convId == null || _selectedShareMessageIds.isEmpty) {
       return;
     }
+    final conv = context.read<ConversationProvider>().getConversation(_convId!);
+    if (conv == null) return;
+    final settings = context.read<SettingsProvider>().settings;
+    final brightness = Theme.of(context).brightness;
     try {
       setState(() => _sharingImage = true);
-      final images = await _captureShareImages();
-      if (images.isEmpty) {
-        if (mounted) _showShareImageSnack('生成长图失败，请重试');
-        return;
-      }
-      if (mounted) {
-        if (isDesktopPlatform) {
-          final clipboard = SystemClipboard.instance;
-          if (clipboard == null) {
-            throw Exception('当前平台不支持写入剪贴板');
-          }
-          final items = <DataWriterItem>[];
-          for (var i = 0; i < images.length; i++) {
-            final suffix = images.length == 1 ? '' : ' ${i + 1}';
-            final item = DataWriterItem(suggestedName: 'LynAI 对话$suffix.png');
-            item.add(Formats.png(images[i]));
-            items.add(item);
-          }
-          await clipboard.write(items);
-          if (mounted) {
-            _showShareImageSnack(
-              pluralImageDoneText('长图已复制到剪贴板', images.length),
-            );
-          }
-        } else {
-          final files = <XFile>[];
-          final timestamp = DateTime.now().millisecondsSinceEpoch;
-          for (var i = 0; i < images.length; i++) {
-            final f = File(
-              '${Directory.systemTemp.path}/${numberedImageFileName('lynai_share', timestamp, i, images.length)}',
-            );
-            await f.writeAsBytes(images[i]);
-            files.add(XFile(f.path));
-          }
-          await SharePlus.instance.share(
-            ShareParams(files: files, text: 'LynAI 对话'),
-          );
-        }
-        _cancelShareSelection();
-      }
-    } catch (e) {
-      if (mounted) {
-        _showShareImageSnack('分享失败: $e');
-      }
+      await _imageExporter.shareMessages(
+        conv: conv,
+        selectedIds: _selectedShareMessageIds,
+        pageBuilder: (page, pageNumber, pageCount) => ShareConversationImage(
+          title: conv.title,
+          messages: page,
+          seedColor: settings.themeColor,
+          brightness: brightness,
+          pageNumber: pageCount == 0 ? null : pageNumber,
+          pageCount: pageCount == 0 ? null : pageCount,
+        ),
+        onSelectionCleared: _cancelShareSelection,
+      );
     } finally {
       if (mounted) setState(() => _sharingImage = false);
     }
@@ -2252,152 +2179,28 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     if (_sharingImage || _convId == null || _selectedShareMessageIds.isEmpty) {
       return;
     }
+    final conv = context.read<ConversationProvider>().getConversation(_convId!);
+    if (conv == null) return;
+    final settings = context.read<SettingsProvider>().settings;
+    final brightness = Theme.of(context).brightness;
     try {
       setState(() => _sharingImage = true);
-      final images = await _captureShareImages();
-      if (images.isEmpty) {
-        if (mounted) _showShareImageSnack('生成长图失败，请重试');
-        return;
-      }
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      if (Platform.isAndroid || Platform.isIOS) {
-        for (var i = 0; i < images.length; i++) {
-          final result = await _nativeToolsChannel
-              .invokeMapMethod<String, dynamic>('saveImageToGallery', {
-                'bytes': images[i],
-                'fileName': numberedImageFileName(
-                  'lynai_share',
-                  timestamp,
-                  i,
-                  images.length,
-                ),
-              });
-          if (result?['ok'] != true) {
-            throw Exception(result?['error'] ?? '保存到图库失败');
-          }
-        }
-        if (!mounted) return;
-        _showShareImageSnack(pluralImageDoneText('长图已保存到图库', images.length));
-        _cancelShareSelection();
-        return;
-      }
-      Directory? dir;
-      if (isDesktopPlatform) {
-        dir = await getDownloadsDirectory();
-      } else {
-        dir = null;
-      }
-      dir ??= await getApplicationDocumentsDirectory();
-      final files = <File>[];
-      for (var i = 0; i < images.length; i++) {
-        final file = File(
-          '${dir.path}/${numberedImageFileName('lynai_share', timestamp, i, images.length)}',
-        );
-        await file.writeAsBytes(images[i], flush: true);
-        files.add(file);
-      }
-      if (!mounted) return;
-      _showShareImageSnack(_savedShareImagePathText(files));
-      _cancelShareSelection();
-    } catch (e) {
-      if (!mounted) return;
-      _showShareImageSnack('保存失败: $e');
+      await _imageExporter.saveMessages(
+        conv: conv,
+        selectedIds: _selectedShareMessageIds,
+        pageBuilder: (page, pageNumber, pageCount) => ShareConversationImage(
+          title: conv.title,
+          messages: page,
+          seedColor: settings.themeColor,
+          brightness: brightness,
+          pageNumber: pageCount == 0 ? null : pageNumber,
+          pageCount: pageCount == 0 ? null : pageCount,
+        ),
+        onSelectionCleared: _cancelShareSelection,
+      );
     } finally {
       if (mounted) setState(() => _sharingImage = false);
     }
-  }
-
-  Future<List<Uint8List>> _captureShareImages() async {
-    if (_convId == null) return const [];
-    final conv = context.read<ConversationProvider>().getConversation(_convId!);
-    if (conv == null) return const [];
-    final selected = conv.messages
-        .where((m) => _selectedShareMessageIds.contains(m.id))
-        .toList(growable: false);
-    if (selected.isEmpty) return const [];
-    final settings = context.read<SettingsProvider>().settings;
-    final brightness = Theme.of(context).brightness;
-    final pages = _shareMessagePages(selected);
-    final images = <Uint8List>[];
-    for (var i = 0; i < pages.length; i++) {
-      final shareWidget = _ShareConversationImage(
-        title: conv.title,
-        messages: pages[i],
-        seedColor: settings.themeColor,
-        brightness: brightness,
-        pageNumber: pages.length == 1 ? null : i + 1,
-        pageCount: pages.length == 1 ? null : pages.length,
-      );
-      images.add(await _captureSharePageImage(shareWidget));
-    }
-    return images;
-  }
-
-  Future<Uint8List> _captureSharePageImage(Widget shareWidget) async {
-    try {
-      return await _screenshotCtrl.captureFromLongWidget(
-        shareWidget,
-        pixelRatio: _shareImagePixelRatio,
-        context: context,
-        constraints: const BoxConstraints(maxWidth: 720),
-      );
-    } catch (_) {
-      return _screenshotCtrl.captureFromWidget(
-        shareWidget,
-        pixelRatio: _shareImagePixelRatio,
-        context: context,
-      );
-    }
-  }
-
-  List<List<Message>> _shareMessagePages(List<Message> messages) {
-    final pages = <List<Message>>[];
-    var current = <Message>[];
-    var currentWeight = 0;
-    for (final message in messages.expand(_splitShareMessage)) {
-      final weight = _shareMessageWeight(message);
-      if (current.isNotEmpty && currentWeight + weight > _sharePageMaxWeight) {
-        pages.add(current);
-        current = <Message>[];
-        currentWeight = 0;
-      }
-      current.add(message);
-      currentWeight += weight;
-    }
-    if (current.isNotEmpty) pages.add(current);
-    return pages;
-  }
-
-  Iterable<Message> _splitShareMessage(Message message) sync* {
-    final content = message.content.trim();
-    if (content.length <= _shareMessageChunkLength) {
-      yield message;
-      return;
-    }
-
-    final chunks = splitTextForExport(
-      content,
-      maxLength: _shareMessageChunkLength,
-    );
-    for (var i = 0; i < chunks.length; i++) {
-      yield Message(
-        id: '${message.id}_share_$i',
-        role: message.role,
-        content: chunks[i],
-        images: i == 0 ? message.images : const [],
-        thinkingContent: i == 0 ? message.thinkingContent : null,
-        timestamp: message.timestamp,
-      );
-    }
-  }
-
-  int _shareMessageWeight(Message message) {
-    return message.content.length + message.images.length * 800 + 300;
-  }
-
-  String _savedShareImagePathText(List<File> files) {
-    if (files.length == 1) return '长图已保存到 ${files.single.path}';
-    return '长图已拆分为 ${files.length} 张，保存到 ${files.first.parent.path}';
   }
 
   String _previewImageFileName(String name) {
@@ -3139,7 +2942,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (ctx) => _DialogSettingsContent(
+      builder: (ctx) => DialogSettingsContent(
         onChanged: (settings) => _saveConversationSettings(settings),
         settings: _currentConversationSettings(model),
       ),
@@ -3237,7 +3040,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   }
 
   Widget _drawer(BuildContext ctx) => Drawer(
-    child: _HistoryDrawer(
+    child: HistoryDrawer(
       onSelect: _selectHistory,
       currentConvId: _convId,
       scrollController: _historyScrollController,
@@ -3536,8 +3339,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       ),
     );
   }
-
-
 
   Widget _empty() => Center(
     child: Column(
