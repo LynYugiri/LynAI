@@ -464,7 +464,8 @@ void main() {
               '/sync/status': _jsonResponse(
                 '{"lastSeq":2,"blobCount":0,"generation":1,'
                 '"indexRevision":2,"minAvailableSeq":0,'
-                '"capabilities":{"index":true,"operationAck":true}}',
+                '"capabilities":{"index":true,"operationAck":true,'
+                '"webSearch":true,"futureCapability":false}}',
                 200,
               ),
             },
@@ -478,7 +479,10 @@ void main() {
           ),
         );
 
-        expect((await modern.getStatus()).capabilities.operationAck, isTrue);
+        final capabilities = (await modern.getStatus()).capabilities;
+        expect(capabilities.operationAck, isTrue);
+        expect(capabilities.webSearch, isTrue);
+        expect(capabilities.has('futureCapability'), isFalse);
         expect((await legacy.getStatus()).capabilities.advertised, isFalse);
       },
     );

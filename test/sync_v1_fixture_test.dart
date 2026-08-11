@@ -79,6 +79,7 @@ void main() {
       expect(status.generation, 1);
       expect(status.indexRevision, 2);
       expect(status.capabilities.operationAck, isTrue);
+      expect(status.capabilities.webSearch, isFalse);
       final pull = _map(fixture['pullPage']);
       final pulledChanges = (pull['changes'] as List)
           .map((raw) => SyncChange.fromJson(_map(raw)))

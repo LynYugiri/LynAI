@@ -136,7 +136,7 @@ class ToolCallService {
     bool allowScreenContextTool = false,
     bool allowSubagents = true,
     int subagentDepth = 0,
-    bool webSearchConfigured = true,
+    bool webSearchConfigured = false,
   }) : _tasks = tasks,
        _calendar = calendar,
        _knowledge = knowledge,
@@ -2041,6 +2041,7 @@ ${lines.join('\n')}$more''';
       allowScreenContextTool: _allowScreenContextTool,
       allowSubagents: _allowSubagents,
       subagentDepth: _subagentDepth,
+      webSearchConfigured: _webSearchConfigured,
     );
     final results = <AgentToolResult>[];
     for (final call in calls) {

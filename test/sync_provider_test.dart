@@ -6,13 +6,133 @@ import 'package:lynai/models/sync_change.dart';
 import 'package:lynai/models/cloud_data.dart';
 import 'package:lynai/models/sync_data_selection.dart';
 import 'package:lynai/providers/sync_provider.dart';
+import 'package:lynai/services/backend_client.dart';
 import 'package:lynai/services/remote_apply_coordinator.dart';
+import 'package:lynai/services/server_capabilities_service.dart';
 import 'package:lynai/services/storage_v2_database.dart';
 import 'package:lynai/services/sync_service.dart';
 import 'package:lynai/services/cloud_management_coordinator.dart';
 
 void main() {
   group('SyncProvider', () {
+    test('publishes capabilities from sync status', () async {
+      final capabilities = ServerCapabilitiesService();
+      final provider = SyncProvider(
+        service: _FakeSyncService(
+          statusGeneration: 1,
+          capabilities: const SyncCapabilities(
+            advertised: true,
+            webSearch: true,
+          ),
+          pages: const [
+            SyncDownloadResult(
+              changes: [],
+              latestSeq: 0,
+              hasMore: false,
+              nextSince: 0,
+              generation: 1,
+              indexRevision: 0,
+              minAvailableSeq: 0,
+              hasGeneration: true,
+              hasIndexRevision: true,
+              hasMinAvailableSeq: true,
+            ),
+          ],
+        ),
+        storage: _FakeSyncStorage(),
+        capabilitiesService: capabilities,
+      );
+      addTearDown(provider.dispose);
+      addTearDown(capabilities.dispose);
+
+      await provider.bindScope('user-1');
+      expect(await provider.manualSync(), isTrue);
+
+      expect(capabilities.webSearchConfigured, isTrue);
+    });
+
+    test('refreshes capabilities without starting data sync', () async {
+      final capabilities = ServerCapabilitiesService();
+      final service = _FakeSyncService(
+        capabilities: const SyncCapabilities(advertised: true, webSearch: true),
+      );
+      final provider = SyncProvider(
+        service: service,
+        storage: _FakeSyncStorage(),
+        capabilitiesService: capabilities,
+      );
+      addTearDown(provider.dispose);
+      addTearDown(capabilities.dispose);
+
+      await provider.bindScope('user-1');
+      expect(await provider.refreshCapabilities(), isTrue);
+
+      expect(capabilities.webSearchConfigured, isTrue);
+      expect(service.requestedSince, isEmpty);
+      expect(service.uploadedBatchSizes, isEmpty);
+    });
+
+    test('failed capability refresh clears stale capability state', () async {
+      final capabilities = ServerCapabilitiesService()
+        ..update(const SyncCapabilities(advertised: true, webSearch: true));
+      final provider = SyncProvider(
+        service: _FakeSyncService(statusError: StateError('status failed')),
+        storage: _FakeSyncStorage(),
+        capabilitiesService: capabilities,
+      );
+      addTearDown(provider.dispose);
+      addTearDown(capabilities.dispose);
+      await provider.bindScope('user-1');
+      capabilities.update(
+        const SyncCapabilities(advertised: true, webSearch: true),
+      );
+
+      expect(await provider.refreshCapabilities(), isFalse);
+
+      expect(capabilities.webSearchConfigured, isFalse);
+      expect(capabilities.capabilities.advertised, isFalse);
+    });
+
+    test('unbind resets advertised capabilities immediately', () async {
+      final capabilities = ServerCapabilitiesService()
+        ..update(const SyncCapabilities(advertised: true, webSearch: true));
+      final provider = SyncProvider(
+        service: _FakeSyncService(),
+        storage: _FakeSyncStorage(),
+        capabilitiesService: capabilities,
+      );
+      addTearDown(provider.dispose);
+      addTearDown(capabilities.dispose);
+      await provider.bindScope('user-1');
+      capabilities.update(
+        const SyncCapabilities(advertised: true, webSearch: true),
+      );
+
+      final unbind = provider.unbind();
+      expect(capabilities.webSearchConfigured, isFalse);
+      await unbind;
+    });
+
+    test('backend scope change resets advertised capabilities', () {
+      final backend = BackendClient()..configure('https://one.example');
+      final capabilities = ServerCapabilitiesService()
+        ..update(const SyncCapabilities(advertised: true, webSearch: true));
+      final provider = SyncProvider(
+        backend: backend,
+        service: _FakeSyncService(),
+        storage: _FakeSyncStorage(),
+        capabilitiesService: capabilities,
+      );
+      addTearDown(provider.dispose);
+      addTearDown(capabilities.dispose);
+      addTearDown(backend.close);
+
+      backend.configure('https://two.example');
+
+      expect(capabilities.webSearchConfigured, isFalse);
+      expect(capabilities.capabilities.advertised, isFalse);
+    });
+
     test('downloads every page and reloads once after remote apply', () async {
       final storage = _FakeSyncStorage();
       final service = _FakeSyncService(
@@ -1638,6 +1758,7 @@ class _FakeSyncService implements SyncService {
     this.statusLastSeq = 0,
     this.statusMinAvailableSeq = 0,
     this.capabilities = const SyncCapabilities(),
+    this.statusError,
   }) : _pages = List.of(pages);
 
   final List<SyncDownloadResult> _pages;
@@ -1652,6 +1773,7 @@ class _FakeSyncService implements SyncService {
   final int statusLastSeq;
   final int statusMinAvailableSeq;
   final SyncCapabilities capabilities;
+  final Object? statusError;
   final List<int> requestedSince = [];
   final List<int> requestedLimits = [];
   final List<String> uploadedBlobs = [];
@@ -1716,14 +1838,17 @@ class _FakeSyncService implements SyncService {
       });
 
   @override
-  Future<SyncStatus> getStatus() async => SyncStatus(
-    lastSeq: statusLastSeq,
-    blobCount: 0,
-    generation: statusGeneration,
-    minAvailableSeq: statusMinAvailableSeq,
-    limits: limits,
-    capabilities: capabilities,
-  );
+  Future<SyncStatus> getStatus() async {
+    if (statusError != null) throw statusError!;
+    return SyncStatus(
+      lastSeq: statusLastSeq,
+      blobCount: 0,
+      generation: statusGeneration,
+      minAvailableSeq: statusMinAvailableSeq,
+      limits: limits,
+      capabilities: capabilities,
+    );
+  }
 
   @override
   Future<List<BlobInfo>> listBlobs({int limit = 1000}) async {

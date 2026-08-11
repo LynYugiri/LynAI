@@ -33,6 +33,7 @@ import 'services/calendar_platform_projection_coordinator.dart';
 import 'services/device_identity_service.dart';
 import 'services/device_registration_service.dart';
 import 'services/secret_store.dart';
+import 'services/server_capabilities_service.dart';
 import 'services/dataset_secret_store.dart';
 import 'services/dataset_runtime_coordinator.dart';
 import 'services/dataset_runtime_barrier.dart';
@@ -247,17 +248,20 @@ Future<void> main() async {
           create: (ctx) =>
               SettingsProvider(storageV2: ctx.read<StorageV2Service>()),
         ),
-        ProxyProvider3<
+        ChangeNotifierProvider(create: (_) => ServerCapabilitiesService()),
+        ProxyProvider4<
           SettingsProvider,
           SecretStore,
           BackendClient,
+          ServerCapabilitiesService,
           WebSearchService
         >(
-          update: (_, settings, secrets, backend, previous) =>
+          update: (_, settings, secrets, backend, capabilities, previous) =>
               WebSearchService.production(
                 settings: settings,
                 secretStore: secrets,
                 backend: backend,
+                serverCapabilities: capabilities,
               ),
         ),
         ChangeNotifierProvider(
@@ -275,6 +279,7 @@ Future<void> main() async {
               backend: backend,
               identity: ctx.read<DeviceIdentityService>(),
               registration: ctx.read<DeviceRegistrationService>(),
+              capabilitiesService: ctx.read<ServerCapabilitiesService>(),
               readPluginBlob: (hash) =>
                   ctx.read<PluginProvider>().readSyncBlob(hash),
               hasPluginBlob: (hash) =>
@@ -595,6 +600,7 @@ Future<void> main() async {
                 await cloudBind;
               },
               onRemoteActivation: (user) async {
+                await sync.refreshCapabilities();
                 final enrolled = await registration.ensureEnrolled();
                 if (enrolled) await sync.autoDownload();
                 await syncManagedModelsAndApplyMigrations(

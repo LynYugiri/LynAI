@@ -9,6 +9,7 @@ import 'backend_client.dart';
 import 'bounded_outbound_http_client.dart';
 import 'outbound_network_policy.dart';
 import 'secret_store.dart';
+import 'server_capabilities_service.dart';
 import '../providers/settings_provider.dart';
 
 class WebSearchException implements Exception {
@@ -158,12 +159,16 @@ class SearxngWebSearchAdapter implements WebSearchAdapter {
 }
 
 class LynaiBackendWebSearchAdapter implements WebSearchAdapter {
-  LynaiBackendWebSearchAdapter({required BackendClient backend})
-    : _backend = backend;
+  LynaiBackendWebSearchAdapter({
+    required BackendClient backend,
+    Future<bool> Function()? configuredProbe,
+  }) : _backend = backend,
+       _configuredProbe = configuredProbe;
 
   static const path = '/search/web';
 
   final BackendClient _backend;
+  final Future<bool> Function()? _configuredProbe;
 
   @override
   String get id => 'lynai_backend';
@@ -172,7 +177,10 @@ class LynaiBackendWebSearchAdapter implements WebSearchAdapter {
   WebSearchClientProvider? get clientProvider => null;
 
   @override
-  Future<bool> isConfigured() async => _backend.isConnected;
+  Future<bool> isConfigured() async =>
+      _backend.isConnected &&
+      (_backend.accessToken ?? '').isNotEmpty &&
+      (await _configuredProbe?.call() ?? true);
 
   @override
   Future<List<WebSearchResult>> search(
@@ -282,12 +290,14 @@ class WebSearchService {
     required SettingsProvider settings,
     required SecretStore secretStore,
     required BackendClient backend,
+    required ServerCapabilitiesService serverCapabilities,
     BoundedOutboundHttpClient? httpClient,
   }) {
     return _PolicyWebSearchService(
       settings: settings,
       secretStore: secretStore,
       backend: backend,
+      serverCapabilities: serverCapabilities,
       httpClient: httpClient,
     );
   }
@@ -358,12 +368,14 @@ class _PolicyWebSearchService extends WebSearchService {
     required this.settings,
     required this.secretStore,
     required this.backend,
+    required this.serverCapabilities,
     this.httpClient,
   });
 
   final SettingsProvider settings;
   final SecretStore secretStore;
   final BackendClient backend;
+  final ServerCapabilitiesService serverCapabilities;
   final BoundedOutboundHttpClient? httpClient;
 
   @override
@@ -383,7 +395,8 @@ class _PolicyWebSearchService extends WebSearchService {
         SearxngWebSearchAdapter(
           endpoint: endpoint,
           secretStore: secretStore,
-          httpClient: httpClient ??
+          httpClient:
+              httpClient ??
               BoundedOutboundHttpClient(
                 policy: OutboundNetworkPolicy(
                   allowedHttpOrigins:
@@ -398,7 +411,10 @@ class _PolicyWebSearchService extends WebSearchService {
     ];
     return WebSearchService(
       clientAdapters: clients,
-      backendAdapter: LynaiBackendWebSearchAdapter(backend: backend),
+      backendAdapter: LynaiBackendWebSearchAdapter(
+        backend: backend,
+        configuredProbe: () async => serverCapabilities.webSearchConfigured,
+      ),
     ).isConfigured(
       route: policy.webSearchRoute,
       preferredClientProvider: policy.webSearchClientProvider,
@@ -441,7 +457,10 @@ class _PolicyWebSearchService extends WebSearchService {
     ];
     return WebSearchService(
       clientAdapters: clients,
-      backendAdapter: LynaiBackendWebSearchAdapter(backend: backend),
+      backendAdapter: LynaiBackendWebSearchAdapter(
+        backend: backend,
+        configuredProbe: () async => serverCapabilities.webSearchConfigured,
+      ),
     ).search(
       request,
       route: policy.webSearchRoute,

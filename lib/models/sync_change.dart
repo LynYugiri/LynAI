@@ -142,6 +142,8 @@ class SyncCapabilities {
     this.selectivePurge = false,
     this.fullPurge = false,
     this.operationAck = false,
+    this.webSearch = false,
+    this.additional = const {},
   });
 
   final bool advertised;
@@ -149,27 +151,55 @@ class SyncCapabilities {
   final bool selectivePurge;
   final bool fullPurge;
   final bool operationAck;
+  final bool webSearch;
+  final Map<String, bool> additional;
+
+  Map<String, bool> get values => Map.unmodifiable({
+    if (index) 'index': true,
+    if (selectivePurge) 'selectivePurge': true,
+    if (fullPurge) 'fullPurge': true,
+    if (operationAck) 'operationAck': true,
+    if (webSearch) 'webSearch': true,
+    ...additional,
+  });
+
+  bool has(String name) => switch (name) {
+    'index' => index,
+    'selectivePurge' => selectivePurge,
+    'fullPurge' => fullPurge,
+    'operationAck' => operationAck,
+    'webSearch' => webSearch,
+    _ => additional[name] ?? false,
+  };
 
   factory SyncCapabilities.fromJson(Object? value) {
     if (value == null) return const SyncCapabilities();
     if (value is! Map) {
       throw const FormatException('sync capabilities must be an object');
     }
-    bool flag(String key) {
-      if (!value.containsKey(key)) return false;
-      final parsed = value[key];
-      if (parsed is! bool) {
+    final parsed = <String, bool>{};
+    for (final entry in value.entries) {
+      final key = entry.key;
+      if (key is! String || key.isEmpty) {
+        throw const FormatException(
+          'sync capability names must be non-empty strings',
+        );
+      }
+      final enabled = entry.value;
+      if (enabled is! bool) {
         throw FormatException('sync capability $key must be boolean');
       }
-      return parsed;
+      parsed[key] = enabled;
     }
 
     return SyncCapabilities(
       advertised: true,
-      index: flag('index'),
-      selectivePurge: flag('selectivePurge'),
-      fullPurge: flag('fullPurge'),
-      operationAck: flag('operationAck'),
+      index: parsed.remove('index') ?? false,
+      selectivePurge: parsed.remove('selectivePurge') ?? false,
+      fullPurge: parsed.remove('fullPurge') ?? false,
+      operationAck: parsed.remove('operationAck') ?? false,
+      webSearch: parsed.remove('webSearch') ?? false,
+      additional: Map.unmodifiable(parsed),
     );
   }
 }

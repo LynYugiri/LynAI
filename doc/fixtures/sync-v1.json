@@ -38,7 +38,8 @@
       "index": true,
       "selectivePurge": true,
       "fullPurge": true,
-      "operationAck": true
+      "operationAck": true,
+      "webSearch": false
     }
   },
   "upload": {

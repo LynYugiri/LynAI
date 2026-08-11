@@ -455,53 +455,89 @@ void main() {
     expect(await configured.isConfigured(), isTrue);
   });
 
-  test('isConfigured reports whether any candidate adapter is available', (
-    ) async {
-    final none = WebSearchService(
-      clientAdapters: [
-        _FakeAdapter(
-          id: 'tavily',
-          provider: WebSearchClientProvider.tavily,
-          configured: false,
-          onSearch: () => const [],
-        ),
-      ],
-    );
-    expect(await none.isConfigured(), isFalse);
-    expect(await none.isConfigured(route: WebSearchRoute.backend), isFalse);
+  test('backend isConfigured honors the advertised capability', () async {
+    final backend = BackendClient()
+      ..configure('https://backend.example')
+      ..setTokens('access-token', 'refresh-token');
+    addTearDown(backend.close);
 
-    final some = WebSearchService(
-      clientAdapters: [
-        _FakeAdapter(
-          id: 'tavily',
-          provider: WebSearchClientProvider.tavily,
-          configured: false,
-          onSearch: () => const [],
-        ),
-        _FakeAdapter(
-          id: 'searxng',
-          provider: WebSearchClientProvider.searxng,
-          configured: true,
-          onSearch: () => const [],
-        ),
-      ],
-      backendAdapter: _FakeAdapter(
-        id: 'lynai_backend',
-        provider: null,
-        configured: false,
-        onSearch: () => const [],
-      ),
-    );
-    expect(await some.isConfigured(), isTrue);
     expect(
-      await some.isConfigured(
-        route: WebSearchRoute.client,
-        preferredClientProvider: WebSearchClientProvider.tavily,
-      ),
+      await LynaiBackendWebSearchAdapter(
+        backend: backend,
+        configuredProbe: () async => false,
+      ).isConfigured(),
+      isFalse,
+    );
+    expect(
+      await LynaiBackendWebSearchAdapter(
+        backend: backend,
+        configuredProbe: () async => true,
+      ).isConfigured(),
       isTrue,
     );
-    expect(await some.isConfigured(route: WebSearchRoute.backend), isFalse);
+    expect(
+      await LynaiBackendWebSearchAdapter(backend: backend).isConfigured(),
+      isTrue,
+    );
+    backend.clearTokens();
+    expect(
+      await LynaiBackendWebSearchAdapter(
+        backend: backend,
+        configuredProbe: () async => true,
+      ).isConfigured(),
+      isFalse,
+    );
   });
+
+  test(
+    'isConfigured reports whether any candidate adapter is available',
+    () async {
+      final none = WebSearchService(
+        clientAdapters: [
+          _FakeAdapter(
+            id: 'tavily',
+            provider: WebSearchClientProvider.tavily,
+            configured: false,
+            onSearch: () => const [],
+          ),
+        ],
+      );
+      expect(await none.isConfigured(), isFalse);
+      expect(await none.isConfigured(route: WebSearchRoute.backend), isFalse);
+
+      final some = WebSearchService(
+        clientAdapters: [
+          _FakeAdapter(
+            id: 'tavily',
+            provider: WebSearchClientProvider.tavily,
+            configured: false,
+            onSearch: () => const [],
+          ),
+          _FakeAdapter(
+            id: 'searxng',
+            provider: WebSearchClientProvider.searxng,
+            configured: true,
+            onSearch: () => const [],
+          ),
+        ],
+        backendAdapter: _FakeAdapter(
+          id: 'lynai_backend',
+          provider: null,
+          configured: false,
+          onSearch: () => const [],
+        ),
+      );
+      expect(await some.isConfigured(), isTrue);
+      expect(
+        await some.isConfigured(
+          route: WebSearchRoute.client,
+          preferredClientProvider: WebSearchClientProvider.tavily,
+        ),
+        isTrue,
+      );
+      expect(await some.isConfigured(route: WebSearchRoute.backend), isFalse);
+    },
+  );
 }
 
 class _HandlerClient extends http.BaseClient {

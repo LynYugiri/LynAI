@@ -12,6 +12,7 @@ import '../services/device_identity_service.dart';
 import '../services/device_registration_service.dart';
 import '../services/plugin_sync_validation.dart';
 import '../services/remote_apply_coordinator.dart';
+import '../services/server_capabilities_service.dart';
 import '../services/storage_v2_database.dart';
 import '../services/storage_v2_service.dart';
 import '../services/sync_service.dart';
@@ -333,6 +334,7 @@ class SyncProvider extends ChangeNotifier {
     RemoteApplyCoordinator? remoteApplyCoordinator,
     CloudManagementOperations? cloudManagement,
     DatasetRuntimeBarrier? datasetBarrier,
+    ServerCapabilitiesService? capabilitiesService,
   }) : _backend = backend,
        _injectedService = service,
        _storage = storage ?? StorageV2SyncStorage(StorageV2Service()),
@@ -349,6 +351,7 @@ class SyncProvider extends ChangeNotifier {
        _remoteApplyCoordinator = remoteApplyCoordinator,
        _cloudManagement = cloudManagement,
        _datasetBarrier = datasetBarrier,
+       _capabilitiesService = capabilitiesService,
        _backendScope = backend?.backendScope ?? '' {
     _backend?.addListener(_handleBackendChanged);
   }
@@ -370,6 +373,7 @@ class SyncProvider extends ChangeNotifier {
   final RemoteApplyCoordinator? _remoteApplyCoordinator;
   final CloudManagementOperations? _cloudManagement;
   final DatasetRuntimeBarrier? _datasetBarrier;
+  final ServerCapabilitiesService? _capabilitiesService;
   RemoteSyncService? _remoteService;
   Future<void> _queue = Future.value();
   bool _disposed = false;
@@ -424,6 +428,7 @@ class SyncProvider extends ChangeNotifier {
   }
 
   Future<void> bindScope(String userId) {
+    _capabilitiesService?.reset();
     final generation = ++_generation;
     return _enqueue(
       () => _runRemoteCommit(() async {
@@ -465,6 +470,7 @@ class SyncProvider extends ChangeNotifier {
   }
 
   Future<void> unbind() {
+    _capabilitiesService?.reset();
     final generation = ++_generation;
     return _enqueue(
       () => _runRemoteCommit(() async {
@@ -487,6 +493,20 @@ class SyncProvider extends ChangeNotifier {
   Future<bool> autoDownload() {
     final generation = _generation;
     return _enqueueBool(() => _syncDownloadThenUpload(generation));
+  }
+
+  /// Refreshes read-only backend capabilities without requiring enrollment.
+  Future<bool> refreshCapabilities() {
+    final generation = _generation;
+    return _enqueueBool(() async {
+      final service = _service;
+      final currentScope = _scope;
+      if (service == null || currentScope == null || !canSync) return false;
+      final status = await _getStatus(service);
+      if (!_isCurrentScope(generation, currentScope)) return false;
+      _capabilitiesService?.update(status.capabilities);
+      return true;
+    });
   }
 
   Future<bool> manualSync() {
@@ -543,8 +563,9 @@ class SyncProvider extends ChangeNotifier {
     if (!_isCurrent(generation) || !canSync) return false;
     final currentScope = _scope;
     if (currentScope == null) return false;
-    final status = await _service!.getStatus();
+    final status = await _getStatus(_service!);
     if (!_isCurrentScope(generation, currentScope)) return false;
+    _capabilitiesService?.update(status.capabilities);
     final operations =
         await _cloudManagement?.discover(
           currentScope,
@@ -744,8 +765,9 @@ class SyncProvider extends ChangeNotifier {
     if (currentScope == null || !_isCurrent(generation)) return;
     final service = _service;
     if (service == null || !canSync) return;
-    final status = await service.getStatus();
+    final status = await _getStatus(service);
     if (!_isCurrentScope(generation, currentScope)) return;
+    _capabilitiesService?.update(status.capabilities);
     final state = await _storage.scopeState(currentScope);
     if (!_isCurrentScope(generation, currentScope)) return;
     if (state.fullReseedRequired ||
@@ -1322,6 +1344,15 @@ class SyncProvider extends ChangeNotifier {
       ? service.getChanges(since: since, generation: generation, limit: limit)
       : service.getChanges(since: since, limit: limit);
 
+  Future<SyncStatus> _getStatus(SyncService service) async {
+    try {
+      return await service.getStatus();
+    } catch (_) {
+      _capabilitiesService?.reset();
+      rethrow;
+    }
+  }
+
   Future<SyncUploadResult> _uploadChanges(
     SyncService service,
     List<SyncChangeRecord> changes, {
@@ -1426,6 +1457,7 @@ class SyncProvider extends ChangeNotifier {
     if (scope == _backendScope) return;
     _backendScope = scope;
     _remoteService = null;
+    _capabilitiesService?.reset();
     _generation++;
   }
 

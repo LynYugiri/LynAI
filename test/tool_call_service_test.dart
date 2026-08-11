@@ -250,6 +250,7 @@ void main() {
           LynAIPermissions.storageRead,
         ],
       ),
+      webSearchConfigured: true,
     );
     final snapshot = service.createRunSnapshot(
       agentEnabled: true,
@@ -1308,6 +1309,7 @@ void main() {
         permissionSnapshot: AgentPermissionSnapshot(
           permissions: const [LynAIPermissions.networkAccess],
         ),
+        webSearchConfigured: true,
       );
       final snapshot = service.createRunSnapshot(
         agentEnabled: false,
@@ -1554,7 +1556,6 @@ void main() {
   test('web_search is not registered when web search is not configured', () {
     final service = ToolCallService(
       FeatureProvider(),
-      webSearchConfigured: false,
       permissionSnapshot: AgentPermissionSnapshot(
         permissions: const [LynAIPermissions.networkAccess],
       ),

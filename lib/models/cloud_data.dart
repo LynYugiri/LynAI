@@ -68,13 +68,7 @@ class CloudIndexStatus {
     'indexRevision': indexRevision,
     'minAvailableSeq': minAvailableSeq,
     'usage': usage.toJson(),
-    if (capabilities.advertised)
-      'capabilities': {
-        'index': capabilities.index,
-        'selectivePurge': capabilities.selectivePurge,
-        'fullPurge': capabilities.fullPurge,
-        'operationAck': capabilities.operationAck,
-      },
+    if (capabilities.advertised) 'capabilities': capabilities.values,
   };
 }
 
