@@ -242,10 +242,12 @@ class FloatingChatSessionController extends ChangeNotifier {
 
     final conversation = _conversations.getConversation(_conversationId!);
     if (conversation == null) return;
+    final webSearchConfigured = await _isWebSearchConfigured();
     final messages = buildApiMessages(
       conversation,
       _plugins.plugins,
       enableTools: _supportsNativeTools(model),
+      webSearchConfigured: webSearchConfigured,
       annotationPrompt: annotationPrompt,
       extraSystemPrompt: _screenContextToolAllowed
           ? '悬浮聊天已获得用户授权：当用户问题依赖当前 Android 前台页面时，可以调用 get_current_screen 读取可见文本和节点摘要。不要无故读取。'
@@ -258,8 +260,20 @@ class FloatingChatSessionController extends ChangeNotifier {
         messages,
         createTitle: isNewConversation,
         allowTools: _supportsNativeTools(model),
+        webSearchConfigured: webSearchConfigured,
       ),
     );
+  }
+
+  /// 查询网页搜索服务是否已配置；查询失败按未配置处理，确保不可用工具
+  /// 不会进入系统提示词或工具列表。
+  Future<bool> _isWebSearchConfigured() async {
+    try {
+      return await (_webSearch?.isConfigured() ?? Future.value(false));
+    } catch (error) {
+      debugPrint('查询网页搜索配置失败，按未配置处理: $error');
+      return false;
+    }
   }
 
   void stop() {
@@ -449,15 +463,11 @@ class FloatingChatSessionController extends ChangeNotifier {
     List<Map<String, dynamic>> working, {
     required bool createTitle,
     required bool allowTools,
+    bool? webSearchConfigured,
   }) async {
     final generation = ++_generation;
-    bool webSearchConfigured = false;
-    try {
-      webSearchConfigured =
-          await (_webSearch?.isConfigured() ?? Future.value(false));
-    } catch (error) {
-      debugPrint('查询网页搜索配置失败，按未配置处理: $error');
-    }
+    final resolvedWebSearchConfigured =
+        webSearchConfigured ?? await _isWebSearchConfigured();
     if (generation != _generation || !_streaming) {
       final last = _conversations
           .getConversation(conversationId)
@@ -503,7 +513,7 @@ class FloatingChatSessionController extends ChangeNotifier {
       userInteractionBroker: _userInteractionBroker,
       interactionSurface: AgentUserInteractionSurface.floatingAssistant,
       webSearch: _webSearch,
-      webSearchConfigured: webSearchConfigured,
+      webSearchConfigured: resolvedWebSearchConfigured,
       permissionSnapshot: _settings.settings.agentPermissionSnapshot,
     );
     final runSnapshot = toolService.createRunSnapshot(

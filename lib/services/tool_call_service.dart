@@ -229,7 +229,6 @@ class ToolCallService {
 你可以使用本地工具帮助用户管理任务、任务清单、日历事件、纪念日、笔记和旧待办清单，检索已启用的本地知识库，获取时间/位置和创建对话标题。
 需要调用工具时使用接口提供的 tool_calls；不需要工具时直接正常回答，不要提及工具。
 收到工具结果后，再用自然语言给用户最终回复。
-未配置网页搜索服务时，可用 web_fetch 抓取搜索引擎结果页或已知 URL 检索信息。
 创建或修改数据前，应从用户输入中提取明确字段；缺少关键字段时先追问。
 需要查看笔记内容时，先用 list_notes 查找笔记 id，再用 read_note 读取完整内容；多分页笔记先用 list_note_pages 查看分页，read_note/save_note/edit_note/propose_note_edit 可用 pageId 或 pageTitle 指定分页。小范围修改笔记时，先 read_note，再用 propose_note_edit 按行提交 edits 让用户逐行确认；用户明确要求直接修改时才用 edit_note。创建、追加或整篇替换时用 save_note。笔记可通过 list_note_folders/save_note_folder 管理文件夹，通过 save_note_page 创建、重命名、删除或上移/下移分页。
 一个用户任务只调用一次 create_task，不要同时创建旧待办项或日历事件。需要按清单组织任务时先用 list_task_lists 查找清单，必要时用 create_task_list 创建；未指定 listId 的任务仍可创建，并会显示在未完成或已完成视图。任务的 plannedDate/dueDate、全天事件日期和纪念日 date 必须使用 YYYY-MM-DD；任务时间和日期型提醒的 dateOnlyTime 使用 HH:mm。reminders 的 offsetMinutes 为相对 anchor 的有符号分钟数，例如“截止前 30 分钟提醒”使用 taskDue 和 -30。定时日历事件使用带时区偏移的 ISO-8601 字符串；用户说“今天/明天”时必须先结合 get_current_time 的 iso 与 timezoneOffsetMinutes 换算成本地日期时间。
@@ -244,7 +243,6 @@ class ToolCallService {
 Plan 创建和更新不需要权限，只用于当前对话的可视化状态。
 工作记忆是当前对话内持久保存的共享上下文。跨主 Agent、Subagent 和 Lua 协作的目标、关键事实、决策、已加载 Skill、子任务结果应写入工作记忆；不要把长屏幕快照或截图写入记忆。
 如果需要了解可用插件函数，先调用 list_plugin_functions。
-未配置网页搜索服务时，可用 web_fetch 抓取搜索引擎结果页或已知 URL 检索信息。
 如果需要调用插件函数，先调用 list_plugin_functions 查看可用函数，再用 call_plugin_function。该能力需要 plugins.callFunction 权限。
 如果需要了解可用插件 Skill，先调用 list_plugin_skills；Skill 摘要不是完整说明，执行相关流程前调用 load_plugin_skill 加载正文。加载 Skill 不需要额外权限；需要按用户要求沉淀或修正可编辑 Skill 时，在已授权 plugins.skills.files:write 后调用 save_plugin_skill 保存正文。
 如需运行 Lua 或手机自动化，调用 execute_lua；沙箱能力、可用函数与设备 API 用法见该工具的说明，确定步骤尽量在一次脚本内线性编排。
@@ -253,10 +251,29 @@ Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:f
 可以输出简短的中间说明，但不要把工具 JSON 原样展示给用户；最终回复应汇总执行结果。
 ''';
 
+  /// 网页搜索已配置时追加的系统提示词。
+  static const webSearchConfiguredPromptLine =
+      '需要检索互联网时，优先使用 web_search；需要抓取特定 URL 正文时使用 web_fetch。';
+
+  /// 网页搜索未配置时追加的系统提示词，不提及不可用的 web_search。
+  static const webSearchUnconfiguredPromptLine =
+      '需要检索互联网时，可用 web_fetch 抓取已知 URL 或搜索引擎结果页。';
+
+  /// 返回原生工具系统提示词，并按 web_search 配置状态追加检索提示。
+  static String nativeSystemPromptFor({required bool webSearchConfigured}) {
+    return '$nativeSystemPrompt${webSearchConfigured ? webSearchConfiguredPromptLine : webSearchUnconfiguredPromptLine}\n';
+  }
+
+  /// 返回 Agent 系统提示词，并按 web_search 配置状态追加检索提示。
+  static String agentSystemPromptFor({required bool webSearchConfigured}) {
+    return '$agentSystemPrompt${webSearchConfigured ? webSearchConfiguredPromptLine : webSearchUnconfiguredPromptLine}\n';
+  }
+
   /// 生成 Agent 模式系统提示词，并在末尾追加启用插件 Skill 的摘要。
   static String agentSystemPromptWithSkills(
     Iterable<InstalledPlugin> plugins, {
     int maxSkills = 30,
+    bool webSearchConfigured = false,
   }) {
     final lines = <String>[];
     var total = 0;
@@ -273,12 +290,14 @@ Agent 专用工具成功时返回 {ok:true,result:{...}}，失败时返回 {ok:f
         lines.add('- ${_qualifiedName(plugin.id, skill.name)}：$title');
       }
     }
-    if (lines.isEmpty) return agentSystemPrompt;
+    final prompt = agentSystemPromptFor(
+      webSearchConfigured: webSearchConfigured,
+    );
+    if (lines.isEmpty) return prompt;
     final more = total > lines.length
         ? '\n还有 ${total - lines.length} 个 Skill，可调用 list_plugin_skills 查询。'
         : '';
-    return '''$agentSystemPrompt
-
+    return '''$prompt
 可用插件 Skills（按需调用 load_plugin_skill 加载正文）：
 ${lines.join('\n')}$more''';
   }
@@ -2147,7 +2166,11 @@ ${lines.join('\n')}$more''';
           return {'ok': true, ...result};
         case 'list_apps':
           if (_agentEnabled) {
-            return await _executeLynAIFunction(call, 'device.app.list', const {});
+            return await _executeLynAIFunction(
+              call,
+              'device.app.list',
+              const {},
+            );
           }
           final appsResult = await _invokeNative('queryApps');
           return {'ok': true, ...appsResult};
@@ -3778,6 +3801,18 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
         'plugin_function_not_found',
         '插件函数不可用: $pluginId.$functionName',
       );
+    }
+    for (final permission in function.requires) {
+      if (!_hasAgentCapability(
+        permission,
+        identity: identity,
+        permissions: permissions,
+      )) {
+        return _agentError(
+          'permission_denied',
+          'Agent 未授权调用 $pluginId.$functionName 所需权限 $permission',
+        );
+      }
     }
     if (!plugin.hasAllPermissionsGranted) {
       return _agentError(

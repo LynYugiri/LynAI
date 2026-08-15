@@ -14,8 +14,9 @@ Future<Directory> _pluginDir(
   String id,
   String lua,
   List<Map<String, dynamic>> functions,
-  List<String> permissions,
-) async {
+  List<String> permissions, {
+  Map<String, String> dependencies = const {},
+}) async {
   final dir = await Directory.systemTemp.createTemp('lynai_ic_${id}_');
   await File('${dir.path}/main.lua').writeAsString(lua);
   await File('${dir.path}/plugin.json').writeAsString(
@@ -26,6 +27,7 @@ Future<Directory> _pluginDir(
       'entry': 'main.lua',
       'permissions': permissions,
       'functions': functions,
+      if (dependencies.isNotEmpty) 'dependencies': dependencies,
     }),
   );
   return dir;
@@ -69,7 +71,7 @@ void main() {
       final b = await _pluginDir(
         'b',
         'function double(args) args = args or {}; '
-        'return { ok = true, value = (args.x or 0) * 2 } end',
+            'return { ok = true, value = (args.x or 0) * 2 } end',
         [
           {
             'name': 'double',
@@ -92,15 +94,14 @@ void main() {
           {'name': 'noop', 'handler': 'noop'},
         ],
         const [LynAIPermissions.pluginCallFunction],
+        dependencies: {'b': '*'},
       );
       await provider.importDirectory(b.path);
       await provider.importDirectory(a.path);
       await provider.trustInstalledBuiltIn('b');
       await provider.trustInstalledBuiltIn('a');
 
-      final result = await _callAcross(provider, 'a', 'b', 'double', {
-        'x': 21,
-      });
+      final result = await _callAcross(provider, 'a', 'b', 'double', {'x': 21});
       expect(result['ok'], isTrue, reason: result.toString());
       expect(result['value'], 42);
     } finally {
@@ -118,7 +119,7 @@ void main() {
       final b = await _pluginDir(
         'b',
         'function double(args) args = args or {}; '
-        'return { ok = true, value = (args.x or 0) * 2 } end',
+            'return { ok = true, value = (args.x or 0) * 2 } end',
         [
           {
             'name': 'double',
@@ -142,9 +143,7 @@ void main() {
       await provider.trustInstalledBuiltIn('b');
       await provider.trustInstalledBuiltIn('a');
 
-      final result = await _callAcross(provider, 'a', 'b', 'double', {
-        'x': 1,
-      });
+      final result = await _callAcross(provider, 'a', 'b', 'double', {'x': 1});
       expect(result['ok'], isFalse, reason: result.toString());
       expect(result['error'], contains('plugins.callFunction'));
     } finally {

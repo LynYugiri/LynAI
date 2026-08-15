@@ -202,6 +202,13 @@ class PluginDetailPage extends StatelessWidget {
       return const Scaffold(body: Center(child: Text('插件不存在')));
     }
     final manifest = plugin.manifest;
+    final provider = context.read<PluginProvider>();
+    final dependencyPermissions =
+        provider
+            .dependencyCallerPermissions(plugin)
+            .difference(manifest.permissions.toSet())
+            .toList()
+          ..sort();
     final canDelete = context.select<PluginProvider, bool>(
       (provider) => provider.canDeletePlugin(plugin.id),
     );
@@ -237,7 +244,7 @@ class PluginDetailPage extends StatelessWidget {
           const SizedBox(height: 12),
           _SectionCard(
             title: '权限',
-            child: manifest.permissions.isEmpty
+            child: manifest.permissions.isEmpty && dependencyPermissions.isEmpty
                 ? const Text('此插件未声明权限')
                 : Column(
                     children: [
@@ -261,6 +268,45 @@ class PluginDetailPage extends StatelessWidget {
                             ),
                             title: Text(_permissionLabel(permission)),
                             subtitle: Text(permission),
+                            contentPadding: EdgeInsets.zero,
+                            onChanged: (value) {
+                              final next = plugin.grantedPermissions.toSet();
+                              if (value == true) {
+                                next.add(permission);
+                              } else {
+                                next.remove(permission);
+                              }
+                              _runAction(
+                                context,
+                                () => context
+                                    .read<PluginProvider>()
+                                    .setGrantedPermissions(
+                                      plugin.id,
+                                      next.toList(growable: false),
+                                    ),
+                              );
+                            },
+                          ),
+                      for (final permission in dependencyPermissions)
+                        if (isAutoGrantedPluginPermission(permission))
+                          ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(
+                              Icons.check_circle_outline,
+                              size: 18,
+                            ),
+                            title: Text(_permissionLabel(permission)),
+                            subtitle: Text('$permission · 依赖函数要求 · 已自动授予'),
+                          ),
+                      for (final permission in dependencyPermissions)
+                        if (!isAutoGrantedPluginPermission(permission))
+                          CheckboxListTile(
+                            value: plugin.grantedPermissions.contains(
+                              permission,
+                            ),
+                            title: Text(_permissionLabel(permission)),
+                            subtitle: Text('$permission · 依赖函数要求'),
                             contentPadding: EdgeInsets.zero,
                             onChanged: (value) {
                               final next = plugin.grantedPermissions.toSet();

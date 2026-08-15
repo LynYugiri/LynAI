@@ -243,8 +243,9 @@ class LynAIFunctionService {
   static String? _appVersion;
   static const _permissionService = LynAIPermissionService();
   static final _recycleBinRepository = RecycleBinRepository();
-  static final LynAICapabilityRegistry _capabilities =
-      LynAICapabilityRegistry(registerHost: true);
+  static final LynAICapabilityRegistry _capabilities = LynAICapabilityRegistry(
+    registerHost: true,
+  );
 
   /// 工具别名映射表，将 comfyui 风格的短名映射到内部标准化函数名。
   /// 供 [ToolCallService] 在接收到旧版工具调用名称时进行兼容转换。
@@ -1107,6 +1108,34 @@ class LynAIFunctionService {
     }
     if (!function.expose) {
       return _error('目标插件函数未对外暴露: $pluginId.$functionName');
+    }
+    final callerType = context.identity.type;
+    final caller = context.plugin;
+    if (callerType == LynAICallerType.plugin ||
+        callerType == LynAICallerType.pluginWebview) {
+      if (caller == null) {
+        return _error('plugin.call 缺少调用方插件上下文');
+      }
+      // 依赖声明是可选的：未声明目标插件时不做限制；声明了版本约束才校验。
+      final constraint = caller.manifest.dependencies[target.id];
+      if (constraint != null &&
+          !pluginVersionMatches(target.manifest.version, constraint)) {
+        return _error(
+          '插件 ${caller.id} 依赖的 $pluginId 版本不满足 $constraint'
+          '（当前 ${target.manifest.version}）',
+        );
+      }
+    }
+    for (final permission in function.requires) {
+      if (!_permissionService.canUsePermission(
+        identity: context.identity,
+        permission: permission,
+        agentPermissionSnapshot: context.agentPermissionSnapshot,
+        appSettings: context.settings?.settings,
+        plugin: caller,
+      )) {
+        return _error('调用 $pluginId.$functionName 需要额外权限: $permission');
+      }
     }
     final result = await PluginLuaRuntimeService().executeFunction(
       plugin: target,
@@ -2794,10 +2823,7 @@ class LynAIFunctionService {
     );
     if (result == null) return {'ok': false, 'error': '平台无返回'};
     if (result['ok'] != true) {
-      return {
-        'ok': false,
-        'error': (result['error'] as String? ?? '查询应用列表失败'),
-      };
+      return {'ok': false, 'error': (result['error'] as String? ?? '查询应用列表失败')};
     }
     final apps = (result['apps'] as List<dynamic>? ?? const [])
         .whereType<Map>()

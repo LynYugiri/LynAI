@@ -42,10 +42,7 @@ class PermissionManagementPage extends StatelessWidget {
           ),
           const _SectionHeader('插件'),
           if (plugins.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text('暂无已安装插件'),
-            ),
+            const Padding(padding: EdgeInsets.all(16), child: Text('暂无已安装插件')),
           for (final plugin in plugins)
             Card(
               margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -56,7 +53,7 @@ class PermissionManagementPage extends StatelessWidget {
                   size: 28,
                 ),
                 title: Text(plugin.displayName),
-                subtitle: Text(_permissionSummary(plugin)),
+                subtitle: Text(_permissionSummary(context, plugin)),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.push(
                   context,
@@ -71,11 +68,14 @@ class PermissionManagementPage extends StatelessWidget {
     );
   }
 
-  String _permissionSummary(InstalledPlugin plugin) {
+  String _permissionSummary(BuildContext context, InstalledPlugin plugin) {
     if (plugin.needsReview) return '需完成本机审查';
-    final sensitive = plugin.manifest.permissions
+    final listable = context.read<PluginProvider>().listablePermissionIds(
+      plugin,
+    );
+    final sensitive = listable
         .where((p) => !isAutoGrantedPluginPermission(p))
-        .toList();
+        .toList(growable: false);
     if (sensitive.isEmpty) return '无需授权';
     final granted = sensitive.where(plugin.grantedPermissions.contains).length;
     if (granted == sensitive.length) return '已授权全部 $granted 项';

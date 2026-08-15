@@ -65,6 +65,82 @@ class PluginProvider extends ChangeNotifier {
     return null;
   }
 
+  /// 返回插件的依赖插件中已安装且满足版本约束的插件列表。
+  List<InstalledPlugin> installedDependencies(InstalledPlugin plugin) {
+    final result = <InstalledPlugin>[];
+    for (final entry in plugin.manifest.dependencies.entries) {
+      final dependency = pluginById(entry.key);
+      if (dependency == null) continue;
+      if (!pluginVersionMatches(dependency.manifest.version, entry.value)) {
+        continue;
+      }
+      result.add(dependency);
+    }
+    return result;
+  }
+
+  /// 返回调用依赖插件对外函数所需的额外权限集合。
+  ///
+  /// 只统计依赖清单中已安装插件的 `expose: true` 函数，即使依赖当前未启用，
+  /// 也先列出来，方便用户提前授权；实际调用仍以依赖启用为准。
+  Set<String> dependencyCallerPermissions(InstalledPlugin plugin) {
+    return _dependencyCallerPermissionsFor(plugin.manifest);
+  }
+
+  /// 返回插件设置页应列出的权限 ID 集合。
+  ///
+  /// 包含插件自身声明的 manifest.permissions，以及调用依赖插件对外函数时
+  /// 可能需要额外持有的权限。
+  Set<String> listablePermissionIds(InstalledPlugin plugin) {
+    return _listablePermissionIdsFor(plugin.manifest);
+  }
+
+  /// 根据 manifest 计算调用依赖插件对外函数所需的额外权限。
+  Set<String> _dependencyCallerPermissionsFor(PluginManifest manifest) {
+    final permissions = <String>{};
+    for (final entry in manifest.dependencies.entries) {
+      final dependency = pluginById(entry.key);
+      if (dependency == null) continue;
+      for (final function in dependency.manifest.functions) {
+        if (!function.expose) continue;
+        permissions.addAll(function.requires);
+      }
+    }
+    return permissions;
+  }
+
+  /// 计算指定 manifest 在权限区应列出的完整权限集合。
+  Set<String> _listablePermissionIdsFor(PluginManifest manifest) {
+    final permissions = <String>{...manifest.permissions};
+    permissions.addAll(_dependencyCallerPermissionsFor(manifest));
+    return permissions;
+  }
+
+  /// 校验插件依赖是否已安装、已启用且版本满足约束，返回错误信息或 null。
+  String? dependencyError(InstalledPlugin plugin) {
+    final problems = <String>[];
+    for (final entry in plugin.manifest.dependencies.entries) {
+      final dependencyId = entry.key;
+      final constraint = entry.value.trim().isEmpty ? '*' : entry.value;
+      final dependency = pluginById(dependencyId);
+      if (dependency == null) {
+        problems.add('缺少依赖插件 $dependencyId');
+        continue;
+      }
+      if (!pluginVersionMatches(dependency.manifest.version, constraint)) {
+        problems.add(
+          '依赖插件 ${dependency.displayName} 版本不满足 $constraint'
+          '（当前 ${dependency.manifest.version}）',
+        );
+        continue;
+      }
+      if (!dependency.enabled || dependency.hasError) {
+        problems.add('依赖插件 ${dependency.displayName} 未启用或加载失败');
+      }
+    }
+    return problems.isEmpty ? null : problems.join('；');
+  }
+
   /// 从仓库加载所有已安装插件并刷新其清单。
   Future<void> load() => _load();
 
@@ -137,7 +213,7 @@ class PluginProvider extends ChangeNotifier {
     if (plugin == null) throw Exception('插件不存在: $pluginId');
     await setGrantedPermissions(
       plugin.id,
-      plugin.manifest.permissions.toList(),
+      listablePermissionIds(plugin).toList(growable: false),
     );
     return pluginById(pluginId) ?? plugin;
   }
@@ -167,9 +243,10 @@ class PluginProvider extends ChangeNotifier {
     late InstalledPlugin refreshed;
     try {
       final manifest = await _repository.readManifest(plugin.path);
+      final listable = _listablePermissionIdsFor(manifest);
       final granted = {
-        ...plugin.grantedPermissions.where(manifest.permissions.contains),
-        ...autoGrantedPluginPermissions(manifest.permissions),
+        ...plugin.grantedPermissions.where(listable.contains),
+        ...autoGrantedPluginPermissions(listable),
       }.toList(growable: false);
       final pageIds = manifest.featurePages.map((page) => page.id).toSet();
       final enabledPages = plugin.enabledFeaturePages
@@ -219,13 +296,22 @@ class PluginProvider extends ChangeNotifier {
   }
 
   /// 启用或禁用指定插件（有加载错误的插件无法启用）。
+  ///
+  /// 启用时会校验依赖插件已安装、已启用且版本满足约束；禁用时会阻止关闭
+  /// 仍被其他已启用插件依赖的插件。
   Future<void> setEnabled(String id, bool enabled) =>
       _mutatePlugin(id, (plugin) {
         if (enabled && plugin.needsReview) {
           throw Exception('此插件来自其他设备，请先完成本机审查');
         }
         final shouldEnable = enabled && !plugin.hasError;
-        if (shouldEnable) _ensureNoEnabledPluginApiConflict(plugin);
+        if (shouldEnable) {
+          _ensureNoEnabledPluginApiConflict(plugin);
+          _ensureDependenciesSatisfied(plugin);
+        }
+        if (!enabled && plugin.enabled) {
+          _ensureNoEnabledPluginDependsOn(plugin);
+        }
         return plugin.copyWith(enabled: shouldEnable);
       });
 
@@ -236,11 +322,14 @@ class PluginProvider extends ChangeNotifier {
   );
 
   /// 设置插件已授权的权限列表，自动过滤非法权限。
+  ///
+  /// 可授权的权限集合包含插件 manifest.permissions 以及调用依赖插件对外
+  /// 函数所需的额外权限。
   Future<void> setGrantedPermissions(String id, List<String> permissions) =>
       _mutatePlugin(id, (plugin) {
-        final allowed = plugin.manifest.permissions.toSet();
+        final allowed = listablePermissionIds(plugin);
         final merged = permissions.toSet()
-          ..addAll(autoGrantedPluginPermissions(plugin.manifest.permissions));
+          ..addAll(autoGrantedPluginPermissions(allowed));
         return plugin.copyWith(
           grantedPermissions: merged
               .where(allowed.contains)
@@ -437,6 +526,7 @@ class PluginProvider extends ChangeNotifier {
     final plugin = pluginById(id);
     if (plugin == null) return;
     if (!canDeletePlugin(id)) throw Exception('内置插件不可删除: $id');
+    if (plugin.enabled) _ensureNoEnabledPluginDependsOn(plugin);
     _plugins = _plugins.where((plugin) => plugin.id != id).toList();
     _settingsCache.remove(id);
     _storageCache.remove(id);
@@ -1093,6 +1183,7 @@ class PluginProvider extends ChangeNotifier {
     final safeAutoEnable =
         autoEnable &&
         imported.manifest.permissions.isEmpty &&
+        imported.manifest.dependencies.isEmpty &&
         imported.manifest.tools.isEmpty &&
         imported.manifest.functions.isEmpty;
     return safeAutoEnable ? imported.copyWith(enabled: true) : imported;
@@ -1195,10 +1286,11 @@ class PluginProvider extends ChangeNotifier {
         .map((page) => page.id)
         .toSet();
     retainedEnabledPages.addAll(nextPageIds.difference(previousPageIds));
+    final listable = _listablePermissionIdsFor(imported.manifest);
     return imported.copyWith(
       enabled: current.enabled,
       grantedPermissions: current.grantedPermissions
-          .where(imported.manifest.permissions.contains)
+          .where(listable.contains)
           .toList(growable: false),
       enabledFeaturePages: retainedEnabledPages.toList(growable: false),
       enabledTools: _mergeEnabledApiNames(
@@ -1276,6 +1368,33 @@ class PluginProvider extends ChangeNotifier {
     move(_schemaCache);
     final renderVersion = _renderVersions.remove(oldId);
     if (renderVersion != null) _renderVersions[newId] = renderVersion;
+  }
+
+  /// 确保目标插件的依赖已安装、已启用且版本满足约束。
+  void _ensureDependenciesSatisfied(InstalledPlugin target) {
+    final error = dependencyError(target);
+    if (error != null) {
+      throw Exception('无法启用插件 ${target.displayName}：$error');
+    }
+  }
+
+  /// 确保目标插件未被其他已启用插件依赖，否则禁止禁用。
+  void _ensureNoEnabledPluginDependsOn(InstalledPlugin target) {
+    final dependents = _plugins
+        .where(
+          (plugin) =>
+              plugin.id != target.id &&
+              plugin.enabled &&
+              !plugin.hasError &&
+              plugin.manifest.dependencies.containsKey(target.id),
+        )
+        .map((plugin) => plugin.displayName)
+        .toList(growable: false);
+    if (dependents.isEmpty) return;
+    throw Exception(
+      '插件 ${target.displayName} 被其他已启用插件依赖，无法禁用：'
+      '${dependents.join('、')}',
+    );
   }
 
   /// 确保新启用的插件不会与已启用插件的 API 名称冲突。

@@ -1540,9 +1540,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final displayText = _msgCtrl.displayText.trim();
     final modelText = _msgCtrl.modelText;
     final segments = _msgCtrl.segments;
-    if ((displayText.isEmpty &&
-            modelText.isEmpty &&
-            _pendingImages.isEmpty) ||
+    if ((displayText.isEmpty && modelText.isEmpty && _pendingImages.isEmpty) ||
         _streaming ||
         _preparingSend) {
       return;
@@ -1626,18 +1624,20 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       _clearAbortedStreaming('发送准备完成后状态已失效', conversationId: cid);
       return;
     }
-    _doSend(
-      model,
-      lastUserContentOverride: preparedUserContent.apiContent,
-      createTitle: isNewConversation,
+    unawaited(
+      _doSend(
+        model,
+        lastUserContentOverride: preparedUserContent.apiContent,
+        createTitle: isNewConversation,
+      ),
     );
   }
 
-  void _doSend(
+  Future<void> _doSend(
     ModelConfig model, {
     Object? lastUserContentOverride,
     bool createTitle = false,
-  }) {
+  }) async {
     final cid = _convId;
     if (cid == null) {
       _clearAbortedStreaming('流式请求缺少对话 ID');
@@ -1648,6 +1648,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       _clearAbortedStreaming('流式请求对应的对话不存在', conversationId: cid);
       return;
     }
+    final webSearchConfigured = await _isWebSearchConfigured();
+    if (!mounted) return;
     final annotationPrompt = const KnowledgeAnnotationPromptFormatter().format(
       context.read<KnowledgeProvider>().knowledgeAnnotationPromptSnapshot,
     );
@@ -1656,9 +1658,29 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       context.read<PluginProvider>().plugins,
       lastUserContentOverride: lastUserContentOverride,
       enableTools: _supportsNativeTools(model),
+      webSearchConfigured: webSearchConfigured,
       annotationPrompt: annotationPrompt,
     );
-    unawaited(_doStream(model, cid, msgs, createTitle: createTitle));
+    unawaited(
+      _doStream(
+        model,
+        cid,
+        msgs,
+        createTitle: createTitle,
+        webSearchConfigured: webSearchConfigured,
+      ),
+    );
+  }
+
+  /// 查询网页搜索服务是否已配置；查询失败按未配置处理，确保不可用工具
+  /// 不会进入系统提示词或工具列表。
+  Future<bool> _isWebSearchConfigured() async {
+    try {
+      return await (_webSearch?.isConfigured() ?? Future.value(false));
+    } catch (error) {
+      debugPrint('查询网页搜索配置失败，按未配置处理: $error');
+      return false;
+    }
   }
 
   Future<void> _sendRetry(String text) async {
@@ -1729,7 +1751,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       _clearAbortedStreaming('重试准备完成后状态已失效', conversationId: cid);
       return;
     }
-    _doSend(model, lastUserContentOverride: preparedUserContent.apiContent);
+    unawaited(
+      _doSend(model, lastUserContentOverride: preparedUserContent.apiContent),
+    );
   }
 
   bool _supportsNativeTools(ModelConfig model) => model.supportsNativeTools;
@@ -1773,16 +1797,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     String cid,
     List<Map<String, dynamic>> msgs, {
     bool createTitle = false,
+    bool? webSearchConfigured,
   }) async {
     if (!mounted) return;
     final sendGen = _sendGen;
-    bool webSearchConfigured = false;
-    try {
-      webSearchConfigured =
-          await (_webSearch?.isConfigured() ?? Future.value(false));
-    } catch (error) {
-      debugPrint('查询网页搜索配置失败，按未配置处理: $error');
-    }
+    final resolvedWebSearchConfigured =
+        webSearchConfigured ?? await _isWebSearchConfigured();
     if (!mounted) return;
     if (!_streaming || _streamingConvId != cid || sendGen != _sendGen) {
       final conv = context.read<ConversationProvider>().getConversation(cid);
@@ -1831,8 +1851,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final externalToolSnapshot = _externalToolRegistry?.snapshot();
     final storage = context.read<StorageV2Service>();
     _agentMessageId = cp.getConversation(cid)?.messages.lastOrNull?.id;
-    final resolvedPermissionSnapshot =
-        context.read<SettingsProvider>().settings.agentPermissionSnapshot;
+    final resolvedPermissionSnapshot = context
+        .read<SettingsProvider>()
+        .settings
+        .agentPermissionSnapshot;
     final toolService = ToolCallService(
       context.read<FeatureProvider>(),
       tasks: context.read<TaskProvider>(),
@@ -1852,7 +1874,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       toolResultProcessor: _agentToolResultProcessor,
       userInteractionBroker: _userInteractionBroker,
       webSearch: _webSearch,
-      webSearchConfigured: webSearchConfigured,
+      webSearchConfigured: resolvedWebSearchConfigured,
       permissionSnapshot: resolvedPermissionSnapshot,
     );
     final runSnapshot = toolService.createRunSnapshot(
@@ -2081,7 +2103,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         _clearAbortedStreaming('历史重试准备完成后状态已失效', conversationId: cid);
         return;
       }
-      _doSend(retryModel, lastUserContentOverride: apiUserContent);
+      unawaited(_doSend(retryModel, lastUserContentOverride: apiUserContent));
     } else {
       setState(() {
         _preparingSend = false;
@@ -2143,7 +2165,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         _clearAbortedStreaming('无历史重试准备完成后状态已失效', conversationId: cid);
         return;
       }
-      _doSend(retryModel, lastUserContentOverride: apiUserContent);
+      unawaited(_doSend(retryModel, lastUserContentOverride: apiUserContent));
     } else {
       setState(() {
         _preparingSend = false;
@@ -4768,7 +4790,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       _clearAbortedStreaming('编辑消息新建对话后状态已失效', conversationId: newConvId);
       return;
     }
-    _doSend(editModel, lastUserContentOverride: preparedUserContent.apiContent);
+    unawaited(
+      _doSend(
+        editModel,
+        lastUserContentOverride: preparedUserContent.apiContent,
+      ),
+    );
   }
 
   Widget _inputArea(ModelConfig? model, ModelConfigProvider mp) {

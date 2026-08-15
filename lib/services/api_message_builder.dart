@@ -15,14 +15,18 @@ List<Map<String, dynamic>> buildApiMessages(
   List<InstalledPlugin> plugins, {
   Object? lastUserContentOverride,
   bool enableTools = false,
+  bool webSearchConfigured = false,
   String annotationPrompt = '',
   String extraSystemPrompt = '',
 }) {
   final msgs = <Map<String, dynamic>>[];
   final promptContent = conv.settings.systemPrompt;
+  final nativePrompt = ToolCallService.nativeSystemPromptFor(
+    webSearchConfigured: webSearchConfigured,
+  );
   final toolPrompt = conv.settings.agentEnabled
-      ? '${ToolCallService.nativeSystemPrompt}\n\n${ToolCallService.agentSystemPromptWithSkills(plugins)}'
-      : ToolCallService.nativeSystemPrompt;
+      ? '$nativePrompt\n\n${ToolCallService.agentSystemPromptWithSkills(plugins, webSearchConfigured: webSearchConfigured)}'
+      : nativePrompt;
   final agentContext = conv.settings.agentEnabled
       ? ToolCallService.agentContextPrompt(conv)
       : '';

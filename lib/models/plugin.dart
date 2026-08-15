@@ -1,3 +1,5 @@
+import 'package:pub_semver/pub_semver.dart';
+
 final _pluginApiNamePattern = RegExp(r'^[a-zA-Z0-9_-]{1,64}$');
 final _luaGlobalFunctionPattern = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
 
@@ -551,6 +553,9 @@ class PluginManifest {
   /// 插件所需的权限列表。
   final List<String> permissions;
 
+  /// 插件依赖的其他插件 ID 到版本约束的映射。
+  final Map<String, String> dependencies;
+
   /// 插件提供的工具定义列表。
   final List<PluginToolDefinition> tools;
 
@@ -588,6 +593,7 @@ class PluginManifest {
     required this.icon,
     required this.entry,
     required this.permissions,
+    this.dependencies = const {},
     required this.tools,
     required this.functions,
     this.commands = const [],
@@ -613,6 +619,7 @@ class PluginManifest {
           .map((item) => item.toString())
           .where((item) => item.isNotEmpty)
           .toList(growable: false),
+      dependencies: _dependenciesFromJson(json['dependencies']),
       tools: (json['tools'] as List<dynamic>? ?? const [])
           .whereType<Map>()
           .map((item) => PluginToolDefinition.fromJson(Map.from(item)))
@@ -635,11 +642,9 @@ class PluginManifest {
           .toList(growable: false),
       featurePages: (json['featurePages'] as List<dynamic>? ?? const [])
           .whereType<Map>()
-              .map(
-                (item) => PluginFeaturePageDefinition.fromJson(Map.from(item)),
-              )
-              .where((item) => item.id.isNotEmpty)
-              .toList(growable: false),
+          .map((item) => PluginFeaturePageDefinition.fromJson(Map.from(item)))
+          .where((item) => item.id.isNotEmpty)
+          .toList(growable: false),
       settings: (json['settings'] as List<dynamic>? ?? const [])
           .whereType<Map>()
           .map((item) => PluginSettingDefinition.fromJson(Map.from(item)))
@@ -669,6 +674,7 @@ class PluginManifest {
     if (icon.isNotEmpty) 'icon': icon,
     'entry': entry,
     if (permissions.isNotEmpty) 'permissions': permissions,
+    if (dependencies.isNotEmpty) 'dependencies': dependencies,
     if (tools.isNotEmpty) 'tools': tools.map((e) => e.toJson()).toList(),
     if (functions.isNotEmpty)
       'functions': functions.map((e) => e.toJson()).toList(),
@@ -698,6 +704,7 @@ class PluginManifest {
   PluginManifest copyWith({
     String? id,
     String? name,
+    Map<String, String>? dependencies,
     Map<String, dynamic>? lynai,
   }) {
     return PluginManifest(
@@ -709,6 +716,7 @@ class PluginManifest {
       icon: icon,
       entry: entry,
       permissions: permissions,
+      dependencies: dependencies ?? this.dependencies,
       tools: tools,
       functions: functions,
       commands: commands,
@@ -730,6 +738,20 @@ class PluginManifest {
     if (name.trim().isEmpty) return '插件缺少 name';
     if (entry.trim().isEmpty) return '插件缺少 entry';
     if (!_isSafeRelativePluginPath(entry)) return '插件 entry 路径不安全: $entry';
+    final dependencyIds = <String>{};
+    for (final entry in dependencies.entries) {
+      final dependencyId = entry.key.trim();
+      if (dependencyId.isEmpty) return '插件依赖 ID 不能为空';
+      if (dependencyId == id) return '插件不能依赖自身: $dependencyId';
+      if (!RegExp(r'^[a-zA-Z0-9_.-]+$').hasMatch(dependencyId)) {
+        return '插件依赖 ID 只能包含字母、数字、下划线、点和横线: $dependencyId';
+      }
+      if (!dependencyIds.add(dependencyId)) {
+        return '插件依赖重复: $dependencyId';
+      }
+      final error = validatePluginVersionConstraint(entry.value);
+      if (error != null) return '插件依赖 $dependencyId 的版本约束 $error';
+    }
     for (final tool in tools) {
       final error = tool.validate();
       if (error != null) return error;
@@ -796,6 +818,49 @@ bool _isSafeRelativePluginPath(String path) {
       .where((part) => part.isNotEmpty && part != '.')
       .toList(growable: false);
   return parts.isNotEmpty && !parts.any((part) => part == '..');
+}
+
+Map<String, String> _dependenciesFromJson(Object? raw) {
+  if (raw is! Map) return const {};
+  final dependencies = <String, String>{};
+  for (final entry in raw.entries) {
+    final id = entry.key.toString().trim();
+    if (id.isEmpty) continue;
+    final constraint = entry.value?.toString().trim() ?? '';
+    dependencies[id] = constraint.isEmpty ? '*' : constraint;
+  }
+  return Map.unmodifiable(dependencies);
+}
+
+/// 校验插件依赖版本约束字符串，返回错误信息或 null。
+String? validatePluginVersionConstraint(String constraint) {
+  final normalized = _normalizeVersionConstraint(constraint);
+  if (normalized == null) return null;
+  try {
+    VersionConstraint.parse(normalized);
+    return null;
+  } on FormatException catch (e) {
+    return '版本约束不合法: ${e.message}';
+  }
+}
+
+/// 判断 [version] 是否满足 [constraint] 版本约束。
+bool pluginVersionMatches(String version, String constraint) {
+  final normalized = _normalizeVersionConstraint(constraint);
+  if (normalized == null) return true;
+  try {
+    return VersionConstraint.parse(normalized).allows(Version.parse(version));
+  } on FormatException {
+    return false;
+  }
+}
+
+/// 规范化版本约束；返回 null 表示任意版本。
+String? _normalizeVersionConstraint(String constraint) {
+  final trimmed = constraint.trim();
+  if (trimmed.isEmpty || trimmed == '*') return null;
+  if (trimmed.startsWith('=')) return trimmed.substring(1).trim();
+  return trimmed;
 }
 
 /// 根据文件扩展名返回文件类型标识符，供编辑器高亮使用。

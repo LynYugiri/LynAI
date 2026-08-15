@@ -284,6 +284,7 @@ storage_v2 下，笔记分页元数据由存储层的 `StorageV2NotePage` 表达
 |------|------|------|
 | `name` | `String` | 插件唯一标识名。 |
 | `version` | `String` | 语义版本号。 |
+| `dependencies` | `Map<String, String>` | 可选，依赖插件 ID 到版本约束的映射（如 `">=1.0.0"`、`"^2.0.0"`、`"*"`）；不声明即没有依赖。启用插件时要求已声明依赖安装、启用且版本满足约束；运行时会校验已声明依赖的版本。 |
 | `entry` | `String` | Lua 入口脚本相对于插件目录的路径。 |
 | `tools` | `List<PluginToolDefinition>` | 注册给 AI 模型调用的工具列表。 |
 | `skills` | `List<PluginSkillDefinition>` | Agent 可按需加载的 Markdown 工作流说明；`editable` 默认 true，允许用户和模型通过插件文件 overlay 修改 `skills/<name>.md`。 |

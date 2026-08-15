@@ -314,7 +314,7 @@ purge 先由页面请求 preview 并确认，Provider 提交签名写后立即�
 | `load()` | 加载已安装插件状态。 |
 | `importZipBytes()` / `importDirectory()` | 校验 manifest 后安装插件；同 ID 安装与其他 mutation 串行。 |
 | `deletePlugin()` / `uninstall()` | 删除可卸载插件、关联数据和同步删除标记。 |
-| `setEnabled()` / `setGrantedPermissions()` | 修改插件启用和授权状态。 |
+| `setEnabled()` / `setGrantedPermissions()` | 修改插件启用和授权状态；启用时校验依赖已安装、启用且版本满足约束，禁用时阻止关闭仍被依赖的插件。 |
 | `setToolEnabled()` / `setFunctionEnabled()` / `setSkillEnabled()` | 独立开关插件能力。 |
 | `importBuiltIn()` / `syncBuiltIn()` | 导入或同步内置插件；安全的纯 Skill 插件可按 manifest 自动启用。 |
 | `createSnapshot()` / `restoreSnapshotToSource()` | 创建独立快照或把快照内容恢复到来源插件。 |
@@ -335,7 +335,7 @@ purge 先由页面请求 preview 并确认，Provider 提交签名写后立即�
 
 ### 权限模型
 
-插件需在 `plugin.json` 中声明权限，用户安装后可在管理页修改授予范围。实际执行时 `PluginLuaRuntimeService` 会根据授予权限裁剪沙箱 API。内置 `mobile-agent-skills` 是纯 Skill 插件，不声明权限，不执行工具，只为 Agent 提供工作流说明。当前 14 个 skill：`android_accessibility`（无障碍原语）、`messaging`（消息应用通用流程）、`qq`（QQ 自动回复）、`wechat`（微信会话自动化）、`system_settings`（系统设置开关）、`camera_ocr_scan`（拍照与 OCR 扫描）、`contacts_phone`（通讯录与电话）、`clock_alarm`（系统闹钟与倒计时）、`map_navigation`（地图导航）、`media_share`（系统分享与跨应用转发）、`study_problem_solving`（题目解答与错题本沉淀）、`study_research_qa`（开放问题检索综述）、`note_taking`（笔记方法论与新建/编辑/归档）、`note_capture_to_kb`（对话沉淀到知识库）。Skill 正文可编辑性由 `PluginSkillDefinition.editable` 和 `editableFiles/defaultPath` overlay 决定；内置 Skill 的模板放在 `defaults/skills/`，用户/模型写入的 `skills/` 文件会在同步内置插件时保留。
+插件需在 `plugin.json` 中声明权限，用户安装后可在管理页修改授予范围；管理页的权限区还会列出调用依赖插件 `expose` 函数时其 `requires` 声明的额外权限。实际执行时 `PluginLuaRuntimeService` 会根据授予权限裁剪沙箱 API。内置 `mobile-agent-skills` 是纯 Skill 插件，不声明权限，不执行工具，只为 Agent 提供工作流说明。当前 14 个 skill：`android_accessibility`（无障碍原语）、`messaging`（消息应用通用流程）、`qq`（QQ 自动回复）、`wechat`（微信会话自动化）、`system_settings`（系统设置开关）、`camera_ocr_scan`（拍照与 OCR 扫描）、`contacts_phone`（通讯录与电话）、`clock_alarm`（系统闹钟与倒计时）、`map_navigation`（地图导航）、`media_share`（系统分享与跨应用转发）、`study_problem_solving`（题目解答与错题本沉淀）、`study_research_qa`（开放问题检索综述）、`note_taking`（笔记方法论与新建/编辑/归档）、`note_capture_to_kb`（对话沉淀到知识库）。Skill 正文可编辑性由 `PluginSkillDefinition.editable` 和 `editableFiles/defaultPath` overlay 决定；内置 Skill 的模板放在 `defaults/skills/`，用户/模型写入的 `skills/` 文件会在同步内置插件时保留。
 
 | 权限 | 控制的能力 |
 |------|-----------|

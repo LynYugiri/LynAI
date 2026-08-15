@@ -45,10 +45,7 @@ void main() {
       _conv(messages: [_msg('u1', 'user', '你好')], systemPrompt: '你是助手'),
       const [],
     );
-    expect(messages.first, {
-      'role': 'system',
-      'content': '你是助手',
-    });
+    expect(messages.first, {'role': 'system', 'content': '你是助手'});
   });
 
   test('system parts order: prompt, tool prompt, time, annotation', () {
@@ -70,11 +67,13 @@ void main() {
 
   test('skips empty assistant messages', () {
     final messages = buildApiMessages(
-      _conv(messages: [
-        _msg('u1', 'user', 'hi'),
-        _msg('a1', 'assistant', ''),
-        _msg('a2', 'assistant', 'ok'),
-      ]),
+      _conv(
+        messages: [
+          _msg('u1', 'user', 'hi'),
+          _msg('a1', 'assistant', ''),
+          _msg('a2', 'assistant', 'ok'),
+        ],
+      ),
       const [],
     );
     final roles = messages.map((m) => m['role']).toList();
@@ -92,9 +91,7 @@ void main() {
 
   test('prefers modelContextContent over content', () {
     final messages = buildApiMessages(
-      _conv(
-        messages: [_msg('u1', 'user', '原文', modelContextContent: '上下文版')],
-      ),
+      _conv(messages: [_msg('u1', 'user', '原文', modelContextContent: '上下文版')]),
       const [],
     );
     expect(messages.single['content'], '上下文版');
@@ -102,27 +99,22 @@ void main() {
 
   test('lastUserContentOverride replaces the last user message only', () {
     final messages = buildApiMessages(
-      _conv(messages: [
-        _msg('u1', 'user', '第一句'),
-        _msg('a1', 'assistant', '回复'),
-        _msg('u2', 'user', '第二句'),
-      ]),
+      _conv(
+        messages: [
+          _msg('u1', 'user', '第一句'),
+          _msg('a1', 'assistant', '回复'),
+          _msg('u2', 'user', '第二句'),
+        ],
+      ),
       const [],
       lastUserContentOverride: '重试内容',
     );
-    expect(messages.map((m) => m['content']), [
-      '第一句',
-      '回复',
-      '重试内容',
-    ]);
+    expect(messages.map((m) => m['content']), ['第一句', '回复', '重试内容']);
   });
 
   test('extraSystemPrompt is appended into the tool prompt block', () {
     final messages = buildApiMessages(
-      _conv(
-        messages: [_msg('u1', 'user', 'hi')],
-        agentEnabled: true,
-      ),
+      _conv(messages: [_msg('u1', 'user', 'hi')], agentEnabled: true),
       const [],
       enableTools: true,
       extraSystemPrompt: '悬浮授权提示',
@@ -133,33 +125,47 @@ void main() {
 
   test('agent prompt only present when agentEnabled and enableTools', () {
     final enabled = buildApiMessages(
-      _conv(
-        messages: [_msg('u1', 'user', 'hi')],
-        agentEnabled: true,
-      ),
+      _conv(messages: [_msg('u1', 'user', 'hi')], agentEnabled: true),
       const [],
       enableTools: true,
     );
     expect(enabled.first['content'], contains('工具'));
 
     final disabled = buildApiMessages(
-      _conv(
-        messages: [_msg('u1', 'user', 'hi')],
-        agentEnabled: true,
-      ),
+      _conv(messages: [_msg('u1', 'user', 'hi')], agentEnabled: true),
       const [],
       enableTools: false,
     );
     expect(disabled.first['content'], isNot(contains('工具')));
   });
 
+  test('web_search prompt is omitted when not configured', () {
+    final messages = buildApiMessages(
+      _conv(messages: [_msg('u1', 'user', 'hi')]),
+      const [],
+      enableTools: true,
+      webSearchConfigured: false,
+    );
+    final system = messages.first['content'] as String;
+    expect(system, contains('web_fetch'));
+    expect(system, isNot(contains('优先使用 web_search')));
+  });
+
+  test('web_search prompt is present when configured', () {
+    final messages = buildApiMessages(
+      _conv(messages: [_msg('u1', 'user', 'hi')]),
+      const [],
+      enableTools: true,
+      webSearchConfigured: true,
+    );
+    final system = messages.first['content'] as String;
+    expect(system, contains('优先使用 web_search'));
+  });
+
   test('accepts plugin list for skill summary without crashing', () {
     const plugins = <InstalledPlugin>[];
     final messages = buildApiMessages(
-      _conv(
-        messages: [_msg('u1', 'user', 'hi')],
-        agentEnabled: true,
-      ),
+      _conv(messages: [_msg('u1', 'user', 'hi')], agentEnabled: true),
       plugins,
       enableTools: true,
     );
