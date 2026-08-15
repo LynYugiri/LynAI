@@ -421,7 +421,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
     final password = TextEditingController();
     final confirmation = TextEditingController();
     try {
-      return showDialog<String>(
+      return await showDialog<String>(
         context: context,
         builder: (context) => AlertDialog(
           title: Text(confirm ? '设置备份密码' : '输入备份密码'),

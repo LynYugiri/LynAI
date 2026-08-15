@@ -257,7 +257,7 @@ class AgentToolResultSanitizer {
       if (!state.enter(value)) return '[REDACTED: cyclic value]';
       try {
         final binary = _binaryIterable(value);
-        if (binary != null) return _offloadBinary(binary, state);
+        if (binary != null) return await _offloadBinary(binary, state);
         final output = <Object?>[];
         for (final item in value) {
           state.checkCancellation();

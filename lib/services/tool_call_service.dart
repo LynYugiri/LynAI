@@ -2129,7 +2129,7 @@ ${lines.join('\n')}$more''';
             'timezoneOffsetMinutes': now.timeZoneOffset.inMinutes,
           };
         case 'web_fetch':
-          return _webFetch(call);
+          return await _webFetch(call);
         case 'get_location':
           final result = await _invokeNative('getLocation');
           return {'ok': true, ...result};
@@ -2137,7 +2137,7 @@ ${lines.join('\n')}$more''';
           final packageName = _stringArg(call, 'packageName');
           if (packageName.isEmpty) return _error('缺少 packageName');
           if (_agentEnabled) {
-            return _executeLynAIFunction(call, 'device.app.open', {
+            return await _executeLynAIFunction(call, 'device.app.open', {
               'packageName': packageName,
             });
           }
@@ -2147,7 +2147,7 @@ ${lines.join('\n')}$more''';
           return {'ok': true, ...result};
         case 'list_apps':
           if (_agentEnabled) {
-            return _executeLynAIFunction(call, 'device.app.list', const {});
+            return await _executeLynAIFunction(call, 'device.app.list', const {});
           }
           final appsResult = await _invokeNative('queryApps');
           return {'ok': true, ...appsResult};
@@ -2156,13 +2156,13 @@ ${lines.join('\n')}$more''';
             return _error('当前对话未允许模型读取当前页面');
           }
           if (_agentEnabled) {
-            return _executeLynAIFunction(
+            return await _executeLynAIFunction(
               call,
               'device.screen.context',
               const {},
             );
           }
-          return DeviceControlService.instance.execute(
+          return await DeviceControlService.instance.execute(
             'device.screen.context',
             const {},
           );
@@ -2182,18 +2182,18 @@ ${lines.join('\n')}$more''';
         case 'list_plugin_skills':
           return _listPluginSkillsForAgent(call.arguments);
         case 'load_plugin_skill':
-          return _loadPluginSkill(call.arguments);
+          return await _loadPluginSkill(call.arguments);
         case 'save_plugin_skill':
-          return _savePluginSkill(call.arguments);
+          return await _savePluginSkill(call.arguments);
         case 'add_agent_note':
           return _addAgentNote(call.arguments);
         case 'call_plugin_function':
-          return _callPluginFunction(
+          return await _callPluginFunction(
             call.arguments,
             cancellationToken: cancellationToken,
           );
         case 'run_subagent':
-          return _runSubagent(call, cancellationToken);
+          return await _runSubagent(call, cancellationToken);
         case 'execute_lua':
           if (cancellationToken == null) {
             return _agentError('missing_execution_context', 'Agent Lua 缺少取消令牌');
@@ -2202,7 +2202,7 @@ ${lines.join('\n')}$more''';
           _appendGeneratedImagesToConversation(result);
           return result;
         case 'knowledge_search':
-          return _knowledgeSearch(
+          return await _knowledgeSearch(
             call,
             cancellationToken: cancellationToken,
             deadline: deadline,
