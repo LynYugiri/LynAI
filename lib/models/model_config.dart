@@ -32,6 +32,17 @@ class ModelEntry {
   /// 该子模型使用的 managed relay workflow。
   final String? workflow;
 
+  /// 上下文窗口大小（token 数）。
+  ///
+  /// 来源优先级：用户在模型编辑器里手填 > 托管 `/relay/config` 下发 >
+  /// 从模型 endpoint 拉取（见 [fetchedContextWindow]）> 默认值。
+  final int? contextWindow;
+
+  /// 从 OpenAI 兼容 `GET /models` 或 Ollama `/api/show` 拉取的上下文窗口。
+  ///
+  /// 与 [contextWindow] 分开存储，避免自动拉取值覆盖用户手填值。
+  final int? fetchedContextWindow;
+
   /// 创建一个子模型配置实例。
   ModelEntry({
     required this.name,
@@ -43,6 +54,8 @@ class ModelEntry {
     this.temperature,
     this.topP,
     this.workflow,
+    this.contextWindow,
+    this.fetchedContextWindow,
   });
 
   /// 从 JSON 数据创建 [ModelEntry] 实例。
@@ -57,6 +70,8 @@ class ModelEntry {
       temperature: (json['temperature'] as num?)?.toDouble(),
       topP: (json['topP'] as num?)?.toDouble(),
       workflow: json['workflow'] as String?,
+      contextWindow: (json['contextWindow'] as num?)?.toInt(),
+      fetchedContextWindow: (json['fetchedContextWindow'] as num?)?.toInt(),
     );
   }
 
@@ -71,6 +86,9 @@ class ModelEntry {
     if (temperature != null) 'temperature': temperature,
     if (topP != null) 'topP': topP,
     if (workflow != null && workflow!.isNotEmpty) 'workflow': workflow,
+    if (contextWindow != null) 'contextWindow': contextWindow,
+    if (fetchedContextWindow != null)
+      'fetchedContextWindow': fetchedContextWindow,
   };
 
   /// 创建当前实例的副本，可选择性更新部分字段。
@@ -84,6 +102,8 @@ class ModelEntry {
     Object? temperature = _sentinel,
     Object? topP = _sentinel,
     Object? workflow = _sentinel,
+    Object? contextWindow = _sentinel,
+    Object? fetchedContextWindow = _sentinel,
   }) {
     return ModelEntry(
       name: name ?? this.name,
@@ -101,6 +121,12 @@ class ModelEntry {
       workflow: identical(workflow, _sentinel)
           ? this.workflow
           : workflow as String?,
+      contextWindow: identical(contextWindow, _sentinel)
+          ? this.contextWindow
+          : contextWindow as int?,
+      fetchedContextWindow: identical(fetchedContextWindow, _sentinel)
+          ? this.fetchedContextWindow
+          : fetchedContextWindow as int?,
     );
   }
 
@@ -178,6 +204,9 @@ class ModelConfig {
   /// Provider 级的 Top-P 采样参数，可被子模型覆盖。
   final double? topP;
 
+  /// Provider 级的上下文窗口大小，可被子模型覆盖。
+  final int? contextWindow;
+
   /// 额外的自定义请求参数。
   final Map<String, dynamic> extraParams;
 
@@ -207,6 +236,7 @@ class ModelConfig {
     this.maxTokens,
     this.temperature,
     this.topP,
+    this.contextWindow,
     this.managed = false,
     this.disabledByUser = false,
     Map<String, dynamic>? extraParams,
@@ -252,6 +282,15 @@ class ModelConfig {
   double? get effectiveTopP =>
       (userOverrides['topP'] as num?)?.toDouble() ?? activeEntry?.topP ?? topP;
 
+  /// 生效的上下文窗口大小。
+  ///
+  /// 优先级：用户本地覆盖 > 手填/托管下发 > 远端拉取 > Provider 级 > null。
+  int? get effectiveContextWindow =>
+      (userOverrides['contextWindow'] as num?)?.toInt() ??
+      activeEntry?.contextWindow ??
+      activeEntry?.fetchedContextWindow ??
+      contextWindow;
+
   /// 当前激活模型是否支持视觉输入。
   bool get supportsVision =>
       _effectiveCapability('supportsVision', activeEntry?.supportsVision);
@@ -291,6 +330,7 @@ class ModelConfig {
     Object? maxTokens = _sentinel,
     Object? temperature = _sentinel,
     Object? topP = _sentinel,
+    Object? contextWindow = _sentinel,
     bool? managed,
     bool? disabledByUser,
     Map<String, dynamic>? extraParams,
@@ -319,6 +359,9 @@ class ModelConfig {
           ? this.temperature
           : temperature as double?,
       topP: identical(topP, _sentinel) ? this.topP : topP as double?,
+      contextWindow: identical(contextWindow, _sentinel)
+          ? this.contextWindow
+          : contextWindow as int?,
       managed: managed ?? this.managed,
       disabledByUser: disabledByUser ?? this.disabledByUser,
       extraParams: extraParams ?? this.extraParams,
@@ -353,6 +396,7 @@ class ModelConfig {
     final maxTokens = (json['maxTokens'] as num?)?.toInt();
     final temperature = (json['temperature'] as num?)?.toDouble();
     final topP = (json['topP'] as num?)?.toDouble();
+    final contextWindow = (json['contextWindow'] as num?)?.toInt();
     if (category == categoryChat) {
       entries = entries
           .map(
@@ -380,6 +424,7 @@ class ModelConfig {
       maxTokens: maxTokens,
       temperature: temperature,
       topP: topP,
+      contextWindow: contextWindow,
       managed: json['managed'] == true,
       disabledByUser: json['disabledByUser'] == true,
       extraParams: json['extraParams'] is Map
@@ -408,6 +453,7 @@ class ModelConfig {
       if (maxTokens != null) 'maxTokens': maxTokens,
       if (temperature != null) 'temperature': temperature,
       if (topP != null) 'topP': topP,
+      if (contextWindow != null) 'contextWindow': contextWindow,
       if (managed) 'managed': managed,
       if (disabledByUser) 'disabledByUser': disabledByUser,
       if (extraParams.isNotEmpty) 'extraParams': extraParams,

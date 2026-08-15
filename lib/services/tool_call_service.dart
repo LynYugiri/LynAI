@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../models/agent_defaults.dart';
 import '../models/agent_trace.dart';
 import '../models/agent_runtime.dart';
 import '../models/agent_user_interaction.dart';
@@ -27,6 +28,7 @@ import 'backend_client.dart';
 import '../providers/conversation_provider.dart';
 import 'api_service.dart';
 import 'agent_cancellation.dart';
+import 'agent_context_builder.dart';
 import 'agent_json_schema.dart';
 import 'agent_loop_runtime.dart';
 import 'agent_persistence_lifecycle.dart';
@@ -40,11 +42,13 @@ import 'agent_resource_service.dart';
 import 'attachment_read_service.dart';
 import 'agent_lua_script_service.dart';
 import 'agent_runtime_service.dart';
+import 'stream_chunk_agent_adapter.dart';
 import 'device_control_service.dart';
 import 'lynai_call_identity.dart';
 import 'lynai_function_service.dart';
 import 'lynai_permission_service.dart';
 import 'lynai_permission_definitions.dart';
+import 'model_context_compactor.dart';
 import 'plugin_lua_runtime_service.dart';
 import 'plugin_tool_importer.dart';
 import 'storage_v2_service.dart';
@@ -137,7 +141,14 @@ class ToolCallService {
     bool allowSubagents = true,
     int subagentDepth = 0,
     bool webSearchConfigured = false,
-  }) : _tasks = tasks,
+    int runMaxToolRounds = maxToolRounds,
+  }) : assert(
+         runMaxToolRounds >= minMaxToolRounds &&
+             runMaxToolRounds <= maxMaxToolRounds,
+         'runMaxToolRounds must be between $minMaxToolRounds and $maxMaxToolRounds',
+       ),
+       _runMaxToolRounds = runMaxToolRounds,
+       _tasks = tasks,
        _calendar = calendar,
        _knowledge = knowledge,
        _plugins = plugins,
@@ -181,11 +192,19 @@ class ToolCallService {
   static const _knowledgeSearchContentChars = 2000;
   static const _knowledgeSearchMaxScanChars = 20000;
   static const _knowledgeSearchBatchSize = 64;
-  static const maxToolRounds = 12;
+  static const maxToolRounds = defaultAgentMaxToolRounds;
+  static const minMaxToolRounds = minAgentMaxToolRounds;
+  static const maxMaxToolRounds = maxAgentMaxToolRounds;
   static const maxSubagentDepth = 1;
+  static const emptyAssistantReply = '模型没有返回内容，请稍后重试或检查模型配置。';
 
-  static String toolRoundLimitMessage([String content = '']) {
-    const error = '工具调用已达到 12 轮上限，已停止继续执行。请缩小任务范围后重试。';
+  static String toolRoundLimitMessage([
+    String content = '',
+    int? maxRounds,
+  ]) {
+    final rounds = maxRounds ?? maxToolRounds;
+    final error = '工具调用已达到 $rounds 轮上限，已停止继续执行。'
+        '可点击继续处理，或缩小任务范围后重试。';
     final text = content.trim();
     return text.isEmpty ? error : '$text\n\n---\n$error';
   }
@@ -219,6 +238,10 @@ class ToolCallService {
   final bool _allowScreenContextTool;
   final bool _allowSubagents;
   final int _subagentDepth;
+  final int _runMaxToolRounds;
+
+  /// 当前工具会话允许的最大工具轮数。
+  int get runMaxToolRounds => _runMaxToolRounds;
   final _lynaiFunctions = LynAIFunctionService();
   final _permissionService = const LynAIPermissionService();
   final _schemaValidator = const AgentJsonSchemaValidator();
@@ -2014,6 +2037,7 @@ ${lines.join('\n')}$more''';
   ///
   /// 按顺序逐个执行，每个调用返回一个 [ToolExecutionResult]。
   /// [conversationMessages] 作为上下文传入，供需要对话历史的工具使用。
+  @visibleForTesting
   Future<List<ToolExecutionResult>> executeAll(
     List<ChatToolCall> calls,
     List<Message> conversationMessages, {
@@ -2033,6 +2057,7 @@ ${lines.join('\n')}$more''';
     return results;
   }
 
+  @visibleForTesting
   Future<List<AgentToolResult>> executeSequentialCompatibility(
     List<AgentToolInvocation> calls,
     List<Message> conversationMessages, {
@@ -2944,6 +2969,7 @@ ${lines.join('\n')}$more''';
       allowSubagents: _subagentDepth + 1 < maxSubagentDepth,
       subagentDepth: _subagentDepth + 1,
       webSearchConfigured: _webSearchConfigured,
+      runMaxToolRounds: runMaxToolRounds,
     );
     final working = <Map<String, dynamic>>[
       {
@@ -2984,9 +3010,18 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
     final tools = childRunSnapshot.openAITools;
 
     try {
-      final handle = const AgentLoopRuntime().start(
+      final contextWindow =
+          model.effectiveContextWindow ??
+          const AgentContextBudget().modelTokenBudget;
+      final runtime = AgentLoopRuntime(
+        contextBuilder: AgentContextBuilder(
+          budget: AgentContextBudget(modelTokenBudget: contextWindow),
+        ),
+      );
+      final compactor = ModelContextCompactor(api: api, model: model);
+      final handle = runtime.start(
         messages: working,
-        maxToolRounds: maxToolRounds,
+        maxToolRounds: runMaxToolRounds,
         persistence: _persistence,
         toolResultProcessor: _toolResultProcessor,
         persistenceMetadata: AgentRunPersistenceMetadata(
@@ -2995,34 +3030,18 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
           parentTurnId: identity?.turnId ?? _providedAgentIdentity?.turnId,
           parentToolCallId: call.id,
         ),
+        compactContext: compactor.compact,
+        isContextOverflow: (error) => error is AgentContextOverflowException,
         finalTurnInstruction: '工具调用已达到上限。不要再调用工具，请基于已有文本和工具结果直接返回最终 JSON。',
-        model: (request) async* {
-          final response = await api.sendChatRequest(
+        model: (request) => const StreamChunkAgentAdapter().adapt(
+          api.sendStreamRequest(
             model,
             request.messages,
             thinking: false,
             tools: request.forceFinalResponse ? const [] : tools,
             toolChoice: request.forceFinalResponse ? null : 'auto',
-          );
-          if (response.content.isNotEmpty) {
-            yield AgentModelTextDelta(response.content);
-          }
-          if (response.reasoning?.isNotEmpty == true) {
-            yield AgentModelReasoningDelta(response.reasoning!);
-          }
-          if (response.toolCalls.isNotEmpty) {
-            yield AgentModelToolCalls(
-              response.toolCalls.map(
-                (call) => AgentToolInvocation(
-                  id: call.id,
-                  name: call.name,
-                  arguments: call.arguments,
-                ),
-              ),
-            );
-          }
-          yield const AgentModelStreamCompleted();
-        },
+          ),
+        ),
         parentCancellationToken: parentCancellationToken,
         datasetBarrier: _storage?.runtimeBarrier,
         executeTools: (calls, identity, cancellationToken) {
@@ -3039,7 +3058,7 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
       if (runtimeResult.toolRoundLimitReached) {
         final result = _agentError(
           'tool_round_limit_reached',
-          toolRoundLimitMessage(runtimeResult.content),
+          toolRoundLimitMessage(runtimeResult.content, runMaxToolRounds),
         );
         _mergeSubagentMemory(purpose, result);
         _appendAgentTrace(

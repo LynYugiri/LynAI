@@ -62,6 +62,19 @@ class ChatResponse {
   });
 }
 
+/// 模型接口明确返回上下文超限错误时抛出的类型化异常。
+///
+/// [AgentLoopRuntime] 会用它替代字符串匹配来判断是否触发一次上下文压缩
+/// 重试；调用方也可以直接 `is` 判断。
+class AgentContextOverflowException implements Exception {
+  const AgentContextOverflowException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => 'AgentContextOverflowException: $message';
+}
+
 /// 封装外部模型接口、OCR、语音转写、图片生成和附件转换。
 ///
 /// 服务层只处理协议和数据转换，不保存应用状态。调用者负责选择模型、
@@ -237,6 +250,16 @@ class ApiService {
   static String _formatHttpError(String prefix, int statusCode, String body) {
     final message = BackendClient.extractErrorMessage(body);
     return '$prefix: $statusCode ${message ?? _truncateErrorBody(body)}';
+  }
+
+  static bool _looksLikeContextOverflow(Object error) {
+    final message = error.toString().toLowerCase();
+    return message.contains('context_length_exceeded') ||
+        message.contains('context length') ||
+        message.contains('context window') ||
+        message.contains('maximum context') ||
+        message.contains('too many tokens') ||
+        message.contains('too long') && message.contains('context');
   }
 
   static List<Map<String, dynamic>> chatContentWithFiles(
@@ -1103,6 +1126,10 @@ class ApiService {
     } on TimeoutException {
       throw Exception('请求超时，请检查网络连接或稍后重试');
     } catch (e) {
+      if (e is AgentContextOverflowException) rethrow;
+      if (_looksLikeContextOverflow(e)) {
+        throw AgentContextOverflowException(e.toString());
+      }
       throw Exception('API 请求异常: $e');
     }
   }
@@ -1145,6 +1172,10 @@ class ApiService {
         );
       }
     } catch (e) {
+      if (e is AgentContextOverflowException) rethrow;
+      if (_looksLikeContextOverflow(e)) {
+        throw AgentContextOverflowException(e.toString());
+      }
       throw Exception('流式请求异常: $e');
     }
   }

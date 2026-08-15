@@ -173,6 +173,14 @@ class McpProvider extends ChangeNotifier {
   bool isToolEnabled(String serverId, String toolName) =>
       _state(serverId)?.preferences.enabledTools[toolName] != false;
 
+  Future<void> deleteServer(String serverId) async {
+    final state = _requireState(serverId);
+    await disconnect(serverId);
+    await _repository.deleteServer(serverId);
+    _servers.remove(state);
+    notifyListeners();
+  }
+
   Future<void> connect(String serverId) async {
     await _datasetBarrier?.waitUntilOpen();
     final state = _requireState(serverId);

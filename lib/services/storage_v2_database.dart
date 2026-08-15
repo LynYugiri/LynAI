@@ -2023,6 +2023,11 @@ class StorageV2Database {
         .toList(growable: false);
   }
 
+  Future<void> deleteAgentMcpServer(String id) async {
+    final db = await _open();
+    await (db.delete(db.mcpServerRows)..where((row) => row.id.equals(id))).go();
+  }
+
   Future<bool> compareAndSetAgentStatus({
     required String table,
     required String id,

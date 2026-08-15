@@ -54,9 +54,11 @@ HomePage
 
 对话相关组件是独立库而非 `part`：`lib/pages/chat/` 下的 `history_drawer.dart`（历史抽屉）、`dialog_settings_content.dart`（对话设置弹窗）、`prompt_role_dialogs.dart`（系统提示词编辑）、`share_conversation_image.dart`（分享长图渲染）、`command_palette.dart`（命令面板）。长图导出流程在 `chat_image_exporter.dart` 的 `ChatImageExporter` 中（分页、捕获、剪贴板/分享/图库保存），页面只负责选择状态与结果反馈。发送给模型的 API 消息统一由 `lib/services/api_message_builder.dart` 的 `buildApiMessages` 组装，主聊天与悬浮聊天共用，避免两处 wire 语义漂移。
 
-输入区的 Agent 按钮是当前对话或未发送草稿切换 Agent 模式的唯一入口。新草稿从全局“对话权限”读取默认状态，按钮修改后由草稿覆盖该初值；已有对话始终使用自己的 `ConversationSettings.agentEnabled`。对话设置弹窗中的“对话权限”直接编辑全局 `AppSettings.agentGrantedPermissions`，与设置页“权限管理”指向同一份数据，修改即时作用于所有对话，不再有“跟随全局/自定义本对话”两态。
+输入区的 Agent 按钮是当前对话或未发送草稿切换 Agent 模式的唯一入口。新草稿从全局“对话权限”读取默认状态，按钮修改后由草稿覆盖该初值；已有对话始终使用自己的 `ConversationSettings.agentEnabled`。当前模型不支持工具调用时 Agent 按钮禁用并提示原因，避免“开了 Agent 但实际不生效”。对话设置弹窗中的“对话权限”直接编辑全局 `AppSettings.agentGrantedPermissions`，与设置页“权限管理”指向同一份数据，修改即时作用于所有对话，不再有“跟随全局/自定义本对话”两态。
 
-打开历史对话只加载该对话自己的设置快照，不把模型、提示词或识别设置写回全局设置。历史请求直接使用快照中的系统提示词正文；即使全局同 ID 提示词后来被编辑，旧会话上下文也保持不变。连续工具调用达到 `ToolCallService.maxToolRounds` 后，页面要求模型基于已有结果结束，并拒绝继续执行工具。
+Agent 工具轮数上限保存为 `ConversationSettings.maxToolRounds`（新建对话从全局默认复制，默认 24，范围 4–64）。流式过程中状态栏显示“正在调用工具 (第 N/M 轮)”，接近上限时预警；达到上限后模型强制收尾，消息下方提供“继续处理”按钮，点击后从当前 Plan/工作记忆断点继续，开启新一轮 run。
+
+打开历史对话只加载该对话自己的设置快照，不把模型、提示词或识别设置写回全局设置。历史请求直接使用快照中的系统提示词正文；即使全局同 ID 提示词后来被编辑，旧会话上下文也保持不变。连续工具调用达到该对话的 `ConversationSettings.maxToolRounds` 后，页面要求模型基于已有结果结束，并拒绝继续执行工具。
 
 左侧历史抽屉在页面生命周期内保留滚动位置和角色折叠状态。点击“默认”或其他角色标题只折叠/展开该组，点击具体对话才切换到其所属角色；搜索期间临时展开命中分组，清空搜索后恢复原折叠状态。
 
@@ -79,7 +81,7 @@ HomePage
 
 ### 消息区
 
-消息使用 `MarkdownWithLatex` 渲染，支持 Markdown、代码高亮、LaTeX、公式块、代码块复制和单块图片导出。assistant 消息可显示折叠的 thinking 内容。
+消息使用 `MarkdownWithLatex` 渲染，支持 Markdown、代码高亮、LaTeX、公式块、代码块复制和单块图片导出。assistant 消息可显示折叠的 thinking 内容。Agent Plan 面板在消息列表与输入区之间常驻：收起态显示进度条和当前步骤，展开态显示每步状态 chip 与摘要，点击步骤可展开完整摘要，“详情”按钮打开底部完整计划视图（`lib/pages/chat/agent_plan_panel.dart`）。
 
 ### 重试与分支
 
@@ -214,7 +216,7 @@ HomePage
 | 背景 | `background_page.dart` | 背景图、清除背景、模糊开关和强度。 |
 | API | `api_models_page.dart` | 模型配置分类、编辑、排序和模型拉取。 |
 | 网页搜索 | `web_search_settings_page.dart` | 管理 client/backend/auto 路由、Tavily/SearXNG 首选项和 SearXNG endpoint；Tavily key 与 SearXNG bearer token 只写入 `SecretStore`。SearXNG HTTP 必须显式勾选精确 origin 明文授权，保存 Bearer token 时再次显示明文确认。 |
-| 对话权限 | `agent_defaults_settings_page.dart` | 控制之后创建的主聊天和悬浮聊天是否默认启用 Agent 及其默认权限。历史对话不随默认值变化；对话设置弹窗只编辑当前对话权限，Agent 模式由输入区按钮切换。 |
+| 对话权限 | `agent_defaults_settings_page.dart` | 控制之后创建的主聊天和悬浮聊天是否默认启用 Agent、默认权限以及单次任务最大工具轮数（默认 24）。历史对话不随默认值变化；对话设置弹窗只编辑当前对话权限，Agent 模式由输入区按钮切换。 |
 | 悬浮窗 | `floating_assistant_settings_page.dart` | Android 系统悬浮助手设置。原生面板分为 Chat、Translation、Agent；翻译支持一次翻译和停止滚动后自动翻译，Agent 模式展示运行状态与完整 Plan。 |
 | 翻译历史 | `translation_history_page.dart` | 浏览悬浮窗屏幕翻译历史记录（时间/原文/译文/应用包名），长按复制、一键清空。 |
 | 主题 | `theme_page.dart` | 预设色、HSV 调色板、浅色/深色/跟随系统。 |
@@ -226,7 +228,7 @@ HomePage
 
 文件：`lib/pages/mcp_settings_page.dart`
 
-MCP 设置页展示 server 名称、transport、连接状态、错误和发现的工具。启用 server 后可连接或测试；每个工具可单独开关，开关会立即影响共享 Agent 工具注册表。
+MCP 设置页展示 server 名称、transport、连接状态、错误和发现的工具。启用 server 后可连接或测试；每个工具可单独开关，开关会立即影响共享 Agent 工具注册表。每个 server 卡片提供删除操作，删除会断开连接、移除注册，并清理 SecretStore 中的偏好和凭据。
 
 HTTP server 录入 endpoint，并可显式允许 HTTP 或私网；默认要求 HTTPS 公网地址。凭据以“本地 secret 名称 -> 实际 header 名称”配置，value 只进入 `SecretStore`。stdio 录入 command、arguments 和环境变量 secret；该选项只在 Linux、macOS、Windows 启用，Android、iOS、Web 页面明确禁用。
 

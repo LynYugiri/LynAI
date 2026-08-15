@@ -10,7 +10,7 @@
 |--------|----------|----------|
 | `ChatPage` | `StreamChunkAgentAdapter` + `ApiService.sendStreamRequest()` | `ToolCallService.executeSequentialCompatibility()` |
 | `FloatingChatSessionController` | 同上 | 同上，并按用户授权暴露屏幕上下文工具 |
-| `run_subagent` | 非流式 `ChatResponse` 手工映射为 Agent stream event | 独立 `ToolCallService`，禁止递归 Subagent |
+| `run_subagent` | `StreamChunkAgentAdapter` + `ApiService.sendStreamRequest()` | 独立 `ToolCallService`，禁止递归 Subagent |
 
 页面或 controller 只负责准备消息、模型和工具、订阅事件、显示草稿以及保存最终 Conversation。不得另写一套 tool continuation 或取消循环。
 
@@ -30,7 +30,9 @@ start
   -> 达到 maxToolRounds: 注入 final instruction，隐藏 tools，再执行一次最终 turn
 ```
 
-每个 run 有稳定 `runId`，每个模型 turn 有新的 `turnId` 和递增 `turnIndex`。tool executor 收到同一个 `AgentTurnIdentity`，tool result 必须按 invocation ID 与本轮 call 对应。runtime 在写 assistant item、发出 tool 事件或执行副作用前拒绝空白、带首尾空格或重复的 invocation ID。runtime 将 assistant tool call 与 tool result 编码成标准消息，并把真实 reasoning 从后续上下文移除。
+每个 run 有稳定 `runId`，每个模型 turn 有新的 `turnId` 和递增 `turnIndex`。tool executor 收到同一个 `AgentTurnIdentity`，tool result 必须按 invocation ID 与本轮 call 对应。runtime 在写 assistant item、发出 tool 事件或执行副作用前拒绝空白、带首尾空格或重复的 invocation ID。runtime 将 assistant tool call 与 tool result 编码成标准消息，并把真实 reasoning 从后续上下文移除。每个 tool result 完成后 runtime 还会发出 `toolCompleted` 事件，供 UI 清除“正在调用工具”状态。
+
+单次 run 的工具轮数上限来自 `ConversationSettings.maxToolRounds`（默认 24，范围 4-64）。达到上限时 runtime 注入 final instruction、隐藏 tools 并执行一次强制最终 turn；最终 turn 仍返回工具调用时不执行它们，并在完成结果上设置 `toolRoundLimitReached=true`。
 
 达到 `maxToolRounds` 时，不会直接把最后一次工具结果当最终答复。runtime 增加 system 约束，设置 `forceFinalResponse=true`，调用方必须不再发送 tools。如果模型仍返回 tool calls，runtime 不执行它们，并在完成结果上设置 `toolRoundLimitReached=true`。
 
@@ -72,7 +74,9 @@ Run 同时固定权限快照。后续模型 turn、Agent Lua 同步预检、异�
 
 构建过程会移除 reasoning 字段，只保留完整的 assistant tool-call/tool-result 配对，截断过大的 tool result，从新到旧选择可容纳单元，并尽量保留 system 消息。调用方提供 compactor 时，被丢弃消息可压缩为 bounded system checkpoint。
 
-模型返回 context overflow 时，runtime 最多强制压缩重试一次；第二次 overflow 直接失败。当前主对话、悬浮聊天和 Subagent 没有传入 compactor，也没有按具体模型配置调整预算，因此通常使用默认字符估算和裁剪，不应描述为精确 token 管理或持久化摘要系统。
+模型返回 context overflow 时，runtime 最多强制压缩重试一次；第二次 overflow 直接失败。`ApiService` 会把常见上下文超限错误包装为 `AgentContextOverflowException`，主对话、悬浮聊天和 Subagent 都通过类型判断触发这次重试。生产调用方现在注入了 `ModelContextCompactor`：它用当前 Chat 模型（关闭 thinking/tools）把被裁消息压缩为有界 checkpoint；compactor 失败、超时或返回空摘要时回退到现有截断策略，不使 run 失败。
+
+上下文预算按模型生效值 `ModelConfig.effectiveContextWindow` 构造，来源优先级为用户本地覆盖 > 托管 `/relay/config` 下发 > 从模型 endpoint 拉取 > 默认 32768。估算仍是字符数近似，不是精确 tokenizer。
 
 ## Tool Result Sanitization Foundation
 

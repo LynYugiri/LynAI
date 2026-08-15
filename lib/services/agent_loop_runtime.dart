@@ -277,6 +277,16 @@ class AgentLoopRuntime {
             ),
             handle.token,
           );
+          handle.emit(
+            AgentRunEvent(
+              kind: AgentRunEventKind.toolCompleted,
+              runId: handle.id,
+              turnId: identity.turnId,
+              turnIndex: identity.turnIndex,
+              itemId: result.invocationId,
+              toolCall: invocation,
+            ),
+          );
         }
         await persistence?.completeTurn(identity);
         toolRounds++;

@@ -20,6 +20,7 @@ import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/task_provider.dart';
 import 'api_service.dart';
+import 'agent_context_builder.dart';
 import 'agent_loop_runtime.dart';
 import 'api_message_builder.dart';
 import 'agent_persistence_lifecycle.dart';
@@ -29,6 +30,7 @@ import 'agent_tool_execution_service.dart';
 import 'agent_user_interaction_broker.dart';
 import 'backend_client.dart';
 import 'knowledge_annotation_prompt.dart';
+import 'model_context_compactor.dart';
 import 'stream_chunk_agent_adapter.dart';
 import 'storage_v2_service.dart';
 import 'tool_call_service.dart';
@@ -73,8 +75,6 @@ class FloatingChatSessionController extends ChangeNotifier {
     _webSearch = webSearch;
     _userInteractionBroker.addListener(_onUserInteractionChanged);
   }
-
-  static const _emptyAssistantReply = '模型没有返回内容，请稍后重试或检查模型配置。';
 
   final SettingsProvider _settings;
   final ConversationProvider _conversations;
@@ -437,6 +437,7 @@ class FloatingChatSessionController extends ChangeNotifier {
         imageGenerationModelId: appSettings.imageGenerationModelId,
         imageGenerationEnabled: appSettings.imageGenerationEnabled,
         agentEnabled: appSettings.agentEnabledByDefault,
+        maxToolRounds: appSettings.agentMaxToolRounds,
       );
     }
     return ConversationSettings(
@@ -454,6 +455,7 @@ class FloatingChatSessionController extends ChangeNotifier {
       imageGenerationModelId: appSettings.imageGenerationModelId,
       imageGenerationEnabled: appSettings.imageGenerationEnabled,
       agentEnabled: appSettings.agentEnabledByDefault,
+      maxToolRounds: appSettings.agentMaxToolRounds,
     );
   }
 
@@ -515,6 +517,8 @@ class FloatingChatSessionController extends ChangeNotifier {
       webSearch: _webSearch,
       webSearchConfigured: resolvedWebSearchConfigured,
       permissionSnapshot: _settings.settings.agentPermissionSnapshot,
+      runMaxToolRounds:
+          conversationSettings?.maxToolRounds ?? ToolCallService.maxToolRounds,
     );
     final runSnapshot = toolService.createRunSnapshot(
       agentEnabled: conversationSettings?.agentEnabled == true,
@@ -524,15 +528,25 @@ class FloatingChatSessionController extends ChangeNotifier {
     final tools = allowTools
         ? runSnapshot.openAITools
         : const <Map<String, dynamic>>[];
-    final run = const AgentLoopRuntime().start(
+    final contextWindow =
+        model.effectiveContextWindow ?? const AgentContextBudget().modelTokenBudget;
+    final runtime = AgentLoopRuntime(
+      contextBuilder: AgentContextBuilder(
+        budget: AgentContextBudget(modelTokenBudget: contextWindow),
+      ),
+    );
+    final compactor = ModelContextCompactor(api: _api, model: model);
+    final run = runtime.start(
       messages: working,
-      maxToolRounds: ToolCallService.maxToolRounds,
+      maxToolRounds: toolService.runMaxToolRounds,
       persistence: _persistence,
       toolResultProcessor: _toolResultProcessor,
       persistenceMetadata: AgentRunPersistenceMetadata(
         conversationId: conversationId,
         permissionPolicy: _settings.settings.agentPermissionSnapshot,
       ),
+      compactContext: compactor.compact,
+      isContextOverflow: (error) => error is AgentContextOverflowException,
       model: (request) => const StreamChunkAgentAdapter().adapt(
         _api.sendStreamRequest(
           model,
@@ -572,7 +586,14 @@ class FloatingChatSessionController extends ChangeNotifier {
           _status = buffer.isEmpty ? '正在等待模型...' : '正在生成...';
           notifyListeners();
         case AgentRunEventKind.toolCalls:
-          _status = '正在调用工具...';
+          final round = (event.turnIndex ?? 0) + 1;
+          final maxRounds = toolService.runMaxToolRounds;
+          _status = maxRounds - round <= 4
+              ? '正在调用工具 (第 $round/$maxRounds 轮)，已接近上限'
+              : '正在调用工具 (第 $round/$maxRounds 轮)';
+          notifyListeners();
+        case AgentRunEventKind.toolCompleted:
+          _status = '工具完成，正在汇总...';
           notifyListeners();
         default:
           break;
@@ -599,9 +620,12 @@ class FloatingChatSessionController extends ChangeNotifier {
           return;
         }
         final content = result.toolRoundLimitReached
-            ? ToolCallService.toolRoundLimitMessage(result.content)
+            ? ToolCallService.toolRoundLimitMessage(
+                result.content,
+                toolService.runMaxToolRounds,
+              )
             : result.content.trim().isEmpty
-            ? _emptyAssistantReply
+            ? ToolCallService.emptyAssistantReply
             : result.content;
         _streaming = false;
         _status = '';

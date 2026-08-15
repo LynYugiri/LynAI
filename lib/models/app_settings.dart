@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'agent_defaults.dart';
 import 'chat_role.dart';
 import 'system_prompt.dart';
 import 'web_search.dart';
@@ -240,6 +241,7 @@ class AppSettings {
   final String? lastSeenChangelogVersion;
   final List<String> agentGrantedPermissions;
   final bool agentEnabledByDefault;
+  final int agentMaxToolRounds;
   final WebSearchRoute webSearchRoute;
   final WebSearchClientProvider webSearchClientProvider;
   final String? searxngEndpoint;
@@ -278,6 +280,7 @@ class AppSettings {
     this.lastSeenChangelogVersion,
     this.agentGrantedPermissions = LynAIPermissions.defaultAgent,
     this.agentEnabledByDefault = false,
+    this.agentMaxToolRounds = defaultAgentMaxToolRounds,
     this.webSearchRoute = WebSearchRoute.auto,
     this.webSearchClientProvider = WebSearchClientProvider.tavily,
     this.searxngEndpoint,
@@ -320,6 +323,7 @@ class AppSettings {
     Object? lastSeenChangelogVersion = _sentinel,
     List<String>? agentGrantedPermissions,
     bool? agentEnabledByDefault,
+    int? agentMaxToolRounds,
     WebSearchRoute? webSearchRoute,
     WebSearchClientProvider? webSearchClientProvider,
     Object? searxngEndpoint = _sentinel,
@@ -376,6 +380,7 @@ class AppSettings {
           agentGrantedPermissions ?? this.agentGrantedPermissions,
       agentEnabledByDefault:
           agentEnabledByDefault ?? this.agentEnabledByDefault,
+      agentMaxToolRounds: agentMaxToolRounds ?? this.agentMaxToolRounds,
       webSearchRoute: webSearchRoute ?? this.webSearchRoute,
       webSearchClientProvider:
           webSearchClientProvider ?? this.webSearchClientProvider,
@@ -492,6 +497,9 @@ class AppSettings {
         json['agentGrantedPermissions'],
       ),
       agentEnabledByDefault: json['agentEnabledByDefault'] as bool? ?? false,
+      agentMaxToolRounds: ((json['agentMaxToolRounds'] as num?)?.toInt() ??
+              defaultAgentMaxToolRounds)
+          .clamp(minAgentMaxToolRounds, maxAgentMaxToolRounds),
       webSearchRoute: WebSearchRoute.values.firstWhere(
         (value) => value.name == json['webSearchRoute'],
         orElse: () => WebSearchRoute.auto,
@@ -542,6 +550,7 @@ class AppSettings {
         'lastSeenChangelogVersion': lastSeenChangelogVersion,
       'agentGrantedPermissions': agentGrantedPermissions,
       'agentEnabledByDefault': agentEnabledByDefault,
+      'agentMaxToolRounds': agentMaxToolRounds,
       'webSearchRoute': webSearchRoute.name,
       'webSearchClientProvider': webSearchClientProvider.name,
       if (searxngEndpoint != null) 'searxngEndpoint': searxngEndpoint,

@@ -3978,6 +3978,55 @@ PRAGMA user_version = 2;
     expect(config.effectiveTopP, 0.9);
   });
 
+  test('ModelConfig contextWindow follows user > managed > fetched priority', () {
+    final config = ModelConfig(
+      id: '1',
+      name: 'Provider',
+      endpoint: 'https://example.com',
+      apiKey: 'key',
+      modelName: 'model-a',
+      apiType: 'openai',
+      priority: 0,
+      contextWindow: 16000,
+      models: [
+        ModelEntry(
+          name: 'model-a',
+          enabled: true,
+          contextWindow: 24000,
+          fetchedContextWindow: 32000,
+        ),
+      ],
+    );
+
+    expect(config.effectiveContextWindow, 24000);
+
+    final fetchedOnly = config.copyWith(
+      models: [
+        ModelEntry(
+          name: 'model-a',
+          enabled: true,
+          fetchedContextWindow: 32000,
+        ),
+      ],
+    );
+    expect(fetchedOnly.effectiveContextWindow, 32000);
+
+    final providerOnly = fetchedOnly.copyWith(
+      models: [ModelEntry(name: 'model-a', enabled: true)],
+    );
+    expect(providerOnly.effectiveContextWindow, 16000);
+
+    final userOverride = config.copyWith(
+      userOverrides: const {'contextWindow': 48000},
+    );
+    expect(userOverride.effectiveContextWindow, 48000);
+
+    final serialized = config.toJson();
+    expect(serialized['contextWindow'], 16000);
+    final restored = ModelConfig.fromJson(serialized);
+    expect(restored.effectiveContextWindow, 24000);
+  });
+
   test('extraParams are included in OpenAI request body', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     Map<String, dynamic>? requestBody;

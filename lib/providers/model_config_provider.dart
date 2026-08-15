@@ -488,7 +488,8 @@ class ModelConfigProvider extends ChangeNotifier with SerializedSaveQueue {
           !_validOptionalBool(capabilities['tools']) ||
           !_validOptionalNum(params['maxTokens']) ||
           !_validOptionalNum(params['temperature']) ||
-          !_validOptionalNum(params['topP'])) {
+          !_validOptionalNum(params['topP']) ||
+          !_validOptionalNum(params['contextWindow'])) {
         return false;
       }
       final modelId = id.trim();
@@ -513,6 +514,7 @@ class ModelConfigProvider extends ChangeNotifier with SerializedSaveQueue {
           maxTokens: (params['maxTokens'] as num?)?.toInt(),
           temperature: (params['temperature'] as num?)?.toDouble(),
           topP: (params['topP'] as num?)?.toDouble(),
+          contextWindow: (params['contextWindow'] as num?)?.toInt(),
           workflow: workflow.isEmpty ? null : workflow,
         ),
       );

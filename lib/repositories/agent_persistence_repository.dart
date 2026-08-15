@@ -150,6 +150,10 @@ class AgentPersistenceRepository {
     return (await _storage.storageDatabase()).loadAgentMcpServers();
   }
 
+  Future<void> deleteMcpServer(String id) async {
+    await (await _storage.storageDatabase()).deleteAgentMcpServer(id);
+  }
+
   Future<AgentRestartReconciliation> reconcileAfterRestart({DateTime? at}) {
     return _storage.storageDatabase().then(
       (database) => database.reconcileAgentRestart(at ?? DateTime.now()),

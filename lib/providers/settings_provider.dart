@@ -84,10 +84,12 @@ class SettingsProvider extends ChangeNotifier with SerializedSaveQueue {
   Future<void> updateAgentDefaults({
     required bool enabled,
     required List<String> permissions,
+    int? maxToolRounds,
   }) => replaceSettings(
     _settings.copyWith(
       agentEnabledByDefault: enabled,
       agentGrantedPermissions: permissions,
+      agentMaxToolRounds: maxToolRounds,
     ),
   );
 

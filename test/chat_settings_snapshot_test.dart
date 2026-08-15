@@ -265,7 +265,7 @@ void main() {
     expect(api.requests, ToolCallService.maxToolRounds + 1);
     expect(
       conversations.getConversation(conversationId)!.messages.last.content,
-      allOf(contains('working 13'), contains('12 轮上限')),
+      allOf(contains('working 25'), contains('24 轮上限')),
     );
     await tester.pump(const Duration(milliseconds: 500));
     await conversations.flushPendingSaves();

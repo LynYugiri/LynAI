@@ -14,7 +14,6 @@ import 'package:share_plus/share_plus.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:super_clipboard/super_clipboard.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../models/agent_plan.dart';
 import '../models/agent_runtime.dart';
 import '../models/agent_user_interaction.dart';
 import '../models/agent_trace.dart';
@@ -36,6 +35,7 @@ import '../services/attachment_storage_service.dart';
 import '../services/api_message_builder.dart';
 import '../services/api_service.dart';
 import '../services/composer_selector_registry.dart';
+import '../services/agent_context_builder.dart';
 import '../services/agent_loop_runtime.dart';
 import '../services/agent_persistence_lifecycle.dart';
 import '../services/agent_tool_registry.dart';
@@ -46,6 +46,7 @@ import '../services/backend_client.dart';
 import '../services/plugin_lua_runtime_service.dart';
 import '../services/knowledge_annotation_prompt.dart';
 import '../services/generation_background_service.dart';
+import '../services/model_context_compactor.dart';
 import '../services/model_recognition_service.dart';
 import '../services/storage_v2_service.dart';
 import '../services/system_scroll_capture_service.dart';
@@ -61,6 +62,7 @@ import '../widgets/ai_explain_selection_area.dart';
 import '../widgets/chat_composer_keyboard.dart';
 import '../widgets/knowledge_explanation_dialog.dart';
 import '../widgets/reference_composer.dart';
+import 'chat/agent_plan_panel.dart';
 import 'chat/chat_image_exporter.dart';
 import 'chat/command_palette.dart';
 import 'chat/dialog_settings_content.dart';
@@ -292,7 +294,6 @@ class ChatPage extends StatefulWidget {
 /// 撤回/重试、分享导出和会话设置等全部交互状态。
 class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   static const _nativeToolsChannel = MethodChannel('lynai/native_tools');
-  static const _emptyAssistantReply = '模型没有返回内容，请稍后重试或检查模型配置。';
   static const _streamWaitTimeout = Duration(minutes: 5);
 
   final _msgCtrl = ReferenceComposerController();
@@ -341,7 +342,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   bool _shareSelecting = false;
   bool _sharingImage = false;
   bool _showSearch = false;
-  bool? _agentPlanExpanded;
   final Set<String> _selectedShareMessageIds = {};
   final Map<String, GlobalKey> _messageKeys = {};
   final List<_ChatSearchMatch> _searchMatches = [];
@@ -379,6 +379,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   StreamSubscription<AgentRunEvent>? _sub;
   AgentRunHandle? _agentRun;
   String? _agentMessageId;
+  String? _toolRoundLimitMessageId;
   AgentToolRegistry? _externalToolRegistry;
   AgentRunPersistenceLifecycle? _agentPersistence;
   AgentToolResultProcessor? _agentToolResultProcessor;
@@ -490,7 +491,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         requestId: request.id,
         builder: (dialogContext) => AlertDialog(
           title: Text(question.prompt),
-          content: question.detail == null ? null : Text(question.detail!),
+          content: _agentQuestionDetail(question.detail),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext, false),
@@ -510,14 +511,44 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         requestId: request.id,
         builder: (dialogContext) => SimpleDialog(
           title: Text(question.prompt),
-          children: question.choices
-              .map(
-                (choice) => SimpleDialogOption(
-                  onPressed: () => Navigator.pop(dialogContext, choice.id),
-                  child: Text(choice.label),
+          children: [
+            if (question.detail != null && question.detail!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(
+                  question.detail!,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
-              )
-              .toList(growable: false),
+              ),
+            ...question.choices.map(
+              (choice) => SimpleDialogOption(
+                onPressed: () => Navigator.pop(dialogContext, choice.id),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(choice.label),
+                    if (choice.description != null &&
+                        choice.description!.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          choice.description!,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       );
       return choice == null ? null : AgentUserAnswer.singleChoice(choice);
@@ -531,19 +562,39 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
             title: Text(question.prompt),
             content: Column(
               mainAxisSize: MainAxisSize.min,
-              children: question.choices
-                  .map(
-                    (choice) => CheckboxListTile(
-                      value: selected.contains(choice.id),
-                      title: Text(choice.label),
-                      onChanged: (value) => setDialogState(() {
-                        value == true
-                            ? selected.add(choice.id)
-                            : selected.remove(choice.id);
-                      }),
+              children: [
+                if (question.detail != null && question.detail!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        question.detail!,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
                     ),
-                  )
-                  .toList(growable: false),
+                  ),
+                ...question.choices.map(
+                  (choice) => CheckboxListTile(
+                    value: selected.contains(choice.id),
+                    title: Text(choice.label),
+                    subtitle: choice.description == null ||
+                            choice.description!.isEmpty
+                        ? null
+                        : Text(choice.description!),
+                    onChanged: (value) => setDialogState(() {
+                      value == true
+                          ? selected.add(choice.id)
+                          : selected.remove(choice.id);
+                    }),
+                  ),
+                ),
+              ],
             ),
             actions: [
               TextButton(
@@ -571,29 +622,74 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final controller = TextEditingController();
     final text = await _showUserInteractionDialog<String>(
       requestId: request.id,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(question.prompt),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: InputDecoration(hintText: question.detail),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(question.prompt),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (question.detail != null && question.detail!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      question.detail!,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                minLines: 2,
+                maxLines: 5,
+                onChanged: (_) => setDialogState(() {}),
+                decoration: const InputDecoration(
+                  hintText: '输入回复...',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: controller.text.trim().isEmpty
+                  ? null
+                  : () => Navigator.pop(dialogContext, controller.text),
+              child: const Text('提交'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, controller.text),
-            child: const Text('提交'),
-          ),
-        ],
       ),
     );
     controller.dispose();
     return text == null || text.trim().isEmpty
         ? null
         : AgentUserAnswer.text(text);
+  }
+
+  Widget? _agentQuestionDetail(String? detail) {
+    if (detail == null || detail.isEmpty) return null;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Text(
+        detail,
+        style: TextStyle(
+          fontSize: 13,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
   }
 
   Future<T?> _showUserInteractionDialog<T>({
@@ -661,6 +757,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       modelName: role.modelName ?? model.modelName,
       thinking: _thinking,
       agentEnabled: _agentEnabled,
+      maxToolRounds: settings.agentMaxToolRounds,
       selectedSystemPromptId: role.id == ChatRole.defaultId ? null : role.id,
       systemPrompt: role.systemPrompt,
       speechModelId: settings.speechModelId,
@@ -680,6 +777,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     );
     if (conv == null) return;
     _draftSettings = null;
+    _toolRoundLimitMessageId = null;
     _thinking = conv.settings.thinking;
     _agentEnabled = conv.settings.agentEnabled;
   }
@@ -735,6 +833,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
 
   void _beginStreaming(String conversationId) {
     _unfocusComposerOnMobile();
+    _toolRoundLimitMessageId = null;
     _streamingConvId = conversationId;
     _lastStreamUiUpdate = null;
     _updateStreamDraft(const _StreamDraft());
@@ -1426,6 +1525,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       modelName: model.modelName,
       thinking: _thinking,
       agentEnabled: _agentEnabled,
+      maxToolRounds: set.agentMaxToolRounds,
       selectedSystemPromptId: set.selectedSystemPromptId,
       systemPrompt: prompt,
       speechModelId: set.speechModelId,
@@ -1876,6 +1976,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       webSearch: _webSearch,
       webSearchConfigured: resolvedWebSearchConfigured,
       permissionSnapshot: resolvedPermissionSnapshot,
+      runMaxToolRounds:
+          streamSettings?.maxToolRounds ?? ToolCallService.maxToolRounds,
     );
     final runSnapshot = toolService.createRunSnapshot(
       agentEnabled: streamSettings?.agentEnabled == true,
@@ -1886,15 +1988,25 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final tools = allowTools
         ? runSnapshot.openAITools
         : const <Map<String, dynamic>>[];
-    final run = const AgentLoopRuntime().start(
+    final contextWindow =
+        model.effectiveContextWindow ?? const AgentContextBudget().modelTokenBudget;
+    final runtime = AgentLoopRuntime(
+      contextBuilder: AgentContextBuilder(
+        budget: AgentContextBudget(modelTokenBudget: contextWindow),
+      ),
+    );
+    final compactor = ModelContextCompactor(api: _api, model: model);
+    final run = runtime.start(
       messages: msgs,
-      maxToolRounds: ToolCallService.maxToolRounds,
+      maxToolRounds: toolService.runMaxToolRounds,
       persistence: _agentPersistence,
       toolResultProcessor: _agentToolResultProcessor,
       persistenceMetadata: AgentRunPersistenceMetadata(
         conversationId: cid,
         permissionPolicy: resolvedPermissionSnapshot,
       ),
+      compactContext: compactor.compact,
+      isContextOverflow: (error) => error is AgentContextOverflowException,
       model: (request) => const StreamChunkAgentAdapter().adapt(
         _api.sendStreamRequest(
           model,
@@ -1930,7 +2042,14 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           thinkBuf += event.text ?? '';
         case AgentRunEventKind.toolCalls:
           _shouldUpdateStreamUi(force: true);
-          emitDraft(status: '正在调用工具...');
+          final round = (event.turnIndex ?? 0) + 1;
+          final maxRounds = toolService.runMaxToolRounds;
+          final nearLimit = maxRounds - round <= 4;
+          emitDraft(
+            status: nearLimit
+                ? '正在调用工具 (第 $round/$maxRounds 轮)，已接近上限'
+                : '正在调用工具 (第 $round/$maxRounds 轮)',
+          );
         case AgentRunEventKind.toolStarted:
           final call = event.toolCall;
           if (call != null) {
@@ -1949,6 +2068,14 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
               ),
             );
           }
+        case AgentRunEventKind.toolCompleted:
+          _updateStreamDraft(
+            _StreamDraft(
+              content: buf,
+              thinking: thinkBuf.isEmpty ? null : thinkBuf,
+              status: '工具完成，正在汇总...',
+            ),
+          );
         default:
           break;
       }
@@ -1985,9 +2112,12 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           return;
         }
         final content = result.toolRoundLimitReached
-            ? ToolCallService.toolRoundLimitMessage(result.content)
+            ? ToolCallService.toolRoundLimitMessage(
+                result.content,
+                toolService.runMaxToolRounds,
+              )
             : result.content.trim().isEmpty
-            ? _emptyAssistantReply
+            ? ToolCallService.emptyAssistantReply
             : result.content;
         final think = result.reasoning;
         _shouldUpdateStreamUi(force: true);
@@ -1999,6 +2129,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         final conv = cp.getConversation(cid);
         if (conv != null && conv.messages.isNotEmpty) {
           final lastMsg = conv.messages.last;
+          if (result.toolRoundLimitReached) {
+            _toolRoundLimitMessageId = lastMsg.id;
+          }
           if (think != null) _thinkMap[lastMsg.id] = think;
           if (_retryHistory.isNotEmpty && _retryIdx < _retryHistory.length) {
             _retryHistory[_retryIdx].assistantId = lastMsg.id;
@@ -2173,6 +2306,14 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       });
       _showMissingChatModelTip();
     }
+  }
+
+  void _continueAfterToolRoundLimit() {
+    if (_streaming || _preparingSend) return;
+    setState(() => _toolRoundLimitMessageId = null);
+    _msgCtrl.text = '请继续完成之前未完成的任务。先读取当前计划、工作记忆和已完成步骤，'
+        '再从断点继续，不要重复已完成的工作。';
+    unawaited(_send());
   }
 
   void _saveRetryHistoryEntry(
@@ -3204,7 +3345,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
             ],
           ),
         ),
-        if (conv?.agentPlan != null) _agentPlanPanel(conv!.agentPlan!),
+        if (conv?.agentPlan != null) AgentPlanPanel(plan: conv!.agentPlan!),
         _inputArea(model, mp),
       ],
     );
@@ -3287,156 +3428,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
             ),
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _agentPlanPanel(AgentPlan plan) {
-    final scheme = Theme.of(context).colorScheme;
-    final narrow = MediaQuery.of(context).size.width < 600;
-    final expanded = _agentPlanExpanded ?? !narrow;
-    final completed = plan.items
-        .where(
-          (item) =>
-              item.status == AgentPlanItem.completed ||
-              item.status == AgentPlanItem.skipped,
-        )
-        .length;
-    AgentPlanItem? active;
-    for (final item in plan.items) {
-      if (item.status == AgentPlanItem.inProgress ||
-          item.status == AgentPlanItem.needsConfirmation ||
-          item.status == AgentPlanItem.failed) {
-        active = item;
-        break;
-      }
-    }
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 4, 14, 2),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          InkWell(
-            onTap: () => setState(() => _agentPlanExpanded = !expanded),
-            borderRadius: BorderRadius.circular(8),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 3),
-              child: Row(
-                children: [
-                  Icon(
-                    expanded ? Icons.expand_more : Icons.chevron_right,
-                    size: 18,
-                    color: scheme.onSurfaceVariant,
-                  ),
-                  const SizedBox(width: 2),
-                  Expanded(
-                    child: Text(
-                      active == null
-                          ? '计划 $completed/${plan.items.length}：${plan.title}'
-                          : '计划 $completed/${plan.items.length}：${active.title}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: scheme.onSurfaceVariant,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (expanded) ...[
-            const SizedBox(height: 2),
-            for (final item in plan.items)
-              Padding(
-                padding: const EdgeInsets.only(left: 20),
-                child: _agentPlanStep(item),
-              ),
-          ],
-          Divider(
-            height: 8,
-            color: scheme.outlineVariant.withValues(alpha: 0.25),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _agentPlanStep(AgentPlanItem item) {
-    final scheme = Theme.of(context).colorScheme;
-    final active =
-        item.status == AgentPlanItem.inProgress ||
-        item.status == AgentPlanItem.needsConfirmation;
-    final failed = item.status == AgentPlanItem.failed;
-    final completed =
-        item.status == AgentPlanItem.completed ||
-        item.status == AgentPlanItem.skipped;
-    final detail = failed
-        ? (item.error ?? item.summary)
-        : completed
-        ? (item.resultSummary ?? item.summary)
-        : item.summary;
-    final color = failed
-        ? scheme.error
-        : active
-        ? scheme.primary
-        : scheme.onSurfaceVariant.withValues(alpha: completed ? 0.58 : 0.82);
-    final marker = completed
-        ? '✓'
-        : failed
-        ? '!'
-        : active
-        ? '•'
-        : '·';
-    return Padding(
-      padding: const EdgeInsets.only(top: 3),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 16,
-            child: Text(
-              marker,
-              textAlign: TextAlign.center,
-              style: TextStyle(color: color, fontSize: 12),
-            ),
-          ),
-          const SizedBox(width: 4),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: color,
-                    fontWeight: active ? FontWeight.w700 : FontWeight.w400,
-                  ),
-                ),
-                if (detail != null && detail.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 1),
-                    child: Text(
-                      detail,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: failed
-                            ? scheme.error
-                            : scheme.onSurfaceVariant.withValues(alpha: 0.68),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -4299,9 +4290,25 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.only(left: 8, top: 2, bottom: 2),
-      child: Text(
-        text,
-        style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 12,
+            height: 12,
+            child: CircularProgressIndicator(
+              strokeWidth: 1.6,
+              color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              text,
+              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -4332,21 +4339,14 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            '*',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              color: Colors.amber.shade700,
-            ),
-          ),
+          Icon(Icons.handyman_outlined, size: 14, color: Colors.amber.shade800),
           const SizedBox(width: 4),
           Text(
             toolName,
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: Colors.amber.shade700,
+              color: Colors.amber.shade800,
             ),
           ),
         ],
@@ -4459,6 +4459,18 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           const SizedBox(width: 4),
           _actBtn(Icons.refresh, () => unawaited(_retry())),
         ],
+        if (msg.id == _toolRoundLimitMessageId) ...[
+          const SizedBox(width: 6),
+          TextButton.icon(
+            onPressed: _continueAfterToolRoundLimit,
+            icon: const Icon(Icons.play_circle_outline, size: 16),
+            label: const Text('继续处理'),
+            style: TextButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+            ),
+          ),
+        ],
       ],
     ),
   );
@@ -4504,18 +4516,15 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
             onTap: current > 0 ? () => _switchRetry(-1) : null,
             borderRadius: BorderRadius.circular(8),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              child: Text(
-                '<',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  color: current > 0
-                      ? Theme.of(context).colorScheme.primary
-                      : Theme.of(
-                          context,
-                        ).colorScheme.onSurface.withValues(alpha: 0.15),
-                ),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              child: Icon(
+                Icons.chevron_left,
+                size: 18,
+                color: current > 0
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.15),
               ),
             ),
           ),
@@ -4531,18 +4540,15 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
             onTap: current < total - 1 ? () => _switchRetry(1) : null,
             borderRadius: BorderRadius.circular(8),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              child: Text(
-                '>',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  color: current < total - 1
-                      ? Theme.of(context).colorScheme.primary
-                      : Theme.of(
-                          context,
-                        ).colorScheme.onSurface.withValues(alpha: 0.15),
-                ),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              child: Icon(
+                Icons.chevron_right,
+                size: 18,
+                color: current < total - 1
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.15),
               ),
             ),
           ),
@@ -4861,22 +4867,31 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           const SizedBox(height: 4),
           Row(
             children: [
-              _modelSel(model, mp),
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _modelSel(model, mp),
+                      const SizedBox(width: 4),
+                      _commandBtn(),
+                      const SizedBox(width: 4),
+                      _dialogSetBtn(),
+                      const SizedBox(width: 4),
+                      _agentBtn(),
+                      const SizedBox(width: 4),
+                      _thinkBtn(),
+                      const SizedBox(width: 4),
+                      _ocrBtn(),
+                      const SizedBox(width: 4),
+                      _imageRecognitionBtn(),
+                      const SizedBox(width: 4),
+                      _imageGenerationBtn(),
+                    ],
+                  ),
+                ),
+              ),
               const SizedBox(width: 4),
-              _commandBtn(),
-              const SizedBox(width: 4),
-              _dialogSetBtn(),
-              const SizedBox(width: 4),
-              _agentBtn(),
-              const SizedBox(width: 4),
-              _thinkBtn(),
-              const SizedBox(width: 4),
-              _ocrBtn(),
-              const SizedBox(width: 4),
-              _imageRecognitionBtn(),
-              const SizedBox(width: 4),
-              _imageGenerationBtn(),
-              const Spacer(),
               _attachBtn(),
               const SizedBox(width: 4),
               ValueListenableBuilder<int>(
@@ -5386,22 +5401,32 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   );
 
   Widget _agentBtn() {
-    final enabled = _activeSettings()?.agentEnabled ?? _agentEnabled;
-    return _inputActionButton(
-      id: 'agent',
-      icon: enabled ? Icons.account_tree : Icons.account_tree_outlined,
-      label: 'Agent',
-      selected: enabled,
-      onPressed: () {
-        final value = !enabled;
-        setState(() => _agentEnabled = value);
-        final model = _getModel(context.read<ModelConfigProvider>());
-        if (model == null) return;
-        final settings = _currentConversationSettings(
-          model,
-        ).copyWith(agentEnabled: value);
-        _saveConversationSettings(settings);
-      },
+    final model = _getModel(context.read<ModelConfigProvider>());
+    final canUseAgent = model != null && _supportsNativeTools(model);
+    final enabled =
+        (_activeSettings()?.agentEnabled ?? _agentEnabled) && canUseAgent;
+    return Tooltip(
+      message: !canUseAgent
+          ? '当前模型不支持工具调用，无法使用 Agent'
+          : enabled
+          ? '关闭 Agent 模式'
+          : '开启 Agent 模式',
+      child: _inputActionButton(
+        id: 'agent',
+        icon: enabled ? Icons.account_tree : Icons.account_tree_outlined,
+        label: 'Agent',
+        selected: enabled,
+        onPressed: canUseAgent
+            ? () {
+                final value = !enabled;
+                setState(() => _agentEnabled = value);
+                final settings = _currentConversationSettings(
+                  model,
+                ).copyWith(agentEnabled: value);
+                _saveConversationSettings(settings);
+              }
+            : null,
+      ),
     );
   }
 

@@ -98,6 +98,39 @@ class McpSettingsPage extends StatelessWidget {
   }
 }
 
+Future<void> _confirmDelete(
+  BuildContext context,
+  McpServerState state,
+) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('删除 MCP 服务'),
+      content: Text('确定要删除“${state.server.name}”吗？'
+          '已保存的凭据、请求头映射和逐工具开关会一并删除。'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('删除'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true || !context.mounted) return;
+  try {
+    await context.read<McpProvider>().deleteServer(state.server.id);
+  } catch (error) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('删除失败: $error')));
+  }
+}
+
 class _ServerCard extends StatelessWidget {
   const _ServerCard({required this.state, required this.onEdit});
 
@@ -164,6 +197,11 @@ class _ServerCard extends StatelessWidget {
                     icon: const Icon(Icons.link),
                     label: const Text('连接'),
                   ),
+                OutlinedButton.icon(
+                  onPressed: () => _confirmDelete(context, state),
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('删除'),
+                ),
               ],
             ),
           ),

@@ -835,7 +835,12 @@ class _EditModelPageState extends State<_EditModelPage> {
           final name = rawName.endsWith(':latest')
               ? rawName.substring(0, rawName.length - ':latest'.length)
               : rawName;
-          return ModelEntry(name: name, enabled: false);
+          final details = m['details'];
+          return ModelEntry(
+            name: name,
+            enabled: false,
+            fetchedContextWindow: _parseContextWindow(details),
+          );
         }).toList();
       } else {
         final headers = <String, String>{};
@@ -845,9 +850,13 @@ class _EditModelPageState extends State<_EditModelPage> {
             .timeout(const Duration(seconds: 20));
         if (resp.statusCode != 200) throw Exception('${resp.statusCode}');
         final models = jsonDecode(resp.body)['data'] as List? ?? [];
-        fetched = models
-            .map((m) => ModelEntry(name: m['id'] as String, enabled: false))
-            .toList();
+        fetched = models.map((m) {
+          return ModelEntry(
+            name: m['id'] as String,
+            enabled: false,
+            fetchedContextWindow: _parseContextWindow(m),
+          );
+        }).toList();
       }
       final existingNames = _modelEntries.map((e) => e.name).toSet();
       final newEntries = fetched
@@ -879,6 +888,37 @@ class _EditModelPageState extends State<_EditModelPage> {
     return endpoint.endsWith('/')
         ? endpoint.substring(0, endpoint.length - 1)
         : endpoint;
+  }
+
+  int? _parseContextWindow(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is! Map) return null;
+    for (final key in const [
+      'contextWindow',
+      'context_length',
+      'contextLength',
+      'max_model_len',
+      'maxContextLength',
+      'max_context_length',
+      'maxContextSize',
+      'max_context_size',
+      'contextSize',
+      'context_size',
+    ]) {
+      final candidate = value[key];
+      if (candidate is num) return candidate.toInt();
+    }
+    // Ollama /api/tags 的 details 里没有标准 context 字段，但部分模型
+    // 会带 model_info 或 info；这里只做有界递归，避免把无关大整数误读。
+    for (final key in const ['model_info', 'info']) {
+      final nested = value[key];
+      if (nested is Map) {
+        final parsed = _parseContextWindow(nested);
+        if (parsed != null) return parsed;
+      }
+    }
+    return null;
   }
 
   @override
@@ -1167,6 +1207,17 @@ class _EditModelPageState extends State<_EditModelPage> {
               keyName: 'topP',
               title: 'Top P',
               fallback: model.activeEntry?.topP ?? model.topP,
+              disabled: disabled,
+            ),
+            _managedNumericOverrideTile(
+              model,
+              keyName: 'contextWindow',
+              title: 'Context Window',
+              fallback:
+                  model.activeEntry?.contextWindow ??
+                  model.activeEntry?.fetchedContextWindow ??
+                  model.contextWindow,
+              integer: true,
               disabled: disabled,
             ),
             const Divider(height: 1),
@@ -1898,6 +1949,9 @@ class _EditModelPageState extends State<_EditModelPage> {
       text: entry.temperature?.toString() ?? '',
     );
     final topP = TextEditingController(text: entry.topP?.toString() ?? '');
+    final contextWindow = TextEditingController(
+      text: entry.contextWindow?.toString() ?? '',
+    );
     var supportsVision = entry.supportsVision;
     var supportsThinking = entry.supportsThinking;
     var supportsTools = entry.supportsTools;
@@ -1986,6 +2040,22 @@ class _EditModelPageState extends State<_EditModelPage> {
                       border: OutlineInputBorder(),
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: contextWindow,
+                    keyboardType: TextInputType.number,
+                    validator: (value) => _validateNumberField(
+                      value,
+                      label: 'Context Window',
+                      isInt: true,
+                      min: 1,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'Context Window',
+                      hintText: '留空自动获取，获取不到使用默认值',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -2007,6 +2077,7 @@ class _EditModelPageState extends State<_EditModelPage> {
                     maxTokens: int.tryParse(maxTokens.text.trim()),
                     temperature: double.tryParse(temperature.text.trim()),
                     topP: double.tryParse(topP.text.trim()),
+                    contextWindow: int.tryParse(contextWindow.text.trim()),
                   ),
                 );
               },
@@ -2020,6 +2091,7 @@ class _EditModelPageState extends State<_EditModelPage> {
       maxTokens.dispose();
       temperature.dispose();
       topP.dispose();
+      contextWindow.dispose();
     });
     if (result == null || !mounted) return;
     setState(() => _modelEntries[index] = result);

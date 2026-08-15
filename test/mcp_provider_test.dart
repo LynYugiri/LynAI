@@ -303,6 +303,13 @@ class _MemoryMcpRepository implements McpRepository {
   }
 
   @override
+  Future<void> deleteServer(String serverId) async {
+    servers.removeWhere((item) => item.id == serverId);
+    preferences.remove(serverId);
+    credentials.remove(serverId);
+  }
+
+  @override
   Future<McpServerPreferences> loadPreferences(String serverId) async =>
       preferences[serverId] ?? const McpServerPreferences();
 

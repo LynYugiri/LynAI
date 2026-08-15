@@ -23,6 +23,8 @@ abstract interface class McpRepository {
 
   Future<void> saveServer(AgentMcpServerRecord server);
 
+  Future<void> deleteServer(String serverId);
+
   Future<McpServerPreferences> loadPreferences(String serverId);
 
   Future<void> savePreferences(
@@ -59,6 +61,23 @@ class PersistentMcpRepository implements McpRepository {
   @override
   Future<void> saveServer(AgentMcpServerRecord server) =>
       _persistence.saveMcpServer(server);
+
+  @override
+  Future<void> deleteServer(String serverId) async {
+    final servers = await _persistence.loadMcpServers();
+    AgentMcpServerRecord? server;
+    for (final candidate in servers) {
+      if (candidate.id == serverId) {
+        server = candidate;
+        break;
+      }
+    }
+    if (server != null) {
+      await saveCredentials(serverId, const {}, server.environmentNames);
+    }
+    await _secretStore.delete(_preferencesKey(serverId));
+    await _persistence.deleteMcpServer(serverId);
+  }
 
   @override
   Future<McpServerPreferences> loadPreferences(String serverId) async {

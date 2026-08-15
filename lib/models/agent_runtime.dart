@@ -274,6 +274,7 @@ enum AgentRunEventKind {
   reasoningDelta,
   toolCalls,
   toolStarted,
+  toolCompleted,
   turnCompleted,
   runCompleted,
   runFailed,

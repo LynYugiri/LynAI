@@ -67,6 +67,9 @@ class _WidgetRepository implements McpRepository {
   Future<void> saveServer(AgentMcpServerRecord value) async => server = value;
 
   @override
+  Future<void> deleteServer(String serverId) async {}
+
+  @override
   Future<McpServerPreferences> loadPreferences(String serverId) async =>
       const McpServerPreferences();
 

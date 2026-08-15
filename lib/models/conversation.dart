@@ -1,3 +1,4 @@
+import 'agent_defaults.dart';
 import 'agent_plan.dart';
 import 'agent_working_memory.dart';
 import 'message.dart';
@@ -50,6 +51,9 @@ class ConversationSettings {
   /// 是否启用 Agent 模式。
   final bool agentEnabled;
 
+  /// 单次 Agent run 允许的最大工具轮数。
+  final int maxToolRounds;
+
   /// 创建一个对话设置快照实例。
   ConversationSettings({
     required this.modelId,
@@ -66,6 +70,7 @@ class ConversationSettings {
     this.imageGenerationModelId,
     this.imageGenerationEnabled = false,
     this.agentEnabled = false,
+    this.maxToolRounds = defaultAgentMaxToolRounds,
   });
 
   static const _sentinel = Object();
@@ -86,6 +91,7 @@ class ConversationSettings {
     Object? imageGenerationModelId = _sentinel,
     bool? imageGenerationEnabled,
     bool? agentEnabled,
+    int? maxToolRounds,
   }) {
     return ConversationSettings(
       modelId: modelId ?? this.modelId,
@@ -117,6 +123,7 @@ class ConversationSettings {
       imageGenerationEnabled:
           imageGenerationEnabled ?? this.imageGenerationEnabled,
       agentEnabled: agentEnabled ?? this.agentEnabled,
+      maxToolRounds: maxToolRounds ?? this.maxToolRounds,
     );
   }
 
@@ -145,6 +152,9 @@ class ConversationSettings {
       imageGenerationModelId: json['imageGenerationModelId'] as String?,
       imageGenerationEnabled: json['imageGenerationEnabled'] as bool? ?? false,
       agentEnabled: json['agentEnabled'] as bool? ?? false,
+      maxToolRounds: ((json['maxToolRounds'] as num?)?.toInt() ??
+              defaultAgentMaxToolRounds)
+          .clamp(minAgentMaxToolRounds, maxAgentMaxToolRounds),
     );
   }
 
@@ -168,6 +178,7 @@ class ConversationSettings {
         'imageGenerationModelId': imageGenerationModelId,
       'imageGenerationEnabled': imageGenerationEnabled,
       'agentEnabled': agentEnabled,
+      'maxToolRounds': maxToolRounds,
     };
   }
 }

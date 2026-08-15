@@ -2242,10 +2242,10 @@ return {
   );
 
   test('tool round limit message preserves existing assistant text', () {
-    expect(ToolCallService.maxToolRounds, 12);
+    expect(ToolCallService.maxToolRounds, 24);
     expect(
       ToolCallService.toolRoundLimitMessage('partial answer'),
-      allOf(contains('partial answer'), contains('12 轮上限')),
+      allOf(contains('partial answer'), contains('24 轮上限')),
     );
   });
 
@@ -2260,14 +2260,23 @@ return {
           await utf8.decoder.bind(request).join();
           request.response.headers.contentType = ContentType.json;
           request.response.write(
-            jsonEncode({
+            'data: ${jsonEncode({
               'choices': [
                 {
-                  'message': {
-                    'role': 'assistant',
-                    'content': 'working $requests',
+                  'delta': {'content': 'working $requests'},
+                  'finish_reason': null,
+                },
+              ],
+            })}\n\n',
+          );
+          request.response.write(
+            'data: ${jsonEncode({
+              'choices': [
+                {
+                  'delta': {
                     'tool_calls': [
                       {
+                        'index': 0,
                         'id': 'call_$requests',
                         'type': 'function',
                         'function': {
@@ -2277,9 +2286,10 @@ return {
                       },
                     ],
                   },
+                  'finish_reason': 'tool_calls',
                 },
               ],
-            }),
+            })}\n\n',
           );
           await request.response.close();
         }

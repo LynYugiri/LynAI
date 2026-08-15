@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/agent_defaults.dart';
 import '../providers/settings_provider.dart';
 import '../services/lynai_permission_definitions.dart';
 
@@ -26,9 +27,55 @@ class AgentDefaultsSettingsPage extends StatelessWidget {
             ),
           ),
           const Divider(height: 1),
-          const ListTile(
-            title: Text('全局权限'),
-            subtitle: Text('修改后对所有对话即时生效。'),
+          ListTile(
+            title: const Text('单次任务最大工具轮数'),
+            subtitle: Text(
+              '达到上限后模型会基于已有结果强制收尾。当前：${settings.agentMaxToolRounds} 轮',
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Slider(
+                    value: settings.agentMaxToolRounds
+                        .clamp(minAgentMaxToolRounds, maxAgentMaxToolRounds)
+                        .toDouble(),
+                    min: minAgentMaxToolRounds.toDouble(),
+                    max: maxAgentMaxToolRounds.toDouble(),
+                    divisions: maxAgentMaxToolRounds - minAgentMaxToolRounds,
+                    label: '${settings.agentMaxToolRounds} 轮',
+                    onChanged: (value) => provider.updateAgentDefaults(
+                      enabled: settings.agentEnabledByDefault,
+                      permissions: settings.agentGrantedPermissions,
+                      maxToolRounds: value.round(),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 48,
+                  child: Text(
+                    '${settings.agentMaxToolRounds}',
+                    textAlign: TextAlign.end,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          ListTile(
+            title: const Text('全局权限'),
+            subtitle: const Text('修改后对所有对话即时生效。'),
+            trailing: TextButton(
+              onPressed: () => provider.updateAgentDefaults(
+                enabled: settings.agentEnabledByDefault,
+                permissions: LynAIPermissions.defaultAgent,
+                maxToolRounds: defaultAgentMaxToolRounds,
+              ),
+              child: const Text('恢复默认'),
+            ),
           ),
           for (final definition in agentAssignablePermissionDefinitions)
             CheckboxListTile(
