@@ -275,6 +275,24 @@ Subagent 适合 QQ/消息应用这类流程：主 Agent 只描述目标，Subage
 
 `LynAIFunctionService` 本身不实现工具逻辑，它只负责根据工具名查找注册表和参数校验后转发到正确的执行器。新增功能类工具只需在注册表中添加条目，调用方无需改动。
 
+## 互联能力注册表
+
+文件：`lib/services/lynai_capability_registry.dart`
+
+`LynAICapabilityRegistry` 是宿主内置能力与插件对外函数的统一目录，取代此前散落在 `_permissionFor` 中的硬编码权限 switch。每个 `CapabilityMethod` 声明 `method`、`permission`（null 表示免授权）、`isRead` 和 `provider`（host/plugin）。宿主能力由 `registerHostCapabilities` 一次性注册；插件能力随插件启用/禁用动态 `registerPlugin`/`removePlugin`。授权查询统一通过 `lookup`，未注册的 `device.*` 按操控屏幕权限处理。`model.list`/`model.current` 提供 `{provider, model, category}` 身份，`model.chat` 等接受 `provider`+`model`（回退旧 `modelId`/`modelName`）。
+
+插件权限分为免授权与敏感两类，敏感度由 `LynAIPermissionDefinition.pluginAutoGrant` 系统定义，插件不能自证降级：`network:public`（仅 GET 公开只读 HTTPS）自动授予；`plugin.storage.*` 与 `plugin.file.list/read` 属插件沙盒免授权；其余（读写宿主数据、`network:access`、`model.*`、`device.*`、`recycleBin.*`、`webview:bridge`、越界 `files:write`）需用户在权限管理里逐项授权。
+
+## 跨插件调用
+
+插件在 manifest `functions` 中通过 `expose: true` 声明对外函数（可加 `requires` 声明调用方额外权限）。`plugin.call` 是跨插件调用入口：调用方须持有 `plugins.callFunction`，目标函数须 `expose` 且所在插件已启用；函数内部再调用 `lynai.*` 时以目标插件身份执行，其 `grantedPermissions` 决定可访问的宿主能力，避免权限提升。Lua 侧经 `lynai.plugin.call(pluginId, function, args)` 触发。
+
+## 命令选择器注册表
+
+文件：`lib/services/composer_selector_registry.dart`
+
+`ComposerSelectorRegistry` 是命令面板的选项源目录，承载内置选择器（笔记、笔记页面、待办清单、待办）与插件命令。`ComposerSelector` 声明 `name`、`title`、`description`、可选的 `modelId`（选中后覆盖本次发送模型）以及异步 `load(query, path)`；`load` 返回 `ComposerSelectorItem`（`folder` 用于分层导航，`item` 携带 `ComposerSelectorValue` 稳定类型/ID，不含正文）。插件命令由 `PluginLuaRuntimeService.executeCommandHandler` 在 Lua 沙箱中执行 handler，返回选项数组经 `parsePluginCommandItems` 解析（兼容 `result`/`options`/直接数组，`ok:false` 或结构非法时 fail closed 返回空列表）。
+
 ## AccountService
 
 文件：`lib/services/account_service.dart`、`lib/services/remote_account_service.dart`

@@ -170,6 +170,8 @@ storage_v2 中的资源注册表使用 content-addressed blob 路径。对话附
 
 动态工具统一注册到 `AgentToolRegistry`。MCP Provider、插件工具与 tool source 共用 `AgentToolNameCodec`，按 source、server/plugin ID 和远端工具名生成长度有界的 `tool_v1_*` canonical name。`ToolCallService.createRunSnapshot()` 在 Run 开始时捕获 descriptor、并发语义和权限快照。内置与插件 handler 固定在 snapshot；MCP 只固定模型 schema，执行时查询实时 registry，断连或禁用后 fail closed，避免调用已释放连接。MCP 细节见 [MCP](mcp.md)。
 
+权限为全局单源（`AppSettings.agentGrantedPermissions`），对话不再保存独立权限快照。宿主能力与插件对外函数统一由 `LynAICapabilityRegistry` 声明权限与读/写性质；插件权限按 `pluginAutoGrant` 分为免授权（如 `network:public`、插件沙盒）与敏感（需在“权限管理”逐项授权），插件可通过 `functions.expose` + `plugin.call` 互相调用，被调函数以自身插件身份执行，避免权限提升。详见 [services](services.md)。
+
 模型来源的终态工具结果统一经过 `AgentToolExecutionService` 的 runtime-level sanitizer，再进入持久化和模型上下文。sanitizer 负责 bounded JSON、安全元数据和 Resource/Blob offload；页面、插件和 MCP handler 不各自承担最终结果清洗，也不得绕过该运行时边界传递原始二进制或本地路径。
 
 ## 任务与日历链路

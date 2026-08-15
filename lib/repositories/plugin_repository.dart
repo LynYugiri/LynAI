@@ -11,6 +11,7 @@ import '../models/plugin.dart'
 import '../services/bounded_zip_decoder.dart';
 import '../utils/plugin_path_utils.dart';
 import '../services/plugin_sync_validation.dart';
+import '../services/lynai_permission_definitions.dart';
 import '../services/storage_v2_service.dart';
 
 /// 插件文件系统仓储。
@@ -1003,7 +1004,9 @@ class PluginRepository {
       manifest: manifest,
       path: path,
       enabled: false,
-      grantedPermissions: const [],
+      grantedPermissions: autoGrantedPluginPermissions(
+        manifest.permissions,
+      ).toList(growable: false),
       enabledFeaturePages: manifest.featurePages
           .map((page) => page.id)
           .toList(),

@@ -8,10 +8,9 @@
 -- 1. 用户没有指定地点时，查询 wttr.in 的 IP 定位天气。
 -- 2. 用户指定 location 时，按城市、地区或地点查询。
 -- 3. Lua 负责构造请求、解析响应、裁剪字段，返回适合 AI 总结的结构。
--- 4. Dart 只提供通用能力：http.fetch、lynai.json.decode 和 __lynai_next。
+-- 4. Dart 只提供通用能力：http.fetchPublic、lynai.json.decode 和 __lynai_next。
 
 local DEFAULT_LANGUAGE = "zh"
-local USER_AGENT = "LynAI Weather Plugin"
 
 -- 去除字符串首尾空白。插件参数来自模型，可能出现空字符串或只有空格的值。
 local function trim(value)
@@ -111,19 +110,16 @@ end
 -- args.language 可选。天气描述语言，默认 zh。
 --
 -- 返回：
--- 第一步返回 __lynai_function = "http.fetch"，由 Dart 执行网络请求；
+-- 第一步返回 __lynai_function = "http.fetchPublic"，由 Dart 执行网络请求；
 -- 请求完成后通过 __lynai_next 回到 parse_weather，由 Lua 解析并压缩结果。
 function query_weather(args)
   args = args or {}
   return {
-    __lynai_function = "http.fetch",
+    __lynai_function = "http.fetchPublic",
     __lynai_next = "parse_weather",
     args = {
       url = build_weather_url(args),
-      method = "GET",
-      headers = {
-        ["User-Agent"] = USER_AGENT
-      }
+      method = "GET"
     }
   }
 end

@@ -10,6 +10,7 @@ import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../repositories/plugin_repository.dart';
 import '../services/code_syntax_service.dart';
+import '../services/lynai_permission_definitions.dart';
 import '../utils/file_picker_io_utils.dart';
 import '../utils/snackbar_utils.dart';
 import '../widgets/model_config_picker.dart';
@@ -239,34 +240,47 @@ class PluginDetailPage extends StatelessWidget {
             child: manifest.permissions.isEmpty
                 ? const Text('此插件未声明权限')
                 : Column(
-                    children: manifest.permissions.map((permission) {
-                      final granted = plugin.grantedPermissions.contains(
-                        permission,
-                      );
-                      return CheckboxListTile(
-                        value: granted,
-                        title: Text(_permissionLabel(permission)),
-                        subtitle: Text(permission),
-                        contentPadding: EdgeInsets.zero,
-                        onChanged: (value) {
-                          final next = plugin.grantedPermissions.toSet();
-                          if (value == true) {
-                            next.add(permission);
-                          } else {
-                            next.remove(permission);
-                          }
-                          _runAction(
-                            context,
-                            () => context
-                                .read<PluginProvider>()
-                                .setGrantedPermissions(
-                                  plugin.id,
-                                  next.toList(growable: false),
-                                ),
-                          );
-                        },
-                      );
-                    }).toList(),
+                    children: [
+                      for (final permission in manifest.permissions)
+                        if (isAutoGrantedPluginPermission(permission))
+                          ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(
+                              Icons.check_circle_outline,
+                              size: 18,
+                            ),
+                            title: Text(_permissionLabel(permission)),
+                            subtitle: Text('$permission · 已自动授予'),
+                          ),
+                      for (final permission in manifest.permissions)
+                        if (!isAutoGrantedPluginPermission(permission))
+                          CheckboxListTile(
+                            value: plugin.grantedPermissions.contains(
+                              permission,
+                            ),
+                            title: Text(_permissionLabel(permission)),
+                            subtitle: Text(permission),
+                            contentPadding: EdgeInsets.zero,
+                            onChanged: (value) {
+                              final next = plugin.grantedPermissions.toSet();
+                              if (value == true) {
+                                next.add(permission);
+                              } else {
+                                next.remove(permission);
+                              }
+                              _runAction(
+                                context,
+                                () => context
+                                    .read<PluginProvider>()
+                                    .setGrantedPermissions(
+                                      plugin.id,
+                                      next.toList(growable: false),
+                                    ),
+                              );
+                            },
+                          ),
+                    ],
                   ),
           ),
           const SizedBox(height: 12),
@@ -2145,6 +2159,7 @@ String _permissionLabel(String permission) {
     'native:open_app' => '打开应用',
     'files:write' => '插件文件读写',
     'network:access' => '网络访问',
+    'network:public' => '访问公开网络',
     _ => permission,
   };
 }

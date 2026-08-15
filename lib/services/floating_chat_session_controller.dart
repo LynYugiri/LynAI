@@ -8,6 +8,7 @@ import '../models/agent_runtime.dart';
 import '../models/agent_user_interaction.dart';
 import '../models/app_settings.dart';
 import '../models/conversation.dart';
+import '../models/composer_reference.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
 import '../providers/conversation_provider.dart';
@@ -214,8 +215,18 @@ class FloatingChatSessionController extends ChangeNotifier {
         settings,
         roleId: roleId,
         messages: [
-          (role: 'user', content: text, images: const <MessageImage>[]),
-          (role: 'assistant', content: '', images: const <MessageImage>[]),
+          (
+            role: 'user',
+            content: text,
+            images: const <MessageImage>[],
+            composerSegments: const <ComposerSegment>[],
+          ),
+          (
+            role: 'assistant',
+            content: '',
+            images: const <MessageImage>[],
+            composerSegments: const <ComposerSegment>[],
+          ),
         ],
       );
     } else {
@@ -412,7 +423,6 @@ class FloatingChatSessionController extends ChangeNotifier {
         imageGenerationModelId: appSettings.imageGenerationModelId,
         imageGenerationEnabled: appSettings.imageGenerationEnabled,
         agentEnabled: appSettings.agentEnabledByDefault,
-        agentGrantedPermissions: appSettings.agentGrantedPermissions,
       );
     }
     return ConversationSettings(
@@ -430,7 +440,6 @@ class FloatingChatSessionController extends ChangeNotifier {
       imageGenerationModelId: appSettings.imageGenerationModelId,
       imageGenerationEnabled: appSettings.imageGenerationEnabled,
       agentEnabled: appSettings.agentEnabledByDefault,
-      agentGrantedPermissions: appSettings.agentGrantedPermissions,
     );
   }
 
@@ -495,9 +504,7 @@ class FloatingChatSessionController extends ChangeNotifier {
       interactionSurface: AgentUserInteractionSurface.floatingAssistant,
       webSearch: _webSearch,
       webSearchConfigured: webSearchConfigured,
-      permissionSnapshot: conversationSettings?.inheritsAgentPermissions == true
-          ? _settings.settings.agentPermissionSnapshot
-          : conversationSettings?.permissionSnapshot,
+      permissionSnapshot: _settings.settings.agentPermissionSnapshot,
     );
     final runSnapshot = toolService.createRunSnapshot(
       agentEnabled: conversationSettings?.agentEnabled == true,
@@ -514,9 +521,7 @@ class FloatingChatSessionController extends ChangeNotifier {
       toolResultProcessor: _toolResultProcessor,
       persistenceMetadata: AgentRunPersistenceMetadata(
         conversationId: conversationId,
-        permissionPolicy: conversationSettings?.inheritsAgentPermissions == true
-            ? _settings.settings.agentPermissionSnapshot
-            : conversationSettings?.permissionSnapshot,
+        permissionPolicy: _settings.settings.agentPermissionSnapshot,
       ),
       model: (request) => const StreamChunkAgentAdapter().adapt(
         _api.sendStreamRequest(

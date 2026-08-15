@@ -20,6 +20,7 @@ import '../models/agent_user_interaction.dart';
 import '../models/agent_trace.dart';
 import '../models/conversation.dart';
 import '../models/chat_role.dart';
+import '../models/composer_reference.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
 import '../providers/conversation_provider.dart';
@@ -34,6 +35,7 @@ import '../providers/task_provider.dart';
 import '../services/attachment_storage_service.dart';
 import '../services/api_message_builder.dart';
 import '../services/api_service.dart';
+import '../services/composer_selector_registry.dart';
 import '../services/agent_loop_runtime.dart';
 import '../services/agent_persistence_lifecycle.dart';
 import '../services/agent_tool_registry.dart';
@@ -41,6 +43,7 @@ import '../services/agent_tool_result_sanitizer.dart';
 import '../services/agent_tool_execution_service.dart';
 import '../services/agent_user_interaction_broker.dart';
 import '../services/backend_client.dart';
+import '../services/plugin_lua_runtime_service.dart';
 import '../services/knowledge_annotation_prompt.dart';
 import '../services/generation_background_service.dart';
 import '../services/model_recognition_service.dart';
@@ -57,7 +60,9 @@ import '../widgets/latex_renderer.dart';
 import '../widgets/ai_explain_selection_area.dart';
 import '../widgets/chat_composer_keyboard.dart';
 import '../widgets/knowledge_explanation_dialog.dart';
+import '../widgets/reference_composer.dart';
 import 'chat/chat_image_exporter.dart';
+import 'chat/command_palette.dart';
 import 'chat/dialog_settings_content.dart';
 import 'chat/history_drawer.dart';
 import 'chat/share_conversation_image.dart';
@@ -290,7 +295,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   static const _emptyAssistantReply = '模型没有返回内容，请稍后重试或检查模型配置。';
   static const _streamWaitTimeout = Duration(minutes: 5);
 
-  final _msgCtrl = TextEditingController();
+  final _msgCtrl = ReferenceComposerController();
   final _searchCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
   late final ScrollController _historyScrollController;
@@ -314,6 +319,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   bool _preparingSend = false;
   bool _showAttach = false;
   bool _showModelMenu = false;
+  bool _showCommandPalette = false;
+  int _refSeq = 0;
   bool _recording = false;
   bool _transcribingSpeech = false;
   bool _autoScrollToBottom = true;
@@ -664,7 +671,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       imageRecognitionPrompt: settings.imageRecognitionPrompt,
       imageGenerationModelId: settings.imageGenerationModelId,
       imageGenerationEnabled: settings.imageGenerationEnabled,
-      agentGrantedPermissions: settings.agentGrantedPermissions,
     );
   }
 
@@ -1430,7 +1436,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       imageRecognitionPrompt: set.imageRecognitionPrompt,
       imageGenerationModelId: set.imageGenerationModelId,
       imageGenerationEnabled: set.imageGenerationEnabled,
-      agentGrantedPermissions: set.agentGrantedPermissions,
     );
   }
 
@@ -1471,9 +1476,73 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     return _activeSettings() ?? _settingsToConversationSettings();
   }
 
+  ComposerSelectorRegistry _selectorRegistryOf() {
+    final registry = buildBuiltInSelectorRegistry(
+      features: context.read<FeatureProvider>(),
+      tasks: context.read<TaskProvider>(),
+    );
+    final features = context.read<FeatureProvider>();
+    final tasks = context.read<TaskProvider>();
+    final calendar = context.read<CalendarProvider>();
+    final modelConfigs = context.read<ModelConfigProvider>();
+    final pluginProvider = context.read<PluginProvider>();
+    final settings = context.read<SettingsProvider>();
+    final runtime = PluginLuaRuntimeService();
+    for (final plugin in pluginProvider.plugins) {
+      for (final command in plugin.manifest.commands) {
+        registry.register(
+          ComposerSelector(
+            name: 'plugin.${plugin.id}.${command.name}',
+            title: command.title,
+            description: command.description,
+            modelId: command.model,
+            load: (query, path) async => parsePluginCommandItems(
+              await runtime.executeCommandHandler(
+                plugin: plugin,
+                command: command,
+                arguments: {'query': query, 'path': path},
+                features: features,
+                tasks: tasks,
+                calendar: calendar,
+                modelConfigs: modelConfigs,
+                plugins: pluginProvider,
+                settings: settings,
+              ),
+            ),
+          ),
+        );
+      }
+    }
+    return registry;
+  }
+
+  void _insertComposerReference(ComposerSelectorValue value, String? modelId) {
+    final reference = ComposerReference(
+      localId: 'ref-${_refSeq++}',
+      type: value.type,
+      id: value.id,
+      title: value.title,
+      subtitle: value.subtitle,
+      qualifiers: value.qualifiers,
+    );
+    _msgCtrl.insertReference(reference);
+    if (modelId != null && modelId.isNotEmpty) {
+      _pendingModelId = modelId;
+    }
+    _inputRevision.value++;
+    setState(() {
+      _showCommandPalette = false;
+    });
+    if (!_isMobilePlatform) _focusNode.requestFocus();
+  }
+
   Future<void> _send() async {
-    final text = _msgCtrl.text.trim();
-    if ((text.isEmpty && _pendingImages.isEmpty) ||
+    final displayText = _msgCtrl.displayText.trim();
+    final modelText = _msgCtrl.modelText;
+    final segments = _msgCtrl.segments;
+    if ((displayText.isEmpty &&
+            modelText.isEmpty &&
+            _pendingImages.isEmpty) ||
         _streaming ||
         _preparingSend) {
       return;
@@ -1495,7 +1564,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final targetConvId = _convId;
     final sendGen = ++_sendGen;
     setState(() => _preparingSend = true);
-    final preparedUserContent = await _prepareUserContent(text, images);
+    final preparedUserContent = await _prepareUserContent(modelText, images);
     if (!mounted) return;
     if (sendGen != _sendGen || _convId != targetConvId) {
       _setBackgroundGenerationActive(false);
@@ -1513,8 +1582,18 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         conversationSettings,
         roleId: roleId,
         messages: [
-          (role: 'user', content: text, images: images),
-          (role: 'assistant', content: '', images: const <MessageImage>[]),
+          (
+            role: 'user',
+            content: displayText,
+            images: images,
+            composerSegments: segments,
+          ),
+          (
+            role: 'assistant',
+            content: '',
+            images: const <MessageImage>[],
+            composerSegments: const <ComposerSegment>[],
+          ),
         ],
         modelContextByIndex: {0: preparedUserContent.textContext},
       );
@@ -1522,9 +1601,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       cp.addMessage(
         _convId!,
         'user',
-        text,
+        displayText,
         modelContextContent: preparedUserContent.textContext,
         images: images,
+        composerSegments: segments,
       );
       cp.addMessage(_convId!, 'assistant', '', save: false);
     }
@@ -1752,9 +1832,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final storage = context.read<StorageV2Service>();
     _agentMessageId = cp.getConversation(cid)?.messages.lastOrNull?.id;
     final resolvedPermissionSnapshot =
-        streamSettings?.inheritsAgentPermissions == true
-        ? context.read<SettingsProvider>().settings.agentPermissionSnapshot
-        : streamSettings?.permissionSnapshot;
+        context.read<SettingsProvider>().settings.agentPermissionSnapshot;
     final toolService = ToolCallService(
       context.read<FeatureProvider>(),
       tasks: context.read<TaskProvider>(),
@@ -2586,7 +2664,6 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       imageGenerationModelId: settings.imageGenerationModelId,
       imageGenerationEnabled: settings.imageGenerationEnabled,
       agentEnabled: settings.agentEnabledByDefault,
-      agentGrantedPermissions: settings.agentGrantedPermissions,
     );
   }
 
@@ -3101,6 +3178,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                     ),
               if (_showScrollToBottom) _scrollToBottomButton(),
               if (_showModelMenu) _floatingModelList(mp),
+              if (_showCommandPalette) _floatingCommandPalette(),
             ],
           ),
         ),
@@ -4602,7 +4680,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     _expandedThinkIds.clear();
     _thinkMap.clear();
     _updateStreamDraft(const _StreamDraft());
-    _msgCtrl.text = msg.content;
+    if (msg.composerSegments.isNotEmpty) {
+      _msgCtrl.replaceSegments(msg.composerSegments);
+    } else {
+      _msgCtrl.text = msg.content;
+    }
     _msgCtrl.selection = TextSelection.collapsed(offset: _msgCtrl.text.length);
     _inputRevision.value++;
     setState(() {
@@ -4753,6 +4835,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           Row(
             children: [
               _modelSel(model, mp),
+              const SizedBox(width: 4),
+              _commandBtn(),
               const SizedBox(width: 4),
               _dialogSetBtn(),
               const SizedBox(width: 4),
@@ -5019,6 +5103,52 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     );
   }
 
+  Widget _floatingCommandPalette() {
+    return Positioned(
+      left: 12,
+      right: 12,
+      bottom: 8,
+      child: Material(
+        elevation: 8,
+        borderRadius: BorderRadius.circular(12),
+        color: Colors.transparent,
+        child: ChatCommandPalette(
+          registry: _selectorRegistryOf(),
+          onSelected: _insertComposerReference,
+        ),
+      ),
+    );
+  }
+
+  Widget _commandBtn() {
+    final scheme = Theme.of(context).colorScheme;
+    final active = _showCommandPalette;
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () => setState(() {
+        _showCommandPalette = !_showCommandPalette;
+        if (_showCommandPalette) _showModelMenu = false;
+      }),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          color: active ? scheme.primary.withValues(alpha: 0.1) : null,
+          border: Border.all(
+            color: active
+                ? scheme.primary.withValues(alpha: 0.3)
+                : scheme.outlineVariant,
+          ),
+        ),
+        child: Icon(
+          Icons.tag,
+          size: 16,
+          color: active ? scheme.primary : scheme.outline,
+        ),
+      ),
+    );
+  }
+
   List<ModelEntry> _enabledVisionEntries(ModelConfig config) {
     return config.models
         .where((entry) => entry.enabled && entry.supportsVision)
@@ -5099,7 +5229,10 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       );
     }
     return InkWell(
-      onTap: () => setState(() => _showModelMenu = true),
+      onTap: () => setState(() {
+        _showModelMenu = true;
+        _showCommandPalette = false;
+      }),
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: hideName ? 38 : maxWidth),
         child: Container(

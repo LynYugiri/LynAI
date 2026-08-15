@@ -1121,7 +1121,7 @@ PRAGMA user_version = 16;
       await database.close();
       final migrated = sqlite3.open('${storageRoot.path}/app.db');
       try {
-        expect(migrated.userVersion, 27);
+        expect(migrated.userVersion, StorageV2DriftDatabase.currentSchemaVersion);
         expect(
           migrated
               .select(

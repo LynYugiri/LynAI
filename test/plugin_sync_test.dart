@@ -462,11 +462,9 @@ Future<Directory> _source(String id) async {
     'skills': [
       {'name': 'skill'},
     ],
-    'ui': {
-      'featurePages': [
-        {'id': 'page', 'title': 'Page', 'entry': 'page.html'},
-      ],
-    },
+    'featurePages': [
+      {'id': 'page', 'title': 'Page', 'entry': 'page.html'},
+    ],
     'editableFiles': [
       {'path': id == 'status-dashboard' ? 'status.css' : 'editable.txt'},
     ],

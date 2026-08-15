@@ -6,13 +6,13 @@ import '../models/agent_plan.dart';
 import '../models/agent_trace.dart';
 import '../models/agent_working_memory.dart';
 import '../models/conversation.dart';
+import '../models/composer_reference.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
 import '../models/recycle_bin_item.dart';
 import '../repositories/conversation_repository.dart';
 import '../repositories/recycle_bin_repository.dart';
 import '../services/storage_v2_service.dart';
-import '../services/lynai_permission_definitions.dart';
 import '../utils/chat_search_matcher.dart';
 import 'serialized_save_queue.dart';
 
@@ -168,52 +168,6 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
     return true;
   }
 
-  /// 迁移旧对话的权限快照为继承式语义。
-  ///
-  /// - v0 历史数据：从未自定义过权限，直接转为跟随全局（override=false）。
-  /// - v1 且自定义列表与当前全局一致：无实际自定义，自动转为跟随全局。
-  /// - v1 且列表与全局不同：保持显式覆盖，幂等。
-  Future<bool> migrateLegacyPermissionSnapshots(
-    Iterable<String> currentGlobalDefaults,
-  ) async {
-    final normalizedDefaults = currentGlobalDefaults.toSet();
-    var changed = false;
-    _conversations = _conversations
-        .map((conversation) {
-          final settings = conversation.settings;
-          if (settings.permissionSnapshotVersion != 0) {
-            if (settings.agentPermissionsOverride &&
-                settings.agentGrantedPermissions.length ==
-                    normalizedDefaults.length &&
-                settings.agentGrantedPermissions
-                    .toSet()
-                    .containsAll(normalizedDefaults)) {
-              changed = true;
-              return conversation.copyWith(
-                settings: settings.copyWith(
-                  agentPermissionsOverride: false,
-                ),
-              );
-            }
-            return conversation;
-          }
-          changed = true;
-          return conversation.copyWith(
-            settings: settings.copyWith(
-              permissionSnapshotVersion: AgentPermissionSnapshot.currentVersion,
-              agentPermissionsOverride: false,
-              agentGrantedPermissions: List<String>.from(currentGlobalDefaults),
-            ),
-          );
-        })
-        .toList(growable: false);
-    if (!changed) return false;
-    _queueSaveConversations(immediate: true);
-    await flushPendingSaves();
-    notifyListeners();
-    return true;
-  }
-
   @override
   void dispose() {
     _enqueuePendingSave();
@@ -251,7 +205,14 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
   String createConversationWithMessages(
     ConversationSettings settings, {
     String roleId = 'default',
-    required List<({String role, String content, List<MessageImage> images})>
+    required List<
+      ({
+        String role,
+        String content,
+        List<MessageImage> images,
+        List<ComposerSegment> composerSegments,
+      })
+    >
     messages,
     Map<int, String>? modelContextByIndex,
   }) {
@@ -265,6 +226,7 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
               content: entry.$2.content,
               modelContextContent: modelContextByIndex?[entry.$1],
               images: entry.$2.images,
+              composerSegments: entry.$2.composerSegments,
               timestamp: now,
             ),
           )
@@ -319,6 +281,7 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
     String? modelContextContent,
     List<MessageImage> images = const [],
     String? thinkingContent,
+    List<ComposerSegment> composerSegments = const [],
     bool save = true,
   }) {
     try {
@@ -333,6 +296,7 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
         images: images,
         thinkingContent: thinkingContent,
         agentTrace: null,
+        composerSegments: composerSegments,
         timestamp: DateTime.now(),
       );
 
@@ -771,6 +735,7 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
           ? old.thinkingContent
           : thinkingContent as String?,
       agentTrace: old.agentTrace,
+      composerSegments: old.composerSegments,
       timestamp: old.timestamp,
       revision: old.revision + 1,
       updatedAt: DateTime.now(),

@@ -22,7 +22,7 @@
 
 `WebSearchRequest` 是 provider 无关的公开输入，只包含定长 query、1-10 的结果上限、可选 BCP 47 风格语言标签和 `day`/`month`/`year` 时间范围，不包含 URL、header 或 credential。`WebSearchRoute` 区分 `client`、`backend` 和 `auto`，`WebSearchClientProvider` 只允许已实现的 Tavily/SearXNG 选择。`WebSearchResult` 统一标题、HTTP(S) URL、摘要、可选 score 和发布时间；`WebSearchResponse` 记录实际使用的 provider/route 和规范化结果。provider endpoint 和 secret 属于服务层可信配置，不进入这些模型。
 
-`AppSettings` 保存新对话默认的 `agentEnabledByDefault`、权限列表、网页搜索 route、客户端首选 provider、非秘密 SearXNG endpoint，以及默认关闭的 SearXNG HTTP 精确-origin 明文授权。主聊天和悬浮聊天创建新对话时把 Agent enabled 与权限复制进 `ConversationSettings`；未发送草稿可由输入区 Agent 按钮和对话权限弹窗覆盖这些初值，首次发送时固化草稿快照。之后设置页改默认值不会改写历史对话，当前对话设置弹窗只编辑该对话的权限快照。Tavily key 和 SearXNG bearer token 不属于 `AppSettings`。
+`AppSettings` 保存全局生效的 `agentEnabledByDefault`、权限列表、网页搜索 route、客户端首选 provider、非秘密 SearXNG endpoint，以及默认关闭的 SearXNG HTTP 精确-origin 明文授权。权限是全局单源：主聊天、悬浮聊天运行时的生效权限快照都实时读取这里，设置页“权限管理”和对话设置弹窗编辑的是同一份数据，修改即时作用于所有对话。Tavily key 和 SearXNG bearer token 不属于 `AppSettings`。
 
 ## Message 与附件
 
@@ -38,11 +38,18 @@
 | `modelContextContent` | 可选的隐藏文本上下文，保存 OCR、文件识别和可读文本附件展开结果；后续模型请求和同步优先使用，不直接显示。 |
 | `images` | 历史字段名，实际表示附件列表。 |
 | `thinkingContent` | assistant 的思考内容。 |
+| `composerSegments` | 用户消息的编辑器片段（文本与引用交错），用于撤回/编辑时还原引用 Chip；旧消息或纯文本消息为空。 |
 | `timestamp` | 消息创建时间。 |
 
 `MessageImage` 保存附件路径、文件名、大小和 MIME 类型。它可以表示图片、PDF、文本、Office 文件或压缩包。字段名 `images` 为兼容旧数据保留。
 
 附件只保存路径和元数据，不把文件内容写入消息 JSON。附件路径为空或本地文件丢失时，附件记录仍保留并由页面显示不可用占位。页面层负责把用户选择的文件复制到应用私有目录。
+
+## 类型化引用
+
+文件：`lib/models/composer_reference.dart`
+
+`ComposerReference` 是命令面板选中的类型化引用，仅携带 `type`（`note`/`note_page`/`task`/`task_list`/`plugin_resource`/`plugin_skill`）、稳定 `id`、本地显示标题与 `qualifiers`。`ComposerReferenceCodec` 唯一负责生成/解析 `<lynai_ref type="..." id="..." .../>`：发送给模型的正文只包含 type/id 与稳定限定字段，不含标题或正文。`ComposerSegment` 区分 `ComposerTextSegment` 与 `ComposerReferenceSegment`，`encodeComposerSegments`/`decodeComposerSegments` 负责消息持久化的序列化。
 
 ## Conversation 与设置快照
 
@@ -62,9 +69,9 @@
 | `roleId` | 当前角色 ID，用于历史分组。 |
 | `createdAt` / `updatedAt` | 创建和更新时间。 |
 
-`ConversationSettings` 保存发送对话所需的模型、系统提示词、OCR、文件识别、图片生成、语音、Agent 模式和权限配置。`selectedSystemPromptId` 只保留来源标识，`systemPrompt` 保存选择当时的实际正文；发送历史对话时必须直接使用该正文和权限快照，不能按当前全局模板或默认权限重新解析。历史对话也不能反向覆盖全局设置。
+`ConversationSettings` 保存发送对话所需的模型、系统提示词、OCR、文件识别、图片生成、语音和 Agent 模式。`selectedSystemPromptId` 只保留来源标识，`systemPrompt` 保存选择当时的实际正文；发送历史对话时必须直接使用该正文，不能按当前全局模板重新解析。历史对话也不能反向覆盖全局设置。
 
-`agentPermissionsOverride` 区分对话权限的两种来源：`false`（默认，新对话）表示该对话跟随全局“对话权限”默认列表，`_effectivePermissionSnapshot()` 实时读取全局设置；`true` 表示使用对话自身的 `agentGrantedPermissions` 快照，全局默认变化不影响它。旧数据 `fromJson` 缺失该字段时按 `true` 处理以保留显式快照语义；迁移会把 v0 快照和与全局列表相同的 v1 快照收敛为跟随全局，其余保持。设置弹窗两态切换：自定义时预填当前全局列表，恢复时重置为跟随全局。
+权限由 `AppSettings.agentGrantedPermissions` 全局单源管理，`ConversationSettings` 不再保存权限字段（旧的 `agentPermissionsOverride`/`agentGrantedPermissions`/`permissionSnapshotVersion` 在 `fromJson` 时被忽略）。运行时生效快照统一实时读取全局设置，对话设置弹窗与设置页“权限管理”编辑的是同一份全局数据。`LynAIPermissionDefinition` 增加 `pluginAutoGrant` 标记区分插件免授权权限（如 `network:public`）与敏感权限（需用户在权限管理里逐项授权）。
 
 反序列化时坏消息、坏 Agent 计划或坏工作记忆会被跳过；如果整条对话结构损坏，则由 Provider 跳过该对话。
 
@@ -281,6 +288,7 @@ storage_v2 下，笔记分页元数据由存储层的 `StorageV2NotePage` 表达
 | `tools` | `List<PluginToolDefinition>` | 注册给 AI 模型调用的工具列表。 |
 | `skills` | `List<PluginSkillDefinition>` | Agent 可按需加载的 Markdown 工作流说明；`editable` 默认 true，允许用户和模型通过插件文件 overlay 修改 `skills/<name>.md`。 |
 | `functions` | `List<PluginFunctionDefinition>` | 注册给功能页 WebView 的内部函数列表。 |
+| `commands` | `List<PluginCommandDefinition>` | 命令面板选项源：`handler` 是返回面板选项的 Lua 函数，`model` 可指定选中后本次发送覆盖的模型 ID。 |
 | `feature` | `String?` | 可选功能页 HTML 入口路径。没有则功能页入口不可见。 |
 | `permissions` | `List<String>` | 声明的权限列表，例如 `network`、`file_read`、`file_write`。 |
 | `config` | `PluginConfigSchema?` | 可选配置表单 schema，插件管理页据此渲染配置 UI。 |

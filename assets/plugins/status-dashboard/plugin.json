@@ -49,9 +49,7 @@
     {
       "id": "status",
       "title": "状态",
-      "entry": "status.html",
-      "showInSettings": true,
-      "showInDashboard": false
+      "entry": "status.html"
     }
   ],
   "editableFiles": [

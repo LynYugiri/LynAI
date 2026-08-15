@@ -272,7 +272,7 @@ void main() {
   });
 
   testWidgets(
-    'conversation permissions customize and restore follow globals',
+    'conversation permissions edit global settings directly',
     (tester) async {
       SharedPreferences.setMockInitialValues({});
       final conversations = memoryConversationProvider();
@@ -299,7 +299,6 @@ void main() {
         ConversationSettings(
           modelId: 'm1',
           agentEnabled: false,
-          agentGrantedPermissions: const [LynAIPermissions.notesRead],
         ),
       );
 
@@ -326,46 +325,23 @@ void main() {
       await tester.tap(find.byIcon(Icons.tune));
       await tester.pumpAndSettle();
       expect(find.text('对话权限'), findsOneWidget);
+      expect(find.text('全局权限'), findsOneWidget);
       expect(find.text('启用 Agent 模式'), findsNothing);
       expect(find.text('读取回收站'), findsNothing);
+      expect(find.text('跟随全局默认权限'), findsNothing);
 
-      // 继承态：显示跟随全局，不显示权限明细。
-      expect(find.text('跟随全局默认权限'), findsOneWidget);
-      expect(find.text('权限明细'), findsNothing);
-
-      // 自定义本对话权限：预填全局列表。
-      await tester.ensureVisible(find.text('自定义本对话权限'));
-      await tester.tap(find.text('自定义本对话权限'));
-      await tester.pumpAndSettle();
-      expect(find.text('权限明细'), findsOneWidget);
-      await tester.ensureVisible(find.text('权限明细'));
-      await tester.tap(find.text('权限明细'));
-      await tester.pumpAndSettle();
+      // 直接编辑全局权限：勾选“读取待办”。
       await tester.ensureVisible(find.text('读取待办'));
       await tester.tap(find.text('读取待办'));
       await tester.pump();
 
-      var conversation = conversations.getConversation(conversationId)!;
+      final conversation = conversations.getConversation(conversationId)!;
       expect(conversation.settings.agentEnabled, isFalse);
-      expect(conversation.settings.agentPermissionsOverride, isTrue);
+      expect(settings.settings.agentEnabledByDefault, isTrue);
       expect(
-        conversation.settings.agentGrantedPermissions.toSet(),
+        settings.settings.agentGrantedPermissions.toSet(),
         {LynAIPermissions.networkAccess, LynAIPermissions.todosRead},
       );
-      expect(settings.settings.agentEnabledByDefault, isTrue);
-      expect(settings.settings.agentGrantedPermissions, const [
-        LynAIPermissions.networkAccess,
-      ]);
-
-      // 恢复跟随全局：权限列表重置为全局镜像。
-      await tester.ensureVisible(find.text('恢复跟随全局默认'));
-      await tester.tap(find.text('恢复跟随全局默认'));
-      await tester.pump();
-      conversation = conversations.getConversation(conversationId)!;
-      expect(conversation.settings.agentPermissionsOverride, isFalse);
-      expect(conversation.settings.agentGrantedPermissions, const [
-        LynAIPermissions.networkAccess,
-      ]);
       await conversations.flushPendingSaves();
       await settings.flushPendingSaves();
     },

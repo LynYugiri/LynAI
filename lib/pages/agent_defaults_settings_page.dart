@@ -27,8 +27,8 @@ class AgentDefaultsSettingsPage extends StatelessWidget {
           ),
           const Divider(height: 1),
           const ListTile(
-            title: Text('新对话默认权限'),
-            subtitle: Text('修改立即作用于所有未自定义的对话；已自定义权限的对话保持不变。'),
+            title: Text('全局权限'),
+            subtitle: Text('修改后对所有对话即时生效。'),
           ),
           for (final definition in agentAssignablePermissionDefinitions)
             CheckboxListTile(

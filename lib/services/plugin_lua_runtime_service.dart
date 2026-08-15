@@ -112,6 +112,37 @@ class PluginLuaRuntimeService {
     };
   }
 
+  /// 在 Lua 沙箱中执行插件命令 handler，返回面板选项。
+  Future<Map<String, dynamic>> executeCommandHandler({
+    required InstalledPlugin plugin,
+    required PluginCommandDefinition command,
+    required Map<String, dynamic> arguments,
+    FeatureProvider? features,
+    TaskProvider? tasks,
+    CalendarProvider? calendar,
+    ModelConfigProvider? modelConfigs,
+    PluginProvider? plugins,
+    SettingsProvider? settings,
+    AgentCancellationToken? cancellationToken,
+    DateTime? deadline,
+  }) {
+    final invalid = _validateArguments(arguments, command.parameters);
+    if (invalid != null) return Future.value(invalid);
+    return _executeHandler(
+      plugin: plugin,
+      handler: command.handler,
+      arguments: arguments,
+      cancellationToken: cancellationToken,
+      deadline: deadline,
+      features: features,
+      tasks: tasks,
+      calendar: calendar,
+      modelConfigs: modelConfigs,
+      plugins: plugins,
+      settings: settings,
+    );
+  }
+
   Future<Map<String, dynamic>> _executeHandler({
     required InstalledPlugin plugin,
     required String handler,
@@ -343,6 +374,24 @@ class PluginLuaRuntimeService {
             ),
             context,
           ),
+        );
+        return 1;
+      },
+      'call': (LuaState ls) {
+        cancellationToken?.throwIfCancellationRequested();
+        final pluginId = ls.checkString(1)?.trim() ?? '';
+        final functionName = ls.checkString(2)?.trim() ?? '';
+        final args = _readJsonValue(ls, 3);
+        _pushFunctionCommand(
+          ls,
+          'plugin.call',
+          {
+            'pluginId': pluginId,
+            'functionName': functionName,
+            'arguments': args is Map
+                ? args.map((key, item) => MapEntry(key.toString(), item))
+                : <String, dynamic>{},
+          },
         );
         return 1;
       },

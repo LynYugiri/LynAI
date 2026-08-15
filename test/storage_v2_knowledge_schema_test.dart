@@ -7,7 +7,7 @@ import 'package:sqlite3/sqlite3.dart';
 
 void main() {
   test(
-    'schema 27 omits knowledge defaults and keeps category constraints',
+    'schema omits knowledge defaults and keeps category constraints',
     () async {
       final root = await Directory.systemTemp.createTemp(
         'lynai_knowledge_schema_',
@@ -20,7 +20,7 @@ void main() {
         expect(knowledge, isNot(contains('settings')));
         final raw = sqlite3.open('${storageRoot.path}/app.db');
         try {
-          expect(raw.userVersion, 27);
+          expect(raw.userVersion, StorageV2DriftDatabase.currentSchemaVersion);
           final columns = raw
               .select('PRAGMA table_info(knowledge_categories)')
               .map((row) => row['name'])
@@ -172,7 +172,7 @@ PRAGMA user_version = 26;
       expect((knowledge['entries'] as List).single['categoryId'], 'category');
       final migrated = sqlite3.open('${storageRoot.path}/app.db');
       try {
-        expect(migrated.userVersion, 27);
+        expect(migrated.userVersion, StorageV2DriftDatabase.currentSchemaVersion);
         expect(migrated.select('PRAGMA foreign_key_check'), isEmpty);
         expect(
           migrated.select(

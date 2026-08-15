@@ -387,16 +387,13 @@ while the globally provided mDNS service is disposed by Provider registration.
 LAN conflicts are loaded from the `lan:v1` scope and resolved through the same storage conflict engine used by cloud sync.
 ## Conversation Permission Migration
 
-Startup loads `SettingsProvider` before `ConversationProvider`, then calls the
-idempotent conversation permission migration. Only settings with a missing
-snapshot version are updated, and the full conversation replacement is written
-in the existing storage transaction before normal startup continues. Migration
-also normalizes permission inheritance: legacy v0 snapshots and v1 snapshots
-whose list equals the current global defaults are rewritten to
-`agentPermissionsOverride=false` (follow globals), while genuinely custom
-snapshots keep their explicit list. Unmigrated old rows without the field
-default to `true` in `fromJson`, preserving the historical explicit-snapshot
-semantics.
+Startup loads `SettingsProvider` before `ConversationProvider`. Permissions are a
+global single source in `AppSettings.agentGrantedPermissions`; `ConversationSettings`
+no longer carries permission fields (legacy `agentPermissionsOverride`/
+`agentGrantedPermissions`/`permissionSnapshotVersion` are ignored on load), and
+the previous conversation permission migration has been removed. `SettingsProvider`
+exposes `updateAgentDefaults` for both the settings page and the conversation
+settings sheet to edit the same global list.
 ## Account dataset binding
 
 `AccountProvider` invokes dataset activation before publishing a restored,

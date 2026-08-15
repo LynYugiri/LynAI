@@ -46,6 +46,7 @@ class LynAIPermissions {
   static const recycleBinWrite = 'recycleBin:write';
   static const recycleBinRestore = 'recycleBin:restore';
   static const networkAccess = 'network:access';
+  static const networkPublic = 'network:public';
   static const modelChat = 'model:chat';
   static const modelOcr = 'model:ocr';
   static const modelRecognizeFile = 'model:recognizeFile';
@@ -86,11 +87,15 @@ class LynAIPermissionDefinition {
   final String description;
   final LynAIPermissionRisk risk;
 
+  /// 插件免授权：声明后自动授予，无需在授权清单中逐项确认。
+  final bool pluginAutoGrant;
+
   const LynAIPermissionDefinition({
     required this.id,
     required this.title,
     required this.description,
     this.risk = LynAIPermissionRisk.normal,
+    this.pluginAutoGrant = false,
   });
 }
 
@@ -163,6 +168,12 @@ const lynaiPermissionDefinitions = <LynAIPermissionDefinition>[
     risk: LynAIPermissionRisk.elevated,
   ),
   LynAIPermissionDefinition(
+    id: LynAIPermissions.networkPublic,
+    title: '访问公开网络',
+    description: '允许插件通过 GET/HEAD 访问公开只读 HTTPS 资源，不携带自定义请求头或正文。',
+    pluginAutoGrant: true,
+  ),
+  LynAIPermissionDefinition(
     id: LynAIPermissions.recycleBinRead,
     title: '读取回收站',
     description: '允许插件读取自己放入回收站的项目。',
@@ -231,3 +242,11 @@ final agentAssignablePermissionDefinitions = LynAIPermissions.agentAssignable
     .map((permission) => lynaiPermissionDefinitionById[permission])
     .whereType<LynAIPermissionDefinition>()
     .toList(growable: false);
+
+/// 返回声明权限中应自动授予插件的免授权权限集合。
+Set<String> autoGrantedPluginPermissions(Iterable<String> declared) =>
+    declared.where(isAutoGrantedPluginPermission).toSet();
+
+/// 判断单个权限是否为插件免授权权限。
+bool isAutoGrantedPluginPermission(String permission) =>
+    lynaiPermissionDefinitionById[permission]?.pluginAutoGrant == true;

@@ -663,11 +663,9 @@ void main() {
           'version': '1.2.3',
           'entry': 'main.lua',
           'permissions': ['storage:read', 'storage:write'],
-          'ui': {
-            'featurePages': [
-              {'id': 'panel', 'title': 'Panel', 'entry': 'panel.html'},
-            ],
-          },
+          'featurePages': [
+            {'id': 'panel', 'title': 'Panel', 'entry': 'panel.html'},
+          ],
           'config': {'path': 'config.json', 'schema': 'config.schema.json'},
           'editableFiles': [
             {'path': 'prompts/system.md', 'title': 'Prompt'},
@@ -1293,10 +1291,6 @@ void main() {
           agentEnabled: true,
           imageGenerationModelId: 'image-1',
           imageGenerationEnabled: true,
-          agentGrantedPermissions: const [
-            LynAIPermissions.luaExecute,
-            LynAIPermissions.modelGenerateImage,
-          ],
         ),
       );
       conversations.addMessage(cid, 'user', 'draw a cat');

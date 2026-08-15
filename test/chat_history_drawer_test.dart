@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lynai/models/app_settings.dart';
 import 'package:lynai/models/chat_role.dart';
+import 'package:lynai/models/composer_reference.dart';
 import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/message.dart';
 import 'package:lynai/pages/chat_page.dart';
@@ -177,7 +178,12 @@ void _addConversations(
       ConversationSettings(modelId: ''),
       roleId: roleId,
       messages: [
-        (role: 'user', content: '$prefix $index', images: <MessageImage>[]),
+        (
+          role: 'user',
+          content: '$prefix $index',
+          images: <MessageImage>[],
+          composerSegments: <ComposerSegment>[],
+        ),
       ],
     );
   }

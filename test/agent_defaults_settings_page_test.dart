@@ -9,7 +9,7 @@ import 'package:provider/provider.dart';
 import 'support/memory_repositories.dart';
 
 void main() {
-  testWidgets('conversation permissions page edits only new-chat defaults', (
+  testWidgets('conversation permissions page edits global defaults', (
     tester,
   ) async {
     final settings = memorySettingsProvider();
@@ -29,7 +29,7 @@ void main() {
 
     expect(find.text('对话权限'), findsOneWidget);
     expect(find.text('新对话默认启用 Agent'), findsOneWidget);
-    expect(find.text('新对话默认权限'), findsOneWidget);
+    expect(find.text('全局权限'), findsOneWidget);
     expect(find.text('读取回收站'), findsNothing);
     expect(find.text('写入回收站'), findsNothing);
     expect(find.text('恢复回收站项目'), findsNothing);

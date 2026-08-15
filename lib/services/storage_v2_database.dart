@@ -102,6 +102,8 @@ class MessageRows extends Table {
   TextColumn get content => text()();
   TextColumn get modelContextContent =>
       text().named('model_context_content').nullable()();
+  TextColumn get composerSegments =>
+      text().named('composer_segments').nullable()();
   TextColumn get thinkingContent =>
       text().named('thinking_content').nullable()();
   TextColumn get agentTraceJson =>
@@ -1013,7 +1015,7 @@ class SyncScopeState {
 class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
   StorageV2DriftDatabase(File file) : super(_open(file));
 
-  static const currentSchemaVersion = 27;
+  static const currentSchemaVersion = 28;
 
   bool needsTransportHeadBackfill = false;
 
@@ -1268,6 +1270,9 @@ SET captures_local = active
       }
       if (from < 27) {
         await _migrateKnowledgeSchemaV27();
+      }
+      if (from < 28) {
+        await _addColumnIfMissing('messages', 'composer_segments', 'TEXT');
       }
       await _ensureCloudDataColumns();
     },
@@ -2302,6 +2307,7 @@ WHERE id IN (${List.filled(runIds.length, '?').join(', ')})
             role: json['role'] as String? ?? '',
             content: json['content'] as String? ?? '',
             modelContextContent: Value(json['modelContextContent'] as String?),
+            composerSegments: Value(json['composerSegments'] as String?),
             thinkingContent: Value(json['thinkingContent'] as String?),
             agentTraceJson: Value(
               json['agentTrace'] == null
@@ -5772,6 +5778,8 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
                 'content': row.content,
                 if (row.modelContextContent != null)
                   'modelContextContent': row.modelContextContent,
+                if (row.composerSegments != null)
+                  'composerSegments': row.composerSegments,
                 if (row.thinkingContent != null)
                   'thinkingContent': row.thinkingContent,
                 if (row.agentTraceJson != null)
@@ -6398,6 +6406,7 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
               modelContextContent: Value(
                 json['modelContextContent'] as String?,
               ),
+              composerSegments: Value(json['composerSegments'] as String?),
               thinkingContent: Value(json['thinkingContent'] as String?),
               agentTraceJson: Value(
                 json['agentTrace'] == null

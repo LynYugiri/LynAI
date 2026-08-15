@@ -935,11 +935,9 @@ class _DialogSettingsContentState extends State<DialogSettingsContent> {
 
   Widget _agentSettings() {
     final scheme = Theme.of(context).colorScheme;
-    final globalPermissions = context
-        .watch<SettingsProvider>()
-        .settings
-        .agentGrantedPermissions;
-    final inherited = _settings.inheritsAgentPermissions;
+    final provider = context.watch<SettingsProvider>();
+    final settings = provider.settings;
+    final granted = settings.agentGrantedPermissions.toSet();
     return Container(
       decoration: BoxDecoration(
         border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.3)),
@@ -948,105 +946,33 @@ class _DialogSettingsContentState extends State<DialogSettingsContent> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (inherited) ...[
-            ListTile(
+          const ListTile(
+            dense: true,
+            title: Text('全局权限'),
+            subtitle: Text('修改后对所有对话即时生效。'),
+          ),
+          for (final definition in agentAssignablePermissionDefinitions)
+            CheckboxListTile(
               dense: true,
-              leading: Icon(Icons.sync_alt, size: 18, color: scheme.outline),
-              title: const Text('跟随全局默认权限'),
-              subtitle: Text(
-                '当前使用设置页中的新对话默认权限（${globalPermissions.length} 项）。全局默认变更会自动应用到本对话。',
-              ),
+              value: granted.contains(definition.id),
+              title: Text(definition.title),
+              subtitle: Text(definition.description),
+              controlAffinity: ListTileControlAffinity.leading,
+              onChanged: (value) {
+                final next = Set<String>.from(granted);
+                value == true
+                    ? next.add(definition.id)
+                    : next.remove(definition.id);
+                provider.updateAgentDefaults(
+                  enabled: settings.agentEnabledByDefault,
+                  permissions: LynAIPermissions.agentAssignable
+                      .where(next.contains)
+                      .toList(growable: false),
+                );
+              },
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-              child: OutlinedButton.icon(
-                onPressed: () => _updateSettings(
-                  _settings.copyWith(
-                    agentPermissionsOverride: true,
-                    agentGrantedPermissions: globalPermissions,
-                  ),
-                ),
-                icon: const Icon(Icons.tune, size: 16),
-                label: const Text('自定义本对话权限'),
-              ),
-            ),
-          ] else ...[
-            ExpansionTile(
-              tilePadding: const EdgeInsets.symmetric(horizontal: 16),
-              childrenPadding: const EdgeInsets.only(bottom: 8),
-              initiallyExpanded: false,
-              title: Text(
-                '权限明细',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
-              children: [
-                _agentPermissionTile(
-                  const LynAIPermissionDefinition(
-                    id: '__info__',
-                    title: '仅修改当前对话快照',
-                    description: '不会改变设置页中的新对话默认权限，也不会改写其他历史对话。',
-                  ),
-                  informational: true,
-                ),
-                for (final definition in agentAssignablePermissionDefinitions)
-                  _agentPermissionTile(definition),
-              ],
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-              child: OutlinedButton.icon(
-                onPressed: () => _updateSettings(
-                  _settings.copyWith(
-                    agentPermissionsOverride: false,
-                    agentGrantedPermissions: globalPermissions,
-                  ),
-                ),
-                icon: const Icon(Icons.sync_alt, size: 16),
-                label: const Text('恢复跟随全局默认'),
-              ),
-            ),
-          ],
         ],
       ),
-    );
-  }
-
-  Widget _agentPermissionTile(
-    LynAIPermissionDefinition definition, {
-    bool informational = false,
-  }) {
-    if (informational) {
-      return ListTile(
-        dense: true,
-        title: Text(definition.title),
-        subtitle: Text(definition.description),
-      );
-    }
-    final permissions = _settings.agentGrantedPermissions.toSet();
-    return CheckboxListTile(
-      dense: true,
-      value: permissions.contains(definition.id),
-      title: Text(definition.title),
-      subtitle: Text(definition.description),
-      controlAffinity: ListTileControlAffinity.leading,
-      onChanged: (value) {
-        if (value == true) {
-          permissions.add(definition.id);
-        } else {
-          permissions.remove(definition.id);
-        }
-        _updateSettings(
-          _settings.copyWith(
-            agentGrantedPermissions: LynAIPermissions.agentAssignable
-                .where(permissions.contains)
-                .toList(growable: false),
-          ),
-        );
-      },
     );
   }
 

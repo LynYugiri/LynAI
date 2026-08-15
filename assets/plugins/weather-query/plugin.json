@@ -6,7 +6,7 @@
   "description": "查询当前网络位置或指定城市、地区、地点的实时天气，并返回适合 AI 总结的精简结构。",
   "entry": "main.lua",
   "permissions": [
-    "network:access"
+    "network:public"
   ],
   "tools": [
     {

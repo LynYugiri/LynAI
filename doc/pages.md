@@ -52,9 +52,9 @@ HomePage
 
 `ChatPage` 协调模型选择、附件、语音、文件识别、OCR、工具调用、Agent/Subagent、Agent 工作记忆、流式响应、失败恢复和分享。模型 turn 与工具 continuation 统一交给 `AgentLoopRuntime`，页面只订阅 run event 更新草稿并在停止、重试或销毁时取消 handle。停止会等待 runtime 的 bounded terminal result，把跨 turn 聚合的 partial content 与 reasoning 保存到最后一条 assistant 消息；失败提示也保留该聚合内容，而不是只使用当前 turn 的 UI buffer。悬浮聊天采用相同语义。
 
-对话相关组件是独立库而非 `part`：`lib/pages/chat/` 下的 `history_drawer.dart`（历史抽屉）、`dialog_settings_content.dart`（对话设置弹窗）、`prompt_role_dialogs.dart`（系统提示词编辑）、`share_conversation_image.dart`（分享长图渲染）。长图导出流程在 `chat_image_exporter.dart` 的 `ChatImageExporter` 中（分页、捕获、剪贴板/分享/图库保存），页面只负责选择状态与结果反馈。发送给模型的 API 消息统一由 `lib/services/api_message_builder.dart` 的 `buildApiMessages` 组装，主聊天与悬浮聊天共用，避免两处 wire 语义漂移。
+对话相关组件是独立库而非 `part`：`lib/pages/chat/` 下的 `history_drawer.dart`（历史抽屉）、`dialog_settings_content.dart`（对话设置弹窗）、`prompt_role_dialogs.dart`（系统提示词编辑）、`share_conversation_image.dart`（分享长图渲染）、`command_palette.dart`（命令面板）。长图导出流程在 `chat_image_exporter.dart` 的 `ChatImageExporter` 中（分页、捕获、剪贴板/分享/图库保存），页面只负责选择状态与结果反馈。发送给模型的 API 消息统一由 `lib/services/api_message_builder.dart` 的 `buildApiMessages` 组装，主聊天与悬浮聊天共用，避免两处 wire 语义漂移。
 
-输入区的 Agent 按钮是当前对话或未发送草稿切换 Agent 模式的唯一入口。新草稿从全局“对话权限”读取默认状态，按钮修改后由草稿覆盖该初值；已有对话始终使用自己的 `ConversationSettings.agentEnabled`。对话设置弹窗中的“对话权限”只编辑当前对话或草稿的权限快照，不再提供重复的 Agent 开关，也不修改全局默认或其他历史对话。
+输入区的 Agent 按钮是当前对话或未发送草稿切换 Agent 模式的唯一入口。新草稿从全局“对话权限”读取默认状态，按钮修改后由草稿覆盖该初值；已有对话始终使用自己的 `ConversationSettings.agentEnabled`。对话设置弹窗中的“对话权限”直接编辑全局 `AppSettings.agentGrantedPermissions`，与设置页“权限管理”指向同一份数据，修改即时作用于所有对话，不再有“跟随全局/自定义本对话”两态。
 
 打开历史对话只加载该对话自己的设置快照，不把模型、提示词或识别设置写回全局设置。历史请求直接使用快照中的系统提示词正文；即使全局同 ID 提示词后来被编辑，旧会话上下文也保持不变。连续工具调用达到 `ToolCallService.maxToolRounds` 后，页面要求模型基于已有结果结束，并拒绝继续执行工具。
 
@@ -65,6 +65,7 @@ HomePage
 | 控件 | 作用 |
 |------|------|
 | 模型选择 | 选择当前 Chat 子模型。 |
+| 命令按钮 | 打开命令面板，选取笔记/笔记页面/待办清单/待办或插件命令，生成不可拆分的引用 Chip。 |
 | 对话设置 | 系统提示词、语音模型、OCR 模型（含 Android 本地 OCR 选项）、文件识别模型和文件识别 prompt。 |
 | thinking 开关 | 控制当前请求是否启用思考能力。 |
 | OCR 开关 | 控制图片是否先走 OCR；识别结果以 `[图片 OCR 识别结果（来源: …，可能含识别误差）]` 标注替换原图发往模型，原图不再作为多模态附件上传。 |
@@ -73,6 +74,8 @@ HomePage
 | 语音按钮 | 使用系统语音识别或配置的语音模型。 |
 
 主聊天和情景演绎共用 composer 键盘策略：桌面端裸 `Enter` 发送、`Shift + Enter` 换行；Android/iOS 裸 `Enter` 换行；所有平台 `Ctrl + Enter` 或 `Meta + Enter` 发送。`Alt + Enter` 和输入法 composing 期间的回车不发送。移动端只有用户主动点输入框才弹出输入法；从历史打开对话和模型输出结束不会自动唤起键盘。桌面端 `Escape` 在焦点不处于输入框时复用 Home/Feature 现有返回处理。
+
+命令面板复用模型选择按钮的浮层样式，首层列出内置选择器（笔记/笔记页面/待办清单/待办）与插件命令，进入后按文件夹分层导航并支持搜索。选中实体产生 `ComposerReference`，通过 `ReferenceComposerController`（`lib/widgets/reference_composer.dart`）渲染为行内不可拆分 Chip：每个 Chip 在文本模型中只占一个私用区码点，退格/删除整体移除，用户无法把光标切入 Chip 内部。发送时气泡显示 `@标题` 占位，模型侧只接收 `<lynai_ref .../>`（type/id 与稳定限定字段，不含标题与正文）。引用随用户消息以 `composerSegments` 持久化，撤回/编辑时还原 Chip；失效引用在编辑时标记为“已失效”。插件命令若声明 `model`，选中后写入 `_pendingModelId` 覆盖本次发送模型。
 
 ### 消息区
 

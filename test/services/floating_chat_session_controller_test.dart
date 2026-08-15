@@ -483,9 +483,6 @@ void main() {
         controller.conversationId!,
       )!;
       expect(conversation.settings.agentEnabled, isTrue);
-      expect(conversation.settings.agentGrantedPermissions, const [
-        LynAIPermissions.networkAccess,
-      ]);
       expect(conversation.messages.last.content, 'continued');
       expect(api.requests, 2);
     } finally {

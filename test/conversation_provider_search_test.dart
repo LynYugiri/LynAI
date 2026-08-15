@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lynai/models/composer_reference.dart';
 import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/message.dart';
 import 'package:lynai/providers/conversation_provider.dart';
@@ -50,17 +51,25 @@ void main() {
             role: 'user',
             content: 'plain question',
             images: const <MessageImage>[],
+            composerSegments: const <ComposerSegment>[],
           ),
           (
             role: 'assistant',
             content: 'old needle content',
             images: const <MessageImage>[],
+            composerSegments: const <ComposerSegment>[],
           ),
-          (role: 'user', content: 'follow up', images: const <MessageImage>[]),
+          (
+            role: 'user',
+            content: 'follow up',
+            images: const <MessageImage>[],
+            composerSegments: const <ComposerSegment>[],
+          ),
           (
             role: 'assistant',
             content: 'new needle answer',
             images: const <MessageImage>[],
+            composerSegments: const <ComposerSegment>[],
           ),
         ],
       );
@@ -89,6 +98,7 @@ void main() {
                 size: 12,
               ),
             ],
+            composerSegments: const <ComposerSegment>[],
           ),
         ],
       );
@@ -113,12 +123,27 @@ void main() {
 String _createConversation(
   ConversationProvider provider, {
   required String titleText,
-  List<({String role, String content, List<MessageImage> images})>? messages,
+  List<
+    ({
+      String role,
+      String content,
+      List<MessageImage> images,
+      List<ComposerSegment> composerSegments,
+    })
+  >?
+  messages,
 }) {
   return provider.createConversationWithMessages(
     ConversationSettings(modelId: 'model'),
     messages:
         messages ??
-        [(role: 'user', content: titleText, images: const <MessageImage>[])],
+        [
+          (
+            role: 'user',
+            content: titleText,
+            images: const <MessageImage>[],
+            composerSegments: const <ComposerSegment>[],
+          ),
+        ],
   );
 }

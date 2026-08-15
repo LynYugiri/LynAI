@@ -95,7 +95,6 @@ class FeatureDashboard extends StatelessWidget {
       for (final page in plugin.manifest.featurePages) {
         if (!plugin.enabledFeaturePages.contains(page.id)) continue;
         if (page.entry.trim().isEmpty) continue;
-        if (page.showInDashboard == false) continue;
         items.add(
           FeatureDashboardItem.plugin(
             value: PluginFeatureRef(plugin.id, page.id).key,

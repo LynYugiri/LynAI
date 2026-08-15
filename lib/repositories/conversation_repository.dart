@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../models/agent_trace.dart';
 import '../models/agent_plan.dart';
 import '../models/agent_working_memory.dart';
+import '../models/composer_reference.dart';
 import '../models/conversation.dart';
 import '../models/message.dart';
 import '../services/storage_v2_service.dart';
@@ -100,6 +101,9 @@ class ConversationRepository {
                       Map<String, dynamic>.from(raw['agentTrace'] as Map),
                     )
                   : null,
+              composerSegments: raw['composerSegments'] is String
+                  ? decodeComposerSegments(raw['composerSegments'] as String)
+                  : const [],
               timestamp: timestamp,
               revision: (raw['revision'] as num?)?.toInt() ?? 1,
               updatedAt:
@@ -193,6 +197,8 @@ class ConversationRepository {
           if (message.agentTrace != null &&
               message.agentTrace!.events.isNotEmpty)
             'agentTrace': message.agentTrace!.toJson(),
+          if (message.composerSegments.isNotEmpty)
+            'composerSegments': encodeComposerSegments(message.composerSegments),
           'timestamp': message.timestamp.toIso8601String(),
           'revision': message.revision,
           'updatedAt': message.updatedAt.toIso8601String(),

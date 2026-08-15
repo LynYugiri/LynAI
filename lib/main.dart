@@ -829,9 +829,6 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
 
       await settingsProvider.loadSettings();
       await conversationProvider.loadConversations();
-      await conversationProvider.migrateLegacyPermissionSnapshots(
-        settingsProvider.settings.agentGrantedPermissions,
-      );
       await Future.wait([
         featureProvider.load(),
         calendarProvider.load(),

@@ -11,7 +11,6 @@ import '../services/backend_client.dart';
 import '../services/device_settings_service.dart';
 import '../utils/managed_model_id_migration.dart';
 import '../widgets/account_header_card.dart';
-import '../widgets/plugin_feature_webview.dart';
 import '../widgets/text_editing_controller_host.dart';
 import 'about_page.dart';
 import 'admin_review_page.dart';
@@ -22,11 +21,11 @@ import 'floating_assistant_settings_page.dart';
 import 'lan_sync_page.dart';
 import 'mcp_settings_page.dart';
 import 'plugin_capability_management_page.dart';
+import 'permission_management_page.dart';
 import 'plugin_management_page.dart';
 import 'recycle_bin_page.dart';
 import 'role_management_page.dart';
 import 'theme_page.dart';
-import 'agent_defaults_settings_page.dart';
 import 'web_search_settings_page.dart';
 
 /// 设置页面。
@@ -52,11 +51,9 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>().settings;
-    final pluginProvider = context.watch<PluginProvider>();
     final recycleBinProvider = context.watch<RecycleBinProvider>();
     final account = context.watch<AccountProvider>();
     final backend = context.watch<BackendClient>();
-    final pluginItems = _buildPluginItems(context, pluginProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('设置'), centerTitle: true),
@@ -130,8 +127,8 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           _buildItem(
             context,
-            Icons.smart_toy_outlined,
-            '对话权限',
+            Icons.shield_outlined,
+            '权限管理',
             settings.agentEnabledByDefault
                 ? '默认启用 · ${settings.agentGrantedPermissions.length} 项权限'
                 : '默认关闭 · ${settings.agentGrantedPermissions.length} 项权限',
@@ -139,7 +136,7 @@ class _SettingsPageState extends State<SettingsPage> {
             () => Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => const AgentDefaultsSettingsPage(),
+                builder: (_) => const PermissionManagementPage(),
               ),
             ),
           ),
@@ -248,7 +245,6 @@ class _SettingsPageState extends State<SettingsPage> {
               MaterialPageRoute(builder: (_) => const McpSettingsPage()),
             ),
           ),
-          ...pluginItems,
         ],
       ),
     );
@@ -363,45 +359,6 @@ class _SettingsPageState extends State<SettingsPage> {
     return backend.usesInsecureHttp
         ? '${backend.backendUrl}（未加密，仅限隔离测试）'
         : backend.backendUrl;
-  }
-
-  /// 遍历所有已启用插件中标记了 [PluginFeaturePageDefinition.showInSettings] 的功能页，生成对应的设置项列表。
-  List<Widget> _buildPluginItems(
-    BuildContext context,
-    PluginProvider provider,
-  ) {
-    final items = <Widget>[];
-    for (final plugin in provider.plugins) {
-      if (!plugin.enabled || plugin.hasError) continue;
-      for (final page in plugin.manifest.featurePages) {
-        if (!page.showInSettings) continue;
-        if (!plugin.enabledFeaturePages.contains(page.id)) continue;
-        items.add(
-          _buildItem(
-            context,
-            Icons.dashboard_customize,
-            page.title.isNotEmpty ? page.title : plugin.manifest.name,
-            plugin.manifest.name,
-            Colors.deepOrange,
-            () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => Scaffold(
-                  appBar: AppBar(
-                    title: Text(
-                      page.title.isNotEmpty ? page.title : plugin.manifest.name,
-                    ),
-                    centerTitle: true,
-                  ),
-                  body: PluginFeatureWebView(plugin: plugin, page: page),
-                ),
-              ),
-            ),
-          ),
-        );
-      }
-    }
-    return items;
   }
 
   // 构建统一的设置项卡片：圆形图标、标题、副标题和右侧箭头。

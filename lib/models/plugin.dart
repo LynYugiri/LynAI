@@ -81,6 +81,12 @@ class PluginFunctionDefinition {
   /// 函数参数 JSON Schema。
   final Map<String, dynamic> parameters;
 
+  /// 是否允许其他插件或 Agent 通过 plugin.call 调用。
+  final bool expose;
+
+  /// 调用方需要额外持有的权限（空表示只需 plugins.callFunction）。
+  final List<String> requires;
+
   /// 创建一个插件函数定义实例。
   const PluginFunctionDefinition({
     required this.name,
@@ -91,6 +97,8 @@ class PluginFunctionDefinition {
       'type': 'object',
       'properties': <String, dynamic>{},
     },
+    this.expose = false,
+    this.requires = const [],
   });
 
   /// 从 JSON 数据创建 [PluginFunctionDefinition] 实例。
@@ -105,6 +113,11 @@ class PluginFunctionDefinition {
         json['parameters'] as Map? ??
             const {'type': 'object', 'properties': <String, dynamic>{}},
       ),
+      expose: json['expose'] as bool? ?? false,
+      requires: (json['requires'] as List<dynamic>? ?? const [])
+          .map((item) => item.toString())
+          .where((item) => item.isNotEmpty)
+          .toList(growable: false),
     );
   }
 
@@ -115,11 +128,81 @@ class PluginFunctionDefinition {
     'handler': handler,
     if (description.isNotEmpty) 'description': description,
     'parameters': parameters,
+    if (expose) 'expose': true,
+    if (requires.isNotEmpty) 'requires': requires,
   };
 
   /// 校验函数定义的合法性，返回错误信息或 null。
   String? validate() => _validatePluginApiDefinition(
     kind: 'function',
+    name: name,
+    handler: handler,
+  );
+}
+
+/// 插件提供的命令面板选项源定义。
+class PluginCommandDefinition {
+  /// 命令名称，用于在面板中标识该命令。
+  final String name;
+
+  /// 命令在面板中显示的标题。
+  final String title;
+
+  /// 命令摘要，供用户在面板中理解用途。
+  final String description;
+
+  /// 对应的 Lua 全局函数名，返回面板选项。
+  final String handler;
+
+  /// 命令输入参数 JSON Schema（描述 `query` 与 `path`）。
+  final Map<String, dynamic> parameters;
+
+  /// 选择该命令选项后本次发送应覆盖的模型 ID（可空）。
+  final String? model;
+
+  /// 创建一个插件命令定义实例。
+  const PluginCommandDefinition({
+    required this.name,
+    required this.title,
+    required this.handler,
+    this.description = '',
+    this.parameters = const {
+      'type': 'object',
+      'properties': <String, dynamic>{},
+    },
+    this.model,
+  });
+
+  /// 从 JSON 数据创建 [PluginCommandDefinition] 实例。
+  factory PluginCommandDefinition.fromJson(Map<String, dynamic> json) {
+    final name = json['name'] as String? ?? '';
+    final model = (json['model'] as String? ?? '').trim();
+    return PluginCommandDefinition(
+      name: name,
+      title: json['title'] as String? ?? name,
+      handler: json['handler'] as String? ?? name,
+      description: json['description'] as String? ?? '',
+      parameters: Map<String, dynamic>.from(
+        json['parameters'] as Map? ??
+            const {'type': 'object', 'properties': <String, dynamic>{}},
+      ),
+      model: model.isEmpty ? null : model,
+    );
+  }
+
+  /// 将当前实例序列化为 JSON Map。
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'title': title,
+    'handler': handler,
+    if (description.isNotEmpty) 'description': description,
+    'parameters': parameters,
+    if (model != null) 'model': model,
+  };
+
+  /// 校验命令定义的合法性，返回错误信息或 null。
+  String? validate() => _validatePluginApiDefinition(
+    kind: 'command',
     name: name,
     handler: handler,
   );
@@ -219,20 +302,12 @@ class PluginFeaturePageDefinition {
   /// 功能页的入口文件路径（HTML 或 Lua）。
   final String entry;
 
-  /// 是否在设置页面中显示该功能页。
-  final bool showInSettings;
-
-  /// 是否在仪表盘页面中显示该功能页。
-  final bool showInDashboard;
-
   /// 创建一个插件功能页定义实例。
   const PluginFeaturePageDefinition({
     required this.id,
     required this.title,
     required this.icon,
     required this.entry,
-    this.showInSettings = false,
-    this.showInDashboard = true,
   });
 
   /// 从 JSON 数据创建 [PluginFeaturePageDefinition] 实例。
@@ -242,8 +317,6 @@ class PluginFeaturePageDefinition {
       title: json['title'] as String? ?? '',
       icon: json['icon'] as String? ?? '',
       entry: json['entry'] as String? ?? '',
-      showInSettings: json['showInSettings'] as bool? ?? false,
-      showInDashboard: json['showInDashboard'] as bool? ?? true,
     );
   }
 
@@ -253,8 +326,6 @@ class PluginFeaturePageDefinition {
     'title': title,
     'icon': icon,
     'entry': entry,
-    if (showInSettings) 'showInSettings': true,
-    if (!showInDashboard) 'showInDashboard': false,
   };
 
   /// 校验功能页定义的合法性，返回错误信息或 null。
@@ -486,6 +557,9 @@ class PluginManifest {
   /// 插件导出的非模型调用函数列表。
   final List<PluginFunctionDefinition> functions;
 
+  /// 插件提供的命令面板选项源列表。
+  final List<PluginCommandDefinition> commands;
+
   /// 插件提供的按需加载 Skills。
   final List<PluginSkillDefinition> skills;
 
@@ -516,6 +590,7 @@ class PluginManifest {
     required this.permissions,
     required this.tools,
     required this.functions,
+    this.commands = const [],
     this.skills = const [],
     required this.featurePages,
     required this.settings,
@@ -526,7 +601,6 @@ class PluginManifest {
 
   /// 从 JSON 数据创建 [PluginManifest] 实例。
   factory PluginManifest.fromJson(Map<String, dynamic> json) {
-    final ui = json['ui'] as Map?;
     return PluginManifest(
       id: json['id'] as String? ?? '',
       name: json['name'] as String? ?? json['id'] as String? ?? '',
@@ -549,16 +623,18 @@ class PluginManifest {
           .map((item) => PluginFunctionDefinition.fromJson(Map.from(item)))
           .where((item) => item.name.isNotEmpty)
           .toList(growable: false),
+      commands: (json['commands'] as List<dynamic>? ?? const [])
+          .whereType<Map>()
+          .map((item) => PluginCommandDefinition.fromJson(Map.from(item)))
+          .where((item) => item.name.isNotEmpty)
+          .toList(growable: false),
       skills: (json['skills'] as List<dynamic>? ?? const [])
           .whereType<Map>()
           .map((item) => PluginSkillDefinition.fromJson(Map.from(item)))
           .where((item) => item.name.isNotEmpty)
           .toList(growable: false),
-      featurePages:
-          (ui?['featurePages'] as List<dynamic>? ??
-                  json['featurePages'] as List<dynamic>? ??
-                  const [])
-              .whereType<Map>()
+      featurePages: (json['featurePages'] as List<dynamic>? ?? const [])
+          .whereType<Map>()
               .map(
                 (item) => PluginFeaturePageDefinition.fromJson(Map.from(item)),
               )
@@ -596,9 +672,11 @@ class PluginManifest {
     if (tools.isNotEmpty) 'tools': tools.map((e) => e.toJson()).toList(),
     if (functions.isNotEmpty)
       'functions': functions.map((e) => e.toJson()).toList(),
+    if (commands.isNotEmpty)
+      'commands': commands.map((e) => e.toJson()).toList(),
     if (skills.isNotEmpty) 'skills': skills.map((e) => e.toJson()).toList(),
     if (featurePages.isNotEmpty)
-      'ui': {'featurePages': featurePages.map((e) => e.toJson()).toList()},
+      'featurePages': featurePages.map((e) => e.toJson()).toList(),
     if (settings.isNotEmpty)
       'settings': settings.map((e) => e.toJson()).toList(),
     'config': config.toJson(),
@@ -633,6 +711,7 @@ class PluginManifest {
       permissions: permissions,
       tools: tools,
       functions: functions,
+      commands: commands,
       skills: skills,
       featurePages: featurePages,
       settings: settings,
@@ -659,6 +738,10 @@ class PluginManifest {
       final error = function.validate();
       if (error != null) return error;
     }
+    for (final command in commands) {
+      final error = command.validate();
+      if (error != null) return error;
+    }
     for (final skill in skills) {
       final error = skill.validate();
       if (error != null) return error;
@@ -671,6 +754,12 @@ class PluginManifest {
     for (final function in functions) {
       if (!functionNames.add(function.name)) {
         return '插件 function 名称重复: ${function.name}';
+      }
+    }
+    final commandNames = <String>{};
+    for (final command in commands) {
+      if (!commandNames.add(command.name)) {
+        return '插件 command 名称重复: ${command.name}';
       }
     }
     final skillNames = <String>{};

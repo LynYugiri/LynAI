@@ -64,7 +64,7 @@ start
 
 MCP 工具发给模型的 descriptor/schema 在 Run 开始时固定；执行时按 canonical name 查询实时 registry。server 在模型返回 tool call 前断开、禁用或刷新时，旧 schema 不会改写，但调用会 fail closed；它不会调用已释放连接，也不会悄悄绑定非 MCP 的同名 registration。插件和内置工具仍执行各自捕获的 handler。
 
-Run 同时固定当前对话的权限快照。后续模型 turn、Agent Lua 同步预检、异步插件函数执行和 Lua continuation 都沿用该快照，不重新读取全局“对话权限”的新对话默认值。全局默认不能扩大或缩小进行中的 Run；模型来源 Agent Lua 缺少快照或取消令牌时继续 fail closed。插件函数还要通过插件自身的安装级授权，因此最终能力是 Run 权限与实时插件可用性的交集。
+Run 同时固定权限快照。后续模型 turn、Agent Lua 同步预检、异步插件函数执行和 Lua continuation 都沿用该快照，不重新读取全局设置。运行期间修改全局权限不能扩大或缩小进行中的 Run；模型来源 Agent Lua 缺少快照或取消令牌时继续 fail closed。插件函数还要通过插件自身的安装级授权，因此最终能力是 Run 权限与实时插件可用性的交集。
 
 ## 上下文预算
 

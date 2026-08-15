@@ -2,16 +2,12 @@ import 'agent_plan.dart';
 import 'agent_working_memory.dart';
 import 'message.dart';
 import 'package:flutter/foundation.dart';
-import '../services/lynai_permission_definitions.dart';
 
 /// 一次对话保存的设置快照。
 ///
 /// 历史对话不能只依赖全局设置，否则用户后来切换模型、提示词或 OCR 配置时，
 /// 旧对话的上下文会被悄悄改变。这个模型把发送所需的设置固定在对话上。
 class ConversationSettings {
-  /// 当前权限快照格式版本。0 仅用于识别尚未迁移的历史数据。
-  final int permissionSnapshotVersion;
-
   /// 对话使用的模型配置 ID。
   final String modelId;
 
@@ -54,22 +50,9 @@ class ConversationSettings {
   /// 是否启用 Agent 模式。
   final bool agentEnabled;
 
-  /// 当前对话授予 Agent 的扩展权限。
-  final List<String> agentGrantedPermissions;
-
-  /// 是否为权限列表显式自定义（true 表示不再跟随全局默认）。
-  ///
-  /// 为 false 时权限列表跟随全局默认，写入的是当前全局的镜像副本。
-  /// 从 JSON 读取时缺失该字段的旧数据按 true 处理，保持原显式语义不变。
-  final bool agentPermissionsOverride;
-
-  /// 权限列表是否跟随全局默认。
-  bool get inheritsAgentPermissions => !agentPermissionsOverride;
-
   /// 创建一个对话设置快照实例。
   ConversationSettings({
     required this.modelId,
-    this.permissionSnapshotVersion = AgentPermissionSnapshot.currentVersion,
     this.modelName,
     this.thinking = true,
     this.selectedSystemPromptId,
@@ -83,21 +66,13 @@ class ConversationSettings {
     this.imageGenerationModelId,
     this.imageGenerationEnabled = false,
     this.agentEnabled = false,
-    this.agentPermissionsOverride = false,
-    Iterable<String> agentGrantedPermissions = const [],
-  }) : agentGrantedPermissions = List.unmodifiable(agentGrantedPermissions);
-
-  AgentPermissionSnapshot get permissionSnapshot => AgentPermissionSnapshot(
-    version: permissionSnapshotVersion,
-    permissions: agentGrantedPermissions,
-  );
+  });
 
   static const _sentinel = Object();
 
   /// 创建当前实例的副本，可选择性更新部分字段。
   ConversationSettings copyWith({
     String? modelId,
-    int? permissionSnapshotVersion,
     Object? modelName = _sentinel,
     bool? thinking,
     Object? selectedSystemPromptId = _sentinel,
@@ -111,13 +86,9 @@ class ConversationSettings {
     Object? imageGenerationModelId = _sentinel,
     bool? imageGenerationEnabled,
     bool? agentEnabled,
-    bool? agentPermissionsOverride,
-    List<String>? agentGrantedPermissions,
   }) {
     return ConversationSettings(
       modelId: modelId ?? this.modelId,
-      permissionSnapshotVersion:
-          permissionSnapshotVersion ?? this.permissionSnapshotVersion,
       modelName: identical(modelName, _sentinel)
           ? this.modelName
           : modelName as String?,
@@ -146,10 +117,6 @@ class ConversationSettings {
       imageGenerationEnabled:
           imageGenerationEnabled ?? this.imageGenerationEnabled,
       agentEnabled: agentEnabled ?? this.agentEnabled,
-      agentPermissionsOverride:
-          agentPermissionsOverride ?? this.agentPermissionsOverride,
-      agentGrantedPermissions:
-          agentGrantedPermissions ?? this.agentGrantedPermissions,
     );
   }
 
@@ -160,8 +127,6 @@ class ConversationSettings {
   }) {
     return ConversationSettings(
       modelId: json['modelId'] as String? ?? fallbackModelId,
-      permissionSnapshotVersion:
-          (json['permissionSnapshotVersion'] as num?)?.toInt() ?? 0,
       modelName: json['modelName'] as String?,
       thinking: json['thinking'] as bool? ?? true,
       selectedSystemPromptId: json['selectedSystemPromptId'] as String?,
@@ -180,13 +145,6 @@ class ConversationSettings {
       imageGenerationModelId: json['imageGenerationModelId'] as String?,
       imageGenerationEnabled: json['imageGenerationEnabled'] as bool? ?? false,
       agentEnabled: json['agentEnabled'] as bool? ?? false,
-      agentPermissionsOverride:
-          json['agentPermissionsOverride'] as bool? ?? true,
-      agentGrantedPermissions:
-          (json['agentGrantedPermissions'] as List<dynamic>? ?? const [])
-              .map((item) => item.toString())
-              .where((item) => item.isNotEmpty)
-              .toList(growable: false),
     );
   }
 
@@ -194,7 +152,6 @@ class ConversationSettings {
   Map<String, dynamic> toJson() {
     return {
       'modelId': modelId,
-      'permissionSnapshotVersion': permissionSnapshotVersion,
       if (modelName != null && modelName!.isNotEmpty) 'modelName': modelName,
       'thinking': thinking,
       if (selectedSystemPromptId != null)
@@ -211,8 +168,6 @@ class ConversationSettings {
         'imageGenerationModelId': imageGenerationModelId,
       'imageGenerationEnabled': imageGenerationEnabled,
       'agentEnabled': agentEnabled,
-      'agentPermissionsOverride': agentPermissionsOverride,
-      'agentGrantedPermissions': agentGrantedPermissions,
     };
   }
 }

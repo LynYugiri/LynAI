@@ -10,6 +10,7 @@ import '../repositories/plugin_repository.dart';
 import '../services/plugin_sync_validation.dart';
 import '../services/storage_v2_service.dart';
 import '../services/dataset_runtime_barrier.dart';
+import '../services/lynai_permission_definitions.dart';
 
 /// 管理插件安装状态、权限授权、功能页开关和插件私有配置。
 ///
@@ -166,9 +167,10 @@ class PluginProvider extends ChangeNotifier {
     late InstalledPlugin refreshed;
     try {
       final manifest = await _repository.readManifest(plugin.path);
-      final granted = plugin.grantedPermissions
-          .where(manifest.permissions.contains)
-          .toList(growable: false);
+      final granted = {
+        ...plugin.grantedPermissions.where(manifest.permissions.contains),
+        ...autoGrantedPluginPermissions(manifest.permissions),
+      }.toList(growable: false);
       final pageIds = manifest.featurePages.map((page) => page.id).toSet();
       final enabledPages = plugin.enabledFeaturePages
           .where(pageIds.contains)
@@ -237,10 +239,11 @@ class PluginProvider extends ChangeNotifier {
   Future<void> setGrantedPermissions(String id, List<String> permissions) =>
       _mutatePlugin(id, (plugin) {
         final allowed = plugin.manifest.permissions.toSet();
+        final merged = permissions.toSet()
+          ..addAll(autoGrantedPluginPermissions(plugin.manifest.permissions));
         return plugin.copyWith(
-          grantedPermissions: permissions
+          grantedPermissions: merged
               .where(allowed.contains)
-              .toSet()
               .toList(growable: false),
         );
       });

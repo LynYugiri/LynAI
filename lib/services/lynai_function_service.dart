@@ -31,8 +31,10 @@ import 'bounded_outbound_http_client.dart';
 import 'device_control_service.dart';
 import 'device_run_controller.dart';
 import 'lynai_call_identity.dart';
+import 'lynai_capability_registry.dart';
 import 'lynai_permission_definitions.dart';
 import 'lynai_permission_service.dart';
+import 'plugin_lua_runtime_service.dart';
 import 'image_generation_service.dart';
 import 'attachment_storage_service.dart';
 import 'model_recognition_service.dart';
@@ -241,15 +243,19 @@ class LynAIFunctionService {
   static String? _appVersion;
   static const _permissionService = LynAIPermissionService();
   static final _recycleBinRepository = RecycleBinRepository();
+  static final LynAICapabilityRegistry _capabilities =
+      LynAICapabilityRegistry(registerHost: true);
 
   /// 工具别名映射表，将 comfyui 风格的短名映射到内部标准化函数名。
   /// 供 [ToolCallService] 在接收到旧版工具调用名称时进行兼容转换。
   static const aiToolAliases = {
     'list_tasks': 'tasks.list',
+    'read_task': 'tasks.read',
     'create_task': 'tasks.create',
     'update_task': 'tasks.update',
     'delete_task': 'tasks.delete',
     'list_task_lists': 'taskLists.list',
+    'read_task_list': 'taskLists.read',
     'create_task_list': 'taskLists.create',
     'update_task_list': 'taskLists.update',
     'delete_task_list': 'taskLists.delete',
@@ -334,10 +340,12 @@ class LynAIFunctionService {
         ),
         'plugin.restore' => await _pluginRestore(context),
         'plugin.func' => await _pluginFunc(context, call.arguments),
+        'plugin.call' => await _pluginCall(context, call.arguments),
         'ui.toast' => _toast(context, call.arguments),
         'conversations.count' => _conversationCount(context),
         'system.status' => _systemStatus(context),
         'http.fetch' => await _httpFetch(context, call.arguments),
+        'http.fetchPublic' => await _httpFetchPublic(context, call.arguments),
         'notes.list' => _listNotes(_features(context), call.arguments),
         'notes.read' => await _readNote(_features(context), call.arguments),
         'notes.save' => await _saveNote(_features(context), call.arguments),
@@ -375,10 +383,12 @@ class LynAIFunctionService {
           call.arguments,
         ),
         'tasks.list' => _listTasks(_tasks(context), call.arguments),
+        'tasks.read' => _readTask(_tasks(context), call.arguments),
         'tasks.create' => await _createTask(_tasks(context), call.arguments),
         'tasks.update' => await _updateTask(_tasks(context), call.arguments),
         'tasks.delete' => await _deleteTask(_tasks(context), call.arguments),
         'taskLists.list' => _listTaskLists(_tasks(context), call.arguments),
+        'taskLists.read' => _readTaskList(_tasks(context), call.arguments),
         'taskLists.create' => await _createTaskList(
           _tasks(context),
           call.arguments,
@@ -425,6 +435,8 @@ class LynAIFunctionService {
         'schedules.create' => await _createSchedule(context, call.arguments),
         'schedules.update' => await _updateSchedule(context, call.arguments),
         'schedules.delete' => await _deleteSchedule(context, call.arguments),
+        'model.list' => _modelList(context, call.arguments),
+        'model.current' => _modelCurrent(context, call.arguments),
         'model.chat' => await _modelChat(context, call.arguments),
         'model.ocr' => await _modelOcr(context, call.arguments),
         'model.recognizeFile' => await _modelRecognizeFile(
@@ -469,7 +481,9 @@ class LynAIFunctionService {
         'todos.list' => _listTodoLists(_tasks(context), call.arguments),
         'todos.read' => _readTodoList(_tasks(context), call.arguments),
         'tasks.list' => _listTasks(_tasks(context), call.arguments),
+        'tasks.read' => _readTask(_tasks(context), call.arguments),
         'taskLists.list' => _listTaskLists(_tasks(context), call.arguments),
+        'taskLists.read' => _readTaskList(_tasks(context), call.arguments),
         'calendar.list' => _listCalendar(_calendar(context), call.arguments),
         'anniversaries.list' => _listAnniversaries(
           _calendar(context),
@@ -487,80 +501,13 @@ class LynAIFunctionService {
   }
 
   /// 根据函数名称返回所需权限标识。
+  ///
+  /// 统一查询互联能力注册表；未注册的 `device.*` 能力按操控屏幕权限处理。
   String? _permissionFor(String name) {
-    return switch (name) {
-      'plugin.storage.get' => LynAIPermissions.storageRead,
-      'plugin.storage.set' ||
-      'plugin.storage.remove' => LynAIPermissions.storageWrite,
-      'recycleBin.list' => LynAIPermissions.recycleBinRead,
-      'recycleBin.putData' ||
-      'recycleBin.putFile' => LynAIPermissions.recycleBinWrite,
-      'recycleBin.restore' ||
-      'recycleBin.deleteForever' => LynAIPermissions.recycleBinRestore,
-      'plugin.file.write' ||
-      'plugin.file.create' ||
-      'plugin.file.delete' ||
-      'plugin.file.rename' ||
-      'plugin.restore' => LynAIPermissions.filesWrite,
-      'http.fetch' => LynAIPermissions.networkAccess,
-      'notes.list' ||
-      'notes.read' ||
-      'notes.pages.list' ||
-      'notes.folders.list' => LynAIPermissions.notesRead,
-      'notes.proposeEdit' => LynAIPermissions.notesPropose,
-      'notes.save' ||
-      'notes.edit' ||
-      'notes.delete' ||
-      'notes.pages.save' ||
-      'notes.folders.save' => LynAIPermissions.notesWrite,
-      'todos.list' || 'todos.read' => LynAIPermissions.todosRead,
-      'todos.saveList' ||
-      'todos.saveItem' ||
-      'todos.deleteList' => LynAIPermissions.todosWrite,
-      'tasks.list' || 'taskLists.list' => LynAIPermissions.todosRead,
-      'tasks.create' ||
-      'tasks.update' ||
-      'tasks.delete' ||
-      'taskLists.create' ||
-      'taskLists.update' ||
-      'taskLists.delete' => LynAIPermissions.todosWrite,
-      'calendar.list' ||
-      'anniversaries.list' ||
-      'schedules.list' => LynAIPermissions.schedulesRead,
-      'calendar.create' ||
-      'calendar.update' ||
-      'calendar.delete' ||
-      'anniversaries.create' ||
-      'anniversaries.update' ||
-      'anniversaries.delete' ||
-      'schedules.create' ||
-      'schedules.update' ||
-      'schedules.delete' => LynAIPermissions.schedulesWrite,
-      'model.chat' => LynAIPermissions.modelChat,
-      'model.ocr' => LynAIPermissions.modelOcr,
-      'model.recognizeFile' => LynAIPermissions.modelRecognizeFile,
-      'model.generateImage' => LynAIPermissions.modelGenerateImage,
-      'device.screen.snapshot' ||
-      'device.screen.context' ||
-      'device.screen.screenshot' ||
-      'device.screen.query' ||
-      'device.screen.waitText' ||
-      'device.screen.readVisibleText' ||
-      'device.screen.extractMessages' ||
-      'device.node.find' ||
-      'device.node.findAll' ||
-      'device.waitForNode' => LynAIPermissions.deviceScreenRead,
-      'device.screen.clickText' ||
-      'device.screen.waitAndClick' ||
-      'device.screen.inputText' ||
-      'device.screen.scrollUntil' => LynAIPermissions.deviceControl,
-      'device.service.status' ||
-      'device.service.openSettings' => LynAIPermissions.deviceOverlay,
-      'device.app.open' => LynAIPermissions.deviceControl,
-      String name when name.startsWith('device.') =>
-        LynAIPermissions.deviceControl,
-      _ => null,
-    };
+    final capability = _capabilities.lookup(name);
+    if (capability != null) return capability.permission;
+    if (name.startsWith('device.')) return LynAIPermissions.deviceControl;
+    return null;
   }
 
   void _requirePermission(
@@ -872,6 +819,27 @@ class LynAIFunctionService {
     }
   }
 
+  /// 通过 HTTP 请求获取公开只读远程资源（免授权）。
+  ///
+  /// 仅允许 GET/HEAD + HTTPS，且不转发调用方提供的自定义请求头或正文，
+  /// 用于天气查询等低敏公开服务。
+  Future<Map<String, dynamic>> _httpFetchPublic(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) async {
+    final url = (args['url'] as String? ?? '').trim();
+    if (url.isEmpty) return _error('http.fetchPublic 缺少 url');
+    final method = (args['method'] as String? ?? 'GET').toUpperCase();
+    if (method != 'GET' && method != 'HEAD') {
+      return _error('http.fetchPublic 仅支持 GET/HEAD');
+    }
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.scheme.toLowerCase() != 'https') {
+      return _error('http.fetchPublic 仅允许 HTTPS');
+    }
+    return _httpFetch(context, {'url': url, 'method': method});
+  }
+
   Future<Map<String, dynamic>> _storageGet(
     LynAIFunctionContext context,
     Map<String, dynamic> args,
@@ -1104,6 +1072,64 @@ class LynAIFunctionService {
     };
   }
 
+  /// 跨插件调用入口：让一个插件调用另一个插件暴露的（expose）函数。
+  ///
+  /// 调用方必须持有 plugins.callFunction 权限；目标函数必须 expose 且其所在
+  /// 插件已启用。函数内部再调用 lynai.* 时以目标插件身份执行，其
+  /// grantedPermissions 决定可访问的宿主能力。
+  Future<Map<String, dynamic>> _pluginCall(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) async {
+    final plugins = context.plugins;
+    if (plugins == null) return _error('plugin.call 需要插件系统');
+    final pluginId = (args['pluginId'] as String? ?? '').trim();
+    final functionName = (args['functionName'] as String? ?? '').trim();
+    final functionArgs = args['arguments'] is Map
+        ? Map<String, dynamic>.from(args['arguments'] as Map)
+        : <String, dynamic>{};
+    if (pluginId.isEmpty || functionName.isEmpty) {
+      return _error('plugin.call 缺少 pluginId 或 functionName');
+    }
+    final target = plugins.pluginById(pluginId);
+    if (target == null || !target.enabled || target.hasError) {
+      return _error('目标插件不可用: $pluginId');
+    }
+    PluginFunctionDefinition? function;
+    for (final item in target.manifest.functions) {
+      if (item.name == functionName) {
+        function = item;
+        break;
+      }
+    }
+    if (function == null || !target.enabledFunctions.contains(function.name)) {
+      return _error('目标插件函数不可用: $pluginId.$functionName');
+    }
+    if (!function.expose) {
+      return _error('目标插件函数未对外暴露: $pluginId.$functionName');
+    }
+    final result = await PluginLuaRuntimeService().executeFunction(
+      plugin: target,
+      function: function,
+      arguments: functionArgs,
+      features: context.features,
+      tasks: context.tasks,
+      calendar: context.calendar,
+      modelConfigs: context.modelConfigs,
+      plugins: context.plugins,
+      settings: context.settings,
+      cancellationToken: context.cancellationToken,
+    );
+    if (result['ok'] == false) return result;
+    final value = Map<String, dynamic>.from(result)..remove('ok');
+    return {
+      'ok': true,
+      'pluginId': target.id,
+      'functionName': function.name,
+      ...value,
+    };
+  }
+
   /// 聚合统计：笔记总数、规范任务完成数/总数、对话数。
   Map<String, dynamic> _funcStats(LynAIFunctionContext context) {
     final features = context.features;
@@ -1199,6 +1225,26 @@ class LynAIFunctionService {
           .map((task) => _taskJson(tasks, task))
           .toList(),
     };
+  }
+
+  Map<String, dynamic> _readTask(
+    TaskProvider tasks,
+    Map<String, dynamic> args,
+  ) {
+    final id = (args['id'] as String? ?? '').trim();
+    final task = tasks.taskById(id);
+    if (task == null) return _error('未找到任务: $id');
+    return {'ok': true, 'task': _taskJson(tasks, task)};
+  }
+
+  Map<String, dynamic> _readTaskList(
+    TaskProvider tasks,
+    Map<String, dynamic> args,
+  ) {
+    final id = (args['id'] as String? ?? '').trim();
+    final list = tasks.listById(id);
+    if (list == null) return _error('未找到任务清单: $id');
+    return {'ok': true, 'list': _taskListJson(tasks, list)};
   }
 
   Future<Map<String, dynamic>> _createTask(
@@ -2565,8 +2611,8 @@ class LynAIFunctionService {
   ) async {
     final model = _selectChatModel(
       context,
-      args['modelId'] as String?,
-      args['modelName'] as String?,
+      _modelIdArg(args),
+      _modelNameArg(args),
     );
     final messages = _modelMessages(args);
     final api = ApiService(backend: context.backend);
@@ -2599,8 +2645,9 @@ class LynAIFunctionService {
     if (!files.any((file) => file.mimeType.startsWith('image/'))) {
       throw Exception('model.ocr 需要 image/* MIME 类型文件');
     }
-    final modelId = (args['modelId'] as String?)?.trim().isNotEmpty == true
-        ? args['modelId'] as String
+    final requestedOcrId = _modelIdArg(args);
+    final modelId = requestedOcrId?.trim().isNotEmpty == true
+        ? requestedOcrId
         : context.settings?.settings.imageModelId;
     final recognition = ModelRecognitionService(
       api: ApiService(backend: context.backend),
@@ -2633,8 +2680,9 @@ class LynAIFunctionService {
     if (files.isEmpty) {
       throw Exception('model.recognizeFile 缺少 dataBase64/imageBase64 或 files');
     }
-    final modelId = (args['modelId'] as String?)?.trim().isNotEmpty == true
-        ? args['modelId'] as String
+    final requestedRecognitionId = _modelIdArg(args);
+    final modelId = requestedRecognitionId?.trim().isNotEmpty == true
+        ? requestedRecognitionId
         : context.settings?.settings.imageRecognitionModelId;
     final prompt = (args['prompt'] as String? ?? '').trim().isNotEmpty
         ? (args['prompt'] as String).trim()
@@ -2670,12 +2718,11 @@ class LynAIFunctionService {
     if (provider == null) throw Exception('model.generateImage 需要模型上下文');
     final prompt = (args['prompt'] as String? ?? '').trim();
     if (prompt.isEmpty) throw Exception('model.generateImage 缺少 prompt');
-    final modelId = (args['modelId'] as String?)?.trim().isNotEmpty == true
-        ? args['modelId'] as String
+    final requestedImageId = _modelIdArg(args);
+    final modelId = requestedImageId?.trim().isNotEmpty == true
+        ? requestedImageId
         : context.settings?.settings.imageGenerationModelId;
-    final modelName = (args['modelName'] as String?)?.trim().isNotEmpty == true
-        ? args['modelName'] as String
-        : null;
+    final modelName = _modelNameArg(args);
     final parameters = _imageGenerationParameters(args);
     final service = ImageGenerationService(
       api: ApiService(backend: context.backend),
@@ -2801,6 +2848,69 @@ class LynAIFunctionService {
   String _stringArg(Object? raw, String fallback) {
     final value = raw?.toString().trim() ?? '';
     return value.isEmpty ? fallback : value;
+  }
+
+  /// 统一的模型 provider 标识：优先 provider，回退旧 modelId。
+  String? _modelIdArg(Map<String, dynamic> args) =>
+      (args['provider'] as String?) ?? (args['modelId'] as String?);
+
+  /// 统一的子模型名称：优先 model，回退旧 modelName。
+  String? _modelNameArg(Map<String, dynamic> args) =>
+      (args['model'] as String?) ?? (args['modelName'] as String?);
+
+  /// 列出某分类下可用的模型。
+  Map<String, dynamic> _modelList(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) {
+    final provider = context.modelConfigs;
+    if (provider == null) throw Exception('model.list 需要模型上下文');
+    final category = (args['category'] as String? ?? ModelConfig.categoryChat)
+        .trim();
+    final models = provider.enabledModelsByCategory(category);
+    return {
+      'ok': true,
+      'category': category,
+      'models': models
+          .map(
+            (m) => {
+              'provider': m.id,
+              'name': m.name,
+              'model': m.modelName,
+              'models': m.enabledModelNames,
+              'supportsVision': m.supportsVision,
+              'supportsThinking': m.supportsThinking,
+              'supportsTools': m.supportsTools,
+            },
+          )
+          .toList(),
+    };
+  }
+
+  /// 返回当前生效的模型（chat 回退到最近使用，其它分类取首个可用模型）。
+  Map<String, dynamic> _modelCurrent(
+    LynAIFunctionContext context,
+    Map<String, dynamic> args,
+  ) {
+    final provider = context.modelConfigs;
+    if (provider == null) throw Exception('model.current 需要模型上下文');
+    final category = (args['category'] as String? ?? ModelConfig.categoryChat)
+        .trim();
+    final ModelConfig model;
+    if (category == ModelConfig.categoryChat) {
+      model = _selectChatModel(context, null, null);
+    } else {
+      final models = provider.enabledModelsByCategory(category);
+      if (models.isEmpty) throw Exception('没有可用的 $category 模型');
+      model = models.first;
+    }
+    return {
+      'ok': true,
+      'category': model.category,
+      'provider': model.id,
+      'name': model.name,
+      'model': model.modelName,
+    };
   }
 
   ModelConfig _selectChatModel(

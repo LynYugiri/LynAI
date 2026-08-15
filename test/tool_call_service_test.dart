@@ -1368,7 +1368,6 @@ void main() {
           ConversationSettings(
             modelId: 'm1',
             agentEnabled: false,
-            agentGrantedPermissions: const [LynAIPermissions.todosWrite],
           ),
         );
         final service = ToolCallService(
@@ -1456,7 +1455,6 @@ void main() {
       ConversationSettings(
         modelId: 'm1',
         agentEnabled: false,
-        agentGrantedPermissions: const [LynAIPermissions.todosWrite],
       ),
     );
     final service = ToolCallService(
@@ -1502,7 +1500,7 @@ void main() {
     }
   });
 
-  test('permission inheritance resolves global defaults live', () async {
+  test('run snapshot resolves permissions from global settings live', () async {
     SharedPreferences.setMockInitialValues({});
     final conversations = memoryConversationProvider();
     final settings = memorySettingsProvider();
@@ -1511,12 +1509,10 @@ void main() {
         agentGrantedPermissions: const [LynAIPermissions.todosWrite],
       ),
     );
-    // 继承态对话：忽略镜像列表，实时跟随全局。
     final cid = conversations.createConversation(
       ConversationSettings(
         modelId: 'm1',
         agentEnabled: true,
-        agentGrantedPermissions: const [],
       ),
     );
     final service = ToolCallService(
@@ -1531,26 +1527,17 @@ void main() {
     );
     expect(snapshot.tools['create_task'], isNotNull);
 
-    // 显式覆盖态对话：空列表 = 显式全部拒绝，全局变化不影响。
-    final customId = conversations.createConversation(
-      ConversationSettings(
-        modelId: 'm1',
-        agentEnabled: true,
-        agentPermissionsOverride: true,
+    // 修改全局权限后，新 snapshot 立即反映变化。
+    await settings.replaceSettings(
+      AppSettings.defaults().copyWith(
         agentGrantedPermissions: const [],
       ),
     );
-    final custom = ToolCallService(
-      FeatureProvider(),
-      conversations: conversations,
-      conversationId: customId,
-      settings: settings,
-    );
-    final customSnapshot = custom.createRunSnapshot(
+    final cleared = service.createRunSnapshot(
       agentEnabled: true,
       imageGenerationEnabled: false,
     );
-    expect(customSnapshot.tools['create_task'], isNull);
+    expect(cleared.tools['create_task'], isNull);
   });
 
   test('web_search is not registered when web search is not configured', () {
@@ -2057,7 +2044,6 @@ void main() {
         ConversationSettings(
           modelId: 'chat-1',
           agentEnabled: true,
-          agentGrantedPermissions: const [LynAIPermissions.luaExecute],
         ),
       );
       conversations.addMessage(cid, 'user', 'draw a cat');

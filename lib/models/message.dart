@@ -1,4 +1,5 @@
 import 'agent_trace.dart';
+import 'composer_reference.dart';
 
 /// 消息数据模型。
 ///
@@ -27,6 +28,9 @@ class Message {
   /// assistant 消息内的 Agent 执行过程记录，不作为普通对话内容发送给模型。
   final AgentTrace? agentTrace;
 
+  /// 用户消息的编辑器片段（文本与引用交错），用于撤回/编辑时还原引用 Chip。
+  final List<ComposerSegment> composerSegments;
+
   /// 消息时间戳。
   final DateTime timestamp;
 
@@ -45,6 +49,7 @@ class Message {
     this.images = const [],
     this.thinkingContent,
     this.agentTrace,
+    this.composerSegments = const [],
     required this.timestamp,
     this.revision = 1,
     DateTime? updatedAt,
@@ -67,6 +72,9 @@ class Message {
               Map<String, dynamic>.from(json['agentTrace'] as Map),
             )
           : null,
+      composerSegments: json['composerSegments'] is String
+          ? decodeComposerSegments(json['composerSegments'] as String)
+          : const [],
       timestamp: DateTime.parse(json['timestamp'] as String),
       revision: (json['revision'] as num?)?.toInt() ?? 1,
       updatedAt:
@@ -88,6 +96,8 @@ class Message {
         'thinkingContent': thinkingContent,
       if (agentTrace != null && agentTrace!.events.isNotEmpty)
         'agentTrace': agentTrace!.toJson(),
+      if (composerSegments.isNotEmpty)
+        'composerSegments': encodeComposerSegments(composerSegments),
       'timestamp': timestamp.toIso8601String(),
       'revision': revision,
       'updatedAt': updatedAt.toIso8601String(),
@@ -100,6 +110,7 @@ class Message {
     List<MessageImage>? images,
     Object? thinkingContent = _messageSentinel,
     AgentTrace? agentTrace,
+    List<ComposerSegment>? composerSegments,
     int? revision,
     DateTime? updatedAt,
   }) {
@@ -115,6 +126,7 @@ class Message {
           ? this.thinkingContent
           : thinkingContent as String?,
       agentTrace: agentTrace ?? this.agentTrace,
+      composerSegments: composerSegments ?? this.composerSegments,
       timestamp: timestamp,
       revision: revision ?? this.revision,
       updatedAt: updatedAt ?? this.updatedAt,

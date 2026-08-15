@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:lynai/models/conversation.dart';
 import 'package:lynai/models/agent_runtime.dart';
+import 'package:lynai/models/composer_reference.dart';
 import 'package:lynai/models/model_config.dart';
 import 'package:lynai/models/plugin.dart';
 import 'package:lynai/models/plugin_config_schema.dart';
@@ -17,6 +18,7 @@ import 'package:lynai/repositories/plugin_repository.dart';
 import 'package:lynai/repositories/recycle_bin_repository.dart';
 import 'package:lynai/services/agent_lua_script_service.dart';
 import 'package:lynai/services/agent_cancellation.dart';
+import 'package:lynai/services/composer_selector_registry.dart';
 import 'package:lynai/services/lynai_permission_definitions.dart';
 import 'package:lynai/services/lynai_call_identity.dart';
 import 'package:lynai/services/lynai_function_service.dart';
@@ -321,14 +323,59 @@ void main() {
       'id': 'demo_plugin',
       'name': 'Demo Plugin',
       'entry': 'main.lua',
-      'ui': {
-        'featurePages': [
-          {'id': 'bad:page', 'title': 'Bad', 'entry': 'web/index.html'},
-        ],
-      },
+      'featurePages': [
+        {'id': 'bad:page', 'title': 'Bad', 'entry': 'web/index.html'},
+      ],
     });
 
     expect(manifest.validate(), contains('功能页 id'));
+  });
+
+  test('PluginManifest parses command declarations', () {
+    final manifest = PluginManifest.fromJson({
+      'id': 'cmd_plugin',
+      'name': 'Command Plugin',
+      'entry': 'main.lua',
+      'commands': [
+        {
+          'name': 'list_notes',
+          'title': '引用笔记',
+          'description': '列出笔记供引用',
+          'handler': 'cmd_list_notes',
+          'model': 'model-b',
+        },
+      ],
+    });
+
+    expect(manifest.validate(), isNull);
+    final command = manifest.commands.single;
+    expect(command.name, 'list_notes');
+    expect(command.title, '引用笔记');
+    expect(command.model, 'model-b');
+    expect(manifest.toJson()['commands'], [
+      {
+        'name': 'list_notes',
+        'title': '引用笔记',
+        'description': '列出笔记供引用',
+        'handler': 'cmd_list_notes',
+        'parameters': {'type': 'object', 'properties': <String, dynamic>{}},
+        'model': 'model-b',
+      },
+    ]);
+  });
+
+  test('PluginManifest rejects duplicate command names', () {
+    final manifest = PluginManifest.fromJson({
+      'id': 'dup_cmd_plugin',
+      'name': 'Duplicate Command Plugin',
+      'entry': 'main.lua',
+      'commands': [
+        {'name': 'search', 'handler': 'search_a'},
+        {'name': 'search', 'handler': 'search_b'},
+      ],
+    });
+
+    expect(manifest.validate(), contains('command 名称重复'));
   });
 
   test('safePluginFilePath keeps plugin file references inside root', () {
@@ -967,6 +1014,50 @@ end
     }
   });
 
+  test('plugin command handler returns selectable options', () async {
+    final root = await Directory.systemTemp.createTemp('lynai_lua_command_');
+    try {
+      await File('${root.path}/main.lua').writeAsString(r'''
+function list_notes(args)
+  return {
+    { key = "note:a", kind = "item", title = "笔记A", type = "note", id = "a" },
+    { key = "folder:f", kind = "folder", title = "文件夹F" },
+  }
+end
+''');
+      final manifest = PluginManifest.fromJson({
+        'id': 'command_plugin',
+        'name': 'Command Plugin',
+        'entry': 'main.lua',
+        'commands': [
+          {'name': 'list_notes', 'title': '引用笔记', 'handler': 'list_notes'},
+        ],
+      });
+      final plugin = InstalledPlugin(
+        manifest: manifest,
+        path: root.path,
+        enabled: true,
+        grantedPermissions: const [],
+        enabledFeaturePages: const [],
+        enabledFunctions: const [],
+      );
+
+      final result = await PluginLuaRuntimeService().executeCommandHandler(
+        plugin: plugin,
+        command: manifest.commands.single,
+        arguments: {'query': '', 'path': const []},
+      );
+      final items = parsePluginCommandItems(result);
+
+      expect(items, hasLength(2));
+      expect(items.first.value!.type, ComposerReferenceType.note);
+      expect(items.first.value!.id, 'a');
+      expect(items.last.kind, ComposerSelectorItemKind.folder);
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
   test('Agent Lua can call plugin functions with continuation', () async {
     SharedPreferences.setMockInitialValues({});
     final source = await Directory.systemTemp.createTemp(
@@ -1006,7 +1097,6 @@ end
         ConversationSettings(
           modelId: 'm1',
           agentEnabled: true,
-          agentGrantedPermissions: const [],
         ),
       );
       final cancellation = AgentCancellationSource();
@@ -1128,7 +1218,6 @@ return lynai.call("plugins.callFunction", {
         ConversationSettings(
           modelId: 'm1',
           agentEnabled: true,
-          agentGrantedPermissions: const [LynAIPermissions.pluginCallFunction],
         ),
       );
       final cancellation = AgentCancellationSource();
@@ -2157,7 +2246,7 @@ function same_func(args) return {ok = true} end
 
       expect(plugin.id, 'weather-query');
       expect(plugin.enabled, isTrue);
-      expect(plugin.grantedPermissions, contains('network:access'));
+      expect(plugin.grantedPermissions, contains('network:public'));
       expect(plugin.hasAllPermissionsGranted, isTrue);
     } finally {
       await installedRoot.delete(recursive: true);

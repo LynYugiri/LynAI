@@ -2185,6 +2185,17 @@ class $MessageRowsTable extends MessageRows
         type: DriftSqlType.string,
         requiredDuringInsert: false,
       );
+  static const VerificationMeta _composerSegmentsMeta = const VerificationMeta(
+    'composerSegments',
+  );
+  @override
+  late final GeneratedColumn<String> composerSegments = GeneratedColumn<String>(
+    'composer_segments',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _thinkingContentMeta = const VerificationMeta(
     'thinkingContent',
   );
@@ -2261,6 +2272,7 @@ class $MessageRowsTable extends MessageRows
     role,
     content,
     modelContextContent,
+    composerSegments,
     thinkingContent,
     agentTraceJson,
     timestamp,
@@ -2318,6 +2330,15 @@ class $MessageRowsTable extends MessageRows
         modelContextContent.isAcceptableOrUnknown(
           data['model_context_content']!,
           _modelContextContentMeta,
+        ),
+      );
+    }
+    if (data.containsKey('composer_segments')) {
+      context.handle(
+        _composerSegmentsMeta,
+        composerSegments.isAcceptableOrUnknown(
+          data['composer_segments']!,
+          _composerSegmentsMeta,
         ),
       );
     }
@@ -2394,6 +2415,10 @@ class $MessageRowsTable extends MessageRows
         DriftSqlType.string,
         data['${effectivePrefix}model_context_content'],
       ),
+      composerSegments: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}composer_segments'],
+      ),
       thinkingContent: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}thinking_content'],
@@ -2433,6 +2458,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
   final String role;
   final String content;
   final String? modelContextContent;
+  final String? composerSegments;
   final String? thinkingContent;
   final String? agentTraceJson;
   final String timestamp;
@@ -2445,6 +2471,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
     required this.role,
     required this.content,
     this.modelContextContent,
+    this.composerSegments,
     this.thinkingContent,
     this.agentTraceJson,
     required this.timestamp,
@@ -2461,6 +2488,9 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
     map['content'] = Variable<String>(content);
     if (!nullToAbsent || modelContextContent != null) {
       map['model_context_content'] = Variable<String>(modelContextContent);
+    }
+    if (!nullToAbsent || composerSegments != null) {
+      map['composer_segments'] = Variable<String>(composerSegments);
     }
     if (!nullToAbsent || thinkingContent != null) {
       map['thinking_content'] = Variable<String>(thinkingContent);
@@ -2484,6 +2514,9 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
       modelContextContent: modelContextContent == null && nullToAbsent
           ? const Value.absent()
           : Value(modelContextContent),
+      composerSegments: composerSegments == null && nullToAbsent
+          ? const Value.absent()
+          : Value(composerSegments),
       thinkingContent: thinkingContent == null && nullToAbsent
           ? const Value.absent()
           : Value(thinkingContent),
@@ -2510,6 +2543,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
       modelContextContent: serializer.fromJson<String?>(
         json['modelContextContent'],
       ),
+      composerSegments: serializer.fromJson<String?>(json['composerSegments']),
       thinkingContent: serializer.fromJson<String?>(json['thinkingContent']),
       agentTraceJson: serializer.fromJson<String?>(json['agentTraceJson']),
       timestamp: serializer.fromJson<String>(json['timestamp']),
@@ -2527,6 +2561,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
       'role': serializer.toJson<String>(role),
       'content': serializer.toJson<String>(content),
       'modelContextContent': serializer.toJson<String?>(modelContextContent),
+      'composerSegments': serializer.toJson<String?>(composerSegments),
       'thinkingContent': serializer.toJson<String?>(thinkingContent),
       'agentTraceJson': serializer.toJson<String?>(agentTraceJson),
       'timestamp': serializer.toJson<String>(timestamp),
@@ -2542,6 +2577,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
     String? role,
     String? content,
     Value<String?> modelContextContent = const Value.absent(),
+    Value<String?> composerSegments = const Value.absent(),
     Value<String?> thinkingContent = const Value.absent(),
     Value<String?> agentTraceJson = const Value.absent(),
     String? timestamp,
@@ -2556,6 +2592,9 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
     modelContextContent: modelContextContent.present
         ? modelContextContent.value
         : this.modelContextContent,
+    composerSegments: composerSegments.present
+        ? composerSegments.value
+        : this.composerSegments,
     thinkingContent: thinkingContent.present
         ? thinkingContent.value
         : this.thinkingContent,
@@ -2578,6 +2617,9 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
       modelContextContent: data.modelContextContent.present
           ? data.modelContextContent.value
           : this.modelContextContent,
+      composerSegments: data.composerSegments.present
+          ? data.composerSegments.value
+          : this.composerSegments,
       thinkingContent: data.thinkingContent.present
           ? data.thinkingContent.value
           : this.thinkingContent,
@@ -2599,6 +2641,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
           ..write('role: $role, ')
           ..write('content: $content, ')
           ..write('modelContextContent: $modelContextContent, ')
+          ..write('composerSegments: $composerSegments, ')
           ..write('thinkingContent: $thinkingContent, ')
           ..write('agentTraceJson: $agentTraceJson, ')
           ..write('timestamp: $timestamp, ')
@@ -2616,6 +2659,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
     role,
     content,
     modelContextContent,
+    composerSegments,
     thinkingContent,
     agentTraceJson,
     timestamp,
@@ -2632,6 +2676,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
           other.role == this.role &&
           other.content == this.content &&
           other.modelContextContent == this.modelContextContent &&
+          other.composerSegments == this.composerSegments &&
           other.thinkingContent == this.thinkingContent &&
           other.agentTraceJson == this.agentTraceJson &&
           other.timestamp == this.timestamp &&
@@ -2646,6 +2691,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
   final Value<String> role;
   final Value<String> content;
   final Value<String?> modelContextContent;
+  final Value<String?> composerSegments;
   final Value<String?> thinkingContent;
   final Value<String?> agentTraceJson;
   final Value<String> timestamp;
@@ -2659,6 +2705,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
     this.role = const Value.absent(),
     this.content = const Value.absent(),
     this.modelContextContent = const Value.absent(),
+    this.composerSegments = const Value.absent(),
     this.thinkingContent = const Value.absent(),
     this.agentTraceJson = const Value.absent(),
     this.timestamp = const Value.absent(),
@@ -2673,6 +2720,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
     required String role,
     required String content,
     this.modelContextContent = const Value.absent(),
+    this.composerSegments = const Value.absent(),
     this.thinkingContent = const Value.absent(),
     this.agentTraceJson = const Value.absent(),
     required String timestamp,
@@ -2691,6 +2739,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
     Expression<String>? role,
     Expression<String>? content,
     Expression<String>? modelContextContent,
+    Expression<String>? composerSegments,
     Expression<String>? thinkingContent,
     Expression<String>? agentTraceJson,
     Expression<String>? timestamp,
@@ -2706,6 +2755,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
       if (content != null) 'content': content,
       if (modelContextContent != null)
         'model_context_content': modelContextContent,
+      if (composerSegments != null) 'composer_segments': composerSegments,
       if (thinkingContent != null) 'thinking_content': thinkingContent,
       if (agentTraceJson != null) 'agent_trace_json': agentTraceJson,
       if (timestamp != null) 'timestamp': timestamp,
@@ -2722,6 +2772,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
     Value<String>? role,
     Value<String>? content,
     Value<String?>? modelContextContent,
+    Value<String?>? composerSegments,
     Value<String?>? thinkingContent,
     Value<String?>? agentTraceJson,
     Value<String>? timestamp,
@@ -2736,6 +2787,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
       role: role ?? this.role,
       content: content ?? this.content,
       modelContextContent: modelContextContent ?? this.modelContextContent,
+      composerSegments: composerSegments ?? this.composerSegments,
       thinkingContent: thinkingContent ?? this.thinkingContent,
       agentTraceJson: agentTraceJson ?? this.agentTraceJson,
       timestamp: timestamp ?? this.timestamp,
@@ -2765,6 +2817,9 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
       map['model_context_content'] = Variable<String>(
         modelContextContent.value,
       );
+    }
+    if (composerSegments.present) {
+      map['composer_segments'] = Variable<String>(composerSegments.value);
     }
     if (thinkingContent.present) {
       map['thinking_content'] = Variable<String>(thinkingContent.value);
@@ -2798,6 +2853,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
           ..write('role: $role, ')
           ..write('content: $content, ')
           ..write('modelContextContent: $modelContextContent, ')
+          ..write('composerSegments: $composerSegments, ')
           ..write('thinkingContent: $thinkingContent, ')
           ..write('agentTraceJson: $agentTraceJson, ')
           ..write('timestamp: $timestamp, ')
@@ -25684,6 +25740,7 @@ typedef $$MessageRowsTableCreateCompanionBuilder =
       required String role,
       required String content,
       Value<String?> modelContextContent,
+      Value<String?> composerSegments,
       Value<String?> thinkingContent,
       Value<String?> agentTraceJson,
       required String timestamp,
@@ -25699,6 +25756,7 @@ typedef $$MessageRowsTableUpdateCompanionBuilder =
       Value<String> role,
       Value<String> content,
       Value<String?> modelContextContent,
+      Value<String?> composerSegments,
       Value<String?> thinkingContent,
       Value<String?> agentTraceJson,
       Value<String> timestamp,
@@ -25739,6 +25797,11 @@ class $$MessageRowsTableFilterComposer
 
   ColumnFilters<String> get modelContextContent => $composableBuilder(
     column: $table.modelContextContent,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get composerSegments => $composableBuilder(
+    column: $table.composerSegments,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -25807,6 +25870,11 @@ class $$MessageRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get composerSegments => $composableBuilder(
+    column: $table.composerSegments,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get thinkingContent => $composableBuilder(
     column: $table.thinkingContent,
     builder: (column) => ColumnOrderings(column),
@@ -25863,6 +25931,11 @@ class $$MessageRowsTableAnnotationComposer
 
   GeneratedColumn<String> get modelContextContent => $composableBuilder(
     column: $table.modelContextContent,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get composerSegments => $composableBuilder(
+    column: $table.composerSegments,
     builder: (column) => column,
   );
 
@@ -25931,6 +26004,7 @@ class $$MessageRowsTableTableManager
                 Value<String> role = const Value.absent(),
                 Value<String> content = const Value.absent(),
                 Value<String?> modelContextContent = const Value.absent(),
+                Value<String?> composerSegments = const Value.absent(),
                 Value<String?> thinkingContent = const Value.absent(),
                 Value<String?> agentTraceJson = const Value.absent(),
                 Value<String> timestamp = const Value.absent(),
@@ -25944,6 +26018,7 @@ class $$MessageRowsTableTableManager
                 role: role,
                 content: content,
                 modelContextContent: modelContextContent,
+                composerSegments: composerSegments,
                 thinkingContent: thinkingContent,
                 agentTraceJson: agentTraceJson,
                 timestamp: timestamp,
@@ -25959,6 +26034,7 @@ class $$MessageRowsTableTableManager
                 required String role,
                 required String content,
                 Value<String?> modelContextContent = const Value.absent(),
+                Value<String?> composerSegments = const Value.absent(),
                 Value<String?> thinkingContent = const Value.absent(),
                 Value<String?> agentTraceJson = const Value.absent(),
                 required String timestamp,
@@ -25972,6 +26048,7 @@ class $$MessageRowsTableTableManager
                 role: role,
                 content: content,
                 modelContextContent: modelContextContent,
+                composerSegments: composerSegments,
                 thinkingContent: thinkingContent,
                 agentTraceJson: agentTraceJson,
                 timestamp: timestamp,
