@@ -211,17 +211,6 @@ const lynaiPermissionDefinitions = <LynAIPermissionDefinition>[
     description: '允许插件读取自己放入回收站的项目。',
   ),
   LynAIPermissionDefinition(
-    id: LynAIPermissions.memoryCardsRead,
-    title: '读取记忆卡片',
-    description: '允许读取牌组、记忆卡片和复习记录。',
-  ),
-  LynAIPermissionDefinition(
-    id: LynAIPermissions.memoryCardsWrite,
-    title: '修改记忆卡片',
-    description: '允许创建和修改记忆卡片并执行复习评分；删除暂不开放给 Agent。',
-    risk: LynAIPermissionRisk.elevated,
-  ),
-  LynAIPermissionDefinition(
     id: LynAIPermissions.recycleBinWrite,
     title: '写入回收站',
     description: '允许插件把自己的数据或可编辑文件移入回收站。',
