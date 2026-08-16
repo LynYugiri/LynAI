@@ -15,6 +15,7 @@ import '../providers/conversation_provider.dart';
 import '../providers/calendar_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/knowledge_provider.dart';
+import '../providers/memory_card_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
@@ -43,6 +44,7 @@ class FloatingChatSessionController extends ChangeNotifier {
     required ModelConfigProvider models,
     required FeatureProvider features,
     required KnowledgeProvider knowledge,
+    MemoryCardProvider? memoryCards,
     required TaskProvider tasks,
     required CalendarProvider calendar,
     required PluginProvider plugins,
@@ -59,6 +61,7 @@ class FloatingChatSessionController extends ChangeNotifier {
        _models = models,
        _features = features,
        _knowledge = knowledge,
+       _memoryCards = memoryCards,
        _tasks = tasks,
        _calendar = calendar,
        _plugins = plugins,
@@ -81,6 +84,7 @@ class FloatingChatSessionController extends ChangeNotifier {
   final ModelConfigProvider _models;
   final FeatureProvider _features;
   final KnowledgeProvider _knowledge;
+  final MemoryCardProvider? _memoryCards;
   final TaskProvider _tasks;
   final CalendarProvider _calendar;
   final PluginProvider _plugins;
@@ -497,6 +501,7 @@ class FloatingChatSessionController extends ChangeNotifier {
       tasks: _tasks,
       calendar: _calendar,
       knowledge: _knowledge,
+      memoryCards: _memoryCards,
       plugins: _plugins,
       modelConfigs: _models,
       settings: _settings,

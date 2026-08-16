@@ -229,6 +229,8 @@ class _ReferenceChip extends StatelessWidget {
     ComposerReferenceType.notePage => Icons.description,
     ComposerReferenceType.task => Icons.check_circle_outline,
     ComposerReferenceType.taskList => Icons.checklist,
+    ComposerReferenceType.knowledgeBase => Icons.local_library_outlined,
+    ComposerReferenceType.knowledgeEntry => Icons.description_outlined,
     ComposerReferenceType.pluginResource => Icons.extension,
     ComposerReferenceType.pluginSkill => Icons.auto_awesome,
   };

@@ -569,8 +569,18 @@ class AppSettings {
               .where((item) => LynAIPermissions.agentAssignable.contains(item))
               .toSet()
         : <String>{};
+    if (raw == null) {
+      return List.unmodifiable(LynAIPermissions.defaultAgent);
+    }
+    // 为已保存授权列表的存量用户补齐本版本新引入的默认权限，
+    // 同时保留用户对旧默认权限的显式移除。
+    final migrated = <String>{
+      ...restored,
+      LynAIPermissions.memoryCardsRead,
+      LynAIPermissions.memoryCardsWrite,
+    };
     return LynAIPermissions.defaultAgent
-        .where((permission) => raw == null || restored.contains(permission))
+        .where(migrated.contains)
         .toList(growable: false);
   }
 

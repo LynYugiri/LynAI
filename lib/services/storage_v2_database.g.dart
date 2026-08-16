@@ -11730,6 +11730,2394 @@ class KnowledgeExplanationRowsCompanion
   }
 }
 
+class $MemoryCardDeckRowsTable extends MemoryCardDeckRows
+    with TableInfo<$MemoryCardDeckRowsTable, MemoryCardDeckRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $MemoryCardDeckRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _descriptionMeta = const VerificationMeta(
+    'description',
+  );
+  @override
+  late final GeneratedColumn<String> description = GeneratedColumn<String>(
+    'description',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _newPerDayLimitMeta = const VerificationMeta(
+    'newPerDayLimit',
+  );
+  @override
+  late final GeneratedColumn<int> newPerDayLimit = GeneratedColumn<int>(
+    'new_per_day_limit',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _reviewPerDayLimitMeta = const VerificationMeta(
+    'reviewPerDayLimit',
+  );
+  @override
+  late final GeneratedColumn<int> reviewPerDayLimit = GeneratedColumn<int>(
+    'review_per_day_limit',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _enabledMeta = const VerificationMeta(
+    'enabled',
+  );
+  @override
+  late final GeneratedColumn<bool> enabled = GeneratedColumn<bool>(
+    'enabled',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("enabled" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _sortOrderMeta = const VerificationMeta(
+    'sortOrder',
+  );
+  @override
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+    'sort_order',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<String> createdAt = GeneratedColumn<String>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    name,
+    description,
+    newPerDayLimit,
+    reviewPerDayLimit,
+    enabled,
+    sortOrder,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'memory_card_decks';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<MemoryCardDeckRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('description')) {
+      context.handle(
+        _descriptionMeta,
+        description.isAcceptableOrUnknown(
+          data['description']!,
+          _descriptionMeta,
+        ),
+      );
+    }
+    if (data.containsKey('new_per_day_limit')) {
+      context.handle(
+        _newPerDayLimitMeta,
+        newPerDayLimit.isAcceptableOrUnknown(
+          data['new_per_day_limit']!,
+          _newPerDayLimitMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_newPerDayLimitMeta);
+    }
+    if (data.containsKey('review_per_day_limit')) {
+      context.handle(
+        _reviewPerDayLimitMeta,
+        reviewPerDayLimit.isAcceptableOrUnknown(
+          data['review_per_day_limit']!,
+          _reviewPerDayLimitMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_reviewPerDayLimitMeta);
+    }
+    if (data.containsKey('enabled')) {
+      context.handle(
+        _enabledMeta,
+        enabled.isAcceptableOrUnknown(data['enabled']!, _enabledMeta),
+      );
+    }
+    if (data.containsKey('sort_order')) {
+      context.handle(
+        _sortOrderMeta,
+        sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sortOrderMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  MemoryCardDeckRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return MemoryCardDeckRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      description: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}description'],
+      ),
+      newPerDayLimit: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}new_per_day_limit'],
+      )!,
+      reviewPerDayLimit: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}review_per_day_limit'],
+      )!,
+      enabled: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}enabled'],
+      )!,
+      sortOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sort_order'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $MemoryCardDeckRowsTable createAlias(String alias) {
+    return $MemoryCardDeckRowsTable(attachedDatabase, alias);
+  }
+}
+
+class MemoryCardDeckRow extends DataClass
+    implements Insertable<MemoryCardDeckRow> {
+  final String id;
+  final String name;
+  final String? description;
+  final int newPerDayLimit;
+  final int reviewPerDayLimit;
+  final bool enabled;
+  final int sortOrder;
+  final String createdAt;
+  final String updatedAt;
+  const MemoryCardDeckRow({
+    required this.id,
+    required this.name,
+    this.description,
+    required this.newPerDayLimit,
+    required this.reviewPerDayLimit,
+    required this.enabled,
+    required this.sortOrder,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['name'] = Variable<String>(name);
+    if (!nullToAbsent || description != null) {
+      map['description'] = Variable<String>(description);
+    }
+    map['new_per_day_limit'] = Variable<int>(newPerDayLimit);
+    map['review_per_day_limit'] = Variable<int>(reviewPerDayLimit);
+    map['enabled'] = Variable<bool>(enabled);
+    map['sort_order'] = Variable<int>(sortOrder);
+    map['created_at'] = Variable<String>(createdAt);
+    map['updated_at'] = Variable<String>(updatedAt);
+    return map;
+  }
+
+  MemoryCardDeckRowsCompanion toCompanion(bool nullToAbsent) {
+    return MemoryCardDeckRowsCompanion(
+      id: Value(id),
+      name: Value(name),
+      description: description == null && nullToAbsent
+          ? const Value.absent()
+          : Value(description),
+      newPerDayLimit: Value(newPerDayLimit),
+      reviewPerDayLimit: Value(reviewPerDayLimit),
+      enabled: Value(enabled),
+      sortOrder: Value(sortOrder),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory MemoryCardDeckRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return MemoryCardDeckRow(
+      id: serializer.fromJson<String>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      description: serializer.fromJson<String?>(json['description']),
+      newPerDayLimit: serializer.fromJson<int>(json['newPerDayLimit']),
+      reviewPerDayLimit: serializer.fromJson<int>(json['reviewPerDayLimit']),
+      enabled: serializer.fromJson<bool>(json['enabled']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
+      createdAt: serializer.fromJson<String>(json['createdAt']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'name': serializer.toJson<String>(name),
+      'description': serializer.toJson<String?>(description),
+      'newPerDayLimit': serializer.toJson<int>(newPerDayLimit),
+      'reviewPerDayLimit': serializer.toJson<int>(reviewPerDayLimit),
+      'enabled': serializer.toJson<bool>(enabled),
+      'sortOrder': serializer.toJson<int>(sortOrder),
+      'createdAt': serializer.toJson<String>(createdAt),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+    };
+  }
+
+  MemoryCardDeckRow copyWith({
+    String? id,
+    String? name,
+    Value<String?> description = const Value.absent(),
+    int? newPerDayLimit,
+    int? reviewPerDayLimit,
+    bool? enabled,
+    int? sortOrder,
+    String? createdAt,
+    String? updatedAt,
+  }) => MemoryCardDeckRow(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    description: description.present ? description.value : this.description,
+    newPerDayLimit: newPerDayLimit ?? this.newPerDayLimit,
+    reviewPerDayLimit: reviewPerDayLimit ?? this.reviewPerDayLimit,
+    enabled: enabled ?? this.enabled,
+    sortOrder: sortOrder ?? this.sortOrder,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  MemoryCardDeckRow copyWithCompanion(MemoryCardDeckRowsCompanion data) {
+    return MemoryCardDeckRow(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      description: data.description.present
+          ? data.description.value
+          : this.description,
+      newPerDayLimit: data.newPerDayLimit.present
+          ? data.newPerDayLimit.value
+          : this.newPerDayLimit,
+      reviewPerDayLimit: data.reviewPerDayLimit.present
+          ? data.reviewPerDayLimit.value
+          : this.reviewPerDayLimit,
+      enabled: data.enabled.present ? data.enabled.value : this.enabled,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('MemoryCardDeckRow(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('description: $description, ')
+          ..write('newPerDayLimit: $newPerDayLimit, ')
+          ..write('reviewPerDayLimit: $reviewPerDayLimit, ')
+          ..write('enabled: $enabled, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    name,
+    description,
+    newPerDayLimit,
+    reviewPerDayLimit,
+    enabled,
+    sortOrder,
+    createdAt,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is MemoryCardDeckRow &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.description == this.description &&
+          other.newPerDayLimit == this.newPerDayLimit &&
+          other.reviewPerDayLimit == this.reviewPerDayLimit &&
+          other.enabled == this.enabled &&
+          other.sortOrder == this.sortOrder &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class MemoryCardDeckRowsCompanion extends UpdateCompanion<MemoryCardDeckRow> {
+  final Value<String> id;
+  final Value<String> name;
+  final Value<String?> description;
+  final Value<int> newPerDayLimit;
+  final Value<int> reviewPerDayLimit;
+  final Value<bool> enabled;
+  final Value<int> sortOrder;
+  final Value<String> createdAt;
+  final Value<String> updatedAt;
+  final Value<int> rowid;
+  const MemoryCardDeckRowsCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.description = const Value.absent(),
+    this.newPerDayLimit = const Value.absent(),
+    this.reviewPerDayLimit = const Value.absent(),
+    this.enabled = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  MemoryCardDeckRowsCompanion.insert({
+    required String id,
+    required String name,
+    this.description = const Value.absent(),
+    required int newPerDayLimit,
+    required int reviewPerDayLimit,
+    this.enabled = const Value.absent(),
+    required int sortOrder,
+    required String createdAt,
+    required String updatedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       name = Value(name),
+       newPerDayLimit = Value(newPerDayLimit),
+       reviewPerDayLimit = Value(reviewPerDayLimit),
+       sortOrder = Value(sortOrder),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<MemoryCardDeckRow> custom({
+    Expression<String>? id,
+    Expression<String>? name,
+    Expression<String>? description,
+    Expression<int>? newPerDayLimit,
+    Expression<int>? reviewPerDayLimit,
+    Expression<bool>? enabled,
+    Expression<int>? sortOrder,
+    Expression<String>? createdAt,
+    Expression<String>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (description != null) 'description': description,
+      if (newPerDayLimit != null) 'new_per_day_limit': newPerDayLimit,
+      if (reviewPerDayLimit != null) 'review_per_day_limit': reviewPerDayLimit,
+      if (enabled != null) 'enabled': enabled,
+      if (sortOrder != null) 'sort_order': sortOrder,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  MemoryCardDeckRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? name,
+    Value<String?>? description,
+    Value<int>? newPerDayLimit,
+    Value<int>? reviewPerDayLimit,
+    Value<bool>? enabled,
+    Value<int>? sortOrder,
+    Value<String>? createdAt,
+    Value<String>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return MemoryCardDeckRowsCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      description: description ?? this.description,
+      newPerDayLimit: newPerDayLimit ?? this.newPerDayLimit,
+      reviewPerDayLimit: reviewPerDayLimit ?? this.reviewPerDayLimit,
+      enabled: enabled ?? this.enabled,
+      sortOrder: sortOrder ?? this.sortOrder,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (description.present) {
+      map['description'] = Variable<String>(description.value);
+    }
+    if (newPerDayLimit.present) {
+      map['new_per_day_limit'] = Variable<int>(newPerDayLimit.value);
+    }
+    if (reviewPerDayLimit.present) {
+      map['review_per_day_limit'] = Variable<int>(reviewPerDayLimit.value);
+    }
+    if (enabled.present) {
+      map['enabled'] = Variable<bool>(enabled.value);
+    }
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<String>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('MemoryCardDeckRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('description: $description, ')
+          ..write('newPerDayLimit: $newPerDayLimit, ')
+          ..write('reviewPerDayLimit: $reviewPerDayLimit, ')
+          ..write('enabled: $enabled, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $MemoryCardRowsTable extends MemoryCardRows
+    with TableInfo<$MemoryCardRowsTable, MemoryCardRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $MemoryCardRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _deckIdMeta = const VerificationMeta('deckId');
+  @override
+  late final GeneratedColumn<String> deckId = GeneratedColumn<String>(
+    'deck_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints:
+        'NOT NULL REFERENCES memory_card_decks(id) ON DELETE CASCADE',
+  );
+  static const VerificationMeta _frontMeta = const VerificationMeta('front');
+  @override
+  late final GeneratedColumn<String> front = GeneratedColumn<String>(
+    'front',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _backMeta = const VerificationMeta('back');
+  @override
+  late final GeneratedColumn<String> back = GeneratedColumn<String>(
+    'back',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _hintMeta = const VerificationMeta('hint');
+  @override
+  late final GeneratedColumn<String> hint = GeneratedColumn<String>(
+    'hint',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _sourceKindMeta = const VerificationMeta(
+    'sourceKind',
+  );
+  @override
+  late final GeneratedColumn<String> sourceKind = GeneratedColumn<String>(
+    'source_kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints:
+        'NOT NULL CHECK (source_kind IN (\'manual\', \'knowledge\', \'chat\'))',
+  );
+  static const VerificationMeta _sourceEntryIdMeta = const VerificationMeta(
+    'sourceEntryId',
+  );
+  @override
+  late final GeneratedColumn<String> sourceEntryId = GeneratedColumn<String>(
+    'source_entry_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _sourceBaseIdMeta = const VerificationMeta(
+    'sourceBaseId',
+  );
+  @override
+  late final GeneratedColumn<String> sourceBaseId = GeneratedColumn<String>(
+    'source_base_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints:
+        'NOT NULL CHECK (status IN (\'new\', \'learning\', \'review\', \'relearning\'))',
+  );
+  static const VerificationMeta _dueAtMeta = const VerificationMeta('dueAt');
+  @override
+  late final GeneratedColumn<String> dueAt = GeneratedColumn<String>(
+    'due_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _intervalDaysMeta = const VerificationMeta(
+    'intervalDays',
+  );
+  @override
+  late final GeneratedColumn<double> intervalDays = GeneratedColumn<double>(
+    'interval_days',
+    aliasedName,
+    false,
+    type: DriftSqlType.double,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _easeFactorMeta = const VerificationMeta(
+    'easeFactor',
+  );
+  @override
+  late final GeneratedColumn<double> easeFactor = GeneratedColumn<double>(
+    'ease_factor',
+    aliasedName,
+    false,
+    type: DriftSqlType.double,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _repetitionsMeta = const VerificationMeta(
+    'repetitions',
+  );
+  @override
+  late final GeneratedColumn<int> repetitions = GeneratedColumn<int>(
+    'repetitions',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _lapsesMeta = const VerificationMeta('lapses');
+  @override
+  late final GeneratedColumn<int> lapses = GeneratedColumn<int>(
+    'lapses',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _reviewCountMeta = const VerificationMeta(
+    'reviewCount',
+  );
+  @override
+  late final GeneratedColumn<int> reviewCount = GeneratedColumn<int>(
+    'review_count',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _lastReviewedAtMeta = const VerificationMeta(
+    'lastReviewedAt',
+  );
+  @override
+  late final GeneratedColumn<String> lastReviewedAt = GeneratedColumn<String>(
+    'last_reviewed_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _enabledMeta = const VerificationMeta(
+    'enabled',
+  );
+  @override
+  late final GeneratedColumn<bool> enabled = GeneratedColumn<bool>(
+    'enabled',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("enabled" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _sortOrderMeta = const VerificationMeta(
+    'sortOrder',
+  );
+  @override
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+    'sort_order',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<String> createdAt = GeneratedColumn<String>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    deckId,
+    front,
+    back,
+    hint,
+    sourceKind,
+    sourceEntryId,
+    sourceBaseId,
+    status,
+    dueAt,
+    intervalDays,
+    easeFactor,
+    repetitions,
+    lapses,
+    reviewCount,
+    lastReviewedAt,
+    enabled,
+    sortOrder,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'memory_cards';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<MemoryCardRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('deck_id')) {
+      context.handle(
+        _deckIdMeta,
+        deckId.isAcceptableOrUnknown(data['deck_id']!, _deckIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_deckIdMeta);
+    }
+    if (data.containsKey('front')) {
+      context.handle(
+        _frontMeta,
+        front.isAcceptableOrUnknown(data['front']!, _frontMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_frontMeta);
+    }
+    if (data.containsKey('back')) {
+      context.handle(
+        _backMeta,
+        back.isAcceptableOrUnknown(data['back']!, _backMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_backMeta);
+    }
+    if (data.containsKey('hint')) {
+      context.handle(
+        _hintMeta,
+        hint.isAcceptableOrUnknown(data['hint']!, _hintMeta),
+      );
+    }
+    if (data.containsKey('source_kind')) {
+      context.handle(
+        _sourceKindMeta,
+        sourceKind.isAcceptableOrUnknown(data['source_kind']!, _sourceKindMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sourceKindMeta);
+    }
+    if (data.containsKey('source_entry_id')) {
+      context.handle(
+        _sourceEntryIdMeta,
+        sourceEntryId.isAcceptableOrUnknown(
+          data['source_entry_id']!,
+          _sourceEntryIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('source_base_id')) {
+      context.handle(
+        _sourceBaseIdMeta,
+        sourceBaseId.isAcceptableOrUnknown(
+          data['source_base_id']!,
+          _sourceBaseIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_statusMeta);
+    }
+    if (data.containsKey('due_at')) {
+      context.handle(
+        _dueAtMeta,
+        dueAt.isAcceptableOrUnknown(data['due_at']!, _dueAtMeta),
+      );
+    }
+    if (data.containsKey('interval_days')) {
+      context.handle(
+        _intervalDaysMeta,
+        intervalDays.isAcceptableOrUnknown(
+          data['interval_days']!,
+          _intervalDaysMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_intervalDaysMeta);
+    }
+    if (data.containsKey('ease_factor')) {
+      context.handle(
+        _easeFactorMeta,
+        easeFactor.isAcceptableOrUnknown(data['ease_factor']!, _easeFactorMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_easeFactorMeta);
+    }
+    if (data.containsKey('repetitions')) {
+      context.handle(
+        _repetitionsMeta,
+        repetitions.isAcceptableOrUnknown(
+          data['repetitions']!,
+          _repetitionsMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_repetitionsMeta);
+    }
+    if (data.containsKey('lapses')) {
+      context.handle(
+        _lapsesMeta,
+        lapses.isAcceptableOrUnknown(data['lapses']!, _lapsesMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_lapsesMeta);
+    }
+    if (data.containsKey('review_count')) {
+      context.handle(
+        _reviewCountMeta,
+        reviewCount.isAcceptableOrUnknown(
+          data['review_count']!,
+          _reviewCountMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_reviewCountMeta);
+    }
+    if (data.containsKey('last_reviewed_at')) {
+      context.handle(
+        _lastReviewedAtMeta,
+        lastReviewedAt.isAcceptableOrUnknown(
+          data['last_reviewed_at']!,
+          _lastReviewedAtMeta,
+        ),
+      );
+    }
+    if (data.containsKey('enabled')) {
+      context.handle(
+        _enabledMeta,
+        enabled.isAcceptableOrUnknown(data['enabled']!, _enabledMeta),
+      );
+    }
+    if (data.containsKey('sort_order')) {
+      context.handle(
+        _sortOrderMeta,
+        sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sortOrderMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  MemoryCardRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return MemoryCardRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      deckId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}deck_id'],
+      )!,
+      front: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}front'],
+      )!,
+      back: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}back'],
+      )!,
+      hint: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}hint'],
+      ),
+      sourceKind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_kind'],
+      )!,
+      sourceEntryId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_entry_id'],
+      ),
+      sourceBaseId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_base_id'],
+      ),
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      dueAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}due_at'],
+      ),
+      intervalDays: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}interval_days'],
+      )!,
+      easeFactor: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}ease_factor'],
+      )!,
+      repetitions: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}repetitions'],
+      )!,
+      lapses: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}lapses'],
+      )!,
+      reviewCount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}review_count'],
+      )!,
+      lastReviewedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_reviewed_at'],
+      ),
+      enabled: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}enabled'],
+      )!,
+      sortOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sort_order'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $MemoryCardRowsTable createAlias(String alias) {
+    return $MemoryCardRowsTable(attachedDatabase, alias);
+  }
+}
+
+class MemoryCardRow extends DataClass implements Insertable<MemoryCardRow> {
+  final String id;
+  final String deckId;
+  final String front;
+  final String back;
+  final String? hint;
+  final String sourceKind;
+  final String? sourceEntryId;
+  final String? sourceBaseId;
+  final String status;
+  final String? dueAt;
+  final double intervalDays;
+  final double easeFactor;
+  final int repetitions;
+  final int lapses;
+  final int reviewCount;
+  final String? lastReviewedAt;
+  final bool enabled;
+  final int sortOrder;
+  final String createdAt;
+  final String updatedAt;
+  const MemoryCardRow({
+    required this.id,
+    required this.deckId,
+    required this.front,
+    required this.back,
+    this.hint,
+    required this.sourceKind,
+    this.sourceEntryId,
+    this.sourceBaseId,
+    required this.status,
+    this.dueAt,
+    required this.intervalDays,
+    required this.easeFactor,
+    required this.repetitions,
+    required this.lapses,
+    required this.reviewCount,
+    this.lastReviewedAt,
+    required this.enabled,
+    required this.sortOrder,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['deck_id'] = Variable<String>(deckId);
+    map['front'] = Variable<String>(front);
+    map['back'] = Variable<String>(back);
+    if (!nullToAbsent || hint != null) {
+      map['hint'] = Variable<String>(hint);
+    }
+    map['source_kind'] = Variable<String>(sourceKind);
+    if (!nullToAbsent || sourceEntryId != null) {
+      map['source_entry_id'] = Variable<String>(sourceEntryId);
+    }
+    if (!nullToAbsent || sourceBaseId != null) {
+      map['source_base_id'] = Variable<String>(sourceBaseId);
+    }
+    map['status'] = Variable<String>(status);
+    if (!nullToAbsent || dueAt != null) {
+      map['due_at'] = Variable<String>(dueAt);
+    }
+    map['interval_days'] = Variable<double>(intervalDays);
+    map['ease_factor'] = Variable<double>(easeFactor);
+    map['repetitions'] = Variable<int>(repetitions);
+    map['lapses'] = Variable<int>(lapses);
+    map['review_count'] = Variable<int>(reviewCount);
+    if (!nullToAbsent || lastReviewedAt != null) {
+      map['last_reviewed_at'] = Variable<String>(lastReviewedAt);
+    }
+    map['enabled'] = Variable<bool>(enabled);
+    map['sort_order'] = Variable<int>(sortOrder);
+    map['created_at'] = Variable<String>(createdAt);
+    map['updated_at'] = Variable<String>(updatedAt);
+    return map;
+  }
+
+  MemoryCardRowsCompanion toCompanion(bool nullToAbsent) {
+    return MemoryCardRowsCompanion(
+      id: Value(id),
+      deckId: Value(deckId),
+      front: Value(front),
+      back: Value(back),
+      hint: hint == null && nullToAbsent ? const Value.absent() : Value(hint),
+      sourceKind: Value(sourceKind),
+      sourceEntryId: sourceEntryId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sourceEntryId),
+      sourceBaseId: sourceBaseId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sourceBaseId),
+      status: Value(status),
+      dueAt: dueAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(dueAt),
+      intervalDays: Value(intervalDays),
+      easeFactor: Value(easeFactor),
+      repetitions: Value(repetitions),
+      lapses: Value(lapses),
+      reviewCount: Value(reviewCount),
+      lastReviewedAt: lastReviewedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastReviewedAt),
+      enabled: Value(enabled),
+      sortOrder: Value(sortOrder),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory MemoryCardRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return MemoryCardRow(
+      id: serializer.fromJson<String>(json['id']),
+      deckId: serializer.fromJson<String>(json['deckId']),
+      front: serializer.fromJson<String>(json['front']),
+      back: serializer.fromJson<String>(json['back']),
+      hint: serializer.fromJson<String?>(json['hint']),
+      sourceKind: serializer.fromJson<String>(json['sourceKind']),
+      sourceEntryId: serializer.fromJson<String?>(json['sourceEntryId']),
+      sourceBaseId: serializer.fromJson<String?>(json['sourceBaseId']),
+      status: serializer.fromJson<String>(json['status']),
+      dueAt: serializer.fromJson<String?>(json['dueAt']),
+      intervalDays: serializer.fromJson<double>(json['intervalDays']),
+      easeFactor: serializer.fromJson<double>(json['easeFactor']),
+      repetitions: serializer.fromJson<int>(json['repetitions']),
+      lapses: serializer.fromJson<int>(json['lapses']),
+      reviewCount: serializer.fromJson<int>(json['reviewCount']),
+      lastReviewedAt: serializer.fromJson<String?>(json['lastReviewedAt']),
+      enabled: serializer.fromJson<bool>(json['enabled']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
+      createdAt: serializer.fromJson<String>(json['createdAt']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'deckId': serializer.toJson<String>(deckId),
+      'front': serializer.toJson<String>(front),
+      'back': serializer.toJson<String>(back),
+      'hint': serializer.toJson<String?>(hint),
+      'sourceKind': serializer.toJson<String>(sourceKind),
+      'sourceEntryId': serializer.toJson<String?>(sourceEntryId),
+      'sourceBaseId': serializer.toJson<String?>(sourceBaseId),
+      'status': serializer.toJson<String>(status),
+      'dueAt': serializer.toJson<String?>(dueAt),
+      'intervalDays': serializer.toJson<double>(intervalDays),
+      'easeFactor': serializer.toJson<double>(easeFactor),
+      'repetitions': serializer.toJson<int>(repetitions),
+      'lapses': serializer.toJson<int>(lapses),
+      'reviewCount': serializer.toJson<int>(reviewCount),
+      'lastReviewedAt': serializer.toJson<String?>(lastReviewedAt),
+      'enabled': serializer.toJson<bool>(enabled),
+      'sortOrder': serializer.toJson<int>(sortOrder),
+      'createdAt': serializer.toJson<String>(createdAt),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+    };
+  }
+
+  MemoryCardRow copyWith({
+    String? id,
+    String? deckId,
+    String? front,
+    String? back,
+    Value<String?> hint = const Value.absent(),
+    String? sourceKind,
+    Value<String?> sourceEntryId = const Value.absent(),
+    Value<String?> sourceBaseId = const Value.absent(),
+    String? status,
+    Value<String?> dueAt = const Value.absent(),
+    double? intervalDays,
+    double? easeFactor,
+    int? repetitions,
+    int? lapses,
+    int? reviewCount,
+    Value<String?> lastReviewedAt = const Value.absent(),
+    bool? enabled,
+    int? sortOrder,
+    String? createdAt,
+    String? updatedAt,
+  }) => MemoryCardRow(
+    id: id ?? this.id,
+    deckId: deckId ?? this.deckId,
+    front: front ?? this.front,
+    back: back ?? this.back,
+    hint: hint.present ? hint.value : this.hint,
+    sourceKind: sourceKind ?? this.sourceKind,
+    sourceEntryId: sourceEntryId.present
+        ? sourceEntryId.value
+        : this.sourceEntryId,
+    sourceBaseId: sourceBaseId.present ? sourceBaseId.value : this.sourceBaseId,
+    status: status ?? this.status,
+    dueAt: dueAt.present ? dueAt.value : this.dueAt,
+    intervalDays: intervalDays ?? this.intervalDays,
+    easeFactor: easeFactor ?? this.easeFactor,
+    repetitions: repetitions ?? this.repetitions,
+    lapses: lapses ?? this.lapses,
+    reviewCount: reviewCount ?? this.reviewCount,
+    lastReviewedAt: lastReviewedAt.present
+        ? lastReviewedAt.value
+        : this.lastReviewedAt,
+    enabled: enabled ?? this.enabled,
+    sortOrder: sortOrder ?? this.sortOrder,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  MemoryCardRow copyWithCompanion(MemoryCardRowsCompanion data) {
+    return MemoryCardRow(
+      id: data.id.present ? data.id.value : this.id,
+      deckId: data.deckId.present ? data.deckId.value : this.deckId,
+      front: data.front.present ? data.front.value : this.front,
+      back: data.back.present ? data.back.value : this.back,
+      hint: data.hint.present ? data.hint.value : this.hint,
+      sourceKind: data.sourceKind.present
+          ? data.sourceKind.value
+          : this.sourceKind,
+      sourceEntryId: data.sourceEntryId.present
+          ? data.sourceEntryId.value
+          : this.sourceEntryId,
+      sourceBaseId: data.sourceBaseId.present
+          ? data.sourceBaseId.value
+          : this.sourceBaseId,
+      status: data.status.present ? data.status.value : this.status,
+      dueAt: data.dueAt.present ? data.dueAt.value : this.dueAt,
+      intervalDays: data.intervalDays.present
+          ? data.intervalDays.value
+          : this.intervalDays,
+      easeFactor: data.easeFactor.present
+          ? data.easeFactor.value
+          : this.easeFactor,
+      repetitions: data.repetitions.present
+          ? data.repetitions.value
+          : this.repetitions,
+      lapses: data.lapses.present ? data.lapses.value : this.lapses,
+      reviewCount: data.reviewCount.present
+          ? data.reviewCount.value
+          : this.reviewCount,
+      lastReviewedAt: data.lastReviewedAt.present
+          ? data.lastReviewedAt.value
+          : this.lastReviewedAt,
+      enabled: data.enabled.present ? data.enabled.value : this.enabled,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('MemoryCardRow(')
+          ..write('id: $id, ')
+          ..write('deckId: $deckId, ')
+          ..write('front: $front, ')
+          ..write('back: $back, ')
+          ..write('hint: $hint, ')
+          ..write('sourceKind: $sourceKind, ')
+          ..write('sourceEntryId: $sourceEntryId, ')
+          ..write('sourceBaseId: $sourceBaseId, ')
+          ..write('status: $status, ')
+          ..write('dueAt: $dueAt, ')
+          ..write('intervalDays: $intervalDays, ')
+          ..write('easeFactor: $easeFactor, ')
+          ..write('repetitions: $repetitions, ')
+          ..write('lapses: $lapses, ')
+          ..write('reviewCount: $reviewCount, ')
+          ..write('lastReviewedAt: $lastReviewedAt, ')
+          ..write('enabled: $enabled, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    deckId,
+    front,
+    back,
+    hint,
+    sourceKind,
+    sourceEntryId,
+    sourceBaseId,
+    status,
+    dueAt,
+    intervalDays,
+    easeFactor,
+    repetitions,
+    lapses,
+    reviewCount,
+    lastReviewedAt,
+    enabled,
+    sortOrder,
+    createdAt,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is MemoryCardRow &&
+          other.id == this.id &&
+          other.deckId == this.deckId &&
+          other.front == this.front &&
+          other.back == this.back &&
+          other.hint == this.hint &&
+          other.sourceKind == this.sourceKind &&
+          other.sourceEntryId == this.sourceEntryId &&
+          other.sourceBaseId == this.sourceBaseId &&
+          other.status == this.status &&
+          other.dueAt == this.dueAt &&
+          other.intervalDays == this.intervalDays &&
+          other.easeFactor == this.easeFactor &&
+          other.repetitions == this.repetitions &&
+          other.lapses == this.lapses &&
+          other.reviewCount == this.reviewCount &&
+          other.lastReviewedAt == this.lastReviewedAt &&
+          other.enabled == this.enabled &&
+          other.sortOrder == this.sortOrder &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class MemoryCardRowsCompanion extends UpdateCompanion<MemoryCardRow> {
+  final Value<String> id;
+  final Value<String> deckId;
+  final Value<String> front;
+  final Value<String> back;
+  final Value<String?> hint;
+  final Value<String> sourceKind;
+  final Value<String?> sourceEntryId;
+  final Value<String?> sourceBaseId;
+  final Value<String> status;
+  final Value<String?> dueAt;
+  final Value<double> intervalDays;
+  final Value<double> easeFactor;
+  final Value<int> repetitions;
+  final Value<int> lapses;
+  final Value<int> reviewCount;
+  final Value<String?> lastReviewedAt;
+  final Value<bool> enabled;
+  final Value<int> sortOrder;
+  final Value<String> createdAt;
+  final Value<String> updatedAt;
+  final Value<int> rowid;
+  const MemoryCardRowsCompanion({
+    this.id = const Value.absent(),
+    this.deckId = const Value.absent(),
+    this.front = const Value.absent(),
+    this.back = const Value.absent(),
+    this.hint = const Value.absent(),
+    this.sourceKind = const Value.absent(),
+    this.sourceEntryId = const Value.absent(),
+    this.sourceBaseId = const Value.absent(),
+    this.status = const Value.absent(),
+    this.dueAt = const Value.absent(),
+    this.intervalDays = const Value.absent(),
+    this.easeFactor = const Value.absent(),
+    this.repetitions = const Value.absent(),
+    this.lapses = const Value.absent(),
+    this.reviewCount = const Value.absent(),
+    this.lastReviewedAt = const Value.absent(),
+    this.enabled = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  MemoryCardRowsCompanion.insert({
+    required String id,
+    required String deckId,
+    required String front,
+    required String back,
+    this.hint = const Value.absent(),
+    required String sourceKind,
+    this.sourceEntryId = const Value.absent(),
+    this.sourceBaseId = const Value.absent(),
+    required String status,
+    this.dueAt = const Value.absent(),
+    required double intervalDays,
+    required double easeFactor,
+    required int repetitions,
+    required int lapses,
+    required int reviewCount,
+    this.lastReviewedAt = const Value.absent(),
+    this.enabled = const Value.absent(),
+    required int sortOrder,
+    required String createdAt,
+    required String updatedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       deckId = Value(deckId),
+       front = Value(front),
+       back = Value(back),
+       sourceKind = Value(sourceKind),
+       status = Value(status),
+       intervalDays = Value(intervalDays),
+       easeFactor = Value(easeFactor),
+       repetitions = Value(repetitions),
+       lapses = Value(lapses),
+       reviewCount = Value(reviewCount),
+       sortOrder = Value(sortOrder),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<MemoryCardRow> custom({
+    Expression<String>? id,
+    Expression<String>? deckId,
+    Expression<String>? front,
+    Expression<String>? back,
+    Expression<String>? hint,
+    Expression<String>? sourceKind,
+    Expression<String>? sourceEntryId,
+    Expression<String>? sourceBaseId,
+    Expression<String>? status,
+    Expression<String>? dueAt,
+    Expression<double>? intervalDays,
+    Expression<double>? easeFactor,
+    Expression<int>? repetitions,
+    Expression<int>? lapses,
+    Expression<int>? reviewCount,
+    Expression<String>? lastReviewedAt,
+    Expression<bool>? enabled,
+    Expression<int>? sortOrder,
+    Expression<String>? createdAt,
+    Expression<String>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (deckId != null) 'deck_id': deckId,
+      if (front != null) 'front': front,
+      if (back != null) 'back': back,
+      if (hint != null) 'hint': hint,
+      if (sourceKind != null) 'source_kind': sourceKind,
+      if (sourceEntryId != null) 'source_entry_id': sourceEntryId,
+      if (sourceBaseId != null) 'source_base_id': sourceBaseId,
+      if (status != null) 'status': status,
+      if (dueAt != null) 'due_at': dueAt,
+      if (intervalDays != null) 'interval_days': intervalDays,
+      if (easeFactor != null) 'ease_factor': easeFactor,
+      if (repetitions != null) 'repetitions': repetitions,
+      if (lapses != null) 'lapses': lapses,
+      if (reviewCount != null) 'review_count': reviewCount,
+      if (lastReviewedAt != null) 'last_reviewed_at': lastReviewedAt,
+      if (enabled != null) 'enabled': enabled,
+      if (sortOrder != null) 'sort_order': sortOrder,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  MemoryCardRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? deckId,
+    Value<String>? front,
+    Value<String>? back,
+    Value<String?>? hint,
+    Value<String>? sourceKind,
+    Value<String?>? sourceEntryId,
+    Value<String?>? sourceBaseId,
+    Value<String>? status,
+    Value<String?>? dueAt,
+    Value<double>? intervalDays,
+    Value<double>? easeFactor,
+    Value<int>? repetitions,
+    Value<int>? lapses,
+    Value<int>? reviewCount,
+    Value<String?>? lastReviewedAt,
+    Value<bool>? enabled,
+    Value<int>? sortOrder,
+    Value<String>? createdAt,
+    Value<String>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return MemoryCardRowsCompanion(
+      id: id ?? this.id,
+      deckId: deckId ?? this.deckId,
+      front: front ?? this.front,
+      back: back ?? this.back,
+      hint: hint ?? this.hint,
+      sourceKind: sourceKind ?? this.sourceKind,
+      sourceEntryId: sourceEntryId ?? this.sourceEntryId,
+      sourceBaseId: sourceBaseId ?? this.sourceBaseId,
+      status: status ?? this.status,
+      dueAt: dueAt ?? this.dueAt,
+      intervalDays: intervalDays ?? this.intervalDays,
+      easeFactor: easeFactor ?? this.easeFactor,
+      repetitions: repetitions ?? this.repetitions,
+      lapses: lapses ?? this.lapses,
+      reviewCount: reviewCount ?? this.reviewCount,
+      lastReviewedAt: lastReviewedAt ?? this.lastReviewedAt,
+      enabled: enabled ?? this.enabled,
+      sortOrder: sortOrder ?? this.sortOrder,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (deckId.present) {
+      map['deck_id'] = Variable<String>(deckId.value);
+    }
+    if (front.present) {
+      map['front'] = Variable<String>(front.value);
+    }
+    if (back.present) {
+      map['back'] = Variable<String>(back.value);
+    }
+    if (hint.present) {
+      map['hint'] = Variable<String>(hint.value);
+    }
+    if (sourceKind.present) {
+      map['source_kind'] = Variable<String>(sourceKind.value);
+    }
+    if (sourceEntryId.present) {
+      map['source_entry_id'] = Variable<String>(sourceEntryId.value);
+    }
+    if (sourceBaseId.present) {
+      map['source_base_id'] = Variable<String>(sourceBaseId.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (dueAt.present) {
+      map['due_at'] = Variable<String>(dueAt.value);
+    }
+    if (intervalDays.present) {
+      map['interval_days'] = Variable<double>(intervalDays.value);
+    }
+    if (easeFactor.present) {
+      map['ease_factor'] = Variable<double>(easeFactor.value);
+    }
+    if (repetitions.present) {
+      map['repetitions'] = Variable<int>(repetitions.value);
+    }
+    if (lapses.present) {
+      map['lapses'] = Variable<int>(lapses.value);
+    }
+    if (reviewCount.present) {
+      map['review_count'] = Variable<int>(reviewCount.value);
+    }
+    if (lastReviewedAt.present) {
+      map['last_reviewed_at'] = Variable<String>(lastReviewedAt.value);
+    }
+    if (enabled.present) {
+      map['enabled'] = Variable<bool>(enabled.value);
+    }
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<String>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('MemoryCardRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('deckId: $deckId, ')
+          ..write('front: $front, ')
+          ..write('back: $back, ')
+          ..write('hint: $hint, ')
+          ..write('sourceKind: $sourceKind, ')
+          ..write('sourceEntryId: $sourceEntryId, ')
+          ..write('sourceBaseId: $sourceBaseId, ')
+          ..write('status: $status, ')
+          ..write('dueAt: $dueAt, ')
+          ..write('intervalDays: $intervalDays, ')
+          ..write('easeFactor: $easeFactor, ')
+          ..write('repetitions: $repetitions, ')
+          ..write('lapses: $lapses, ')
+          ..write('reviewCount: $reviewCount, ')
+          ..write('lastReviewedAt: $lastReviewedAt, ')
+          ..write('enabled: $enabled, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $MemoryCardReviewLogRowsTable extends MemoryCardReviewLogRows
+    with TableInfo<$MemoryCardReviewLogRowsTable, MemoryCardReviewLogRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $MemoryCardReviewLogRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _cardIdMeta = const VerificationMeta('cardId');
+  @override
+  late final GeneratedColumn<String> cardId = GeneratedColumn<String>(
+    'card_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints:
+        'NOT NULL REFERENCES memory_cards(id) ON DELETE CASCADE',
+  );
+  static const VerificationMeta _deckIdMeta = const VerificationMeta('deckId');
+  @override
+  late final GeneratedColumn<String> deckId = GeneratedColumn<String>(
+    'deck_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _reviewedAtMeta = const VerificationMeta(
+    'reviewedAt',
+  );
+  @override
+  late final GeneratedColumn<String> reviewedAt = GeneratedColumn<String>(
+    'reviewed_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _ratingMeta = const VerificationMeta('rating');
+  @override
+  late final GeneratedColumn<String> rating = GeneratedColumn<String>(
+    'rating',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints:
+        'NOT NULL CHECK (rating IN (\'again\', \'good\', \'easy\'))',
+  );
+  static const VerificationMeta _statusBeforeMeta = const VerificationMeta(
+    'statusBefore',
+  );
+  @override
+  late final GeneratedColumn<String> statusBefore = GeneratedColumn<String>(
+    'status_before',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints:
+        'NOT NULL CHECK (status_before IN (\'new\', \'learning\', \'review\', \'relearning\'))',
+  );
+  static const VerificationMeta _statusAfterMeta = const VerificationMeta(
+    'statusAfter',
+  );
+  @override
+  late final GeneratedColumn<String> statusAfter = GeneratedColumn<String>(
+    'status_after',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints:
+        'NOT NULL CHECK (status_after IN (\'new\', \'learning\', \'review\', \'relearning\'))',
+  );
+  static const VerificationMeta _intervalDaysBeforeMeta =
+      const VerificationMeta('intervalDaysBefore');
+  @override
+  late final GeneratedColumn<double> intervalDaysBefore =
+      GeneratedColumn<double>(
+        'interval_days_before',
+        aliasedName,
+        false,
+        type: DriftSqlType.double,
+        requiredDuringInsert: true,
+      );
+  static const VerificationMeta _intervalDaysAfterMeta = const VerificationMeta(
+    'intervalDaysAfter',
+  );
+  @override
+  late final GeneratedColumn<double> intervalDaysAfter =
+      GeneratedColumn<double>(
+        'interval_days_after',
+        aliasedName,
+        false,
+        type: DriftSqlType.double,
+        requiredDuringInsert: true,
+      );
+  static const VerificationMeta _easeBeforeMeta = const VerificationMeta(
+    'easeBefore',
+  );
+  @override
+  late final GeneratedColumn<double> easeBefore = GeneratedColumn<double>(
+    'ease_before',
+    aliasedName,
+    false,
+    type: DriftSqlType.double,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _easeAfterMeta = const VerificationMeta(
+    'easeAfter',
+  );
+  @override
+  late final GeneratedColumn<double> easeAfter = GeneratedColumn<double>(
+    'ease_after',
+    aliasedName,
+    false,
+    type: DriftSqlType.double,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    cardId,
+    deckId,
+    reviewedAt,
+    rating,
+    statusBefore,
+    statusAfter,
+    intervalDaysBefore,
+    intervalDaysAfter,
+    easeBefore,
+    easeAfter,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'memory_card_review_logs';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<MemoryCardReviewLogRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('card_id')) {
+      context.handle(
+        _cardIdMeta,
+        cardId.isAcceptableOrUnknown(data['card_id']!, _cardIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_cardIdMeta);
+    }
+    if (data.containsKey('deck_id')) {
+      context.handle(
+        _deckIdMeta,
+        deckId.isAcceptableOrUnknown(data['deck_id']!, _deckIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_deckIdMeta);
+    }
+    if (data.containsKey('reviewed_at')) {
+      context.handle(
+        _reviewedAtMeta,
+        reviewedAt.isAcceptableOrUnknown(data['reviewed_at']!, _reviewedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_reviewedAtMeta);
+    }
+    if (data.containsKey('rating')) {
+      context.handle(
+        _ratingMeta,
+        rating.isAcceptableOrUnknown(data['rating']!, _ratingMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_ratingMeta);
+    }
+    if (data.containsKey('status_before')) {
+      context.handle(
+        _statusBeforeMeta,
+        statusBefore.isAcceptableOrUnknown(
+          data['status_before']!,
+          _statusBeforeMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_statusBeforeMeta);
+    }
+    if (data.containsKey('status_after')) {
+      context.handle(
+        _statusAfterMeta,
+        statusAfter.isAcceptableOrUnknown(
+          data['status_after']!,
+          _statusAfterMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_statusAfterMeta);
+    }
+    if (data.containsKey('interval_days_before')) {
+      context.handle(
+        _intervalDaysBeforeMeta,
+        intervalDaysBefore.isAcceptableOrUnknown(
+          data['interval_days_before']!,
+          _intervalDaysBeforeMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_intervalDaysBeforeMeta);
+    }
+    if (data.containsKey('interval_days_after')) {
+      context.handle(
+        _intervalDaysAfterMeta,
+        intervalDaysAfter.isAcceptableOrUnknown(
+          data['interval_days_after']!,
+          _intervalDaysAfterMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_intervalDaysAfterMeta);
+    }
+    if (data.containsKey('ease_before')) {
+      context.handle(
+        _easeBeforeMeta,
+        easeBefore.isAcceptableOrUnknown(data['ease_before']!, _easeBeforeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_easeBeforeMeta);
+    }
+    if (data.containsKey('ease_after')) {
+      context.handle(
+        _easeAfterMeta,
+        easeAfter.isAcceptableOrUnknown(data['ease_after']!, _easeAfterMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_easeAfterMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  MemoryCardReviewLogRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return MemoryCardReviewLogRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      cardId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}card_id'],
+      )!,
+      deckId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}deck_id'],
+      )!,
+      reviewedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}reviewed_at'],
+      )!,
+      rating: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}rating'],
+      )!,
+      statusBefore: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status_before'],
+      )!,
+      statusAfter: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status_after'],
+      )!,
+      intervalDaysBefore: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}interval_days_before'],
+      )!,
+      intervalDaysAfter: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}interval_days_after'],
+      )!,
+      easeBefore: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}ease_before'],
+      )!,
+      easeAfter: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}ease_after'],
+      )!,
+    );
+  }
+
+  @override
+  $MemoryCardReviewLogRowsTable createAlias(String alias) {
+    return $MemoryCardReviewLogRowsTable(attachedDatabase, alias);
+  }
+}
+
+class MemoryCardReviewLogRow extends DataClass
+    implements Insertable<MemoryCardReviewLogRow> {
+  final String id;
+  final String cardId;
+  final String deckId;
+  final String reviewedAt;
+  final String rating;
+  final String statusBefore;
+  final String statusAfter;
+  final double intervalDaysBefore;
+  final double intervalDaysAfter;
+  final double easeBefore;
+  final double easeAfter;
+  const MemoryCardReviewLogRow({
+    required this.id,
+    required this.cardId,
+    required this.deckId,
+    required this.reviewedAt,
+    required this.rating,
+    required this.statusBefore,
+    required this.statusAfter,
+    required this.intervalDaysBefore,
+    required this.intervalDaysAfter,
+    required this.easeBefore,
+    required this.easeAfter,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['card_id'] = Variable<String>(cardId);
+    map['deck_id'] = Variable<String>(deckId);
+    map['reviewed_at'] = Variable<String>(reviewedAt);
+    map['rating'] = Variable<String>(rating);
+    map['status_before'] = Variable<String>(statusBefore);
+    map['status_after'] = Variable<String>(statusAfter);
+    map['interval_days_before'] = Variable<double>(intervalDaysBefore);
+    map['interval_days_after'] = Variable<double>(intervalDaysAfter);
+    map['ease_before'] = Variable<double>(easeBefore);
+    map['ease_after'] = Variable<double>(easeAfter);
+    return map;
+  }
+
+  MemoryCardReviewLogRowsCompanion toCompanion(bool nullToAbsent) {
+    return MemoryCardReviewLogRowsCompanion(
+      id: Value(id),
+      cardId: Value(cardId),
+      deckId: Value(deckId),
+      reviewedAt: Value(reviewedAt),
+      rating: Value(rating),
+      statusBefore: Value(statusBefore),
+      statusAfter: Value(statusAfter),
+      intervalDaysBefore: Value(intervalDaysBefore),
+      intervalDaysAfter: Value(intervalDaysAfter),
+      easeBefore: Value(easeBefore),
+      easeAfter: Value(easeAfter),
+    );
+  }
+
+  factory MemoryCardReviewLogRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return MemoryCardReviewLogRow(
+      id: serializer.fromJson<String>(json['id']),
+      cardId: serializer.fromJson<String>(json['cardId']),
+      deckId: serializer.fromJson<String>(json['deckId']),
+      reviewedAt: serializer.fromJson<String>(json['reviewedAt']),
+      rating: serializer.fromJson<String>(json['rating']),
+      statusBefore: serializer.fromJson<String>(json['statusBefore']),
+      statusAfter: serializer.fromJson<String>(json['statusAfter']),
+      intervalDaysBefore: serializer.fromJson<double>(
+        json['intervalDaysBefore'],
+      ),
+      intervalDaysAfter: serializer.fromJson<double>(json['intervalDaysAfter']),
+      easeBefore: serializer.fromJson<double>(json['easeBefore']),
+      easeAfter: serializer.fromJson<double>(json['easeAfter']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'cardId': serializer.toJson<String>(cardId),
+      'deckId': serializer.toJson<String>(deckId),
+      'reviewedAt': serializer.toJson<String>(reviewedAt),
+      'rating': serializer.toJson<String>(rating),
+      'statusBefore': serializer.toJson<String>(statusBefore),
+      'statusAfter': serializer.toJson<String>(statusAfter),
+      'intervalDaysBefore': serializer.toJson<double>(intervalDaysBefore),
+      'intervalDaysAfter': serializer.toJson<double>(intervalDaysAfter),
+      'easeBefore': serializer.toJson<double>(easeBefore),
+      'easeAfter': serializer.toJson<double>(easeAfter),
+    };
+  }
+
+  MemoryCardReviewLogRow copyWith({
+    String? id,
+    String? cardId,
+    String? deckId,
+    String? reviewedAt,
+    String? rating,
+    String? statusBefore,
+    String? statusAfter,
+    double? intervalDaysBefore,
+    double? intervalDaysAfter,
+    double? easeBefore,
+    double? easeAfter,
+  }) => MemoryCardReviewLogRow(
+    id: id ?? this.id,
+    cardId: cardId ?? this.cardId,
+    deckId: deckId ?? this.deckId,
+    reviewedAt: reviewedAt ?? this.reviewedAt,
+    rating: rating ?? this.rating,
+    statusBefore: statusBefore ?? this.statusBefore,
+    statusAfter: statusAfter ?? this.statusAfter,
+    intervalDaysBefore: intervalDaysBefore ?? this.intervalDaysBefore,
+    intervalDaysAfter: intervalDaysAfter ?? this.intervalDaysAfter,
+    easeBefore: easeBefore ?? this.easeBefore,
+    easeAfter: easeAfter ?? this.easeAfter,
+  );
+  MemoryCardReviewLogRow copyWithCompanion(
+    MemoryCardReviewLogRowsCompanion data,
+  ) {
+    return MemoryCardReviewLogRow(
+      id: data.id.present ? data.id.value : this.id,
+      cardId: data.cardId.present ? data.cardId.value : this.cardId,
+      deckId: data.deckId.present ? data.deckId.value : this.deckId,
+      reviewedAt: data.reviewedAt.present
+          ? data.reviewedAt.value
+          : this.reviewedAt,
+      rating: data.rating.present ? data.rating.value : this.rating,
+      statusBefore: data.statusBefore.present
+          ? data.statusBefore.value
+          : this.statusBefore,
+      statusAfter: data.statusAfter.present
+          ? data.statusAfter.value
+          : this.statusAfter,
+      intervalDaysBefore: data.intervalDaysBefore.present
+          ? data.intervalDaysBefore.value
+          : this.intervalDaysBefore,
+      intervalDaysAfter: data.intervalDaysAfter.present
+          ? data.intervalDaysAfter.value
+          : this.intervalDaysAfter,
+      easeBefore: data.easeBefore.present
+          ? data.easeBefore.value
+          : this.easeBefore,
+      easeAfter: data.easeAfter.present ? data.easeAfter.value : this.easeAfter,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('MemoryCardReviewLogRow(')
+          ..write('id: $id, ')
+          ..write('cardId: $cardId, ')
+          ..write('deckId: $deckId, ')
+          ..write('reviewedAt: $reviewedAt, ')
+          ..write('rating: $rating, ')
+          ..write('statusBefore: $statusBefore, ')
+          ..write('statusAfter: $statusAfter, ')
+          ..write('intervalDaysBefore: $intervalDaysBefore, ')
+          ..write('intervalDaysAfter: $intervalDaysAfter, ')
+          ..write('easeBefore: $easeBefore, ')
+          ..write('easeAfter: $easeAfter')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    cardId,
+    deckId,
+    reviewedAt,
+    rating,
+    statusBefore,
+    statusAfter,
+    intervalDaysBefore,
+    intervalDaysAfter,
+    easeBefore,
+    easeAfter,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is MemoryCardReviewLogRow &&
+          other.id == this.id &&
+          other.cardId == this.cardId &&
+          other.deckId == this.deckId &&
+          other.reviewedAt == this.reviewedAt &&
+          other.rating == this.rating &&
+          other.statusBefore == this.statusBefore &&
+          other.statusAfter == this.statusAfter &&
+          other.intervalDaysBefore == this.intervalDaysBefore &&
+          other.intervalDaysAfter == this.intervalDaysAfter &&
+          other.easeBefore == this.easeBefore &&
+          other.easeAfter == this.easeAfter);
+}
+
+class MemoryCardReviewLogRowsCompanion
+    extends UpdateCompanion<MemoryCardReviewLogRow> {
+  final Value<String> id;
+  final Value<String> cardId;
+  final Value<String> deckId;
+  final Value<String> reviewedAt;
+  final Value<String> rating;
+  final Value<String> statusBefore;
+  final Value<String> statusAfter;
+  final Value<double> intervalDaysBefore;
+  final Value<double> intervalDaysAfter;
+  final Value<double> easeBefore;
+  final Value<double> easeAfter;
+  final Value<int> rowid;
+  const MemoryCardReviewLogRowsCompanion({
+    this.id = const Value.absent(),
+    this.cardId = const Value.absent(),
+    this.deckId = const Value.absent(),
+    this.reviewedAt = const Value.absent(),
+    this.rating = const Value.absent(),
+    this.statusBefore = const Value.absent(),
+    this.statusAfter = const Value.absent(),
+    this.intervalDaysBefore = const Value.absent(),
+    this.intervalDaysAfter = const Value.absent(),
+    this.easeBefore = const Value.absent(),
+    this.easeAfter = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  MemoryCardReviewLogRowsCompanion.insert({
+    required String id,
+    required String cardId,
+    required String deckId,
+    required String reviewedAt,
+    required String rating,
+    required String statusBefore,
+    required String statusAfter,
+    required double intervalDaysBefore,
+    required double intervalDaysAfter,
+    required double easeBefore,
+    required double easeAfter,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       cardId = Value(cardId),
+       deckId = Value(deckId),
+       reviewedAt = Value(reviewedAt),
+       rating = Value(rating),
+       statusBefore = Value(statusBefore),
+       statusAfter = Value(statusAfter),
+       intervalDaysBefore = Value(intervalDaysBefore),
+       intervalDaysAfter = Value(intervalDaysAfter),
+       easeBefore = Value(easeBefore),
+       easeAfter = Value(easeAfter);
+  static Insertable<MemoryCardReviewLogRow> custom({
+    Expression<String>? id,
+    Expression<String>? cardId,
+    Expression<String>? deckId,
+    Expression<String>? reviewedAt,
+    Expression<String>? rating,
+    Expression<String>? statusBefore,
+    Expression<String>? statusAfter,
+    Expression<double>? intervalDaysBefore,
+    Expression<double>? intervalDaysAfter,
+    Expression<double>? easeBefore,
+    Expression<double>? easeAfter,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (cardId != null) 'card_id': cardId,
+      if (deckId != null) 'deck_id': deckId,
+      if (reviewedAt != null) 'reviewed_at': reviewedAt,
+      if (rating != null) 'rating': rating,
+      if (statusBefore != null) 'status_before': statusBefore,
+      if (statusAfter != null) 'status_after': statusAfter,
+      if (intervalDaysBefore != null)
+        'interval_days_before': intervalDaysBefore,
+      if (intervalDaysAfter != null) 'interval_days_after': intervalDaysAfter,
+      if (easeBefore != null) 'ease_before': easeBefore,
+      if (easeAfter != null) 'ease_after': easeAfter,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  MemoryCardReviewLogRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? cardId,
+    Value<String>? deckId,
+    Value<String>? reviewedAt,
+    Value<String>? rating,
+    Value<String>? statusBefore,
+    Value<String>? statusAfter,
+    Value<double>? intervalDaysBefore,
+    Value<double>? intervalDaysAfter,
+    Value<double>? easeBefore,
+    Value<double>? easeAfter,
+    Value<int>? rowid,
+  }) {
+    return MemoryCardReviewLogRowsCompanion(
+      id: id ?? this.id,
+      cardId: cardId ?? this.cardId,
+      deckId: deckId ?? this.deckId,
+      reviewedAt: reviewedAt ?? this.reviewedAt,
+      rating: rating ?? this.rating,
+      statusBefore: statusBefore ?? this.statusBefore,
+      statusAfter: statusAfter ?? this.statusAfter,
+      intervalDaysBefore: intervalDaysBefore ?? this.intervalDaysBefore,
+      intervalDaysAfter: intervalDaysAfter ?? this.intervalDaysAfter,
+      easeBefore: easeBefore ?? this.easeBefore,
+      easeAfter: easeAfter ?? this.easeAfter,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (cardId.present) {
+      map['card_id'] = Variable<String>(cardId.value);
+    }
+    if (deckId.present) {
+      map['deck_id'] = Variable<String>(deckId.value);
+    }
+    if (reviewedAt.present) {
+      map['reviewed_at'] = Variable<String>(reviewedAt.value);
+    }
+    if (rating.present) {
+      map['rating'] = Variable<String>(rating.value);
+    }
+    if (statusBefore.present) {
+      map['status_before'] = Variable<String>(statusBefore.value);
+    }
+    if (statusAfter.present) {
+      map['status_after'] = Variable<String>(statusAfter.value);
+    }
+    if (intervalDaysBefore.present) {
+      map['interval_days_before'] = Variable<double>(intervalDaysBefore.value);
+    }
+    if (intervalDaysAfter.present) {
+      map['interval_days_after'] = Variable<double>(intervalDaysAfter.value);
+    }
+    if (easeBefore.present) {
+      map['ease_before'] = Variable<double>(easeBefore.value);
+    }
+    if (easeAfter.present) {
+      map['ease_after'] = Variable<double>(easeAfter.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('MemoryCardReviewLogRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('cardId: $cardId, ')
+          ..write('deckId: $deckId, ')
+          ..write('reviewedAt: $reviewedAt, ')
+          ..write('rating: $rating, ')
+          ..write('statusBefore: $statusBefore, ')
+          ..write('statusAfter: $statusAfter, ')
+          ..write('intervalDaysBefore: $intervalDaysBefore, ')
+          ..write('intervalDaysAfter: $intervalDaysAfter, ')
+          ..write('easeBefore: $easeBefore, ')
+          ..write('easeAfter: $easeAfter, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $CalendarEventRowsTable extends CalendarEventRows
     with TableInfo<$CalendarEventRowsTable, CalendarEventRow> {
   @override
@@ -24317,6 +26705,11 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
       $KnowledgeSourceRowsTable(this);
   late final $KnowledgeExplanationRowsTable knowledgeExplanationRows =
       $KnowledgeExplanationRowsTable(this);
+  late final $MemoryCardDeckRowsTable memoryCardDeckRows =
+      $MemoryCardDeckRowsTable(this);
+  late final $MemoryCardRowsTable memoryCardRows = $MemoryCardRowsTable(this);
+  late final $MemoryCardReviewLogRowsTable memoryCardReviewLogRows =
+      $MemoryCardReviewLogRowsTable(this);
   late final $CalendarEventRowsTable calendarEventRows =
       $CalendarEventRowsTable(this);
   late final $AnniversaryRowsTable anniversaryRows = $AnniversaryRowsTable(
@@ -24425,6 +26818,9 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
     knowledgeEntryRows,
     knowledgeSourceRows,
     knowledgeExplanationRows,
+    memoryCardDeckRows,
+    memoryCardRows,
+    memoryCardReviewLogRows,
     calendarEventRows,
     anniversaryRows,
     roleplayScenarioRows,
@@ -24524,6 +26920,20 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
         limitUpdateKind: UpdateKind.delete,
       ),
       result: [TableUpdate('knowledge_explanations', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'memory_card_decks',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('memory_cards', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'memory_cards',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('memory_card_review_logs', kind: UpdateKind.delete)],
     ),
     WritePropagation(
       on: TableUpdateQuery.onTableName(
@@ -32742,6 +35152,1612 @@ typedef $$KnowledgeExplanationRowsTableProcessedTableManager =
       KnowledgeExplanationRow,
       PrefetchHooks Function({bool knowledgeBaseId, bool entryId})
     >;
+typedef $$MemoryCardDeckRowsTableCreateCompanionBuilder =
+    MemoryCardDeckRowsCompanion Function({
+      required String id,
+      required String name,
+      Value<String?> description,
+      required int newPerDayLimit,
+      required int reviewPerDayLimit,
+      Value<bool> enabled,
+      required int sortOrder,
+      required String createdAt,
+      required String updatedAt,
+      Value<int> rowid,
+    });
+typedef $$MemoryCardDeckRowsTableUpdateCompanionBuilder =
+    MemoryCardDeckRowsCompanion Function({
+      Value<String> id,
+      Value<String> name,
+      Value<String?> description,
+      Value<int> newPerDayLimit,
+      Value<int> reviewPerDayLimit,
+      Value<bool> enabled,
+      Value<int> sortOrder,
+      Value<String> createdAt,
+      Value<String> updatedAt,
+      Value<int> rowid,
+    });
+
+final class $$MemoryCardDeckRowsTableReferences
+    extends
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $MemoryCardDeckRowsTable,
+          MemoryCardDeckRow
+        > {
+  $$MemoryCardDeckRowsTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static MultiTypedResultKey<$MemoryCardRowsTable, List<MemoryCardRow>>
+  _memoryCardRowsRefsTable(_$StorageV2DriftDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.memoryCardRows,
+        aliasName: 'memory_card_decks__id__memory_cards__deck_id',
+      );
+
+  $$MemoryCardRowsTableProcessedTableManager get memoryCardRowsRefs {
+    final manager = $$MemoryCardRowsTableTableManager(
+      $_db,
+      $_db.memoryCardRows,
+    ).filter((f) => f.deckId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_memoryCardRowsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+}
+
+class $$MemoryCardDeckRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $MemoryCardDeckRowsTable> {
+  $$MemoryCardDeckRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get description => $composableBuilder(
+    column: $table.description,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get newPerDayLimit => $composableBuilder(
+    column: $table.newPerDayLimit,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get reviewPerDayLimit => $composableBuilder(
+    column: $table.reviewPerDayLimit,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  Expression<bool> memoryCardRowsRefs(
+    Expression<bool> Function($$MemoryCardRowsTableFilterComposer f) f,
+  ) {
+    final $$MemoryCardRowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.memoryCardRows,
+      getReferencedColumn: (t) => t.deckId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$MemoryCardRowsTableFilterComposer(
+            $db: $db,
+            $table: $db.memoryCardRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$MemoryCardDeckRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $MemoryCardDeckRowsTable> {
+  $$MemoryCardDeckRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get description => $composableBuilder(
+    column: $table.description,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get newPerDayLimit => $composableBuilder(
+    column: $table.newPerDayLimit,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get reviewPerDayLimit => $composableBuilder(
+    column: $table.reviewPerDayLimit,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$MemoryCardDeckRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $MemoryCardDeckRowsTable> {
+  $$MemoryCardDeckRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get description => $composableBuilder(
+    column: $table.description,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get newPerDayLimit => $composableBuilder(
+    column: $table.newPerDayLimit,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get reviewPerDayLimit => $composableBuilder(
+    column: $table.reviewPerDayLimit,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get enabled =>
+      $composableBuilder(column: $table.enabled, builder: (column) => column);
+
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
+
+  GeneratedColumn<String> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  Expression<T> memoryCardRowsRefs<T extends Object>(
+    Expression<T> Function($$MemoryCardRowsTableAnnotationComposer a) f,
+  ) {
+    final $$MemoryCardRowsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.memoryCardRows,
+      getReferencedColumn: (t) => t.deckId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$MemoryCardRowsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.memoryCardRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$MemoryCardDeckRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $MemoryCardDeckRowsTable,
+          MemoryCardDeckRow,
+          $$MemoryCardDeckRowsTableFilterComposer,
+          $$MemoryCardDeckRowsTableOrderingComposer,
+          $$MemoryCardDeckRowsTableAnnotationComposer,
+          $$MemoryCardDeckRowsTableCreateCompanionBuilder,
+          $$MemoryCardDeckRowsTableUpdateCompanionBuilder,
+          (MemoryCardDeckRow, $$MemoryCardDeckRowsTableReferences),
+          MemoryCardDeckRow,
+          PrefetchHooks Function({bool memoryCardRowsRefs})
+        > {
+  $$MemoryCardDeckRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $MemoryCardDeckRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$MemoryCardDeckRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$MemoryCardDeckRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$MemoryCardDeckRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<String?> description = const Value.absent(),
+                Value<int> newPerDayLimit = const Value.absent(),
+                Value<int> reviewPerDayLimit = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                Value<String> createdAt = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => MemoryCardDeckRowsCompanion(
+                id: id,
+                name: name,
+                description: description,
+                newPerDayLimit: newPerDayLimit,
+                reviewPerDayLimit: reviewPerDayLimit,
+                enabled: enabled,
+                sortOrder: sortOrder,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String name,
+                Value<String?> description = const Value.absent(),
+                required int newPerDayLimit,
+                required int reviewPerDayLimit,
+                Value<bool> enabled = const Value.absent(),
+                required int sortOrder,
+                required String createdAt,
+                required String updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => MemoryCardDeckRowsCompanion.insert(
+                id: id,
+                name: name,
+                description: description,
+                newPerDayLimit: newPerDayLimit,
+                reviewPerDayLimit: reviewPerDayLimit,
+                enabled: enabled,
+                sortOrder: sortOrder,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$MemoryCardDeckRowsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({memoryCardRowsRefs = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [
+                if (memoryCardRowsRefs) db.memoryCardRows,
+              ],
+              addJoins: null,
+              getPrefetchedDataCallback: (items) async {
+                return [
+                  if (memoryCardRowsRefs)
+                    await $_getPrefetchedData<
+                      MemoryCardDeckRow,
+                      $MemoryCardDeckRowsTable,
+                      MemoryCardRow
+                    >(
+                      currentTable: table,
+                      referencedTable: $$MemoryCardDeckRowsTableReferences
+                          ._memoryCardRowsRefsTable(db),
+                      managerFromTypedResult: (p0) =>
+                          $$MemoryCardDeckRowsTableReferences(
+                            db,
+                            table,
+                            p0,
+                          ).memoryCardRowsRefs,
+                      referencedItemsForCurrentItem: (item, referencedItems) =>
+                          referencedItems.where((e) => e.deckId == item.id),
+                      typedResults: items,
+                    ),
+                ];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$MemoryCardDeckRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $MemoryCardDeckRowsTable,
+      MemoryCardDeckRow,
+      $$MemoryCardDeckRowsTableFilterComposer,
+      $$MemoryCardDeckRowsTableOrderingComposer,
+      $$MemoryCardDeckRowsTableAnnotationComposer,
+      $$MemoryCardDeckRowsTableCreateCompanionBuilder,
+      $$MemoryCardDeckRowsTableUpdateCompanionBuilder,
+      (MemoryCardDeckRow, $$MemoryCardDeckRowsTableReferences),
+      MemoryCardDeckRow,
+      PrefetchHooks Function({bool memoryCardRowsRefs})
+    >;
+typedef $$MemoryCardRowsTableCreateCompanionBuilder =
+    MemoryCardRowsCompanion Function({
+      required String id,
+      required String deckId,
+      required String front,
+      required String back,
+      Value<String?> hint,
+      required String sourceKind,
+      Value<String?> sourceEntryId,
+      Value<String?> sourceBaseId,
+      required String status,
+      Value<String?> dueAt,
+      required double intervalDays,
+      required double easeFactor,
+      required int repetitions,
+      required int lapses,
+      required int reviewCount,
+      Value<String?> lastReviewedAt,
+      Value<bool> enabled,
+      required int sortOrder,
+      required String createdAt,
+      required String updatedAt,
+      Value<int> rowid,
+    });
+typedef $$MemoryCardRowsTableUpdateCompanionBuilder =
+    MemoryCardRowsCompanion Function({
+      Value<String> id,
+      Value<String> deckId,
+      Value<String> front,
+      Value<String> back,
+      Value<String?> hint,
+      Value<String> sourceKind,
+      Value<String?> sourceEntryId,
+      Value<String?> sourceBaseId,
+      Value<String> status,
+      Value<String?> dueAt,
+      Value<double> intervalDays,
+      Value<double> easeFactor,
+      Value<int> repetitions,
+      Value<int> lapses,
+      Value<int> reviewCount,
+      Value<String?> lastReviewedAt,
+      Value<bool> enabled,
+      Value<int> sortOrder,
+      Value<String> createdAt,
+      Value<String> updatedAt,
+      Value<int> rowid,
+    });
+
+final class $$MemoryCardRowsTableReferences
+    extends
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $MemoryCardRowsTable,
+          MemoryCardRow
+        > {
+  $$MemoryCardRowsTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $MemoryCardDeckRowsTable _deckIdTable(_$StorageV2DriftDatabase db) =>
+      db.memoryCardDeckRows.createAlias(
+        'memory_cards__deck_id__memory_card_decks__id',
+      );
+
+  $$MemoryCardDeckRowsTableProcessedTableManager get deckId {
+    final $_column = $_itemColumn<String>('deck_id')!;
+
+    final manager = $$MemoryCardDeckRowsTableTableManager(
+      $_db,
+      $_db.memoryCardDeckRows,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_deckIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static MultiTypedResultKey<
+    $MemoryCardReviewLogRowsTable,
+    List<MemoryCardReviewLogRow>
+  >
+  _memoryCardReviewLogRowsRefsTable(_$StorageV2DriftDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.memoryCardReviewLogRows,
+        aliasName: 'memory_cards__id__memory_card_review_logs__card_id',
+      );
+
+  $$MemoryCardReviewLogRowsTableProcessedTableManager
+  get memoryCardReviewLogRowsRefs {
+    final manager = $$MemoryCardReviewLogRowsTableTableManager(
+      $_db,
+      $_db.memoryCardReviewLogRows,
+    ).filter((f) => f.cardId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(
+      _memoryCardReviewLogRowsRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+}
+
+class $$MemoryCardRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $MemoryCardRowsTable> {
+  $$MemoryCardRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get front => $composableBuilder(
+    column: $table.front,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get back => $composableBuilder(
+    column: $table.back,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get hint => $composableBuilder(
+    column: $table.hint,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourceKind => $composableBuilder(
+    column: $table.sourceKind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourceEntryId => $composableBuilder(
+    column: $table.sourceEntryId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourceBaseId => $composableBuilder(
+    column: $table.sourceBaseId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get dueAt => $composableBuilder(
+    column: $table.dueAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get intervalDays => $composableBuilder(
+    column: $table.intervalDays,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get easeFactor => $composableBuilder(
+    column: $table.easeFactor,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get repetitions => $composableBuilder(
+    column: $table.repetitions,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get lapses => $composableBuilder(
+    column: $table.lapses,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get reviewCount => $composableBuilder(
+    column: $table.reviewCount,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lastReviewedAt => $composableBuilder(
+    column: $table.lastReviewedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$MemoryCardDeckRowsTableFilterComposer get deckId {
+    final $$MemoryCardDeckRowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.deckId,
+      referencedTable: $db.memoryCardDeckRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$MemoryCardDeckRowsTableFilterComposer(
+            $db: $db,
+            $table: $db.memoryCardDeckRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  Expression<bool> memoryCardReviewLogRowsRefs(
+    Expression<bool> Function($$MemoryCardReviewLogRowsTableFilterComposer f) f,
+  ) {
+    final $$MemoryCardReviewLogRowsTableFilterComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.memoryCardReviewLogRows,
+          getReferencedColumn: (t) => t.cardId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$MemoryCardReviewLogRowsTableFilterComposer(
+                $db: $db,
+                $table: $db.memoryCardReviewLogRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
+}
+
+class $$MemoryCardRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $MemoryCardRowsTable> {
+  $$MemoryCardRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get front => $composableBuilder(
+    column: $table.front,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get back => $composableBuilder(
+    column: $table.back,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get hint => $composableBuilder(
+    column: $table.hint,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sourceKind => $composableBuilder(
+    column: $table.sourceKind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sourceEntryId => $composableBuilder(
+    column: $table.sourceEntryId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sourceBaseId => $composableBuilder(
+    column: $table.sourceBaseId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get dueAt => $composableBuilder(
+    column: $table.dueAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get intervalDays => $composableBuilder(
+    column: $table.intervalDays,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get easeFactor => $composableBuilder(
+    column: $table.easeFactor,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get repetitions => $composableBuilder(
+    column: $table.repetitions,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get lapses => $composableBuilder(
+    column: $table.lapses,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get reviewCount => $composableBuilder(
+    column: $table.reviewCount,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lastReviewedAt => $composableBuilder(
+    column: $table.lastReviewedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$MemoryCardDeckRowsTableOrderingComposer get deckId {
+    final $$MemoryCardDeckRowsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.deckId,
+      referencedTable: $db.memoryCardDeckRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$MemoryCardDeckRowsTableOrderingComposer(
+            $db: $db,
+            $table: $db.memoryCardDeckRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$MemoryCardRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $MemoryCardRowsTable> {
+  $$MemoryCardRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get front =>
+      $composableBuilder(column: $table.front, builder: (column) => column);
+
+  GeneratedColumn<String> get back =>
+      $composableBuilder(column: $table.back, builder: (column) => column);
+
+  GeneratedColumn<String> get hint =>
+      $composableBuilder(column: $table.hint, builder: (column) => column);
+
+  GeneratedColumn<String> get sourceKind => $composableBuilder(
+    column: $table.sourceKind,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get sourceEntryId => $composableBuilder(
+    column: $table.sourceEntryId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get sourceBaseId => $composableBuilder(
+    column: $table.sourceBaseId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<String> get dueAt =>
+      $composableBuilder(column: $table.dueAt, builder: (column) => column);
+
+  GeneratedColumn<double> get intervalDays => $composableBuilder(
+    column: $table.intervalDays,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<double> get easeFactor => $composableBuilder(
+    column: $table.easeFactor,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get repetitions => $composableBuilder(
+    column: $table.repetitions,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get lapses =>
+      $composableBuilder(column: $table.lapses, builder: (column) => column);
+
+  GeneratedColumn<int> get reviewCount => $composableBuilder(
+    column: $table.reviewCount,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get lastReviewedAt => $composableBuilder(
+    column: $table.lastReviewedAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get enabled =>
+      $composableBuilder(column: $table.enabled, builder: (column) => column);
+
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
+
+  GeneratedColumn<String> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  $$MemoryCardDeckRowsTableAnnotationComposer get deckId {
+    final $$MemoryCardDeckRowsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.deckId,
+          referencedTable: $db.memoryCardDeckRows,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$MemoryCardDeckRowsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.memoryCardDeckRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
+
+  Expression<T> memoryCardReviewLogRowsRefs<T extends Object>(
+    Expression<T> Function($$MemoryCardReviewLogRowsTableAnnotationComposer a)
+    f,
+  ) {
+    final $$MemoryCardReviewLogRowsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.memoryCardReviewLogRows,
+          getReferencedColumn: (t) => t.cardId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$MemoryCardReviewLogRowsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.memoryCardReviewLogRows,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
+}
+
+class $$MemoryCardRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $MemoryCardRowsTable,
+          MemoryCardRow,
+          $$MemoryCardRowsTableFilterComposer,
+          $$MemoryCardRowsTableOrderingComposer,
+          $$MemoryCardRowsTableAnnotationComposer,
+          $$MemoryCardRowsTableCreateCompanionBuilder,
+          $$MemoryCardRowsTableUpdateCompanionBuilder,
+          (MemoryCardRow, $$MemoryCardRowsTableReferences),
+          MemoryCardRow,
+          PrefetchHooks Function({
+            bool deckId,
+            bool memoryCardReviewLogRowsRefs,
+          })
+        > {
+  $$MemoryCardRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $MemoryCardRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$MemoryCardRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$MemoryCardRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$MemoryCardRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> deckId = const Value.absent(),
+                Value<String> front = const Value.absent(),
+                Value<String> back = const Value.absent(),
+                Value<String?> hint = const Value.absent(),
+                Value<String> sourceKind = const Value.absent(),
+                Value<String?> sourceEntryId = const Value.absent(),
+                Value<String?> sourceBaseId = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<String?> dueAt = const Value.absent(),
+                Value<double> intervalDays = const Value.absent(),
+                Value<double> easeFactor = const Value.absent(),
+                Value<int> repetitions = const Value.absent(),
+                Value<int> lapses = const Value.absent(),
+                Value<int> reviewCount = const Value.absent(),
+                Value<String?> lastReviewedAt = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                Value<String> createdAt = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => MemoryCardRowsCompanion(
+                id: id,
+                deckId: deckId,
+                front: front,
+                back: back,
+                hint: hint,
+                sourceKind: sourceKind,
+                sourceEntryId: sourceEntryId,
+                sourceBaseId: sourceBaseId,
+                status: status,
+                dueAt: dueAt,
+                intervalDays: intervalDays,
+                easeFactor: easeFactor,
+                repetitions: repetitions,
+                lapses: lapses,
+                reviewCount: reviewCount,
+                lastReviewedAt: lastReviewedAt,
+                enabled: enabled,
+                sortOrder: sortOrder,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String deckId,
+                required String front,
+                required String back,
+                Value<String?> hint = const Value.absent(),
+                required String sourceKind,
+                Value<String?> sourceEntryId = const Value.absent(),
+                Value<String?> sourceBaseId = const Value.absent(),
+                required String status,
+                Value<String?> dueAt = const Value.absent(),
+                required double intervalDays,
+                required double easeFactor,
+                required int repetitions,
+                required int lapses,
+                required int reviewCount,
+                Value<String?> lastReviewedAt = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                required int sortOrder,
+                required String createdAt,
+                required String updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => MemoryCardRowsCompanion.insert(
+                id: id,
+                deckId: deckId,
+                front: front,
+                back: back,
+                hint: hint,
+                sourceKind: sourceKind,
+                sourceEntryId: sourceEntryId,
+                sourceBaseId: sourceBaseId,
+                status: status,
+                dueAt: dueAt,
+                intervalDays: intervalDays,
+                easeFactor: easeFactor,
+                repetitions: repetitions,
+                lapses: lapses,
+                reviewCount: reviewCount,
+                lastReviewedAt: lastReviewedAt,
+                enabled: enabled,
+                sortOrder: sortOrder,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$MemoryCardRowsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback:
+              ({deckId = false, memoryCardReviewLogRowsRefs = false}) {
+                return PrefetchHooks(
+                  db: db,
+                  explicitlyWatchedTables: [
+                    if (memoryCardReviewLogRowsRefs) db.memoryCardReviewLogRows,
+                  ],
+                  addJoins:
+                      <
+                        T extends TableManagerState<
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic,
+                          dynamic
+                        >
+                      >(state) {
+                        if (deckId) {
+                          state =
+                              state.withJoin(
+                                    currentTable: table,
+                                    currentColumn: table.deckId,
+                                    referencedTable:
+                                        $$MemoryCardRowsTableReferences
+                                            ._deckIdTable(db),
+                                    referencedColumn:
+                                        $$MemoryCardRowsTableReferences
+                                            ._deckIdTable(db)
+                                            .id,
+                                  )
+                                  as T;
+                        }
+
+                        return state;
+                      },
+                  getPrefetchedDataCallback: (items) async {
+                    return [
+                      if (memoryCardReviewLogRowsRefs)
+                        await $_getPrefetchedData<
+                          MemoryCardRow,
+                          $MemoryCardRowsTable,
+                          MemoryCardReviewLogRow
+                        >(
+                          currentTable: table,
+                          referencedTable: $$MemoryCardRowsTableReferences
+                              ._memoryCardReviewLogRowsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$MemoryCardRowsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).memoryCardReviewLogRowsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.cardId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                    ];
+                  },
+                );
+              },
+        ),
+      );
+}
+
+typedef $$MemoryCardRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $MemoryCardRowsTable,
+      MemoryCardRow,
+      $$MemoryCardRowsTableFilterComposer,
+      $$MemoryCardRowsTableOrderingComposer,
+      $$MemoryCardRowsTableAnnotationComposer,
+      $$MemoryCardRowsTableCreateCompanionBuilder,
+      $$MemoryCardRowsTableUpdateCompanionBuilder,
+      (MemoryCardRow, $$MemoryCardRowsTableReferences),
+      MemoryCardRow,
+      PrefetchHooks Function({bool deckId, bool memoryCardReviewLogRowsRefs})
+    >;
+typedef $$MemoryCardReviewLogRowsTableCreateCompanionBuilder =
+    MemoryCardReviewLogRowsCompanion Function({
+      required String id,
+      required String cardId,
+      required String deckId,
+      required String reviewedAt,
+      required String rating,
+      required String statusBefore,
+      required String statusAfter,
+      required double intervalDaysBefore,
+      required double intervalDaysAfter,
+      required double easeBefore,
+      required double easeAfter,
+      Value<int> rowid,
+    });
+typedef $$MemoryCardReviewLogRowsTableUpdateCompanionBuilder =
+    MemoryCardReviewLogRowsCompanion Function({
+      Value<String> id,
+      Value<String> cardId,
+      Value<String> deckId,
+      Value<String> reviewedAt,
+      Value<String> rating,
+      Value<String> statusBefore,
+      Value<String> statusAfter,
+      Value<double> intervalDaysBefore,
+      Value<double> intervalDaysAfter,
+      Value<double> easeBefore,
+      Value<double> easeAfter,
+      Value<int> rowid,
+    });
+
+final class $$MemoryCardReviewLogRowsTableReferences
+    extends
+        BaseReferences<
+          _$StorageV2DriftDatabase,
+          $MemoryCardReviewLogRowsTable,
+          MemoryCardReviewLogRow
+        > {
+  $$MemoryCardReviewLogRowsTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $MemoryCardRowsTable _cardIdTable(_$StorageV2DriftDatabase db) => db
+      .memoryCardRows
+      .createAlias('memory_card_review_logs__card_id__memory_cards__id');
+
+  $$MemoryCardRowsTableProcessedTableManager get cardId {
+    final $_column = $_itemColumn<String>('card_id')!;
+
+    final manager = $$MemoryCardRowsTableTableManager(
+      $_db,
+      $_db.memoryCardRows,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_cardIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$MemoryCardReviewLogRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $MemoryCardReviewLogRowsTable> {
+  $$MemoryCardReviewLogRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get deckId => $composableBuilder(
+    column: $table.deckId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get reviewedAt => $composableBuilder(
+    column: $table.reviewedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get rating => $composableBuilder(
+    column: $table.rating,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get statusBefore => $composableBuilder(
+    column: $table.statusBefore,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get statusAfter => $composableBuilder(
+    column: $table.statusAfter,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get intervalDaysBefore => $composableBuilder(
+    column: $table.intervalDaysBefore,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get intervalDaysAfter => $composableBuilder(
+    column: $table.intervalDaysAfter,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get easeBefore => $composableBuilder(
+    column: $table.easeBefore,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get easeAfter => $composableBuilder(
+    column: $table.easeAfter,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$MemoryCardRowsTableFilterComposer get cardId {
+    final $$MemoryCardRowsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.cardId,
+      referencedTable: $db.memoryCardRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$MemoryCardRowsTableFilterComposer(
+            $db: $db,
+            $table: $db.memoryCardRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$MemoryCardReviewLogRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $MemoryCardReviewLogRowsTable> {
+  $$MemoryCardReviewLogRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get deckId => $composableBuilder(
+    column: $table.deckId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get reviewedAt => $composableBuilder(
+    column: $table.reviewedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get rating => $composableBuilder(
+    column: $table.rating,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get statusBefore => $composableBuilder(
+    column: $table.statusBefore,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get statusAfter => $composableBuilder(
+    column: $table.statusAfter,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get intervalDaysBefore => $composableBuilder(
+    column: $table.intervalDaysBefore,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get intervalDaysAfter => $composableBuilder(
+    column: $table.intervalDaysAfter,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get easeBefore => $composableBuilder(
+    column: $table.easeBefore,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get easeAfter => $composableBuilder(
+    column: $table.easeAfter,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$MemoryCardRowsTableOrderingComposer get cardId {
+    final $$MemoryCardRowsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.cardId,
+      referencedTable: $db.memoryCardRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$MemoryCardRowsTableOrderingComposer(
+            $db: $db,
+            $table: $db.memoryCardRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$MemoryCardReviewLogRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $MemoryCardReviewLogRowsTable> {
+  $$MemoryCardReviewLogRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get deckId =>
+      $composableBuilder(column: $table.deckId, builder: (column) => column);
+
+  GeneratedColumn<String> get reviewedAt => $composableBuilder(
+    column: $table.reviewedAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get rating =>
+      $composableBuilder(column: $table.rating, builder: (column) => column);
+
+  GeneratedColumn<String> get statusBefore => $composableBuilder(
+    column: $table.statusBefore,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get statusAfter => $composableBuilder(
+    column: $table.statusAfter,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<double> get intervalDaysBefore => $composableBuilder(
+    column: $table.intervalDaysBefore,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<double> get intervalDaysAfter => $composableBuilder(
+    column: $table.intervalDaysAfter,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<double> get easeBefore => $composableBuilder(
+    column: $table.easeBefore,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<double> get easeAfter =>
+      $composableBuilder(column: $table.easeAfter, builder: (column) => column);
+
+  $$MemoryCardRowsTableAnnotationComposer get cardId {
+    final $$MemoryCardRowsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.cardId,
+      referencedTable: $db.memoryCardRows,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$MemoryCardRowsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.memoryCardRows,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$MemoryCardReviewLogRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $MemoryCardReviewLogRowsTable,
+          MemoryCardReviewLogRow,
+          $$MemoryCardReviewLogRowsTableFilterComposer,
+          $$MemoryCardReviewLogRowsTableOrderingComposer,
+          $$MemoryCardReviewLogRowsTableAnnotationComposer,
+          $$MemoryCardReviewLogRowsTableCreateCompanionBuilder,
+          $$MemoryCardReviewLogRowsTableUpdateCompanionBuilder,
+          (MemoryCardReviewLogRow, $$MemoryCardReviewLogRowsTableReferences),
+          MemoryCardReviewLogRow,
+          PrefetchHooks Function({bool cardId})
+        > {
+  $$MemoryCardReviewLogRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $MemoryCardReviewLogRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$MemoryCardReviewLogRowsTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$MemoryCardReviewLogRowsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$MemoryCardReviewLogRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> cardId = const Value.absent(),
+                Value<String> deckId = const Value.absent(),
+                Value<String> reviewedAt = const Value.absent(),
+                Value<String> rating = const Value.absent(),
+                Value<String> statusBefore = const Value.absent(),
+                Value<String> statusAfter = const Value.absent(),
+                Value<double> intervalDaysBefore = const Value.absent(),
+                Value<double> intervalDaysAfter = const Value.absent(),
+                Value<double> easeBefore = const Value.absent(),
+                Value<double> easeAfter = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => MemoryCardReviewLogRowsCompanion(
+                id: id,
+                cardId: cardId,
+                deckId: deckId,
+                reviewedAt: reviewedAt,
+                rating: rating,
+                statusBefore: statusBefore,
+                statusAfter: statusAfter,
+                intervalDaysBefore: intervalDaysBefore,
+                intervalDaysAfter: intervalDaysAfter,
+                easeBefore: easeBefore,
+                easeAfter: easeAfter,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String cardId,
+                required String deckId,
+                required String reviewedAt,
+                required String rating,
+                required String statusBefore,
+                required String statusAfter,
+                required double intervalDaysBefore,
+                required double intervalDaysAfter,
+                required double easeBefore,
+                required double easeAfter,
+                Value<int> rowid = const Value.absent(),
+              }) => MemoryCardReviewLogRowsCompanion.insert(
+                id: id,
+                cardId: cardId,
+                deckId: deckId,
+                reviewedAt: reviewedAt,
+                rating: rating,
+                statusBefore: statusBefore,
+                statusAfter: statusAfter,
+                intervalDaysBefore: intervalDaysBefore,
+                intervalDaysAfter: intervalDaysAfter,
+                easeBefore: easeBefore,
+                easeAfter: easeAfter,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$MemoryCardReviewLogRowsTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({cardId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (cardId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.cardId,
+                                referencedTable:
+                                    $$MemoryCardReviewLogRowsTableReferences
+                                        ._cardIdTable(db),
+                                referencedColumn:
+                                    $$MemoryCardReviewLogRowsTableReferences
+                                        ._cardIdTable(db)
+                                        .id,
+                              )
+                              as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$MemoryCardReviewLogRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $MemoryCardReviewLogRowsTable,
+      MemoryCardReviewLogRow,
+      $$MemoryCardReviewLogRowsTableFilterComposer,
+      $$MemoryCardReviewLogRowsTableOrderingComposer,
+      $$MemoryCardReviewLogRowsTableAnnotationComposer,
+      $$MemoryCardReviewLogRowsTableCreateCompanionBuilder,
+      $$MemoryCardReviewLogRowsTableUpdateCompanionBuilder,
+      (MemoryCardReviewLogRow, $$MemoryCardReviewLogRowsTableReferences),
+      MemoryCardReviewLogRow,
+      PrefetchHooks Function({bool cardId})
+    >;
 typedef $$CalendarEventRowsTableCreateCompanionBuilder =
     CalendarEventRowsCompanion Function({
       required String id,
@@ -40477,6 +44493,15 @@ class $StorageV2DriftDatabaseManager {
       $$KnowledgeExplanationRowsTableTableManager(
         _db,
         _db.knowledgeExplanationRows,
+      );
+  $$MemoryCardDeckRowsTableTableManager get memoryCardDeckRows =>
+      $$MemoryCardDeckRowsTableTableManager(_db, _db.memoryCardDeckRows);
+  $$MemoryCardRowsTableTableManager get memoryCardRows =>
+      $$MemoryCardRowsTableTableManager(_db, _db.memoryCardRows);
+  $$MemoryCardReviewLogRowsTableTableManager get memoryCardReviewLogRows =>
+      $$MemoryCardReviewLogRowsTableTableManager(
+        _db,
+        _db.memoryCardReviewLogRows,
       );
   $$CalendarEventRowsTableTableManager get calendarEventRows =>
       $$CalendarEventRowsTableTableManager(_db, _db.calendarEventRows);

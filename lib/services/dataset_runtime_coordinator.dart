@@ -3,6 +3,7 @@ import '../providers/calendar_provider.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/knowledge_provider.dart';
+import '../providers/memory_card_provider.dart';
 import '../providers/mcp_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
@@ -27,6 +28,7 @@ class DatasetRuntimeCoordinator {
     required this.roleplay,
     required this.tasks,
     required this.knowledge,
+    required this.memoryCards,
     required this.recycleBin,
     required this.settings,
     required this.models,
@@ -45,6 +47,7 @@ class DatasetRuntimeCoordinator {
   final RoleplayProvider roleplay;
   final TaskProvider tasks;
   final KnowledgeProvider knowledge;
+  final MemoryCardProvider memoryCards;
   final RecycleBinProvider recycleBin;
   final SettingsProvider settings;
   final ModelConfigProvider models;
@@ -101,6 +104,7 @@ class DatasetRuntimeCoordinator {
       (name: 'roleplay', flush: roleplay.flushPendingSaves),
       (name: 'tasks', flush: tasks.flushPendingSaves),
       (name: 'knowledge', flush: knowledge.flushPendingSaves),
+      (name: 'memoryCards', flush: memoryCards.flushPendingSaves),
       (name: 'settings', flush: settings.flushPendingSaves),
       (name: 'models', flush: models.flushPendingSaves),
     ]);
@@ -115,6 +119,7 @@ class DatasetRuntimeCoordinator {
     await roleplay.loadSessions();
     await tasks.load();
     await knowledge.load();
+    await memoryCards.load();
     await recycleBin.load();
     await models.loadModels();
     await plugins.loadForDatasetSwitch();

@@ -12,6 +12,7 @@ import 'package:lynai/providers/calendar_provider.dart';
 import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/knowledge_provider.dart';
+import 'package:lynai/providers/memory_card_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
 import 'package:lynai/providers/plugin_provider.dart';
 import 'package:lynai/providers/recycle_bin_provider.dart';
@@ -48,6 +49,7 @@ void main() {
           ),
           ChangeNotifierProvider(create: (_) => FeatureProvider()),
           ChangeNotifierProvider(create: (_) => KnowledgeProvider()),
+          ChangeNotifierProvider(create: (_) => MemoryCardProvider()),
           ChangeNotifierProvider(create: (_) => CalendarProvider()),
           ChangeNotifierProvider(create: (_) => ModelConfigProvider()),
           ChangeNotifierProvider(create: (_) => PluginProvider()),

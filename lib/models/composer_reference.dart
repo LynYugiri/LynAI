@@ -6,6 +6,8 @@ enum ComposerReferenceType {
   notePage('note_page'),
   task('task'),
   taskList('task_list'),
+  knowledgeBase('knowledge_base'),
+  knowledgeEntry('knowledge_entry'),
   pluginResource('plugin_resource'),
   pluginSkill('plugin_skill');
 

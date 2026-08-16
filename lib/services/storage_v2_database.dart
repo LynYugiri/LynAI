@@ -458,6 +458,98 @@ class KnowledgeExplanationRows extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+class MemoryCardDeckRows extends Table {
+  @override
+  String get tableName => 'memory_card_decks';
+
+  TextColumn get id => text()();
+  TextColumn get name => text()();
+  TextColumn get description => text().nullable()();
+  IntColumn get newPerDayLimit => integer().named('new_per_day_limit')();
+  IntColumn get reviewPerDayLimit => integer().named('review_per_day_limit')();
+  BoolColumn get enabled => boolean().withDefault(const Constant(true))();
+  IntColumn get sortOrder => integer().named('sort_order')();
+  TextColumn get createdAt => text().named('created_at')();
+  TextColumn get updatedAt => text().named('updated_at')();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+class MemoryCardRows extends Table {
+  @override
+  String get tableName => 'memory_cards';
+
+  TextColumn get id => text()();
+  TextColumn get deckId => text()
+      .named('deck_id')
+      .customConstraint(
+        'NOT NULL REFERENCES memory_card_decks(id) ON DELETE CASCADE',
+      )();
+  TextColumn get front => text()();
+  TextColumn get back => text()();
+  TextColumn get hint => text().nullable()();
+  TextColumn get sourceKind => text()
+      .named('source_kind')
+      .customConstraint(
+        "NOT NULL CHECK (source_kind IN ('manual', 'knowledge', 'chat'))",
+      )();
+  TextColumn get sourceEntryId => text().named('source_entry_id').nullable()();
+  TextColumn get sourceBaseId => text().named('source_base_id').nullable()();
+  TextColumn get status => text().customConstraint(
+    "NOT NULL CHECK (status IN ('new', 'learning', 'review', 'relearning'))",
+  )();
+  TextColumn get dueAt => text().named('due_at').nullable()();
+  RealColumn get intervalDays => real().named('interval_days')();
+  RealColumn get easeFactor => real().named('ease_factor')();
+  IntColumn get repetitions => integer()();
+  IntColumn get lapses => integer()();
+  IntColumn get reviewCount => integer().named('review_count')();
+  TextColumn get lastReviewedAt => text().named('last_reviewed_at').nullable()();
+  BoolColumn get enabled => boolean().withDefault(const Constant(true))();
+  IntColumn get sortOrder => integer().named('sort_order')();
+  TextColumn get createdAt => text().named('created_at')();
+  TextColumn get updatedAt => text().named('updated_at')();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+class MemoryCardReviewLogRows extends Table {
+  @override
+  String get tableName => 'memory_card_review_logs';
+
+  TextColumn get id => text()();
+  TextColumn get cardId => text()
+      .named('card_id')
+      .customConstraint(
+        'NOT NULL REFERENCES memory_cards(id) ON DELETE CASCADE',
+      )();
+  TextColumn get deckId => text().named('deck_id')();
+  TextColumn get reviewedAt => text().named('reviewed_at')();
+  TextColumn get rating => text().customConstraint(
+    "NOT NULL CHECK (rating IN ('again', 'good', 'easy'))",
+  )();
+  TextColumn get statusBefore => text()
+      .named('status_before')
+      .customConstraint(
+        "NOT NULL CHECK (status_before IN ('new', 'learning', 'review', 'relearning'))",
+      )();
+  TextColumn get statusAfter => text()
+      .named('status_after')
+      .customConstraint(
+        "NOT NULL CHECK (status_after IN ('new', 'learning', 'review', 'relearning'))",
+      )();
+  RealColumn get intervalDaysBefore =>
+      real().named('interval_days_before')();
+  RealColumn get intervalDaysAfter => real().named('interval_days_after')();
+  RealColumn get easeBefore => real().named('ease_before')();
+  RealColumn get easeAfter => real().named('ease_after')();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
 class CalendarEventRows extends Table {
   @override
   String get tableName => 'calendar_events';
@@ -985,6 +1077,9 @@ class SyncScopeState {
     KnowledgeEntryRows,
     KnowledgeSourceRows,
     KnowledgeExplanationRows,
+    MemoryCardDeckRows,
+    MemoryCardRows,
+    MemoryCardReviewLogRows,
     CalendarEventRows,
     AnniversaryRows,
     RoleplayScenarioRows,
@@ -1015,7 +1110,7 @@ class SyncScopeState {
 class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
   StorageV2DriftDatabase(File file) : super(_open(file));
 
-  static const currentSchemaVersion = 28;
+  static const currentSchemaVersion = 29;
 
   bool needsTransportHeadBackfill = false;
 
@@ -1037,6 +1132,7 @@ class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
       await m.createAll();
       await _createPermissionPolicyIndex();
       await _createKnowledgeAliasIndex();
+      await _createMemoryCardIndexes();
     },
     beforeOpen: (details) async {
       await customStatement('PRAGMA journal_mode = WAL');
@@ -1274,6 +1370,12 @@ SET captures_local = active
       if (from < 28) {
         await _addColumnIfMissing('messages', 'composer_segments', 'TEXT');
       }
+      if (from < 29) {
+        await m.createTable(memoryCardDeckRows);
+        await m.createTable(memoryCardRows);
+        await m.createTable(memoryCardReviewLogRows);
+        await _createMemoryCardIndexes();
+      }
       await _ensureCloudDataColumns();
     },
   );
@@ -1289,6 +1391,17 @@ SET captures_local = active
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_categories_alias '
     'ON knowledge_categories(alias)',
   );
+
+  Future<void> _createMemoryCardIndexes() async {
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_memory_cards_deck_due '
+      'ON memory_cards(deck_id, status, due_at)',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_memory_cards_source_entry '
+      'ON memory_cards(source_entry_id) WHERE source_entry_id IS NOT NULL',
+    );
+  }
 
   Future<void> _migrateKnowledgeSchemaV27() async {
     await customStatement('DROP TABLE IF EXISTS knowledge_settings');
@@ -2200,6 +2313,7 @@ WHERE id IN (${List.filled(runIds.length, '?').join(', ')})
       'notes.json' => await _loadNotes(db),
       'tasks.json' => await _loadTasks(db),
       'knowledge.json' => await _loadKnowledge(db),
+      'memory_cards.json' => await _loadMemoryCards(db),
       'calendar.json' => await _loadCalendar(db),
       'resources.json' => await _loadResources(db),
       'roleplay_scenarios.json' => await _loadRoleplayScenarios(db),
@@ -2227,6 +2341,8 @@ WHERE id IN (${List.filled(runIds.length, '?').join(', ')})
           await _replaceTasks(db, data);
         case 'knowledge.json':
           await _replaceKnowledge(db, data);
+        case 'memory_cards.json':
+          await _replaceMemoryCards(db, data);
         case 'calendar.json':
           await _replaceCalendar(db, data);
         case 'resources.json':
@@ -2750,6 +2866,124 @@ WHERE id IN (${List.filled(runIds.length, '?').join(', ')})
     final db = transactionDb ?? await _open();
     await (db.delete(
       db.knowledgeExplanationRows,
+    )..where((row) => row.id.equals(id))).go();
+  }
+
+  Future<void> upsertMemoryCardDeckRow(
+    Map<String, dynamic> json, {
+    StorageV2DriftDatabase? transactionDb,
+  }) async {
+    final db = transactionDb ?? await _open();
+    final id = json['id'] as String?;
+    if (id == null || id.isEmpty) return;
+    await db
+        .into(db.memoryCardDeckRows)
+        .insertOnConflictUpdate(
+          MemoryCardDeckRowsCompanion.insert(
+            id: id,
+            name: json['name'] as String? ?? '',
+            description: Value(json['description'] as String?),
+            newPerDayLimit: (json['newPerDayLimit'] as num?)?.toInt() ?? 20,
+            reviewPerDayLimit:
+                (json['reviewPerDayLimit'] as num?)?.toInt() ?? 200,
+            enabled: Value(json['enabled'] as bool? ?? true),
+            sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
+            createdAt: json['createdAt'] as String? ?? '',
+            updatedAt: json['updatedAt'] as String? ?? '',
+          ),
+        );
+  }
+
+  Future<void> deleteMemoryCardDeckRow(
+    String id, {
+    StorageV2DriftDatabase? transactionDb,
+  }) async {
+    final db = transactionDb ?? await _open();
+    await (db.delete(
+      db.memoryCardDeckRows,
+    )..where((row) => row.id.equals(id))).go();
+  }
+
+  Future<void> upsertMemoryCardRow(
+    Map<String, dynamic> json, {
+    StorageV2DriftDatabase? transactionDb,
+  }) async {
+    final db = transactionDb ?? await _open();
+    final id = json['id'] as String?;
+    if (id == null || id.isEmpty) return;
+    await db
+        .into(db.memoryCardRows)
+        .insertOnConflictUpdate(
+          MemoryCardRowsCompanion.insert(
+            id: id,
+            deckId: json['deckId'] as String? ?? '',
+            front: json['front'] as String? ?? '',
+            back: json['back'] as String? ?? '',
+            hint: Value(json['hint'] as String?),
+            sourceKind: json['sourceKind'] as String? ?? 'manual',
+            sourceEntryId: Value(json['sourceEntryId'] as String?),
+            sourceBaseId: Value(json['sourceBaseId'] as String?),
+            status: json['status'] as String? ?? 'new',
+            dueAt: Value(json['dueAt'] as String?),
+            intervalDays: (json['intervalDays'] as num?)?.toDouble() ?? 0,
+            easeFactor: (json['easeFactor'] as num?)?.toDouble() ?? 2.5,
+            repetitions: (json['repetitions'] as num?)?.toInt() ?? 0,
+            lapses: (json['lapses'] as num?)?.toInt() ?? 0,
+            reviewCount: (json['reviewCount'] as num?)?.toInt() ?? 0,
+            lastReviewedAt: Value(json['lastReviewedAt'] as String?),
+            enabled: Value(json['enabled'] as bool? ?? true),
+            sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
+            createdAt: json['createdAt'] as String? ?? '',
+            updatedAt: json['updatedAt'] as String? ?? '',
+          ),
+        );
+  }
+
+  Future<void> deleteMemoryCardRow(
+    String id, {
+    StorageV2DriftDatabase? transactionDb,
+  }) async {
+    final db = transactionDb ?? await _open();
+    await (db.delete(
+      db.memoryCardRows,
+    )..where((row) => row.id.equals(id))).go();
+  }
+
+  Future<void> upsertMemoryCardReviewLogRow(
+    Map<String, dynamic> json, {
+    StorageV2DriftDatabase? transactionDb,
+  }) async {
+    final db = transactionDb ?? await _open();
+    final id = json['id'] as String?;
+    if (id == null || id.isEmpty) return;
+    await db
+        .into(db.memoryCardReviewLogRows)
+        .insertOnConflictUpdate(
+          MemoryCardReviewLogRowsCompanion.insert(
+            id: id,
+            cardId: json['cardId'] as String? ?? '',
+            deckId: json['deckId'] as String? ?? '',
+            reviewedAt: json['reviewedAt'] as String? ?? '',
+            rating: json['rating'] as String? ?? 'good',
+            statusBefore: json['statusBefore'] as String? ?? 'new',
+            statusAfter: json['statusAfter'] as String? ?? 'new',
+            intervalDaysBefore:
+                (json['intervalDaysBefore'] as num?)?.toDouble() ?? 0,
+            intervalDaysAfter:
+                (json['intervalDaysAfter'] as num?)?.toDouble() ?? 0,
+            easeBefore: (json['easeBefore'] as num?)?.toDouble() ?? 2.5,
+            easeAfter: (json['easeAfter'] as num?)?.toDouble() ?? 2.5,
+          ),
+        );
+  }
+
+  Future<void> deleteMemoryCardReviewLogRow(
+    String id, {
+    StorageV2DriftDatabase? transactionDb,
+  }) async {
+    final db = transactionDb ?? await _open();
+    await (db.delete(
+      db.memoryCardReviewLogRows,
     )..where((row) => row.id.equals(id))).go();
   }
 
@@ -4309,6 +4543,33 @@ END, h.client_created_at, h.updated_at, h.table_name, h.record_id
                 transactionDb: db,
               );
             }
+          case 'memory_card_decks':
+            if (op.op == 'upsert' && op.data != null) {
+              await upsertMemoryCardDeckRow(op.data!, transactionDb: db);
+            } else if (op.op == 'delete') {
+              await deleteMemoryCardDeckRow(
+                op.data!['id'] as String,
+                transactionDb: db,
+              );
+            }
+          case 'memory_cards':
+            if (op.op == 'upsert' && op.data != null) {
+              await upsertMemoryCardRow(op.data!, transactionDb: db);
+            } else if (op.op == 'delete') {
+              await deleteMemoryCardRow(
+                op.data!['id'] as String,
+                transactionDb: db,
+              );
+            }
+          case 'memory_card_review_logs':
+            if (op.op == 'upsert' && op.data != null) {
+              await upsertMemoryCardReviewLogRow(op.data!, transactionDb: db);
+            } else if (op.op == 'delete') {
+              await deleteMemoryCardReviewLogRow(
+                op.data!['id'] as String,
+                transactionDb: db,
+              );
+            }
           case 'knowledge_settings':
             if (id != 'global') {
               throw StateError('knowledge_settings record id must be global');
@@ -5034,6 +5295,9 @@ END, h.client_created_at, h.updated_at, h.table_name, h.record_id
       'knowledge_settings' => 2,
       'knowledge_entries' => op == 'delete' ? 7 : 3,
       'knowledge_sources' || 'knowledge_explanations' => op == 'delete' ? 0 : 4,
+      'memory_card_decks' => op == 'delete' ? 9 : 0,
+      'memory_cards' => op == 'delete' ? 8 : 3,
+      'memory_card_review_logs' => op == 'delete' ? 0 : 4,
       'note_pages' => 3,
       'note_revisions' => 4,
       'note_page_heads' => 5,
@@ -6143,6 +6407,85 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
     };
   }
 
+  Future<Map<String, dynamic>> _loadMemoryCards(
+    StorageV2DriftDatabase db,
+  ) async {
+    final decks =
+        (await (db.select(db.memoryCardDeckRows)..orderBy([
+                  (row) => OrderingTerm.asc(row.sortOrder),
+                ]))
+                .get())
+            .map(
+              (row) => {
+                'id': row.id,
+                'name': row.name,
+                if (row.description != null) 'description': row.description,
+                'newPerDayLimit': row.newPerDayLimit,
+                'reviewPerDayLimit': row.reviewPerDayLimit,
+                'enabled': row.enabled,
+                'sortOrder': row.sortOrder,
+                'createdAt': row.createdAt,
+                'updatedAt': row.updatedAt,
+              },
+            )
+            .toList();
+    final cards =
+        (await (db.select(db.memoryCardRows)..orderBy([
+                  (row) => OrderingTerm.asc(row.deckId),
+                  (row) => OrderingTerm.asc(row.sortOrder),
+                ]))
+                .get())
+            .map(
+              (row) => {
+                'id': row.id,
+                'deckId': row.deckId,
+                'front': row.front,
+                'back': row.back,
+                if (row.hint != null) 'hint': row.hint,
+                'sourceKind': row.sourceKind,
+                if (row.sourceEntryId != null)
+                  'sourceEntryId': row.sourceEntryId,
+                if (row.sourceBaseId != null) 'sourceBaseId': row.sourceBaseId,
+                'status': row.status,
+                if (row.dueAt != null) 'dueAt': row.dueAt,
+                'intervalDays': row.intervalDays,
+                'easeFactor': row.easeFactor,
+                'repetitions': row.repetitions,
+                'lapses': row.lapses,
+                'reviewCount': row.reviewCount,
+                if (row.lastReviewedAt != null)
+                  'lastReviewedAt': row.lastReviewedAt,
+                'enabled': row.enabled,
+                'sortOrder': row.sortOrder,
+                'createdAt': row.createdAt,
+                'updatedAt': row.updatedAt,
+              },
+            )
+            .toList();
+    final reviewLogs =
+        (await (db.select(db.memoryCardReviewLogRows)..orderBy([
+                  (row) => OrderingTerm.desc(row.reviewedAt),
+                ]))
+                .get())
+            .map(
+              (row) => {
+                'id': row.id,
+                'cardId': row.cardId,
+                'deckId': row.deckId,
+                'reviewedAt': row.reviewedAt,
+                'rating': row.rating,
+                'statusBefore': row.statusBefore,
+                'statusAfter': row.statusAfter,
+                'intervalDaysBefore': row.intervalDaysBefore,
+                'intervalDaysAfter': row.intervalDaysAfter,
+                'easeBefore': row.easeBefore,
+                'easeAfter': row.easeAfter,
+              },
+            )
+            .toList();
+    return {'decks': decks, 'cards': cards, 'reviewLogs': reviewLogs};
+  }
+
   Future<Map<String, dynamic>> _loadCalendar(StorageV2DriftDatabase db) async {
     final events =
         (await (db.select(db.calendarEventRows)..orderBy([
@@ -6781,6 +7124,36 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
     }
   }
 
+  Future<void> _replaceMemoryCards(
+    StorageV2DriftDatabase db,
+    Map<String, dynamic> data,
+  ) async {
+    await db.delete(db.memoryCardReviewLogRows).go();
+    await db.delete(db.memoryCardRows).go();
+    await db.delete(db.memoryCardDeckRows).go();
+    final deckIds = <String>{};
+    for (final item in data['decks'] as List<dynamic>? ?? const []) {
+      if (item is! Map) continue;
+      final json = Map<String, dynamic>.from(item);
+      final id = json['id'] as String?;
+      if (id == null || id.isEmpty) continue;
+      await upsertMemoryCardDeckRow(json, transactionDb: db);
+      deckIds.add(id);
+    }
+    for (final item in data['cards'] as List<dynamic>? ?? const []) {
+      if (item is! Map) continue;
+      final json = Map<String, dynamic>.from(item);
+      if (!deckIds.contains(json['deckId'])) continue;
+      await upsertMemoryCardRow(json, transactionDb: db);
+    }
+    for (final item in data['reviewLogs'] as List<dynamic>? ?? const []) {
+      if (item is! Map) continue;
+      final json = Map<String, dynamic>.from(item);
+      if (!deckIds.contains(json['deckId'])) continue;
+      await upsertMemoryCardReviewLogRow(json, transactionDb: db);
+    }
+  }
+
   Future<void> _replaceCalendar(
     StorageV2DriftDatabase db,
     Map<String, dynamic> data,
@@ -6899,6 +7272,9 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
     'knowledge_sources',
     'knowledge_explanations',
     'knowledge_settings',
+    'memory_card_decks',
+    'memory_cards',
+    'memory_card_review_logs',
     'calendar_events',
     'anniversaries',
     'roleplay_scenarios',
@@ -6940,6 +7316,11 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
       'knowledge_entries',
       'knowledge_sources',
       'knowledge_explanations',
+    },
+    'memory_cards.json' => {
+      'memory_card_decks',
+      'memory_cards',
+      'memory_card_review_logs',
     },
     'calendar.json' => {'calendar_events', 'anniversaries'},
     'roleplay_scenarios.json' => {'roleplay_scenarios'},
@@ -7539,6 +7920,27 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
           await upsertKnowledgeExplanationRow(data, transactionDb: db);
         } else {
           await deleteKnowledgeExplanationRow(
+            data['id'] as String,
+            transactionDb: db,
+          );
+        }
+      case 'memory_card_decks':
+        if (op == 'upsert') {
+          await upsertMemoryCardDeckRow(data, transactionDb: db);
+        } else {
+          await deleteMemoryCardDeckRow(data['id'] as String, transactionDb: db);
+        }
+      case 'memory_cards':
+        if (op == 'upsert') {
+          await upsertMemoryCardRow(data, transactionDb: db);
+        } else {
+          await deleteMemoryCardRow(data['id'] as String, transactionDb: db);
+        }
+      case 'memory_card_review_logs':
+        if (op == 'upsert') {
+          await upsertMemoryCardReviewLogRow(data, transactionDb: db);
+        } else {
+          await deleteMemoryCardReviewLogRow(
             data['id'] as String,
             transactionDb: db,
           );

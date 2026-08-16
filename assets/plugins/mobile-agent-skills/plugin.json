@@ -1,7 +1,7 @@
 {
   "id": "mobile-agent-skills",
   "name": "移动端 Agent 技能",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "author": "LynAI",
   "description": "为 Agent 提供移动端自动化（Android 无障碍、微信、QQ、消息、系统设置、相机、通讯录、时钟、地图、分享）与本地知识（解题、研究、笔记、知识库沉淀）工作流说明。",
   "entry": "main.lua",
@@ -104,6 +104,13 @@
       "description": "从对话中抽出事实/结论，追加到既有笔记或新建草稿，并写主 Agent 短时记忆。",
       "whenToUse": "沉淀、保存到笔记、知识库、回顾对话、记一下、整理对话",
       "tags": ["note", "knowledge", "capture", "memory"]
+    },
+    {
+      "name": "memory_card_generation",
+      "title": "记忆卡片生成",
+      "description": "从知识库/笔记/对话内容中提取问答对，调用 create_memory_cards 创建间隔重复记忆卡片。",
+      "whenToUse": "做卡片、记忆卡片、复习卡、问答卡、抽认卡、把知识库做成卡片、生成卡片",
+      "tags": ["study", "memory", "flashcard", "knowledge"]
     }
   ],
   "editableFiles": [
@@ -190,6 +197,12 @@
       "title": "对话沉淀到知识库 Skill",
       "type": "markdown",
       "defaultPath": "defaults/skills/note_capture_to_kb.md"
+    },
+    {
+      "path": "skills/memory_card_generation.md",
+      "title": "记忆卡片生成 Skill",
+      "type": "markdown",
+      "defaultPath": "defaults/skills/memory_card_generation.md"
     }
   ],
   "lynai": {

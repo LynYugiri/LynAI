@@ -26,6 +26,7 @@ import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/calendar_provider.dart';
 import '../providers/knowledge_provider.dart';
+import '../providers/memory_card_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/mcp_provider.dart';
 import '../providers/plugin_provider.dart';
@@ -1580,6 +1581,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final registry = buildBuiltInSelectorRegistry(
       features: context.read<FeatureProvider>(),
       tasks: context.read<TaskProvider>(),
+      knowledge: context.read<KnowledgeProvider>(),
     );
     final features = context.read<FeatureProvider>();
     final tasks = context.read<TaskProvider>();
@@ -1960,6 +1962,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       tasks: context.read<TaskProvider>(),
       calendar: context.read<CalendarProvider>(),
       knowledge: context.read<KnowledgeProvider>(),
+      memoryCards: context.read<MemoryCardProvider>(),
       plugins: context.read<PluginProvider>(),
       modelConfigs: context.read<ModelConfigProvider>(),
       settings: context.read<SettingsProvider>(),

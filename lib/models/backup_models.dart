@@ -7,6 +7,9 @@ import 'knowledge_category.dart';
 import 'knowledge_entry.dart';
 import 'knowledge_explanation.dart';
 import 'knowledge_source.dart';
+import 'memory_card.dart';
+import 'memory_card_deck.dart';
+import 'memory_card_review_log.dart';
 import 'model_config.dart';
 import 'merge_models.dart';
 import 'note.dart';
@@ -33,6 +36,9 @@ enum BackupSection {
 
   /// 知识库。
   knowledge,
+
+  /// 记忆卡片。
+  memoryCards,
 
   /// 日历。
   calendar,
@@ -93,6 +99,8 @@ extension BackupSectionInfo on BackupSection {
         return 'tasks';
       case BackupSection.knowledge:
         return 'knowledge';
+      case BackupSection.memoryCards:
+        return 'memoryCards';
       case BackupSection.calendar:
         return 'calendar';
       case BackupSection.roleplay:
@@ -115,6 +123,8 @@ extension BackupSectionInfo on BackupSection {
         return '任务';
       case BackupSection.knowledge:
         return '知识库';
+      case BackupSection.memoryCards:
+        return '记忆卡片';
       case BackupSection.calendar:
         return '日历';
       case BackupSection.roleplay:
@@ -149,6 +159,9 @@ class BackupSelection {
 
   final Set<String> knowledgeBaseIds;
 
+  /// 选中的记忆卡片牌组 ID 集合。
+  final Set<String> memoryCardDeckIds;
+
   /// 选中的日历事件 ID 集合。
   final Set<String> calendarEventIds;
 
@@ -170,6 +183,7 @@ class BackupSelection {
     this.taskIds = const {},
     this.taskListIds = const {},
     this.knowledgeBaseIds = const {},
+    this.memoryCardDeckIds = const {},
     this.calendarEventIds = const {},
     this.anniversaryIds = const {},
     this.roleplaySessionIds = const {},
@@ -207,6 +221,8 @@ class BackupSelection {
       taskListIds: data.taskLists?.map((item) => item.id).toSet() ?? const {},
       knowledgeBaseIds:
           data.knowledgeBases?.map((item) => item.id).toSet() ?? const {},
+      memoryCardDeckIds:
+          data.memoryCardDecks?.map((item) => item.id).toSet() ?? const {},
       calendarEventIds:
           data.calendarEvents?.map((item) => item.id).toSet() ?? const {},
       anniversaryIds:
@@ -230,6 +246,7 @@ class BackupSelection {
     Set<String>? taskIds,
     Set<String>? taskListIds,
     Set<String>? knowledgeBaseIds,
+    Set<String>? memoryCardDeckIds,
     Set<String>? calendarEventIds,
     Set<String>? anniversaryIds,
     Set<String>? roleplaySessionIds,
@@ -243,6 +260,7 @@ class BackupSelection {
       taskIds: taskIds ?? this.taskIds,
       taskListIds: taskListIds ?? this.taskListIds,
       knowledgeBaseIds: knowledgeBaseIds ?? this.knowledgeBaseIds,
+      memoryCardDeckIds: memoryCardDeckIds ?? this.memoryCardDeckIds,
       calendarEventIds: calendarEventIds ?? this.calendarEventIds,
       anniversaryIds: anniversaryIds ?? this.anniversaryIds,
       roleplaySessionIds: roleplaySessionIds ?? this.roleplaySessionIds,
@@ -444,6 +462,10 @@ class BackupData {
   final List<KnowledgeSource>? knowledgeSources;
   final List<KnowledgeExplanation>? knowledgeExplanations;
 
+  final List<MemoryCardDeck>? memoryCardDecks;
+  final List<MemoryCard>? memoryCards;
+  final List<MemoryCardReviewLog>? memoryCardReviewLogs;
+
   /// 日历事件列表。
   final List<CalendarEvent>? calendarEvents;
 
@@ -479,6 +501,9 @@ class BackupData {
     this.knowledgeEntries,
     this.knowledgeSources,
     this.knowledgeExplanations,
+    this.memoryCardDecks,
+    this.memoryCards,
+    this.memoryCardReviewLogs,
     this.calendarEvents,
     this.anniversaries,
     this.roleplaySessions,
@@ -507,6 +532,10 @@ class BackupData {
             knowledgeEntries != null ||
             knowledgeSources != null ||
             knowledgeExplanations != null;
+      case BackupSection.memoryCards:
+        return memoryCardDecks != null ||
+            memoryCards != null ||
+            memoryCardReviewLogs != null;
       case BackupSection.calendar:
         return calendarEvents != null || anniversaries != null;
       case BackupSection.roleplay:

@@ -23,6 +23,9 @@ import '../models/knowledge_category.dart';
 import '../models/knowledge_entry.dart';
 import '../models/knowledge_explanation.dart';
 import '../models/knowledge_source.dart';
+import '../models/memory_card.dart';
+import '../models/memory_card_deck.dart';
+import '../models/memory_card_review_log.dart';
 import '../models/message.dart';
 import '../models/model_config.dart';
 import '../models/note.dart';
@@ -37,6 +40,7 @@ import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/knowledge_provider.dart';
+import '../providers/memory_card_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
@@ -62,6 +66,7 @@ class BackupService {
     required this.roleplayProvider,
     TaskProvider? taskProvider,
     this.knowledgeProvider,
+    this.memoryCardProvider,
     CalendarProvider? calendarProvider,
     this.pluginProvider,
     PluginRepository? pluginRepository,
@@ -83,6 +88,7 @@ class BackupService {
   final RoleplayProvider roleplayProvider;
   final TaskProvider taskProvider;
   final KnowledgeProvider? knowledgeProvider;
+  final MemoryCardProvider? memoryCardProvider;
   final CalendarProvider calendarProvider;
   final PluginProvider? pluginProvider;
   final StorageV2Service? storageV2;
@@ -91,7 +97,7 @@ class BackupService {
   final Future<String> Function()? _appVersionLoader;
   final _uuid = const Uuid();
 
-  static const currentSchemaVersion = 13;
+  static const currentSchemaVersion = 14;
   static const oldestCompatibleSchemaVersion = 1;
   static const maxBackupZipInputBytes = 512 * 1024 * 1024;
   static const maxBackupZipEntries = 10000;
@@ -541,6 +547,30 @@ class BackupService {
         'entryCount': entries.length,
       };
     }
+    if (selection.contains(BackupSection.memoryCards) &&
+        memoryCardProvider != null) {
+      final deckIds = selection.memoryCardDeckIds;
+      final decks = memoryCardProvider!.decks
+          .where((item) => deckIds.contains(item.id))
+          .toList();
+      final cards = memoryCardProvider!.cards
+          .where((item) => deckIds.contains(item.deckId))
+          .toList();
+      final cardIds = cards.map((item) => item.id).toSet();
+      final reviewLogs = memoryCardProvider!.reviewLogs
+          .where((item) => cardIds.contains(item.cardId))
+          .toList();
+      addJson(
+        'memory_cards.json',
+        _memoryCardsPartition(decks, cards, reviewLogs),
+      );
+      sections[BackupSection.memoryCards.key] = {
+        'enabled': true,
+        'files': ['memory_cards.json'],
+        'deckCount': decks.length,
+        'cardCount': cards.length,
+      };
+    }
     if (selection.contains(BackupSection.calendar)) {
       final events = calendarProvider.events
           .where((item) => selection.calendarEventIds.contains(item.id))
@@ -804,6 +834,7 @@ class BackupService {
         : null;
     final tasksJson = readMap('tasks.json');
     final knowledgeJson = readMap('knowledge.json');
+    final memoryCardsJson = readMap('memory_cards.json');
     final calendarJson = readMap('calendar.json');
     final roleplayJson = readMap('roleplay_scenarios.json');
     final roleplayThreadsJson = readMap('roleplay_threads.json');
@@ -828,6 +859,7 @@ class BackupService {
       todoListsJson: todoListsJson,
       tasksJson: tasksJson,
       knowledgeJson: knowledgeJson,
+      memoryCardsJson: memoryCardsJson,
       calendarJson: calendarJson,
       roleplayJson: roleplayJson,
       roleplayThreadsJson: roleplayThreadsJson,
@@ -1046,6 +1078,24 @@ class BackupService {
           warnings,
           '知识解释',
         ),
+        memoryCardDecks: _parseList(
+          memoryCardsJson?['decks'],
+          MemoryCardDeck.fromJson,
+          warnings,
+          '记忆卡片牌组',
+        ),
+        memoryCards: _parseList(
+          memoryCardsJson?['cards'],
+          MemoryCard.fromJson,
+          warnings,
+          '记忆卡片',
+        ),
+        memoryCardReviewLogs: _parseList(
+          memoryCardsJson?['reviewLogs'],
+          MemoryCardReviewLog.fromJson,
+          warnings,
+          '记忆卡片复习记录',
+        ),
         calendarEvents: planning.events,
         anniversaries: planning.anniversaries,
         roleplaySessions: _parseList(
@@ -1173,6 +1223,7 @@ class BackupService {
     required Map<String, dynamic>? todoListsJson,
     required Map<String, dynamic>? tasksJson,
     required Map<String, dynamic>? knowledgeJson,
+    required Map<String, dynamic>? memoryCardsJson,
     required Map<String, dynamic>? calendarJson,
     required Map<String, dynamic>? roleplayJson,
     required Map<String, dynamic>? roleplayThreadsJson,
@@ -1232,6 +1283,11 @@ class BackupService {
         require('knowledge.json', knowledgeJson, 'explanations', List);
         if (schemaVersion == 12) {
           require('knowledge.json', knowledgeJson, 'settings', Map);
+        }
+        if (schemaVersion >= 14) {
+          require('memory_cards.json', memoryCardsJson, 'decks', List);
+          require('memory_cards.json', memoryCardsJson, 'cards', List);
+          require('memory_cards.json', memoryCardsJson, 'reviewLogs', List);
         }
       }
       require('calendar.json', calendarJson, 'events', List);
@@ -2064,6 +2120,16 @@ class BackupService {
     'explanations': explanations.map((item) => item.toJson()).toList(),
   };
 
+  static Map<String, dynamic> _memoryCardsPartition(
+    List<MemoryCardDeck> decks,
+    List<MemoryCard> cards,
+    List<MemoryCardReviewLog> reviewLogs,
+  ) => {
+    'decks': decks.map((item) => item.toJson()).toList(),
+    'cards': cards.map((item) => item.toJson()).toList(),
+    'reviewLogs': reviewLogs.map((item) => item.toJson()).toList(),
+  };
+
   static void _validateKnowledgeGraph({
     required List<KnowledgeBase> bases,
     required List<KnowledgeCategory> categories,
@@ -2413,6 +2479,13 @@ class BackupService {
       if (plan.sections.contains(BackupSection.knowledge) &&
           knowledgeProvider != null) {
         final result = await _applyKnowledge(data, plan);
+        added += result.added;
+        replaced += result.replaced;
+        skipped += result.skipped;
+      }
+      if (plan.sections.contains(BackupSection.memoryCards) &&
+          memoryCardProvider != null) {
+        final result = await _applyMemoryCards(data, plan);
         added += result.added;
         replaced += result.replaced;
         skipped += result.skipped;
@@ -3247,6 +3320,88 @@ class BackupService {
       entries: entries,
       sources: sources,
       explanations: explanations,
+    );
+    return ImportResult(added: added, replaced: replaced, skipped: skipped);
+  }
+
+  Future<ImportResult> _applyMemoryCards(
+    BackupData data,
+    ImportPlan plan,
+  ) async {
+    final provider = memoryCardProvider!;
+    final incomingDecks = data.memoryCardDecks;
+    if (incomingDecks == null) {
+      return const ImportResult(added: 0, replaced: 0, skipped: 0);
+    }
+    final incomingDeckIds = incomingDecks.map((item) => item.id).toSet();
+    final replacing = plan.mode == ImportMode.replaceSection;
+    final decks = provider.decks
+        .where((item) => !replacing || !incomingDeckIds.contains(item.id))
+        .toList();
+    var added = 0;
+    var replaced = 0;
+    var skipped = 0;
+    final acceptedDeckIds = <String>{};
+    for (final incoming in incomingDecks) {
+      final index = decks.indexWhere((item) => item.id == incoming.id);
+      if (index < 0) {
+        decks.add(incoming);
+        acceptedDeckIds.add(incoming.id);
+        added++;
+      } else if (_sameJson(decks[index], incoming)) {
+        acceptedDeckIds.add(incoming.id);
+        skipped++;
+      } else if (plan.mode == ImportMode.addOnly) {
+        skipped++;
+      } else {
+        final action = replacing
+            ? ImportConflictAction.replaceLocal
+            : plan.actionFor(
+                _conflictId(BackupSection.memoryCards, incoming.id),
+              );
+        if (action == ImportConflictAction.replaceLocal) {
+          decks[index] = incoming;
+          acceptedDeckIds.add(incoming.id);
+          replaced++;
+        } else {
+          skipped++;
+        }
+      }
+    }
+    final deckIds = decks.map((item) => item.id).toSet();
+    final cards = provider.cards
+        .where((item) => deckIds.contains(item.deckId))
+        .toList();
+    final reviewLogs = provider.reviewLogs
+        .where((item) => deckIds.contains(item.deckId))
+        .toList();
+    for (final incoming in data.memoryCards ?? const <MemoryCard>[]) {
+      if (!acceptedDeckIds.contains(incoming.deckId)) continue;
+      final index = cards.indexWhere((item) => item.id == incoming.id);
+      if (index < 0) {
+        cards.add(incoming);
+        added++;
+      } else if (plan.mode != ImportMode.addOnly) {
+        cards[index] = incoming;
+        replaced++;
+      } else {
+        skipped++;
+      }
+    }
+    for (final incoming in data.memoryCardReviewLogs ??
+        const <MemoryCardReviewLog>[]) {
+      if (!acceptedDeckIds.contains(incoming.deckId)) continue;
+      final index = reviewLogs.indexWhere((item) => item.id == incoming.id);
+      if (index < 0) {
+        reviewLogs.add(incoming);
+      } else if (plan.mode != ImportMode.addOnly) {
+        reviewLogs[index] = incoming;
+      }
+    }
+    await provider.replaceAll(
+      decks: decks,
+      cards: cards,
+      reviewLogs: reviewLogs,
     );
     return ImportResult(added: added, replaced: replaced, skipped: skipped);
   }
@@ -4597,6 +4752,9 @@ class BackupService {
       knowledgeEntries: data.knowledgeEntries,
       knowledgeSources: data.knowledgeSources,
       knowledgeExplanations: data.knowledgeExplanations,
+      memoryCardDecks: data.memoryCardDecks,
+      memoryCards: data.memoryCards,
+      memoryCardReviewLogs: data.memoryCardReviewLogs,
       calendarEvents: data.calendarEvents,
       anniversaries: data.anniversaries,
       roleplaySessions: data.roleplaySessions,
@@ -4931,6 +5089,17 @@ class BackupService {
                     false),
           )
           .toList(),
+      memoryCardDecks: data.memoryCardDecks
+          ?.where((item) => selection.memoryCardDeckIds.contains(item.id))
+          .toList(),
+      memoryCards: data.memoryCards
+          ?.where((item) => selection.memoryCardDeckIds.contains(item.deckId))
+          .toList(),
+      memoryCardReviewLogs: data.memoryCardReviewLogs
+          ?.where(
+            (item) => selection.memoryCardDeckIds.contains(item.deckId),
+          )
+          .toList(),
       calendarEvents: data.calendarEvents
           ?.where((item) => selection.calendarEventIds.contains(item.id))
           .toList(),
@@ -5032,6 +5201,8 @@ class BackupService {
         return '${data.tasks?.length ?? 0} 个任务，${data.taskLists?.length ?? 0} 个清单';
       case BackupSection.knowledge:
         return '${data.knowledgeBases?.length ?? 0} 个知识库，${data.knowledgeEntries?.length ?? 0} 条知识';
+      case BackupSection.memoryCards:
+        return '${data.memoryCardDecks?.length ?? 0} 个牌组，${data.memoryCards?.length ?? 0} 张卡片';
       case BackupSection.calendar:
         return '${data.calendarEvents?.length ?? 0} 个事件，${data.anniversaries?.length ?? 0} 个纪念日';
       case BackupSection.roleplay:

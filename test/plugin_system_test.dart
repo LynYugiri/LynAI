@@ -67,6 +67,7 @@ void main() {
         'defaults/skills/study_research_qa.md',
         'defaults/skills/note_taking.md',
         'defaults/skills/note_capture_to_kb.md',
+        'defaults/skills/memory_card_generation.md',
       ]),
     );
     expect(
@@ -87,8 +88,8 @@ void main() {
       final editables = (manifest['editableFiles'] as List)
           .cast<Map<String, dynamic>>();
 
-      expect(skills.length, 14, reason: 'mobile-agent-skills 应有 14 个 skill');
-      expect(editables.length, 14, reason: 'editableFiles 应与 skills 数量一致');
+      expect(skills.length, 15, reason: 'mobile-agent-skills 应有 15 个 skill');
+      expect(editables.length, 15, reason: 'editableFiles 应与 skills 数量一致');
       expect(
         skills.map((s) => s['name']),
         isNot(contains('browser_search')),
@@ -101,7 +102,7 @@ void main() {
         reason: 'browser_search.md 资源文件应已删除',
       );
       final version = manifest['version'] as String;
-      expect(version, '1.2.0', reason: '移除 skill 后版本应提升');
+      expect(version, '1.3.0', reason: '新增记忆卡片生成 skill 后版本应提升');
       expect(
         manifest['description'] as String,
         isNot(contains('浏览器')),

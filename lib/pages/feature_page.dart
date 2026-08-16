@@ -14,6 +14,7 @@ import 'features/dashboard.dart';
 import 'features/feature_shared.dart';
 import 'features/feature_shell.dart';
 import 'features/knowledge_page.dart';
+import 'features/memory_cards_page.dart';
 import 'features/note_detail_page.dart';
 import 'features/notes_page.dart';
 import 'features/roleplay_page.dart';
@@ -52,6 +53,7 @@ class _FeaturePageState extends State<FeaturePage> {
     'todos',
     'roleplay',
     'knowledge',
+    'cards',
   };
 
   final _searchController = TextEditingController();
@@ -184,6 +186,7 @@ class _FeaturePageState extends State<FeaturePage> {
         ),
         'roleplay' => RoleplayPage(active: widget.active),
         'knowledge' => KnowledgePage(key: _knowledgePageKey),
+        'cards' => const MemoryCardsPage(),
         _ when pluginFeature != null && widget.active => PluginFeatureWebView(
           plugin: pluginFeature.plugin,
           page: pluginFeature.page,
@@ -211,6 +214,7 @@ class _FeaturePageState extends State<FeaturePage> {
       'history' => '对话历史',
       'roleplay' => '情景演绎',
       'knowledge' => '知识库',
+      'cards' => '记忆卡片',
       _ => _pluginFeatureFor(feature, plugins)?.page.title ?? '功能',
     };
   }

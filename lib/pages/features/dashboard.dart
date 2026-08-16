@@ -51,6 +51,12 @@ class FeatureDashboard extends StatelessWidget {
       title: '知识库',
       subtitle: '整理条目、来源与解释',
     ),
+    FeatureDashboardItem(
+      value: 'cards',
+      icon: Icons.style_outlined,
+      title: '记忆卡片',
+      subtitle: '间隔重复，复习记忆',
+    ),
   ];
 
   @override

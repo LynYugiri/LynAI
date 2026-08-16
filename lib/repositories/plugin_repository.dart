@@ -63,6 +63,7 @@ class PluginRepository {
       'defaults/skills/study_research_qa.md',
       'defaults/skills/note_taking.md',
       'defaults/skills/note_capture_to_kb.md',
+      'defaults/skills/memory_card_generation.md',
     ],
   };
 

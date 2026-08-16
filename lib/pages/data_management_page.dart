@@ -20,6 +20,7 @@ import '../providers/cloud_data_provider.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/knowledge_provider.dart';
+import '../providers/memory_card_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/roleplay_provider.dart';
@@ -67,6 +68,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       taskProvider: context.read<TaskProvider>(),
       calendarProvider: context.read<CalendarProvider>(),
       knowledgeProvider: context.read<KnowledgeProvider>(),
+      memoryCardProvider: context.read<MemoryCardProvider>(),
       pluginProvider: context.read<PluginProvider>(),
       storageV2: context.read<StorageV2Service>(),
     );
@@ -85,6 +87,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
     final calendar = context.read<CalendarProvider>();
     final roleplays = context.read<RoleplayProvider>().scenarios;
     final knowledgeBases = context.read<KnowledgeProvider>().knowledgeBases;
+    final memoryCardDecks = context.read<MemoryCardProvider>().decks;
     final plugins = context.read<PluginProvider>().plugins;
     return BackupSelection(
       Set.of(BackupSection.values),
@@ -94,6 +97,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       taskIds: tasks.tasks.map((item) => item.id).toSet(),
       taskListIds: tasks.lists.map((item) => item.id).toSet(),
       knowledgeBaseIds: knowledgeBases.map((item) => item.id).toSet(),
+      memoryCardDeckIds: memoryCardDecks.map((item) => item.id).toSet(),
       calendarEventIds: calendar.events.map((item) => item.id).toSet(),
       anniversaryIds: calendar.anniversaries.map((item) => item.id).toSet(),
       roleplaySessionIds: roleplays.map((item) => item.id).toSet(),

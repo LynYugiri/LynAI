@@ -1,7 +1,9 @@
 import '../models/composer_reference.dart';
+import '../models/knowledge_entry.dart';
 import '../models/note.dart';
 import '../models/task.dart';
 import '../providers/feature_provider.dart';
+import '../providers/knowledge_provider.dart';
 import '../providers/task_provider.dart';
 
 /// 选择器条目类型：实体或文件夹。
@@ -92,6 +94,7 @@ class ComposerSelectorRegistry {
 ComposerSelectorRegistry buildBuiltInSelectorRegistry({
   required FeatureProvider features,
   required TaskProvider tasks,
+  KnowledgeProvider? knowledge,
 }) {
   final registry = ComposerSelectorRegistry();
   registry.register(
@@ -126,6 +129,25 @@ ComposerSelectorRegistry buildBuiltInSelectorRegistry({
       load: (query, path) async => _loadTasks(tasks, query, path),
     ),
   );
+  if (knowledge != null) {
+    registry.register(
+      ComposerSelector(
+        name: 'knowledge-bases',
+        title: '知识库',
+        description: '引用整个知识库',
+        load: (query, path) async => _loadKnowledgeBases(knowledge, query),
+      ),
+    );
+    registry.register(
+      ComposerSelector(
+        name: 'knowledge-entries',
+        title: '知识条目',
+        description: '浏览知识库并引用具体条目',
+        load: (query, path) async =>
+            _loadKnowledgeEntries(knowledge, query, path),
+      ),
+    );
+  }
   return registry;
 }
 
@@ -283,6 +305,77 @@ List<ComposerSelectorItem> _loadTasks(
     }
   }
   return items;
+}
+
+String _knowledgeEntrySubtitle(KnowledgeEntry entry) {
+  final collapsed = entry.content.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (collapsed.isEmpty) return '';
+  return collapsed.length > 80 ? '${collapsed.substring(0, 80)}…' : collapsed;
+}
+
+List<ComposerSelectorItem> _loadKnowledgeBases(
+  KnowledgeProvider knowledge,
+  String query,
+) {
+  return knowledge.knowledgeBases
+      .where((base) => _matches(base.name, query))
+      .map(
+        (base) => ComposerSelectorItem(
+          key: 'knowledge-base:${base.id}',
+          kind: ComposerSelectorItemKind.item,
+          title: base.name,
+          subtitle: '${knowledge.entriesForBase(base.id).length} 个条目',
+          value: ComposerSelectorValue(
+            type: ComposerReferenceType.knowledgeBase,
+            id: base.id,
+            title: base.name,
+          ),
+        ),
+      )
+      .toList();
+}
+
+List<ComposerSelectorItem> _loadKnowledgeEntries(
+  KnowledgeProvider knowledge,
+  String query,
+  List<String> path,
+) {
+  if (path.isNotEmpty) {
+    final baseId = path.first;
+    return knowledge
+        .entriesForBase(baseId)
+        .where(
+          (entry) =>
+              _matches(entry.title, query) ||
+              _matches(_knowledgeEntrySubtitle(entry), query),
+        )
+        .map(
+          (entry) => ComposerSelectorItem(
+            key: 'knowledge-entry:${entry.id}',
+            kind: ComposerSelectorItemKind.item,
+            title: entry.title,
+            subtitle: _knowledgeEntrySubtitle(entry),
+            value: ComposerSelectorValue(
+              type: ComposerReferenceType.knowledgeEntry,
+              id: entry.id,
+              title: entry.title,
+              subtitle: _knowledgeEntrySubtitle(entry),
+            ),
+          ),
+        )
+        .toList();
+  }
+  return knowledge.knowledgeBases
+      .where((base) => _matches(base.name, query))
+      .map(
+        (base) => ComposerSelectorItem(
+          key: 'knowledge-base-folder:${base.id}',
+          kind: ComposerSelectorItemKind.folder,
+          title: base.name,
+          subtitle: '${knowledge.entriesForBase(base.id).length} 个条目',
+        ),
+      )
+      .toList();
 }
 
 /// 解析插件命令 handler 的返回结果为选择器条目。
