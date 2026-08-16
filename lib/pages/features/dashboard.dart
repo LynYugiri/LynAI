@@ -40,6 +40,12 @@ class FeatureDashboard extends StatelessWidget {
       subtitle: '未完成汇总与可展开任务清单',
     ),
     FeatureDashboardItem(
+      value: 'jottings',
+      icon: Icons.edit_note,
+      title: '随记',
+      subtitle: '随时记录灵感与生活',
+    ),
+    FeatureDashboardItem(
       value: 'roleplay',
       icon: Icons.theater_comedy_outlined,
       title: '情景演绎',

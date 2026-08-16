@@ -153,3 +153,13 @@ is supplied it takes precedence over mutable application settings.
 - `save_plugin_skill` requires the dedicated `plugins.skills.files:write` permission rather than notes or broad file-write permission.
 - `http.fetch` and `web_fetch` use `BoundedOutboundHttpClient`, including destination and redirect revalidation, URL credential rejection, public-network defaults, request/streamed-response byte limits, timeout, and active cancellation.
 All main chat, floating chat and Subagent `AgentLoopRuntime` handles are registered with the active physical-dataset barrier. A dataset switch cancels these runs and awaits their terminal result before changing storage, and no new dataset-bound run is admitted until reload and platform projection finish.
+
+## 随记工具
+
+`ToolCallService` 在注入 `JottingProvider` 且权限允许时注册三个随记工具：
+
+- `search_jottings`：按 `query`/`tags`/`date_from`/`date_to`/`limit` 检索随记，返回 id、时间、标签和内容摘要；至少需要 query、tags 或日期范围之一。执行中分批检查取消与 deadline。
+- `read_jotting`：按 id 读取单条随记全文。
+- `save_jotting`：为用户新建一条随记，只新增不修改已有内容，内容上限 50000 字符。
+
+权限：`search_jottings`/`read_jotting` 需要 `jottings:read`，`save_jotting` 需要 `jottings:write`，两者均加入默认 Agent 权限。

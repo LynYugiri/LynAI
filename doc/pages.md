@@ -329,3 +329,9 @@ firewall prompt.
 条目编辑器支持 Markdown/LaTeX 编辑与预览切换。详情页展示正文、解释和来源的更新时间；解释可编辑标题和 Markdown 正文、删除，或使用条目标题、正文、所属类别及现有来源元数据重新生成并保存。同一条目生成期间会禁用重复请求，请求返回前若条目或来源关键输入已变化则丢弃旧结果。未分类条目或类别/知识库停用时会明确拒绝重新生成。来源即使为空也保留新增入口，可编辑标题、URL 和备注并删除；URL 只接受和打开 `http`/`https`，详情显示可简化为域名，但复制时保留完整 URL。
 
 类别可配置 alias、自动标注规则、解释提示词和颜色；页面不提供默认知识库、默认类别或“设为默认”操作。固定内置的专有名词知识库和类别显示“内置”，可编辑、启停并独立恢复模板，但不显示删除操作。条目点击仍切换右侧或紧凑详情，不通过 Card elevation、背景色或 `ListTile.selected` 显示选中状态。
+
+## 随记
+
+文件：`lib/pages/features/jottings_page.dart`、`lib/pages/features/jotting_detail_page.dart`
+
+功能总览新增“随记”入口，`FeaturePage` 以 `lastFeature == 'jottings'` 进入。列表页按时间分组（今天/昨天/日期），支持关键词/正则（`FeatureSearchMatcher`）、标签 chips 和日期范围过滤。详情页复用 `MarkdownWithLatex` 渲染，编辑态提供多行输入、标签编辑与预览切换。新建/编辑状态由 `FeaturePage` 与 `JottingDetailState` 协调，返回前经 `confirmDiscardUnsavedChanges` 确认。

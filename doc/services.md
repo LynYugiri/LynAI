@@ -674,3 +674,9 @@ plugin roots, so it exports and restores only the selected dataset.
 # 知识解释
 
 `KnowledgeExplanationService` 使用类别专用模型或聊天模型生成解释。点击 `[[category:text]]` 标注时，已有解释优先本地读取；否则自动生成并保存到类别绑定的知识库。关闭弹窗后晚到结果被忽略。普通文字选区使用相同服务，但由用户决定是否保存。`knowledge.json` 是备份、Repository 和同步使用的逻辑分区；结构化权威仍是 `storage_v2/app.db`。客户端不再持久化或导出知识默认设置，也不再在类别 payload 中写入 `isDefault`。旧云或 LAN 的 `knowledge_settings/global` change 会作为兼容 no-op 被确认并推进各自接收账本；它不属于当前 outbound ordinary table，非 `global` 记录仍拒绝。旧类别 payload 中的 `isDefault` 会被忽略，schema 11/12 备份中的 alias 冲突交由 `KnowledgeProvider` 使用与正常加载相同的确定性规范化处理。
+
+## Jotting 存储
+
+文件：`lib/services/storage_v2_database.dart`、`lib/repositories/jotting_repository.dart`
+
+新增 Drift 表 `jottings`（`id, content, tags_json, created_at, updated_at`），schemaVersion 30。`loadDataFile('jottings.json')` 与 `writeDataFile('jottings.json')` 负责读写；`JottingRepository` 使用全量快照替换持久化。当前 `jottings` 不进入 `_syncTableNames` 与 `_syncTablesForFile`，因此不参与云/LAN 同步；待云端分享阶段再纳入同步。

@@ -14,6 +14,7 @@ import '../models/task_list.dart';
 import '../providers/calendar_provider.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
+import '../providers/jotting_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/recycle_bin_provider.dart';
@@ -151,6 +152,7 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
       RecycleBinItemTypes.task ||
       RecycleBinItemTypes.taskList ||
       RecycleBinItemTypes.todoList => Icons.checklist,
+      RecycleBinItemTypes.jotting => Icons.edit_note,
       RecycleBinItemTypes.roleplayScenario ||
       RecycleBinItemTypes.roleplayThread => Icons.theater_comedy_outlined,
       RecycleBinItemTypes.pluginFile => Icons.insert_drive_file_outlined,
@@ -165,6 +167,7 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
     final calendar = context.read<CalendarProvider>();
     final conversations = context.read<ConversationProvider>();
     final features = context.read<FeatureProvider>();
+    final jottings = context.read<JottingProvider>();
     final roleplay = context.read<RoleplayProvider>();
     try {
       final planningRestored = await restorePlanningRecycleBinItem(
@@ -184,6 +187,8 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
             await features.restoreNotePayload(item.payload);
           case RecycleBinItemTypes.notePage:
             await features.restoreNotePagePayload(item.payload);
+          case RecycleBinItemTypes.jotting:
+            await jottings.restorePayload(item.payload);
           case RecycleBinItemTypes.roleplayScenario:
             final raw = item.payload['scenario'];
             if (raw is! Map) throw Exception('回收站数据损坏');

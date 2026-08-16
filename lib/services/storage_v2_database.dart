@@ -550,6 +550,22 @@ class MemoryCardReviewLogRows extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+class JottingRows extends Table {
+  @override
+  String get tableName => 'jottings';
+
+  TextColumn get id => text()();
+  TextColumn get content => text()();
+  TextColumn get tagsJson => text()
+      .named('tags_json')
+      .withDefault(const Constant('[]'))();
+  TextColumn get createdAt => text().named('created_at')();
+  TextColumn get updatedAt => text().named('updated_at')();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
 class CalendarEventRows extends Table {
   @override
   String get tableName => 'calendar_events';
@@ -1080,6 +1096,7 @@ class SyncScopeState {
     MemoryCardDeckRows,
     MemoryCardRows,
     MemoryCardReviewLogRows,
+    JottingRows,
     CalendarEventRows,
     AnniversaryRows,
     RoleplayScenarioRows,
@@ -1110,7 +1127,7 @@ class SyncScopeState {
 class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
   StorageV2DriftDatabase(File file) : super(_open(file));
 
-  static const currentSchemaVersion = 29;
+  static const currentSchemaVersion = 30;
 
   bool needsTransportHeadBackfill = false;
 
@@ -1133,6 +1150,7 @@ class StorageV2DriftDatabase extends _$StorageV2DriftDatabase {
       await _createPermissionPolicyIndex();
       await _createKnowledgeAliasIndex();
       await _createMemoryCardIndexes();
+      await _createJottingIndexes();
     },
     beforeOpen: (details) async {
       await customStatement('PRAGMA journal_mode = WAL');
@@ -1376,6 +1394,10 @@ SET captures_local = active
         await m.createTable(memoryCardReviewLogRows);
         await _createMemoryCardIndexes();
       }
+      if (from < 30) {
+        await m.createTable(jottingRows);
+        await _createJottingIndexes();
+      }
       await _ensureCloudDataColumns();
     },
   );
@@ -1402,6 +1424,11 @@ SET captures_local = active
       'ON memory_cards(source_entry_id) WHERE source_entry_id IS NOT NULL',
     );
   }
+
+  Future<void> _createJottingIndexes() => customStatement(
+    'CREATE INDEX IF NOT EXISTS idx_jottings_created_at '
+    'ON jottings(created_at DESC)',
+  );
 
   Future<void> _migrateKnowledgeSchemaV27() async {
     await customStatement('DROP TABLE IF EXISTS knowledge_settings');
@@ -2314,6 +2341,7 @@ WHERE id IN (${List.filled(runIds.length, '?').join(', ')})
       'tasks.json' => await _loadTasks(db),
       'knowledge.json' => await _loadKnowledge(db),
       'memory_cards.json' => await _loadMemoryCards(db),
+      'jottings.json' => await _loadJottings(db),
       'calendar.json' => await _loadCalendar(db),
       'resources.json' => await _loadResources(db),
       'roleplay_scenarios.json' => await _loadRoleplayScenarios(db),
@@ -2343,6 +2371,8 @@ WHERE id IN (${List.filled(runIds.length, '?').join(', ')})
           await _replaceKnowledge(db, data);
         case 'memory_cards.json':
           await _replaceMemoryCards(db, data);
+        case 'jottings.json':
+          await _replaceJottings(db, data);
         case 'calendar.json':
           await _replaceCalendar(db, data);
         case 'resources.json':
@@ -6486,6 +6516,39 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
     return {'decks': decks, 'cards': cards, 'reviewLogs': reviewLogs};
   }
 
+  List<String> _parseTagsJson(String? raw) {
+    if (raw == null || raw.isEmpty) return const [];
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return const [];
+      return decoded.map((item) => item.toString()).toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<Map<String, dynamic>> _loadJottings(
+    StorageV2DriftDatabase db,
+  ) async {
+    final jottings =
+        (await (db.select(db.jottingRows)..orderBy([
+                  (row) => OrderingTerm.desc(row.createdAt),
+                  (row) => OrderingTerm.asc(row.id),
+                ]))
+                .get())
+            .map(
+              (row) => {
+                'id': row.id,
+                'content': row.content,
+                'tags': _parseTagsJson(row.tagsJson),
+                'createdAt': row.createdAt,
+                'updatedAt': row.updatedAt,
+              },
+            )
+            .toList();
+    return {'jottings': jottings};
+  }
+
   Future<Map<String, dynamic>> _loadCalendar(StorageV2DriftDatabase db) async {
     final events =
         (await (db.select(db.calendarEventRows)..orderBy([
@@ -7151,6 +7214,41 @@ CREATE TABLE IF NOT EXISTS cloud_reseed_tasks (
       final json = Map<String, dynamic>.from(item);
       if (!deckIds.contains(json['deckId'])) continue;
       await upsertMemoryCardReviewLogRow(json, transactionDb: db);
+    }
+  }
+
+  Future<void> _replaceJottings(
+    StorageV2DriftDatabase db,
+    Map<String, dynamic> data,
+  ) async {
+    await db.delete(db.jottingRows).go();
+    final rawJottings = data['jottings'];
+    if (rawJottings == null) return;
+    if (rawJottings is! List) {
+      throw FormatException('随记集合必须是列表');
+    }
+    for (final item in rawJottings) {
+      if (item is! Map) continue;
+      final json = Map<String, dynamic>.from(item);
+      final id = json['id'] as String?;
+      final content = json['content'] as String? ?? '';
+      if (id == null || id.isEmpty || content.trim().isEmpty) continue;
+      final createdAt = json['createdAt'] as String? ?? '';
+      final updatedAt = json['updatedAt'] as String? ?? createdAt;
+      final tags = (json['tags'] as List<dynamic>? ?? const [])
+          .map((tag) => tag.toString())
+          .toList(growable: false);
+      await db
+          .into(db.jottingRows)
+          .insert(
+            JottingRowsCompanion.insert(
+              id: id,
+              content: content,
+              tagsJson: Value(jsonEncode(tags)),
+              createdAt: createdAt,
+              updatedAt: updatedAt,
+            ),
+          );
     }
   }
 

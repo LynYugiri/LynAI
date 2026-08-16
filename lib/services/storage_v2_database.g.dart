@@ -14118,6 +14118,366 @@ class MemoryCardReviewLogRowsCompanion
   }
 }
 
+class $JottingRowsTable extends JottingRows
+    with TableInfo<$JottingRowsTable, JottingRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $JottingRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _contentMeta = const VerificationMeta(
+    'content',
+  );
+  @override
+  late final GeneratedColumn<String> content = GeneratedColumn<String>(
+    'content',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _tagsJsonMeta = const VerificationMeta(
+    'tagsJson',
+  );
+  @override
+  late final GeneratedColumn<String> tagsJson = GeneratedColumn<String>(
+    'tags_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('[]'),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<String> createdAt = GeneratedColumn<String>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    content,
+    tagsJson,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'jottings';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<JottingRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('content')) {
+      context.handle(
+        _contentMeta,
+        content.isAcceptableOrUnknown(data['content']!, _contentMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_contentMeta);
+    }
+    if (data.containsKey('tags_json')) {
+      context.handle(
+        _tagsJsonMeta,
+        tagsJson.isAcceptableOrUnknown(data['tags_json']!, _tagsJsonMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  JottingRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return JottingRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      content: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}content'],
+      )!,
+      tagsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}tags_json'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $JottingRowsTable createAlias(String alias) {
+    return $JottingRowsTable(attachedDatabase, alias);
+  }
+}
+
+class JottingRow extends DataClass implements Insertable<JottingRow> {
+  final String id;
+  final String content;
+  final String tagsJson;
+  final String createdAt;
+  final String updatedAt;
+  const JottingRow({
+    required this.id,
+    required this.content,
+    required this.tagsJson,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['content'] = Variable<String>(content);
+    map['tags_json'] = Variable<String>(tagsJson);
+    map['created_at'] = Variable<String>(createdAt);
+    map['updated_at'] = Variable<String>(updatedAt);
+    return map;
+  }
+
+  JottingRowsCompanion toCompanion(bool nullToAbsent) {
+    return JottingRowsCompanion(
+      id: Value(id),
+      content: Value(content),
+      tagsJson: Value(tagsJson),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory JottingRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return JottingRow(
+      id: serializer.fromJson<String>(json['id']),
+      content: serializer.fromJson<String>(json['content']),
+      tagsJson: serializer.fromJson<String>(json['tagsJson']),
+      createdAt: serializer.fromJson<String>(json['createdAt']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'content': serializer.toJson<String>(content),
+      'tagsJson': serializer.toJson<String>(tagsJson),
+      'createdAt': serializer.toJson<String>(createdAt),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+    };
+  }
+
+  JottingRow copyWith({
+    String? id,
+    String? content,
+    String? tagsJson,
+    String? createdAt,
+    String? updatedAt,
+  }) => JottingRow(
+    id: id ?? this.id,
+    content: content ?? this.content,
+    tagsJson: tagsJson ?? this.tagsJson,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  JottingRow copyWithCompanion(JottingRowsCompanion data) {
+    return JottingRow(
+      id: data.id.present ? data.id.value : this.id,
+      content: data.content.present ? data.content.value : this.content,
+      tagsJson: data.tagsJson.present ? data.tagsJson.value : this.tagsJson,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('JottingRow(')
+          ..write('id: $id, ')
+          ..write('content: $content, ')
+          ..write('tagsJson: $tagsJson, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, content, tagsJson, createdAt, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is JottingRow &&
+          other.id == this.id &&
+          other.content == this.content &&
+          other.tagsJson == this.tagsJson &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class JottingRowsCompanion extends UpdateCompanion<JottingRow> {
+  final Value<String> id;
+  final Value<String> content;
+  final Value<String> tagsJson;
+  final Value<String> createdAt;
+  final Value<String> updatedAt;
+  final Value<int> rowid;
+  const JottingRowsCompanion({
+    this.id = const Value.absent(),
+    this.content = const Value.absent(),
+    this.tagsJson = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  JottingRowsCompanion.insert({
+    required String id,
+    required String content,
+    this.tagsJson = const Value.absent(),
+    required String createdAt,
+    required String updatedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       content = Value(content),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<JottingRow> custom({
+    Expression<String>? id,
+    Expression<String>? content,
+    Expression<String>? tagsJson,
+    Expression<String>? createdAt,
+    Expression<String>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (content != null) 'content': content,
+      if (tagsJson != null) 'tags_json': tagsJson,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  JottingRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? content,
+    Value<String>? tagsJson,
+    Value<String>? createdAt,
+    Value<String>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return JottingRowsCompanion(
+      id: id ?? this.id,
+      content: content ?? this.content,
+      tagsJson: tagsJson ?? this.tagsJson,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (content.present) {
+      map['content'] = Variable<String>(content.value);
+    }
+    if (tagsJson.present) {
+      map['tags_json'] = Variable<String>(tagsJson.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<String>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('JottingRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('content: $content, ')
+          ..write('tagsJson: $tagsJson, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $CalendarEventRowsTable extends CalendarEventRows
     with TableInfo<$CalendarEventRowsTable, CalendarEventRow> {
   @override
@@ -26710,6 +27070,7 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
   late final $MemoryCardRowsTable memoryCardRows = $MemoryCardRowsTable(this);
   late final $MemoryCardReviewLogRowsTable memoryCardReviewLogRows =
       $MemoryCardReviewLogRowsTable(this);
+  late final $JottingRowsTable jottingRows = $JottingRowsTable(this);
   late final $CalendarEventRowsTable calendarEventRows =
       $CalendarEventRowsTable(this);
   late final $AnniversaryRowsTable anniversaryRows = $AnniversaryRowsTable(
@@ -26821,6 +27182,7 @@ abstract class _$StorageV2DriftDatabase extends GeneratedDatabase {
     memoryCardDeckRows,
     memoryCardRows,
     memoryCardReviewLogRows,
+    jottingRows,
     calendarEventRows,
     anniversaryRows,
     roleplayScenarioRows,
@@ -36758,6 +37120,212 @@ typedef $$MemoryCardReviewLogRowsTableProcessedTableManager =
       MemoryCardReviewLogRow,
       PrefetchHooks Function({bool cardId})
     >;
+typedef $$JottingRowsTableCreateCompanionBuilder =
+    JottingRowsCompanion Function({
+      required String id,
+      required String content,
+      Value<String> tagsJson,
+      required String createdAt,
+      required String updatedAt,
+      Value<int> rowid,
+    });
+typedef $$JottingRowsTableUpdateCompanionBuilder =
+    JottingRowsCompanion Function({
+      Value<String> id,
+      Value<String> content,
+      Value<String> tagsJson,
+      Value<String> createdAt,
+      Value<String> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$JottingRowsTableFilterComposer
+    extends Composer<_$StorageV2DriftDatabase, $JottingRowsTable> {
+  $$JottingRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get content => $composableBuilder(
+    column: $table.content,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get tagsJson => $composableBuilder(
+    column: $table.tagsJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$JottingRowsTableOrderingComposer
+    extends Composer<_$StorageV2DriftDatabase, $JottingRowsTable> {
+  $$JottingRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get content => $composableBuilder(
+    column: $table.content,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get tagsJson => $composableBuilder(
+    column: $table.tagsJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$JottingRowsTableAnnotationComposer
+    extends Composer<_$StorageV2DriftDatabase, $JottingRowsTable> {
+  $$JottingRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get content =>
+      $composableBuilder(column: $table.content, builder: (column) => column);
+
+  GeneratedColumn<String> get tagsJson =>
+      $composableBuilder(column: $table.tagsJson, builder: (column) => column);
+
+  GeneratedColumn<String> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$JottingRowsTableTableManager
+    extends
+        RootTableManager<
+          _$StorageV2DriftDatabase,
+          $JottingRowsTable,
+          JottingRow,
+          $$JottingRowsTableFilterComposer,
+          $$JottingRowsTableOrderingComposer,
+          $$JottingRowsTableAnnotationComposer,
+          $$JottingRowsTableCreateCompanionBuilder,
+          $$JottingRowsTableUpdateCompanionBuilder,
+          (
+            JottingRow,
+            BaseReferences<
+              _$StorageV2DriftDatabase,
+              $JottingRowsTable,
+              JottingRow
+            >,
+          ),
+          JottingRow,
+          PrefetchHooks Function()
+        > {
+  $$JottingRowsTableTableManager(
+    _$StorageV2DriftDatabase db,
+    $JottingRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$JottingRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$JottingRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$JottingRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> content = const Value.absent(),
+                Value<String> tagsJson = const Value.absent(),
+                Value<String> createdAt = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => JottingRowsCompanion(
+                id: id,
+                content: content,
+                tagsJson: tagsJson,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String content,
+                Value<String> tagsJson = const Value.absent(),
+                required String createdAt,
+                required String updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => JottingRowsCompanion.insert(
+                id: id,
+                content: content,
+                tagsJson: tagsJson,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$JottingRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$StorageV2DriftDatabase,
+      $JottingRowsTable,
+      JottingRow,
+      $$JottingRowsTableFilterComposer,
+      $$JottingRowsTableOrderingComposer,
+      $$JottingRowsTableAnnotationComposer,
+      $$JottingRowsTableCreateCompanionBuilder,
+      $$JottingRowsTableUpdateCompanionBuilder,
+      (
+        JottingRow,
+        BaseReferences<_$StorageV2DriftDatabase, $JottingRowsTable, JottingRow>,
+      ),
+      JottingRow,
+      PrefetchHooks Function()
+    >;
 typedef $$CalendarEventRowsTableCreateCompanionBuilder =
     CalendarEventRowsCompanion Function({
       required String id,
@@ -44503,6 +45071,8 @@ class $StorageV2DriftDatabaseManager {
         _db,
         _db.memoryCardReviewLogRows,
       );
+  $$JottingRowsTableTableManager get jottingRows =>
+      $$JottingRowsTableTableManager(_db, _db.jottingRows);
   $$CalendarEventRowsTableTableManager get calendarEventRows =>
       $$CalendarEventRowsTableTableManager(_db, _db.calendarEventRows);
   $$AnniversaryRowsTableTableManager get anniversaryRows =>

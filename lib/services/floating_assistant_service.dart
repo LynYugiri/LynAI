@@ -9,6 +9,7 @@ import '../providers/calendar_provider.dart';
 import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/knowledge_provider.dart';
+import '../providers/jotting_provider.dart';
 import '../providers/memory_card_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/plugin_provider.dart';
@@ -52,6 +53,7 @@ class FloatingAssistantService with WidgetsBindingObserver {
     required FeatureProvider features,
     required KnowledgeProvider knowledge,
     required MemoryCardProvider memoryCards,
+    required JottingProvider jottings,
     required TaskProvider tasks,
     required CalendarProvider calendar,
     required PluginProvider plugins,
@@ -74,6 +76,7 @@ class FloatingAssistantService with WidgetsBindingObserver {
       features: features,
       knowledge: knowledge,
       memoryCards: memoryCards,
+      jottings: jottings,
       tasks: tasks,
       calendar: calendar,
       plugins: plugins,

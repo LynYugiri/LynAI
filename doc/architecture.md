@@ -415,3 +415,7 @@ so in-flight operations cannot be rebound to a new path.
 The backend bootstrap URL is device-level SharedPreferences state, not account
 data, allowing session lookup and dataset selection before account data loads.
 Physical dataset activation is protected by a shared runtime barrier. It stops admitting dataset-bound Agent work, cancels and awaits main/floating/Subagent runs, quiesces cloud/LAN synchronization, plugin filesystem mutations and resource mutations, disconnects MCP publication, flushes providers, then changes the storage binding. Reload and Android calendar projection complete before the barrier reopens; rollback follows the same reload and projection path. LAN hosting is suspended without changing its lifecycle preference and resumes to the prior desired state after either success or rollback. Database handles and admitted plugin mutations are generation-bound and fail closed after retirement.
+
+## 随记功能
+
+启动组合根新增 `JottingProvider`，并在数据加载、后台保存、Dataset 切换 flush/reload 和悬浮聊天中与既有 Feature/Knowledge/MemoryCard 等分区并列处理。随记数据文件 `jottings.json` 仅本地保存，不进入云/LAN 同步。

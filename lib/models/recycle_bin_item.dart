@@ -10,6 +10,7 @@ class RecycleBinItemTypes {
   static const task = 'task';
   static const taskList = 'taskList';
   static const todoList = 'todoList';
+  static const jotting = 'jotting';
   static const roleplayScenario = 'roleplayScenario';
   static const roleplayThread = 'roleplayThread';
   static const pluginData = 'plugin.data';
@@ -35,6 +36,7 @@ class RecycleBinCategories {
   static const schedules = 'schedules';
   static const calendar = 'calendar';
   static const todos = 'todos';
+  static const jottings = 'jottings';
   static const roleplay = 'roleplay';
 
   static String plugin(String pluginId, String category) {

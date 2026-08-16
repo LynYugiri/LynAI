@@ -26,6 +26,7 @@ import '../providers/conversation_provider.dart';
 import '../providers/feature_provider.dart';
 import '../providers/calendar_provider.dart';
 import '../providers/knowledge_provider.dart';
+import '../providers/jotting_provider.dart';
 import '../providers/memory_card_provider.dart';
 import '../providers/model_config_provider.dart';
 import '../providers/mcp_provider.dart';
@@ -1963,6 +1964,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       calendar: context.read<CalendarProvider>(),
       knowledge: context.read<KnowledgeProvider>(),
       memoryCards: context.read<MemoryCardProvider>(),
+      jottings: context.read<JottingProvider>(),
       plugins: context.read<PluginProvider>(),
       modelConfigs: context.read<ModelConfigProvider>(),
       settings: context.read<SettingsProvider>(),

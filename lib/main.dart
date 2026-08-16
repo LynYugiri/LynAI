@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import 'providers/conversation_provider.dart';
 import 'providers/calendar_provider.dart';
 import 'providers/feature_provider.dart';
+import 'providers/jotting_provider.dart';
 import 'providers/knowledge_provider.dart';
 import 'providers/memory_card_provider.dart';
 import 'providers/model_config_provider.dart';
@@ -24,6 +25,7 @@ import 'repositories/plugin_repository.dart';
 import 'repositories/cloud_data_repository.dart';
 import 'repositories/agent_persistence_repository.dart';
 import 'repositories/mcp_repository.dart';
+import 'repositories/recycle_bin_repository.dart';
 import 'pages/home_page.dart';
 import 'pages/changelog_page.dart';
 import 'services/floating_assistant_service.dart';
@@ -212,6 +214,14 @@ Future<void> main() async {
         ChangeNotifierProvider(
           create: (ctx) =>
               MemoryCardProvider(storageV2: ctx.read<StorageV2Service>()),
+        ),
+        ChangeNotifierProvider(
+          create: (ctx) => JottingProvider(
+            storageV2: ctx.read<StorageV2Service>(),
+            recycleBinRepository: RecycleBinRepository(
+              storageV2: ctx.read<StorageV2Service>(),
+            ),
+          ),
         ),
         ChangeNotifierProvider(
           create: (ctx) =>
@@ -597,6 +607,7 @@ Future<void> main() async {
               tasks: ctx.read<TaskProvider>(),
               knowledge: ctx.read<KnowledgeProvider>(),
               memoryCards: ctx.read<MemoryCardProvider>(),
+              jottings: ctx.read<JottingProvider>(),
               recycleBin: ctx.read<RecycleBinProvider>(),
               settings: settings,
               models: models,
@@ -688,6 +699,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   TaskProvider? _taskProvider;
   KnowledgeProvider? _knowledgeProvider;
   MemoryCardProvider? _memoryCardProvider;
+  JottingProvider? _jottingProvider;
   SettingsProvider? _settingsProvider;
   ModelConfigProvider? _modelProvider;
   SyncProvider? _syncProvider;
@@ -720,6 +732,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
     _taskProvider ??= context.read<TaskProvider>();
     _knowledgeProvider ??= context.read<KnowledgeProvider>();
     _memoryCardProvider ??= context.read<MemoryCardProvider>();
+    _jottingProvider ??= context.read<JottingProvider>();
     _settingsProvider ??= context.read<SettingsProvider>();
     _modelProvider ??= context.read<ModelConfigProvider>();
     _syncProvider ??= context.read<SyncProvider>();
@@ -777,6 +790,8 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
                 (name: 'knowledge', flush: provider.flushPendingSaves),
               if (_memoryCardProvider case final provider?)
                 (name: 'memoryCards', flush: provider.flushPendingSaves),
+              if (_jottingProvider case final provider?)
+                (name: 'jottings', flush: provider.flushPendingSaves),
               if (_settingsProvider case final provider?)
                 (name: 'settings', flush: provider.flushPendingSaves),
               if (_modelProvider case final provider?)
@@ -833,6 +848,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       final taskProvider = context.read<TaskProvider>();
       final knowledgeProvider = context.read<KnowledgeProvider>();
       final memoryCardProvider = context.read<MemoryCardProvider>();
+      final jottingProvider = context.read<JottingProvider>();
       final backendClient = context.read<BackendClient>();
       final deviceIdentityService = context.read<DeviceIdentityService>();
       final storageV2 = context.read<StorageV2Service>();
@@ -872,6 +888,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         taskProvider.load(),
         knowledgeProvider.load(),
         memoryCardProvider.load(),
+        jottingProvider.load(),
         modelProvider.loadModels(),
         if (mcpProvider != null) mcpProvider.load(),
       ]);
@@ -899,6 +916,7 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         features: featureProvider,
         knowledge: knowledgeProvider,
         memoryCards: memoryCardProvider,
+        jottings: jottingProvider,
         tasks: taskProvider,
         calendar: calendarProvider,
         plugins: pluginProvider,

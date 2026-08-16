@@ -391,3 +391,15 @@ on directory or registry ownership mismatch.
 # 知识库与标注
 
 知识库数据由 `KnowledgeBase`、`KnowledgeCategory`、`KnowledgeEntry`、`KnowledgeSource` 和 `KnowledgeExplanation` 组成。类别使用全局唯一的稳定 `alias`，配置标注规则、解释提示词、颜色、自动标注状态及目标知识库；模型不再包含 `isDefault`，客户端也没有用户可配置的默认知识库或默认类别。固定 ID 的内置“专有名词知识库”和“专有名词”类别使用 `proper_noun` alias，首次加载或完整替换后幂等补齐，已有内置行不覆盖用户修改；alias 冲突时保留内置 alias，并按稳定类别 ID 确定性重命名冲突项。聊天和情景演绎角色回复只使用 `[[category:text]]`，不接受管道分隔的 Wiki 链接语法；未知 alias 仅在该内置类别及其知识库启用且类别开启自动标注时回落。内置行可编辑和停用、不可删除，恢复模板时保留启用状态、排序、创建时间及所有用户条目、来源和解释。用户点击标注后自动解释，成功结果保存为知识条目、来源和解释；普通选区释义由用户决定是否保存。记忆卡片尚无持久化契约，因此知识页面不展示未实现入口。
+
+## Jotting 随记
+
+文件：`lib/models/jotting.dart`
+
+`Jotting` 描述一条时间序列随记：`id`、`content`（Markdown 原文）、`tags`（归一化小写标签）、`createdAt`、`updatedAt`。标签通过 `Jotting.normalizeTags` 归一化：trim、小写、去重、丢弃空标签，单个标签最长 32 字符，每条最多 20 个标签。`toJson()` 使用 UTC ISO-8601 时间；`fromJson()` 对缺失或非 List 的 `tags` 视为空列表。
+
+## 回收站类型
+
+文件：`lib/models/recycle_bin_item.dart`
+
+新增 `RecycleBinItemTypes.jotting` 与 `RecycleBinCategories.jottings`，随记删除后进入回收站，payload 保存完整 `jotting` JSON。

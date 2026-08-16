@@ -407,3 +407,9 @@ rolls back to the previous dataset and leaves the target user unpublished.
 # KnowledgeProvider
 
 `KnowledgeProvider` 是知识库、类别、条目、来源和解释的唯一内存所有者。公开写操作串行执行，每次先捕获完整内存快照，再更新内存、通知 UI 并持久化；持久化失败时恢复快照、再次通知并向调用方抛出错误，因而单次 mutation 不会留下只存在于内存的状态。它在 `load()` 和 `replaceAll()` 后幂等补齐固定 ID 的内置专有名词知识库及类别，并确定性修复内置类别父 ID、alias 冲突、无效类别引用和悬空或跨库子记录；机械修复保留原 `updatedAt`，加载修复以完整规范化快照原子持久化，失败时恢复加载前内存。Provider 还提供 alias 查询、固定内置 annotation fallback、聊天标注 prompt 快照、内置模板恢复、行级 CRUD、完整分区替换及 `flushPendingSaves()`。Repository/Provider 不再读写知识默认设置；旧 storage 键可由底层暂时兼容。删除普通知识库时会显式删除全部子行，以便云和 LAN 同步生成完整 tombstone，而不只依赖 SQLite cascade；内置知识库和类别拒绝删除。
+
+## JottingProvider
+
+文件：`lib/providers/jotting_provider.dart`
+
+`JottingProvider` 是随记的唯一内存所有者，`ChangeNotifier with SerializedSaveQueue`。它持有按 `createdAt DESC, id` 排序的 `List<Jotting>`，提供 `add/update/delete/restorePayload` 与 `search/onThisDay/tagCounts`。变更先更新内存并通知 UI，再 `enqueueSave` 全量快照到 `jottings.json`；`load()` 使用 mutation generation 防竞态。删除先写入 `RecycleBinRepository`，再从内存移除。

@@ -46,6 +46,8 @@ class LynAIPermissions {
   static const storageWrite = 'storage:write';
   static const memoryCardsRead = 'memoryCards:read';
   static const memoryCardsWrite = 'memoryCards:write';
+  static const jottingsRead = 'jottings:read';
+  static const jottingsWrite = 'jottings:write';
   static const recycleBinRead = 'recycleBin:read';
   static const recycleBinWrite = 'recycleBin:write';
   static const recycleBinRestore = 'recycleBin:restore';
@@ -74,6 +76,8 @@ class LynAIPermissions {
     storageRead,
     memoryCardsRead,
     memoryCardsWrite,
+    jottingsRead,
+    jottingsWrite,
     networkAccess,
     modelChat,
     modelOcr,
@@ -191,6 +195,17 @@ const lynaiPermissionDefinitions = <LynAIPermissionDefinition>[
     id: LynAIPermissions.memoryCardsWrite,
     title: '修改记忆卡片',
     description: '允许创建和修改记忆卡片并执行复习评分；删除暂不开放给 Agent。',
+    risk: LynAIPermissionRisk.elevated,
+  ),
+  LynAIPermissionDefinition(
+    id: LynAIPermissions.jottingsRead,
+    title: '读取随记',
+    description: '允许读取和检索随记内容。',
+  ),
+  LynAIPermissionDefinition(
+    id: LynAIPermissions.jottingsWrite,
+    title: '新建随记',
+    description: '允许 Agent 为用户新建随记；修改和删除暂不开放给 Agent。',
     risk: LynAIPermissionRisk.elevated,
   ),
   LynAIPermissionDefinition(

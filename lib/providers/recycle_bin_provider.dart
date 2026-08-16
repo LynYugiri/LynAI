@@ -82,6 +82,7 @@ class RecycleBinProvider extends ChangeNotifier {
       RecycleBinCategories.notes => '笔记',
       RecycleBinCategories.schedules => '日程',
       RecycleBinCategories.todos => '待办',
+      RecycleBinCategories.jottings => '随记',
       RecycleBinCategories.roleplay => '角色扮演',
       String value when value.startsWith('plugin:') => _pluginCategoryTitle(
         value,
