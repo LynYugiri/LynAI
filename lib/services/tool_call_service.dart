@@ -2410,7 +2410,7 @@ ${lines.join('\n')}$more''';
         case 'save_plugin_skill':
           return await _savePluginSkill(call.arguments);
         case 'plugin_file_list':
-          return _pluginFileListForAgent(call.arguments);
+          return await _pluginFileListForAgent(call.arguments);
         case 'plugin_file_read':
           return await _pluginFileReadForAgent(call.arguments);
         case 'plugin_file_write':
