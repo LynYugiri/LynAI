@@ -96,12 +96,15 @@ LynAI 支持 Lua/WebView 插件扩展。每个插件通过 `plugin.json` 声明�
 
 | 概念 | 说明 |
 |------|------|
+| 新建插件 | 插件管理页右上角「+」可从空白 Lua、Lua 工具、Skill、WebView 功能页模板创建草稿。 |
 | 工具 (Tool) | 插件注册的工具可被 AI 模型调用，由 Lua handler 执行逻辑。 |
 | 函数 (Function) | 插件注册的全局函数可在 UI 中触发，实现非 AI 调用的功能。 |
 | 功能页 | 插件通过 WebView 提供内嵌 HTML 界面，可访问 LynAI 全局 API。 |
 | 配置 Schema | 插件可提供 `config.schema.json` 描述配置表单，支持字段校验。 |
 | 快照 | 插件源码可保存为快照，方便版本回溯和问题恢复。 |
 | 内置插件 | status-dashboard（仪表盘）、weather-query（天气查询）和 mobile-agent-skills（Android Agent 工作流）随应用发布。 |
+
+插件管理页的「插件文件」对非内置插件会显示 `plugin.json` 和入口脚本，可直接在应用内编辑；保存 `plugin.json` 后自动重新加载清单。
 
 ## 数据与存储
 

@@ -3,14 +3,17 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:pub_semver/pub_semver.dart';
 
 import '../models/plugin.dart';
 import '../models/plugin_config_schema.dart';
 import '../repositories/plugin_repository.dart';
+import '../services/plugin_scaffold_service.dart';
 import '../services/plugin_sync_validation.dart';
 import '../services/storage_v2_service.dart';
 import '../services/dataset_runtime_barrier.dart';
 import '../services/lynai_permission_definitions.dart';
+import '../utils/plugin_path_utils.dart';
 
 /// 管理插件安装状态、权限授权、功能页开关和插件私有配置。
 ///
@@ -198,6 +201,66 @@ class PluginProvider extends ChangeNotifier {
         );
       });
 
+  /// 使用脚手架模板创建一个新插件。
+  ///
+  /// 创建后的插件保持禁用状态，用户编辑并确认无误后手动启用。该入口供
+  /// 应用内插件创作使用，不经过 ZIP 导入。
+  Future<InstalledPlugin> createPlugin({
+    required String id,
+    required String name,
+    required String version,
+    required String author,
+    required String description,
+    required PluginScaffoldKind kind,
+  }) => _serializeMutation(id, () async {
+    final trimmedId = id.trim();
+    if (!isValidPluginId(trimmedId)) {
+      throw Exception('插件 id 只能包含字母、数字、下划线、点和横线，且不能为 . 或 ..');
+    }
+    if (name.trim().isEmpty) throw Exception('插件名称不能为空');
+    try {
+      Version.parse(version.trim());
+    } on FormatException {
+      throw Exception('插件版本号需要符合 SemVer，例如 0.1.0');
+    }
+    if (pluginById(trimmedId) != null) throw Exception('插件已存在: $trimmedId');
+    if (PluginRepository.builtInPluginIds.contains(trimmedId)) {
+      throw Exception('插件 id 与内置插件冲突: $trimmedId');
+    }
+
+    final files = PluginScaffoldService.buildScaffold(
+      id: trimmedId,
+      name: name.trim(),
+      version: version.trim(),
+      author: author.trim(),
+      description: description.trim(),
+      kind: kind,
+    );
+    final tempDir = await Directory.systemTemp.createTemp(
+      'lynai_plugin_create_',
+    );
+    try {
+      for (final entry in files.entries) {
+        final safePath = safePluginFilePath(tempDir.path, entry.key);
+        if (safePath == null) throw Exception('模板路径不安全: ${entry.key}');
+        final file = File(safePath);
+        if (!await file.parent.exists()) {
+          await file.parent.create(recursive: true);
+        }
+        await file.writeAsString(entry.value, flush: true);
+      }
+      final manifest = _repository.readManifestSync(tempDir.path);
+      final imported = await _repository.importDirectory(
+        tempDir.path,
+        manifest: manifest,
+      );
+      await _upsert(imported.copyWith(devState: PluginDevState.draft));
+      return pluginById(trimmedId) ?? imported;
+    } finally {
+      if (await tempDir.exists()) await tempDir.delete(recursive: true);
+    }
+  });
+
   /// 安装应用内置可信插件，并默认启用和授予其声明的全部权限。
   Future<InstalledPlugin> installTrustedBuiltIn(String pluginId) async {
     final plugin = await importBuiltIn(pluginId);
@@ -238,6 +301,17 @@ class PluginProvider extends ChangeNotifier {
   }
 
   Future<void> _refreshManifest(String pluginId, bool save) async {
+    await _refreshManifestInPlace(pluginId, save: save);
+  }
+
+  /// 直接刷新指定插件清单，不经过串行队列。
+  ///
+  /// 仅允许在已经持有 [PluginProvider._serializeMutation] 队列的上下文中调用，
+  /// 用于编辑 plugin.json 后立即重载内存状态，避免嵌套排队造成死锁。
+  Future<void> _refreshManifestInPlace(
+    String pluginId, {
+    bool save = false,
+  }) async {
     final plugin = pluginById(pluginId);
     if (plugin == null) return;
     late InstalledPlugin refreshed;
@@ -314,6 +388,108 @@ class PluginProvider extends ChangeNotifier {
         }
         return plugin.copyWith(enabled: shouldEnable);
       });
+
+  /// 设置插件在创作系统中的开发状态。
+  ///
+  /// 仅用户自建的非内置插件允许在草稿/测试中/已定型之间切换；内置插件
+  /// 固定为已定型。
+  Future<void> setDevState(String pluginId, PluginDevState state) =>
+      _mutatePlugin(pluginId, (plugin) {
+        if (PluginRepository.builtInPluginIds.contains(plugin.id)) {
+          throw Exception('内置插件不支持切换开发状态');
+        }
+        if (plugin.devState == state) return plugin;
+        if (state == PluginDevState.active && plugin.enabled) {
+          // 转为已定型前不需要强制停用；核心文件会自动变为只读。
+        }
+        return plugin.copyWith(devState: state);
+      });
+
+  /// 当前插件是否允许在 Studio 中编辑核心文件。
+  bool canEditCore(String pluginId) {
+    final plugin = pluginById(pluginId);
+    if (plugin == null ||
+        PluginRepository.builtInPluginIds.contains(plugin.id)) {
+      return false;
+    }
+    return plugin.devState == PluginDevState.draft ||
+        plugin.devState == PluginDevState.testing;
+  }
+
+  /// 更新插件的展示元数据并写回 plugin.json。
+  Future<void> updateManifestMetadata(
+    String pluginId, {
+    String? name,
+    String? version,
+    String? author,
+    String? description,
+    String? icon,
+  }) => _updateManifest(pluginId, (manifest) {
+    return manifest.copyWith(
+      name: name,
+      version: version,
+      author: author,
+      description: description,
+      icon: icon,
+    );
+  });
+
+  /// 设置 manifest 中声明的权限列表。
+  Future<void> setManifestPermissions(
+    String pluginId,
+    List<String> permissions,
+  ) => _updateManifest(pluginId, (manifest) {
+    final clean = permissions
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toList(growable: false);
+    return manifest.copyWith(permissions: clean);
+  });
+
+  /// 添加或更新一个插件依赖。
+  Future<void> addDependency(
+    String pluginId,
+    String dependencyId,
+    String constraint,
+  ) => _updateManifest(pluginId, (manifest) {
+    final dependencies = Map<String, String>.from(manifest.dependencies);
+    dependencies[dependencyId.trim()] = constraint.trim().isEmpty
+        ? '*'
+        : constraint.trim();
+    return manifest.copyWith(dependencies: dependencies);
+  });
+
+  /// 移除一个插件依赖。
+  Future<void> removeDependency(String pluginId, String dependencyId) =>
+      _updateManifest(pluginId, (manifest) {
+        final dependencies = Map<String, String>.from(manifest.dependencies);
+        dependencies.remove(dependencyId);
+        return manifest.copyWith(dependencies: dependencies);
+      });
+
+  /// 串行修改 manifest：先写 plugin.json，再重载内存状态。
+  Future<void> _updateManifest(
+    String pluginId,
+    PluginManifest Function(PluginManifest manifest) transform,
+  ) => _serializeMutation(pluginId, () async {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) throw Exception('插件不存在: $pluginId');
+    final next = transform(plugin.manifest);
+    final error = next.validate();
+    if (error != null) throw Exception(error);
+    await _repository.writePluginTextFile(
+      plugin,
+      'plugin.json',
+      const JsonEncoder.withIndent('  ').convert(next.toJson()),
+    );
+    await _refreshManifestInPlace(pluginId, save: true);
+    final reloaded = pluginById(pluginId);
+    if (reloaded == null || reloaded.hasError) {
+      throw Exception(reloaded?.loadError ?? '插件清单重载失败');
+    }
+    notifyListeners();
+    await _syncPlugin(pluginId);
+  });
 
   Future<void> markReviewed(String id) => _mutatePlugin(
     id,
@@ -425,6 +601,41 @@ class PluginProvider extends ChangeNotifier {
     },
     requirePlugin: true,
   );
+
+  /// 创建插件恢复点。
+  Future<PluginRecoveryPoint> createRecoveryPoint(
+    String pluginId, {
+    String reason = '手动保存前',
+  }) => _serializeMutation(pluginId, () async {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) throw Exception('插件不存在: $pluginId');
+    return _repository.createRecoveryPoint(plugin, reason: reason);
+  });
+
+  /// 列出插件恢复点。
+  Future<List<PluginRecoveryPoint>> listRecoveryPoints(String pluginId) async {
+    return _repository.listRecoveryPoints(pluginId);
+  }
+
+  /// 从恢复点还原插件，并保留当前启用/授权/开发状态。
+  Future<InstalledPlugin> restoreRecoveryPoint(
+    String pluginId,
+    String pointId,
+  ) => _serializeMutation(pluginId, () async {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) throw Exception('插件不存在: $pluginId');
+    await _repository.createRecoveryPoint(plugin, reason: '还原 $pointId 前自动保存');
+    final restored = await _repository.restoreRecoveryPoint(plugin, pointId);
+    final merged = _mergeImported(restored, plugin);
+    _plugins = _sortPlugins(
+      _plugins.map((item) => item.id == pluginId ? merged : item).toList(),
+    );
+    await _save();
+    _bumpRenderVersion(pluginId);
+    notifyListeners();
+    await _syncPlugin(pluginId);
+    return merged;
+  });
 
   /// 为当前插件创建一个默认禁用的独立快照，复制授权和功能页状态。
   Future<InstalledPlugin> createSnapshot(String pluginId) async {
@@ -621,11 +832,32 @@ class PluginProvider extends ChangeNotifier {
     return _repository.listPluginFiles(plugin);
   }
 
+  /// 列出插件开发视角的文件（非内置插件额外显示 plugin.json 和入口脚本）。
+  Future<List<PluginFileEntry>> listDeveloperFiles(String pluginId) async {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) throw Exception('插件不存在: $pluginId');
+    return _repository.listPluginDeveloperFiles(plugin);
+  }
+
+  /// 判断路径是否为非内置插件的开发者核心文件。
+  bool isCoreDeveloperFile(String pluginId, String path) {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) return false;
+    return _repository.isCoreDeveloperFile(plugin, path);
+  }
+
   /// 读取插件目录中指定路径的文本文件内容。
   Future<String> readFile(String pluginId, String path) async {
     final plugin = pluginById(pluginId);
     if (plugin == null) throw Exception('插件不存在: $pluginId');
     return _repository.readPluginOverlayTextFile(plugin, path);
+  }
+
+  /// 读取插件开发视角的文本文件（非内置插件可读取 plugin.json 和入口）。
+  Future<String> readDeveloperFile(String pluginId, String path) async {
+    final plugin = pluginById(pluginId);
+    if (plugin == null) throw Exception('插件不存在: $pluginId');
+    return _repository.readPluginDeveloperTextFile(plugin, path);
   }
 
   /// 将文本内容写入插件的可编辑文件中。
@@ -639,6 +871,14 @@ class PluginProvider extends ChangeNotifier {
     await _repository.writePluginTextFile(plugin, path, content);
     if (path == plugin.manifest.config.path) _configCache.remove(pluginId);
     if (path == plugin.manifest.config.schema) _schemaCache.remove(pluginId);
+    if (_repository.isCoreDeveloperFile(plugin, path) &&
+        path.trim() == 'plugin.json') {
+      // manifest 变更后立即重载内存状态；非法 JSON 会进入 loadError 并禁用插件，
+      // 用户可在修复后再次保存或手动刷新。
+      await _refreshManifestInPlace(pluginId, save: true);
+      final reloaded = pluginById(pluginId);
+      if (reloaded == null || reloaded.hasError) return;
+    }
     _bumpRenderVersion(pluginId);
     notifyListeners();
     await _syncPlugin(pluginId);

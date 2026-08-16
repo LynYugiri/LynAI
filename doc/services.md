@@ -209,6 +209,16 @@ Subagent 适合 QQ/消息应用这类流程：主 Agent 只描述目标，Subage
 
 桌面端图片导出通常写入剪贴板；移动端更偏向图库或系统分享。
 
+## 插件脚手架
+
+文件：`lib/services/plugin_scaffold_service.dart`
+
+`PluginScaffoldService` 为应用内「新建插件」向导生成合法的 `plugin.json` 与模板文件。模板包括空白 Lua、Lua 工具、Skill 和 WebView 功能页四类；创建流程由 `PluginProvider.createPlugin` 串行执行，并通过 `PluginRepository.importDirectory` 完成原子安装。
+
+## 插件恢复点
+
+恢复点由 `PluginRepository` 管理，存储在插件根目录之外的 `plugins/recovery/<pluginId>/`，不进入插件目录、云/LAN 同步或备份。每个恢复点是一个完整插件目录 ZIP，并附 `points.json` 元数据。`PluginProvider.restoreRecoveryPoint` 在还原前自动创建当前状态恢复点，再恢复目标状态，并保留启用/授权/开发状态。
+
 ## PluginLuaRuntimeService
 
 文件：`lib/services/plugin_lua_runtime_service.dart`
@@ -282,6 +292,17 @@ Subagent 适合 QQ/消息应用这类流程：主 Agent 只描述目标，Subage
 `LynAICapabilityRegistry` 是宿主内置能力与插件对外函数的统一目录，取代此前散落在 `_permissionFor` 中的硬编码权限 switch。每个 `CapabilityMethod` 声明 `method`、`permission`（null 表示免授权）、`isRead` 和 `provider`（host/plugin）。宿主能力由 `registerHostCapabilities` 一次性注册；插件能力随插件启用/禁用动态 `registerPlugin`/`removePlugin`。授权查询统一通过 `lookup`，未注册的 `device.*` 按操控屏幕权限处理。`model.list`/`model.current` 提供 `{provider, model, category}` 身份，`model.chat` 等接受 `provider`+`model`（回退旧 `modelId`/`modelName`）。
 
 插件权限分为免授权与敏感两类，敏感度由 `LynAIPermissionDefinition.pluginAutoGrant` 系统定义，插件不能自证降级：`network:public`（仅 GET 公开只读 HTTPS）自动授予；`plugin.storage.*` 与 `plugin.file.list/read` 属插件沙盒免授权；其余（读写宿主数据、`network:access`、`model.*`、`device.*`、`recycleBin.*`、`webview:bridge`、越界 `files:write`）需用户在权限管理里逐项授权。
+
+## 全局插件文件工具
+
+对话页 Agent 通过内置工具修改插件，不依赖插件自带的编辑工具：
+
+| 工具 | 权限 | 说明 |
+|------|------|------|
+| `plugin_file_list` / `plugin_file_read` / `plugin_manifest_get` | `plugins.files:read` | 查看插件文件与 manifest。 |
+| `plugin_file_write` / `plugin_file_delete` / `plugin_file_rename` / `plugin_restore_defaults` / `plugin_manifest_update` | `plugins.files:write` | 修改插件文件；仅草稿/测试中插件可写 manifest 与入口，内置插件核心只读。 |
+
+这些工具复用 `PluginProvider` 的串行文件队列与恢复点机制，和 Plugin Studio 编辑同一份状态。
 
 ## 跨插件调用
 

@@ -3,6 +3,45 @@ import 'package:pub_semver/pub_semver.dart';
 final _pluginApiNamePattern = RegExp(r'^[a-zA-Z0-9_-]{1,64}$');
 final _luaGlobalFunctionPattern = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
 
+/// 插件在创作系统中的开发状态。
+///
+/// 与 [InstalledPlugin.enabled] 正交：`enabled` 控制运行时是否挂载，
+/// `devState` 控制 Studio/对话页允许的编辑范围。
+enum PluginDevState {
+  /// 草稿：允许编辑 manifest、入口代码和所有 overlay 文件。
+  draft,
+
+  /// 测试中：允许编辑核心文件，同时可启用插件做运行验证。
+  testing,
+
+  /// 已启用/已定型：核心文件只读，仅允许编辑 overlay。
+  active;
+
+  static PluginDevState fromJson(Object? value) => switch (value?.toString()) {
+    'draft' => draft,
+    'testing' => testing,
+    _ => active,
+  };
+
+  String toJson() => switch (this) {
+    draft => 'draft',
+    testing => 'testing',
+    active => 'active',
+  };
+
+  String get label => switch (this) {
+    draft => '草稿',
+    testing => '测试中',
+    active => '已定型',
+  };
+
+  String get description => switch (this) {
+    draft => '核心文件可自由编辑，插件默认不启用。',
+    testing => '核心文件仍可编辑，也可以启用插件做运行验证。',
+    active => '核心文件只读，仅可编辑 overlay 文件。',
+  };
+}
+
 String? _validatePluginApiDefinition({
   required String kind,
   required String name,
@@ -527,6 +566,39 @@ class PluginFileEntry {
   });
 }
 
+/// 插件恢复点元数据。
+class PluginRecoveryPoint {
+  const PluginRecoveryPoint({
+    required this.id,
+    required this.createdAt,
+    required this.reason,
+    required this.sizeBytes,
+  });
+
+  final String id;
+  final DateTime createdAt;
+  final String reason;
+  final int sizeBytes;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'createdAt': createdAt.toIso8601String(),
+    'reason': reason,
+    'sizeBytes': sizeBytes,
+  };
+
+  factory PluginRecoveryPoint.fromJson(Map<String, dynamic> json) {
+    return PluginRecoveryPoint(
+      id: json['id'] as String? ?? '',
+      createdAt:
+          DateTime.tryParse(json['createdAt'] as String? ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0),
+      reason: json['reason'] as String? ?? '',
+      sizeBytes: json['sizeBytes'] as int? ?? 0,
+    );
+  }
+}
+
 /// 插件 manifest 的规范化表示。
 class PluginManifest {
   /// 插件唯一标识符。
@@ -700,31 +772,45 @@ class PluginManifest {
     return value == null || value.isEmpty ? null : value;
   }
 
-  /// 创建当前 manifest 的副本，可用于更新快照身份。
+  /// 创建当前 manifest 的副本，可用于更新快照身份或可视化编辑字段。
   PluginManifest copyWith({
     String? id,
     String? name,
+    String? version,
+    String? author,
+    String? description,
+    String? icon,
+    String? entry,
+    List<String>? permissions,
     Map<String, String>? dependencies,
+    List<PluginToolDefinition>? tools,
+    List<PluginFunctionDefinition>? functions,
+    List<PluginCommandDefinition>? commands,
+    List<PluginSkillDefinition>? skills,
+    List<PluginFeaturePageDefinition>? featurePages,
+    List<PluginSettingDefinition>? settings,
+    PluginConfigDefinition? config,
+    List<PluginEditableFileDefinition>? editableFiles,
     Map<String, dynamic>? lynai,
   }) {
     return PluginManifest(
       id: id ?? this.id,
       name: name ?? this.name,
-      version: version,
-      author: author,
-      description: description,
-      icon: icon,
-      entry: entry,
-      permissions: permissions,
+      version: version ?? this.version,
+      author: author ?? this.author,
+      description: description ?? this.description,
+      icon: icon ?? this.icon,
+      entry: entry ?? this.entry,
+      permissions: permissions ?? this.permissions,
       dependencies: dependencies ?? this.dependencies,
-      tools: tools,
-      functions: functions,
-      commands: commands,
-      skills: skills,
-      featurePages: featurePages,
-      settings: settings,
-      config: config,
-      editableFiles: editableFiles,
+      tools: tools ?? this.tools,
+      functions: functions ?? this.functions,
+      commands: commands ?? this.commands,
+      skills: skills ?? this.skills,
+      featurePages: featurePages ?? this.featurePages,
+      settings: settings ?? this.settings,
+      config: config ?? this.config,
+      editableFiles: editableFiles ?? this.editableFiles,
       lynai: lynai ?? this.lynai,
     );
   }
@@ -891,6 +977,9 @@ class InstalledPlugin {
   /// 插件是否已启用。
   final bool enabled;
 
+  /// 插件在创作系统中的开发状态。
+  final PluginDevState devState;
+
   /// 用户已授权的权限列表。
   final List<String> grantedPermissions;
 
@@ -926,6 +1015,7 @@ class InstalledPlugin {
     required this.manifest,
     required this.path,
     required this.enabled,
+    this.devState = PluginDevState.active,
     required this.grantedPermissions,
     required this.enabledFeaturePages,
     this.enabledTools = const [],
@@ -964,6 +1054,7 @@ class InstalledPlugin {
     PluginManifest? manifest,
     String? path,
     bool? enabled,
+    PluginDevState? devState,
     List<String>? grantedPermissions,
     List<String>? enabledFeaturePages,
     List<String>? enabledTools,
@@ -979,6 +1070,7 @@ class InstalledPlugin {
       manifest: manifest ?? this.manifest,
       path: path ?? this.path,
       enabled: enabled ?? this.enabled,
+      devState: devState ?? this.devState,
       grantedPermissions: grantedPermissions ?? this.grantedPermissions,
       enabledFeaturePages: enabledFeaturePages ?? this.enabledFeaturePages,
       enabledTools: enabledTools ?? this.enabledTools,
@@ -1003,6 +1095,7 @@ class InstalledPlugin {
     'manifest': manifest.toJson(),
     'path': path,
     'enabled': enabled,
+    'devState': devState.toJson(),
     'grantedPermissions': grantedPermissions,
     'enabledFeaturePages': enabledFeaturePages,
     'enabledTools': enabledTools,
@@ -1026,6 +1119,7 @@ class InstalledPlugin {
       manifest: manifest,
       path: json['path'] as String? ?? '',
       enabled: json['enabled'] as bool? ?? false,
+      devState: PluginDevState.fromJson(json['devState']),
       grantedPermissions:
           (json['grantedPermissions'] as List<dynamic>? ?? const [])
               .map((item) => item.toString())

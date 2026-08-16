@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lynai/models/plugin.dart';
 import 'package:lynai/repositories/plugin_repository.dart';
 
 String _manifestJson({
@@ -24,7 +25,9 @@ String _manifestJson({
         'handler': 'ping',
         'parameters': {
           'type': 'object',
-          'properties': {'p': {'type': 'string'}},
+          'properties': {
+            'p': {'type': 'string'},
+          },
         },
       },
     ],
@@ -34,7 +37,9 @@ String _manifestJson({
 
 List<int> _pluginZip(String id, {String? entry}) {
   final archive = Archive()
-    ..addFile(ArchiveFile.string('plugin.json', _manifestJson(id: id, entry: entry)))
+    ..addFile(
+      ArchiveFile.string('plugin.json', _manifestJson(id: id, entry: entry)),
+    )
     ..addFile(ArchiveFile.string(entry ?? 'main.lua', 'print("hi")'));
   return ZipEncoder().encode(archive);
 }
@@ -61,7 +66,9 @@ void main() {
   PluginRepository repo() => PluginRepository(rootOverride: root);
 
   test('imports a valid plugin zip and reads back manifest', () async {
-    final plugin = await repo().importZipBytes(_pluginZip('demo', entry: 'main.lua'));
+    final plugin = await repo().importZipBytes(
+      _pluginZip('demo', entry: 'main.lua'),
+    );
     expect(plugin.id, 'demo');
     expect(plugin.path, isNotEmpty);
     expect(await File('${plugin.path}/plugin.json').exists(), isTrue);
@@ -76,18 +83,12 @@ void main() {
       ArchiveFile.string('../escape.txt', 'x'),
       ArchiveFile.string('plugin.json', _manifestJson()),
     ]);
-    expect(
-      () => repo().importZipBytes(bytes),
-      throwsA(isA<FormatException>()),
-    );
+    expect(() => repo().importZipBytes(bytes), throwsA(isA<FormatException>()));
   });
 
   test('rejects zip without plugin.json', () async {
     final bytes = _zipWith([ArchiveFile.string('readme.txt', 'hi')]);
-    expect(
-      () => repo().importZipBytes(bytes),
-      throwsA(isA<Exception>()),
-    );
+    expect(() => repo().importZipBytes(bytes), throwsA(isA<Exception>()));
   });
 
   test('persists and reloads installed plugin list', () async {
@@ -137,10 +138,90 @@ void main() {
   });
 
   test('rejects oversized zip input', () async {
-    final bytes = List<int>.filled(PluginRepository.maxPluginZipInputBytes + 1, 0);
-    expect(
-      () => repo().importZipBytes(bytes),
-      throwsA(isA<FormatException>()),
+    final bytes = List<int>.filled(
+      PluginRepository.maxPluginZipInputBytes + 1,
+      0,
     );
+    expect(() => repo().importZipBytes(bytes), throwsA(isA<FormatException>()));
+  });
+
+  test('developer file listing exposes core files for draft plugins', () async {
+    final imported = await repo().importZipBytes(_pluginZip('demo'));
+    final plugin = imported.copyWith(devState: PluginDevState.draft);
+    final regular = await repo().listPluginFiles(plugin);
+    expect(regular.map((file) => file.path), isNot(contains('plugin.json')));
+
+    final developer = await repo().listPluginDeveloperFiles(plugin);
+    final paths = developer.map((file) => file.path).toList();
+    expect(paths, contains('plugin.json'));
+    expect(paths, contains('main.lua'));
+    expect(
+      developer.singleWhere((file) => file.path == 'plugin.json').isEditable,
+      isTrue,
+    );
+  });
+
+  test(
+    'developer file listing shows active plugin core files as read-only',
+    () async {
+      final plugin = await repo().importZipBytes(_pluginZip('demo'));
+      final developer = await repo().listPluginDeveloperFiles(plugin);
+      final core = developer.singleWhere((file) => file.path == 'plugin.json');
+      expect(core.isEditable, isFalse);
+    },
+  );
+
+  test('draft plugins can edit plugin.json and entry script', () async {
+    final r = repo();
+    final imported = await r.importZipBytes(_pluginZip('demo'));
+    final plugin = imported.copyWith(devState: PluginDevState.draft);
+
+    await r.writePluginTextFile(plugin, 'main.lua', 'return { ok = true }');
+    expect(
+      await r.readPluginTextFile(plugin.path, 'main.lua'),
+      'return { ok = true }',
+    );
+
+    await r.writePluginTextFile(
+      plugin,
+      'plugin.json',
+      jsonEncode({
+        ...jsonDecode(_manifestJson()) as Map<String, dynamic>,
+        'version': '2.0.0',
+      }),
+    );
+    final manifest = await r.readManifest(plugin.path);
+    expect(manifest.version, '2.0.0');
+  });
+
+  test('active plugins cannot edit plugin.json or entry script', () async {
+    final r = repo();
+    final plugin = await r.importZipBytes(_pluginZip('demo'));
+
+    expect(
+      () => r.writePluginTextFile(plugin, 'main.lua', '-- edited'),
+      throwsA(isA<Exception>()),
+    );
+    expect(
+      () => r.writePluginTextFile(plugin, 'plugin.json', '{}'),
+      throwsA(isA<Exception>()),
+    );
+  });
+
+  test('built-in plugins keep plugin.json and entry protected', () async {
+    final r = repo();
+    final source = '${Directory.current.path}/assets/plugins/weather-query';
+    final plugin = await r.importDirectory(source);
+
+    expect(
+      () => r.writePluginTextFile(plugin, 'main.lua', '-- edited'),
+      throwsA(isA<Exception>()),
+    );
+    expect(
+      () => r.writePluginTextFile(plugin, 'plugin.json', '{}'),
+      throwsA(isA<Exception>()),
+    );
+    final developer = await r.listPluginDeveloperFiles(plugin);
+    expect(developer.map((file) => file.path), isNot(contains('plugin.json')));
   });
 }

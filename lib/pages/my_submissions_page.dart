@@ -126,10 +126,75 @@ class _MySubmissionsPageState extends State<MySubmissionsPage> {
                 ],
               ),
             ),
+            trailing: PopupMenuButton<String>(
+              onSelected: (action) => _onAction(entry, action),
+              itemBuilder: (context) => [
+                if (entry.status == 'approved')
+                  const PopupMenuItem(
+                    value: 'unpublish',
+                    child: ListTile(
+                      leading: Icon(Icons.get_app),
+                      title: Text('下架'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                const PopupMenuItem(
+                  value: 'delete',
+                  child: ListTile(
+                    leading: Icon(Icons.delete_outline),
+                    title: Text('删除'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },
     );
+  }
+
+  Future<void> _onAction(MarketPluginEntry entry, String action) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(action == 'unpublish' ? '下架插件？' : '删除插件？'),
+        content: Text(
+          action == 'unpublish'
+              ? '「${entry.name}」将退回待审核状态，市场不再展示。'
+              : '「${entry.name}」将从市场永久删除，此操作不可恢复。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(action == 'unpublish' ? '下架' : '删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      final service = RemoteMarketService(context.read<BackendClient>());
+      if (action == 'unpublish') {
+        await service.unpublishPlugin(entry.id);
+      } else {
+        await service.deletePlugin(entry.id);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(action == 'unpublish' ? '已下架' : '已删除')),
+      );
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
+    }
   }
 
   String _statusLabel(MarketPluginEntry entry) {

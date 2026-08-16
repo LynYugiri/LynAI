@@ -303,6 +303,7 @@ storage_v2 下，笔记分页元数据由存储层的 `StorageV2NotePage` 表达
 | `path` | `String` | 插件在应用支持目录中的安装路径。 |
 | `manifest` | `PluginManifest` | 插件的 `plugin.json` 解析结果。 |
 | `enabled` | `bool` | 是否启用。禁用的插件不加载脚本、不注册工具和函数。 |
+| `devState` | `PluginDevState` | 创作状态：`draft` / `testing` / `active`。草稿与测试中允许编辑核心文件；已定型后核心文件只读，仅 overlay 可写。 |
 | `enabledSkills` | `List<String>` | 当前启用的 Skill 名称；纯 Skill 内置插件可在首次同步时自动启用。 |
 | `permissions` | `List<String>` | 用户实际授予的权限。可能少于 `manifest.permissions` 声明。 |
 

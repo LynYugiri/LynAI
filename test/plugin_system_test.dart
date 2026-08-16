@@ -96,8 +96,9 @@ void main() {
         reason: 'browser_search skill 已移除',
       );
       expect(
-        await File('assets/plugins/$pluginId/defaults/skills/browser_search.md')
-            .exists(),
+        await File(
+          'assets/plugins/$pluginId/defaults/skills/browser_search.md',
+        ).exists(),
         isFalse,
         reason: 'browser_search.md 资源文件应已删除',
       );
@@ -1095,10 +1096,7 @@ end
         settings.settings.copyWith(agentGrantedPermissions: const []),
       );
       final cid = conversations.createConversation(
-        ConversationSettings(
-          modelId: 'm1',
-          agentEnabled: true,
-        ),
+        ConversationSettings(modelId: 'm1', agentEnabled: true),
       );
       final cancellation = AgentCancellationSource();
 
@@ -1216,10 +1214,7 @@ return lynai.call("plugins.callFunction", {
         ),
       );
       final cid = conversations.createConversation(
-        ConversationSettings(
-          modelId: 'm1',
-          agentEnabled: true,
-        ),
+        ConversationSettings(modelId: 'm1', agentEnabled: true),
       );
       final cancellation = AgentCancellationSource();
 
@@ -2215,7 +2210,7 @@ function same_func(args) return {ok = true} end
       await rootBundle.loadString(
         'assets/plugins/status-dashboard/defaults/main.lua',
       ),
-      contains('status_files'),
+      contains('状态仪表盘内置插件入口'),
     );
     expect(
       await rootBundle.loadString('assets/plugins/weather-query/plugin.json'),

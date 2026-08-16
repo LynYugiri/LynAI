@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/plugin_market_entry.dart';
 import '../services/backend_client.dart';
 import '../services/remote_market_service.dart';
+import 'admin_approved_plugins_page.dart';
 import '../utils/snackbar_utils.dart';
 import '../widgets/text_editing_controller_host.dart';
 
@@ -66,6 +67,16 @@ class _AdminReviewPageState extends State<AdminReviewPage> {
         title: const Text('审核管理'),
         centerTitle: true,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.storefront_outlined),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const AdminApprovedPluginsPage(),
+              ),
+            ),
+            tooltip: '已上架插件',
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadPending,

@@ -209,4 +209,49 @@ class RemoteMarketService implements MarketService {
       );
     }
   }
+
+  /// 更新插件元数据（管理员）。
+  Future<void> updatePlugin(
+    String id, {
+    required String name,
+    required String version,
+    String? description,
+    String? category,
+  }) async {
+    final resp = await _client.patch(
+      '/market/plugins/$id',
+      body: {
+        'name': name,
+        'version': version,
+        if (description != null && description.isNotEmpty)
+          'description': description,
+        if (category != null && category.isNotEmpty) 'category': category,
+      },
+    );
+    if (resp.statusCode != 200) {
+      throw MarketUnavailableException(
+        BackendClient.extractErrorMessage(resp.body) ?? '更新插件失败',
+      );
+    }
+  }
+
+  /// 下架插件（管理员或提交者本人）。
+  Future<void> unpublishPlugin(String id) async {
+    final resp = await _client.post('/market/plugins/$id/unpublish');
+    if (resp.statusCode != 200) {
+      throw MarketUnavailableException(
+        BackendClient.extractErrorMessage(resp.body) ?? '下架失败',
+      );
+    }
+  }
+
+  /// 删除插件（管理员或提交者本人）。
+  Future<void> deletePlugin(String id) async {
+    final resp = await _client.delete('/market/plugins/$id');
+    if (resp.statusCode != 200) {
+      throw MarketUnavailableException(
+        BackendClient.extractErrorMessage(resp.body) ?? '删除失败',
+      );
+    }
+  }
 }

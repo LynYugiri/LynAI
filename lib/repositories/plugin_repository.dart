@@ -7,7 +7,13 @@ import 'package:crypto/crypto.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../models/plugin.dart'
-    show InstalledPlugin, PluginFileEntry, PluginManifest, fileTypeFromPath;
+    show
+        InstalledPlugin,
+        PluginDevState,
+        PluginFileEntry,
+        PluginManifest,
+        PluginRecoveryPoint,
+        fileTypeFromPath;
 import '../services/bounded_zip_decoder.dart';
 import '../utils/plugin_path_utils.dart';
 import '../services/plugin_sync_validation.dart';
@@ -734,6 +740,45 @@ class PluginRepository {
     return entries;
   }
 
+  /// 列出插件开发视角的文件条目。
+  ///
+  /// 对非内置插件，在 [listPluginFiles] 的基础上额外显示 `plugin.json` 和
+  /// 入口脚本（均为可编辑），方便用户在应用内创作插件；内置插件保持隐藏
+  /// 核心文件，避免误改出厂结构。
+  Future<List<PluginFileEntry>> listPluginDeveloperFiles(
+    InstalledPlugin plugin, {
+    int maxDepth = 8,
+  }) async {
+    final entries = await listPluginFiles(plugin, maxDepth: maxDepth);
+    if (isBuiltInPlugin(plugin)) return entries;
+
+    final corePaths = <String>['plugin.json', plugin.manifest.entry];
+    for (final relativePath in corePaths) {
+      final normalized = _normalizeRelativePath(relativePath);
+      if (normalized == null) continue;
+      final file = File(safePluginFilePath(plugin.path, normalized)!);
+      if (!await file.exists()) continue;
+      final stat = await file.stat();
+      entries.add(
+        PluginFileEntry(
+          path: normalized,
+          size: stat.size,
+          isDirectory: false,
+          isEditable: _isEditablePluginFile(plugin, normalized),
+          hasDefault: false,
+          isDefault: false,
+          type: fileTypeFromPath(normalized),
+        ),
+      );
+    }
+    entries.sort((a, b) {
+      if (a.isDirectory != b.isDirectory) return a.isDirectory ? -1 : 1;
+      if (a.isDefault != b.isDefault) return a.isDefault ? 1 : -1;
+      return a.path.compareTo(b.path);
+    });
+    return entries;
+  }
+
   /// 读取插件文本文件（仅限根目录下的真实文件）。
   ///
   /// 注意：不会回退读取 defaults/ 出厂模板。若文件不存在，直接抛出异常。
@@ -792,9 +837,43 @@ class PluginRepository {
     return true;
   }
 
+  /// 读取插件开发文件的合并视图。
+  ///
+  /// 对非内置插件额外允许读取 plugin.json 和入口脚本；其余语义与
+  /// [readPluginOverlayTextFile] 一致。
+  Future<String> readPluginDeveloperTextFile(
+    InstalledPlugin plugin,
+    String relativePath, {
+    int maxBytes = maxTextFileBytes,
+  }) async {
+    final normalized = _normalizeRelativePath(relativePath);
+    if (normalized == null) throw Exception('插件文件路径不安全: $relativePath');
+    if (!_isDeveloperReadablePath(plugin, normalized)) {
+      throw Exception('插件受保护文件不可读取: $relativePath');
+    }
+    final file = File(safePluginFilePath(plugin.path, normalized)!);
+    if (await file.exists()) {
+      await _ensureInsideRoot(plugin.path, file.path);
+      final stat = await file.stat();
+      if (stat.size > maxBytes) throw Exception('文件过大，无法预览');
+      return file.readAsString();
+    }
+    final defaultPath = defaultPathFor(plugin, normalized);
+    if (defaultPath == null) throw Exception('插件文件不存在: $relativePath');
+    final defaultSafePath = safePluginFilePath(plugin.path, defaultPath);
+    if (defaultSafePath == null) throw Exception('插件文件路径不安全: $relativePath');
+    final defaultFile = File(defaultSafePath);
+    if (!await defaultFile.exists()) throw Exception('插件文件不存在: $relativePath');
+    await _ensureInsideRoot(plugin.path, defaultFile.path);
+    final stat = await defaultFile.stat();
+    if (stat.size > maxBytes) throw Exception('文件过大，无法预览');
+    return defaultFile.readAsString();
+  }
+
   /// 写入插件文件，仅当 manifest 或 files:write 权限声明可编辑时才允许。
   ///
-  /// 受保护路径（defaults/、plugin.json）始终被拒绝。
+  /// defaults/ 始终被拒绝；非内置插件的 plugin.json 与入口脚本允许在应用内
+  /// 编辑，内置插件仍保持核心文件只读。
   Future<void> writePluginTextFile(
     InstalledPlugin plugin,
     String relativePath,
@@ -803,7 +882,7 @@ class PluginRepository {
     if (!_isEditablePluginFile(plugin, relativePath)) {
       throw Exception('插件文件不可编辑: $relativePath');
     }
-    if (_isProtectedPluginPath(plugin, relativePath)) {
+    if (!_isDeveloperWritablePath(plugin, relativePath)) {
       throw Exception('插件受保护文件不可覆盖: $relativePath');
     }
     final file = await _safeWritablePluginFile(plugin.path, relativePath);
@@ -831,7 +910,7 @@ class PluginRepository {
     if (!_isEditablePluginFile(plugin, relativePath)) {
       throw Exception('插件文件不可编辑: $relativePath');
     }
-    if (_isProtectedPluginPath(plugin, relativePath)) {
+    if (!_isDeveloperWritablePath(plugin, relativePath)) {
       throw Exception('插件受保护文件不可覆盖: $relativePath');
     }
     final file = await _safeWritablePluginFile(plugin.path, relativePath);
@@ -946,6 +1025,125 @@ class PluginRepository {
     }
     final bytes = ZipEncoder().encode(archive);
     return Uint8List.fromList(bytes);
+  }
+
+  /// 为插件创建一个恢复点，返回恢复点元数据。
+  Future<PluginRecoveryPoint> createRecoveryPoint(
+    InstalledPlugin plugin, {
+    String reason = '手动保存前',
+  }) async {
+    final bytes = await buildPluginZipBytes(plugin);
+    final id = DateTime.now().microsecondsSinceEpoch.toString();
+    final dir = await _recoveryDir(plugin.id);
+    if (!await dir.exists()) await dir.create(recursive: true);
+    final zipFile = File('${dir.path}/$id.zip');
+    await zipFile.writeAsBytes(bytes, flush: true);
+
+    final points = await listRecoveryPoints(plugin.id);
+    final next = [
+      PluginRecoveryPoint(
+        id: id,
+        createdAt: DateTime.now(),
+        reason: reason.trim().isEmpty ? '手动保存前' : reason.trim(),
+        sizeBytes: bytes.length,
+      ),
+      ...points,
+    ];
+    await _writeRecoveryMeta(plugin.id, next.take(20).toList(growable: false));
+    // 删除多余的历史恢复点文件。
+    for (final point in points.skip(19)) {
+      final file = File('${dir.path}/${point.id}.zip');
+      if (await file.exists()) await file.delete();
+    }
+    return next.first;
+  }
+
+  /// 列出插件恢复点，按时间倒序。
+  Future<List<PluginRecoveryPoint>> listRecoveryPoints(String pluginId) async {
+    final file = await _recoveryMetaFile(pluginId);
+    if (!await file.exists()) return const [];
+    try {
+      final data = jsonDecode(await file.readAsString());
+      if (data is! Map) return const [];
+      final items = data['points'] as List? ?? const [];
+      return items
+          .whereType<Map>()
+          .map(
+            (item) =>
+                PluginRecoveryPoint.fromJson(Map<String, dynamic>.from(item)),
+          )
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// 从恢复点还原插件目录，返回还原后的安装插件对象。
+  Future<InstalledPlugin> restoreRecoveryPoint(
+    InstalledPlugin plugin,
+    String pointId,
+  ) async {
+    final dir = await _recoveryDir(plugin.id);
+    final zipFile = File('${dir.path}/$pointId.zip');
+    if (!await zipFile.exists()) throw Exception('恢复点不存在: $pointId');
+    final bytes = await zipFile.readAsBytes();
+    final archive = decodeBoundedZip(
+      bytes,
+      limits: const BoundedZipLimits(
+        maxEntries: maxPluginZipEntries,
+        maxEntryBytes: maxPluginZipEntryBytes,
+        maxTotalBytes: maxPluginZipExtractedBytes,
+      ),
+      archiveLabel: '插件恢复点',
+    );
+    final root = await Directory.systemTemp.createTemp('lynai_plugin_restore_');
+    try {
+      for (final item in archive) {
+        final safeName = _safeArchivePath(item.name);
+        if (safeName == null) throw Exception('恢复点路径不安全: ${item.name}');
+        final target = File('${root.path}/$safeName');
+        if (item.isFile) {
+          if (!await target.parent.exists()) {
+            await target.parent.create(recursive: true);
+          }
+          await target.writeAsBytes(item.content as List<int>, flush: true);
+        } else {
+          await Directory(target.path).create(recursive: true);
+        }
+      }
+      final restored = await importDirectory(
+        root.path,
+        manifest: await readManifest(root.path),
+      );
+      return restored;
+    } finally {
+      if (await root.exists()) await root.delete(recursive: true);
+    }
+  }
+
+  Future<Directory> _recoveryDir(String pluginId) async {
+    _requireValidPluginId(pluginId);
+    final root = await _pluginsRoot();
+    return Directory('${root.path}/recovery/$pluginId');
+  }
+
+  Future<File> _recoveryMetaFile(String pluginId) async {
+    final dir = await _recoveryDir(pluginId);
+    return File('${dir.path}/points.json');
+  }
+
+  Future<void> _writeRecoveryMeta(
+    String pluginId,
+    List<PluginRecoveryPoint> points,
+  ) async {
+    final file = await _recoveryMetaFile(pluginId);
+    if (!await file.parent.exists()) await file.parent.create(recursive: true);
+    await file.writeAsString(
+      const JsonEncoder.withIndent(
+        '  ',
+      ).convert({'points': points.map((point) => point.toJson()).toList()}),
+      flush: true,
+    );
   }
 
   /// 保存插件的私有存储 JSON 数据。
@@ -1364,7 +1562,11 @@ class PluginRepository {
     return directory;
   }
 
-  /// 判断是否为受保护的系统路径（plugin.json、defaults/）。
+  /// 判断插件是否为应用内置插件。
+  bool isBuiltInPlugin(InstalledPlugin plugin) =>
+      builtInPluginIds.contains(plugin.id);
+
+  /// 判断路径是否为受保护的系统路径（plugin.json、defaults/）。
   bool _isProtectedPath(String relativePath) {
     final normalized = _normalizeRelativePath(relativePath);
     if (normalized == null) return true;
@@ -1374,6 +1576,9 @@ class PluginRepository {
   }
 
   /// 判断路径是否为插件保护路径（含入口文件和配置文件）。
+  ///
+  /// 该语义用于文件列表、恢复默认、重命名和删除：非内置插件也不允许通过
+  /// 常规文件管理删除或重置 plugin.json 与入口脚本。
   bool _isProtectedPluginPath(
     InstalledPlugin plugin,
     String relativePath, {
@@ -1384,6 +1589,56 @@ class PluginRepository {
     if (_isProtectedPath(normalized)) return true;
     if (!allowConfig && _isConfigPath(plugin, normalized)) return true;
     return normalized == _normalizeRelativePath(plugin.manifest.entry);
+  }
+
+  /// 判断路径是否允许在应用内开发者编辑器中写入。
+  ///
+  /// 非内置插件在草稿/测试中状态可编辑 plugin.json 和入口脚本；已定型插件
+  /// 核心文件只读。defaults/ 与配置文件仍受保护。
+  bool _isDeveloperWritablePath(
+    InstalledPlugin plugin,
+    String relativePath, {
+    bool allowConfig = false,
+  }) {
+    if (!_isProtectedPluginPath(
+      plugin,
+      relativePath,
+      allowConfig: allowConfig,
+    )) {
+      return true;
+    }
+    if (isBuiltInPlugin(plugin)) return false;
+    final canEditCore =
+        plugin.devState == PluginDevState.draft ||
+        plugin.devState == PluginDevState.testing;
+    if (!canEditCore) return false;
+    final normalized = _normalizeRelativePath(relativePath);
+    if (normalized == null) return false;
+    return normalized == 'plugin.json' ||
+        normalized == _normalizeRelativePath(plugin.manifest.entry);
+  }
+
+  /// 判断路径是否允许在应用内开发者编辑器中读取。
+  ///
+  /// 非内置插件的 plugin.json 和入口脚本在任何开发状态下都可读，便于查看；
+  /// 写入才受开发状态限制。
+  bool _isDeveloperReadablePath(
+    InstalledPlugin plugin,
+    String relativePath, {
+    bool allowConfig = false,
+  }) {
+    if (_isDeveloperWritablePath(
+      plugin,
+      relativePath,
+      allowConfig: allowConfig,
+    )) {
+      return true;
+    }
+    if (isBuiltInPlugin(plugin)) return false;
+    final normalized = _normalizeRelativePath(relativePath);
+    if (normalized == null) return false;
+    return normalized == 'plugin.json' ||
+        normalized == _normalizeRelativePath(plugin.manifest.entry);
   }
 
   /// 判断路径是否为应在文件列表中隐藏的核心文件。
@@ -1418,15 +1673,36 @@ class PluginRepository {
     );
   }
 
+  /// 判断路径是否为非内置插件的开发者核心文件（plugin.json 或入口脚本）。
+  bool isCoreDeveloperFile(InstalledPlugin plugin, String relativePath) {
+    if (isBuiltInPlugin(plugin)) return false;
+    final normalized = _normalizeRelativePath(relativePath);
+    if (normalized == null) return false;
+    return normalized == 'plugin.json' ||
+        normalized == _normalizeRelativePath(plugin.manifest.entry);
+  }
+
   /// 判断插件相对路径对应文件是否可编辑。
   bool _isEditablePluginFile(InstalledPlugin plugin, String relativePath) {
     final normalized = _normalizeRelativePath(relativePath);
     if (normalized == null) return false;
-    if (_isProtectedPath(normalized)) return false;
-    if (normalized == _normalizeRelativePath(plugin.manifest.entry)) {
-      return false;
-    }
+    if (_isDefaultPath(normalized)) return false;
     if (_isConfigPath(plugin, normalized)) return false;
+    if (isBuiltInPlugin(plugin)) {
+      if (normalized == 'plugin.json') return false;
+      if (normalized == _normalizeRelativePath(plugin.manifest.entry)) {
+        return false;
+      }
+    } else {
+      // 非内置插件在草稿/测试中状态可直接编辑 manifest 和入口脚本。
+      final canEditCore =
+          plugin.devState == PluginDevState.draft ||
+          plugin.devState == PluginDevState.testing;
+      if (normalized == 'plugin.json') return canEditCore;
+      if (normalized == _normalizeRelativePath(plugin.manifest.entry)) {
+        return canEditCore;
+      }
+    }
     if (plugin.manifest.editableFiles.any(
       (file) => normalized == _normalizeRelativePath(file.path),
     )) {

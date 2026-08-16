@@ -40,6 +40,8 @@ class LynAIPermissions {
   static const schedulesWrite = 'schedules:write';
   static const filesWrite = 'files:write';
   static const pluginSkillFilesWrite = 'plugins.skills.files:write';
+  static const pluginsFilesRead = 'plugins.files:read';
+  static const pluginsFilesWrite = 'plugins.files:write';
   static const storageRead = 'storage:read';
   static const storageWrite = 'storage:write';
   static const memoryCardsRead = 'memoryCards:read';
@@ -82,7 +84,11 @@ class LynAIPermissions {
     deviceOverlay,
   ];
 
-  static const agentAssignable = defaultAgent;
+  static const agentAssignable = [
+    ...defaultAgent,
+    pluginsFilesRead,
+    pluginsFilesWrite,
+  ];
 }
 
 class LynAIPermissionDefinition {
@@ -161,9 +167,31 @@ const lynaiPermissionDefinitions = <LynAIPermissionDefinition>[
     risk: LynAIPermissionRisk.elevated,
   ),
   LynAIPermissionDefinition(
+    id: LynAIPermissions.pluginsFilesRead,
+    title: '读取插件文件',
+    description: '允许 Agent 查看插件 manifest 和插件目录中的可读文件。',
+  ),
+  LynAIPermissionDefinition(
+    id: LynAIPermissions.pluginsFilesWrite,
+    title: '修改插件文件',
+    description: '允许 Agent 修改草稿/测试中插件或已声明 overlay 的文件内容。',
+    risk: LynAIPermissionRisk.elevated,
+  ),
+  LynAIPermissionDefinition(
     id: LynAIPermissions.storageRead,
     title: '读取对话附件',
     description: '允许 Agent 通过稳定资源 ID 读取当前设备上的对话附件和资源元数据。',
+  ),
+  LynAIPermissionDefinition(
+    id: LynAIPermissions.memoryCardsRead,
+    title: '读取记忆卡片',
+    description: '允许读取牌组、记忆卡片和复习记录。',
+  ),
+  LynAIPermissionDefinition(
+    id: LynAIPermissions.memoryCardsWrite,
+    title: '修改记忆卡片',
+    description: '允许创建和修改记忆卡片并执行复习评分；删除暂不开放给 Agent。',
+    risk: LynAIPermissionRisk.elevated,
   ),
   LynAIPermissionDefinition(
     id: LynAIPermissions.networkAccess,

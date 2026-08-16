@@ -206,12 +206,10 @@ class ToolCallService {
   static const maxSubagentDepth = 1;
   static const emptyAssistantReply = '模型没有返回内容，请稍后重试或检查模型配置。';
 
-  static String toolRoundLimitMessage([
-    String content = '',
-    int? maxRounds,
-  ]) {
+  static String toolRoundLimitMessage([String content = '', int? maxRounds]) {
     final rounds = maxRounds ?? maxToolRounds;
-    final error = '工具调用已达到 $rounds 轮上限，已停止继续执行。'
+    final error =
+        '工具调用已达到 $rounds 轮上限，已停止继续执行。'
         '可点击继续处理，或缩小任务范围后重试。';
     final text = content.trim();
     return text.isEmpty ? error : '$text\n\n---\n$error';
@@ -1296,6 +1294,107 @@ ${lines.join('\n')}$more''';
         },
       );
     }
+    if (permissions.contains(LynAIPermissions.pluginsFilesRead)) {
+      add(
+        'plugin_file_list',
+        '列出插件开发文件。可查看已安装插件的文件树；非内置插件会显示 plugin.json 和入口脚本。需要 plugins.files:read 权限。',
+        {
+          'type': 'object',
+          'properties': {
+            'pluginId': {'type': 'string', 'description': '插件 ID'},
+          },
+          'required': ['pluginId'],
+        },
+      );
+      add('plugin_file_read', '读取插件文件内容。需要 plugins.files:read 权限。', {
+        'type': 'object',
+        'properties': {
+          'pluginId': {'type': 'string', 'description': '插件 ID'},
+          'path': {
+            'type': 'string',
+            'description': '相对路径，例如 main.lua、skills/demo.md',
+          },
+        },
+        'required': ['pluginId', 'path'],
+      });
+      add(
+        'plugin_manifest_get',
+        '读取插件 manifest（plugin.json）的结构化内容。需要 plugins.files:read 权限。',
+        {
+          'type': 'object',
+          'properties': {
+            'pluginId': {'type': 'string', 'description': '插件 ID'},
+          },
+          'required': ['pluginId'],
+        },
+      );
+    }
+    if (permissions.contains(LynAIPermissions.pluginsFilesWrite)) {
+      add(
+        'plugin_file_write',
+        '写入或创建插件文件。仅草稿/测试中插件可写 manifest 与入口；其他插件仅可写声明的 overlay 文件。需要 plugins.files:write 权限。',
+        {
+          'type': 'object',
+          'properties': {
+            'pluginId': {'type': 'string', 'description': '插件 ID'},
+            'path': {'type': 'string', 'description': '相对路径'},
+            'content': {'type': 'string', 'description': '完整文件内容'},
+          },
+          'required': ['pluginId', 'path', 'content'],
+        },
+      );
+      add(
+        'plugin_file_delete',
+        '删除插件 overlay 文件，使其回退到 defaults 默认模板。核心文件不可删除。需要 plugins.files:write 权限。',
+        {
+          'type': 'object',
+          'properties': {
+            'pluginId': {'type': 'string', 'description': '插件 ID'},
+            'path': {'type': 'string', 'description': '相对路径'},
+          },
+          'required': ['pluginId', 'path'],
+        },
+      );
+      add(
+        'plugin_file_rename',
+        '重命名插件 overlay 文件。核心文件不可重命名。需要 plugins.files:write 权限。',
+        {
+          'type': 'object',
+          'properties': {
+            'pluginId': {'type': 'string', 'description': '插件 ID'},
+            'oldPath': {'type': 'string', 'description': '当前相对路径'},
+            'newPath': {'type': 'string', 'description': '目标相对路径'},
+          },
+          'required': ['pluginId', 'oldPath', 'newPath'],
+        },
+      );
+      add(
+        'plugin_restore_defaults',
+        '删除插件所有用户自定义 overlay 文件，恢复出厂默认。不会删除 plugin.json 或入口脚本。需要 plugins.files:write 权限。',
+        {
+          'type': 'object',
+          'properties': {
+            'pluginId': {'type': 'string', 'description': '插件 ID'},
+          },
+          'required': ['pluginId'],
+        },
+      );
+      add(
+        'plugin_manifest_update',
+        '更新草稿/测试中插件的展示元数据（名称、版本、作者、描述）。需要 plugins.files:write 权限。',
+        {
+          'type': 'object',
+          'properties': {
+            'pluginId': {'type': 'string', 'description': '插件 ID'},
+            'name': {'type': 'string', 'description': '可选，显示名称'},
+            'version': {'type': 'string', 'description': '可选，SemVer 版本'},
+            'author': {'type': 'string', 'description': '可选，作者'},
+            'description': {'type': 'string', 'description': '可选，描述'},
+          },
+          'required': ['pluginId'],
+        },
+      );
+    }
     add(
       'add_agent_note',
       '向当前 assistant 消息追加一条简短的用户可见 Agent 中间说明。不需要权限，不要用于最终回答或输出工具 JSON。',
@@ -1635,6 +1734,14 @@ ${lines.join('\n')}$more''';
     final permissions = switch (name) {
       'web_fetch' || 'web_search' => const [LynAIPermissions.networkAccess],
       'save_plugin_skill' => const [LynAIPermissions.pluginSkillFilesWrite],
+      'plugin_file_list' ||
+      'plugin_file_read' ||
+      'plugin_manifest_get' => const [LynAIPermissions.pluginsFilesRead],
+      'plugin_file_write' ||
+      'plugin_file_delete' ||
+      'plugin_file_rename' ||
+      'plugin_restore_defaults' ||
+      'plugin_manifest_update' => const [LynAIPermissions.pluginsFilesWrite],
       'get_current_screen' => const [LynAIPermissions.deviceScreenRead],
       'open_app' => const [LynAIPermissions.deviceControl],
       'list_apps' => const [LynAIPermissions.deviceControl],
@@ -1964,6 +2071,16 @@ ${lines.join('\n')}$more''';
         identity: identity,
         permissions: permissions,
       ),
+      'plugin_file_list' => _pluginFileListForAgent(call.arguments),
+      'plugin_file_read' => _pluginFileReadForAgent(call.arguments),
+      'plugin_file_write' => _pluginFileWriteForAgent(call.arguments),
+      'plugin_file_delete' => _pluginFileDeleteForAgent(call.arguments),
+      'plugin_file_rename' => _pluginFileRenameForAgent(call.arguments),
+      'plugin_restore_defaults' => _pluginRestoreDefaultsForAgent(
+        call.arguments,
+      ),
+      'plugin_manifest_get' => _pluginManifestGetForAgent(call.arguments),
+      'plugin_manifest_update' => _pluginManifestUpdateForAgent(call.arguments),
       'add_agent_note' => _addAgentNote(call.arguments),
       'call_plugin_function' => _callPluginFunction(
         call.arguments,
@@ -2292,6 +2409,22 @@ ${lines.join('\n')}$more''';
           return await _loadPluginSkill(call.arguments);
         case 'save_plugin_skill':
           return await _savePluginSkill(call.arguments);
+        case 'plugin_file_list':
+          return _pluginFileListForAgent(call.arguments);
+        case 'plugin_file_read':
+          return await _pluginFileReadForAgent(call.arguments);
+        case 'plugin_file_write':
+          return await _pluginFileWriteForAgent(call.arguments);
+        case 'plugin_file_delete':
+          return await _pluginFileDeleteForAgent(call.arguments);
+        case 'plugin_file_rename':
+          return await _pluginFileRenameForAgent(call.arguments);
+        case 'plugin_restore_defaults':
+          return await _pluginRestoreDefaultsForAgent(call.arguments);
+        case 'plugin_manifest_get':
+          return _pluginManifestGetForAgent(call.arguments);
+        case 'plugin_manifest_update':
+          return await _pluginManifestUpdateForAgent(call.arguments);
         case 'add_agent_note':
           return _addAgentNote(call.arguments);
         case 'call_plugin_function':
@@ -3549,6 +3682,267 @@ ${ToolCallService.currentTimeContext()}${sharedContext.isEmpty ? '' : '\n\n$shar
       metadata: {'count': count},
     );
     return _agentOk(result);
+  }
+
+  InstalledPlugin? _findAgentPlugin(String pluginId) {
+    final plugins = _plugins;
+    if (plugins == null) return null;
+    for (final plugin in plugins.plugins) {
+      if (plugin.id == pluginId) return plugin;
+    }
+    return null;
+  }
+
+  Future<Map<String, dynamic>> _pluginFileListForAgent(
+    Map<String, dynamic> args,
+  ) async {
+    if (!_agentEnabled) {
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
+    }
+    final plugins = _plugins;
+    if (plugins == null) {
+      return _agentError('plugin_system_unavailable', '插件系统不可用');
+    }
+    final pluginId = (args['pluginId'] as String? ?? '').trim();
+    if (pluginId.isEmpty) {
+      return _agentError('invalid_arguments', 'plugin_file_list 缺少 pluginId');
+    }
+    if (plugins.pluginById(pluginId) == null) {
+      return _agentError('plugin_not_found', '插件不存在: $pluginId');
+    }
+    try {
+      final files = await plugins.listDeveloperFiles(pluginId);
+      return _agentOk({
+        'pluginId': pluginId,
+        'files': files
+            .map(
+              (file) => {
+                'path': file.path,
+                'isDirectory': file.isDirectory,
+                'isEditable': file.isEditable,
+                'isDefault': file.isDefault,
+                'type': file.type,
+                'size': file.size,
+              },
+            )
+            .toList(growable: false),
+      });
+    } catch (e) {
+      return _agentError('plugin_file_list_failed', '$e');
+    }
+  }
+
+  Future<Map<String, dynamic>> _pluginFileReadForAgent(
+    Map<String, dynamic> args,
+  ) async {
+    if (!_agentEnabled) {
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
+    }
+    final plugins = _plugins;
+    if (plugins == null) {
+      return _agentError('plugin_system_unavailable', '插件系统不可用');
+    }
+    final pluginId = (args['pluginId'] as String? ?? '').trim();
+    final path = (args['path'] as String? ?? '').trim();
+    if (pluginId.isEmpty || path.isEmpty) {
+      return _agentError(
+        'invalid_arguments',
+        'plugin_file_read 缺少 pluginId 或 path',
+      );
+    }
+    if (plugins.pluginById(pluginId) == null) {
+      return _agentError('plugin_not_found', '插件不存在: $pluginId');
+    }
+    try {
+      final content = await plugins.readDeveloperFile(pluginId, path);
+      return _agentOk({'pluginId': pluginId, 'path': path, 'content': content});
+    } catch (e) {
+      return _agentError('plugin_file_read_failed', '$e');
+    }
+  }
+
+  Future<Map<String, dynamic>> _pluginFileWriteForAgent(
+    Map<String, dynamic> args,
+  ) async {
+    if (!_agentEnabled) {
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
+    }
+    final plugins = _plugins;
+    if (plugins == null) {
+      return _agentError('plugin_system_unavailable', '插件系统不可用');
+    }
+    final pluginId = (args['pluginId'] as String? ?? '').trim();
+    final path = (args['path'] as String? ?? '').trim();
+    final content = (args['content'] as String? ?? '').toString();
+    if (pluginId.isEmpty || path.isEmpty) {
+      return _agentError(
+        'invalid_arguments',
+        'plugin_file_write 缺少 pluginId 或 path',
+      );
+    }
+    if (plugins.pluginById(pluginId) == null) {
+      return _agentError('plugin_not_found', '插件不存在: $pluginId');
+    }
+    try {
+      await plugins.writeEditableFile(pluginId, path, content);
+      return _agentOk({'pluginId': pluginId, 'path': path, 'written': true});
+    } catch (e) {
+      return _agentError('plugin_file_write_failed', '$e');
+    }
+  }
+
+  Future<Map<String, dynamic>> _pluginFileDeleteForAgent(
+    Map<String, dynamic> args,
+  ) async {
+    if (!_agentEnabled) {
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
+    }
+    final plugins = _plugins;
+    if (plugins == null) {
+      return _agentError('plugin_system_unavailable', '插件系统不可用');
+    }
+    final pluginId = (args['pluginId'] as String? ?? '').trim();
+    final path = (args['path'] as String? ?? '').trim();
+    if (pluginId.isEmpty || path.isEmpty) {
+      return _agentError(
+        'invalid_arguments',
+        'plugin_file_delete 缺少 pluginId 或 path',
+      );
+    }
+    if (plugins.pluginById(pluginId) == null) {
+      return _agentError('plugin_not_found', '插件不存在: $pluginId');
+    }
+    try {
+      await plugins.deleteFile(pluginId, path);
+      return _agentOk({'pluginId': pluginId, 'path': path, 'deleted': true});
+    } catch (e) {
+      return _agentError('plugin_file_delete_failed', '$e');
+    }
+  }
+
+  Future<Map<String, dynamic>> _pluginFileRenameForAgent(
+    Map<String, dynamic> args,
+  ) async {
+    if (!_agentEnabled) {
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
+    }
+    final plugins = _plugins;
+    if (plugins == null) {
+      return _agentError('plugin_system_unavailable', '插件系统不可用');
+    }
+    final pluginId = (args['pluginId'] as String? ?? '').trim();
+    final oldPath = (args['oldPath'] as String? ?? '').trim();
+    final newPath = (args['newPath'] as String? ?? '').trim();
+    if (pluginId.isEmpty || oldPath.isEmpty || newPath.isEmpty) {
+      return _agentError(
+        'invalid_arguments',
+        'plugin_file_rename 缺少 pluginId、oldPath 或 newPath',
+      );
+    }
+    if (plugins.pluginById(pluginId) == null) {
+      return _agentError('plugin_not_found', '插件不存在: $pluginId');
+    }
+    try {
+      await plugins.renameFile(pluginId, oldPath, newPath);
+      return _agentOk({
+        'pluginId': pluginId,
+        'oldPath': oldPath,
+        'newPath': newPath,
+      });
+    } catch (e) {
+      return _agentError('plugin_file_rename_failed', '$e');
+    }
+  }
+
+  Future<Map<String, dynamic>> _pluginRestoreDefaultsForAgent(
+    Map<String, dynamic> args,
+  ) async {
+    if (!_agentEnabled) {
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
+    }
+    final plugins = _plugins;
+    if (plugins == null) {
+      return _agentError('plugin_system_unavailable', '插件系统不可用');
+    }
+    final pluginId = (args['pluginId'] as String? ?? '').trim();
+    if (pluginId.isEmpty) {
+      return _agentError(
+        'invalid_arguments',
+        'plugin_restore_defaults 缺少 pluginId',
+      );
+    }
+    if (plugins.pluginById(pluginId) == null) {
+      return _agentError('plugin_not_found', '插件不存在: $pluginId');
+    }
+    try {
+      await plugins.resetPluginDefaults(pluginId);
+      return _agentOk({'pluginId': pluginId, 'restored': true});
+    } catch (e) {
+      return _agentError('plugin_restore_defaults_failed', '$e');
+    }
+  }
+
+  Map<String, dynamic> _pluginManifestGetForAgent(Map<String, dynamic> args) {
+    if (!_agentEnabled) {
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
+    }
+    final pluginId = (args['pluginId'] as String? ?? '').trim();
+    if (pluginId.isEmpty) {
+      return _agentError(
+        'invalid_arguments',
+        'plugin_manifest_get 缺少 pluginId',
+      );
+    }
+    final plugin = _findAgentPlugin(pluginId);
+    if (plugin == null) {
+      return _agentError('plugin_not_found', '插件不存在: $pluginId');
+    }
+    return _agentOk({
+      'pluginId': pluginId,
+      'manifest': plugin.manifest.toJson(),
+    });
+  }
+
+  Future<Map<String, dynamic>> _pluginManifestUpdateForAgent(
+    Map<String, dynamic> args,
+  ) async {
+    if (!_agentEnabled) {
+      return _agentError('agent_disabled', '当前对话未启用 Agent 模式');
+    }
+    final plugins = _plugins;
+    if (plugins == null) {
+      return _agentError('plugin_system_unavailable', '插件系统不可用');
+    }
+    final pluginId = (args['pluginId'] as String? ?? '').trim();
+    if (pluginId.isEmpty) {
+      return _agentError(
+        'invalid_arguments',
+        'plugin_manifest_update 缺少 pluginId',
+      );
+    }
+    if (plugins.pluginById(pluginId) == null) {
+      return _agentError('plugin_not_found', '插件不存在: $pluginId');
+    }
+    try {
+      await plugins.updateManifestMetadata(
+        pluginId,
+        name: (args['name'] as String? ?? '').trim().isEmpty
+            ? null
+            : (args['name'] as String? ?? '').trim(),
+        version: (args['version'] as String? ?? '').trim().isEmpty
+            ? null
+            : (args['version'] as String? ?? '').trim(),
+        author: (args['author'] as String? ?? '').trim().isEmpty
+            ? null
+            : (args['author'] as String? ?? '').trim(),
+        description: (args['description'] as String? ?? '').trim().isEmpty
+            ? null
+            : (args['description'] as String? ?? '').trim(),
+      );
+      return _agentOk({'pluginId': pluginId, 'updated': true});
+    } catch (e) {
+      return _agentError('plugin_manifest_update_failed', '$e');
+    }
   }
 
   Future<Map<String, dynamic>> _loadPluginSkill(
