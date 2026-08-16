@@ -10,6 +10,7 @@ import 'package:lynai/pages/chat_page.dart';
 import 'package:lynai/providers/calendar_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/knowledge_provider.dart';
+import 'package:lynai/providers/jotting_provider.dart';
 import 'package:lynai/providers/memory_card_provider.dart';
 import 'package:lynai/providers/model_config_provider.dart';
 import 'package:lynai/providers/plugin_provider.dart';
@@ -112,6 +113,7 @@ void main() {
             ChangeNotifierProvider.value(value: settings),
             ChangeNotifierProvider(create: (_) => FeatureProvider()),
             ChangeNotifierProvider(create: (_) => MemoryCardProvider()),
+            ChangeNotifierProvider(create: (_) => JottingProvider()),
             ChangeNotifierProvider(create: (_) => TaskProvider()),
             ChangeNotifierProvider(create: (_) => CalendarProvider()),
             ChangeNotifierProvider(create: (_) => ModelConfigProvider()),
@@ -178,6 +180,7 @@ void main() {
           ChangeNotifierProvider.value(value: models),
           ChangeNotifierProvider(create: (_) => FeatureProvider()),
             ChangeNotifierProvider(create: (_) => MemoryCardProvider()),
+            ChangeNotifierProvider(create: (_) => JottingProvider()),
           ChangeNotifierProvider(create: (_) => TaskProvider()),
           ChangeNotifierProvider(create: (_) => CalendarProvider()),
           ChangeNotifierProvider(create: (_) => PluginProvider()),
@@ -242,6 +245,7 @@ void main() {
           ChangeNotifierProvider.value(value: models),
           ChangeNotifierProvider(create: (_) => FeatureProvider()),
             ChangeNotifierProvider(create: (_) => MemoryCardProvider()),
+            ChangeNotifierProvider(create: (_) => JottingProvider()),
           ChangeNotifierProvider(create: (_) => TaskProvider()),
           ChangeNotifierProvider(create: (_) => CalendarProvider()),
           ChangeNotifierProvider(create: (_) => PluginProvider()),
@@ -314,6 +318,7 @@ void main() {
             ChangeNotifierProvider.value(value: models),
             ChangeNotifierProvider(create: (_) => FeatureProvider()),
             ChangeNotifierProvider(create: (_) => MemoryCardProvider()),
+            ChangeNotifierProvider(create: (_) => JottingProvider()),
             ChangeNotifierProvider(create: (_) => TaskProvider()),
             ChangeNotifierProvider(create: (_) => CalendarProvider()),
             ChangeNotifierProvider(create: (_) => PluginProvider()),

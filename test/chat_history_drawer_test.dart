@@ -12,6 +12,7 @@ import 'package:lynai/providers/calendar_provider.dart';
 import 'package:lynai/providers/conversation_provider.dart';
 import 'package:lynai/providers/feature_provider.dart';
 import 'package:lynai/providers/knowledge_provider.dart';
+import 'package:lynai/providers/jotting_provider.dart';
 import 'package:lynai/providers/plugin_provider.dart';
 import 'package:lynai/providers/settings_provider.dart';
 import 'package:lynai/providers/task_provider.dart';
@@ -208,6 +209,7 @@ Future<void> _pumpChat(
         ChangeNotifierProvider(create: (_) => CalendarProvider()),
         ChangeNotifierProvider(create: (_) => PluginProvider()),
         ChangeNotifierProvider(create: (_) => KnowledgeProvider()),
+        ChangeNotifierProvider(create: (_) => JottingProvider()),
         ChangeNotifierProvider(create: (_) => BackendClient()),
         Provider.value(value: storage),
       ],

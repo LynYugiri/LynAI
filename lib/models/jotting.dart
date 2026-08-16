@@ -47,13 +47,15 @@ class Jotting {
     return Jotting(
       id: json['id'] as String,
       content: json['content'] as String? ?? '',
-      tags: normalizeTags(
-        (json['tags'] as List<dynamic>? ?? const [])
-            .map((item) => item.toString()),
-      ),
+      tags: normalizeTags(_tagsFromJson(json['tags'])),
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: DateTime.parse(json['updatedAt'] as String),
     );
+  }
+
+  static List<String> _tagsFromJson(Object? raw) {
+    if (raw is! List) return const [];
+    return raw.map((item) => item.toString()).toList(growable: false);
   }
 
   Map<String, dynamic> toJson() => {
