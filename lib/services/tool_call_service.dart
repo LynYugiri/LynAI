@@ -2541,7 +2541,7 @@ ${lines.join('\n')}$more''';
         case 'read_jotting':
           return _readJotting(call);
         case 'save_jotting':
-          return _saveJotting(call);
+          return await _saveJotting(call);
         default:
           final functionName = LynAIFunctionService.aiToolAliases[call.name];
           if (functionName != null) {
