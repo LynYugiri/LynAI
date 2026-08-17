@@ -23,6 +23,7 @@ import 'mcp_settings_page.dart';
 import 'plugin_capability_management_page.dart';
 import 'permission_management_page.dart';
 import 'plugin_management_page.dart';
+import 'plugin_studio_home_page.dart';
 import 'recycle_bin_page.dart';
 import 'role_management_page.dart';
 import 'theme_page.dart';
@@ -208,6 +209,17 @@ class _SettingsPageState extends State<SettingsPage> {
             () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const RecycleBinPage()),
+            ),
+          ),
+          _buildItem(
+            context,
+            Icons.design_services_outlined,
+            '插件工坊',
+            '新建、编辑、恢复和发布插件',
+            Colors.purple,
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const PluginStudioHomePage()),
             ),
           ),
           _buildItem(

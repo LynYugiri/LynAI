@@ -198,7 +198,8 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
           IconButton(
             tooltip: '保存文件',
             onPressed:
-                _selectedPath == null || !provider.canEditCore(widget.pluginId)
+                _selectedPath == null ||
+                    !provider.isEditableFile(widget.pluginId, _selectedPath!)
                 ? null
                 : _saveFile,
             icon: const Icon(Icons.save),
@@ -264,7 +265,8 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
           ),
         ),
         const SizedBox(height: 4),
-        Expanded(
+        SizedBox(
+          height: 420,
           child: FutureBuilder<List<PluginFileEntry>>(
             future: _filesFuture,
             builder: (context, snapshot) {
@@ -337,7 +339,8 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
           ],
         ),
         const Divider(height: 1),
-        Expanded(
+        SizedBox(
+          height: 560,
           child: TextField(
             controller: controller,
             readOnly: readOnly,

@@ -16,6 +16,8 @@ import '../widgets/plugin_icon.dart';
 import 'plugin_management_page.dart' show PluginDetailPage;
 import 'plugin_market_detail_page.dart';
 import 'plugin_submission_page.dart';
+import 'plugin_studio_home_page.dart';
+import 'plugin_studio_page.dart';
 import 'my_submissions_page.dart';
 
 /// 插件市场页面。
@@ -73,6 +75,17 @@ class _PluginMarketPageState extends State<PluginMarketPage>
       appBar: AppBar(
         title: const Text('插件市场'),
         centerTitle: true,
+        actions: [
+          FilledButton.tonalIcon(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const PluginStudioHomePage()),
+            ),
+            icon: const Icon(Icons.design_services_outlined, size: 18),
+            label: const Text('工坊'),
+          ),
+          const SizedBox(width: 8),
+        ],
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
@@ -512,6 +525,14 @@ class _InstalledPluginCard extends StatelessWidget {
           onSelected: (value) => _handleAction(context, value),
           itemBuilder: (context) => [
             const PopupMenuItem(
+              value: 'studio',
+              child: ListTile(
+                leading: Icon(Icons.design_services_outlined),
+                title: Text('在插件工坊中打开'),
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
+            const PopupMenuItem(
               value: 'config',
               child: ListTile(
                 leading: Icon(Icons.settings_outlined),
@@ -536,6 +557,13 @@ class _InstalledPluginCard extends StatelessWidget {
 
   Future<void> _handleAction(BuildContext context, String action) async {
     switch (action) {
+      case 'studio':
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => PluginStudioPage(pluginId: plugin.id),
+          ),
+        );
       case 'config':
         await Navigator.push(
           context,
