@@ -418,4 +418,4 @@ Physical dataset activation is protected by a shared runtime barrier. It stops a
 
 ## 随记功能
 
-启动组合根新增 `JottingProvider`，并在数据加载、后台保存、Dataset 切换 flush/reload 和悬浮聊天中与既有 Feature/Knowledge/MemoryCard 等分区并列处理。随记数据文件 `jottings.json` 仅本地保存，不进入云/LAN 同步。
+启动组合根新增 `JottingProvider`，并在数据加载、后台保存、Dataset 切换 flush/reload 和悬浮聊天中与既有 Feature/Knowledge/MemoryCard 等分区并列处理。随记数据文件 `jottings.json` 仅本地保存，不进入云/LAN 同步。随记编辑使用独立全屏 `JottingEditorPage` Route，时间线页面保持挂载以保留滚动与筛选上下文。

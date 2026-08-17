@@ -412,4 +412,4 @@ rolls back to the previous dataset and leaves the target user unpublished.
 
 文件：`lib/providers/jotting_provider.dart`
 
-`JottingProvider` 是随记的唯一内存所有者，`ChangeNotifier with SerializedSaveQueue`。它持有按 `createdAt DESC, id` 排序的 `List<Jotting>`，提供 `add/update/delete/restorePayload` 与 `search/onThisDay/tagCounts`。变更先更新内存并通知 UI，再 `enqueueSave` 全量快照到 `jottings.json`；`load()` 使用 mutation generation 防竞态。删除先写入 `RecycleBinRepository`，再从内存移除。
+`JottingProvider` 是随记的唯一内存所有者，`ChangeNotifier with SerializedSaveQueue`。它持有按 `createdAt DESC, id` 排序的 `List<Jotting>`，提供 `add/update/delete/restorePayload` 与 `search/onThisDay/tagCounts`。变更先更新内存并通知 UI，再 `enqueueSave` 全量快照到 `jottings.json`；`load()` 使用 mutation generation 防竞态。删除先写入 `RecycleBinRepository`，再从内存移除。`add`/`update` 持久化失败时会回滚内存中的乐观状态并重新抛出，页面依赖该语义保留编辑内容。

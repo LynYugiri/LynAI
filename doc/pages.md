@@ -332,6 +332,8 @@ firewall prompt.
 
 ## 随记
 
-文件：`lib/pages/features/jottings_page.dart`、`lib/pages/features/jotting_detail_page.dart`
+文件：`lib/pages/features/jottings_page.dart`、`lib/pages/features/jotting_detail_page.dart`、`lib/pages/features/jotting_editor_page.dart`
 
-功能总览新增“随记”入口，`FeaturePage` 以 `lastFeature == 'jottings'` 进入。列表页按时间分组（今天/昨天/日期），支持关键词/正则（`FeatureSearchMatcher`）、标签 chips 和日期范围过滤。详情页复用 `MarkdownWithLatex` 渲染，编辑态提供多行输入、标签编辑与预览切换。新建/编辑状态由 `FeaturePage` 与 `JottingDetailState` 协调，返回前经 `confirmDiscardUnsavedChanges` 确认。
+功能总览新增“随记”入口，`FeaturePage` 以 `lastFeature == 'jottings'` 进入时间线页。时间线页不提供 AppBar 加号或 FAB，创建入口是顶部常驻“记下此刻的想法……”输入条；时间线按日期分组（今天/昨天/日期），保留关键词/正则（`FeatureSearchMatcher`）、标签和日期范围过滤，并在有筛选时提供“清除”。卡片直接渲染 `MarkdownWithLatex` 正文，长内容可展开/收起，标签和时间为元信息；点按进入只读详情页，长按唤起编辑/复制/删除操作。
+
+编辑统一使用全屏 `JottingEditorPage` Route，不替换 `FeaturePage` 的 body：新建与编辑共用该页面，顶部提供“完成”，底部为 Markdown 快捷工具栏（粗体、斜体、标题、列表、任务、引用、行内代码、链接、LaTeX）和标签入口；编辑/预览切换不会丢失光标或正文。保存等待 `JottingProvider` 持久化成功后 pop 并返回时间线，失败时留在编辑器并保留输入。取消/返回根据脏状态确认，无修改时直接返回。阅读态 `JottingDetail` 不再包含编辑器，只在顶部保留一个编辑入口。

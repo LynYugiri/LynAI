@@ -27,6 +27,38 @@ void main() {
     expect(repository.saveCalls, 1);
   });
 
+  test('failed add rolls back optimistic memory state', () async {
+    final repository = _JottingRepository()
+      ..allowSave.complete()
+      ..saveError = StateError('disk');
+    final provider = JottingProvider(
+      repository: repository,
+      recycleBinRepository: _RecycleBinRepository(),
+    );
+
+    await expectLater(provider.add('不会落盘的随记'), throwsStateError);
+
+    expect(provider.jottings, isEmpty);
+  });
+
+  test('failed update restores the durable value', () async {
+    final repository = _JottingRepository()..allowSave.complete();
+    final provider = JottingProvider(
+      repository: repository,
+      recycleBinRepository: _RecycleBinRepository(),
+    );
+    final id = await provider.add('原内容', tags: ['旧标签']);
+    repository.saveError = StateError('disk');
+
+    await expectLater(
+      provider.update(id, content: '新内容', tags: ['新标签']),
+      throwsStateError,
+    );
+
+    expect(provider.byId(id)?.content, '原内容');
+    expect(provider.byId(id)?.tags, ['旧标签']);
+  });
+
   test('search filters by query tags and date range', () async {
     final repository = _JottingRepository()..allowSave.complete();
     final provider = JottingProvider(
@@ -63,9 +95,7 @@ void main() {
     );
     expect(byDate.single.content, contains('深度工作'));
 
-    final limited = provider.search(
-      const JottingSearchFilter(limit: 1),
-    );
+    final limited = provider.search(const JottingSearchFilter(limit: 1));
     expect(limited, hasLength(1));
     expect(limited.single.content, '周末去爬山');
   });
@@ -110,17 +140,20 @@ void main() {
 class _JottingRepository implements JottingRepository {
   final allowSave = Completer<void>();
   Future<JottingLoadResult>? loadResult;
+  Object? saveError;
   int saveCalls = 0;
 
   @override
   Future<JottingLoadResult> load() async {
-    return await (loadResult ?? Future.value(const JottingLoadResult(jottings: [])));
+    return await (loadResult ??
+        Future.value(const JottingLoadResult(jottings: [])));
   }
 
   @override
   Future<void> replace(JottingLoadResult value) async {
     saveCalls++;
     await allowSave.future;
+    if (saveError case final error?) throw error;
   }
 }
 

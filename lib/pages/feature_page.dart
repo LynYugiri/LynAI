@@ -60,13 +60,10 @@ class _FeaturePageState extends State<FeaturePage> {
 
   final _searchController = TextEditingController();
   final _noteDetailKey = GlobalKey<NoteDetailState>();
-  final _jottingDetailKey = GlobalKey<JottingDetailState>();
   final _knowledgePageKey = GlobalKey<KnowledgePageState>();
   String _searchQuery = '';
   String? _selectedNoteId;
   bool _noteEditing = false;
-  String? _selectedJottingId;
-  bool _jottingEditing = false;
 
   @override
   void dispose() {
@@ -89,10 +86,6 @@ class _FeaturePageState extends State<FeaturePage> {
       _closeSelectedNote();
       return true;
     }
-    if (_selectedJottingId != null) {
-      _closeSelectedJotting();
-      return true;
-    }
     final feature = context.read<SettingsProvider>().settings.lastFeature;
     if (feature == 'knowledge' &&
         (_knowledgePageKey.currentState?.handleBack() ?? false)) {
@@ -107,13 +100,10 @@ class _FeaturePageState extends State<FeaturePage> {
 
   Future<void> _goToDashboard() async {
     if (!await _canLeaveSelectedNote()) return;
-    if (!await _canLeaveSelectedJotting()) return;
     if (!mounted) return;
     setState(() {
       _selectedNoteId = null;
       _noteEditing = false;
-      _selectedJottingId = null;
-      _jottingEditing = false;
       _searchQuery = '';
       _searchController.clear();
     });
@@ -129,22 +119,8 @@ class _FeaturePageState extends State<FeaturePage> {
     });
   }
 
-  Future<void> _closeSelectedJotting() async {
-    if (!await _canLeaveSelectedJotting()) return;
-    if (!mounted) return;
-    setState(() {
-      _selectedJottingId = null;
-      _jottingEditing = false;
-    });
-  }
-
   Future<bool> _canLeaveSelectedNote() async {
     return await _noteDetailKey.currentState?.confirmDiscardUnsavedChanges() ??
-        true;
-  }
-
-  Future<bool> _canLeaveSelectedJotting() async {
-    return await _jottingDetailKey.currentState?.confirmDiscardUnsavedChanges() ??
         true;
   }
 
@@ -167,12 +143,6 @@ class _FeaturePageState extends State<FeaturePage> {
                 tooltip: '笔记列表',
                 icon: const Icon(Icons.menu),
                 onPressed: _closeSelectedNote,
-              )
-            : _selectedJottingId != null
-            ? IconButton(
-                tooltip: '随记列表',
-                icon: const Icon(Icons.menu),
-                onPressed: _closeSelectedJotting,
               )
             : IconButton(
                 tooltip: '返回功能总览',
@@ -220,19 +190,9 @@ class _FeaturePageState extends State<FeaturePage> {
         'knowledge' => KnowledgePage(key: _knowledgePageKey),
         'cards' => const MemoryCardsPage(),
         'jottings' => JottingsPage(
-          detailKey: _jottingDetailKey,
-          selectedJottingId: _selectedJottingId,
-          editing: _jottingEditing,
-          onSelect: (id) => setState(() {
-            _selectedJottingId = id;
-            _jottingEditing = false;
-          }),
-          onEditingChanged: (v) => setState(() => _jottingEditing = v),
-          onBack: _closeSelectedJotting,
           searchController: _searchController,
           searchQuery: _searchQuery,
           onSearchChanged: (v) => setState(() => _searchQuery = v),
-          onNewJotting: _newJotting,
         ),
         _ when pluginFeature != null && widget.active => PluginFeatureWebView(
           plugin: pluginFeature.plugin,
@@ -254,7 +214,6 @@ class _FeaturePageState extends State<FeaturePage> {
       if (title != null && title.isNotEmpty) return title;
       return '笔记';
     }
-    if (_selectedJottingId != null) return '随记';
     return switch (feature) {
       'schedule' => '日程表',
       'notes' => '笔记',
@@ -292,13 +251,10 @@ class _FeaturePageState extends State<FeaturePage> {
 
   Future<void> _selectFeature(String value) async {
     if (!await _canLeaveSelectedNote()) return;
-    if (!await _canLeaveSelectedJotting()) return;
     if (!mounted) return;
     setState(() {
       _selectedNoteId = null;
       _noteEditing = false;
-      _selectedJottingId = null;
-      _jottingEditing = false;
       _searchQuery = '';
       _searchController.clear();
     });
@@ -341,15 +297,6 @@ class _FeaturePageState extends State<FeaturePage> {
         ),
       ];
     }
-    if (feature == 'jottings' && _selectedJottingId == null) {
-      return [
-        IconButton(
-          tooltip: '新建随记',
-          icon: const Icon(Icons.add),
-          onPressed: _newJotting,
-        ),
-      ];
-    }
     return const [];
   }
 
@@ -370,12 +317,6 @@ class _FeaturePageState extends State<FeaturePage> {
       return AddMenuButton(
         items: const [AddMenuItem('todo', Icons.checklist, '新建任务清单')],
         onSelected: (_) => _newTodoList(),
-      );
-    }
-    if (feature == 'jottings' && _selectedJottingId == null) {
-      return AddMenuButton(
-        items: const [AddMenuItem('jotting', Icons.edit_note, '新建随记')],
-        onSelected: (_) => _newJotting(),
       );
     }
     return null;
@@ -457,13 +398,6 @@ class _FeaturePageState extends State<FeaturePage> {
     await context.read<FeatureProvider>().addNoteFolder(title);
     if (!mounted) return;
     _clearSearch();
-  }
-
-  void _newJotting() {
-    setState(() {
-      _selectedJottingId = null;
-      _jottingEditing = true;
-    });
   }
 
   Future<void> _importMarkdown() async {

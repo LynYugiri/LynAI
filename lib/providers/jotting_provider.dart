@@ -106,7 +106,17 @@ class JottingProvider extends ChangeNotifier with SerializedSaveQueue {
     _mutationGeneration++;
     _jottings = _normalize([..._jottings, item]);
     notifyListeners();
-    await enqueueSave(() => _repository.replace(_snapshot()));
+    try {
+      await enqueueSave(() => _repository.replace(_snapshot()));
+    } catch (_) {
+      final index = _jottings.indexWhere((value) => value.id == item.id);
+      if (index >= 0 && _sameJotting(_jottings[index], item)) {
+        _mutationGeneration++;
+        _jottings = List.of(_jottings)..removeAt(index);
+        notifyListeners();
+      }
+      rethrow;
+    }
     return item.id;
   }
 
@@ -121,6 +131,7 @@ class JottingProvider extends ChangeNotifier with SerializedSaveQueue {
     }
     final index = _jottings.indexWhere((item) => item.id == id);
     if (index < 0) return;
+    final before = List<Jotting>.from(_jottings);
     final current = _jottings[index];
     _mutationGeneration++;
     final updated = Jotting(
@@ -134,7 +145,14 @@ class JottingProvider extends ChangeNotifier with SerializedSaveQueue {
     next[index] = updated;
     _jottings = _normalize(next);
     notifyListeners();
-    await enqueueSave(() => _repository.replace(_snapshot()));
+    try {
+      await enqueueSave(() => _repository.replace(_snapshot()));
+    } catch (_) {
+      _mutationGeneration++;
+      _jottings = before;
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<void> delete(String id) async {
@@ -239,6 +257,14 @@ class JottingProvider extends ChangeNotifier with SerializedSaveQueue {
       return createdCompare != 0 ? createdCompare : a.id.compareTo(b.id);
     });
     return result;
+  }
+
+  bool _sameJotting(Jotting left, Jotting right) {
+    return left.id == right.id &&
+        left.content == right.content &&
+        listEquals(left.tags, right.tags) &&
+        left.createdAt == right.createdAt &&
+        left.updatedAt == right.updatedAt;
   }
 
   JottingLoadResult _snapshot() {
