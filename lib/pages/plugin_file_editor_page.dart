@@ -186,7 +186,38 @@ class _PluginFileEditorPageState extends State<PluginFileEditorPage> {
         );
   }
 
+  Future<bool> _confirmSyntaxErrorsIfAny() async {
+    final summary = parseCodeSyntax(
+      fileTypeFromPath(widget.path),
+      _controller.text,
+    );
+    if (!summary.supported || !summary.parsed || !summary.hasError) {
+      return true;
+    }
+    if (!context.mounted) return false;
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('检测到语法错误'),
+        content: const Text('当前文件可能存在语法错误，仍要保存吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('仍要保存'),
+          ),
+        ],
+      ),
+    );
+    return result == true;
+  }
+
   Future<void> _save() async {
+    if (!await _confirmSyntaxErrorsIfAny()) return;
+    if (!mounted) return;
     setState(() => _saving = true);
     try {
       await context.read<PluginProvider>().writeEditableFile(

@@ -20,6 +20,16 @@ CodeSyntaxHighlighter createCodeHighlighter(TextStyle baseStyle) {
   return TreeSitterSyntaxHighlighter(fallback);
 }
 
+/// 使用原生 tree-sitter 解析 [language] 对应的源码并返回解析摘要。
+///
+/// 供编辑器保存前做语法检查；Web、未知语言或原生库不可用时返回
+/// [TreeSitterParseSummary.unavailable]，调用方应据此跳过检查。
+TreeSitterParseSummary parseCodeSyntax(String? language, String source) {
+  final definition = TreeSitterLanguageRegistry.find(language);
+  if (definition == null) return TreeSitterParseSummary.unavailable;
+  return TreeSitterNative.instance.parseSummary(definition.id, source);
+}
+
 /// 代码语法高亮器抽象基类。
 ///
 /// 继承自 flutter_markdown_plus 的 [SyntaxHighlighter]，添加带语言参数的

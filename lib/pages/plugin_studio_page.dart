@@ -140,6 +140,8 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
     final controller = _controller;
     final path = _selectedPath;
     if (controller == null || path == null) return;
+    if (!await _confirmSyntaxErrorsIfAny(path, controller.text)) return;
+    if (!mounted) return;
     try {
       await context.read<PluginProvider>().writeEditableFile(
         widget.pluginId,
@@ -165,6 +167,32 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
         );
       }
     }
+  }
+
+  Future<bool> _confirmSyntaxErrorsIfAny(String path, String content) async {
+    final summary = parseCodeSyntax(fileTypeFromPath(path), content);
+    if (!summary.supported || !summary.parsed || !summary.hasError) {
+      return true;
+    }
+    if (!mounted) return false;
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('检测到语法错误'),
+        content: const Text('当前文件可能存在语法错误，仍要保存吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('仍要保存'),
+          ),
+        ],
+      ),
+    );
+    return result == true;
   }
 
   Future<bool> _confirmDiscard() async {
