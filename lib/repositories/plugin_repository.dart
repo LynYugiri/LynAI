@@ -1709,6 +1709,11 @@ class PluginRepository {
       return true;
     }
     if (_isEditableSkillPath(plugin, normalized)) return true;
+    if (!isBuiltInPlugin(plugin) &&
+        (plugin.devState == PluginDevState.draft ||
+            plugin.devState == PluginDevState.testing)) {
+      return true;
+    }
     return plugin.grantedPermissions.contains('files:write');
   }
 

@@ -20,6 +20,9 @@ class AdminApprovedPluginsPage extends StatefulWidget {
 class _AdminApprovedPluginsPageState extends State<AdminApprovedPluginsPage> {
   List<MarketPluginEntry> _plugins = const [];
   bool _loading = false;
+  bool _loadingMore = false;
+  bool _hasMore = false;
+  int _page = 1;
   String? _error;
 
   @override
@@ -48,6 +51,8 @@ class _AdminApprovedPluginsPageState extends State<AdminApprovedPluginsPage> {
       if (!mounted) return;
       setState(() {
         _plugins = result.entries;
+        _hasMore = result.hasMore;
+        _page = 1;
         _loading = false;
       });
     } catch (e) {
@@ -98,8 +103,26 @@ class _AdminApprovedPluginsPageState extends State<AdminApprovedPluginsPage> {
     }
     return ListView.builder(
       padding: const EdgeInsets.all(12),
-      itemCount: _plugins.length,
+      itemCount: _plugins.length + (_hasMore ? 1 : 0),
       itemBuilder: (context, index) {
+        if (index == _plugins.length) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Center(
+              child: TextButton.icon(
+                icon: _loadingMore
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.expand_more),
+                label: Text(_loadingMore ? '加载中…' : '加载更多'),
+                onPressed: _loadMore,
+              ),
+            ),
+          );
+        }
         final entry = _plugins[index];
         return Card(
           margin: const EdgeInsets.only(bottom: 12),
@@ -148,6 +171,33 @@ class _AdminApprovedPluginsPageState extends State<AdminApprovedPluginsPage> {
         );
       },
     );
+  }
+
+  Future<void> _loadMore() async {
+    if (_loadingMore || !_hasMore) return;
+    final backend = context.read<BackendClient>();
+    if (!backend.isConnected) return;
+    setState(() => _loadingMore = true);
+    try {
+      final result = await RemoteMarketService(
+        backend,
+      ).listPlugins(MarketQuery(page: _page + 1, pageSize: 100));
+      if (!mounted) return;
+      final seen = _plugins.map((plugin) => plugin.id).toSet();
+      setState(() {
+        _plugins = [
+          ..._plugins,
+          ...result.entries.where((plugin) => !seen.contains(plugin.id)),
+        ];
+        _hasMore = result.hasMore;
+        _page += 1;
+        _loadingMore = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loadingMore = false);
+      showErrorSnackBar(context, '加载更多失败', details: e.toString());
+    }
   }
 
   Future<void> _onAction(MarketPluginEntry entry, String action) async {
@@ -203,7 +253,6 @@ class _AdminApprovedPluginsPageState extends State<AdminApprovedPluginsPage> {
       await RemoteMarketService(context.read<BackendClient>()).updatePlugin(
         entry.id,
         name: result.name,
-        version: result.version,
         description: result.description,
         category: result.category,
       );
@@ -220,13 +269,11 @@ class _AdminApprovedPluginsPageState extends State<AdminApprovedPluginsPage> {
 class _EditResult {
   const _EditResult({
     required this.name,
-    required this.version,
     required this.description,
     required this.category,
   });
 
   final String name;
-  final String version;
   final String description;
   final String category;
 }
@@ -242,7 +289,6 @@ class _EditPluginDialog extends StatefulWidget {
 
 class _EditPluginDialogState extends State<_EditPluginDialog> {
   late final TextEditingController _name;
-  late final TextEditingController _version;
   late final TextEditingController _description;
   late final TextEditingController _category;
 
@@ -250,7 +296,6 @@ class _EditPluginDialogState extends State<_EditPluginDialog> {
   void initState() {
     super.initState();
     _name = TextEditingController(text: widget.entry.name);
-    _version = TextEditingController(text: widget.entry.version);
     _description = TextEditingController(text: widget.entry.description);
     _category = TextEditingController(text: widget.entry.category);
   }
@@ -258,7 +303,6 @@ class _EditPluginDialogState extends State<_EditPluginDialog> {
   @override
   void dispose() {
     _name.dispose();
-    _version.dispose();
     _description.dispose();
     _category.dispose();
     super.dispose();
@@ -276,11 +320,6 @@ class _EditPluginDialogState extends State<_EditPluginDialog> {
             TextField(
               controller: _name,
               decoration: const InputDecoration(labelText: '名称'),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _version,
-              decoration: const InputDecoration(labelText: '版本'),
             ),
             const SizedBox(height: 8),
             TextField(
@@ -303,17 +342,16 @@ class _EditPluginDialogState extends State<_EditPluginDialog> {
         ),
         FilledButton(
           onPressed: () {
-            if (_name.text.trim().isEmpty || _version.text.trim().isEmpty) {
+            if (_name.text.trim().isEmpty) {
               ScaffoldMessenger.of(
                 context,
-              ).showSnackBar(const SnackBar(content: Text('名称和版本不能为空')));
+              ).showSnackBar(const SnackBar(content: Text('名称不能为空')));
               return;
             }
             Navigator.pop(
               context,
               _EditResult(
                 name: _name.text.trim(),
-                version: _version.text.trim(),
                 description: _description.text.trim(),
                 category: _category.text.trim(),
               ),

@@ -210,11 +210,10 @@ class RemoteMarketService implements MarketService {
     }
   }
 
-  /// 更新插件元数据（管理员）。
+  /// 更新插件元数据（管理员）。版本不能在此修改，新版本必须重新提交 ZIP。
   Future<void> updatePlugin(
     String id, {
     required String name,
-    required String version,
     String? description,
     String? category,
   }) async {
@@ -222,10 +221,8 @@ class RemoteMarketService implements MarketService {
       '/market/plugins/$id',
       body: {
         'name': name,
-        'version': version,
-        if (description != null && description.isNotEmpty)
-          'description': description,
-        if (category != null && category.isNotEmpty) 'category': category,
+        'description': description ?? '',
+        'category': category ?? '',
       },
     );
     if (resp.statusCode != 200) {

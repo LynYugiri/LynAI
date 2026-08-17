@@ -208,6 +208,23 @@ void main() {
     );
   });
 
+  test(
+    'draft plugins can create arbitrary files without files:write',
+    () async {
+      final r = repo();
+      final imported = await r.importZipBytes(_pluginZip('demo'));
+      final active = imported;
+      expect(
+        () => r.writePluginTextFile(active, 'assets/icon.png', 'x'),
+        throwsA(isA<Exception>()),
+      );
+
+      final draft = imported.copyWith(devState: PluginDevState.draft);
+      await r.writePluginTextFile(draft, 'assets/icon.png', 'x');
+      expect(await r.readPluginTextFile(draft.path, 'assets/icon.png'), 'x');
+    },
+  );
+
   test('built-in plugins keep plugin.json and entry protected', () async {
     final r = repo();
     final source = '${Directory.current.path}/assets/plugins/weather-query';

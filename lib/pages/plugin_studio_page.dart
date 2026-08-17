@@ -7,6 +7,7 @@ import '../repositories/plugin_repository.dart';
 import '../services/code_syntax_service.dart';
 import '../utils/file_picker_io_utils.dart';
 import '../utils/snackbar_utils.dart';
+import '../widgets/text_editing_controller_host.dart';
 import 'plugin_file_editor_page.dart' show PluginCodeEditingController;
 
 /// 插件工坊页面。
@@ -79,30 +80,33 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
     if (file == null || !mounted) return;
     final targetPath = await showDialog<String>(
       context: context,
-      builder: (context) {
-        final controller = TextEditingController(text: file.name);
-        return AlertDialog(
-          title: const Text('上传文件'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(
-              labelText: '目标路径',
-              border: OutlineInputBorder(),
+      builder: (context) => TextEditingControllerHost(
+        initialTexts: [file.name],
+        builder: (context, controllers) {
+          final controller = controllers.single;
+          return AlertDialog(
+            title: const Text('上传文件'),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: '目标路径',
+                border: OutlineInputBorder(),
+              ),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, controller.text.trim()),
-              child: const Text('上传'),
-            ),
-          ],
-        );
-      },
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, controller.text.trim()),
+                child: const Text('上传'),
+              ),
+            ],
+          );
+        },
+      ),
     );
     if (targetPath == null || targetPath.isEmpty || !mounted) return;
     try {
