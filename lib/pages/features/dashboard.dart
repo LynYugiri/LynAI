@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../../providers/plugin_provider.dart';
 import '../../../widgets/plugin_icon.dart';
+import '../plugin_studio_home_page.dart';
 import 'feature_shared.dart';
 
 /// 功能总览仪表盘。
@@ -63,6 +64,12 @@ class FeatureDashboard extends StatelessWidget {
       title: '记忆卡片',
       subtitle: '间隔重复，复习记忆',
     ),
+    FeatureDashboardItem(
+      value: 'plugin-studio',
+      icon: Icons.design_services_outlined,
+      title: '插件工坊',
+      subtitle: '新建、编辑与发布插件',
+    ),
   ];
 
   @override
@@ -91,7 +98,14 @@ class FeatureDashboard extends StatelessWidget {
             final item = items[index];
             return _FeatureDashboardCard(
               item: item,
-              onTap: () => onFeatureSelected(item.value),
+              onTap: item.value == 'plugin-studio'
+                  ? () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const PluginStudioHomePage(),
+                      ),
+                    )
+                  : () => onFeatureSelected(item.value),
             );
           },
         );
