@@ -197,14 +197,18 @@ Agent 工具轮数上限保存为 `ConversationSettings.maxToolRounds`（新建�
 
 ## PluginStudioPage
 
-文件：`lib/pages/plugin_studio_page.dart`
+文件：`lib/pages/plugin_studio_page.dart`（能力编辑器与就地运行/预览见 `lib/pages/plugin_studio_capability_editors.dart`）
 
-插件工坊是插件创作的集中入口，宽屏为三栏布局（文件树 / 代码编辑器 / 属性检查器），窄屏退化为卡片列表。
+插件工坊是插件创作的集中入口，宽屏为两栏布局（文件树 / 属性检查器），窄屏退化为卡片列表。点击文件进入全屏 `PluginFileEditorPage` 编辑，工坊内不再保留常驻内嵌编辑器。
 
 | 行为 | 说明 |
 |------|------|
-| 文件树 | 使用 `PluginProvider.listDeveloperFiles`，非内置插件显示 `plugin.json` 和入口脚本；只读文件带锁提示。 |
-| 代码编辑器 | 复用 `PluginCodeEditingController` 语法高亮，支持保存、自动换行。 |
+| 文件树 | 使用 `PluginProvider.listDeveloperFiles`，支持新建文件、上传、重命名、删除、恢复默认；点击文件进入全屏编辑器。 |
+| 属性检查器 | 汇总开发状态、能力速览、元数据、依赖、权限、恢复点，以及 tools/functions/commands/skills/featurePages/settings 的能力编辑器。 |
+| 能力编辑 | 通过 `PluginProvider.setManifest*` 可视化增删改各能力清单并写回 `plugin.json`；仍可点 `plugin.json` 手写。 |
+| 就地运行 | 对 tool/function/command 提供「运行」入口，经 `PluginLuaRuntimeService.executeTool/executeFunction/executeCommandHandler` 执行并展示结果 JSON（以插件当前已授权权限为准）。 |
+| 就地预览 | Skill 读取 `skills/<name>.md` 用 `MarkdownWithLatex` 预览；功能页复用 `PluginPagePreviewPage` 预览。 |
+| 保存并重新加载 | 顶部刷新按钮调用 `PluginProvider.refreshManifests(save: true)`，编辑文件后一键生效。 |
 | 开发状态 | 非内置插件可切换草稿/测试中/已定型；已定型后核心文件只读。 |
 | 元数据编辑 | 修改名称、版本、作者、描述并写回 `plugin.json`。 |
 | 依赖编辑 | 从已安装插件中添加依赖，或移除已有依赖。 |

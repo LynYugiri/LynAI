@@ -4,16 +4,17 @@ import 'package:provider/provider.dart';
 import '../models/plugin.dart';
 import '../providers/plugin_provider.dart';
 import '../repositories/plugin_repository.dart';
-import '../services/code_syntax_service.dart';
 import '../utils/file_picker_io_utils.dart';
 import '../utils/snackbar_utils.dart';
 import '../widgets/text_editing_controller_host.dart';
-import 'plugin_file_editor_page.dart' show PluginCodeEditingController;
+import 'plugin_file_editor_page.dart';
+import 'plugin_studio_capability_editors.dart';
 
 /// 插件工坊页面。
 ///
-/// 以三栏布局提供插件创作入口：左侧文件树、中间代码编辑器、右侧属性检查器。
-/// 窄屏自动退化为单栏卡片布局。
+/// 以两栏布局提供插件创作入口：左侧文件树、右侧属性检查器（开发状态、元数据、
+/// 能力清单、依赖、权限、恢复点）。点击文件进入全屏 [PluginFileEditorPage]
+/// 编辑，避免内嵌编辑器与全屏编辑器两套体验并存。窄屏自动退化为单栏卡片布局。
 class PluginStudioPage extends StatefulWidget {
   const PluginStudioPage({super.key, required this.pluginId});
 
@@ -24,10 +25,6 @@ class PluginStudioPage extends StatefulWidget {
 }
 
 class _PluginStudioPageState extends State<PluginStudioPage> {
-  String? _selectedPath;
-  PluginCodeEditingController? _controller;
-  String _savedContent = '';
-
   late Future<List<PluginFileEntry>> _filesFuture;
   late Future<List<PluginRecoveryPoint>> _recoveryFuture;
 
@@ -42,28 +39,27 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
     );
   }
 
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
+  void _refreshFiles() {
+    setState(() {
+      _filesFuture = context.read<PluginProvider>().listDeveloperFiles(
+        widget.pluginId,
+      );
+    });
   }
 
-  bool get _dirty => _controller != null && _controller!.text != _savedContent;
-
-  Future<void> _selectFile(String path) async {
-    if (_dirty && !await _confirmDiscard()) return;
-    if (!mounted) return;
-    final provider = context.read<PluginProvider>();
+  Future<void> _reloadPlugin() async {
     try {
-      final content = await provider.readDeveloperFile(widget.pluginId, path);
+      await context.read<PluginProvider>().refreshManifests(save: true);
       if (!mounted) return;
-      _controller?.dispose();
-      _controller = PluginCodeEditingController(
-        text: content,
-        language: fileTypeFromPath(path),
-      );
-      _savedContent = content;
-      setState(() => _selectedPath = path);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('插件已重新加载')));
+      _refreshFiles();
+      setState(() {
+        _recoveryFuture = context.read<PluginProvider>().listRecoveryPoints(
+          widget.pluginId,
+        );
+      });
     } catch (e) {
       if (mounted) {
         showErrorSnackBar(
@@ -73,6 +69,221 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
         );
       }
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<PluginProvider>();
+    final plugin = provider.pluginById(widget.pluginId);
+    if (plugin == null) {
+      return const Scaffold(body: Center(child: Text('插件不存在')));
+    }
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('${plugin.displayName} · 插件工坊'),
+        actions: [
+          IconButton(
+            tooltip: '保存并重新加载',
+            onPressed: _reloadPlugin,
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+      ),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final wide = constraints.maxWidth >= 900;
+          if (!wide) {
+            return ListView(
+              padding: const EdgeInsets.all(12),
+              children: [
+                _fileTreeCard(plugin),
+                const SizedBox(height: 12),
+                ..._inspectorCards(plugin),
+              ],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(width: 300, child: _fileTreeCard(plugin)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: _inspectorCards(plugin),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // ---- 文件树 ----
+
+  Widget _fileTreeCard(InstalledPlugin plugin) {
+    return Card(
+      margin: const EdgeInsets.all(8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text('文件', style: Theme.of(context).textTheme.titleMedium),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: () => _createFile(),
+                  icon: const Icon(Icons.note_add_outlined, size: 18),
+                  label: const Text('新建文件'),
+                ),
+                TextButton.icon(
+                  onPressed: () => _uploadFile(plugin),
+                  icon: const Icon(Icons.upload_file, size: 18),
+                  label: const Text('上传'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 440,
+              child: FutureBuilder<List<PluginFileEntry>>(
+                future: _filesFuture,
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final files = snapshot.data!;
+                  if (files.isEmpty) return const Text('没有文件');
+                  return ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: files.length,
+                    itemBuilder: (context, index) {
+                      final file = files[index];
+                      return ListTile(
+                        dense: true,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                        ),
+                        leading: Icon(
+                          file.isDirectory
+                              ? Icons.folder_outlined
+                              : file.isEditable
+                              ? Icons.edit_outlined
+                              : Icons.visibility_outlined,
+                          size: 18,
+                        ),
+                        title: Text(
+                          file.path,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: file.isDefault ? Colors.grey[500] : null,
+                          ),
+                        ),
+                        subtitle: file.isDefault
+                            ? const Text(
+                                '出厂版本',
+                                style: TextStyle(fontSize: 11),
+                              )
+                            : null,
+                        onTap: file.isDirectory
+                            ? null
+                            : () => _openFile(file),
+                        onLongPress: file.isDirectory
+                            ? null
+                            : () => _showFileActions(file),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openFile(PluginFileEntry file) async {
+    try {
+      final provider = context.read<PluginProvider>();
+      final content = await provider.readDeveloperFile(widget.pluginId, file.path);
+      if (!mounted) return;
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PluginFileEditorPage(
+            pluginId: widget.pluginId,
+            path: file.path,
+            initialContent: content,
+            readOnly: !file.isEditable,
+          ),
+        ),
+      );
+      if (!mounted) return;
+      _refreshFiles();
+    } catch (e) {
+      if (mounted) {
+        showErrorSnackBar(
+          context,
+          e.toString().replaceFirst('Exception: ', ''),
+          details: e.toString(),
+        );
+      }
+    }
+  }
+
+  Future<void> _createFile() async {
+    final path = await showDialog<String>(
+      context: context,
+      builder: (context) => TextEditingControllerHost(
+        initialTexts: const [''],
+        builder: (context, controllers) {
+          final controller = controllers.single;
+          return AlertDialog(
+            title: const Text('新建文件'),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: '文件名',
+                hintText: '例如 style.css',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () =>
+                    Navigator.pop(context, controller.text.trim()),
+                child: const Text('创建'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    if (path == null || path.isEmpty || !mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PluginFileEditorPage(
+          pluginId: widget.pluginId,
+          path: path,
+          initialContent: '',
+        ),
+      ),
+    );
+    if (!mounted) return;
+    _refreshFiles();
   }
 
   Future<void> _uploadFile(InstalledPlugin plugin) async {
@@ -121,11 +332,7 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('文件已上传')));
-      setState(() {
-        _filesFuture = context.read<PluginProvider>().listDeveloperFiles(
-          widget.pluginId,
-        );
-      });
+      _refreshFiles();
     } catch (e) {
       if (!mounted) return;
       showErrorSnackBar(
@@ -136,28 +343,100 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
     }
   }
 
-  Future<void> _saveFile() async {
-    final controller = _controller;
-    final path = _selectedPath;
-    if (controller == null || path == null) return;
-    if (!await _confirmSyntaxErrorsIfAny(path, controller.text)) return;
-    if (!mounted) return;
+  Future<void> _showFileActions(PluginFileEntry file) async {
+    final isCore = context.read<PluginProvider>().isCoreDeveloperFile(
+      widget.pluginId,
+      file.path,
+    );
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (file.isEditable && !file.isDefault && !isCore)
+              ListTile(
+                leading: const Icon(Icons.drive_file_rename_outline),
+                title: const Text('重命名'),
+                onTap: () => Navigator.pop(context, 'rename'),
+              ),
+            if (file.hasDefault && !file.isDefault)
+              ListTile(
+                leading: const Icon(Icons.restore),
+                title: const Text('恢复默认'),
+                onTap: () => Navigator.pop(context, 'restore'),
+              ),
+            if (file.isEditable && !file.isDefault && !isCore)
+              ListTile(
+                leading: Icon(
+                  Icons.delete_outline,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+                title: Text(
+                  '删除',
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+                onTap: () => Navigator.pop(context, 'delete'),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    switch (action) {
+      case 'rename':
+        await _renameFile(file);
+      case 'restore':
+        await _restoreDefault(file);
+      case 'delete':
+        await _deleteFile(file);
+    }
+  }
+
+  Future<void> _renameFile(PluginFileEntry file) async {
+    final next = await showDialog<String>(
+      context: context,
+      builder: (context) => TextEditingControllerHost(
+        initialTexts: [file.path],
+        builder: (context, controllers) {
+          final controller = controllers.single;
+          return AlertDialog(
+            title: const Text('重命名文件'),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: '新路径',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, controller.text.trim()),
+                child: const Text('重命名'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    if (next == null || next.isEmpty || !mounted) return;
     try {
-      await context.read<PluginProvider>().writeEditableFile(
+      await context.read<PluginProvider>().renameFile(
         widget.pluginId,
-        path,
-        controller.text,
+        file.path,
+        next,
       );
-      _savedContent = controller.text;
       if (mounted) {
-        setState(() {});
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('文件已保存')));
-        _filesFuture = context.read<PluginProvider>().listDeveloperFiles(
-          widget.pluginId,
-        );
+        ).showSnackBar(const SnackBar(content: Text('文件已重命名')));
       }
+      _refreshFiles();
     } catch (e) {
       if (mounted) {
         showErrorSnackBar(
@@ -169,17 +448,12 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
     }
   }
 
-  Future<bool> _confirmSyntaxErrorsIfAny(String path, String content) async {
-    final summary = parseCodeSyntax(fileTypeFromPath(path), content);
-    if (!summary.supported || !summary.parsed || !summary.hasError) {
-      return true;
-    }
-    if (!mounted) return false;
-    final result = await showDialog<bool>(
+  Future<void> _deleteFile(PluginFileEntry file) async {
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('检测到语法错误'),
-        content: const Text('当前文件可能存在语法错误，仍要保存吗？'),
+        title: const Text('删除文件'),
+        content: Text('确定删除 "${file.path}"？'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -187,283 +461,145 @@ class _PluginStudioPageState extends State<PluginStudioPage> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('仍要保存'),
+            child: const Text('删除'),
           ),
         ],
       ),
     );
-    return result == true;
+    if (confirmed != true || !mounted) return;
+    try {
+      await context.read<PluginProvider>().deleteFile(widget.pluginId, file.path);
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('文件已删除')));
+      }
+      _refreshFiles();
+    } catch (e) {
+      if (mounted) {
+        showErrorSnackBar(
+          context,
+          e.toString().replaceFirst('Exception: ', ''),
+          details: e.toString(),
+        );
+      }
+    }
   }
 
-  Future<bool> _confirmDiscard() async {
-    final result = await showDialog<bool>(
+  Future<void> _restoreDefault(PluginFileEntry file) async {
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('放弃未保存修改？'),
-        content: const Text('当前文件还有未保存修改，切换文件会丢失这些内容。'),
+        title: const Text('恢复默认'),
+        content: Text('将 "${file.path}" 恢复为出厂默认版本，当前修改将被丢弃。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
             child: const Text('取消'),
           ),
-          TextButton(
+          FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('放弃修改'),
+            child: const Text('恢复默认'),
           ),
         ],
       ),
     );
-    return result == true;
+    if (confirmed != true || !mounted) return;
+    try {
+      await context.read<PluginProvider>().deleteFile(widget.pluginId, file.path);
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('已恢复默认')));
+      }
+      _refreshFiles();
+    } catch (e) {
+      if (mounted) {
+        showErrorSnackBar(
+          context,
+          e.toString().replaceFirst('Exception: ', ''),
+          details: e.toString(),
+        );
+      }
+    }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final provider = context.watch<PluginProvider>();
-    final plugin = provider.pluginById(widget.pluginId);
-    if (plugin == null) {
-      return const Scaffold(body: Center(child: Text('插件不存在')));
-    }
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('${plugin.displayName} · 插件工坊'),
-        actions: [
-          IconButton(
-            tooltip: '保存文件',
-            onPressed:
-                _selectedPath == null ||
-                    !provider.isEditableFile(widget.pluginId, _selectedPath!)
-                ? null
-                : _saveFile,
-            icon: const Icon(Icons.save),
-          ),
-        ],
-      ),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final wide = constraints.maxWidth >= 900;
-          if (!wide) {
-            return ListView(
-              padding: const EdgeInsets.all(12),
-              children: [
-                _StudioSection(title: '文件', child: _buildFileTree(plugin)),
-                const SizedBox(height: 12),
-                _StudioSection(title: '编辑器', child: _buildEditorPane(plugin)),
-                const SizedBox(height: 12),
-                _StudioSection(title: '属性', child: _buildInspector(plugin)),
-              ],
-            );
-          }
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              SizedBox(
-                width: 250,
-                child: _StudioSection(
-                  title: '文件',
-                  child: _buildFileTree(plugin),
-                ),
-              ),
-              const VerticalDivider(width: 1),
-              Expanded(
-                child: _StudioSection(
-                  title: '编辑器',
-                  child: _buildEditorPane(plugin),
-                ),
-              ),
-              const VerticalDivider(width: 1),
-              SizedBox(
-                width: 320,
-                child: _StudioSection(
-                  title: '属性',
-                  child: _buildInspector(plugin),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
+  // ---- 属性检查器 ----
 
-  Widget _buildFileTree(InstalledPlugin plugin) {
-    return Column(
-      children: [
-        Align(
-          alignment: Alignment.centerRight,
-          child: TextButton.icon(
-            icon: const Icon(Icons.upload_file, size: 18),
-            label: const Text('上传文件'),
-            onPressed: () => _uploadFile(plugin),
-          ),
-        ),
-        const SizedBox(height: 4),
-        SizedBox(
-          height: 420,
-          child: FutureBuilder<List<PluginFileEntry>>(
-            future: _filesFuture,
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              final files = snapshot.data!;
-              if (files.isEmpty) return const Text('没有文件');
-              return ListView.builder(
-                shrinkWrap: true,
-                itemCount: files.length,
-                itemBuilder: (context, index) {
-                  final file = files[index];
-                  final selected = file.path == _selectedPath;
-                  final editable = file.isEditable;
-                  return ListTile(
-                    dense: true,
-                    selected: selected,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-                    leading: Icon(
-                      file.isDirectory
-                          ? Icons.folder_outlined
-                          : editable
-                          ? Icons.edit_outlined
-                          : Icons.visibility_outlined,
-                      size: 18,
-                    ),
-                    title: Text(
-                      file.path,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: file.isDefault ? Colors.grey[500] : null,
-                      ),
-                    ),
-                    subtitle: file.isDefault
-                        ? const Text('出厂版本', style: TextStyle(fontSize: 11))
-                        : null,
-                    onTap: file.isDirectory
-                        ? null
-                        : () => _selectFile(file.path),
-                  );
-                },
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildEditorPane(InstalledPlugin plugin) {
-    if (_selectedPath == null) {
-      return const Center(child: Text('从左侧选择一个文件开始编辑'));
-    }
-    final readOnly = !context.read<PluginProvider>().isEditableFile(
-      widget.pluginId,
-      _selectedPath!,
-    );
-    final controller = _controller;
-    if (controller == null) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    return Column(
-      children: [
-        Row(
+  List<Widget> _inspectorCards(InstalledPlugin plugin) {
+    return [
+      _StudioSection(
+        title: '开发状态',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(child: Text(_selectedPath!)),
-            if (_dirty)
-              TextButton(onPressed: _saveFile, child: const Text('保存')),
+            Text(
+              '${plugin.devState.label} · ${plugin.devState.description}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            SegmentedButton<PluginDevState>(
+              segments: [
+                for (final state in PluginDevState.values)
+                  ButtonSegment(value: state, label: Text(state.label)),
+              ],
+              selected: {plugin.devState},
+              onSelectionChanged: PluginRepository.builtInPluginIds.contains(
+                plugin.id,
+              )
+                  ? null
+                  : (selection) {
+                      final state = selection.single;
+                      if (state == plugin.devState) return;
+                      _runStudioAction(
+                        () => context.read<PluginProvider>().setDevState(
+                          plugin.id,
+                          state,
+                        ),
+                        success: '开发状态已切换为「${state.label}」',
+                      );
+                    },
+            ),
           ],
         ),
-        const Divider(height: 1),
-        SizedBox(
-          height: 560,
-          child: TextField(
-            controller: controller,
-            readOnly: readOnly,
-            expands: true,
-            maxLines: null,
-            minLines: null,
-            keyboardType: TextInputType.multiline,
-            textAlignVertical: TextAlignVertical.top,
-            cursorColor: const Color(0xFF61AFEF),
-            style: const TextStyle(
-              fontFamily: codeFontFamily,
-              fontSize: 14,
-              height: 1.45,
-            ),
-            decoration: const InputDecoration(
-              border: InputBorder.none,
-              contentPadding: EdgeInsets.all(16),
-            ),
+      ),
+      _StudioSection(
+        title: '能力速览',
+        child: Text(
+          '工具(tools) 是模型可调用的能力；函数(functions) 供插件内部或跨插件调用；'
+          '命令(commands) 是命令面板选项源；Skill 是按需加载的方法论正文；'
+          '功能页(featurePages) 是 WebView 界面；设置项(settings) 渲染为插件配置表单。',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
         ),
-      ],
-    );
+      ),
+      _MetadataEditor(plugin: plugin, enabled: _canEditCore(plugin)),
+      PluginStudioToolsEditor(plugin: plugin),
+      PluginStudioFunctionsEditor(plugin: plugin),
+      PluginStudioCommandsEditor(plugin: plugin),
+      PluginStudioSkillsEditor(plugin: plugin),
+      PluginStudioFeaturePagesEditor(plugin: plugin),
+      PluginStudioSettingsEditor(plugin: plugin),
+      _DependencyEditor(plugin: plugin, enabled: _canEditCore(plugin)),
+      _PermissionEditor(plugin: plugin, enabled: _canEditCore(plugin)),
+      _RecoveryPointsCard(
+        pluginId: plugin.id,
+        recoveryFuture: _recoveryFuture,
+        onRestored: () {
+          _refreshFiles();
+          setState(() {
+            _recoveryFuture = context.read<PluginProvider>().listRecoveryPoints(
+              widget.pluginId,
+            );
+          });
+        },
+      ),
+    ];
   }
 
-  Widget _buildInspector(InstalledPlugin plugin) {
-    final canEditCore = context.read<PluginProvider>().canEditCore(
-      widget.pluginId,
-    );
-    return ListView(
-      shrinkWrap: true,
-      children: [
-        _StudioSection(
-          title: '开发状态',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '${plugin.devState.label} · ${plugin.devState.description}',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 8),
-              SegmentedButton<PluginDevState>(
-                segments: [
-                  for (final state in PluginDevState.values)
-                    ButtonSegment(value: state, label: Text(state.label)),
-                ],
-                selected: {plugin.devState},
-                onSelectionChanged:
-                    PluginRepository.builtInPluginIds.contains(plugin.id)
-                    ? null
-                    : (selection) {
-                        final state = selection.single;
-                        if (state == plugin.devState) return;
-                        _runStudioAction(
-                          () => context.read<PluginProvider>().setDevState(
-                            plugin.id,
-                            state,
-                          ),
-                          success: '开发状态已切换为「${state.label}」',
-                        );
-                      },
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        _MetadataEditor(plugin: plugin, enabled: canEditCore),
-        const SizedBox(height: 8),
-        _DependencyEditor(plugin: plugin, enabled: canEditCore),
-        const SizedBox(height: 8),
-        _PermissionEditor(plugin: plugin, enabled: canEditCore),
-        const SizedBox(height: 8),
-        _RecoveryPointsCard(
-          pluginId: plugin.id,
-          recoveryFuture: _recoveryFuture,
-          onRestored: () {
-            _controller?.dispose();
-            _controller = null;
-            _selectedPath = null;
-            setState(() {
-              _filesFuture = context.read<PluginProvider>().listDeveloperFiles(
-                widget.pluginId,
-              );
-              _recoveryFuture = context
-                  .read<PluginProvider>()
-                  .listRecoveryPoints(widget.pluginId);
-            });
-          },
-        ),
-      ],
-    );
+  bool _canEditCore(InstalledPlugin plugin) {
+    return context.read<PluginProvider>().canEditCore(plugin.id);
   }
 
   Future<void> _runStudioAction(

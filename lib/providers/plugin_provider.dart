@@ -467,6 +467,72 @@ class PluginProvider extends ChangeNotifier {
         return manifest.copyWith(dependencies: dependencies);
       });
 
+  /// 覆盖 manifest 中声明的工具列表，写回 plugin.json 并重载。
+  Future<void> setManifestTools(
+    String pluginId,
+    List<PluginToolDefinition> tools,
+  ) => _updateManifest(
+    pluginId,
+    (manifest) => manifest.copyWith(
+      tools: List<PluginToolDefinition>.from(tools),
+    ),
+  );
+
+  /// 覆盖 manifest 中声明的函数列表，写回 plugin.json 并重载。
+  Future<void> setManifestFunctions(
+    String pluginId,
+    List<PluginFunctionDefinition> functions,
+  ) => _updateManifest(
+    pluginId,
+    (manifest) => manifest.copyWith(
+      functions: List<PluginFunctionDefinition>.from(functions),
+    ),
+  );
+
+  /// 覆盖 manifest 中声明的命令列表，写回 plugin.json 并重载。
+  Future<void> setManifestCommands(
+    String pluginId,
+    List<PluginCommandDefinition> commands,
+  ) => _updateManifest(
+    pluginId,
+    (manifest) => manifest.copyWith(
+      commands: List<PluginCommandDefinition>.from(commands),
+    ),
+  );
+
+  /// 覆盖 manifest 中声明的 Skill 列表，写回 plugin.json 并重载。
+  Future<void> setManifestSkills(
+    String pluginId,
+    List<PluginSkillDefinition> skills,
+  ) => _updateManifest(
+    pluginId,
+    (manifest) => manifest.copyWith(
+      skills: List<PluginSkillDefinition>.from(skills),
+    ),
+  );
+
+  /// 覆盖 manifest 中声明的功能页列表，写回 plugin.json 并重载。
+  Future<void> setManifestFeaturePages(
+    String pluginId,
+    List<PluginFeaturePageDefinition> featurePages,
+  ) => _updateManifest(
+    pluginId,
+    (manifest) => manifest.copyWith(
+      featurePages: List<PluginFeaturePageDefinition>.from(featurePages),
+    ),
+  );
+
+  /// 覆盖 manifest 中声明的设置项列表，写回 plugin.json 并重载。
+  Future<void> setManifestSettings(
+    String pluginId,
+    List<PluginSettingDefinition> settings,
+  ) => _updateManifest(
+    pluginId,
+    (manifest) => manifest.copyWith(
+      settings: List<PluginSettingDefinition>.from(settings),
+    ),
+  );
+
   /// 串行修改 manifest：先写 plugin.json，再重载内存状态。
   Future<void> _updateManifest(
     String pluginId,
