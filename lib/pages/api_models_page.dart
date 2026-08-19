@@ -1499,7 +1499,7 @@ class _EditModelPageState extends State<_EditModelPage> {
         if (!mounted) return;
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('刷新失败，请检查登录状态和后端配置')));
+        ).showSnackBar(const SnackBar(content: Text('刷新失败，请检查后端连接')));
         return;
       }
       ModelConfig? latest;

@@ -232,7 +232,7 @@ Agent 工具轮数上限保存为 `ConversationSettings.maxToolRounds`（新建�
 
 文件：`lib/pages/settings_page.dart`
 
-设置页本身是入口卡片，具体配置由子页面承担。顶部显示 `AccountHeaderCard` 账号卡片：已登录时显示头像、用户名和退出登录按钮；未登录时显示登录按钮，点击后弹出 `LoginDialog`（手机号+密码，可切换注册模式）。后端未连接时登录/注册不可用，并提示先配置后端地址。
+设置页本身是入口卡片，具体配置由子页面承担。顶部显示 `AccountHeaderCard` 账号卡片：已登录时显示头像、用户名和退出登录按钮；未登录时显示登录按钮，点击后弹出 `LoginDialog`（手机号+密码，可切换注册模式）。测试期间后端地址写死为 `http://8.138.82.3:8080`，设置页不再提供「连接到服务端」入口，未登录也能使用 LynAI 托管模型。
 
 | 页面 | 文件 | 说明 |
 |------|------|------|
@@ -270,7 +270,7 @@ HTTP server 录入 endpoint，并可显式允许 HTTP 或私网；默认要求 H
 
 文件：`lib/pages/data_management_page.dart`
 
-数据管理页顶部使用“本地/云端”分段，默认进入本地。storage_v2 创建和升级在启动阶段自动完成；设置页只保留「连接到服务端」入口。
+数据管理页顶部使用“本地/云端”分段，默认进入本地。storage_v2 创建和升级在启动阶段自动完成；测试期间设置页不提供「连接到服务端」入口，后端地址由代码写死。
 
 本地分段保持隐私说明、备份导出、备份读取预览、导入模式和冲突处理。云端分段读取当前账号与连接状态，展示索引 generation/revision、记录与 Blob 容量、分类统计、持久缓存对象和详情；对象详情绑定当前 `indexRevision`，revision 已变化时拒绝显示过期混合结果。刷新失败时继续显示上次成功缓存。索引浏览、对象/分类清理、全部清理和 operation ACK 分别受 `index`、`selectivePurge`、`fullPurge`、`operationAck` capability 门控；不支持的按钮和入口禁用，ACK 不支持时 pending operation 保留。用户可在此执行立即双向同步并处理 `SyncProvider` 冲突；普通同步同样会自动发现管理操作并完成必要 reseed，无需先打开本页。
 

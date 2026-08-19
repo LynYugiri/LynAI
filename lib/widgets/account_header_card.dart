@@ -171,10 +171,10 @@ class _LoggedOutCard extends StatelessWidget {
                       ),
                       Text(
                         !account.isBackendConnected
-                            ? '可在下方连接可信 HTTPS 服务端；内置 HTTP 地址仅供隔离测试。'
+                            ? '服务端地址由测试配置写死，当前未连接。'
                             : backend.usesInsecureHttp
-                            ? '当前远程 HTTP 后端仅供隔离测试，请勿使用真实账号、常用密码或生产数据。'
-                            : '已连接 HTTPS 服务端，登录后可使用服务端模型与同步能力。',
+                            ? '当前远程 HTTP 后端仅供隔离测试，请勿使用真实账号、常用密码或生产数据。未登录也可使用服务端模型。'
+                            : '已连接 HTTPS 服务端，未登录也可使用服务端模型；登录后可使用同步能力。',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),

@@ -57,8 +57,8 @@ void main() {
   });
 
   group('BackendClient requests', () {
-    test('has no hard-coded default backend address', () {
-      expect(BackendClient.defaultBackendUrl, isEmpty);
+    test('uses the hard-coded test backend address', () {
+      expect(BackendClient.defaultBackendUrl, 'http://8.138.82.3:8080');
     });
 
     test('canonicalizes backend URLs and origins', () {

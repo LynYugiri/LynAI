@@ -66,7 +66,6 @@ import 'utils/flush_tasks.dart';
 import 'utils/managed_model_id_migration.dart';
 import 'utils/open_source_licenses.dart';
 import 'widgets/changelog_dialog.dart';
-import 'widgets/login_dialog.dart';
 
 const _conversationSyncTables = {
   'conversations',
@@ -852,7 +851,6 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
       final backendClient = context.read<BackendClient>();
       final deviceIdentityService = context.read<DeviceIdentityService>();
       final storageV2 = context.read<StorageV2Service>();
-      final deviceSettings = context.read<DeviceSettingsService>();
       final webSearch = context.read<WebSearchService>();
       AgentRunPersistenceLifecycle? agentPersistence;
       AgentToolResultProcessor? agentToolResultProcessor;
@@ -899,12 +897,18 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         roleplay: roleplayProvider,
         plugins: pluginProvider,
       );
-      final bootstrapBackend = await deviceSettings.loadBackendUrl(
-        defaultUrl:
-            settingsProvider.settings.backendUrl ??
-            BackendClient.defaultBackendUrl,
-      );
-      backendClient.configure(bootstrapBackend ?? '');
+      // 测试期间写死后端地址，不从设置页或设备偏好读取。
+      backendClient.configure(BackendClient.defaultBackendUrl);
+
+      // 测试期间允许未登录同步 LynAI relay 模型；设置超时避免后端不可用时阻塞启动。
+      await syncManagedModelsAndApplyMigrations(
+        models: modelProvider,
+        backend: backendClient,
+        settings: settingsProvider,
+        conversations: conversationProvider,
+        roleplay: roleplayProvider,
+        plugins: pluginProvider,
+      ).timeout(const Duration(seconds: 6), onTimeout: () => false);
 
       await deviceIdentityService.initialize();
       _accountRestoreFuture = accountProvider.restoreLocalSession();
@@ -1012,24 +1016,9 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   }
 
   Future<void> _showInitialLoginDialogIfNeeded() async {
-    final dialogContext = _navigatorKey.currentContext;
-    if (!mounted || dialogContext == null || !dialogContext.mounted) return;
-
-    final settings = dialogContext.read<SettingsProvider>();
-    final backend = dialogContext.read<BackendClient>();
-    final account = dialogContext.read<AccountProvider>();
-    if (settings.settings.hasSeenLoginGuide ||
-        !backend.isConnected ||
-        account.isLoggedIn) {
-      return;
-    }
-
-    await settings.markLoginGuideSeen();
-    if (!mounted || !dialogContext.mounted) return;
-    await showDialog<void>(
-      context: dialogContext,
-      builder: (_) => const LoginDialog(initialRegisterMode: true),
-    );
+    // 测试期间暂时关闭启动登录引导：未登录也可以直接使用 AI。
+    // 恢复时重新实现下方逻辑：读取 navigator context，在未登录且后端已连接时弹出登录引导。
+    return;
   }
 
   /// 遍历所有内置插件 ID，同步源码，并为首次安装的插件授予其声明权限。

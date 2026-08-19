@@ -115,7 +115,7 @@ Input + Attachments
 
 历史对话保存自己的 `ConversationSettings`，其中系统提示词保存选中当时的正文，而不只保存模板 ID。打开历史对话或继续发送时不会把该快照写回全局设置，也不会按当前同 ID 模板重新解析；全局模型、提示词或文件识别设置变化不会悄悄改变旧对话上下文。
 
-当选中的模型配置是 LynAI 托管模型时，`ApiService` 使用独立的 canonical request/response/SSE 编解码，请求目标固定为后端 `/relay/chat`，并由 `BackendClient` 当前 JWT 做鉴权。服务端按 body 中的 `model` 路由；客户端不读取任何上游 Provider 标识或 API 类型，也不选择 OpenAI/Anthropic/Ollama parser。ChatPage、浮窗和 Subagent 仍共享 `ApiService` 标准化输出，managed 工具能力只看模型 capability，direct 工具限制保持原行为。
+当选中的模型配置是 LynAI 托管模型时，`ApiService` 使用独立的 canonical request/response/SSE 编解码，请求目标固定为后端 `/relay/chat`，原由 `BackendClient` 当前 JWT 做鉴权；测试期间客户端不再强制登录，服务端对应路由也暂时关闭账号鉴权。服务端按 body 中的 `model` 路由；客户端不读取任何上游 Provider 标识或 API 类型，也不选择 OpenAI/Anthropic/Ollama parser。ChatPage、浮窗和 Subagent 仍共享 `ApiService` 标准化输出，managed 工具能力只看模型 capability，direct 工具限制保持原行为。
 
 主对话、Android 悬浮聊天和 `run_subagent` 已统一使用 `AgentLoopRuntime`，共享 turn identity、tool round、强制最终回复、取消和 durable lifecycle。当前对话级 `AgentPlan`、`AgentWorkingMemory` 与 trace 继续随 Conversation 保存；本机 durable run graph 独立记录 run、turn、assistant item、tool call 和终态 tool result，工具记录失败时不会开始副作用。聚焦测试可省略持久化注入，重启只清算未完成图而不重放。详细边界见 [Agent Runtime](agent-runtime.md)。
 

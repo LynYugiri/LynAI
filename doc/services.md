@@ -40,7 +40,7 @@ OpenAI 兼容和 Anthropic 流使用共享 `SseDecoder`，按空行分隔完整�
 
 `debugSse` 只输出 URI/model、状态码、事件数据长度、正文/思考长度、finish reason、tool 名称和参数数量等元数据。它不打印原始 SSE data、正文 preview、tool arguments、tool call ID、API error body 或非 2xx response body。
 
-`managed=true` 的 LynAI 托管模型走独立 canonical 中转契约：endpoint 为 `BackendClient.backendUrl + '/relay'`，Chat 请求发送到 `/relay/chat`，OCR、语音转文字和图片生成分别使用无版本的 `/relay/ocr`、`/relay/transcribe`、`/relay/images/generations`。鉴权使用用户 JWT，路由字段只发送 `model`，不发送 `providerId` 或 `api_type`。普通 OpenAI/Anthropic/Ollama Provider 仍使用各自 direct 路径和用户填写的凭据；direct Vivo AppID 行为不变。
+`managed=true` 的 LynAI 托管模型走独立 canonical 中转契约：endpoint 为 `BackendClient.backendUrl + '/relay'`，Chat 请求发送到 `/relay/chat`，OCR、语音转文字和图片生成分别使用无版本的 `/relay/ocr`、`/relay/transcribe`、`/relay/images/generations`。鉴权原使用用户 JWT；测试期间客户端不强制登录，服务端 `/relay` 的 chat/transcribe/ocr/images/config 也暂时关闭账号鉴权（speech 系列仍需要账号），路由字段只发送 `model`，不发送 `providerId` 或 `api_type`。普通 OpenAI/Anthropic/Ollama Provider 仍使用各自 direct 路径和用户填写的凭据；direct Vivo AppID 行为不变。
 
 ### 支持协议
 

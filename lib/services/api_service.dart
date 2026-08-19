@@ -94,10 +94,9 @@ class ApiService {
 
   BackendClient _managedBackend() {
     final backend = _backend;
-    if (backend == null ||
-        !backend.isConnected ||
-        (backend.accessToken ?? '').isEmpty) {
-      throw Exception('LynAI 中转需要登录后使用');
+    // 测试期间暂时注释掉账号认证要求，只要连接了后端就允许使用 AI。
+    if (backend == null || !backend.isConnected) {
+      throw Exception('LynAI 中转需要连接后端后使用');
     }
     return backend;
   }
@@ -151,7 +150,11 @@ class ApiService {
 
   void _applyManagedRelayAuth(Map<String, String> headers) {
     final backend = _managedBackend();
-    headers['Authorization'] = 'Bearer ${backend.accessToken}';
+    final token = backend.accessToken;
+    // 测试期间未登录时不附加 Authorization，已登录则保持原行为。
+    if (token != null && token.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $token';
+    }
   }
 
   bool _shouldLogSseDiagnostics(ModelConfig config) {

@@ -19,10 +19,8 @@ import 'backend_uri.dart';
 ///
 /// 这是一个 [ChangeNotifier]：当后端地址变化时通知依赖方。
 class BackendClient extends ChangeNotifier {
-  static const defaultBackendUrl = String.fromEnvironment(
-    'LYNAI_BACKEND_URL',
-    defaultValue: '',
-  );
+  // 测试期间写死后端地址，设置页不再配置后端。
+  static const defaultBackendUrl = 'http://8.138.82.3:8080';
   static const defaultRequestTimeout = Duration(seconds: 30);
 
   /// 创建后端客户端。

@@ -1,17 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/account_provider.dart';
-import '../providers/conversation_provider.dart';
-import '../providers/model_config_provider.dart';
-import '../providers/plugin_provider.dart';
 import '../providers/recycle_bin_provider.dart';
-import '../providers/roleplay_provider.dart';
 import '../providers/settings_provider.dart';
-import '../services/backend_client.dart';
-import '../services/device_settings_service.dart';
-import '../utils/managed_model_id_migration.dart';
 import '../widgets/account_header_card.dart';
-import '../widgets/text_editing_controller_host.dart';
 import 'about_page.dart';
 import 'admin_review_page.dart';
 import 'background_page.dart';
@@ -54,7 +46,6 @@ class _SettingsPageState extends State<SettingsPage> {
     final settings = context.watch<SettingsProvider>().settings;
     final recycleBinProvider = context.watch<RecycleBinProvider>();
     final account = context.watch<AccountProvider>();
-    final backend = context.watch<BackendClient>();
 
     return Scaffold(
       appBar: AppBar(title: const Text('设置'), centerTitle: true),
@@ -74,14 +65,6 @@ class _SettingsPageState extends State<SettingsPage> {
                 MaterialPageRoute(builder: (_) => const AdminReviewPage()),
               ),
             ),
-          _buildItem(
-            context,
-            Icons.dns_outlined,
-            '连接到服务端',
-            _backendSubtitle(backend.backendUrl, backend),
-            Colors.blueGrey,
-            () => _showBackendDialog(context),
-          ),
           _buildItem(
             context,
             Icons.info_outline,
@@ -260,117 +243,6 @@ class _SettingsPageState extends State<SettingsPage> {
         ],
       ),
     );
-  }
-
-  /// 弹出后端地址配置对话框。
-  Future<void> _showBackendDialog(BuildContext context) async {
-    final settingsProvider = context.read<SettingsProvider>();
-    final backend = context.read<BackendClient>();
-    final deviceSettings = context.read<DeviceSettingsService>();
-    final account = context.read<AccountProvider>();
-    final models = context.read<ModelConfigProvider>();
-    final conversations = context.read<ConversationProvider>();
-    final roleplay = context.read<RoleplayProvider>();
-    final plugins = context.read<PluginProvider>();
-
-    final result = await showDialog<String>(
-      context: context,
-      builder: (ctx) => TextEditingControllerHost(
-        initialTexts: [
-          backend.backendUrl.isNotEmpty
-              ? backend.backendUrl
-              : BackendClient.defaultBackendUrl,
-        ],
-        builder: (ctx, controllers) {
-          final controller = controllers.single;
-          return AlertDialog(
-            title: const Text('连接到服务端'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: controller,
-                  decoration: const InputDecoration(
-                    labelText: '后端地址',
-                    hintText: BackendClient.defaultBackendUrl,
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.link),
-                  ),
-                  keyboardType: TextInputType.url,
-                  autofocus: true,
-                ),
-                ValueListenableBuilder<TextEditingValue>(
-                  valueListenable: controller,
-                  builder: (context, value, _) {
-                    final warning = BackendClient.insecureHttpWarningFor(
-                      value.text,
-                    );
-                    if (warning == null) return const SizedBox.shrink();
-                    return Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Text(
-                        warning,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(ctx, '');
-                },
-                child: const Text('断开'),
-              ),
-              if (BackendClient.defaultBackendUrl.isNotEmpty)
-                TextButton(
-                  onPressed: () {
-                    Navigator.pop(ctx, BackendClient.defaultBackendUrl);
-                  },
-                  child: const Text('恢复默认'),
-                ),
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-                child: const Text('保存'),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-
-    if (result == null) return;
-    if (!context.mounted) return;
-
-    final url = result.isEmpty ? null : result;
-    await account.reconfigureBackend(
-      url: url,
-      persist: (value) async {
-        await deviceSettings.saveBackendUrl(value);
-        settingsProvider.updateBackendUrl(value);
-        await settingsProvider.flushPendingSaves();
-      },
-    );
-    if (!context.mounted) return;
-    await syncManagedModelsAndApplyMigrations(
-      models: models,
-      backend: backend,
-      settings: settingsProvider,
-      conversations: conversations,
-      roleplay: roleplay,
-      plugins: plugins,
-    );
-  }
-
-  String _backendSubtitle(String? savedUrl, BackendClient backend) {
-    if (!backend.isConnected) return '未连接';
-    return backend.usesInsecureHttp
-        ? '${backend.backendUrl}（未加密，仅限隔离测试）'
-        : backend.backendUrl;
   }
 
   // 构建统一的设置项卡片：圆形图标、标题、副标题和右侧箭头。

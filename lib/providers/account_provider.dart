@@ -287,7 +287,7 @@ class AccountProvider extends ChangeNotifier {
     retryPendingRevocations();
     final svc = _service;
     if (svc == null) {
-      _error = '未连接后端，请在设置中配置后端地址';
+      _error = '未连接后端，请检查服务端是否可用';
       _notifyListeners();
       return false;
     }
@@ -331,7 +331,7 @@ class AccountProvider extends ChangeNotifier {
     final generation = ++_operationGeneration;
     final svc = _service;
     if (svc == null) {
-      _error = '未连接后端，请在设置中配置后端地址';
+      _error = '未连接后端，请检查服务端是否可用';
       _notifyListeners();
       return false;
     }
