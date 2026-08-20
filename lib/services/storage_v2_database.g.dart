@@ -14156,6 +14156,18 @@ class $JottingRowsTable extends JottingRows
     requiredDuringInsert: false,
     defaultValue: const Constant('[]'),
   );
+  static const VerificationMeta _referencesJsonMeta = const VerificationMeta(
+    'referencesJson',
+  );
+  @override
+  late final GeneratedColumn<String> referencesJson = GeneratedColumn<String>(
+    'references_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('[]'),
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -14183,6 +14195,7 @@ class $JottingRowsTable extends JottingRows
     id,
     content,
     tagsJson,
+    referencesJson,
     createdAt,
     updatedAt,
   ];
@@ -14215,6 +14228,15 @@ class $JottingRowsTable extends JottingRows
       context.handle(
         _tagsJsonMeta,
         tagsJson.isAcceptableOrUnknown(data['tags_json']!, _tagsJsonMeta),
+      );
+    }
+    if (data.containsKey('references_json')) {
+      context.handle(
+        _referencesJsonMeta,
+        referencesJson.isAcceptableOrUnknown(
+          data['references_json']!,
+          _referencesJsonMeta,
+        ),
       );
     }
     if (data.containsKey('created_at')) {
@@ -14254,6 +14276,10 @@ class $JottingRowsTable extends JottingRows
         DriftSqlType.string,
         data['${effectivePrefix}tags_json'],
       )!,
+      referencesJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}references_json'],
+      )!,
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}created_at'],
@@ -14275,12 +14301,14 @@ class JottingRow extends DataClass implements Insertable<JottingRow> {
   final String id;
   final String content;
   final String tagsJson;
+  final String referencesJson;
   final String createdAt;
   final String updatedAt;
   const JottingRow({
     required this.id,
     required this.content,
     required this.tagsJson,
+    required this.referencesJson,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -14290,6 +14318,7 @@ class JottingRow extends DataClass implements Insertable<JottingRow> {
     map['id'] = Variable<String>(id);
     map['content'] = Variable<String>(content);
     map['tags_json'] = Variable<String>(tagsJson);
+    map['references_json'] = Variable<String>(referencesJson);
     map['created_at'] = Variable<String>(createdAt);
     map['updated_at'] = Variable<String>(updatedAt);
     return map;
@@ -14300,6 +14329,7 @@ class JottingRow extends DataClass implements Insertable<JottingRow> {
       id: Value(id),
       content: Value(content),
       tagsJson: Value(tagsJson),
+      referencesJson: Value(referencesJson),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
     );
@@ -14314,6 +14344,7 @@ class JottingRow extends DataClass implements Insertable<JottingRow> {
       id: serializer.fromJson<String>(json['id']),
       content: serializer.fromJson<String>(json['content']),
       tagsJson: serializer.fromJson<String>(json['tagsJson']),
+      referencesJson: serializer.fromJson<String>(json['referencesJson']),
       createdAt: serializer.fromJson<String>(json['createdAt']),
       updatedAt: serializer.fromJson<String>(json['updatedAt']),
     );
@@ -14325,6 +14356,7 @@ class JottingRow extends DataClass implements Insertable<JottingRow> {
       'id': serializer.toJson<String>(id),
       'content': serializer.toJson<String>(content),
       'tagsJson': serializer.toJson<String>(tagsJson),
+      'referencesJson': serializer.toJson<String>(referencesJson),
       'createdAt': serializer.toJson<String>(createdAt),
       'updatedAt': serializer.toJson<String>(updatedAt),
     };
@@ -14334,12 +14366,14 @@ class JottingRow extends DataClass implements Insertable<JottingRow> {
     String? id,
     String? content,
     String? tagsJson,
+    String? referencesJson,
     String? createdAt,
     String? updatedAt,
   }) => JottingRow(
     id: id ?? this.id,
     content: content ?? this.content,
     tagsJson: tagsJson ?? this.tagsJson,
+    referencesJson: referencesJson ?? this.referencesJson,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -14348,6 +14382,9 @@ class JottingRow extends DataClass implements Insertable<JottingRow> {
       id: data.id.present ? data.id.value : this.id,
       content: data.content.present ? data.content.value : this.content,
       tagsJson: data.tagsJson.present ? data.tagsJson.value : this.tagsJson,
+      referencesJson: data.referencesJson.present
+          ? data.referencesJson.value
+          : this.referencesJson,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
@@ -14359,6 +14396,7 @@ class JottingRow extends DataClass implements Insertable<JottingRow> {
           ..write('id: $id, ')
           ..write('content: $content, ')
           ..write('tagsJson: $tagsJson, ')
+          ..write('referencesJson: $referencesJson, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -14366,7 +14404,8 @@ class JottingRow extends DataClass implements Insertable<JottingRow> {
   }
 
   @override
-  int get hashCode => Object.hash(id, content, tagsJson, createdAt, updatedAt);
+  int get hashCode =>
+      Object.hash(id, content, tagsJson, referencesJson, createdAt, updatedAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -14374,6 +14413,7 @@ class JottingRow extends DataClass implements Insertable<JottingRow> {
           other.id == this.id &&
           other.content == this.content &&
           other.tagsJson == this.tagsJson &&
+          other.referencesJson == this.referencesJson &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
 }
@@ -14382,6 +14422,7 @@ class JottingRowsCompanion extends UpdateCompanion<JottingRow> {
   final Value<String> id;
   final Value<String> content;
   final Value<String> tagsJson;
+  final Value<String> referencesJson;
   final Value<String> createdAt;
   final Value<String> updatedAt;
   final Value<int> rowid;
@@ -14389,6 +14430,7 @@ class JottingRowsCompanion extends UpdateCompanion<JottingRow> {
     this.id = const Value.absent(),
     this.content = const Value.absent(),
     this.tagsJson = const Value.absent(),
+    this.referencesJson = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -14397,6 +14439,7 @@ class JottingRowsCompanion extends UpdateCompanion<JottingRow> {
     required String id,
     required String content,
     this.tagsJson = const Value.absent(),
+    this.referencesJson = const Value.absent(),
     required String createdAt,
     required String updatedAt,
     this.rowid = const Value.absent(),
@@ -14408,6 +14451,7 @@ class JottingRowsCompanion extends UpdateCompanion<JottingRow> {
     Expression<String>? id,
     Expression<String>? content,
     Expression<String>? tagsJson,
+    Expression<String>? referencesJson,
     Expression<String>? createdAt,
     Expression<String>? updatedAt,
     Expression<int>? rowid,
@@ -14416,6 +14460,7 @@ class JottingRowsCompanion extends UpdateCompanion<JottingRow> {
       if (id != null) 'id': id,
       if (content != null) 'content': content,
       if (tagsJson != null) 'tags_json': tagsJson,
+      if (referencesJson != null) 'references_json': referencesJson,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (rowid != null) 'rowid': rowid,
@@ -14426,6 +14471,7 @@ class JottingRowsCompanion extends UpdateCompanion<JottingRow> {
     Value<String>? id,
     Value<String>? content,
     Value<String>? tagsJson,
+    Value<String>? referencesJson,
     Value<String>? createdAt,
     Value<String>? updatedAt,
     Value<int>? rowid,
@@ -14434,6 +14480,7 @@ class JottingRowsCompanion extends UpdateCompanion<JottingRow> {
       id: id ?? this.id,
       content: content ?? this.content,
       tagsJson: tagsJson ?? this.tagsJson,
+      referencesJson: referencesJson ?? this.referencesJson,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       rowid: rowid ?? this.rowid,
@@ -14451,6 +14498,9 @@ class JottingRowsCompanion extends UpdateCompanion<JottingRow> {
     }
     if (tagsJson.present) {
       map['tags_json'] = Variable<String>(tagsJson.value);
+    }
+    if (referencesJson.present) {
+      map['references_json'] = Variable<String>(referencesJson.value);
     }
     if (createdAt.present) {
       map['created_at'] = Variable<String>(createdAt.value);
@@ -14470,6 +14520,7 @@ class JottingRowsCompanion extends UpdateCompanion<JottingRow> {
           ..write('id: $id, ')
           ..write('content: $content, ')
           ..write('tagsJson: $tagsJson, ')
+          ..write('referencesJson: $referencesJson, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
@@ -37125,6 +37176,7 @@ typedef $$JottingRowsTableCreateCompanionBuilder =
       required String id,
       required String content,
       Value<String> tagsJson,
+      Value<String> referencesJson,
       required String createdAt,
       required String updatedAt,
       Value<int> rowid,
@@ -37134,6 +37186,7 @@ typedef $$JottingRowsTableUpdateCompanionBuilder =
       Value<String> id,
       Value<String> content,
       Value<String> tagsJson,
+      Value<String> referencesJson,
       Value<String> createdAt,
       Value<String> updatedAt,
       Value<int> rowid,
@@ -37160,6 +37213,11 @@ class $$JottingRowsTableFilterComposer
 
   ColumnFilters<String> get tagsJson => $composableBuilder(
     column: $table.tagsJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get referencesJson => $composableBuilder(
+    column: $table.referencesJson,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -37198,6 +37256,11 @@ class $$JottingRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get referencesJson => $composableBuilder(
+    column: $table.referencesJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -37226,6 +37289,11 @@ class $$JottingRowsTableAnnotationComposer
 
   GeneratedColumn<String> get tagsJson =>
       $composableBuilder(column: $table.tagsJson, builder: (column) => column);
+
+  GeneratedColumn<String> get referencesJson => $composableBuilder(
+    column: $table.referencesJson,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<String> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
@@ -37274,6 +37342,7 @@ class $$JottingRowsTableTableManager
                 Value<String> id = const Value.absent(),
                 Value<String> content = const Value.absent(),
                 Value<String> tagsJson = const Value.absent(),
+                Value<String> referencesJson = const Value.absent(),
                 Value<String> createdAt = const Value.absent(),
                 Value<String> updatedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -37281,6 +37350,7 @@ class $$JottingRowsTableTableManager
                 id: id,
                 content: content,
                 tagsJson: tagsJson,
+                referencesJson: referencesJson,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 rowid: rowid,
@@ -37290,6 +37360,7 @@ class $$JottingRowsTableTableManager
                 required String id,
                 required String content,
                 Value<String> tagsJson = const Value.absent(),
+                Value<String> referencesJson = const Value.absent(),
                 required String createdAt,
                 required String updatedAt,
                 Value<int> rowid = const Value.absent(),
@@ -37297,6 +37368,7 @@ class $$JottingRowsTableTableManager
                 id: id,
                 content: content,
                 tagsJson: tagsJson,
+                referencesJson: referencesJson,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 rowid: rowid,

@@ -8,10 +8,16 @@ import '../../widgets/latex_renderer.dart';
 /// Editing is opened as a dedicated full-screen route by the parent timeline,
 /// keeping the timeline mounted and preserving its scroll position.
 class JottingDetail extends StatelessWidget {
-  const JottingDetail({super.key, required this.jotting, required this.onEdit});
+  const JottingDetail({
+    super.key,
+    required this.jotting,
+    required this.onEdit,
+    this.onReferenceTap,
+  });
 
   final Jotting jotting;
   final VoidCallback onEdit;
+  final ValueChanged<JottingReference>? onReferenceTap;
 
   @override
   Widget build(BuildContext context) {
@@ -55,6 +61,19 @@ class JottingDetail extends StatelessWidget {
                   ],
                 ),
               ],
+              if (jotting.references.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                for (final reference in jotting.references)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _ReferenceCard(
+                      reference: reference,
+                      onTap: onReferenceTap == null
+                          ? null
+                          : () => onReferenceTap!(reference),
+                    ),
+                  ),
+              ],
               const Divider(height: 28),
               MarkdownWithLatex(content: jotting.content),
             ],
@@ -72,5 +91,66 @@ class JottingDetail extends StatelessWidget {
     final hour = local.hour.toString().padLeft(2, '0');
     final minute = local.minute.toString().padLeft(2, '0');
     return '$year-$month-$day $hour:$minute';
+  }
+}
+
+class _ReferenceCard extends StatelessWidget {
+  const _ReferenceCard({required this.reference, this.onTap});
+
+  final JottingReference reference;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final (icon, color) = switch (reference.type) {
+      JottingReferenceType.note => (Icons.sticky_note_2_outlined, Colors.blue),
+      JottingReferenceType.task => (Icons.checklist, Colors.green),
+      JottingReferenceType.knowledgeEntry => (
+        Icons.local_library_outlined,
+        Colors.orange,
+      ),
+    };
+    return Material(
+      color: scheme.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          child: Row(
+            children: [
+              Icon(icon, size: 20, color: color),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      reference.title.isEmpty ? '未命名引用' : reference.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    if (reference.snippet.isNotEmpty)
+                      Text(
+                        reference.snippet,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              if (onTap != null)
+                Icon(Icons.chevron_right, color: scheme.outline),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

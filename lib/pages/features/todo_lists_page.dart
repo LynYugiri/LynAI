@@ -49,6 +49,25 @@ class TodoListsPageState extends State<TodoListsPage> {
   final Set<String> _expandedListIds = {};
   _TaskPageView _view = _TaskPageView.overview;
 
+  /// 从随记引用卡片跳转到指定任务：清单内任务展开对应清单，未归入清单
+  /// 的任务切换到对应状态视图。
+  void openTask(String taskId) {
+    if (!mounted) return;
+    final provider = context.read<TaskProvider>();
+    final task = provider.taskById(taskId);
+    final entry = provider.entryForTask(taskId);
+    setState(() {
+      if (entry != null) {
+        _view = _TaskPageView.overview;
+        _expandedListIds.add(entry.taskListId);
+      } else {
+        _view = task?.isCompleted == true
+            ? _TaskPageView.completed
+            : _TaskPageView.unfinished;
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<TaskProvider>();

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:file_picker/file_picker.dart' show FileType;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/jotting.dart';
 import '../providers/feature_provider.dart';
 import '../providers/plugin_provider.dart';
 import '../providers/settings_provider.dart';
@@ -61,6 +62,7 @@ class _FeaturePageState extends State<FeaturePage> {
   final _searchController = TextEditingController();
   final _noteDetailKey = GlobalKey<NoteDetailState>();
   final _knowledgePageKey = GlobalKey<KnowledgePageState>();
+  final _todoPageKey = GlobalKey<TodoListsPageState>();
   String _searchQuery = '';
   String? _selectedNoteId;
   bool _noteEditing = false;
@@ -176,6 +178,7 @@ class _FeaturePageState extends State<FeaturePage> {
           onNewFolder: _newNoteFolder,
         ),
         'todos' => TodoListsPage(
+          key: _todoPageKey,
           searchController: _searchController,
           searchQuery: _searchQuery,
           onSearchChanged: (v) => setState(() => _searchQuery = v),
@@ -193,6 +196,7 @@ class _FeaturePageState extends State<FeaturePage> {
           searchController: _searchController,
           searchQuery: _searchQuery,
           onSearchChanged: (v) => setState(() => _searchQuery = v),
+          onReferenceTap: _openJottingReference,
         ),
         _ when pluginFeature != null && widget.active => PluginFeatureWebView(
           plugin: pluginFeature.plugin,
@@ -259,6 +263,33 @@ class _FeaturePageState extends State<FeaturePage> {
       _searchController.clear();
     });
     context.read<SettingsProvider>().setLastFeature(value);
+  }
+
+  void _openJottingReference(JottingReference reference) {
+    setState(() {
+      _selectedNoteId = null;
+      _noteEditing = false;
+      _searchQuery = '';
+      _searchController.clear();
+    });
+    final settings = context.read<SettingsProvider>();
+    switch (reference.type) {
+      case JottingReferenceType.note:
+        setState(() => _selectedNoteId = reference.id);
+        settings.setLastFeature('notes');
+      case JottingReferenceType.task:
+        settings.setLastFeature('todos');
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _todoPageKey.currentState?.openTask(reference.id);
+        });
+      case JottingReferenceType.knowledgeEntry:
+        settings.setLastFeature('knowledge');
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _knowledgePageKey.currentState?.openEntry(reference.id);
+        });
+    }
   }
 
   List<Widget> _actions(String feature) {

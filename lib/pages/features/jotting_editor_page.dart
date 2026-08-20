@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/jotting.dart';
+import '../../providers/feature_provider.dart';
 import '../../providers/jotting_provider.dart';
+import '../../providers/knowledge_provider.dart';
+import '../../providers/task_provider.dart';
 import '../../widgets/latex_renderer.dart';
 
 /// Result returned by [JottingEditorPage] after a durable local save.
@@ -34,6 +37,8 @@ class JottingEditorPageState extends State<JottingEditorPage> {
   String _initialContent = '';
   List<String> _initialTags = const [];
   List<String> _tags = const [];
+  List<JottingReference> _initialReferences = const [];
+  List<JottingReference> _references = const [];
   TextSelection _lastSelection = const TextSelection.collapsed(offset: 0);
   bool _preview = false;
   bool _saving = false;
@@ -42,7 +47,8 @@ class JottingEditorPageState extends State<JottingEditorPage> {
 
   bool get _dirty =>
       _contentController.text != _initialContent ||
-      !_sameStringList(_tags, _initialTags);
+      !_sameStringList(_tags, _initialTags) ||
+      !_sameReferences(_references, _initialReferences);
 
   @override
   void initState() {
@@ -53,6 +59,10 @@ class JottingEditorPageState extends State<JottingEditorPage> {
     _initialContent = item?.content ?? '';
     _initialTags = List.unmodifiable(item?.tags ?? const <String>[]);
     _tags = List.of(_initialTags);
+    _initialReferences = List.unmodifiable(
+      item?.references ?? const <JottingReference>[],
+    );
+    _references = List.of(_initialReferences);
     _contentController.value = TextEditingValue(
       text: _initialContent,
       selection: TextSelection.collapsed(offset: _initialContent.length),
@@ -123,7 +133,8 @@ class JottingEditorPageState extends State<JottingEditorPage> {
           child: Column(
             children: [
               Expanded(child: _preview ? _buildPreview() : _buildEditor()),
-              _buildSelectedTags(),
+              _buildReferenceCards(),
+              _buildTagEditor(),
               _buildBottomToolbar(),
             ],
           ),
@@ -166,26 +177,64 @@ class JottingEditorPageState extends State<JottingEditorPage> {
     );
   }
 
-  Widget _buildSelectedTags() {
-    if (_tags.isEmpty) return const SizedBox.shrink();
+  Widget _buildReferenceCards() {
+    if (_references.isEmpty) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            for (final tag in _tags)
-              Padding(
-                padding: const EdgeInsets.only(right: 6),
-                child: InputChip(
-                  label: Text('#$tag'),
-                  visualDensity: VisualDensity.compact,
-                  onDeleted: _saving ? null : () => _removeTag(tag),
-                ),
+      margin: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+      padding: const EdgeInsets.fromLTRB(10, 4, 10, 4),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        children: [
+          for (var index = 0; index < _references.length; index++)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: _ReferenceCard(
+                reference: _references[index],
+                onDelete: _saving
+                    ? null
+                    : () => _removeReferenceAt(index),
               ),
-          ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTagEditor() {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        border: Border(
+          top: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.5)),
         ),
+      ),
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          for (final tag in _tags)
+            ActionChip(
+              label: Text('#$tag'),
+              visualDensity: VisualDensity.compact,
+              onPressed: _saving ? null : () => _editTag(tag),
+            ),
+          ActionChip(
+            label: const Text('+'),
+            tooltip: '添加标签',
+            visualDensity: VisualDensity.compact,
+            onPressed: _saving ? null : () => _addTag(),
+          ),
+        ],
       ),
     );
   }
@@ -200,40 +249,9 @@ class JottingEditorPageState extends State<JottingEditorPage> {
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 6),
           children: [
-            _toolButton(
-              Icons.format_bold,
-              '粗体',
-              () => _wrapSelection('**', placeholder: '粗体'),
-            ),
-            _toolButton(
-              Icons.format_italic,
-              '斜体',
-              () => _wrapSelection('*', placeholder: '斜体'),
-            ),
-            _toolButton(Icons.title, '标题', () => _prefixLines('## ')),
-            _toolButton(
-              Icons.format_list_bulleted,
-              '无序列表',
-              () => _prefixLines('- '),
-            ),
-            _toolButton(
-              Icons.check_box_outlined,
-              '任务列表',
-              () => _prefixLines('- [ ] '),
-            ),
-            _toolButton(Icons.format_quote, '引用', () => _prefixLines('> ')),
-            _toolButton(
-              Icons.code,
-              '行内代码',
-              () => _wrapSelection('`', placeholder: 'code'),
-            ),
-            _toolButton(Icons.link, '链接', _insertLink),
-            _toolButton(
-              Icons.functions,
-              'LaTeX 行内公式',
-              () => _wrapSelection(r'$', placeholder: 'x'),
-            ),
-            _toolButton(Icons.sell_outlined, '标签', _openTagSheet),
+            _toolButton(Icons.sticky_note_2_outlined, '插入笔记', _pickNoteReference),
+            _toolButton(Icons.checklist, '插入任务', _pickTaskReference),
+            _toolButton(Icons.local_library_outlined, '插入知识库', _pickKnowledgeReference),
             _toolButton(
               _preview ? Icons.edit_outlined : Icons.visibility_outlined,
               _preview ? '返回编辑' : '预览',
@@ -265,19 +283,122 @@ class JottingEditorPageState extends State<JottingEditorPage> {
     setState(() => _preview = true);
   }
 
-  Future<void> _openTagSheet() async {
-    final provider = context.read<JottingProvider>();
-    final result = await showModalBottomSheet<List<String>>(
+  void _removeReferenceAt(int index) {
+    setState(() => _references = List.of(_references)..removeAt(index));
+  }
+
+  Future<void> _editTag(String oldTag) async {
+    final controller = TextEditingController(text: oldTag);
+    final result = await showDialog<String>(
       context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (context) => _JottingTagSheet(
-        initialTags: _tags,
-        suggestions: provider.tagCounts(),
+      builder: (context) => AlertDialog(
+        title: const Text('编辑标签'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: '标签'),
+          onSubmitted: (value) => Navigator.pop(context, value.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('保存'),
+          ),
+        ],
       ),
     );
     if (!mounted || result == null) return;
-    setState(() => _tags = List.of(result));
+    final normalized = _normalizeTag(result);
+    if (normalized == null || normalized == oldTag) return;
+    setState(() {
+      _tags = _tags
+          .map((tag) => tag == oldTag ? normalized : tag)
+          .toList(growable: false);
+    });
+    if (!_preview) _contentFocus.requestFocus();
+  }
+
+  Future<void> _addTag() async {
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('添加标签'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: '标签'),
+          onSubmitted: (value) => Navigator.pop(context, value.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('添加'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || result == null) return;
+    final normalized = _normalizeTag(result);
+    if (normalized == null) return;
+    setState(() {
+      if (_tags.contains(normalized) || _tags.length >= Jotting.maxTagCount) {
+        return;
+      }
+      _tags = List.of(_tags)..add(normalized);
+    });
+    if (!_preview) _contentFocus.requestFocus();
+  }
+
+  String? _normalizeTag(String raw) {
+    final value = raw.trim().toLowerCase();
+    if (value.isEmpty || value.length > Jotting.maxTagLength) return null;
+    return value;
+  }
+
+  Future<void> _pickNoteReference() => _pickReference(
+    icon: Icons.sticky_note_2_outlined,
+    label: '笔记',
+    picker: const _JottingReferencePicker(type: JottingReferenceType.note),
+  );
+
+  Future<void> _pickTaskReference() => _pickReference(
+    icon: Icons.checklist,
+    label: '任务',
+    picker: const _JottingReferencePicker(type: JottingReferenceType.task),
+  );
+
+  Future<void> _pickKnowledgeReference() => _pickReference(
+    icon: Icons.local_library_outlined,
+    label: '知识库',
+    picker: const _JottingReferencePicker(
+      type: JottingReferenceType.knowledgeEntry,
+    ),
+  );
+
+  Future<void> _pickReference({
+    required IconData icon,
+    required String label,
+    required Widget picker,
+  }) async {
+    final reference = await showModalBottomSheet<JottingReference>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => picker,
+    );
+    if (!mounted || reference == null) return;
+    setState(() {
+      _references = List.of(_references)..add(reference);
+    });
     if (!_preview) _contentFocus.requestFocus();
   }
 
@@ -321,13 +442,24 @@ class JottingEditorPageState extends State<JottingEditorPage> {
     try {
       final provider = context.read<JottingProvider>();
       final id = widget.jottingId;
-      final savedId = id ?? await provider.add(content, tags: _tags);
+      final savedId = id ??
+          await provider.add(
+            content,
+            tags: _tags,
+            references: _references,
+          );
       if (id != null) {
-        await provider.update(id, content: content, tags: _tags);
+        await provider.update(
+          id,
+          content: content,
+          tags: _tags,
+          references: _references,
+        );
       }
       if (!mounted) return;
       _initialContent = content;
       _initialTags = List.unmodifiable(_tags);
+      _initialReferences = List.unmodifiable(_references);
       Navigator.of(
         context,
       ).pop(JottingEditorResult(jottingId: savedId, created: id == null));
@@ -338,93 +470,6 @@ class JottingEditorPageState extends State<JottingEditorPage> {
       ).showSnackBar(SnackBar(content: Text('保存失败，已保留编辑内容：$error')));
       setState(() => _saving = false);
     }
-  }
-
-  void _removeTag(String tag) {
-    setState(() => _tags = _tags.where((item) => item != tag).toList());
-  }
-
-  void _wrapSelection(String marker, {String placeholder = ''}) {
-    _wrapSelectionWith(marker, marker, placeholder: placeholder);
-  }
-
-  void _wrapSelectionWith(
-    String before,
-    String after, {
-    String placeholder = '',
-  }) {
-    _ensureEditMode();
-    final selection = _normalizedSelection;
-    final selected = selection.isCollapsed
-        ? placeholder
-        : _contentController.text.substring(selection.start, selection.end);
-    final replacement = '$before$selected$after';
-    _replaceRange(
-      selection.start,
-      selection.end,
-      replacement,
-      TextSelection(
-        baseOffset: selection.start + before.length,
-        extentOffset: selection.start + before.length + selected.length,
-      ),
-    );
-  }
-
-  void _prefixLines(String prefix) {
-    _ensureEditMode();
-    final range = _expandedLineRange;
-    final selected = _contentController.text.substring(range.start, range.end);
-    final replacement = selected
-        .split('\n')
-        .map(
-          (line) => line.startsWith(prefix)
-              ? line.substring(prefix.length)
-              : '$prefix$line',
-        )
-        .join('\n');
-    _replaceRange(range.start, range.end, replacement);
-  }
-
-  void _insertLink() {
-    _ensureEditMode();
-    final selection = _normalizedSelection;
-    final selected = selection.isCollapsed
-        ? '链接文字'
-        : _contentController.text.substring(selection.start, selection.end);
-    _replaceRange(
-      selection.start,
-      selection.end,
-      '[$selected](https://)',
-      TextSelection.collapsed(offset: selection.start + selected.length + 3),
-    );
-  }
-
-  void _ensureEditMode() {
-    if (!_preview) return;
-    setState(() => _preview = false);
-  }
-
-  void _replaceRange(
-    int start,
-    int end,
-    String replacement, [
-    TextSelection? selection,
-  ]) {
-    final safeStart = _clampOffset(start);
-    final safeEnd = _clampOffset(end);
-    final next = _contentController.text.replaceRange(
-      safeStart,
-      safeEnd,
-      replacement,
-    );
-    _contentController.value = TextEditingValue(
-      text: next,
-      selection:
-          selection ??
-          TextSelection.collapsed(offset: safeStart + replacement.length),
-    );
-    _lastSelection = _contentController.selection;
-    _contentFocus.requestFocus();
   }
 
   TextSelection get _normalizedSelection {
@@ -440,20 +485,6 @@ class JottingEditorPageState extends State<JottingEditorPage> {
     );
   }
 
-  TextRange get _expandedLineRange {
-    final selection = _normalizedSelection;
-    final text = _contentController.text;
-    var start = _clampOffset(selection.start);
-    var end = _clampOffset(selection.end);
-    while (start > 0 && text.codeUnitAt(start - 1) != 10) {
-      start--;
-    }
-    while (end < text.length && text.codeUnitAt(end) != 10) {
-      end++;
-    }
-    return TextRange(start: start, end: end);
-  }
-
   int _clampOffset(int value) => value.clamp(0, _contentController.text.length);
 
   bool _sameStringList(List<String> left, List<String> right) {
@@ -463,192 +494,247 @@ class JottingEditorPageState extends State<JottingEditorPage> {
     }
     return true;
   }
+
+  bool _sameReferences(
+    List<JottingReference> left,
+    List<JottingReference> right,
+  ) {
+    if (left.length != right.length) return false;
+    for (var index = 0; index < left.length; index++) {
+      final a = left[index];
+      final b = right[index];
+      if (a.type != b.type ||
+          a.id != b.id ||
+          a.title != b.title ||
+          a.snippet != b.snippet) {
+        return false;
+      }
+    }
+    return true;
+  }
 }
 
-class _JottingTagSheet extends StatefulWidget {
-  const _JottingTagSheet({
-    required this.initialTags,
-    required this.suggestions,
+
+class _ReferenceCard extends StatelessWidget {
+  const _ReferenceCard({
+    required this.reference,
+    required this.onDelete,
   });
 
-  final List<String> initialTags;
-  final List<String> suggestions;
+  final JottingReference reference;
+  final VoidCallback? onDelete;
 
   @override
-  State<_JottingTagSheet> createState() => _JottingTagSheetState();
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final (icon, color) = switch (reference.type) {
+      JottingReferenceType.note => (Icons.sticky_note_2_outlined, Colors.blue),
+      JottingReferenceType.task => (Icons.checklist, Colors.green),
+      JottingReferenceType.knowledgeEntry => (
+        Icons.local_library_outlined,
+        Colors.orange,
+      ),
+    };
+    return Material(
+      color: scheme.surface,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 8, 4, 8),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: color),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    reference.title.isEmpty ? '未命名引用' : reference.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  if (reference.snippet.isNotEmpty)
+                    Text(
+                      reference.snippet,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            if (onDelete != null)
+              IconButton(
+                tooltip: '删除引用卡片',
+                icon: const Icon(Icons.close, size: 18),
+                onPressed: onDelete,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
-class _JottingTagSheetState extends State<_JottingTagSheet> {
-  final _controller = TextEditingController();
-  final _focusNode = FocusNode();
-  late List<String> _tags;
-  String? _errorText;
+class _JottingReferencePicker extends StatefulWidget {
+  const _JottingReferencePicker({required this.type});
+
+  final JottingReferenceType type;
 
   @override
-  void initState() {
-    super.initState();
-    _tags = List.of(widget.initialTags);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _focusNode.requestFocus();
-    });
-  }
+  State<_JottingReferencePicker> createState() =>
+      _JottingReferencePickerState();
+}
+
+class _JottingReferencePickerState extends State<_JottingReferencePicker> {
+  final _searchController = TextEditingController();
+  String _query = '';
 
   @override
   void dispose() {
-    _controller.dispose();
-    _focusNode.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final availableSuggestions = widget.suggestions
-        .where((tag) => !_tags.contains(tag))
-        .take(12)
-        .toList(growable: false);
+    final items = _items(context);
     return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          16,
-          0,
-          16,
-          MediaQuery.viewInsetsOf(context).bottom + 16,
-        ),
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '标签',
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.72,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Text(
+                _title,
                 style: Theme.of(
                   context,
                 ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
               ),
-              const SizedBox(height: 12),
-              if (_tags.isNotEmpty)
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final tag in _tags)
-                      InputChip(
-                        label: Text('#$tag'),
-                        onDeleted: () => setState(() => _tags.remove(tag)),
-                      ),
-                  ],
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: TextField(
+                autofocus: true,
+                controller: _searchController,
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.search),
+                  hintText: '搜索标题或正文',
+                  isDense: true,
+                  border: OutlineInputBorder(),
                 ),
-              if (_tags.isNotEmpty) const SizedBox(height: 12),
-              TextField(
-                key: const ValueKey('jotting-tag-input'),
-                controller: _controller,
-                focusNode: _focusNode,
-                textInputAction: TextInputAction.done,
-                decoration: InputDecoration(
-                  labelText: '添加标签',
-                  hintText: '回车或逗号完成',
-                  errorText: _errorText,
-                  border: const OutlineInputBorder(),
-                ),
-                onChanged: _consumeCompletedTags,
-                onSubmitted: (_) => _commitPendingTag(),
+                onChanged: (value) => setState(() => _query = value),
               ),
-              if (availableSuggestions.isNotEmpty) ...[
-                const SizedBox(height: 14),
-                Text('常用标签', style: Theme.of(context).textTheme.labelLarge),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final tag in availableSuggestions)
-                      ActionChip(
-                        label: Text('#$tag'),
-                        onPressed: () => _addTag(tag),
-                      ),
-                  ],
-                ),
-              ],
-              const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: () {
-                    _commitPendingTag();
-                    if (_errorText != null) return;
-                    Navigator.pop(context, List<String>.unmodifiable(_tags));
-                  },
-                  child: const Text('完成'),
-                ),
-              ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: items.isEmpty
+                  ? const Center(child: Text('没有可引用的内容'))
+                  : ListView.builder(
+                      itemCount: items.length,
+                      itemBuilder: (context, index) {
+                        final item = items[index];
+                        return ListTile(
+                          leading: Icon(_icon),
+                          title: Text(
+                            item.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: item.snippet.isEmpty
+                              ? null
+                              : Text(
+                                  item.snippet,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                          onTap: () => Navigator.pop(
+                            context,
+                            JottingReference(
+                              type: widget.type,
+                              id: item.id,
+                              title: item.title,
+                              snippet: item.snippet,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  void _consumeCompletedTags(String value) {
-    if (!RegExp(r'[,，\s]').hasMatch(value)) return;
-    final parts = value.split(RegExp(r'[,，\s]+'));
-    for (final part in parts.take(parts.length - 1)) {
-      _addTag(part);
+  String get _title => switch (widget.type) {
+    JottingReferenceType.note => '插入笔记引用',
+    JottingReferenceType.task => '插入任务引用',
+    JottingReferenceType.knowledgeEntry => '插入知识库引用',
+  };
+
+  IconData get _icon => switch (widget.type) {
+    JottingReferenceType.note => Icons.sticky_note_2_outlined,
+    JottingReferenceType.task => Icons.checklist,
+    JottingReferenceType.knowledgeEntry => Icons.local_library_outlined,
+  };
+
+  List<({String id, String title, String snippet})> _items(
+    BuildContext context,
+  ) {
+    final query = _query.trim().toLowerCase();
+    switch (widget.type) {
+      case JottingReferenceType.note:
+        final notes = context.read<FeatureProvider>().notes;
+        return [
+          for (final note in notes)
+            if (_matches(query, note.title, note.content))
+              (
+                id: note.id,
+                title: note.title.trim().isEmpty ? '未命名笔记' : note.title,
+                snippet: _firstLine(note.content),
+              ),
+        ];
+      case JottingReferenceType.task:
+        final tasks = context.read<TaskProvider>().tasks;
+        return [
+          for (final task in tasks)
+            if (_matches(query, task.title, task.note ?? ''))
+              (
+                id: task.id,
+                title: task.title,
+                snippet: _firstLine(task.note ?? ''),
+              ),
+        ];
+      case JottingReferenceType.knowledgeEntry:
+        final entries = context.read<KnowledgeProvider>().entries;
+        return [
+          for (final entry in entries)
+            if (entry.enabled && _matches(query, entry.title, entry.content))
+              (
+                id: entry.id,
+                title: entry.title,
+                snippet: _firstLine(entry.content),
+              ),
+        ];
     }
-    final tail = parts.isEmpty ? '' : parts.last;
-    _controller.value = TextEditingValue(
-      text: tail,
-      selection: TextSelection.collapsed(offset: tail.length),
-    );
   }
 
-  void _commitPendingTag() {
-    final value = _controller.text;
-    if (value.trim().isEmpty) {
-      _controller.clear();
-      setState(() => _errorText = null);
-      return;
-    }
-    final tag = value.trim().toLowerCase();
-    if (tag.length > Jotting.maxTagLength) {
-      setState(() => _errorText = '单个标签不能超过 ${Jotting.maxTagLength} 个字符');
-      return;
-    }
-    if (_tags.length >= Jotting.maxTagCount) {
-      setState(() => _errorText = '每条随记最多 ${Jotting.maxTagCount} 个标签');
-      return;
-    }
-    if (_tags.contains(tag)) {
-      _controller.clear();
-      setState(() => _errorText = null);
-      return;
-    }
-    setState(() {
-      _tags.add(tag);
-      _errorText = null;
-    });
-    _controller.clear();
+  bool _matches(String query, String title, String content) {
+    if (query.isEmpty) return true;
+    return title.toLowerCase().contains(query) ||
+        content.toLowerCase().contains(query);
   }
 
-  void _addTag(String raw) {
-    final value = raw.trim().toLowerCase();
-    if (value.isEmpty) {
-      setState(() => _errorText = null);
-      return;
-    }
-    if (value.length > Jotting.maxTagLength) {
-      setState(() => _errorText = '单个标签不能超过 ${Jotting.maxTagLength} 个字符');
-      return;
-    }
-    if (_tags.length >= Jotting.maxTagCount) {
-      setState(() => _errorText = '每条随记最多 ${Jotting.maxTagCount} 个标签');
-      return;
-    }
-    if (_tags.contains(value)) {
-      setState(() => _errorText = null);
-      return;
-    }
-    setState(() {
-      _tags.add(value);
-      _errorText = null;
-    });
+  String _firstLine(String content) {
+    return content
+        .split('\n')
+        .map((line) => line.trim())
+        .firstWhere((line) => line.isNotEmpty, orElse: () => '');
   }
 }

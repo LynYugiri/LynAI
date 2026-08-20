@@ -60,6 +60,20 @@ class KnowledgePageState extends State<KnowledgePage> {
     return true;
   }
 
+  /// 从随记引用卡片跳转到指定知识条目：选中所属知识库和条目，并打开详情。
+  void openEntry(String entryId) {
+    if (!mounted) return;
+    final provider = context.read<KnowledgeProvider>();
+    final entry = provider.entryById(entryId);
+    if (entry == null) return;
+    setState(() {
+      _selectedBaseId = entry.knowledgeBaseId;
+      _selectedEntryId = entryId;
+      _categoryFilterId = null;
+      _compactDetail = true;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<KnowledgeProvider>();

@@ -25,11 +25,13 @@ class JottingsPage extends StatefulWidget {
     required this.searchController,
     required this.searchQuery,
     required this.onSearchChanged,
+    this.onReferenceTap,
   });
 
   final TextEditingController searchController;
   final String searchQuery;
   final ValueChanged<String> onSearchChanged;
+  final ValueChanged<JottingReference>? onReferenceTap;
 
   @override
   State<JottingsPage> createState() => _JottingsPageState();
@@ -592,6 +594,12 @@ class _JottingsPageState extends State<JottingsPage> {
                   if (!mounted || result == null) return;
                   await _afterEditorResult(result);
                 },
+                onReferenceTap: widget.onReferenceTap == null
+                    ? null
+                    : (reference) {
+                        Navigator.of(context).pop();
+                        widget.onReferenceTap!(reference);
+                      },
               );
             },
           );
