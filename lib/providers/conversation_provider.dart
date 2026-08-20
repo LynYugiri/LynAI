@@ -179,6 +179,7 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
   String createConversation(
     ConversationSettings settings, {
     String roleId = 'default',
+    AgentWorkingMemory? initialMemory,
   }) {
     try {
       final now = DateTime.now();
@@ -188,6 +189,7 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
         messages: [],
         modelId: settings.modelId,
         settings: settings,
+        agentWorkingMemory: initialMemory,
         roleId: roleId,
         createdAt: now,
         updatedAt: now,
@@ -205,6 +207,7 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
   String createConversationWithMessages(
     ConversationSettings settings, {
     String roleId = 'default',
+    AgentWorkingMemory? initialMemory,
     required List<
       ({
         String role,
@@ -247,6 +250,7 @@ class ConversationProvider extends ChangeNotifier with SerializedSaveQueue {
         messages: initialMessages,
         modelId: settings.modelId,
         settings: settings,
+        agentWorkingMemory: initialMemory,
         roleId: roleId,
         createdAt: now,
         updatedAt: now,

@@ -217,11 +217,13 @@ class FloatingChatSessionController extends ChangeNotifier {
       _knowledge.knowledgeAnnotationPromptSnapshot,
     );
     final roleId = _settings.settings.currentRoleId;
+    final initialMemory = _settings.currentRole.defaultMemory;
     final isNewConversation = _conversationId == null;
     if (isNewConversation) {
       _conversationId = _conversations.createConversationWithMessages(
         settings,
         roleId: roleId,
+        initialMemory: initialMemory,
         messages: [
           (
             role: 'user',
@@ -539,7 +541,8 @@ class FloatingChatSessionController extends ChangeNotifier {
         ? runSnapshot.openAITools
         : const <Map<String, dynamic>>[];
     final contextWindow =
-        model.effectiveContextWindow ?? const AgentContextBudget().modelTokenBudget;
+        model.effectiveContextWindow ??
+        const AgentContextBudget().modelTokenBudget;
     final runtime = AgentLoopRuntime(
       contextBuilder: AgentContextBuilder(
         budget: AgentContextBudget(modelTokenBudget: contextWindow),

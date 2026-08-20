@@ -250,6 +250,9 @@ class AppSettings {
   final String? backendUrl;
   final bool hasConfiguredBackend;
   final bool hasSeenLoginGuide;
+  final bool hasCompletedOnboarding;
+  final String? onboardingInputJson;
+  final int onboardingVersion;
 
   AgentPermissionSnapshot get agentPermissionSnapshot =>
       AgentPermissionSnapshot(permissions: agentGrantedPermissions);
@@ -289,6 +292,9 @@ class AppSettings {
     this.backendUrl,
     this.hasConfiguredBackend = false,
     this.hasSeenLoginGuide = false,
+    this.hasCompletedOnboarding = false,
+    this.onboardingInputJson,
+    this.onboardingVersion = 1,
   }) : roles = roles ?? [ChatRole.defaultRole()];
 
   factory AppSettings.defaults() {
@@ -332,6 +338,9 @@ class AppSettings {
     Object? backendUrl = _sentinel,
     bool? hasConfiguredBackend,
     bool? hasSeenLoginGuide,
+    bool? hasCompletedOnboarding,
+    Object? onboardingInputJson = _sentinel,
+    int? onboardingVersion,
   }) {
     return AppSettings(
       themeColor: themeColor ?? this.themeColor,
@@ -394,6 +403,12 @@ class AppSettings {
           : backendUrl as String?,
       hasConfiguredBackend: hasConfiguredBackend ?? this.hasConfiguredBackend,
       hasSeenLoginGuide: hasSeenLoginGuide ?? this.hasSeenLoginGuide,
+      hasCompletedOnboarding:
+          hasCompletedOnboarding ?? this.hasCompletedOnboarding,
+      onboardingInputJson: identical(onboardingInputJson, _sentinel)
+          ? this.onboardingInputJson
+          : onboardingInputJson as String?,
+      onboardingVersion: onboardingVersion ?? this.onboardingVersion,
     );
   }
 
@@ -497,9 +512,10 @@ class AppSettings {
         json['agentGrantedPermissions'],
       ),
       agentEnabledByDefault: json['agentEnabledByDefault'] as bool? ?? false,
-      agentMaxToolRounds: ((json['agentMaxToolRounds'] as num?)?.toInt() ??
-              defaultAgentMaxToolRounds)
-          .clamp(minAgentMaxToolRounds, maxAgentMaxToolRounds),
+      agentMaxToolRounds:
+          ((json['agentMaxToolRounds'] as num?)?.toInt() ??
+                  defaultAgentMaxToolRounds)
+              .clamp(minAgentMaxToolRounds, maxAgentMaxToolRounds),
       webSearchRoute: WebSearchRoute.values.firstWhere(
         (value) => value.name == json['webSearchRoute'],
         orElse: () => WebSearchRoute.auto,
@@ -516,6 +532,9 @@ class AppSettings {
       backendUrl: json['backendUrl'] as String?,
       hasConfiguredBackend: json['hasConfiguredBackend'] as bool? ?? false,
       hasSeenLoginGuide: json['hasSeenLoginGuide'] as bool? ?? false,
+      hasCompletedOnboarding: json['hasCompletedOnboarding'] as bool? ?? true,
+      onboardingInputJson: json['onboardingInputJson'] as String?,
+      onboardingVersion: (json['onboardingVersion'] as num?)?.toInt() ?? 1,
     );
   }
 
@@ -559,6 +578,10 @@ class AppSettings {
       if (backendUrl != null) 'backendUrl': backendUrl,
       'hasConfiguredBackend': hasConfiguredBackend,
       'hasSeenLoginGuide': hasSeenLoginGuide,
+      'hasCompletedOnboarding': hasCompletedOnboarding,
+      if (onboardingInputJson != null)
+        'onboardingInputJson': onboardingInputJson,
+      'onboardingVersion': onboardingVersion,
     };
   }
 

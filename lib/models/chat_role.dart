@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'agent_working_memory.dart';
 
 class ChatRole {
   static const defaultId = 'default';
@@ -13,6 +14,7 @@ class ChatRole {
   final String? modelId;
   final String? modelName;
   final Color? themeColor;
+  final AgentWorkingMemory? defaultMemory;
 
   const ChatRole({
     required this.id,
@@ -22,6 +24,7 @@ class ChatRole {
     this.modelId,
     this.modelName,
     this.themeColor,
+    this.defaultMemory,
   });
 
   factory ChatRole.defaultRole() {
@@ -35,6 +38,18 @@ class ChatRole {
 
   factory ChatRole.fromJson(Map<String, dynamic> json) {
     final colorValue = json['themeColor'] as int?;
+    AgentWorkingMemory? defaultMemory;
+    final rawMemory = json['defaultMemory'];
+    if (rawMemory is Map) {
+      try {
+        final parsed = AgentWorkingMemory.fromJson(
+          Map<String, dynamic>.from(rawMemory),
+        );
+        if (!parsed.isEmpty) defaultMemory = parsed;
+      } catch (e) {
+        debugPrint('跳过损坏的角色默认记忆: $e');
+      }
+    }
     return ChatRole(
       id: json['id'] as String? ?? defaultId,
       name: json['name'] as String? ?? '默认',
@@ -43,6 +58,7 @@ class ChatRole {
       modelId: json['modelId'] as String?,
       modelName: json['modelName'] as String?,
       themeColor: colorValue == null ? null : Color(colorValue),
+      defaultMemory: defaultMemory,
     );
   }
 
@@ -64,6 +80,8 @@ class ChatRole {
       if (modelId != null) 'modelId': modelId,
       if (modelName != null && modelName!.isNotEmpty) 'modelName': modelName,
       if (themeColor != null) 'themeColor': themeColor!.toARGB32(),
+      if (defaultMemory != null && !defaultMemory!.isEmpty)
+        'defaultMemory': defaultMemory!.toJson(),
     };
   }
 
@@ -75,6 +93,7 @@ class ChatRole {
     Object? modelId = _sentinel,
     Object? modelName = _sentinel,
     Object? themeColor = _sentinel,
+    Object? defaultMemory = _sentinel,
   }) {
     return ChatRole(
       id: id ?? this.id,
@@ -90,6 +109,9 @@ class ChatRole {
       themeColor: identical(themeColor, _sentinel)
           ? this.themeColor
           : themeColor as Color?,
+      defaultMemory: identical(defaultMemory, _sentinel)
+          ? this.defaultMemory
+          : defaultMemory as AgentWorkingMemory?,
     );
   }
 

@@ -20,6 +20,20 @@
 
 `RemoteCloudDataService` 实现 `/sync/index/status`、按分类 keyset 分页的 `/sync/index/objects`、对象详情、purge preview、签名 purge、pending operations 和签名 ACK。status/usage、对象页、详情 records、preview 和 operation 都严格解析，缺失、错误类型、非法枚举、空 ID、recordCount 不一致或 `data.id` 不匹配均失败关闭。所有对象分页和对象详情都绑定同一个 `expectedIndexRevision`，且响应 revision 必须相等；revision 冲突分类为可进行一次 status/reseed 重试的 projection race，不提交部分缓存。current-projection reseed 遍历固定 revision 下的对象列表与详情，storage 在一个事务中应用远端 upsert、absent-record 删除、pending mutation 保留和 generation/cursor 更新，不改写 blob 内容、transport head 或 physical dataset lineage。`CloudManagementCoordinator` 是 UI 与普通同步共享的窄服务边界，负责 operation 发现、repository 对账、reseed 标记和确定性 ACK，不依赖任一 Provider。管理 API 不实现 Blob 物理 GC。
 
+## OnboardingService
+
+文件：`lib/services/onboarding_service.dart`
+
+新手向导的生成与应用服务，不依赖 `BuildContext`，也不直接读写数据库。
+
+| 阶段 | 行为 |
+|------|------|
+| 生成 | `generate()` 优先选择 `deepseek-v4-pro`（否则第一个启用 Chat 模型）通过 `ApiService.sendChatRequest` 生成 JSON 草稿；超时、非法 JSON、无模型或服务不可用时回退 `buildLocalDraft()`。 |
+| 校验 | 草稿只接受白名单字段：角色名/提示词、角色记忆最多 6 条、Agent intents、默认功能页枚举、知识库/类别/条目数量上限、牌组/卡片上限、任务/笔记上限、SKILL 名称与正文。非法模块丢弃或修正。 |
+| 应用 | `applyDraft()` 按角色 → Agent → 知识库 → 记忆卡牌组 → 任务清单 → 笔记 → SKILL 的顺序调用各 Provider；同名资源复用，失败按分组记录不阻塞其他组。 |
+| 权限 | `permissionsForIntents()` 把 `notes/todos/schedules/knowledge/plugins/minimal` 映射为 `LynAIPermissions.agentAssignable` 内的权限 ID，AI 不直接输出权限 ID。 |
+| SKILL | 通过 `PluginProvider.createPlugin(kind: skill)` 创建或复用插件，写入 `plugin.json` 与 `skills/<name>.md` 后启用并置为 `active`。 |
+
 ## ApiService
 
 文件：`lib/services/api_service.dart`

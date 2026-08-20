@@ -12,6 +12,7 @@ import 'data_management_page.dart';
 import 'floating_assistant_settings_page.dart';
 import 'lan_sync_page.dart';
 import 'mcp_settings_page.dart';
+import 'onboarding/onboarding_page.dart';
 import 'plugin_capability_management_page.dart';
 import 'permission_management_page.dart';
 import 'plugin_management_page.dart';
@@ -74,6 +75,17 @@ class _SettingsPageState extends State<SettingsPage> {
             () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const AboutPage()),
+            ),
+          ),
+          _buildItem(
+            context,
+            Icons.auto_awesome,
+            '新手向导',
+            settings.hasCompletedOnboarding ? '重新生成个性化初始配置' : '选择用途与身份，生成专属配置',
+            Colors.orange,
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const OnboardingPage()),
             ),
           ),
           _buildItem(

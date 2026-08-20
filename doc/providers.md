@@ -175,6 +175,14 @@ Provider 的更新策略是：先改内存并通知 UI，再把持久化操作�
 
 系统提示词选择会同时更新当前全局提示词正文。创建或编辑对话时，该正文复制到 `ConversationSettings`；打开历史对话只读取其快照，不再调用 SettingsProvider 覆盖全局设置。
 
+`addRole()` / `updateRole()` 额外接收可选的 `defaultMemory`；`updateRole()` 使用 sentinel 区分“不修改”和“显式清空”。`selectRole()` 切换角色时仍复制角色提示词与模型 ID。
+
+## OnboardingWizardController
+
+文件：`lib/providers/onboarding_wizard_controller.dart`
+
+新手向导的内存状态控制器，不注册为全局 Provider。保存当前 `OnboardingInput`、生成中的 `OnboardingDraft`、生成/应用状态与结果；`loadLastInput()` 从 `AppSettings.onboardingInputJson` 恢复预填，`finish()` 写入 `hasCompletedOnboarding` 并保存本次输入。向导页只调用本控制器和 `OnboardingService`，不直接拼装设置。
+
 ## FeatureProvider
 
 文件：`lib/providers/feature_provider.dart`

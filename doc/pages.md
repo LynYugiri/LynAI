@@ -46,6 +46,21 @@ HomePage
 
 `AppTab` 枚举把 Tab 索引从魔法数字抽出来，避免 `_currentIndex == 1` 这类硬编码扩散。默认 Tab 和系统返回键兜底目标都是 `AppTab.chat`。
 
+## OnboardingPage
+
+文件：`lib/pages/onboarding/onboarding_page.dart`
+
+首次启动且 `AppSettings.hasCompletedOnboarding == false` 时，根组件在 Home 前展示新手向导。设置页「新手向导」入口可随时重跑；重跑时从 `onboardingInputJson` 恢复上次选择。
+
+| 步骤 | 行为 |
+|------|------|
+| 选择用途与身份 | 用途多选（聊天、写作、编程、学习研究、知识库、日程待办、记忆卡、角色扮演、插件自动化等）；身份单选 + 自定义身份；可选补充描述。 |
+| 生成 | `OnboardingService` 优先用 `deepseek-v4-pro` 生成 JSON 草稿；无模型/超时/非法 JSON 时回退本地模板。 |
+| 编辑草稿 | 分组展示角色、角色记忆、Agent 默认值、默认功能页、知识库、牌组、任务清单、笔记与 SKILL；每组可编辑或删除，可重新生成。 |
+| 应用 | 调用 `OnboardingService.applyDraft` 按依赖顺序落地到各 Provider；失败项分组提示，不阻塞完成。 |
+
+向导完成后写入 `hasCompletedOnboarding` 并保存本次输入；跳过时也完成向导，不生成内容。
+
 ## ChatPage
 
 文件：`lib/pages/chat_page.dart`
@@ -237,6 +252,7 @@ Agent 工具轮数上限保存为 `ConversationSettings.maxToolRounds`（新建�
 | 页面 | 文件 | 说明 |
 |------|------|------|
 | 关于 | `about_page.dart` | 应用信息、项目链接、许可证和更新日志入口。 |
+| 新手向导 | `onboarding/onboarding_page.dart` | 重新运行首次启动向导，按上次选择预填，可重新生成角色、角色记忆、知识库、牌组、任务清单、笔记与 SKILL。 |
 | 背景 | `background_page.dart` | 背景图、清除背景、模糊开关和强度。 |
 | API | `api_models_page.dart` | 模型配置分类、编辑、排序和模型拉取。 |
 | 网页搜索 | `web_search_settings_page.dart` | 管理 client/backend/auto 路由、Tavily/SearXNG 首选项和 SearXNG endpoint；Tavily key 与 SearXNG bearer token 只写入 `SecretStore`。SearXNG HTTP 必须显式勾选精确 origin 明文授权，保存 Bearer token 时再次显示明文确认。 |

@@ -28,6 +28,7 @@ import 'repositories/mcp_repository.dart';
 import 'repositories/recycle_bin_repository.dart';
 import 'pages/home_page.dart';
 import 'pages/changelog_page.dart';
+import 'pages/onboarding/onboarding_page.dart';
 import 'services/floating_assistant_service.dart';
 import 'services/storage_v2_upgrade_service.dart';
 import 'services/backend_client.dart';
@@ -333,10 +334,7 @@ Future<void> main() async {
                   (name: 'roleplay', flush: roleplay.flushPendingSaves),
                   (name: 'tasks', flush: tasks.flushPendingSaves),
                   (name: 'knowledge', flush: knowledge.flushPendingSaves),
-                  (
-                    name: 'memoryCards',
-                    flush: memoryCards.flushPendingSaves,
-                  ),
+                  (name: 'memoryCards', flush: memoryCards.flushPendingSaves),
                   (name: 'settings', flush: settings.flushPendingSaves),
                   (name: 'models', flush: models.flushPendingSaves),
                 ]);
@@ -372,10 +370,7 @@ Future<void> main() async {
                   if (all || tables.any(_knowledgeSyncTables.contains))
                     (name: 'knowledge', flush: knowledge.flushPendingSaves),
                   if (all || tables.any(_memoryCardSyncTables.contains))
-                    (
-                      name: 'memoryCards',
-                      flush: memoryCards.flushPendingSaves,
-                    ),
+                    (name: 'memoryCards', flush: memoryCards.flushPendingSaves),
                   if (all || tables.any(_settingsSyncTables.contains))
                     (name: 'settings', flush: settings.flushPendingSaves),
                   if (all || tables.contains('synced_model_configs'))
@@ -1010,6 +1005,9 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
   Future<void> _runStartupDialogs() async {
     await _accountRestoreFuture;
     if (!mounted) return;
+    if (!context.read<SettingsProvider>().settings.hasCompletedOnboarding) {
+      return;
+    }
     await _showInitialLoginDialogIfNeeded();
     if (!mounted) return;
     await _checkNewChangelog();
@@ -1044,7 +1042,9 @@ class _LynAIAppState extends State<LynAIApp> with WidgetsBindingObserver {
         ? const _SplashScreen()
         : _hasError
         ? _ErrorScreen(message: _errorMessage)
-        : const HomePage();
+        : settings.hasCompletedOnboarding
+        ? const HomePage()
+        : const OnboardingPage();
 
     if (Platform.isWindows) {
       return _buildWindowsApp(settings, settingsProvider, home);

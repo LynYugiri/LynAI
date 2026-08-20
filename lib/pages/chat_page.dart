@@ -574,9 +574,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                         question.detail!,
                         style: TextStyle(
                           fontSize: 13,
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurfaceVariant,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                       ),
                     ),
@@ -585,7 +583,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                   (choice) => CheckboxListTile(
                     value: selected.contains(choice.id),
                     title: Text(choice.label),
-                    subtitle: choice.description == null ||
+                    subtitle:
+                        choice.description == null ||
                             choice.description!.isEmpty
                         ? null
                         : Text(choice.description!),
@@ -639,9 +638,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                       question.detail!,
                       style: TextStyle(
                         fontSize: 13,
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.onSurfaceVariant,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
                     ),
                   ),
@@ -1661,7 +1658,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     }
     final images = _pendingImages.map((e) => e.toMessageImage()).toList();
     final conversationSettings = _currentConversationSettings(model);
-    final roleId = context.read<SettingsProvider>().settings.currentRoleId;
+    final settingsProvider = context.read<SettingsProvider>();
+    final roleId = settingsProvider.settings.currentRoleId;
+    final initialMemory = settingsProvider.currentRole.defaultMemory;
     final targetConvId = _convId;
     final sendGen = ++_sendGen;
     setState(() => _preparingSend = true);
@@ -1682,6 +1681,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       _convId = cp.createConversationWithMessages(
         conversationSettings,
         roleId: roleId,
+        initialMemory: initialMemory,
         messages: [
           (
             role: 'user',
@@ -1994,7 +1994,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         ? runSnapshot.openAITools
         : const <Map<String, dynamic>>[];
     final contextWindow =
-        model.effectiveContextWindow ?? const AgentContextBudget().modelTokenBudget;
+        model.effectiveContextWindow ??
+        const AgentContextBudget().modelTokenBudget;
     final runtime = AgentLoopRuntime(
       contextBuilder: AgentContextBuilder(
         budget: AgentContextBudget(modelTokenBudget: contextWindow),
@@ -2316,7 +2317,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   void _continueAfterToolRoundLimit() {
     if (_streaming || _preparingSend) return;
     setState(() => _toolRoundLimitMessageId = null);
-    _msgCtrl.text = '请继续完成之前未完成的任务。先读取当前计划、工作记忆和已完成步骤，'
+    _msgCtrl.text =
+        '请继续完成之前未完成的任务。先读取当前计划、工作记忆和已完成步骤，'
         '再从断点继续，不要重复已完成的工作。';
     unawaited(_send());
   }

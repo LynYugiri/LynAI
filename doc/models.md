@@ -138,14 +138,17 @@ OCR 悬浮翻译使用请求内轻量文本组。Native OCR 输出 `text`、识�
 | 功能页 | `lastFeature` |
 | 悬浮助手 | `floatingAssistant`，包含 Android 悬浮聊天、按需读屏、语音输入、翻译入口（多目标语言、源语言检测、覆盖层样式、屏蔽应用包名 `blockedPackages`、专用翻译模型 `translationModelId` 缺省时跟随当前聊天模型）、Agent Plan 显示、气泡/面板位置尺寸持久化（`bubbleX/Y`、`panelX/Y`、`panelWidth/Height`）。`screenContextMode` 仅保留 `manual`/`disabled` 两档，旧的 `ask` 取值在反序列化时回退为 `manual`。 |
 | 更新日志 | `lastSeenChangelogVersion` |
+| 新手向导 | `hasCompletedOnboarding`, `onboardingInputJson`, `onboardingVersion` |
 
 `AppSettings.fromJson()` 会跳过坏角色、坏角色分组和坏提示词。缺失默认角色时自动补回；当前角色不存在时回退到默认角色。
 
-云同步不序列化整个 `AppSettings`。`SharedSettingsV1` 是显式版本化投影，只包含主题颜色/模式、背景资源引用、模糊设置、模型选择和识别/生成开关、提示词、角色与角色分组。后端 URL/配置标记、登录与更新日志标记、最近功能页、悬浮助手行为和位置、Agent/系统权限及本地路径均为设备本地字段，远端应用时保留。
+云同步不序列化整个 `AppSettings`。`SharedSettingsV1` 是显式版本化投影，只包含主题颜色/模式、背景资源引用、模糊设置、模型选择和识别/生成开关、提示词、角色与角色分组。后端 URL/配置标记、登录与更新日志标记、新手向导状态与输入、最近功能页、悬浮助手行为和位置、Agent/系统权限及本地路径均为设备本地字段，远端应用时保留。
 
 `SyncedModelConfigV1` 是逐 Provider 的版本化非秘密投影。仅 `managed=false && cloudSyncEnabled=true` 的用户配置进入 Outbox；`apiKey`、`apiKeySecretRef` 和名称疑似 secret/token/password/credential/authorization 的 `extraParams` 字段不会进入云 payload。Ollama、loopback 和 LAN endpoint 默认仍是设备本地，只有用户明确打开该 Provider 的同步开关才会同步。
 
-`ChatRole` 保存角色名、系统提示词、默认模型和可选主题色。`ChatRoleGroup` 保存角色分组，分组里的角色 ID 会在加载时过滤掉不存在的角色。
+`ChatRole` 保存角色名、系统提示词、默认模型、可选主题色和可选的 `defaultMemory`（`AgentWorkingMemory`）。`defaultMemory` 仅作为该角色新建对话时的初始工作记忆；`null` 或空记忆行为与旧版本一致。`ChatRoleGroup` 保存角色分组，分组里的角色 ID 会在加载时过滤掉不存在的角色。
+
+新手向导模型在 `lib/models/onboarding/`：`OnboardingInput` 保存用户上次选择的用途、身份和补充描述；`OnboardingDraft` 及其子结构是 AI/本地模板生成的编辑草稿，落地前不写入数据库。
 
 ## 任务与任务清单
 

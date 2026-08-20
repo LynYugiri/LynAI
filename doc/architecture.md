@@ -45,7 +45,7 @@ main()
   -> 初始化并校验设备 Ed25519 身份
   -> 从安全存储恢复本地账号令牌、缓存用户并绑定本地同步作用域
   -> 应用待处理的本地托管模型 ID 迁移
-  -> 构建 MaterialApp / HomePage
+  -> 构建 MaterialApp / OnboardingPage 或 HomePage
   -> 后台刷新账号、注册设备并执行云端双向同步
   -> 后台同步托管模型和内置插件
   -> 后台合并任务与日历快照并同步 Android 平台投影
@@ -53,7 +53,7 @@ main()
   -> 检查更新日志
 ```
 
-启动加载由 `LynAIApp` 控制。启动页只等待 storage_v2、本地 Provider、后端配置、本地缓存会话和同步作用域准备完成；Settings、Conversation、Roleplay、Plugin 与 Models 全部加载后，先恢复并应用持久化的旧托管模型 ID 引用迁移，再初始化账号和进入正常使用。模型加载会先把旧 Provider-scoped managed 配置按 category 合并成当前目标配置，因此离线备份迁移不会产生悬空引用。分区级加载失败会保留 Provider 原有内存状态、向上抛出并显示可重试错误页，不再把失败误写成空列表或默认设置。可独立解析的单条损坏数据仍会被跳过。账号令牌按规范化完整 Base URL（含 path prefix）保存在 `SecretStore`，SharedPreferences 只保留同作用域的用户元数据。缓存 user/token 和本地云作用域恢复完成后即可进入 Home，避免把 `/auth/me`、设备注册、Blob 传输或完整双向同步放在启动关键路径。进入 Home 后后台刷新用户和管理员状态；临时网络或服务端错误不清除缓存会话，明确 401 才解绑当前会话。设备注册、自动云同步、托管模型、内置插件和 Android 平台投影均为后台维护，失败通过各 Provider 状态或日志暴露，不会退回启动错误页。LAN hosting 先记录生命周期期望，只有本地维护完成后才开放，避免入站写入与首次加载交错。
+启动加载由 `LynAIApp` 控制。启动页只等待 storage_v2、本地 Provider、后端配置、本地缓存会话和同步作用域准备完成；Settings、Conversation、Roleplay、Plugin 与 Models 全部加载后，先恢复并应用持久化的旧托管模型 ID 引用迁移，再初始化账号和进入正常使用。若 `AppSettings.hasCompletedOnboarding` 为 false，根组件在 Home 前展示 `OnboardingPage`；老用户升级时 JSON 缺该字段默认为 true，不会被打扰。模型加载会先把旧 Provider-scoped managed 配置按 category 合并成当前目标配置，因此离线备份迁移不会产生悬空引用。分区级加载失败会保留 Provider 原有内存状态、向上抛出并显示可重试错误页，不再把失败误写成空列表或默认设置。可独立解析的单条损坏数据仍会被跳过。账号令牌按规范化完整 Base URL（含 path prefix）保存在 `SecretStore`，SharedPreferences 只保留同作用域的用户元数据。缓存 user/token 和本地云作用域恢复完成后即可进入 Home，避免把 `/auth/me`、设备注册、Blob 传输或完整双向同步放在启动关键路径。进入 Home 后后台刷新用户和管理员状态；临时网络或服务端错误不清除缓存会话，明确 401 才解绑当前会话。设备注册、自动云同步、托管模型、内置插件和 Android 平台投影均为后台维护，失败通过各 Provider 状态或日志暴露，不会退回启动错误页。LAN hosting 先记录生命周期期望，只有本地维护完成后才开放，避免入站写入与首次加载交错。
 
 云同步与 LAN 同步使用共享的远端提交协调器串行修改本地权威数据。协调区覆盖受影响 Provider flush、storage_v2 apply、插件和笔记 materialization、Provider reload、LynAI 模型刷新及平台投影；网络传输仍使用各自队列。会被远端重载的 Provider 使用 mutation generation 丢弃晚到的旧 repository 读取，防止用户在后台同步期间的本地编辑被陈旧 load 覆盖。
 

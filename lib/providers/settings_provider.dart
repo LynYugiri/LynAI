@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
+import '../models/agent_working_memory.dart';
 import '../models/app_settings.dart';
 import '../models/chat_role.dart';
 import '../models/conversation.dart';
@@ -9,6 +10,8 @@ import '../models/web_search.dart';
 import '../repositories/settings_repository.dart';
 import '../services/storage_v2_service.dart';
 import 'serialized_save_queue.dart';
+
+const _roleMemoryUnset = Object();
 
 /// 管理应用级设置、角色、系统提示词和最近使用模型。
 ///
@@ -231,6 +234,7 @@ class SettingsProvider extends ChangeNotifier with SerializedSaveQueue {
     String? modelId,
     String? modelName,
     Color? themeColor,
+    AgentWorkingMemory? defaultMemory,
     List<String> groupIds = const [],
   }) {
     final id = const Uuid().v4();
@@ -242,6 +246,7 @@ class SettingsProvider extends ChangeNotifier with SerializedSaveQueue {
       modelId: modelId,
       modelName: modelName,
       themeColor: themeColor,
+      defaultMemory: defaultMemory,
     );
     final prompt = SystemPrompt(id: id, title: name, content: systemPrompt);
     final groups = _roleGroupsWithMembership(
@@ -267,19 +272,23 @@ class SettingsProvider extends ChangeNotifier with SerializedSaveQueue {
     String? modelId,
     String? modelName,
     Color? themeColor,
+    Object? defaultMemory = _roleMemoryUnset,
     List<String>? groupIds,
   }) {
     final roles = _settings.roles.map((role) {
-      return role.id == id
-          ? role.copyWith(
-              name: name,
-              description: description,
-              systemPrompt: systemPrompt,
-              modelId: modelId,
-              modelName: modelName,
-              themeColor: themeColor,
-            )
-          : role;
+      if (role.id != id) return role;
+      return ChatRole(
+        id: role.id,
+        name: name,
+        description: description,
+        systemPrompt: systemPrompt,
+        modelId: modelId,
+        modelName: modelName,
+        themeColor: themeColor,
+        defaultMemory: identical(defaultMemory, _roleMemoryUnset)
+            ? role.defaultMemory
+            : defaultMemory as AgentWorkingMemory?,
+      );
     }).toList();
     final prompts = _settings.systemPrompts.map((prompt) {
       return prompt.id == id
