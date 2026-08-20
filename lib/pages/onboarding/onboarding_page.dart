@@ -67,9 +67,11 @@ class _OnboardingPageState extends State<OnboardingPage> {
   final TextEditingController _occupationCustomController =
       TextEditingController();
   final TextEditingController _freeTextController = TextEditingController();
+  final PageController _questionPageController = PageController();
 
   late Set<String> _selectedPurposes;
   late String _occupation;
+  int _questionIndex = 0;
   OnboardingService? _service;
 
   @override
@@ -88,6 +90,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
     _controller.dispose();
     _occupationCustomController.dispose();
     _freeTextController.dispose();
+    _questionPageController.dispose();
     super.dispose();
   }
 
@@ -121,7 +124,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
             if (draft != null) {
               return _buildDraftEditor(draft);
             }
-            return _buildChoices();
+            return _buildQuestions();
           },
         ),
       ),
@@ -158,16 +161,126 @@ class _OnboardingPageState extends State<OnboardingPage> {
     _controller.setFreeText(_freeTextController.text);
   }
 
-  // ─── Step 1 ────────────────────────────────────────────────
+  // ─── Step 1: 三个问题分步 ──────────────────────────────────
 
-  Widget _buildChoices() {
-    return ListView(
-      padding: const EdgeInsets.all(16),
+  void _goToQuestion(int index) {
+    if (index < 0 || index > 2 || index == _questionIndex) return;
+    _questionPageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 420),
+      curve: Curves.easeInOutCubic,
+    );
+  }
+
+  Widget _buildQuestions() {
+    return Column(
       children: [
-        Text('你想用 LynAI 做什么？', style: Theme.of(context).textTheme.titleLarge),
+        _buildQuestionProgress(),
+        Expanded(
+          child: PageView(
+            controller: _questionPageController,
+            onPageChanged: (index) => setState(() => _questionIndex = index),
+            children: [
+              _buildPurposeQuestion(),
+              _buildOccupationQuestion(),
+              _buildFreeTextQuestion(),
+            ],
+          ),
+        ),
+        _buildQuestionNavBar(),
+      ],
+    );
+  }
+
+  Widget _buildQuestionProgress() {
+    final primary = Theme.of(context).colorScheme.primary;
+    final surfaceVariant = Theme.of(
+      context,
+    ).colorScheme.surfaceContainerHighest;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '第 ${_questionIndex + 1} / 3 步',
+            style: Theme.of(context).textTheme.labelMedium,
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: List.generate(3, (index) {
+              final active = index <= _questionIndex;
+              return Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(right: index == 2 ? 0 : 6),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeInOut,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: active ? primary : surfaceVariant,
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuestionNavBar() {
+    final isLast = _questionIndex == 2;
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+        child: Row(
+          children: [
+            if (_questionIndex > 0) ...[
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => _goToQuestion(_questionIndex - 1),
+                  child: const Text('上一步'),
+                ),
+              ),
+              const SizedBox(width: 12),
+            ],
+            Expanded(
+              flex: 2,
+              child: FilledButton.icon(
+                onPressed: isLast
+                    ? _generate
+                    : () => _goToQuestion(_questionIndex + 1),
+                icon: Icon(isLast ? Icons.auto_awesome : Icons.arrow_forward),
+                label: Text(isLast ? '生成我的初始配置' : '下一步'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuestionTitle(String title, String subtitle) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 4),
-        Text('可多选，之后还可以在设置中修改', style: Theme.of(context).textTheme.bodySmall),
-        const SizedBox(height: 12),
+        Text(subtitle, style: Theme.of(context).textTheme.bodyMedium),
+      ],
+    );
+  }
+
+  Widget _buildPurposeQuestion() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      children: [
+        _buildQuestionTitle('你想用 LynAI 做什么？', '可多选，之后还可以在设置中修改'),
+        const SizedBox(height: 16),
         Wrap(
           spacing: 8,
           runSpacing: 8,
@@ -177,6 +290,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
                 return FilterChip(
                   label: Text(entry.value),
                   selected: selected,
+                  showCheckmark: false,
                   onSelected: (value) {
                     setState(() {
                       if (value) {
@@ -190,9 +304,16 @@ class _OnboardingPageState extends State<OnboardingPage> {
               })
               .toList(growable: false),
         ),
-        const SizedBox(height: 24),
-        Text('你的身份/职业', style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 12),
+      ],
+    );
+  }
+
+  Widget _buildOccupationQuestion() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      children: [
+        _buildQuestionTitle('你的身份/职业', '单选，也可以填写自定义身份'),
+        const SizedBox(height: 16),
         Wrap(
           spacing: 8,
           runSpacing: 8,
@@ -206,7 +327,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
               })
               .toList(growable: false),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 16),
         TextField(
           controller: _occupationCustomController,
           decoration: const InputDecoration(
@@ -215,24 +336,31 @@ class _OnboardingPageState extends State<OnboardingPage> {
             border: OutlineInputBorder(),
           ),
         ),
-        const SizedBox(height: 24),
-        Text('补充描述', style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 12),
+      ],
+    );
+  }
+
+  Widget _buildFreeTextQuestion() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      children: [
+        _buildQuestionTitle('补充描述', '自由说说你想怎么用 LynAI（可选）'),
+        const SizedBox(height: 16),
         TextField(
           controller: _freeTextController,
-          minLines: 3,
-          maxLines: 6,
+          minLines: 6,
+          maxLines: 12,
+          autofocus: _questionIndex == 2,
+          textInputAction: TextInputAction.newline,
           decoration: const InputDecoration(
-            labelText: '自由说说你想怎么用 LynAI（可选）',
             hintText: '例如：我在准备考研，希望帮我整理笔记、制定复习计划，回复简洁一点',
             border: OutlineInputBorder(),
           ),
         ),
-        const SizedBox(height: 24),
-        FilledButton.icon(
-          onPressed: _generate,
-          icon: const Icon(Icons.auto_awesome),
-          label: const Text('生成我的初始配置'),
+        const SizedBox(height: 12),
+        Text(
+          '生成的初始配置都可以在下一步里编辑或删除，不会强制创建任何模块。',
+          style: Theme.of(context).textTheme.bodySmall,
         ),
       ],
     );
