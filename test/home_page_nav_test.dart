@@ -62,17 +62,31 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
+  // 自定义底部导航为每个 Tab 提供了 `nav-<标签>-on/off` 的 Key，
+  // 用于精确断言当前激活项。
+  Finder navItem(String label) {
+    return find.byWidgetPredicate((widget) {
+      return widget is KeyedSubtree &&
+          widget.key is ValueKey<String> &&
+          (widget.key as ValueKey<String>).value.startsWith('nav-$label-');
+    });
+  }
+
+  Finder activeNavItem(String label) {
+    return find.byWidgetPredicate((widget) {
+      return widget is KeyedSubtree &&
+          widget.key is ValueKey<String> &&
+          (widget.key as ValueKey<String>).value == 'nav-$label-on';
+    });
+  }
+
   testWidgets('renders all five tab labels', (tester) async {
     await tester.pumpWidget(buildHome());
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    final navBar = find.byType(NavigationBar);
     for (final label in ['功能', '插件市场', '对话', '社区', '设置']) {
-      expect(
-        find.descendant(of: navBar, matching: find.text(label)),
-        findsOneWidget,
-      );
+      expect(navItem(label), findsOneWidget);
     }
   });
 
@@ -81,9 +95,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    final bar = tester.widget<NavigationBar>(find.byType(NavigationBar));
-    expect(bar.selectedIndex, AppTab.chat.index);
-    debugDefaultTargetPlatformOverride = null;
+    expect(activeNavItem('对话'), findsOneWidget);
   });
 
   testWidgets('tapping market tab switches selectedIndex', (tester) async {
@@ -91,13 +103,12 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    final navBar = find.byType(NavigationBar);
-    await tester.tap(find.descendant(of: navBar, matching: find.text('插件市场')));
+    await tester.tap(find.text('插件市场'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    final bar = tester.widget<NavigationBar>(find.byType(NavigationBar));
-    expect(bar.selectedIndex, AppTab.market.index);
+    expect(activeNavItem('插件市场'), findsOneWidget);
+    expect(activeNavItem('对话'), findsNothing);
   });
 
   testWidgets('tapping settings tab switches selectedIndex', (tester) async {
@@ -105,13 +116,12 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    final navBar = find.byType(NavigationBar);
-    await tester.tap(find.descendant(of: navBar, matching: find.text('设置')));
+    await tester.tap(find.text('设置'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    final bar = tester.widget<NavigationBar>(find.byType(NavigationBar));
-    expect(bar.selectedIndex, AppTab.settings.index);
+    expect(activeNavItem('设置'), findsOneWidget);
+    expect(activeNavItem('对话'), findsNothing);
   });
 
   testWidgets('new placeholder pages are mounted in the stack', (tester) async {
@@ -138,8 +148,8 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    final bar = tester.widget<NavigationBar>(find.byType(NavigationBar));
-    expect(bar.selectedIndex, AppTab.feature.index);
+    expect(activeNavItem('功能'), findsOneWidget);
+    expect(activeNavItem('对话'), findsNothing);
   });
 
   testWidgets('desktop Escape returns non-chat tabs to chat', (tester) async {
@@ -151,8 +161,7 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pump();
 
-    final bar = tester.widget<NavigationBar>(find.byType(NavigationBar));
-    expect(bar.selectedIndex, AppTab.chat.index);
+    expect(activeNavItem('对话'), findsOneWidget);
     debugDefaultTargetPlatformOverride = null;
   });
 

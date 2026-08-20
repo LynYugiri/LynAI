@@ -195,41 +195,90 @@ class _HomePageState extends State<HomePage> {
   // ─── 底部导航 ──────────────────────────────────────────────
 
   Widget _buildBottomNavigationBar(AppSettings settings) {
-    final bar = NavigationBar(
-      selectedIndex: _currentTab.index,
-      onDestinationSelected: _handleNavigationTap,
-      backgroundColor: settings.themeColor.withValues(alpha: 0.08),
-      indicatorColor: settings.themeColor.withValues(alpha: 0.12),
-      destinations: [
-        for (final tab in AppTab.values)
-          NavigationDestination(
-            icon: Icon(_tabSpecs[tab]!.icon),
-            selectedIcon: Icon(_tabSpecs[tab]!.selectedIcon),
-            label: _tabSpecs[tab]!.label,
-          ),
-      ],
-    );
-    final width = MediaQuery.sizeOf(context).width;
-    final itemWidth = width / AppTab.values.length;
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        bar,
-        Positioned(
-          left: itemWidth * AppTab.chat.index,
-          width: itemWidth,
-          top: 0,
-          bottom: 0,
-          child: GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onLongPressStart: _startQuickAction,
-            onLongPressMoveUpdate: _updateQuickAction,
-            onLongPressEnd: _endQuickAction,
-            onLongPressCancel: _removeQuickActionOverlay,
-            child: const SizedBox.expand(),
+    return Material(
+      color: settings.themeColor.withValues(alpha: 0.08),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 80,
+          child: Row(
+            children: [
+              for (var index = 0; index < AppTab.values.length; index++)
+                Expanded(
+                  child: KeyedSubtree(
+                    key: ValueKey(
+                      'nav-${_tabSpecs[AppTab.values[index]]!.label}-'
+                      '${_currentTab == AppTab.values[index] ? 'on' : 'off'}',
+                    ),
+                    child: index == AppTab.chat.index
+                        ? _buildChatNavItem(
+                            _tabSpecs[AppTab.chat]!.icon,
+                            _tabSpecs[AppTab.chat]!.selectedIcon,
+                            _tabSpecs[AppTab.chat]!.label,
+                            _currentTab == AppTab.chat,
+                            settings.themeColor,
+                          )
+                        : _buildNavItem(
+                            index,
+                            _tabSpecs[AppTab.values[index]]!.icon,
+                            _tabSpecs[AppTab.values[index]]!.selectedIcon,
+                            _tabSpecs[AppTab.values[index]]!.label,
+                            _currentTab == AppTab.values[index],
+                            settings.themeColor,
+                          ),
+                  ),
+                ),
+            ],
           ),
         ),
-      ],
+      ),
+    );
+  }
+
+  Widget _buildNavItem(
+    int index,
+    IconData icon,
+    IconData selectedIcon,
+    String label,
+    bool selected,
+    Color accent,
+  ) {
+    final color = selected ? accent : Theme.of(context).colorScheme.outline;
+    return InkResponse(
+      onTap: () => _handleNavigationTap(index),
+      radius: 40,
+      child: _NavItemContent(
+        icon: selected ? selectedIcon : icon,
+        label: label,
+        color: color,
+        selected: selected,
+        accent: accent,
+      ),
+    );
+  }
+
+  Widget _buildChatNavItem(
+    IconData icon,
+    IconData selectedIcon,
+    String label,
+    bool selected,
+    Color accent,
+  ) {
+    final color = selected ? accent : Theme.of(context).colorScheme.outline;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _handleNavigationTap(AppTab.chat.index),
+      onLongPressStart: _startQuickAction,
+      onLongPressMoveUpdate: _updateQuickAction,
+      onLongPressEnd: _endQuickAction,
+      onLongPressCancel: _removeQuickActionOverlay,
+      child: _NavItemContent(
+        icon: selected ? selectedIcon : icon,
+        label: label,
+        color: color,
+        selected: selected,
+        accent: accent,
+      ),
     );
   }
 
@@ -535,6 +584,50 @@ class _HomePageState extends State<HomePage> {
     return DesktopEscapeBackScope(
       onBack: () => _handleRootBack(false),
       child: page,
+    );
+  }
+}
+
+class _NavItemContent extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final bool selected;
+  final Color accent;
+
+  const _NavItemContent({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.selected,
+    required this.accent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      decoration: BoxDecoration(
+        color: selected ? accent.withValues(alpha: 0.14) : Colors.transparent,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: color),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: color,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
